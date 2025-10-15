@@ -16,11 +16,30 @@ import networkx as nx
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..core.patterns import AsyncServiceBase
-from ..utils.json_utils import safe_parse_llm_json
-from ..core.interfaces import IDataStorage, IPersonaManager
-from ..core.framework_llm_adapter import FrameworkLLMAdapter
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.patterns import AsyncServiceBase
+except ImportError:
+    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
+
+try:
+    from ..utils.json_utils import safe_parse_llm_json
+except ImportError:
+    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
+
+try:
+    from ..core.interfaces import IDataStorage, IPersonaManager
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IDataStorage, IPersonaManager
+
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter
 
 
 @dataclass

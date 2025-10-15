@@ -9,8 +9,14 @@ from datetime import datetime, timedelta
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ..config import PluginConfig
-from ..exceptions import MessageCollectionError, DataStorageError
+# 简化的单例模式导入
+try:
+    from ..config import PluginConfig
+    from ..exceptions import MessageCollectionError, DataStorageError
+except ImportError:
+    from ..config import PluginConfig
+    from ..exceptions import MessageCollectionError, DataStorageError
+
 from .database_manager import DatabaseManager
 
 

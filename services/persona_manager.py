@@ -2,9 +2,20 @@ import logging
 from typing import Dict, Any, Optional, List
 
 from astrbot.api.star import Context
-from ..config import PluginConfig
-from ..core.interfaces import IPersonaManager, IPersonaUpdater, IPersonaBackupManager, ServiceLifecycle, MessageData
-from ..exceptions import SelfLearningError # 导入 SelfLearningError
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.interfaces import IPersonaManager, IPersonaUpdater, IPersonaBackupManager, ServiceLifecycle, MessageData
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IPersonaManager, IPersonaUpdater, IPersonaBackupManager, ServiceLifecycle, MessageData
+
+try:
+    from ..exceptions import SelfLearningError # 导入 SelfLearningError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import SelfLearningError # 导入 SelfLearningError
 
 class PersonaManagerService(IPersonaManager):
     """

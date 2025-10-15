@@ -20,6 +20,8 @@ class FrameworkLLMAdapter:
         
     def initialize_providers(self, config):
         """根据配置初始化Provider"""
+        from astrbot.core.provider.entities import ProviderType
+        
         self.providers_configured = 0
         
         if config.filter_provider_id:
@@ -27,24 +29,42 @@ class FrameworkLLMAdapter:
             if not self.filter_provider:
                 logger.warning(f"找不到筛选Provider: {config.filter_provider_id}")
             else:
-                logger.info(f"筛选Provider已配置: {config.filter_provider_id}")
-                self.providers_configured += 1
+                # 检查Provider类型
+                provider_meta = self.filter_provider.meta()
+                if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
+                    logger.error(f"筛选Provider类型错误: {config.filter_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
+                    self.filter_provider = None
+                else:
+                    logger.info(f"筛选Provider已配置: {config.filter_provider_id}")
+                    self.providers_configured += 1
                 
         if config.refine_provider_id:
             self.refine_provider = self.context.get_provider_by_id(config.refine_provider_id)
             if not self.refine_provider:
                 logger.warning(f"找不到提炼Provider: {config.refine_provider_id}")
             else:
-                logger.info(f"提炼Provider已配置: {config.refine_provider_id}")
-                self.providers_configured += 1
+                # 检查Provider类型
+                provider_meta = self.refine_provider.meta()
+                if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
+                    logger.error(f"提炼Provider类型错误: {config.refine_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
+                    self.refine_provider = None
+                else:
+                    logger.info(f"提炼Provider已配置: {config.refine_provider_id}")
+                    self.providers_configured += 1
                 
         if config.reinforce_provider_id:
             self.reinforce_provider = self.context.get_provider_by_id(config.reinforce_provider_id)
             if not self.reinforce_provider:
                 logger.warning(f"找不到强化Provider: {config.reinforce_provider_id}")
             else:
-                logger.info(f"强化Provider已配置: {config.reinforce_provider_id}")
-                self.providers_configured += 1
+                # 检查Provider类型
+                provider_meta = self.reinforce_provider.meta()
+                if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
+                    logger.error(f"强化Provider类型错误: {config.reinforce_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
+                    self.reinforce_provider = None
+                else:
+                    logger.info(f"强化Provider已配置: {config.reinforce_provider_id}")
+                    self.providers_configured += 1
         
         # 友好的配置状态提示
         if self.providers_configured == 0:

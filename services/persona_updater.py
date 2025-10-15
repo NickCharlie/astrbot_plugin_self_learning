@@ -8,9 +8,20 @@ from typing import Dict, List, Any, Optional
 
 from astrbot.api.star import Context
 from astrbot.core.provider.provider import Personality
-from ..config import PluginConfig
-from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
-from ..exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
+
+try:
+    from ..exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
 from .database_manager import DatabaseManager # 导入 DatabaseManager
 
 

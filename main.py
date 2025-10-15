@@ -38,7 +38,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.2.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.2.8", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -89,16 +89,66 @@ class SelfLearningPlugin(star.Star):
         # 初始化 Web 服务器（但不启动，等待 on_load）
         global server_instance
         if self.plugin_config.enable_web_interface:
-            server_instance = Server(port=self.plugin_config.web_interface_port)
-            if server_instance:
-                logger.info(StatusMessages.WEB_INTERFACE_ENABLED.format(host=server_instance.host, port=server_instance.port))
-                logger.info("Web服务器实例已创建，将在on_load中启动")
-            else:
-                logger.error(StatusMessages.WEB_INTERFACE_INIT_FAILED)
+            logger.info(f"Debug: 准备创建Server实例，端口: {self.plugin_config.web_interface_port}")
+            try:
+                server_instance = Server(port=self.plugin_config.web_interface_port)
+                if server_instance:
+                    logger.info(StatusMessages.WEB_INTERFACE_ENABLED.format(host=server_instance.host, port=server_instance.port))
+                    logger.info("Web服务器实例已创建，将在on_load中启动")
+
+                    # 立即尝试启动Web服务器而不等待on_load
+                    logger.info("Debug: 尝试立即启动Web服务器")
+                    asyncio.create_task(self._immediate_start_web_server())
+                else:
+                    logger.error(StatusMessages.WEB_INTERFACE_INIT_FAILED)
+            except Exception as e:
+                logger.error(f"创建Web服务器实例失败: {e}", exc_info=True)
         else:
             logger.info(StatusMessages.WEB_INTERFACE_DISABLED)
         
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
+
+    async def _immediate_start_web_server(self):
+        """立即启动Web服务器，不等待on_load"""
+        logger.info("Debug: _immediate_start_web_server 被调用")
+
+        # 等待一小段时间让插件完全初始化
+        await asyncio.sleep(1)
+
+        global server_instance
+        if server_instance and self.plugin_config.enable_web_interface:
+            logger.info("Debug: 开始立即设置并启动Web服务器")
+
+            # 启动数据库管理器
+            try:
+                logger.info("Debug: 启动数据库管理器")
+                await self.db_manager.start()
+                logger.info("Debug: 数据库管理器启动成功")
+            except Exception as e:
+                logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
+
+            # 设置插件服务
+            try:
+                logger.info("Debug: 开始设置插件服务")
+                await set_plugin_services(
+                    self.plugin_config,
+                    self.factory_manager,
+                    None
+                )
+                logger.info("Debug: 插件服务设置完成")
+            except Exception as e:
+                logger.error(f"设置插件服务失败: {e}", exc_info=True)
+                return
+
+            # 启动Web服务器
+            try:
+                logger.info("Debug: 调用 server_instance.start()")
+                await server_instance.start()
+                logger.info("🌐 Web服务器已成功启动！")
+            except Exception as e:
+                logger.error(f"Web服务器启动失败: {e}", exc_info=True)
+        else:
+            logger.error("Debug: server_instance 为空或 web_interface 未启用")
 
     async def _start_web_server(self):
         """启动Web服务器的异步方法"""
@@ -197,10 +247,17 @@ class SelfLearningPlugin(star.Star):
         if self.plugin_config.enable_auto_learning:
             # 延迟启动，避免在初始化时启动大量任务
             asyncio.create_task(self._delayed_auto_start_learning())
+        
+        # 添加延迟重新初始化提供商配置，解决重启后配置问题
+        asyncio.create_task(self._delayed_provider_reinitialization())
     
     async def on_load(self):
         """插件加载时启动 Web 服务器和数据库管理器"""
+        global server_instance
         logger.info(StatusMessages.ON_LOAD_START)
+        logger.info(f"Debug: enable_web_interface = {self.plugin_config.enable_web_interface}")
+        logger.info(f"Debug: server_instance = {server_instance}")
+        logger.info(f"Debug: web_interface_port = {self.plugin_config.web_interface_port}")
         
         # 启动数据库管理器，确保数据库表被创建
         try:
@@ -218,8 +275,12 @@ class SelfLearningPlugin(star.Star):
                 logger.error(f"好感度管理服务启动失败: {e}", exc_info=True)
         
         # 设置Web服务器的插件服务实例和启动Web服务器
-        global server_instance
+        logger.info(f"Debug: 进入Web服务器启动逻辑")
+        logger.info(f"Debug: enable_web_interface = {self.plugin_config.enable_web_interface}")
+        logger.info(f"Debug: server_instance is None = {server_instance is None}")
+
         if self.plugin_config.enable_web_interface and server_instance:
+            logger.info("Debug: 开始设置Web服务器插件服务")
             # 设置插件服务
             try:
                 await set_plugin_services(
@@ -230,19 +291,28 @@ class SelfLearningPlugin(star.Star):
                 logger.info("Web服务器插件服务设置完成")
             except Exception as e:
                 logger.error(f"设置Web服务器插件服务失败: {e}", exc_info=True)
-            
+                return  # 如果服务设置失败，就不要继续启动Web服务器
+
             # 启动Web服务器
+            logger.info(f"Debug: 准备启动Web服务器")
             logger.info(StatusMessages.WEB_SERVER_PREPARE.format(host=server_instance.host, port=server_instance.port))
             try:
+                logger.info("Debug: 调用 server_instance.start()")
                 await server_instance.start()
                 logger.info(StatusMessages.WEB_SERVER_STARTED)
+                logger.info("Debug: Web服务器启动完成")
             except Exception as e:
                 logger.error(StatusMessages.WEB_SERVER_START_FAILED.format(error=e), exc_info=True)
+                logger.error(f"Debug: Web服务器启动异常详情: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(f"Debug: 异常堆栈: {traceback.format_exc()}")
         else:
+            logger.info("Debug: Web服务器启动条件不满足")
             if not self.plugin_config.enable_web_interface:
                 logger.info(StatusMessages.WEB_INTERFACE_DISABLED_SKIP)
             if not server_instance:
                 logger.error(StatusMessages.SERVER_INSTANCE_NULL)
+                logger.error(f"Debug: server_instance为空，无法启动Web服务器")
         
         logger.info(StatusMessages.PLUGIN_LOAD_COMPLETE)
 
@@ -585,11 +655,20 @@ class SelfLearningPlugin(star.Star):
             except Exception as e:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
             
-            # 如果启用实时学习，立即进行筛选
+            # 如果启用实时学习，立即进行筛选（添加频率限制）
             if self.plugin_config.enable_realtime_learning:
-                await self._process_message_realtime(group_id, message_text, sender_id)
+                # 添加频率限制：每分钟最多处理一次实时学习
+                current_time = time.time()
+                last_realtime_key = f"last_realtime_{group_id}"
+                last_realtime = getattr(self, last_realtime_key, 0)
+                
+                if current_time - last_realtime >= 60:  # 60秒间隔
+                    await self._process_message_realtime(group_id, message_text, sender_id)
+                    setattr(self, last_realtime_key, current_time)
+                else:
+                    logger.debug(f"跳过实时学习，距离上次处理不足60秒: {group_id}")
             
-            # 智能启动学习任务（基于消息活动）
+            # 智能启动学习任务（基于消息活动，添加频率限制）
             await self._smart_start_learning_for_group(group_id)
             
             # 智能回复处理 - 在所有数据处理完成后
@@ -610,16 +689,31 @@ class SelfLearningPlugin(star.Star):
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
 
     async def _smart_start_learning_for_group(self, group_id: str):
-        """智能启动群组学习任务 - 不阻塞主线程"""
+        """智能启动群组学习任务 - 不阻塞主线程，添加频率限制"""
         try:
             # 检查该群组是否已有学习任务
             if group_id in self.learning_tasks:
                 return
             
+            # 添加学习间隔检查：防止频繁启动学习
+            current_time = time.time()
+            last_learning_key = f"last_learning_start_{group_id}"
+            last_learning_start = getattr(self, last_learning_key, 0)
+            learning_interval_seconds = self.plugin_config.learning_interval_hours * 3600
+            
+            if current_time - last_learning_start < learning_interval_seconds:
+                time_remaining = learning_interval_seconds - (current_time - last_learning_start)
+                logger.debug(f"群组 {group_id} 学习间隔未到，剩余时间: {time_remaining/60:.1f}分钟")
+                return
+            
             # 检查群组消息数量是否达到学习阈值
             stats = await self.message_collector.get_statistics(group_id)
             if stats.get('total_messages', 0) < self.plugin_config.min_messages_for_learning:
+                logger.debug(f"群组 {group_id} 消息数量未达到学习阈值: {stats.get('total_messages', 0)}/{self.plugin_config.min_messages_for_learning}")
                 return
+            
+            # 记录学习启动时间
+            setattr(self, last_learning_key, current_time)
             
             # 创建学习任务
             learning_task = asyncio.create_task(self._start_group_learning(group_id))
@@ -651,6 +745,30 @@ class SelfLearningPlugin(star.Star):
                 logger.warning(f"群组 {group_id} 学习任务启动失败")
         except Exception as e:
             logger.error(f"群组 {group_id} 学习任务启动异常: {e}")
+
+    async def _delayed_provider_reinitialization(self):
+        """延迟重新初始化提供商配置，解决重启后配置丢失问题"""
+        try:
+            # 等待系统完全初始化
+            await asyncio.sleep(10)
+            
+            # 重新初始化LLM适配器的提供商配置
+            if hasattr(self, 'llm_adapter') and self.llm_adapter:
+                self.llm_adapter.initialize_providers(self.plugin_config)
+                logger.info("延迟重新初始化提供商配置完成")
+                
+                # 检查配置状态
+                if self.llm_adapter.providers_configured == 0:
+                    logger.warning("重新初始化后仍然没有配置任何提供商，请检查配置")
+                    # 再次尝试，间隔更长时间
+                    await asyncio.sleep(30)
+                    self.llm_adapter.initialize_providers(self.plugin_config)
+                    logger.info("第二次尝试重新初始化提供商配置")
+                else:
+                    logger.info(f"成功配置了 {self.llm_adapter.providers_configured} 个提供商")
+            
+        except Exception as e:
+            logger.error(f"延迟重新初始化提供商配置失败: {e}")
 
     async def _delayed_auto_start_learning(self):
         """延迟自动启动学习 - 避免初始化时阻塞"""
@@ -704,9 +822,33 @@ class SelfLearningPlugin(star.Star):
             return []
 
     async def _process_message_realtime(self, group_id: str, message_text: str, sender_id: str):
-        """实时处理消息"""
+        """实时处理消息 - 优化LLM调用频率"""
         try:
-            # 使用弱模型筛选消息
+            # 先进行基础过滤，避免不必要的LLM调用
+            if len(message_text.strip()) < self.plugin_config.message_min_length:
+                return
+            
+            if len(message_text) > self.plugin_config.message_max_length:
+                return
+            
+            # 简单关键词过滤，避免明显无意义的消息
+            if message_text.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
+                return
+            
+            # 基于配置的批处理模式：不是每条消息都调用LLM
+            if not self.plugin_config.enable_realtime_llm_filter:
+                # 如果禁用实时LLM筛选，直接添加到筛选消息
+                await self.message_collector.add_filtered_message({
+                    'message': message_text,
+                    'sender_id': sender_id,
+                    'group_id': group_id,
+                    'timestamp': time.time(),
+                    'confidence': 0.6  # 无LLM筛选的置信度较低
+                })
+                self.learning_stats.filtered_messages += 1
+                return
+            
+            # 如果启用LLM筛选，则获取当前人格描述并进行筛选
             current_persona_description = await self.persona_manager.get_current_persona_description()
             
             # 删除了智能回复相关处理

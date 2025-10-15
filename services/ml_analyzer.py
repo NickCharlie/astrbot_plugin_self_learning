@@ -22,11 +22,30 @@ except ImportError:
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..exceptions import StyleAnalysisError
-from ..core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
-from .database_manager import DatabaseManager # 确保 DatabaseManager 被正确导入
-from ..utils.json_utils import safe_parse_llm_json
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import StyleAnalysisError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import StyleAnalysisError
+
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
+
+try:
+    from .database_manager import DatabaseManager # 确保 DatabaseManager 被正确导入
+except ImportError:
+    from astrbot_plugin_self_learning.services.database_manager import DatabaseManager # 确保 DatabaseManager 被正确导入
+
+try:
+    from ..utils.json_utils import safe_parse_llm_json
+except ImportError:
+    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
 
 
 class LightweightMLAnalyzer:

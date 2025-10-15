@@ -10,11 +10,30 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
-from ..config import PluginConfig
-from ..exceptions import StyleAnalysisError, ModelAccessError
-from .database_manager import DatabaseManager # 导入 DatabaseManager
-from ..utils.json_utils import safe_parse_llm_json
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import StyleAnalysisError, ModelAccessError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import StyleAnalysisError, ModelAccessError
+
+try:
+    from .database_manager import DatabaseManager
+except ImportError:
+    from astrbot_plugin_self_learning.services.database_manager import DatabaseManager
+
+try:
+    from ..utils.json_utils import safe_parse_llm_json
+except ImportError:
+    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
 
 
 @dataclass
@@ -28,6 +47,18 @@ class StyleProfile:
     formality_level: float = 0.0          # 正式程度
     creativity_score: float = 0.0         # 创造性得分
 
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式，便于JSON序列化"""
+        return {
+            'vocabulary_richness': self.vocabulary_richness,
+            'sentence_complexity': self.sentence_complexity,
+            'emotional_expression': self.emotional_expression,
+            'interaction_tendency': self.interaction_tendency,
+            'topic_diversity': self.topic_diversity,
+            'formality_level': self.formality_level,
+            'creativity_score': self.creativity_score
+        }
+
 
 @dataclass
 class StyleEvolution:
@@ -37,6 +68,16 @@ class StyleEvolution:
     new_profile: StyleProfile
     evolution_vector: Dict[str, float]
     significance: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式，便于JSON序列化"""
+        return {
+            'timestamp': self.timestamp,
+            'old_profile': self.old_profile.to_dict(),
+            'new_profile': self.new_profile.to_dict(),
+            'evolution_vector': self.evolution_vector,
+            'significance': self.significance
+        }
 
 
 class StyleAnalyzerService:

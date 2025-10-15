@@ -11,15 +11,25 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ..config import PluginConfig
-from ..exceptions import LearningError
-from .database_manager import DatabaseManager # 导入 DatabaseManager
-from .message_collector import MessageCollectorService
-from .multidimensional_analyzer import MultidimensionalAnalyzer
-from .style_analyzer import StyleAnalyzerService
-from .learning_quality_monitor import LearningQualityMonitor
-from .persona_manager import PersonaManagerService # 导入 PersonaManagerService
-from ..utils.json_utils import safe_parse_llm_json
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import LearningError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import LearningError
+
+try:
+    from ..utils.json_utils import safe_parse_llm_json
+except ImportError:
+    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
+
+try:
+    from .database_manager import DatabaseManager
+except ImportError:
+    from astrbot_plugin_self_learning.services.database_manager import DatabaseManager
 
 
 @dataclass
@@ -40,11 +50,11 @@ class ProgressiveLearningService:
     
     def __init__(self, config: PluginConfig, context: Context,
                  db_manager: DatabaseManager,
-                 message_collector: MessageCollectorService,
-                 multidimensional_analyzer: MultidimensionalAnalyzer,
-                 style_analyzer: StyleAnalyzerService,
-                 quality_monitor: LearningQualityMonitor,
-                 persona_manager: PersonaManagerService, # 添加 persona_manager 参数
+                 message_collector,
+                 multidimensional_analyzer,
+                 style_analyzer,
+                 quality_monitor,
+                 persona_manager, # 添加 persona_manager 参数
                  ml_analyzer, # 添加 ml_analyzer 参数
                  prompts: Any): # 添加 prompts 参数
         self.config = config
@@ -302,7 +312,7 @@ class ProgressiveLearningService:
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
                 'success': success,
-                'successful_pattern': json.dumps(style_analysis) if success else '',
+                'successful_pattern': json.dumps(style_analysis, default=self._json_serializer) if success else '',
                 'failed_pattern': json.dumps({'reason': 'quality_threshold_not_met', 'score': quality_metrics.consistency_score}) if not success else ''
             })
             
@@ -528,8 +538,8 @@ class ProgressiveLearningService:
                 
                 if llm_adapter.has_refine_provider() and llm_adapter.providers_configured >= 2:
                     # 准备输入数据
-                    current_persona_json = json.dumps(current_persona, ensure_ascii=False, indent=2)
-                    style_analysis_json = json.dumps(style_analysis, ensure_ascii=False, indent=2)
+                    current_persona_json = json.dumps(current_persona, ensure_ascii=False, indent=2, default=self._json_serializer)
+                    style_analysis_json = json.dumps(style_analysis, ensure_ascii=False, indent=2, default=self._json_serializer)
                     
                     # 调用框架适配器
                     response = await llm_adapter.refine_chat_completion(
@@ -561,6 +571,31 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.error(f"使用提炼模型生成人格失败: {e}")
             return await self._generate_updated_persona(group_id, current_persona, style_analysis)
+
+    def _json_serializer(self, obj):
+        """自定义JSON序列化器，处理不能直接序列化的对象"""
+        try:
+            # 检查对象的类型名称，避免循环导入
+            class_name = obj.__class__.__name__
+            
+            if class_name == 'StyleProfile':
+                # 将StyleProfile对象转换为字典
+                if hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+                    return obj.to_dict()
+                elif hasattr(obj, '__dict__'):
+                    return obj.__dict__
+            elif hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+                # 对于有to_dict方法的对象
+                return obj.to_dict()
+            elif hasattr(obj, '__dict__'):
+                # 对于其他dataclass或对象，尝试使用__dict__
+                return obj.__dict__
+            else:
+                # 如果都不行，转换为字符串
+                return str(obj)
+        except Exception as e:
+            logger.warning(f"JSON序列化对象时出现错误: {e}, 对象类型: {type(obj)}, 转换为字符串")
+            return str(obj)
 
     def _clean_llm_json_response(self, response_text: str) -> str:
         """清理LLM响应中的markdown标识符和其他格式化字符"""
@@ -653,15 +688,15 @@ class ProgressiveLearningService:
         filtered = []
         
         # 添加批量处理限制，防止过度的LLM调用
-        max_messages_to_analyze = min(len(messages), 20)  # 限制每批最多分析20条消息
+        max_messages_to_analyze = min(len(messages), 10)  # 减少到每批最多分析10条消息
         messages_to_process = messages[:max_messages_to_analyze]
         
-        logger.info(f"开始筛选 {len(messages_to_process)} 条消息 (原始: {len(messages)} 条)")
+        logger.info(f"开始筛选 {len(messages_to_process)} 条消息 (原始: {len(messages)} 条，限制批量大小以减少LLM调用)")
         
         for i, message in enumerate(messages_to_process):
             try:
                 # 添加处理进度日志
-                if i % 5 == 0:
+                if i % 3 == 0:  # 减少日志频率
                     logger.debug(f"筛选进度: {i+1}/{len(messages_to_process)}")
                 
                 # 使用专门的批量分析方法，不需要事件对象
@@ -697,7 +732,7 @@ class ProgressiveLearningService:
         
         # 如果还有未处理的消息，记录日志
         if len(messages) > max_messages_to_analyze:
-            logger.info(f"由于批量处理限制，跳过了 {len(messages) - max_messages_to_analyze} 条消息")
+            logger.info(f"由于批量处理限制，跳过了 {len(messages) - max_messages_to_analyze} 条消息，减少LLM调用频率")
         
         logger.info(f"筛选完成: {len(filtered)} 条消息通过筛选")
         return filtered

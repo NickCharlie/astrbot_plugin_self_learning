@@ -13,11 +13,30 @@ from collections import deque, defaultdict
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..core.patterns import AsyncServiceBase
-from ..core.interfaces import IDataStorage, IPersonaManager
-from ..core.framework_llm_adapter import FrameworkLLMAdapter
-from ..exceptions import LearningError
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.patterns import AsyncServiceBase
+except ImportError:
+    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
+
+try:
+    from ..core.interfaces import IDataStorage, IPersonaManager
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IDataStorage, IPersonaManager
+
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter
+
+try:
+    from ..exceptions import LearningError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import LearningError
 
 
 class AdvancedLearningService(AsyncServiceBase):

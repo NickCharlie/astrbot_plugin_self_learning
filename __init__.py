@@ -1,1 +1,2 @@
-__version__ = "1.0.0"
+# AstrBot 自学习插件
+__version__ = "1.2.8"

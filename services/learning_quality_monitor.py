@@ -11,10 +11,25 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
-from ..config import PluginConfig
-from ..exceptions import StyleAnalysisError
-from ..utils.json_utils import safe_parse_llm_json
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import StyleAnalysisError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import StyleAnalysisError
+
+try:
+    from ..utils.json_utils import safe_parse_llm_json
+except ImportError:
+    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
 
 
 @dataclass

@@ -15,10 +15,25 @@ import numpy as np
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..core.patterns import AsyncServiceBase
-from ..core.interfaces import IDataStorage
-from ..core.framework_llm_adapter import FrameworkLLMAdapter
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.patterns import AsyncServiceBase
+except ImportError:
+    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
+
+try:
+    from ..core.interfaces import IDataStorage
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IDataStorage
+
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter
 
 
 @dataclass

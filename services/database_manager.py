@@ -10,9 +10,20 @@ from datetime import datetime
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..exceptions import DataStorageError
-from ..core.patterns import AsyncServiceBase
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import DataStorageError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import DataStorageError
+
+try:
+    from ..core.patterns import AsyncServiceBase
+except ImportError:
+    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
 
 
 class DatabaseManager(AsyncServiceBase):
@@ -1961,3 +1972,148 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取好感度历史失败: {e}")
             return []
+
+    async def export_messages_learning_data(self) -> Dict[str, Any]:
+        """导出消息学习数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+
+            # 导出原始消息
+            await cursor.execute('''
+                SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, processed
+                FROM raw_messages ORDER BY timestamp DESC
+            ''')
+            raw_messages = []
+            for row in await cursor.fetchall():
+                raw_messages.append({
+                    'id': row[0],
+                    'sender_id': row[1],
+                    'sender_name': row[2],
+                    'message': row[3],
+                    'group_id': row[4],
+                    'platform': row[5],
+                    'timestamp': row[6],
+                    'processed': bool(row[7])
+                })
+
+            # 导出筛选消息
+            await cursor.execute('''
+                SELECT id, raw_message_id, message, sender_id, group_id, confidence,
+                       filter_reason, timestamp, used_for_learning, quality_scores
+                FROM filtered_messages ORDER BY timestamp DESC
+            ''')
+            filtered_messages = []
+            for row in await cursor.fetchall():
+                quality_scores = {}
+                try:
+                    if row[9]:  # quality_scores
+                        quality_scores = json.loads(row[9])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                filtered_messages.append({
+                    'id': row[0],
+                    'raw_message_id': row[1],
+                    'message': row[2],
+                    'sender_id': row[3],
+                    'group_id': row[4],
+                    'confidence': row[5],
+                    'filter_reason': row[6],
+                    'timestamp': row[7],
+                    'used_for_learning': bool(row[8]),
+                    'quality_scores': quality_scores
+                })
+
+            # 导出学习批次记录
+            await cursor.execute('''
+                SELECT id, group_id, start_time, end_time, quality_score,
+                       processed_messages, batch_name, message_count,
+                       filtered_count, success, error_message
+                FROM learning_batches ORDER BY start_time DESC
+            ''')
+            learning_batches = []
+            for row in await cursor.fetchall():
+                learning_batches.append({
+                    'id': row[0],
+                    'group_id': row[1],
+                    'start_time': row[2],
+                    'end_time': row[3],
+                    'quality_score': row[4],
+                    'processed_messages': row[5],
+                    'batch_name': row[6],
+                    'message_count': row[7],
+                    'filtered_count': row[8],
+                    'success': bool(row[9]),
+                    'error_message': row[10]
+                })
+
+            # 导出人格更新记录
+            await cursor.execute('''
+                SELECT id, timestamp, group_id, update_type, original_content,
+                       new_content, reason, status, reviewer_comment, review_time
+                FROM persona_update_records ORDER BY timestamp DESC
+            ''')
+            persona_update_records = []
+            for row in await cursor.fetchall():
+                persona_update_records.append({
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'group_id': row[2],
+                    'update_type': row[3],
+                    'original_content': row[4],
+                    'new_content': row[5],
+                    'reason': row[6],
+                    'status': row[7],
+                    'reviewer_comment': row[8],
+                    'review_time': row[9]
+                })
+
+            # 获取统计信息
+            statistics = await self.get_messages_statistics()
+
+            export_data = {
+                'export_timestamp': time.time(),
+                'export_date': datetime.now().isoformat(),
+                'statistics': statistics,
+                'raw_messages': raw_messages,
+                'filtered_messages': filtered_messages,
+                'learning_batches': learning_batches,
+                'persona_update_records': persona_update_records
+            }
+
+            self._logger.info(f"成功导出学习数据: {len(raw_messages)} 条原始消息, {len(filtered_messages)} 条筛选消息")
+            return export_data
+
+        except Exception as e:
+            self._logger.error(f"导出消息学习数据失败: {e}", exc_info=True)
+            raise DataStorageError(f"导出消息学习数据失败: {str(e)}")
+
+    async def clear_all_messages_data(self):
+        """清空所有消息数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+
+            # 清空所有表的数据
+            tables_to_clear = [
+                'raw_messages',
+                'filtered_messages',
+                'learning_batches',
+                'persona_update_records',
+                'reinforcement_learning_results',
+                'persona_fusion_history',
+                'strategy_optimization_results',
+                'learning_performance_history'
+            ]
+
+            for table in tables_to_clear:
+                await cursor.execute(f'DELETE FROM {table}')
+                self._logger.debug(f"已清空表: {table}")
+
+            await conn.commit()
+            self._logger.info("所有消息数据已清空")
+
+        except Exception as e:
+            self._logger.error(f"清空所有消息数据失败: {e}", exc_info=True)
+            raise DataStorageError(f"清空所有消息数据失败: {str(e)}")

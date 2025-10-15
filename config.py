@@ -16,6 +16,7 @@ class PluginConfig:
     enable_message_capture: bool = True
     enable_auto_learning: bool = True  
     enable_realtime_learning: bool = False
+    enable_realtime_llm_filter: bool = False  # 新增：控制实时LLM筛选
     enable_web_interface: bool = True
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
     
@@ -126,7 +127,7 @@ class PluginConfig:
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
             enable_realtime_learning=basic_settings.get('enable_realtime_learning', False),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
-            web_interface_port=config.get('web_interface_port', 7833), # Web 界面端口可能在顶层或特定组中，这里假设在顶层或默认值
+            web_interface_port=basic_settings.get('web_interface_port', 7833), # Web 界面端口配置
             
             target_qq_list=target_settings.get('target_qq_list', []),
             current_persona_name=target_settings.get('current_persona_name', 'default'),

@@ -79,13 +79,23 @@ async def set_plugin_services(
     llm_client = llm_c
 
     # 从工厂管理器获取服务实例
-    persona_manager = factory_manager.get_service("persona_manager")
-    persona_updater = factory_manager.get_service("persona_updater")
-    database_manager = factory_manager.get_service("database_manager")
+    try:
+        persona_manager = factory_manager.get_service("persona_manager")
+        persona_updater = factory_manager.get_service("persona_updater")
+        database_manager = factory_manager.get_service("database_manager")
+    except Exception as e:
+        print(f"获取服务实例失败: {e}")
+        persona_manager = None
+        persona_updater = None
+        database_manager = None
 
     # 加载待审查的人格更新
     if persona_updater:
-        pending_updates = await persona_updater.get_pending_persona_updates()
+        try:
+            pending_updates = await persona_updater.get_pending_persona_updates()
+        except Exception as e:
+            print(f"加载待审查人格更新失败: {e}")
+            pending_updates = []
 
     # 加载密码配置
     global password_config
@@ -666,24 +676,36 @@ async def root():
 class Server:
     """Quart 服务器管理类"""
     def __init__(self, host: str = "0.0.0.0", port: int = 7833):
-        print(f"🔧 初始化Web服务器 (端口: {port})...")
-        
-        # 检查端口是否可用
-        self._check_port_availability(port)
-        
-        self.host = host
-        self.port = port
-        self.server_task: Optional[asyncio.Task] = None
-        self.config = HypercornConfig()
-        self.config.bind = [f"{self.host}:{self.port}"]
-        self.config.accesslog = "-" # 输出访问日志到 stdout
-        self.config.errorlog = "-" # 输出错误日志到 stdout
-        # 添加其他必要的配置
-        self.config.loglevel = "INFO"
-        self.config.use_reloader = False
-        self.config.workers = 1
-        
-        print(f"✅ Web服务器初始化完成 (端口: {port})")
+        try:
+            print(f"🔧 初始化Web服务器 (端口: {port})...")
+
+            # 检查端口是否可用
+            print(f"Debug: 开始检查端口可用性")
+            self._check_port_availability(port)
+            print(f"Debug: 端口检查完成")
+
+            self.host = host
+            self.port = port
+            self.server_task: Optional[asyncio.Task] = None
+
+            print(f"Debug: 创建 HypercornConfig")
+            self.config = HypercornConfig()
+            self.config.bind = [f"{self.host}:{self.port}"]
+            self.config.accesslog = "-" # 输出访问日志到 stdout
+            self.config.errorlog = "-" # 输出错误日志到 stdout
+            # 添加其他必要的配置
+            self.config.loglevel = "INFO"
+            self.config.use_reloader = False
+            self.config.workers = 1
+
+            print(f"✅ Web服务器初始化完成 (端口: {port})")
+            print(f"Debug: 配置绑定: {self.config.bind}")
+
+        except Exception as e:
+            print(f"❌ Web服务器初始化失败: {e}")
+            import traceback
+            print(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
+            raise
     
     def _check_port_availability(self, port: int):
         """检查端口可用性，如果被占用则等待或警告"""
@@ -706,26 +728,34 @@ class Server:
     async def start(self):
         """启动服务器 - 增强版本，包含端口冲突处理"""
         print(f"🚀 启动Web服务器 (端口: {self.port})...")
-        
+        print(f"Debug: self.server_task = {self.server_task}")
+        print(f"Debug: host = {self.host}, port = {self.port}")
+
         if self.server_task and not self.server_task.done():
             print("ℹ️ Web服务器已在运行中")
             return # Server already running
         
         try:
             print(f"🔧 配置服务器绑定: {self.config.bind}")
-            
+            print(f"Debug: 准备创建Hypercorn serve任务")
+            print(f"Debug: app类型: {type(app)}")
+            print(f"Debug: config类型: {type(self.config)}")
+
             # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
+            print(f"Debug: 调用 asyncio.create_task")
             self.server_task = asyncio.create_task(
                 hypercorn.asyncio.serve(app, self.config)
             )
-            
-            print(f"✅ Web服务器任务已创建")
+
+            print(f"✅ Web服务器任务已创建: {self.server_task}")
             print(f"🌐 访问地址: http://{self.host}:{self.port}")
-            
+
             # 等待服务器启动
+            print(f"Debug: 等待2秒让服务器启动")
             await asyncio.sleep(2)
-            
+
             # 检查服务器状态
+            print(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
             if self.server_task and not self.server_task.done():
                 print(f"✅ Web服务器启动成功 (http://{self.host}:{self.port})")
             else:
@@ -736,8 +766,11 @@ class Server:
                         exception = self.server_task.exception()
                         if exception:
                             print(f"❌ 服务器启动异常: {exception}")
-                    except:
-                        pass
+                            print(f"❌ 异常类型: {type(exception)}")
+                            import traceback
+                            print(f"❌ 异常堆栈: {traceback.format_exc()}")
+                    except Exception as ex:
+                        print(f"❌ 获取异常信息时出错: {ex}")
                 
         except Exception as e:
             print(f"❌ 启动Web服务器失败: {e}")

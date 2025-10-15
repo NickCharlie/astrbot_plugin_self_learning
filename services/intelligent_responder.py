@@ -12,9 +12,20 @@ from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
 from astrbot.core.platform.message_type import MessageType
 
-from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
-from ..config import PluginConfig
-from ..exceptions import ResponseError
+try:
+    from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+except ImportError:
+    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..exceptions import ResponseError
+except ImportError:
+    from astrbot_plugin_self_learning.exceptions import ResponseError
 
 
 class IntelligentResponder:

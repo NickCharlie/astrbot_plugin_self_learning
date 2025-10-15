@@ -21,10 +21,25 @@ from wordcloud import WordCloud
 
 from astrbot.api import logger
 
-from ..config import PluginConfig
-from ..core.patterns import AsyncServiceBase
-from ..core.interfaces import IDataStorage
-from ..core.compatibility_extensions import create_compatibility_extensions
+try:
+    from ..config import PluginConfig
+except ImportError:
+    from astrbot_plugin_self_learning.config import PluginConfig
+
+try:
+    from ..core.patterns import AsyncServiceBase
+except ImportError:
+    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
+
+try:
+    from ..core.interfaces import IDataStorage
+except ImportError:
+    from astrbot_plugin_self_learning.core.interfaces import IDataStorage
+
+try:
+    from ..core.compatibility_extensions import create_compatibility_extensions
+except ImportError:
+    from astrbot_plugin_self_learning.core.compatibility_extensions import create_compatibility_extensions
 
 
 class DataAnalyticsService(AsyncServiceBase):
