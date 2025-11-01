@@ -11,25 +11,13 @@ from enum import Enum
 
 from astrbot.api import logger
 
-try:
-    from ..config import PluginConfig
-except ImportError:
-    from astrbot_plugin_self_learning.config import PluginConfig
+from ..config import PluginConfig
 
-try:
-    from ..core.patterns import AsyncServiceBase
-except ImportError:
-    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
+from ..core.patterns import AsyncServiceBase
 
-try:
-    from ..core.interfaces import IDataStorage
-except ImportError:
-    from astrbot_plugin_self_learning.core.interfaces import IDataStorage
+from ..core.interfaces import IDataStorage
 
-try:
-    from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
-except ImportError:
-    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
 
 
 class MoodType(Enum):

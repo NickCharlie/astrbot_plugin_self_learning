@@ -1,6 +1,7 @@
 """
 人格更新服务 - 基于AstrBot框架的人格管理
 """
+import os
 import logging
 import time # 导入 time 模块
 from datetime import datetime
@@ -8,21 +9,17 @@ from typing import Dict, List, Any, Optional
 
 from astrbot.api.star import Context
 from astrbot.core.provider.provider import Personality
-try:
-    from ..config import PluginConfig
-except ImportError:
-    from astrbot_plugin_self_learning.config import PluginConfig
+from ..config import PluginConfig
 
-try:
-    from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
-except ImportError:
-    from astrbot_plugin_self_learning.core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
+from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
 
-try:
-    from ..exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
-except ImportError:
-    from astrbot_plugin_self_learning.exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
+from ..exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
 from .database_manager import DatabaseManager # 导入 DatabaseManager
+
+# MaiBot功能模块导入 - 结合MaiBot的学习功能
+from .expression_pattern_learner import ExpressionPatternLearner
+from .memory_graph_manager import MemoryGraphManager
+from .knowledge_graph_manager import KnowledgeGraphManager
 
 
 class PersonaUpdater(IPersonaUpdater):
@@ -38,6 +35,13 @@ class PersonaUpdater(IPersonaUpdater):
         # llm_client参数保持为了兼容性，但不使用
         self.db_manager = db_manager # 添加 db_manager
         self._logger = logging.getLogger(self.__class__.__name__)
+        
+        # 初始化MaiBot组件 - 结合MaiBot功能
+        self.expression_learner = ExpressionPatternLearner.get_instance()
+        self.memory_graph_manager = MemoryGraphManager.get_instance()
+        self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
+        
+        self._logger.info("PersonaUpdater初始化完成，已集成MaiBot功能模块")
         
     async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
         """根据风格分析和筛选过的消息更新人格"""
@@ -58,6 +62,9 @@ class PersonaUpdater(IPersonaUpdater):
             current_persona = provider.curr_personality
             self._logger.info(f"当前人格: {current_persona.get('name', 'unknown')} for group {group_id}")
             
+            # 1. 生成基于风格分析的增量更新特征并写入txt文件
+            await self._generate_and_save_style_features(group_id, style_analysis)
+            
             # 更新人格prompt
             if 'enhanced_prompt' in style_analysis:
                 original_prompt = current_persona.get('prompt', '')
@@ -76,9 +83,9 @@ class PersonaUpdater(IPersonaUpdater):
                 current_persona['prompt'] = enhanced_prompt
                 self._logger.info(f"人格prompt已更新，长度: {len(enhanced_prompt)} for group {group_id}")
             
-            # 更新对话风格模仿
-            if filtered_messages: # 直接使用传入的 filtered_messages
-                await self._update_mood_imitation_dialogs(current_persona, filtered_messages)
+            # 3. 更新对话风格特征（使用MaiBot的表达模式学习而不是直接保存对话）
+            if filtered_messages:
+                await self._update_style_based_features_with_maibot(current_persona, style_analysis, filtered_messages)
             
             # 更新其他风格属性
             if 'style_attributes' in style_analysis: # 从 style_analysis 中获取 style_attributes
@@ -352,6 +359,260 @@ class PersonaAnalyzer:
                 keywords.append(word)
         
         return keywords
+
+    async def _generate_and_save_style_features(self, group_id: str, style_analysis: Dict[str, Any]) -> bool:
+        """
+        基于风格分析生成增量更新特征并保存到persona_updates.txt文件
+        结合MaiBot的表达模式学习功能
+        """
+        try:
+            self._logger.info(f"开始生成风格特征 for group {group_id}")
+            
+            # 从风格分析中提取关键信息
+            style_features = []
+            
+            # 1. 从style_analysis中提取通用风格特征
+            if 'style_analysis' in style_analysis:
+                analysis_data = style_analysis['style_analysis']
+                
+                # 提取语言风格特征
+                if 'language_style' in analysis_data:
+                    lang_style = analysis_data['language_style']
+                    if isinstance(lang_style, dict):
+                        if lang_style.get('formality', 0) > 0.7:
+                            style_features.append("+ 使用正式礼貌的表达方式")
+                        elif lang_style.get('formality', 0) < 0.3:
+                            style_features.append("+ 使用轻松随意的语调")
+                        
+                        if lang_style.get('enthusiasm', 0) > 0.7:
+                            style_features.append("+ 表现出热情活跃的态度")
+                        elif lang_style.get('enthusiasm', 0) < 0.3:
+                            style_features.append("+ 保持冷静内敛的风格")
+                
+                # 提取情绪表达特征
+                if 'emotional_patterns' in analysis_data:
+                    emotions = analysis_data['emotional_patterns']
+                    if isinstance(emotions, dict):
+                        dominant_emotion = emotions.get('dominant_emotion')
+                        if dominant_emotion:
+                            emotion_map = {
+                                'positive': '+ 更多使用积极正面的表达',
+                                'cheerful': '+ 表现出开朗乐观的性格',
+                                'calm': '+ 保持平和理性的语调',
+                                'enthusiastic': '+ 展现热情饱满的精神状态'
+                            }
+                            if dominant_emotion in emotion_map:
+                                style_features.append(emotion_map[dominant_emotion])
+                
+                # 提取交互特征
+                if 'interaction_style' in analysis_data:
+                    interaction = analysis_data['interaction_style']
+                    if isinstance(interaction, dict):
+                        if interaction.get('response_length') == 'detailed':
+                            style_features.append("~ 回复时提供更详细的解释")
+                        elif interaction.get('response_length') == 'concise':
+                            style_features.append("~ 回复时保持简洁明了")
+                        
+                        if interaction.get('question_tendency', 0) > 0.6:
+                            style_features.append("+ 适当主动提问以了解更多信息")
+            
+            # 2. 使用MaiBot的表达模式学习来生成场景-表达特征
+            if hasattr(self, 'expression_learner') and self.expression_learner:
+                try:
+                    # 将style_analysis转换为消息格式供表达学习器使用
+                    mock_messages = []
+                    if 'common_phrases' in style_analysis.get('style_analysis', {}):
+                        phrases = style_analysis['style_analysis']['common_phrases']
+                        if isinstance(phrases, list):
+                            for i, phrase in enumerate(phrases[:5]):  # 取前5个短语
+                                mock_messages.append(MessageData(
+                                    sender_id=f"style_user_{i}",
+                                    sender_name=f"分析用户{i}",
+                                    message=phrase,
+                                    group_id=group_id,
+                                    timestamp=time.time(),
+                                    platform="style_analysis"
+                                ))
+                    
+                    if mock_messages:
+                        # 使用表达模式学习器分析
+                        patterns = await self.expression_learner.learn_expression_patterns(mock_messages, group_id)
+                        
+                        # 将学习到的表达模式转换为增量特征
+                        for pattern in patterns[:3]:  # 取前3个模式
+                            if hasattr(pattern, 'scene') and hasattr(pattern, 'expression'):
+                                feature = f"~ 当{pattern.scene}时，使用\"{pattern.expression}\"这样的表达方式"
+                                style_features.append(feature)
+                
+                except Exception as e:
+                    self._logger.warning(f"MaiBot表达模式学习失败: {e}")
+            
+            # 3. 如果没有提取到足够特征，添加通用特征
+            if len(style_features) < 2:
+                style_features.extend([
+                    "~ 根据对话风格调整回复的语气和表达方式",
+                    "+ 保持与用户交流风格的一致性"
+                ])
+            
+            # 4. 保存特征到persona_updates.txt文件
+            if style_features:
+                # 创建persona_updates.txt文件路径
+                persona_updates_file = os.path.join(self.config.data_dir, "persona_updates.txt")
+                
+                # 写入增量更新特征
+                update_content = "\n".join(style_features)
+                await self._append_to_persona_updates_file(update_content, persona_updates_file)
+                
+                self._logger.info(f"已保存 {len(style_features)} 个风格特征到 persona_updates.txt")
+                return True
+            else:
+                self._logger.warning("未能提取到风格特征")
+                return False
+                
+        except Exception as e:
+            self._logger.error(f"生成和保存风格特征失败: {e}")
+            return False
+
+    async def _update_style_based_features_with_maibot(self, persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
+        """
+        使用MaiBot功能更新风格特征，而不是直接保存对话内容
+        """
+        try:
+            self._logger.info("使用MaiBot功能更新风格特征...")
+            
+            # 1. 使用记忆图管理器处理消息
+            if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
+                try:
+                    for message in filtered_messages[-5:]:  # 处理最近5条消息
+                        # 转换格式
+                        if isinstance(message, dict):
+                            msg_data = MessageData(
+                                sender_id=message.get('sender_id', ''),
+                                sender_name=message.get('sender_name', ''),
+                                message=message.get('message', ''),
+                                group_id=message.get('group_id', ''),
+                                timestamp=message.get('timestamp', time.time()),
+                                platform=message.get('platform', 'unknown')
+                            )
+                        else:
+                            msg_data = message
+                        
+                        # 添加到记忆图
+                        await self.memory_graph_manager.add_memory_from_message(msg_data, msg_data.group_id)
+                    
+                    self._logger.info("记忆图更新完成")
+                except Exception as e:
+                    self._logger.warning(f"记忆图更新失败: {e}")
+            
+            # 2. 使用知识图谱管理器提取语言模式
+            if hasattr(self, 'knowledge_graph_manager') and self.knowledge_graph_manager:
+                try:
+                    for message in filtered_messages[-3:]:  # 处理最近3条消息
+                        # 转换格式
+                        if isinstance(message, dict):
+                            msg_data = MessageData(
+                                sender_id=message.get('sender_id', ''),
+                                sender_name=message.get('sender_name', ''),
+                                message=message.get('message', ''),
+                                group_id=message.get('group_id', ''),
+                                timestamp=message.get('timestamp', time.time()),
+                                platform=message.get('platform', 'unknown')
+                            )
+                        else:
+                            msg_data = message
+                        
+                        # 处理知识图谱
+                        await self.knowledge_graph_manager.process_message_for_knowledge_graph(msg_data, msg_data.group_id)
+                    
+                    self._logger.info("知识图谱更新完成")
+                except Exception as e:
+                    self._logger.warning(f"知识图谱更新失败: {e}")
+            
+            # 3. 更新人格的mood_imitation_dialogs为分析出的特征而不是原始对话
+            current_dialogs = persona.get('mood_imitation_dialogs', [])
+            
+            # 从风格分析中提取代表性表达方式
+            new_features = []
+            if 'style_analysis' in style_analysis:
+                analysis_data = style_analysis['style_analysis']
+                
+                # 提取常用短语作为特征示例
+                if 'common_phrases' in analysis_data:
+                    phrases = analysis_data['common_phrases']
+                    if isinstance(phrases, list):
+                        for phrase in phrases[:5]:  # 最多5个特征短语
+                            if phrase and len(phrase.strip()) > 3:
+                                new_features.append(f"风格特征: {phrase.strip()}")
+                
+                # 提取语调特征
+                if 'tone_indicators' in analysis_data:
+                    tones = analysis_data['tone_indicators']
+                    if isinstance(tones, list):
+                        for tone in tones[:3]:  # 最多3个语调特征
+                            if tone:
+                                new_features.append(f"语调特征: {tone}")
+            
+            # 如果没有提取到特征，使用默认的风格描述
+            if not new_features:
+                new_features = [
+                    "风格特征: 基于对话分析的个性化表达",
+                    "交流特征: 适应用户的交流偏好"
+                ]
+            
+            # 合并现有特征和新特征
+            max_features = self.config.max_mood_imitation_dialogs or 20
+            all_features = current_dialogs + new_features
+            
+            if len(all_features) > max_features:
+                # 保留最新的特征
+                all_features = all_features[-max_features:]
+            
+            persona['mood_imitation_dialogs'] = all_features
+            self._logger.info(f"使用MaiBot功能更新风格特征，新增{len(new_features)}个特征，总计{len(all_features)}个")
+            
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"使用MaiBot功能更新风格特征失败: {e}")
+            return False
+
+    async def _append_to_persona_updates_file(self, update_content: str, file_path: str):
+        """向人格更新文件追加内容"""
+        try:
+            # 确保目录存在
+            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            
+            # 检查文件是否存在
+            if not os.path.exists(file_path):
+                # 创建文件头部
+                header_content = """# 增量人格更新文件
+# 本文件用于存储增量的人格文本更新
+# 每次执行时会读取此文件的新内容并应用到当前人格
+
+# 格式：每行一条增量更新，支持以下格式：
+# 1. 直接添加特征：+ 特征描述
+# 2. 修改行为：~ 行为描述
+# 3. 注释行：# 开头的行会被忽略
+
+# 示例：
+# + 更加幽默风趣，喜欢使用轻松的语调
+# ~ 回复时更加亲切，经常使用感叹号
+# + 对新技术话题表现出浓厚兴趣
+
+# 以下是待应用的增量更新：
+
+"""
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(header_content)
+            
+            # 追加新内容
+            with open(file_path, 'a', encoding='utf-8') as f:
+                f.write(f"\n{update_content}\n")
+            
+            self._logger.info(f"已向 {file_path} 追加增量更新内容")
+            
+        except Exception as e:
+            self._logger.error(f"写入人格更新文件失败: {e}")
 
     async def stop(self):
         """停止服务"""

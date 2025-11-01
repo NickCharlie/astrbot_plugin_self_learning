@@ -100,13 +100,18 @@ class IStyleAnalyzer(ABC):
     """风格分析器接口"""
     
     @abstractmethod
-    async def analyze_conversation_style(self, messages: List[MessageData]) -> AnalysisResult:
+    async def analyze_conversation_style(self, group_id: str, messages: List[MessageData]) -> AnalysisResult:
         """分析对话风格"""
         pass
     
     @abstractmethod
     async def compare_styles(self, style1: Dict[str, Any], style2: Dict[str, Any]) -> float:
         """比较风格相似度"""
+        pass
+    
+    @abstractmethod
+    async def get_style_trends(self) -> Dict[str, Any]:
+        """获取风格趋势分析"""
         pass
 
 

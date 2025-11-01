@@ -11,25 +11,13 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-try:
-    from ..config import PluginConfig
-except ImportError:
-    from astrbot_plugin_self_learning.config import PluginConfig
+from ..config import PluginConfig
 
-try:
-    from ..exceptions import LearningError
-except ImportError:
-    from astrbot_plugin_self_learning.exceptions import LearningError
+from ..exceptions import LearningError
 
-try:
-    from ..utils.json_utils import safe_parse_llm_json
-except ImportError:
-    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
+from ..utils.json_utils import safe_parse_llm_json
 
-try:
-    from .database_manager import DatabaseManager
-except ImportError:
-    from astrbot_plugin_self_learning.services.database_manager import DatabaseManager
+from .database_manager import DatabaseManager
 
 
 @dataclass

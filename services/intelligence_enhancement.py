@@ -16,30 +16,11 @@ import networkx as nx
 
 from astrbot.api import logger
 
-try:
-    from ..config import PluginConfig
-except ImportError:
-    from astrbot_plugin_self_learning.config import PluginConfig
-
-try:
-    from ..core.patterns import AsyncServiceBase
-except ImportError:
-    from astrbot_plugin_self_learning.core.patterns import AsyncServiceBase
-
-try:
-    from ..utils.json_utils import safe_parse_llm_json
-except ImportError:
-    from astrbot_plugin_self_learning.utils.json_utils import safe_parse_llm_json
-
-try:
-    from ..core.interfaces import IDataStorage, IPersonaManager
-except ImportError:
-    from astrbot_plugin_self_learning.core.interfaces import IDataStorage, IPersonaManager
-
-try:
-    from ..core.framework_llm_adapter import FrameworkLLMAdapter
-except ImportError:
-    from astrbot_plugin_self_learning.core.framework_llm_adapter import FrameworkLLMAdapter
+from ..config import PluginConfig
+from ..core.patterns import AsyncServiceBase
+from ..utils.json_utils import safe_parse_llm_json
+from ..core.interfaces import IDataStorage, IPersonaManager, ServiceLifecycle
+from ..core.framework_llm_adapter import FrameworkLLMAdapter
 
 
 @dataclass
@@ -252,29 +233,31 @@ class IntelligenceEnhancementService(AsyncServiceBase):
             return {'success': False, 'error': str(e)}
     
     async def _analyze_message_emotions(self, message: str) -> Dict[str, float]:
-        """分析消息情感"""
-        emotions = {emotion: 0.0 for emotion in self.emotion_keywords.keys()}
-        
-        message_lower = message.lower()
-        
-        # 基于关键词的情感分析
-        for emotion, keywords in self.emotion_keywords.items():
-            score = 0.0
-            for keyword in keywords:
-                if keyword in message_lower:
-                    score += 1.0
-            
-            # 标准化得分
-            emotions[emotion] = min(1.0, score / max(1, len(keywords) * 0.2))
-        
-        # 使用LLM进行更精确的情感分析
+
         try:
-            llm_emotions = await self._llm_emotion_analysis(message)
+            """分析消息情感"""
+            emotions = {emotion: 0.0 for emotion in self.emotion_keywords.keys()}
             
-            # 融合关键词和LLM分析结果
-            for emotion in emotions:
-                if emotion in llm_emotions:
-                    emotions[emotion] = (emotions[emotion] + llm_emotions[emotion]) / 2
+            message_lower = message.lower()
+            
+            # 基于关键词的情感分析
+            for emotion, keywords in self.emotion_keywords.items():
+                score = 0.0
+                for keyword in keywords:
+                    if keyword in message_lower:
+                        score += 1.0
+                
+                # 标准化得分
+                emotions[emotion] = min(1.0, score / max(1, len(keywords) * 0.2))
+            
+            # 使用LLM进行更精确的情感分析
+        
+                llm_emotions = await self._llm_emotion_analysis(message)
+                
+                # 融合关键词和LLM分析结果
+                for emotion in emotions:
+                    if emotion in llm_emotions:
+                        emotions[emotion] = (emotions[emotion] + llm_emotions[emotion]) / 2
                     
         except Exception as e:
             self._logger.error(f"LLM情感分析失败: {e}")
@@ -526,25 +509,25 @@ class IntelligenceEnhancementService(AsyncServiceBase):
     async def _extract_entities_from_message(self, content: str, sender_id: str, timestamp: float) -> List[Dict]:
         """从消息中提取实体"""
         entities = []
-        
-        # 使用正则表达式提取基础实体
-        for entity_type, pattern in self.entity_extractor_patterns.items():
-            matches = pattern.findall(content)
-            for match in matches:
-                entity_name = match if isinstance(match, str) else match[0]
-                entities.append({
-                    'name': entity_name,
-                    'type': entity_type,
-                    'source_message': content[:200],
-                    'sender_id': sender_id,
-                    'timestamp': timestamp,
-                    'confidence': 0.8
-                })
-        
-        # 使用LLM提取更复杂的实体
         try:
-            llm_entities = await self._llm_entity_extraction(content)
-            entities.extend(llm_entities)
+            # 使用正则表达式提取基础实体
+            for entity_type, pattern in self.entity_extractor_patterns.items():
+                matches = pattern.findall(content)
+                for match in matches:
+                    entity_name = match if isinstance(match, str) else match[0]
+                    entities.append({
+                        'name': entity_name,
+                        'type': entity_type,
+                        'source_message': content[:200],
+                        'sender_id': sender_id,
+                        'timestamp': timestamp,
+                        'confidence': 0.8
+                    })
+            
+            # 使用LLM提取更复杂的实体
+        
+                llm_entities = await self._llm_entity_extraction(content)
+                entities.extend(llm_entities)
         except Exception as e:
             self._logger.error(f"LLM实体提取失败: {e}")
         
@@ -710,8 +693,8 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                                                     context_data: Dict, preferences: Dict) -> List[PersonalizedRecommendation]:
         """基于情感状态生成推荐"""
         recommendations = []
-        
         try:
+    
             # 获取用户情感档案
             profile_key = f"{group_id}_{user_id}"
             emotion_profile = self.emotion_profiles.get(profile_key)
@@ -754,8 +737,8 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                                                   context_data: Dict, preferences: Dict) -> List[PersonalizedRecommendation]:
         """基于话题兴趣生成推荐"""
         recommendations = []
-        
         try:
+    
             # 获取用户感兴趣的话题
             interested_topics = preferences.get('favorite_topics', [])
             
@@ -813,8 +796,8 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                                                       context_data: Dict, preferences: Dict) -> List[PersonalizedRecommendation]:
         """基于知识图谱生成推荐"""
         recommendations = []
-        
         try:
+    
             # 获取与用户相关的知识实体
             user_entities = []
             

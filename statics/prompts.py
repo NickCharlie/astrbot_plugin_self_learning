@@ -361,6 +361,146 @@ PROGRESSIVE_LEARNING_GENERATE_UPDATED_PERSONA_PROMPT = """
 }}
 """
 
+# MaiBot风格的高级对话prompt - 基于MaiBot的replyer_prompt设计
+MAIBOT_STYLE_CHAT_PROMPT = """
+{knowledge_context}
+{expression_patterns_block}
+{memory_context}
+
+你正在qq群里聊天，下面是群里正在聊的内容:
+{time_block}
+{background_dialogue_prompt}
+{core_dialogue_prompt}
+
+{reply_target_block}。
+{identity}
+你正在群里聊天,现在请你读读之前的聊天记录，然后给出日常且口语化的回复，平淡一些，
+尽量简短一些。{keywords_reaction_prompt}请注意把握聊天内容，不要回复的太有条理，可以有个性。
+{reply_style}
+请注意不要输出多余内容(包括前后缀，冒号和引号，括号，表情等)，只输出回复内容。
+{moderation_prompt}不要输出多余内容(包括前后缀，冒号和引号，括号，表情包，at或 @等 )。
+"""
+
+# MaiBot风格的私聊prompt
+MAIBOT_STYLE_PRIVATE_CHAT_PROMPT = """
+{knowledge_context}
+{expression_patterns_block}
+{memory_context}
+
+你正在和{sender_name}聊天，这是你们之前聊的内容:
+{time_block}
+{dialogue_prompt}
+
+{reply_target_block}。
+{identity}
+你正在和{sender_name}聊天,现在请你读读之前的聊天记录，然后给出日常且口语化的回复，平淡一些，
+尽量简短一些。{keywords_reaction_prompt}请注意把握聊天内容，不要回复的太有条理，可以有个性。
+{reply_style}
+请注意不要输出多余内容(包括前后缀，冒号和引号，括号，表情等)，只输出回复内容。
+{moderation_prompt}不要输出多余内容(包括前后缀，冒号和引号，括号，表情包，at或 @等 )。
+"""
+
+# 表达模式学习prompt - 完全采用MaiBot的设计
+EXPRESSION_PATTERN_LEARNING_PROMPT = """
+{chat_content}
+
+请从上面这段群聊中概括除了人名为"SELF"之外的人的语言风格
+1. 只考虑文字，不要考虑表情包和图片  
+2. 不要涉及具体的人名，但是可以涉及具体名词
+3. 思考有没有特殊的梗，一并总结成语言风格
+4. 例子仅供参考，请严格根据群聊内容总结!!!
+
+注意：总结成如下格式的规律，总结的内容要详细，但具有概括性：
+例如：当"AAAAA"时，可以"BBBBB", AAAAA代表某个具体的场景，不超过20个字。BBBBB代表对应的语言风格，特定句式或表达方式，不超过20个字。
+
+例如：
+当"对某件事表示十分惊叹"时，使用"我嘞个xxxx"
+当"表示讽刺的赞同，不讲道理"时，使用"对对对"  
+当"想说明某个具体的事实观点，但懒得明说"时，使用"懂的都懂"
+当"涉及游戏相关时，夸赞，略带戏谑意味"时，使用"这么强！"
+
+请注意：不要总结你自己（SELF）的发言，尽量保证总结内容的逻辑性
+现在请你概括
+"""
+
+# 记忆整合prompt - 基于MaiBot的记忆融合机制
+MEMORY_INTEGRATION_PROMPT = """
+请将以下两段记忆智能融合为一段连贯、简洁的描述：
+
+旧记忆：{old_memory}
+新记忆：{new_memory}
+
+要求：
+1. 保留两段记忆中的重要信息
+2. 去除重复和冗余内容
+3. 形成逻辑清晰的统一描述
+4. 如果存在矛盾，优先保留新记忆的信息
+5. 保持描述的简洁性，避免过度冗长
+
+请直接返回融合后的记忆描述，不需要额外说明。
+"""
+
+# 实体提取prompt - 采用MaiBot的知识图谱设计
+ENTITY_EXTRACTION_PROMPT = """
+你是一个性能优异的实体提取系统。请从段落中提取出所有实体，并以JSON列表的形式输出。
+
+输出格式示例：
+[ "实体A", "实体B", "实体C" ]
+
+请注意以下要求：
+- 将代词（如"你"、"我"、"他"、"她"、"它"等）转化为对应的实体命名，以避免指代不清。
+- 尽可能多的提取出段落中的全部实体；
+
+段落：
+```
+{text}
+```
+"""
+
+# RDF三元组提取prompt - 采用MaiBot的关系提取设计
+RDF_TRIPLE_EXTRACTION_PROMPT = """
+你是一个性能优异的RDF（资源描述框架，由节点和边组成，节点表示实体/资源、属性，边则表示了实体和实体之间的关系以及实体和属性的关系。）构造系统。你的任务是根据给定的段落和实体列表构建RDF图。
+
+请使用JSON回复，使用三元组的JSON列表输出RDF图中的关系（每个三元组代表一个关系）。
+
+输出格式示例：
+[
+        ["某实体","关系","某属性"],
+        ["某实体","关系","某实体"],
+        ["某资源","关系","某属性"]
+]
+
+请注意以下要求：
+- 每个三元组应包含每个段落的实体命名列表中的至少一个命名实体，但最好是两个。
+- 将代词（如"你"、"我"、"他"、"她"、"它"等）转化为对应的实体命名，以避免指代不清。
+
+段落：
+```
+{text}
+```
+
+实体列表：
+```
+{entities}
+```
+"""
+
+# 知识图谱QA prompt - 采用MaiBot的QA系统设计
+KNOWLEDGE_GRAPH_QA_PROMPT = """
+你是一个性能优异的QA系统。请根据给定的问题和一些可能对你有帮助的信息作出回答。
+
+请注意以下要求：
+- 你可以使用给定的信息来回答问题，但请不要直接引用它们。
+- 你的回答应该简洁明了，避免冗长的解释。
+- 如果你无法回答问题，请直接说"我不知道"。
+
+问题：
+{question}
+
+可能有帮助的信息：
+{knowledge_context}
+"""
+
 # 新增强化模型专用提示词
 REINFORCEMENT_LEARNING_MEMORY_REPLAY_PROMPT = """
 你是一个强化学习专家，负责通过记忆重放机制来优化人格学习效果。

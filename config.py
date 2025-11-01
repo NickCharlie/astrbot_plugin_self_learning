@@ -20,6 +20,13 @@ class PluginConfig:
     enable_web_interface: bool = True
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
     
+    # MaiBot增强功能（默认启用）
+    enable_maibot_features: bool = True  # 启用MaiBot增强功能
+    enable_expression_patterns: bool = True  # 启用表达模式学习
+    enable_memory_graph: bool = True  # 启用记忆图系统
+    enable_knowledge_graph: bool = True  # 启用知识图谱
+    enable_time_decay: bool = True  # 启用时间衰减机制
+    
     # QQ号设置
     target_qq_list: List[str] = field(default_factory=list)
     

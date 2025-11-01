@@ -17,16 +17,10 @@ from .patterns import StrategyFactory, ServiceRegistry, EventBus
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
 
 # 使用单例模式导入配置和异常
-try:
-    from ..config import PluginConfig
-    from ..exceptions import ServiceError
-    from ..statics import prompts
-    from ..utils.json_utils import safe_parse_llm_json
-except ImportError:
-    from ..config import PluginConfig
-    from ..exceptions import ServiceError
-    from ..statics import prompts
-    from ..utils.json_utils import safe_parse_llm_json
+from ..config import PluginConfig
+from ..exceptions import ServiceError
+from ..statics import prompts
+from ..utils.json_utils import safe_parse_llm_json
 
 
 class ServiceFactory(IServiceFactory):
@@ -66,10 +60,7 @@ class ServiceFactory(IServiceFactory):
         
         try:
             # 单例模式动态导入避免循环依赖
-            try:
-                from ..services.message_collector import MessageCollectorService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.message_collector import MessageCollectorService
+            from ..services.message_collector import MessageCollectorService
             
             service = MessageCollectorService(self.config, self.context, self.create_database_manager()) # 传递 DatabaseManager
             self._service_cache[cache_key] = service
@@ -83,17 +74,27 @@ class ServiceFactory(IServiceFactory):
             raise ServiceError(f"创建消息收集器失败: {str(e)}")
     
     def create_style_analyzer(self) -> IStyleAnalyzer:
-        """创建风格分析器"""
+        """创建风格分析器 - 优先使用MaiBot增强版本"""
         cache_key = "style_analyzer"
         
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.style_analyzer import StyleAnalyzerService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.style_analyzer import StyleAnalyzerService
+            # 如果启用了MaiBot增强功能，使用MaiBot适配器
+            if getattr(self.config, 'enable_maibot_features', False):
+                try:
+                    from ..services.maibot_adapters import MaiBotStyleAnalyzer
+                    service = MaiBotStyleAnalyzer(self.config, self.create_database_manager())
+                    self._service_cache[cache_key] = service
+                    self._registry.register_service("style_analyzer", service)
+                    self._logger.info("创建MaiBot风格分析器成功")
+                    return service
+                except ImportError as e:
+                    self._logger.warning(f"MaiBot适配器不可用，回退到默认实现: {e}")
+            
+            # 回退到默认实现
+            from ..services.style_analyzer import StyleAnalyzerService
             
             # 传递 DatabaseManager 和框架适配器
             service = StyleAnalyzerService(
@@ -114,8 +115,18 @@ class ServiceFactory(IServiceFactory):
             raise ServiceError(f"创建风格分析器失败: {str(e)}")
     
     def create_learning_strategy(self, strategy_type: str) -> ILearningStrategy:
-        """创建学习策略"""
+        """创建学习策略 - 优先使用MaiBot增强版本"""
         try:
+            # 如果启用了MaiBot增强功能，使用MaiBot学习策略
+            if getattr(self.config, 'enable_maibot_features', False):
+                try:
+                    from ..services.maibot_adapters import MaiBotLearningStrategy
+                    strategy = MaiBotLearningStrategy(self.config, self.create_database_manager())
+                    self._logger.info("创建MaiBot学习策略成功")
+                    return strategy
+                except ImportError as e:
+                    self._logger.warning(f"MaiBot学习策略不可用，回退到默认实现: {e}")
+            
             # 转换字符串为枚举
             if isinstance(strategy_type, str):
                 strategy_enum = LearningStrategyType(strategy_type)
@@ -139,17 +150,27 @@ class ServiceFactory(IServiceFactory):
             raise ServiceError(f"创建学习策略失败: {str(e)}")
     
     def create_quality_monitor(self) -> IQualityMonitor:
-        """创建质量监控器"""
+        """创建质量监控器 - 优先使用MaiBot增强版本"""
         cache_key = "quality_monitor"
         
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.learning_quality_monitor import LearningQualityMonitor
-            except ImportError:
-                from astrbot_plugin_self_learning.services.learning_quality_monitor import LearningQualityMonitor
+            # 如果启用了MaiBot增强功能，使用MaiBot质量监控器
+            if getattr(self.config, 'enable_maibot_features', False):
+                try:
+                    from ..services.maibot_adapters import MaiBotQualityMonitor
+                    service = MaiBotQualityMonitor(self.config, self.create_database_manager())
+                    self._service_cache[cache_key] = service
+                    self._registry.register_service("quality_monitor", service)
+                    self._logger.info("创建MaiBot质量监控器成功")
+                    return service
+                except ImportError as e:
+                    self._logger.warning(f"MaiBot质量监控器不可用，回退到默认实现: {e}")
+            
+            # 回退到默认实现
+            from ..services.learning_quality_monitor import LearningQualityMonitor
             
             service = LearningQualityMonitor(
                 self.config, 
@@ -176,10 +197,7 @@ class ServiceFactory(IServiceFactory):
         
         try:
             # 使用try/except导入DatabaseManager
-            try:
-                from ..services.database_manager import DatabaseManager as DBManager
-            except ImportError:
-                from astrbot_plugin_self_learning.services.database_manager import DatabaseManager as DBManager
+            from ..services.database_manager import DatabaseManager as DBManager
             
             service = DBManager(self.config, self.context)
             self._service_cache[cache_key] = service
@@ -200,10 +218,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.ml_analyzer import LightweightMLAnalyzer
-            except ImportError:
-                from astrbot_plugin_self_learning.services.ml_analyzer import LightweightMLAnalyzer
+            from ..services.ml_analyzer import LightweightMLAnalyzer
             
             # 需要数据库管理器
             db_manager = self.create_database_manager()
@@ -235,10 +250,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.intelligent_responder import IntelligentResponder
-            except ImportError:
-                from astrbot_plugin_self_learning.services.intelligent_responder import IntelligentResponder
+            from ..services.intelligent_responder import IntelligentResponder
             
             # 需要数据库管理器
             db_manager = self.create_database_manager()
@@ -271,10 +283,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.persona_manager import PersonaManagerService # 导入 PersonaManagerService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.persona_manager import PersonaManagerService # 导入 PersonaManagerService
+            from ..services.persona_manager import PersonaManagerService # 导入 PersonaManagerService
             
             # 创建依赖的服务
             persona_updater = self.create_persona_updater()
@@ -299,10 +308,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.multidimensional_analyzer import MultidimensionalAnalyzer
-            except ImportError:
-                from astrbot_plugin_self_learning.services.multidimensional_analyzer import MultidimensionalAnalyzer
+            from ..services.multidimensional_analyzer import MultidimensionalAnalyzer
             
             db_manager = self.create_database_manager() # 获取 DatabaseManager 实例
             
@@ -337,10 +343,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.progressive_learning import ProgressiveLearningService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.progressive_learning import ProgressiveLearningService
+            from ..services.progressive_learning import ProgressiveLearningService
             
             # Directly pass the database manager
             db_manager = self.create_database_manager()
@@ -376,10 +379,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.persona_backup_manager import PersonaBackupManager
-            except ImportError:
-                from astrbot_plugin_self_learning.services.persona_backup_manager import PersonaBackupManager
+            from ..services.persona_backup_manager import PersonaBackupManager
             db_manager = self.create_database_manager()
             service = PersonaBackupManager(self.config, self.context, db_manager)
             self._service_cache[cache_key] = service
@@ -398,10 +398,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.temporary_persona_updater import TemporaryPersonaUpdater
-            except ImportError:
-                from astrbot_plugin_self_learning.services.temporary_persona_updater import TemporaryPersonaUpdater
+            from ..services.temporary_persona_updater import TemporaryPersonaUpdater
             
             # 获取依赖的服务
             persona_updater = self.create_persona_updater()
@@ -433,10 +430,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.persona_updater import PersonaUpdater
-            except ImportError:
-                from astrbot_plugin_self_learning.services.persona_updater import PersonaUpdater
+            from ..services.persona_updater import PersonaUpdater
             backup_manager = self.create_persona_backup_manager()
             service = PersonaUpdater(
                 self.config, 
@@ -635,10 +629,7 @@ class ComponentFactory:
     
     def create_persona_updater(self, context: Context, backup_manager):
         """创建人格更新器"""
-        try:
-            from ..services.persona_updater import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
-        except ImportError:
-            from astrbot_plugin_self_learning.services.persona_updater import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
+        from ..services.persona_updater import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
         prompts = self.service_factory.get_prompts() # 获取 prompts
         return ActualPersonaUpdater(self.config, context, backup_manager, None, prompts)
 
@@ -650,10 +641,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.data_analytics import DataAnalyticsService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.data_analytics import DataAnalyticsService
+            from ..services.data_analytics import DataAnalyticsService
             
             service = DataAnalyticsService(
                 self.config,
@@ -677,10 +665,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.advanced_learning import AdvancedLearningService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.advanced_learning import AdvancedLearningService
+            from ..services.advanced_learning import AdvancedLearningService
             
             service = AdvancedLearningService(
                 self.config,
@@ -706,10 +691,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.enhanced_interaction import EnhancedInteractionService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.enhanced_interaction import EnhancedInteractionService
+            from ..services.enhanced_interaction import EnhancedInteractionService
             
             service = EnhancedInteractionService(
                 self.config,
@@ -734,10 +716,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.intelligence_enhancement import IntelligenceEnhancementService
-            except ImportError:
-                from astrbot_plugin_self_learning.services.intelligence_enhancement import IntelligenceEnhancementService
+            from ..services.intelligence_enhancement import IntelligenceEnhancementService
             
             service = IntelligenceEnhancementService(
                 self.config,
@@ -763,10 +742,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            try:
-                from ..services.affection_manager import AffectionManager
-            except ImportError:
-                from astrbot_plugin_self_learning.services.affection_manager import AffectionManager
+            from ..services.affection_manager import AffectionManager
             
             service = AffectionManager(
                 self.config,

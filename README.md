@@ -1,18 +1,151 @@
-# AstrBot 智能自学习插件 🧠✨ - 重製版
+# AstrBot 智能自学习插件 🧠✨ (参考MaiBot功能)
 
 ## 🚀 项目概述
 
-AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 自主学习解决方案**。以用户设置的学习对象的聊天消息为样本，让bot不断学习，实现更自然，更真实的消息对话。该插件通过机器学习、多维度数据分析、情感智能系统和动态人格优化，为聊天Bot提供了**完整的自主学习生态系统**。
+AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 自主学习解决方案**。以用户设置的学习对象的聊天消息为样本，让bot不断学习，实现更自然，更真实的消息对话。
 
-> **🔧 重製版说明**：本版本已由社区贡献者修复了插件的潜在问题，包括但不限于：
+**🤖 MaiBot功能参考**：本版本参考了 [MaiBot](https://github.com/SomeOthers/maibot) 的学习算法和功能模块，参考MaiBot的表达模式学习、记忆图系统、知识图谱管理等先进技术，实现更加智能和自然的对话学习能力。
+
+该插件通过机器学习、多维度数据分析、情感智能系统和动态人格优化，为聊天Bot提供了**完整的自主学习生态系统**。
+
+> **🔧 说明**：本版本已由社区贡献者修复了插件的潜在问题，包括但不限于：
+>
 > - 修复了插件将命令消息视为聊天消息的问题
 > - 修复了强制学习中无限循环调用提炼模型的问题
 > - 解决了无缘无故报模型未配置的问题
 > - 优化了插件的稳定性和性能表现
+> - **新增**：集成MaiBot核心功能，实现智能表达模式学习
+
+## 📜 开源协议变更说明 / Open Source License Change Notice
+
+**中文说明**：
+
+本项目协议已从 MIT 协议变更为 **GNU General Public License v3.0 (GPL v3)**。
+
+**变更原因**：
+- 为了确保开源项目的持续开放性和社区贡献的保护
+- 防止商业实体封闭源码并从中获利而不回馈社区
+- 保障用户的自由使用权和源码获取权
+
+**GPL v3 协议要点**：
+- ✅ 允许自由使用、修改、分发
+- ✅ 要求衍生作品也必须开源（Copyleft）
+- ✅ 提供源码访问保障
+- ✅ 禁止添加额外限制性条款
+- ⚠️ 商业使用时需遵循GPL v3协议要求
+
+**English Notice**:
+
+This project's license has been changed from MIT to **GNU General Public License v3.0 (GPL v3)**.
+
+**Reasons for change**:
+- To ensure continued openness of the open source project and protection of community contributions
+- To prevent commercial entities from closing source code and profiting without giving back to the community
+- To guarantee users' freedom to use and access source code
+
+**GPL v3 Key Points**:
+- ✅ Allows free use, modification, and distribution
+- ✅ Requires derivative works to also be open source (Copyleft)
+- ✅ Provides source code access guarantee
+- ✅ Prohibits adding additional restrictive clauses
+- ⚠️ Commercial use must comply with GPL v3 license requirements
+
+---
 
 ## 目前插件正在测试阶段 有许多Bug还没有修好 webui暂时无法使用
 
 ## 欢迎加入QQ群聊 1021544792 反馈你所遇到的Bug
+
+## 🤖 参考MaiBot的功能集成说明
+
+本版本参考了 MaiBot 的先进实现，主要包含以下核心功能：
+
+### 🎯 参考MaiBot的核心功能模块
+
+#### 🗣️ 表达模式学习器 (ExpressionPatternLearner)
+- **功能来源**: 参考 MaiBot 的表达模式学习机制
+- **核心特性**: 
+  - 采用"当...时，使用..."的场景-表达格式
+  - 25条消息触发学习机制
+  - 300秒学习间隔控制
+  - 支持场景-表达映射和数据库持久化
+
+#### 🧠 记忆图系统 (MemoryGraphManager)
+- **功能来源**: 基于 MaiBot 的记忆管理架构
+- **核心特性**:
+  - 使用 NetworkX 构建对话上下文图
+  - 智能记忆融合和关联分析
+  - 支持LLM集成的记忆整合
+  - 概念节点和关系边的动态管理
+
+#### 🔗 知识图谱管理 (KnowledgeGraphManager)
+- **功能来源**: 参考 MaiBot 的知识抽取方法
+- **核心特性**:
+  - RDF三元组的实体-关系提取
+  - 支持知识图谱查询和QA功能
+  - 实体识别和关系建立
+  - 知识库的动态扩展和更新
+
+#### ⏰ 时间衰减机制 (TimeDecayManager)
+- **功能来源**: 采用 MaiBot 的15天衰减算法
+- **核心特性**:
+  - 二次函数衰减模型：quality = max(0, 1 - ((days/15)^2))
+  - 跨多表的数据质量管理
+  - 自动清理过期低质量数据
+  - 学习效果的时间加权评估
+
+#### 🎨 增强型Prompt工程
+- **功能来源**: 采用 MaiBot 的场景-表达模式
+- **核心特性**:
+  - EXPRESSION_PATTERN_LEARNING_PROMPT 格式
+  - "当...时，使用..."的学习模板
+  - 场景化的表达方式训练
+  - 自然语言的风格迁移学习
+
+### 🔧 架构集成方式
+
+#### 适配器模式集成
+- **MaiBotStyleAnalyzer**: 实现 IStyleAnalyzer 接口
+- **MaiBotLearningStrategy**: 实现 ILearningStrategy 接口  
+- **MaiBotQualityMonitor**: 实现 IQualityMonitor 接口
+- **无缝集成**: 遵循现有架构，不破坏原有功能
+
+#### 工厂模式增强
+- **智能选择**: 根据配置自动选择 MaiBot 功能或原有实现
+- **优雅回退**: MaiBot 功能不可用时自动回退到原实现
+- **配置驱动**: 通过 `enable_maibot_features` 控制功能启用
+
+#### 学习流程优化
+- **修复关键问题**: 将学习结果转换为增量特征而非原始对话
+- **MaiBot集成**: 表达学习器、记忆图、知识图谱协同工作
+- **质量提升**: 结合多种MaiBot算法提升学习效果
+
+### 🚀 默认启用说明
+
+MaiBot 功能在本版本中**默认启用**，无需额外配置：
+
+```python
+# 配置项（默认启用）
+enable_maibot_features: bool = True      # 启用MaiBot增强功能
+enable_expression_patterns: bool = True  # 启用表达模式学习
+enable_memory_graph: bool = True         # 启用记忆图系统
+enable_knowledge_graph: bool = True      # 启用知识图谱
+enable_time_decay: bool = True           # 启用时间衰减机制
+```
+
+### 🎓 致谢声明
+
+本项目的 MaiBot 功能集成**参考了** [MaiBot 项目](https://github.com/MaiM-with-u/MaiBot) 的以下核心设计思路和实现方法：
+
+- 表达模式学习的场景-表达映射机制
+- 15天时间衰减的质量管理算法  
+- 基于NetworkX的记忆图构建方法
+- 知识图谱的实体-关系提取策略
+- 25条消息触发和300秒间隔的学习节奏控制
+
+感谢 MaiBot 项目提供的优秀开源实现，为bot智能对话学习领域做出的贡献！
+
+---
 
 ### 🌟 核心特性
 

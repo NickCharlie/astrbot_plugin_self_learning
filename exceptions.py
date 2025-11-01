@@ -61,3 +61,23 @@ class ResponseError(SelfLearningError):
 class BackupError(SelfLearningError):
     """备份相关异常"""
     pass
+
+
+class ExpressionLearningError(SelfLearningError):
+    """表达模式学习异常"""
+    pass
+
+
+class MemoryGraphError(SelfLearningError):
+    """记忆图系统异常"""
+    pass
+
+
+class TimeDecayError(SelfLearningError):
+    """时间衰减异常"""
+    pass
+
+
+class KnowledgeGraphError(SelfLearningError):
+    """知识图谱异常"""
+    pass

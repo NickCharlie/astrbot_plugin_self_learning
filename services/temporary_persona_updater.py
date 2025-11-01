@@ -11,35 +11,17 @@ from datetime import datetime, timedelta
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-try:
-    from ..config import PluginConfig
-except ImportError:
-    from astrbot_plugin_self_learning.config import PluginConfig
+from ..config import PluginConfig
 
-try:
-    from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager
-except ImportError:
-    from astrbot_plugin_self_learning.core.interfaces import IPersonaUpdater, IPersonaBackupManager
+from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager
 
-try:
-    from ..services.database_manager import DatabaseManager
-except ImportError:
-    from astrbot_plugin_self_learning.services.database_manager import DatabaseManager
+from ..services.database_manager import DatabaseManager
 
-try:
-    from ..statics.temp_persona_messages import TemporaryPersonaMessages
-except ImportError:
-    from astrbot_plugin_self_learning.statics.temp_persona_messages import TemporaryPersonaMessages
+from ..statics.temp_persona_messages import TemporaryPersonaMessages
 
-try:
-    from ..statics.prompts import MULTIDIMENSIONAL_ANALYZER_FILTER_MESSAGE_PROMPT
-except ImportError:
-    from astrbot_plugin_self_learning.statics.prompts import MULTIDIMENSIONAL_ANALYZER_FILTER_MESSAGE_PROMPT
+from ..statics.prompts import MULTIDIMENSIONAL_ANALYZER_FILTER_MESSAGE_PROMPT
 
-try:
-    from ..exceptions import SelfLearningError
-except ImportError:
-    from astrbot_plugin_self_learning.exceptions import SelfLearningError
+from ..exceptions import SelfLearningError
 
 
 class TemporaryPersonaUpdater:
