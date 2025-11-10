@@ -29,6 +29,7 @@ class PluginConfig:
     
     # QQ号设置
     target_qq_list: List[str] = field(default_factory=list)
+    target_blacklist: List[str] = field(default_factory=list)  # 学习黑名单
     
     # LLM 提供商 ID（使用 AstrBot 框架的 Provider 系统）
     filter_provider_id: Optional[str] = None  # 筛选模型使用的提供商ID
@@ -51,7 +52,7 @@ class PluginConfig:
     
     # 风格分析参数
     style_analysis_batch_size: int = 100    # 风格分析批次大小
-    style_update_threshold: float = 0.8     # 风格更新阈值
+    style_update_threshold: float = 0.6     # 风格更新阈值 (降低阈值，从0.8改为0.6)
     
     # 消息统计
     total_messages_collected: int = 0       # 收集到的消息总数
@@ -76,6 +77,11 @@ class PluginConfig:
     max_mood_imitation_dialogs: int = 20    # 最大对话风格模仿数量
     enable_persona_evolution: bool = True   # 启用人格演化跟踪
     persona_compatibility_threshold: float = 0.6  # 人格兼容性阈值
+    
+    # 人格更新方式配置
+    use_persona_manager_updates: bool = False  # 使用PersonaManager进行增量更新（False=使用文件临时存储，True=使用PersonaManager）
+    auto_apply_persona_updates: bool = True   # 自动应用人格更新（仅在use_persona_manager_updates=True时生效）
+    persona_update_backup_enabled: bool = True  # 启用更新前备份
     
     # 好感度系统配置
     enable_affection_system: bool = True    # 启用好感度系统
@@ -137,6 +143,7 @@ class PluginConfig:
             web_interface_port=basic_settings.get('web_interface_port', 7833), # Web 界面端口配置
             
             target_qq_list=target_settings.get('target_qq_list', []),
+            target_blacklist=target_settings.get('target_blacklist', []),
             current_persona_name=target_settings.get('current_persona_name', 'default'),
             
             filter_provider_id=model_config.get('filter_provider_id', None),

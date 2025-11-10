@@ -193,12 +193,12 @@ class PersonaBackupManager:
                 old_backups = backups[self.max_backups_per_group:]
                 
                 conn = await self.db_manager.get_group_connection(group_id)
-                cursor = conn.cursor()
+                cursor = await conn.cursor()
                 
                 for backup in old_backups:
-                    cursor.execute('DELETE FROM persona_backups WHERE id = ?', (backup['id'],))
+                    await cursor.execute('DELETE FROM persona_backups WHERE id = ?', (backup['id'],))
                 
-                conn.commit()
+                await conn.commit()
                 logger.info(f"清理了 {excess_count} 个旧备份")
                 
         except Exception as e:
@@ -243,7 +243,7 @@ class PersonaBackupManager:
             backups = await self.db_manager.get_persona_backups(group_id, limit=1)
             if backups:
                 # 解析时间字符串
-                backup_time_str = backups['created_at']
+                backup_time_str = backups[0]['created_at']
                 backup_time = datetime.fromisoformat(backup_time_str.replace('Z', '+00:00'))
                 return backup_time.timestamp()
             else:

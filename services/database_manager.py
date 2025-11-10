@@ -87,11 +87,52 @@ class DatabaseManager(AsyncServiceBase):
         """获取全局消息数据库连接"""
         if self.messages_db_connection is None:
             # 确保目录存在
-            os.makedirs(os.path.dirname(self.messages_db_path), exist_ok=True)
+            db_dir = os.path.dirname(self.messages_db_path)
+            os.makedirs(db_dir, exist_ok=True)
+            
+            # 检查数据库文件权限
+            if os.path.exists(self.messages_db_path):
+                try:
+                    # 尝试修改文件权限为可写
+                    import stat
+                    os.chmod(self.messages_db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                except OSError as e:
+                    self._logger.warning(f"无法修改数据库文件权限: {e}")
+            
             self.messages_db_connection = await aiosqlite.connect(self.messages_db_path)
+            
+            # 设置连接参数，确保数据库可写
+            await self.messages_db_connection.execute('PRAGMA foreign_keys = ON')
+            await self.messages_db_connection.execute('PRAGMA journal_mode = WAL')  
+            await self.messages_db_connection.execute('PRAGMA synchronous = NORMAL')
+            await self.messages_db_connection.commit()
+            
             # 首次连接时，确保数据库表被初始化
             await self._init_messages_database_tables(self.messages_db_connection)
         return self.messages_db_connection
+
+    def get_connection(self):
+        """
+        获取数据库连接的同步接口，用于兼容旧代码
+        注意：这是一个同步方法，用于兼容使用 'with' 语句的代码
+        """
+        class SyncConnectionWrapper:
+            def __init__(self, db_manager):
+                self.db_manager = db_manager
+                self.connection = None
+                
+            def __enter__(self):
+                # 同步获取连接，这需要在异步上下文中使用
+                import sqlite3
+                # 直接创建同步连接到同一个数据库文件
+                self.connection = sqlite3.connect(self.db_manager.messages_db_path)
+                return self.connection
+                
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if self.connection:
+                    self.connection.close()
+        
+        return SyncConnectionWrapper(self)
 
     async def _init_messages_database(self):
         """
@@ -106,6 +147,12 @@ class DatabaseManager(AsyncServiceBase):
         cursor = await conn.cursor()
         
         try:
+            # 设置数据库为WAL模式，提高并发性能并避免锁定问题
+            await cursor.execute('PRAGMA journal_mode=WAL')
+            await cursor.execute('PRAGMA synchronous=NORMAL')
+            await cursor.execute('PRAGMA cache_size=10000')
+            await cursor.execute('PRAGMA temp_store=memory')
+            
             # 创建原始消息表
             self._logger.info("尝试创建 raw_messages 表...")
             await cursor.execute('''
@@ -285,7 +332,28 @@ class DatabaseManager(AsyncServiceBase):
         """获取群数据库连接"""
         if group_id not in self.group_db_connections:
             db_path = self.get_group_db_path(group_id)
+            
+            # 确保数据库目录存在
+            db_dir = os.path.dirname(db_path)
+            os.makedirs(db_dir, exist_ok=True)
+            
+            # 检查数据库文件权限
+            if os.path.exists(db_path):
+                try:
+                    # 尝试修改文件权限为可写
+                    import stat
+                    os.chmod(db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+                except OSError as e:
+                    logger.warning(f"无法修改群数据库文件权限: {e}")
+            
             conn = await aiosqlite.connect(db_path)
+            
+            # 设置连接参数，确保数据库可写
+            await conn.execute('PRAGMA foreign_keys = ON')
+            await conn.execute('PRAGMA journal_mode = WAL')  
+            await conn.execute('PRAGMA synchronous = NORMAL')
+            await conn.commit()
+            
             await self._init_group_database(conn)
             self.group_db_connections[group_id] = conn
             logger.info(f"已创建群 {group_id} 的数据库连接")
@@ -297,6 +365,12 @@ class DatabaseManager(AsyncServiceBase):
         cursor = await conn.cursor()
         
         try:
+            # 设置数据库为WAL模式，提高并发性能并避免锁定问题
+            await cursor.execute('PRAGMA journal_mode=WAL')
+            await cursor.execute('PRAGMA synchronous=NORMAL')
+            await cursor.execute('PRAGMA cache_size=10000')
+            await cursor.execute('PRAGMA temp_store=memory')
+            
             # 原始消息表 (群数据库中不再存储原始消息，由全局消息数据库统一管理)
             # 筛选消息表 (群数据库中不再存储筛选消息，由全局消息数据库统一管理)
             
@@ -579,7 +653,7 @@ class DatabaseManager(AsyncServiceBase):
             logger.error(f"保存社交关系失败: {e}", exc_info=True)
             raise DataStorageError(f"保存社交关系失败: {str(e)}")
 
-    async def save_raw_message(self, message_data: Dict[str, Any]) -> int:
+    async def save_raw_message(self, message_data) -> int:
         """
         将原始消息保存到全局消息数据库。
         """
@@ -587,17 +661,33 @@ class DatabaseManager(AsyncServiceBase):
         cursor = await conn.cursor()
         
         try:
-            await cursor.execute('''
-                INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                message_data.get('sender_id'),
-                message_data.get('sender_name'),
-                message_data.get('message'),
-                message_data.get('group_id'),
-                message_data.get('platform'),
-                message_data.get('timestamp')
-            ))
+            # 检查message_data是否为字典或对象
+            if hasattr(message_data, 'sender_id'):
+                # 如果是对象，直接访问属性
+                await cursor.execute('''
+                    INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    message_data.sender_id,
+                    message_data.sender_name,
+                    message_data.message,
+                    message_data.group_id,
+                    message_data.platform,
+                    message_data.timestamp
+                ))
+            else:
+                # 如果是字典，使用字典访问
+                await cursor.execute('''
+                    INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    message_data.get('sender_id'),
+                    message_data.get('sender_name'),
+                    message_data.get('message'),
+                    message_data.get('group_id'),
+                    message_data.get('platform'),
+                    message_data.get('timestamp')
+                ))
             
             message_id = cursor.lastrowid
             await conn.commit()
@@ -714,7 +804,7 @@ class DatabaseManager(AsyncServiceBase):
                 filtered_data.get('sender_id'),
                 filtered_data.get('confidence', 0.8),
                 filtered_data.get('filter_reason', ''),
-                filtered_data.get('timestamp', time.time()),
+                filtered_data.get('timestamp') or time.time(),
                 json.dumps(filtered_data.get('quality_scores', {}), ensure_ascii=False),
                 filtered_data.get('group_id')
             ))

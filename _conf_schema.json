@@ -51,7 +51,14 @@
         "description": "目标QQ号列表",
         "type": "list",
         "items": {"type": "string"},
-        "hint": "指定要学习的QQ号列表。为空则学习所有用户消息。支持个人QQ号",
+        "hint": "指定要学习的QQ号列表。为空则学习所有用户消息。支持个人QQ号和群聊格式group_群号",
+        "default": []
+      },
+      "target_blacklist": {
+        "description": "学习黑名单",
+        "type": "list", 
+        "items": {"type": "string"},
+        "hint": "黑名单内的成员消息不进行学习。为空则没有黑名单。支持个人QQ号和群聊格式group_群号",
         "default": []
       },
       "current_persona_name": {

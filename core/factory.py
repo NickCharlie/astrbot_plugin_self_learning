@@ -85,7 +85,12 @@ class ServiceFactory(IServiceFactory):
             if getattr(self.config, 'enable_maibot_features', False):
                 try:
                     from ..services.maibot_adapters import MaiBotStyleAnalyzer
-                    service = MaiBotStyleAnalyzer(self.config, self.create_database_manager())
+                    service = MaiBotStyleAnalyzer(
+                        self.config, 
+                        self.create_database_manager(),
+                        context=self.context,
+                        llm_adapter=self.create_framework_llm_adapter()
+                    )
                     self._service_cache[cache_key] = service
                     self._registry.register_service("style_analyzer", service)
                     self._logger.info("创建MaiBot风格分析器成功")
@@ -299,6 +304,27 @@ class ServiceFactory(IServiceFactory):
         except ImportError as e:
             self._logger.error(f"导入人格管理器失败: {e}", exc_info=True)
             raise ServiceError(f"创建人格管理器失败: {str(e)}")
+    
+    def create_persona_manager_updater(self):
+        """创建PersonaManager增量更新器"""
+        cache_key = "persona_manager_updater"
+        
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        try:
+            from ..services.persona_manager_updater import PersonaManagerUpdater
+            
+            service = PersonaManagerUpdater(self.config, self.context)
+            self._service_cache[cache_key] = service
+            self._registry.register_service("persona_manager_updater", service)
+            
+            self._logger.info("创建PersonaManager更新器成功")
+            return service
+            
+        except ImportError as e:
+            self._logger.error(f"导入PersonaManager更新器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建PersonaManager更新器失败: {str(e)}")
     
     def create_multidimensional_analyzer(self):
         """创建多维度分析器"""
@@ -519,14 +545,53 @@ class ServiceFactory(IServiceFactory):
 
 # 将内部类移到模块顶层
 class QQFilter:
-    def __init__(self, target_qq_list):
+    def __init__(self, target_qq_list, blacklist=None):
         self.target_qq_list = target_qq_list or []
+        self.blacklist = blacklist or []
         self._logger = logger
     
-    def should_collect_message(self, sender_id: str) -> bool:
-        if not self.target_qq_list:  # 空列表表示收集所有
+    def should_collect_message(self, sender_id: str, group_id: str = None) -> bool:
+        # 检查黑名单（支持个人QQ号和群聊格式）
+        if self._is_in_blacklist(sender_id, group_id):
+            return False
+        
+        # 如果没有指定目标列表，则学习所有非黑名单用户
+        if not self.target_qq_list:
             return True
-        return sender_id in self.target_qq_list
+        
+        # 检查是否在目标列表中（支持个人QQ号和群聊格式）
+        return self._is_in_target_list(sender_id, group_id)
+    
+    def _is_in_blacklist(self, sender_id: str, group_id: str = None) -> bool:
+        """检查用户是否在黑名单中"""
+        if not self.blacklist:
+            return False
+        
+        # 检查个人QQ号
+        if sender_id in self.blacklist:
+            return True
+        
+        # 检查群聊格式 (group_群号)
+        if group_id:
+            group_format = f"group_{group_id}"
+            if group_format in self.blacklist:
+                return True
+        
+        return False
+    
+    def _is_in_target_list(self, sender_id: str, group_id: str = None) -> bool:
+        """检查用户是否在目标列表中"""
+        # 检查个人QQ号
+        if sender_id in self.target_qq_list:
+            return True
+        
+        # 检查群聊格式 (group_群号)
+        if group_id:
+            group_format = f"group_{group_id}"
+            if group_format in self.target_qq_list:
+                return True
+        
+        return False
 
 
 class MessageFilter:
@@ -616,7 +681,7 @@ class ComponentFactory:
     
     def create_qq_filter(self):
         """创建QQ号过滤器"""
-        return QQFilter(self.config.target_qq_list)
+        return QQFilter(self.config.target_qq_list, self.config.target_blacklist)
     
     def create_message_filter(self, context: Context):
         """创建消息过滤器"""

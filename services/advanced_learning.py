@@ -114,10 +114,10 @@ class AdvancedLearningService(AsyncServiceBase):
         """分析学习上下文"""
         try:
             # 提取参与者
-            participants = list(set(msg.get('sender_id', '') for msg in messages))
+            participants = list(set(msg.sender_id or '' for msg in messages))
             
             # 分析话题 (简化版)
-            all_text = ' '.join(msg.get('message', '') for msg in messages)
+            all_text = ' '.join(msg.message or '' for msg in messages)
             topic = await self._extract_topic(all_text)
             
             # 分析情感色调
@@ -344,7 +344,7 @@ class AdvancedLearningService(AsyncServiceBase):
             return "monologue"
         
         # 简化的交互模式识别
-        question_count = sum(1 for msg in messages if "?" in msg.get('message', '') or "？" in msg.get('message', ''))
+        question_count = sum(1 for msg in messages if "?" in (msg.message or '') or "？" in (msg.message or ''))
         total_messages = len(messages)
         
         if question_count / total_messages > 0.3:

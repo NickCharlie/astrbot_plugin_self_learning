@@ -13,9 +13,11 @@ from astrbot.api.star import Context
 try:
     from ..config import PluginConfig
     from ..exceptions import MessageCollectionError, DataStorageError
+    from ..core.interfaces import MessageData
 except ImportError:
     from ..config import PluginConfig
     from ..exceptions import MessageCollectionError, DataStorageError
+    from ..core.interfaces import MessageData
 
 from .database_manager import DatabaseManager
 
@@ -68,8 +70,23 @@ class MessageCollectorService:
             return
             
         try:
+            # 将字典转换为MessageData对象
+            message_objects = []
+            for msg_dict in self._message_cache:
+                message_data = MessageData(
+                    sender_id=msg_dict.get('sender_id', ''),
+                    sender_name=msg_dict.get('sender_name', ''),
+                    message=msg_dict.get('message', ''),
+                    group_id=msg_dict.get('group_id', ''),
+                    timestamp=msg_dict.get('timestamp', time.time()),
+                    platform=msg_dict.get('platform', 'unknown'),
+                    message_id=msg_dict.get('message_id'),
+                    reply_to=msg_dict.get('reply_to')
+                )
+                message_objects.append(message_data)
+            
             # 并发插入消息
-            tasks = [self.database_manager.save_raw_message(msg) for msg in self._message_cache]
+            tasks = [self.database_manager.save_raw_message(msg) for msg in message_objects]
             await asyncio.gather(*tasks)
             
             logger.debug(f"已刷新 {len(self._message_cache)} 条消息到数据库")

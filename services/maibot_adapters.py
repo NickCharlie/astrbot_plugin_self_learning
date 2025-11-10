@@ -26,10 +26,18 @@ class MaiBotStyleAnalyzer(IStyleAnalyzer):
     集成MaiBot的表达模式学习功能
     """
     
-    def __init__(self, config: PluginConfig, db_manager: DatabaseManager):
+    def __init__(self, config: PluginConfig, db_manager: DatabaseManager, context=None, llm_adapter=None):
         self.config = config
         self.db_manager = db_manager
-        self.expression_learner = ExpressionPatternLearner.get_instance()
+        
+        # 使用改进的单例方法，传递所有需要的参数
+        self.expression_learner = ExpressionPatternLearner.get_instance(
+            config=config,
+            db_manager=db_manager,
+            context=context,
+            llm_adapter=llm_adapter
+        )
+        
         self._status = ServiceLifecycle.CREATED
     
     async def start(self) -> bool:
@@ -315,10 +323,30 @@ class MaiBotQualityMonitor(IQualityMonitor):
             质量评估结果
         """
         try:
+            # 处理None参数，提供默认值
+            if before is None:
+                before = {}
+                logger.warning("学习质量评估: before参数为None，使用空字典作为默认值")
+            
+            if after is None:
+                after = {}
+                logger.warning("学习质量评估: after参数为None，使用空字典作为默认值")
+            
+            # 如果两个参数都为空，返回中性结果
+            if not before and not after:
+                logger.warning("学习质量评估: before和after参数都为空，返回中性结果")
+                return AnalysisResult(
+                    success=True,
+                    confidence=0.5,
+                    data={"message": "无足够数据进行质量评估"},
+                    consistency_score=0.5
+                )
+            
             quality_metrics = {
                 "expression_pattern_improvement": 0.0,
                 "memory_graph_growth": 0.0,
                 "knowledge_graph_growth": 0.0,
+                "prompt_improvement": 0.0,
                 "overall_quality": 0.0
             }
             
@@ -341,18 +369,62 @@ class MaiBotQualityMonitor(IQualityMonitor):
             if after_knowledge > before_knowledge:
                 quality_metrics["knowledge_graph_growth"] = min((after_knowledge - before_knowledge) / 10.0, 1.0)
             
-            # 4. 总体质量
-            quality_metrics["overall_quality"] = (
-                quality_metrics["expression_pattern_improvement"] +
-                quality_metrics["memory_graph_growth"] +
-                quality_metrics["knowledge_graph_growth"]
-            ) / 3
+            # 4. 新增：基于人格prompt的改进评估
+            before_prompt = before.get("prompt", "")
+            after_prompt = after.get("prompt", "")
+            
+            if before_prompt != after_prompt:
+                # 计算prompt长度变化（增加内容通常表示学习到新知识）
+                length_ratio = len(after_prompt) / max(len(before_prompt), 1)
+                if length_ratio > 1.0:  # 内容增加
+                    quality_metrics["prompt_improvement"] = min((length_ratio - 1.0) * 2, 1.0)  # 最大值1.0
+                
+                # 检查是否包含学习标识符
+                if "【学习更新" in after_prompt and "【学习更新" not in before_prompt:
+                    quality_metrics["prompt_improvement"] = max(quality_metrics["prompt_improvement"], 0.6)
+                
+                # 如果有任何变化，至少给予基础分数
+                if quality_metrics["prompt_improvement"] == 0.0:
+                    quality_metrics["prompt_improvement"] = 0.3
+            
+            # 5. 如果没有任何特定指标，但存在人格数据，给予基础评分
+            if all(v == 0.0 for v in [quality_metrics["expression_pattern_improvement"], 
+                                     quality_metrics["memory_graph_growth"], 
+                                     quality_metrics["knowledge_graph_growth"],
+                                     quality_metrics["prompt_improvement"]]):
+                # 检查是否有有效的人格数据
+                if (before.get("prompt") or after.get("prompt")) and before != after:
+                    quality_metrics["overall_quality"] = 0.4  # 基础质量分数
+                    logger.info("基于数据存在差异给予基础质量评分")
+            else:
+                # 6. 计算总体质量（包含prompt改进）
+                quality_metrics["overall_quality"] = (
+                    quality_metrics["expression_pattern_improvement"] +
+                    quality_metrics["memory_graph_growth"] +
+                    quality_metrics["knowledge_graph_growth"] +
+                    quality_metrics["prompt_improvement"]
+                ) / 4
+            
+            # 调试日志
+            logger.info(f"学习质量评估详情: prompt_improvement={quality_metrics['prompt_improvement']:.3f}, "
+                       f"pattern_improvement={quality_metrics['expression_pattern_improvement']:.3f}, "
+                       f"memory_growth={quality_metrics['memory_graph_growth']:.3f}, "
+                       f"knowledge_growth={quality_metrics['knowledge_graph_growth']:.3f}, "
+                       f"overall_quality={quality_metrics['overall_quality']:.3f}")
+            
+            logger.info(f"Before prompt长度: {len(before.get('prompt', ''))}, After prompt长度: {len(after.get('prompt', ''))}")
+            
+            if before != after:
+                logger.info("检测到before和after存在差异")
+            else:
+                logger.info("before和after完全相同")
             
             return AnalysisResult(
                 success=True,
                 confidence=quality_metrics["overall_quality"],
                 data=quality_metrics,
-                timestamp=time.time()
+                timestamp=time.time(),
+                consistency_score=quality_metrics["overall_quality"]
             )
             
         except Exception as e:
@@ -361,7 +433,38 @@ class MaiBotQualityMonitor(IQualityMonitor):
                 success=False,
                 confidence=0.0,
                 data={},
-                error=str(e)
+                error=str(e),
+                consistency_score=0.0
+            )
+    
+    async def evaluate_learning_batch(self, 
+                                    original_persona: Dict[str, Any],
+                                    updated_persona: Dict[str, Any],
+                                    learning_messages: List[Dict[str, Any]]) -> Any:
+        """
+        评估学习批次质量 - 兼容LearningQualityMonitor的接口
+        
+        Args:
+            original_persona: 原始人格数据
+            updated_persona: 更新后的人格数据
+            learning_messages: 学习的消息列表
+            
+        Returns:
+            质量评估结果
+        """
+        try:
+            # 调用现有的evaluate_learning_quality方法
+            return await self.evaluate_learning_quality(original_persona, updated_persona)
+            
+        except Exception as e:
+            logger.error(f"学习批次质量评估失败: {e}")
+            from ..core.interfaces import AnalysisResult
+            return AnalysisResult(
+                success=False,
+                confidence=0.0,
+                data={},
+                error=str(e),
+                consistency_score=0.0
             )
     
     async def detect_quality_issues(self, data: Dict[str, Any]) -> List[str]:

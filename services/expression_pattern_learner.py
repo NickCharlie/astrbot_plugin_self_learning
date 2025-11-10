@@ -60,17 +60,28 @@ class ExpressionPatternLearner:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None):
+    def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None):
         # 防止重复初始化
         if self._initialized:
             return
             
         self.config = config
         self.db_manager = db_manager
-        if config:
+        
+        # 优先使用传入的llm_adapter，否则尝试创建新的
+        if llm_adapter:
+            self.llm_adapter = llm_adapter
+        elif context:
+            # 使用正确的context创建FrameworkLLMAdapter
+            self.llm_adapter = FrameworkLLMAdapter(context)
+            if config:
+                self.llm_adapter.initialize_providers(config)
+        elif config:
+            # 旧的方式，可能会有问题
             self.llm_adapter = FrameworkLLMAdapter(config)
         else:
             self.llm_adapter = None
+        
         self._status = ServiceLifecycle.CREATED
         
         # 维护每个群组的上次学习时间
@@ -83,10 +94,15 @@ class ExpressionPatternLearner:
         self._initialized = True
     
     @classmethod
-    def get_instance(cls) -> 'ExpressionPatternLearner':
-        """获取单例实例"""
+    def get_instance(cls, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None) -> 'ExpressionPatternLearner':
+        """获取单例实例，支持延迟初始化"""
         if cls._instance is None:
-            cls._instance = cls()
+            cls._instance = cls(config, db_manager, context, llm_adapter)
+        elif not cls._initialized or (cls._instance.llm_adapter is None and (context or llm_adapter)):
+            # 如果实例存在但未正确初始化，或者现在有更好的初始化参数，重新初始化
+            logger.info("重新初始化ExpressionPatternLearner单例，提供更好的参数")
+            cls._initialized = False
+            cls._instance.__init__(config, db_manager, context, llm_adapter)
         return cls._instance
     
     def _init_expression_patterns_table(self):
@@ -235,12 +251,16 @@ class ExpressionPatternLearner:
             
             logger.debug(f"表达模式学习prompt: {prompt}")
             
-            # 调用LLM生成回复
-            response = await self.llm_adapter.generate_response(
-                prompt, 
-                temperature=0.3,  # 使用MaiBot的temperature设置
-                model_type="refine"  # 使用精炼模型
-            )
+            # 调用LLM生成回复 - 使用通用的generate_response方法
+            if self.llm_adapter and hasattr(self.llm_adapter, 'generate_response'):
+                response = await self.llm_adapter.generate_response(
+                    prompt, 
+                    temperature=0.3,  # 使用MaiBot的temperature设置
+                    model_type="refine"  # 使用精炼模型
+                )
+            else:
+                logger.error("LLM适配器未正确配置或缺少generate_response方法")
+                raise ExpressionLearningError("LLM适配器未正确配置")
             
             logger.debug(f"表达模式学习response: {response}")
             
@@ -260,14 +280,24 @@ class ExpressionPatternLearner:
         context_lines = []
         
         for msg in messages:
-            # 简单的匿名化处理，将用户名替换为通用标识
-            sender = "SELF" if msg.is_bot else f"用户{hash(msg.user_id) % 100:02d}"
+            # 获取发送者信息 - 处理字典和对象两种情况
+            if hasattr(msg, 'sender_id'):
+                # 如果是对象
+                is_bot = msg.sender_id == "bot"
+                sender = msg.sender_name or msg.sender_id or 'Unknown'
+                content = msg.message.strip() if msg.message else ''
+                timestamp = msg.timestamp
+            else:
+                # 如果是字典
+                is_bot = msg.get('sender_id') == "bot"
+                sender = msg.get('sender_name') or msg.get('sender_id') or 'Unknown'
+                content = msg.get('message', '').strip()
+                timestamp = msg.get('timestamp', time.time())
             
             # 只保留文本内容，过滤掉图片、表情包等
-            content = msg.content.strip()
             if content and not content.startswith('[') and not content.startswith('http'):
-                timestamp = datetime.fromtimestamp(msg.timestamp).strftime("%H:%M")
-                context_lines.append(f"{timestamp} {sender}: {content}")
+                timestamp_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
+                context_lines.append(f"{timestamp_str} {sender}: {content}")
         
         return '\n'.join(context_lines)
     

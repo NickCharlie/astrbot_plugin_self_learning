@@ -80,13 +80,12 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用筛选模型进行对话补全"""
-        if (not self.filter_provider) and self.providers_configured < 1:
+        if not self.filter_provider:
             logger.error("筛选Provider未配置")
             return None
             
         try:
-            if self.filter_provider:
-                logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
+            logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
             response = await self.filter_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
@@ -106,13 +105,12 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用提炼模型进行对话补全"""
-        if (not self.refine_provider)  and self.providers_configured < 2:
+        if not self.refine_provider:
             logger.error("提炼Provider未配置")
             return None
             
         try:
-            if self.refine_provider:
-                logger.debug(f"调用提炼Provider: {self.refine_provider.meta().id}")
+            logger.debug(f"调用提炼Provider: {self.refine_provider.meta().id}")
             response = await self.refine_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
@@ -132,13 +130,12 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用强化模型进行对话补全"""
-        if (not self.reinforce_provider)  and self.providers_configured < 3:
+        if not self.reinforce_provider:
             logger.error("强化Provider未配置")
             return None
             
         try:
-            if self.reinforce_provider:
-                logger.debug(f"调用强化Provider: {self.reinforce_provider.meta().id}")
+            logger.debug(f"调用强化Provider: {self.reinforce_provider.meta().id}")
             response = await self.reinforce_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
@@ -172,3 +169,29 @@ class FrameworkLLMAdapter:
         if self.reinforce_provider:
             info['reinforce'] = f"{self.reinforce_provider.meta().id} ({self.reinforce_provider.meta().model})"
         return info
+
+    async def generate_response(self, prompt: str, temperature: float = 0.7, model_type: str = "filter") -> Optional[str]:
+        """
+        通用的生成响应方法，根据model_type调用对应的Provider
+        
+        Args:
+            prompt: 提示词
+            temperature: 温度参数
+            model_type: 模型类型 ("filter", "refine", "reinforce")
+            
+        Returns:
+            LLM响应文本，如果失败返回None
+        """
+        try:
+            if model_type == "filter":
+                return await self.filter_chat_completion(prompt=prompt, temperature=temperature)
+            elif model_type == "refine":
+                return await self.refine_chat_completion(prompt=prompt, temperature=temperature)
+            elif model_type == "reinforce":
+                return await self.reinforce_chat_completion(prompt=prompt, temperature=temperature)
+            else:
+                logger.error(f"不支持的模型类型: {model_type}")
+                return None
+        except Exception as e:
+            logger.error(f"generate_response调用失败: {e}")
+            return None

@@ -90,19 +90,22 @@ class LightweightMLAnalyzer:
             # 获取历史学习数据
             historical_data = await self.db_manager.get_learning_history_for_reinforcement(group_id, limit=50)
             
-            # 准备数据格式
+            # 过滤掉None值，准备数据格式
+            filtered_historical_data = [h for h in historical_data if h is not None]
+            filtered_new_messages = [msg for msg in new_messages if msg is not None]
+            
             historical_summary = {
-                "successful_patterns": [h.get('successful_pattern', '') for h in historical_data if h.get('success')],
-                "failed_patterns": [h.get('failed_pattern', '') for h in historical_data if not h.get('success')],
-                "average_quality_score": sum([h.get('quality_score', 0) for h in historical_data]) / max(len(historical_data), 1),
-                "learning_trends": self._analyze_learning_trends(historical_data)
+                "successful_patterns": [h.get('successful_pattern', '') for h in filtered_historical_data if h.get('success')],
+                "failed_patterns": [h.get('failed_pattern', '') for h in filtered_historical_data if not h.get('success')],
+                "average_quality_score": sum([h.get('quality_score', 0) for h in filtered_historical_data]) / max(len(filtered_historical_data), 1),
+                "learning_trends": self._analyze_learning_trends(filtered_historical_data)
             }
             
             new_data_summary = {
-                "message_count": len(new_messages),
-                "avg_message_length": sum([len(msg.get('message', '')) for msg in new_messages]) / max(len(new_messages), 1),
-                "dominant_topics": self._extract_dominant_topics(new_messages),
-                "emotional_distribution": await self._analyze_emotional_distribution(new_messages)
+                "message_count": len(filtered_new_messages),
+                "avg_message_length": sum([len(msg.get('message', '')) for msg in filtered_new_messages]) / max(len(filtered_new_messages), 1),
+                "dominant_topics": self._extract_dominant_topics(filtered_new_messages),
+                "emotional_distribution": await self._analyze_emotional_distribution(filtered_new_messages)
             }
 
             # 调用强化模型进行记忆重放分析
@@ -156,6 +159,15 @@ class LightweightMLAnalyzer:
             # 获取融合历史数据
             fusion_history = await self.db_manager.get_persona_fusion_history(group_id, limit=10)
             
+            # 保护原始prompt内容，避免被过度精简
+            original_prompt = base_persona.get('prompt', '')
+            original_prompt_length = len(original_prompt)
+            
+            # 如果原始prompt太短，直接跳过强化学习微调
+            if original_prompt_length < 100:
+                logger.info(f"原始prompt过短({original_prompt_length}字符)，跳过强化学习微调以避免过度精简")
+                return {}
+            
             # 调用强化模型进行增量微调分析
             response = await self.llm_adapter.reinforce_chat_completion(
                 prompt=self.prompts.JSON_ONLY_SYSTEM_PROMPT + "\n\n" + self.prompts.REINFORCEMENT_LEARNING_INCREMENTAL_TUNING_PROMPT.format(
@@ -171,7 +183,32 @@ class LightweightMLAnalyzer:
                 clean_response = self._clean_llm_json_response(response)
                 
                 try:
-                    tuning_result = safe_parse_llm_json(clean_response)
+                    tuning_result = safe_parse_llm_json(clean_response, fallback_result={})
+                    
+                    # 确保tuning_result不为None且是字典类型
+                    if not tuning_result or not isinstance(tuning_result, dict):
+                        logger.warning("强化学习增量微调: 解析结果为空或格式不正确，使用默认结果")
+                        tuning_result = {}
+                    
+                    # 重要保护：防止prompt被过度精简
+                    if 'updated_persona' in tuning_result and 'prompt' in tuning_result['updated_persona']:
+                        new_prompt = tuning_result['updated_persona']['prompt']
+                        new_prompt_length = len(new_prompt)
+                        
+                        # 如果新prompt比原prompt短太多，则进行保护性处理
+                        if new_prompt_length < original_prompt_length * 0.8:
+                            logger.warning(f"强化学习生成的prompt过短({new_prompt_length} vs {original_prompt_length})，采用保守融合策略")
+                            
+                            # 采用保守的增量融合，而不是完全替换
+                            enhanced_prompt = self._conservative_prompt_fusion(original_prompt, new_prompt, tuning_result)
+                            tuning_result['updated_persona']['prompt'] = enhanced_prompt
+                            
+                            # 降低期望改进值，因为我们采用了保守策略
+                            if 'performance_prediction' in tuning_result:
+                                original_improvement = tuning_result['performance_prediction'].get('expected_improvement', 0)
+                                tuning_result['performance_prediction']['expected_improvement'] = min(original_improvement * 0.7, 0.6)
+                        
+                        logger.info(f"强化学习prompt长度变化: {original_prompt_length} -> {len(tuning_result['updated_persona']['prompt'])}")
                     
                     # 保存融合结果到历史记录
                     await self.db_manager.save_persona_fusion_result(group_id, {
@@ -289,6 +326,52 @@ class LightweightMLAnalyzer:
         
         return cleaned_text
 
+    def _conservative_prompt_fusion(self, original_prompt: str, new_prompt: str, tuning_result: Dict[str, Any]) -> str:
+        """
+        保守的prompt融合策略，避免过度精简原始prompt
+        """
+        try:
+            # 如果新prompt明显太短，只提取其中的增量信息
+            if len(new_prompt) < len(original_prompt) * 0.5:
+                # 尝试从tuning_result中提取关键变化信息
+                key_changes = tuning_result.get('updated_persona', {}).get('key_changes', [])
+                
+                if key_changes:
+                    # 将关键变化以增量方式添加到原始prompt末尾
+                    enhancement_text = f"\n\n## 学习增强特征:\n" + "\n".join([f"- {change}" for change in key_changes[:3]])
+                    return original_prompt + enhancement_text
+                else:
+                    # 如果没有关键变化，返回原始prompt
+                    logger.info("未发现明显的关键变化，保持原始prompt不变")
+                    return original_prompt
+            
+            # 如果新prompt长度合理，但仍然比原来短，进行智能融合
+            elif len(new_prompt) < len(original_prompt) * 0.8:
+                # 尝试保留原始prompt的主要结构，添加新的特征
+                lines = original_prompt.split('\n')
+                new_lines = new_prompt.split('\n')
+                
+                # 找到可能的增量内容（出现在新prompt但不在原prompt中的内容）
+                new_content = []
+                for line in new_lines:
+                    if line.strip() and line.strip() not in original_prompt:
+                        new_content.append(line.strip())
+                
+                if new_content:
+                    # 将新内容作为增量添加
+                    enhancement = f"\n\n## 最新学习特征:\n" + "\n".join([f"- {content}" for content in new_content[:5]])
+                    return original_prompt + enhancement
+                else:
+                    return original_prompt
+            
+            else:
+                # 长度差异不大，使用新prompt
+                return new_prompt
+                
+        except Exception as e:
+            logger.error(f"保守融合失败: {e}")
+            return original_prompt
+
     async def replay_memory(self, group_id: str, new_messages: List[Dict[str, Any]], current_persona: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         记忆重放：将历史数据与新数据混合，并交给提炼模型进行处理。
@@ -305,10 +388,14 @@ class LightweightMLAnalyzer:
             
             # 将新消息与历史消息混合
             # 可以根据时间戳进行排序，或者简单地拼接
-            all_messages = history_messages + new_messages
+            # 过滤掉None值
+            filtered_history_messages = [msg for msg in history_messages if msg is not None]
+            filtered_new_messages = [msg for msg in new_messages if msg is not None]
+            
+            all_messages = filtered_history_messages + filtered_new_messages
             # 确保消息不重复，并按时间排序
-            unique_messages = {msg['message_id']: msg for msg in all_messages}
-            sorted_messages = sorted(unique_messages.values(), key=lambda x: x['timestamp'])
+            unique_messages = {msg.get('message_id', id(msg)): msg for msg in all_messages if msg.get('message_id') or id(msg)}
+            sorted_messages = sorted(unique_messages.values(), key=lambda x: x.get('timestamp', 0))
             
             # 限制总消息数量，避免过大的上下文
             if len(sorted_messages) > self.config.max_messages_per_batch * 2:
@@ -319,7 +406,7 @@ class LightweightMLAnalyzer:
             # 将混合后的消息交给提炼模型进行处理
             # 这里可以设计一个更复杂的prompt，让LLM从这些消息中提炼新的知识或风格
             # 示例：让LLM总结这些消息的特点，并与当前人格进行对比
-            messages_text = "\n".join([msg['message'] for msg in sorted_messages])
+            messages_text = "\n".join([msg.get('message', '') for msg in sorted_messages if msg.get('message')])
             
             prompt = f"""{self.prompts.JSON_ONLY_SYSTEM_PROMPT}
 
@@ -394,11 +481,14 @@ class LightweightMLAnalyzer:
 
     def _analyze_learning_trends(self, historical_data: List[Dict[str, Any]]) -> Dict[str, Any]:
         """分析学习趋势"""
-        if not historical_data:
+        # 过滤掉None值
+        filtered_data = [h for h in historical_data if h is not None]
+        
+        if not filtered_data:
             return {}
         
-        quality_scores = [h.get('quality_score', 0) for h in historical_data]
-        success_rate = sum([1 for h in historical_data if h.get('success', False)]) / len(historical_data)
+        quality_scores = [h.get('quality_score', 0) for h in filtered_data]
+        success_rate = sum([1 for h in filtered_data if h.get('success', False)]) / len(filtered_data)
         
         # 计算趋势
         if len(quality_scores) >= 3:
@@ -412,16 +502,19 @@ class LightweightMLAnalyzer:
             "average_quality": sum(quality_scores) / len(quality_scores),
             "success_rate": success_rate,
             "quality_trend": trend,
-            "total_sessions": len(historical_data)
+            "total_sessions": len(filtered_data)
         }
 
     def _extract_dominant_topics(self, messages: List[Dict[str, Any]]) -> List[str]:
         """提取主要话题"""
-        if not SKLEARN_AVAILABLE or len(messages) < 5:
+        # 过滤掉None值
+        filtered_messages = [msg for msg in messages if msg is not None]
+        
+        if not SKLEARN_AVAILABLE or len(filtered_messages) < 5:
             return []
         
         try:
-            texts = [msg.get('message', '') for msg in messages if len(msg.get('message', '')) > 10]
+            texts = [msg.get('message', '') for msg in filtered_messages if len(msg.get('message', '')) > 10]
             if len(texts) < 3:
                 return []
             
@@ -443,27 +536,34 @@ class LightweightMLAnalyzer:
     async def _analyze_emotional_distribution(self, messages: List[Dict[str, Any]]) -> Dict[str, float]:
         """分析情感分布"""
         try:
+            # 过滤掉None值
+            filtered_messages = [msg for msg in messages if msg is not None]
             # 使用现有的情感分析方法
-            return await self._analyze_sentiment_with_llm(messages)
+            return await self._analyze_sentiment_with_llm(filtered_messages)
         except Exception as e:
             logger.error(f"分析情感分布失败: {e}")
-            return self._simple_sentiment_analysis(messages)
+            # 过滤掉None值再传给简单情感分析
+            filtered_messages = [msg for msg in messages if msg is not None]
+            return self._simple_sentiment_analysis(filtered_messages)
 
     def _calculate_performance_metrics(self, learning_history: List[Dict[str, Any]]) -> Dict[str, Any]:
         """计算性能指标"""
-        if not learning_history:
+        # 过滤掉None值
+        filtered_history = [h for h in learning_history if h is not None]
+        
+        if not filtered_history:
             return {}
         
-        quality_scores = [h.get('quality_score', 0) for h in learning_history]
-        learning_times = [h.get('learning_time', 0) for h in learning_history]
-        success_count = sum([1 for h in learning_history if h.get('success', False)])
+        quality_scores = [h.get('quality_score', 0) for h in filtered_history]
+        learning_times = [h.get('learning_time', 0) for h in filtered_history]
+        success_count = sum([1 for h in filtered_history if h.get('success', False)])
         
         return {
             "average_quality": sum(quality_scores) / len(quality_scores),
             "quality_variance": np.var(quality_scores),
-            "success_rate": success_count / len(learning_history),
+            "success_rate": success_count / len(filtered_history),
             "average_learning_time": sum(learning_times) / max(len(learning_times), 1),
-            "total_sessions": len(learning_history),
+            "total_sessions": len(filtered_history),
             "improvement_rate": self._calculate_improvement_rate(quality_scores)
         }
 
@@ -793,11 +893,14 @@ class LightweightMLAnalyzer:
 
     async def _analyze_sentiment_with_llm(self, messages: List[Dict[str, Any]]) -> Dict[str, float]:
         """使用LLM对消息列表进行情感分析"""
+        # 确保消息列表已经过滤掉None值
+        filtered_messages = [msg for msg in messages if msg is not None]
+        
         if (not self.llm_adapter or not self.llm_adapter.has_refine_provider()) and self.llm_adapter.providers_configured < 2:
             logger.warning("提炼模型未配置，无法进行LLM情感分析，使用简化算法")
-            return self._simple_sentiment_analysis(messages)
+            return self._simple_sentiment_analysis(filtered_messages)
 
-        messages_text = "\n".join([msg['message'] for msg in messages])
+        messages_text = "\n".join([msg.get('message', '') for msg in filtered_messages])
         
         prompt = self.prompts.JSON_ONLY_SYSTEM_PROMPT + "\n\n" + self.prompts.ML_ANALYZER_SENTIMENT_ANALYSIS_PROMPT.format(
             messages_text=messages_text
@@ -817,23 +920,26 @@ class LightweightMLAnalyzer:
                     return sentiment_scores
                 except json.JSONDecodeError:
                     logger.warning(f"LLM响应JSON解析失败，返回简化情感分析。响应内容: {response}")
-                    return self._simple_sentiment_analysis(messages)
-            return self._simple_sentiment_analysis(messages)
+                    return self._simple_sentiment_analysis(filtered_messages)
+            return self._simple_sentiment_analysis(filtered_messages)
         except Exception as e:
             logger.warning(f"LLM情感分析失败，使用简化算法: {e}")
-            return self._simple_sentiment_analysis(messages)
+            return self._simple_sentiment_analysis(filtered_messages)
 
     def _simple_sentiment_analysis(self, messages: List[Dict[str, Any]]) -> Dict[str, float]:
         """基于关键词的简单情感分析（备用）"""
+        # 确保消息列表已经过滤掉None值
+        filtered_messages = [msg for msg in messages if msg is not None]
+        
         positive_keywords = ['哈哈', '好的', '谢谢', '赞', '棒', '开心', '高兴', '😊', '👍', '❤️']
         negative_keywords = ['不行', '差', '烦', '无聊', '生气', '😢', '😡', '💔']
         
         positive_count = 0
         negative_count = 0
-        total_messages = len(messages)
+        total_messages = len(filtered_messages)
         
-        for msg in messages:
-            text = msg['message'].lower()
+        for msg in filtered_messages:
+            text = msg.get('message', '').lower()
             for keyword in positive_keywords:
                 if keyword in text:
                     positive_count += 1

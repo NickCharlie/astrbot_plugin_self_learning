@@ -16,6 +16,7 @@ from ..config import PluginConfig
 from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager
 
 from ..services.database_manager import DatabaseManager
+from ..services.persona_manager_updater import PersonaManagerUpdater
 
 from ..statics.temp_persona_messages import TemporaryPersonaMessages
 
@@ -57,6 +58,9 @@ class TemporaryPersonaUpdater:
         
         # 人格更新文件路径
         self.persona_updates_file = os.path.join(config.data_dir, "persona_updates.txt")
+        
+        # 初始化PersonaManager更新器
+        self.persona_manager_updater = PersonaManagerUpdater(config, context)
         
         logger.info("临时人格更新器初始化完成")
     
@@ -653,7 +657,7 @@ class TemporaryPersonaUpdater:
 
     async def apply_mood_based_persona_update(self, group_id: str, mood_type: str, mood_description: str) -> bool:
         """
-        基于情绪状态应用增量人格更新 - 自动清理重复内容并更新system prompt
+        基于情绪状态应用增量人格更新 - 支持PersonaManager和文件两种方式
         
         Args:
             group_id: 群组ID
@@ -666,17 +670,35 @@ class TemporaryPersonaUpdater:
         try:
             logger.info(f"开始应用基于情绪的增量更新: {mood_type} -> {mood_description}")
             
-            # 0. 自动清理重复的历史内容（预防积累）
-            logger.info("自动清理重复的历史内容...")
-            
             # 1. 创建基于情绪的增量更新内容
             mood_update = f"~ 当前情绪状态: {mood_description}，请根据此情绪调整回复的语气和风格"
             
-            # 2. 写入到persona_updates.txt文件（为了持久化和后续批量更新）
+            # 2. 根据配置选择更新方式
+            if self.config.use_persona_manager_updates and self.persona_manager_updater.is_available():
+                # 使用PersonaManager更新
+                logger.info("使用PersonaManager方式应用情绪更新")
+                
+                # 先创建备份（如果启用）
+                if self.config.persona_update_backup_enabled:
+                    await self._create_mood_backup_persona(group_id, mood_type)
+                
+                # 应用增量更新
+                success = await self.persona_manager_updater.apply_incremental_update(group_id, mood_update)
+                
+                if success:
+                    logger.info(f"PersonaManager情绪更新应用成功: {mood_type}")
+                    return True
+                else:
+                    logger.warning("PersonaManager更新失败，回退到文件+系统prompt方式")
+            
+            # 传统的文件+系统prompt方式（回退或配置选择）
+            logger.info("使用传统文件+系统prompt方式应用情绪更新")
+            
+            # 写入到persona_updates.txt文件（为了持久化和后续批量更新）
             await self._append_to_persona_updates_file(mood_update)
             logger.info(f"情绪更新已写入文件: {mood_update}")
             
-            # 3. 立即应用到当前系统的 system prompt
+            # 立即应用到当前系统的 system prompt
             success = await self._apply_mood_update_to_system_prompt(group_id, mood_description)
             
             if success:
@@ -1146,6 +1168,56 @@ class TemporaryPersonaUpdater:
             
         except Exception as e:
             logger.error(f"综合应用增量更新失败: {e}")
+            return False
+
+    async def _create_mood_backup_persona(self, group_id: str, mood_type: str) -> bool:
+        """为情绪更新创建备份persona"""
+        try:
+            # 获取当前人格信息
+            provider = self.context.get_using_provider()
+            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+                logger.warning("无法获取当前人格信息，跳过情绪备份")
+                return False
+            
+            current_persona = provider.curr_personality
+            
+            # 提取原人格信息
+            if hasattr(current_persona, 'prompt'):
+                original_prompt = current_persona.prompt
+                original_name = getattr(current_persona, 'name', '默认人格')
+            elif isinstance(current_persona, dict):
+                original_prompt = current_persona.get('prompt', '')
+                original_name = current_persona.get('name', '默认人格')
+            else:
+                logger.warning("无法解析当前人格数据")
+                return False
+            
+            # 生成情绪备份persona名称：原人格名_年月日时间_情绪备份_情绪类型
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            backup_persona_id = f"{original_name}_{timestamp}_情绪备份_{mood_type}"
+            
+            # 创建备份persona
+            persona_manager = self.persona_manager_updater.persona_manager
+            if persona_manager:
+                backup_persona = await persona_manager.create_persona(
+                    persona_id=backup_persona_id,
+                    system_prompt=original_prompt,
+                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
+                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                )
+                
+                if backup_persona:
+                    logger.info(f"成功创建情绪备份persona: {backup_persona_id}")
+                    return True
+                else:
+                    logger.error("创建情绪备份persona失败")
+                    return False
+            else:
+                logger.error("PersonaManager不可用，无法创建情绪备份")
+                return False
+                
+        except Exception as e:
+            logger.error(f"创建情绪备份persona失败: {e}")
             return False
 
     async def stop(self):

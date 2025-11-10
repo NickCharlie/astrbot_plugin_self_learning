@@ -41,6 +41,7 @@ class AnalysisResult:
     data: Dict[str, Any]
     timestamp: float = 0.0
     error: Optional[str] = None
+    consistency_score: Optional[float] = None
 
 
 @dataclass
@@ -395,6 +396,36 @@ class IIntelligentResponder(ABC):
     async def send_response(self, event: AstrMessageEvent) -> bool:
         """发送回复"""
         pass
+
+
+class IPersonaManagerUpdater(ABC):
+    """PersonaManager增量更新接口"""
+    
+    @abstractmethod
+    async def apply_incremental_update(self, group_id: str, update_content: str) -> bool:
+        """应用增量更新到PersonaManager中的persona"""
+        pass
+    
+    @abstractmethod
+    async def create_incremental_persona(self, base_persona_id: str, group_id: str, increments: List[str]) -> str:
+        """基于基础persona创建增量更新的新persona"""
+        pass
+    
+    @abstractmethod
+    async def get_or_create_group_persona(self, group_id: str, base_persona_id: str = None) -> str:
+        """获取或创建群组专用persona"""
+        pass
+    
+    @abstractmethod
+    async def merge_incremental_updates(self, persona_id: str, new_content: str) -> bool:
+        """将新的增量内容合并到现有persona的末尾"""
+        pass
+    
+    @abstractmethod
+    async def cleanup_old_personas(self, group_id: str, keep_count: int = 5) -> bool:
+        """清理旧的增量persona，只保留最新的几个"""
+        pass
+
 
 
 # 策略枚举

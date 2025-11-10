@@ -278,6 +278,15 @@ class ProgressiveLearningService:
                     logger.error(f"强化学习增量微调失败: {e}")
             
             # 8. 质量监控评估
+            # 确保参数不为None，提供默认值
+            if current_persona is None:
+                current_persona = {"prompt": "默认人格"}
+                logger.warning("current_persona为None，使用默认值")
+            
+            if updated_persona is None:
+                updated_persona = current_persona.copy()
+                logger.warning("updated_persona为None，使用current_persona的副本")
+                
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, 
                 updated_persona, 
@@ -464,6 +473,15 @@ class ProgressiveLearningService:
         """完成学习批次的最终处理"""
         try:
             # 质量监控评估
+            # 确保参数不为None，提供默认值
+            if current_persona is None:
+                current_persona = {"prompt": "默认人格"}
+                logger.warning("_finalize_learning_batch: current_persona为None，使用默认值")
+            
+            if updated_persona is None:
+                updated_persona = current_persona.copy()
+                logger.warning("_finalize_learning_batch: updated_persona为None，使用current_persona的副本")
+                
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, updated_persona, filtered_messages
             )

@@ -121,6 +121,51 @@ class CommandMessages:
     PERSONA_SWITCH_SUCCESS = "✅ 已切换到人格: {persona_name}"
     PERSONA_SWITCH_FAILED = "❌ 人格切换失败，请检查人格名称是否正确"
     
+    # 人格更新和显示消息
+    PERSONA_UPDATE_HEADER = "🎭 人格更新报告 (群组: {group_id}):"
+    PERSONA_UPDATE_SUCCESS = "✅ 人格更新成功完成"
+    PERSONA_UPDATE_FAILED = "❌ 人格更新失败: {error}"
+    PERSONA_BEFORE_AFTER = """
+📝 人格变化对比:
+
+【更新前】
+{before_content}
+
+【更新后】
+{after_content}
+
+📊 变化摘要:
+{change_summary}"""
+    
+    PERSONA_CURRENT_DISPLAY = """
+🎭 当前人格信息:
+
+📛 人格名称: {persona_name}
+📝 人格描述:
+{persona_prompt}
+
+📈 学习统计:
+- 更新次数: {update_count}
+- 最后更新: {last_update}
+- 学习质量: {quality_score:.2f}/10"""
+    
+    PERSONA_BACKUP_STATUS = """
+💾 备份状态:
+- 总备份数: {total_backups}
+- 最新备份: {latest_backup}
+- 自动备份: {auto_backup_status}"""
+    
+    PERSONA_STYLE_FEATURES = """
+🎨 学习到的风格特征:
+{style_features}"""
+    
+    PERSONA_CHANGE_SUMMARY = """
+📊 本次更新内容:
+- Prompt长度: {prompt_length_before} → {prompt_length_after} ({length_change})
+- 新增特征: {new_features_count} 项
+- 风格调整: {style_adjustments}
+- 更新原因: {update_reason}"""
+    
     # 错误消息
     ERROR_GET_LEARNING_STATUS = "获取学习状态失败: {error}"
     ERROR_START_LEARNING = "启动学习失败: {error}"

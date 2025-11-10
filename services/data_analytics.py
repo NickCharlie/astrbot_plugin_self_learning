@@ -259,7 +259,7 @@ class DataAnalyticsService(AsyncServiceBase):
             activity_matrix = np.zeros((7, 24))  # 7天 x 24小时
             
             for msg in messages:
-                timestamp = msg.get('timestamp', time.time())
+                timestamp = msg.timestamp
                 dt = datetime.fromtimestamp(timestamp)
                 weekday = dt.weekday()  # 0=Monday, 6=Sunday
                 hour = dt.hour
@@ -331,8 +331,8 @@ class DataAnalyticsService(AsyncServiceBase):
             stopwords = {'的', '了', '是', '在', '我', '你', '他', '她', '它', '这', '那', '和', '与', '及'}
             
             for msg in messages:
-                content = msg.get('message', '')
-                timestamp = msg.get('timestamp', time.time())
+                content = msg.message or ''
+                timestamp = msg.timestamp
                 date_key = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
                 
                 # 分词和关键词提取
@@ -542,9 +542,9 @@ class DataAnalyticsService(AsyncServiceBase):
             stopwords = {'的', '了', '是', '在', '我', '你', '他', '她', '它', '这', '那', '和', '与', '及'}
             
             for msg in messages:
-                sender_id = msg.get('sender_id', '')
-                content = msg.get('message', '')
-                timestamp = msg.get('timestamp', time.time())
+                sender_id = msg.sender_id or ''
+                content = msg.message or ''
+                timestamp = msg.timestamp
                 
                 # 统计用户消息数量和长度
                 user_message_counts[sender_id] += 1

@@ -20,6 +20,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .config import PluginConfig
 from .core.factory import FactoryManager
+from .core.interfaces import MessageData
 from .exceptions import SelfLearningError
 from .webui import Server, set_plugin_services # 导入 FastAPI 服务器相关
 from .statics.messages import StatusMessages, CommandMessages, LogMessages, FileNames, DefaultValues
@@ -38,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -363,14 +364,29 @@ class SelfLearningPlugin(star.Star):
             if hasattr(self, 'style_analyzer') and self.style_analyzer:
                 try:
                     # 获取最近的消息进行风格分析
-                    recent_messages = await self.db_manager.get_recent_filtered_messages(group_id, limit=5)
+                    recent_messages_dict = await self.db_manager.get_recent_filtered_messages(group_id, limit=5)
                     # 添加当前消息
-                    current_message = {
+                    current_message_dict = {
                         'message': message_text,
                         'sender_id': sender_id,
                         'timestamp': time.time()
                     }
-                    analysis_messages = recent_messages + [current_message]
+                    all_messages_dict = recent_messages_dict + [current_message_dict]
+                    
+                    # 转换字典数据为MessageData对象
+                    analysis_messages = []
+                    for msg_dict in all_messages_dict:
+                        message_data = MessageData(
+                            sender_id=msg_dict.get('sender_id', ''),
+                            sender_name=msg_dict.get('sender_name', ''),
+                            message=msg_dict.get('message', ''),
+                            group_id=group_id,
+                            timestamp=msg_dict.get('timestamp', time.time()),
+                            platform=msg_dict.get('platform', 'default'),
+                            message_id=msg_dict.get('message_id'),
+                            reply_to=msg_dict.get('reply_to')
+                        )
+                        analysis_messages.append(message_data)
                     
                     # 立即分析消息的风格
                     style_result = await self.style_analyzer.analyze_conversation_style(
@@ -570,6 +586,7 @@ class SelfLearningPlugin(star.Star):
             'persona_switch',
             'temp_persona',
             'apply_persona_updates',
+            'switch_persona_update_mode',
             'clean_duplicate_content'
         ]
         
@@ -624,7 +641,7 @@ class SelfLearningPlugin(star.Star):
                 return
             
             # QQ号过滤（仅用于学习数据收集）
-            if not self.qq_filter.should_collect_message(sender_id):
+            if not self.qq_filter.should_collect_message(sender_id, group_id):
                 return
             
             # 优先更新增量内容 - 每收到消息都立即执行
@@ -907,12 +924,24 @@ class SelfLearningPlugin(star.Star):
             status_info = CommandMessages.STATUS_REPORT_HEADER.format(group_id=group_id)
             
             # 基础配置
+            persona_update_mode = "PersonaManager模式" if self.plugin_config.use_persona_manager_updates else "传统文件模式"
             status_info += CommandMessages.STATUS_BASIC_CONFIG.format(
                 message_capture=CommandMessages.STATUS_ENABLED if self.plugin_config.enable_message_capture else CommandMessages.STATUS_DISABLED,
                 auto_learning=CommandMessages.STATUS_ENABLED if self.plugin_config.enable_auto_learning else CommandMessages.STATUS_DISABLED,
                 realtime_learning=CommandMessages.STATUS_ENABLED if self.plugin_config.enable_realtime_learning else CommandMessages.STATUS_DISABLED,
                 web_interface=CommandMessages.STATUS_ENABLED if self.plugin_config.enable_web_interface else CommandMessages.STATUS_DISABLED
             )
+            
+            # 人格更新方式信息
+            status_info += f"\n\n📊 人格更新配置:\n"
+            status_info += f"• 更新方式: {persona_update_mode}\n"
+            if self.plugin_config.use_persona_manager_updates:
+                # 检查PersonaManager可用性
+                persona_manager_updater = self.service_factory.create_persona_manager_updater()
+                pm_status = "✅ 可用" if persona_manager_updater.is_available() else "❌ 不可用"
+                status_info += f"• PersonaManager状态: {pm_status}\n"
+                status_info += f"• 自动应用更新: {'启用' if self.plugin_config.auto_apply_persona_updates else '禁用'}\n"
+            status_info += f"• 更新前备份: {'启用' if self.plugin_config.persona_update_backup_enabled else '禁用'}\n"
             
             # 抓取设置
             status_info += CommandMessages.STATUS_CAPTURE_SETTINGS.format(
@@ -1271,6 +1300,25 @@ class SelfLearningPlugin(star.Star):
             logger.error(CommandMessages.ERROR_PERSONA_SWITCH.format(error=e), exc_info=True)
             yield event.plain_result(CommandMessages.ERROR_PERSONA_SWITCH.format(error=str(e)))
 
+    @filter.command("persona_info")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def persona_info_command(self, event: AstrMessageEvent):
+        """显示当前人格详细信息"""
+        try:
+            group_id = event.get_group_id() or event.get_sender_id()
+            
+            # 获取人格更新器
+            persona_updater = self.service_factory.get_persona_updater()
+            
+            # 生成格式化的人格显示
+            persona_display = await persona_updater.format_current_persona_display(group_id)
+            
+            yield event.plain_result(persona_display)
+            
+        except Exception as e:
+            logger.error(f"获取人格信息失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 获取人格信息失败: {str(e)}")
+
     @filter.command("temp_persona")
     @filter.permission_type(PermissionType.ADMIN)
     async def temp_persona_command(self, event: AstrMessageEvent):
@@ -1392,19 +1440,106 @@ class SelfLearningPlugin(star.Star):
         try:
             group_id = event.get_group_id() or event.get_sender_id()
             
-            yield event.plain_result("🔄 开始应用增量人格更新...")
-            
-            # 调用临时人格更新器的方法
-            success = await self.temporary_persona_updater.read_and_apply_persona_updates(group_id)
-            
-            if success:
-                yield event.plain_result("✅ 增量人格更新应用成功！更新文件已清空，等待下次更新。")
+            # 检查配置决定使用哪种更新方式
+            if self.plugin_config.use_persona_manager_updates:
+                yield event.plain_result("🔄 使用PersonaManager方式应用增量更新...")
+                
+                # 检查PersonaManager更新器是否可用
+                persona_manager_updater = self.service_factory.create_persona_manager_updater()
+                if not persona_manager_updater.is_available():
+                    yield event.plain_result("❌ PersonaManager不可用，请检查AstrBot框架配置或使用传统文件更新方式")
+                    return
+                
+                # 读取persona_updates.txt文件内容
+                updates = await self.temporary_persona_updater._read_persona_updates()
+                if not updates:
+                    yield event.plain_result("ℹ️ 没有找到待应用的人格更新内容")
+                    return
+                
+                # 使用PersonaManager应用更新
+                update_content = "\n".join(updates)
+                success = await persona_manager_updater.apply_incremental_update(group_id, update_content)
+                
+                if success:
+                    # 清空更新文件
+                    await self.temporary_persona_updater.clear_persona_updates_file()
+                    yield event.plain_result(f"✅ PersonaManager增量更新应用成功！已应用 {len(updates)} 项更新")
+                else:
+                    yield event.plain_result("❌ PersonaManager增量更新失败，请检查日志或尝试传统文件更新方式")
             else:
-                yield event.plain_result("ℹ️ 没有找到有效的人格更新内容，或更新应用失败。")
+                # 传统的文件更新方式
+                yield event.plain_result("🔄 使用传统文件方式开始应用增量人格更新...")
+                
+                # 调用临时人格更新器的方法
+                success = await self.temporary_persona_updater.read_and_apply_persona_updates(group_id)
+                
+                if success:
+                    yield event.plain_result("✅ 传统方式增量人格更新应用成功！更新文件已清空，等待下次更新。")
+                else:
+                    yield event.plain_result("ℹ️ 没有找到有效的人格更新内容，或更新应用失败。")
                 
         except Exception as e:
             logger.error(f"应用人格更新命令失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 应用人格更新失败: {str(e)}")
+
+    @filter.command("switch_persona_update_mode")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def switch_persona_update_mode_command(self, event: AstrMessageEvent):
+        """切换人格更新方式"""
+        try:
+            args = event.get_message_str().split()[1:]
+            if len(args) < 1:
+                current_mode = "PersonaManager模式" if self.plugin_config.use_persona_manager_updates else "传统文件模式"
+                yield event.plain_result(f"""📊 人格更新方式配置：
+
+当前模式: {current_mode}
+
+使用方法：/switch_persona_update_mode <模式>
+可用模式：
+• manager - 使用PersonaManager直接管理人格（推荐）
+• file - 使用传统的文件临时存储方式
+
+PersonaManager模式优势：
+✅ 直接在原人格末尾增量更新
+✅ 自动创建备份人格
+✅ 无需手动执行应用命令
+✅ 更好的版本管理
+
+传统文件模式：
+• 通过persona_updates.txt文件临时存储
+• 需要手动执行/apply_persona_updates命令
+• 适合需要人工审核的场景""")
+                return
+            
+            mode = args[0].lower()
+            
+            if mode == "manager":
+                # 检查PersonaManager是否可用
+                persona_manager_updater = self.service_factory.create_persona_manager_updater()
+                if not persona_manager_updater.is_available():
+                    yield event.plain_result("❌ PersonaManager不可用，请检查AstrBot框架是否正确配置了PersonaManager")
+                    return
+                
+                self.plugin_config.use_persona_manager_updates = True
+                yield event.plain_result("✅ 已切换到PersonaManager模式！\n\n特性：\n• 自动在原人格末尾增量更新\n• 自动创建备份人格\n• 无需手动执行应用命令")
+                
+            elif mode == "file":
+                self.plugin_config.use_persona_manager_updates = False
+                yield event.plain_result("✅ 已切换到传统文件模式！\n\n特性：\n• 通过persona_updates.txt临时存储\n• 需要手动执行/apply_persona_updates\n• 适合需要人工审核的场景")
+                
+            else:
+                yield event.plain_result("❌ 无效的模式。请使用 'manager' 或 'file'")
+                return
+            
+            # 显示相关配置
+            backup_status = "启用" if self.plugin_config.persona_update_backup_enabled else "禁用"
+            auto_apply_status = "启用" if self.plugin_config.auto_apply_persona_updates else "禁用"
+            
+            yield event.plain_result(f"\n📋 相关配置：\n• 更新前备份：{backup_status}\n• 自动应用更新：{auto_apply_status}（仅PersonaManager模式生效）")
+                
+        except Exception as e:
+            logger.error(f"切换人格更新模式失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 切换人格更新模式失败: {str(e)}")
 
     @filter.command("clean_duplicate_content")
     @filter.permission_type(PermissionType.ADMIN)

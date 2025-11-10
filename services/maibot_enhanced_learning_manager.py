@@ -35,21 +35,30 @@ class MaiBotEnhancedLearningManager:
             cls._instance = super().__new__(cls)
         return cls._instance
     
-    def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None):
+    def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None):
         # 防止重复初始化
         if self._initialized:
             return
             
         self.config = config
         self.db_manager = db_manager
-        if config:
-            self.llm_adapter = FrameworkLLMAdapter(config)
+        self.context = context
+        
+        if config and context:
+            self.llm_adapter = FrameworkLLMAdapter(context)
+            self.llm_adapter.initialize_providers(config)
         else:
             self.llm_adapter = None
+            
         self._status = ServiceLifecycle.CREATED
         
-        # 初始化各个管理器
-        self.expression_learner = ExpressionPatternLearner.get_instance()
+        # 初始化各个管理器，传递正确的参数
+        self.expression_learner = ExpressionPatternLearner.get_instance(
+            config=config,
+            db_manager=db_manager,
+            context=context,
+            llm_adapter=self.llm_adapter
+        )
         self.memory_graph_manager = MemoryGraphManager.get_instance()
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
         self.time_decay_manager = TimeDecayManager(config, db_manager) if config and db_manager else None
