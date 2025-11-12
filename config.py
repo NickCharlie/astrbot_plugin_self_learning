@@ -2,10 +2,10 @@
 自学习插件配置管理
 """
 import os
+import json
 from typing import List, Optional
-from dataclasses import dataclass, field, asdict # 导入 asdict
+from dataclasses import dataclass, field, asdict
 from astrbot.api import logger
-# from astrbot.core.utils.astrbot_path import get_astrbot_data_path # 不再直接使用
 
 
 @dataclass
@@ -79,7 +79,7 @@ class PluginConfig:
     persona_compatibility_threshold: float = 0.6  # 人格兼容性阈值
     
     # 人格更新方式配置
-    use_persona_manager_updates: bool = False  # 使用PersonaManager进行增量更新（False=使用文件临时存储，True=使用PersonaManager）
+    use_persona_manager_updates: bool = True  # 使用PersonaManager进行增量更新（False=使用文件临时存储，True=使用PersonaManager）
     auto_apply_persona_updates: bool = True   # 自动应用人格更新（仅在use_persona_manager_updates=True时生效）
     persona_update_backup_enabled: bool = True  # 启用更新前备份
     
@@ -245,3 +245,45 @@ class PluginConfig:
             errors.append("强化模型提供商ID不能为空")
             
         return errors
+    
+    def save_to_file(self, filepath: str) -> bool:
+        """保存配置到文件"""
+        try:
+            config_data = asdict(self)
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=2, ensure_ascii=False)
+            logger.info(f"配置已保存到: {filepath}")
+            return True
+        except Exception as e:
+            logger.error(f"保存配置失败: {e}")
+            return False
+    
+    @classmethod
+    def load_from_file(cls, filepath: str, data_dir: Optional[str] = None) -> 'PluginConfig':
+        """从文件加载配置"""
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                    
+                # 设置 data_dir
+                if data_dir:
+                    config_data['data_dir'] = data_dir
+                
+                # 创建配置实例
+                config = cls(**config_data)
+                logger.info(f"配置已从文件加载: {filepath}")
+                return config
+            else:
+                logger.info(f"配置文件不存在，使用默认配置: {filepath}")
+                config = cls()
+                if data_dir:
+                    config.data_dir = data_dir
+                return config
+        except Exception as e:
+            logger.error(f"加载配置失败: {e}，使用默认配置")
+            config = cls()
+            if data_dir:
+                config.data_dir = data_dir
+            return config

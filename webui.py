@@ -3,6 +3,8 @@ import asyncio
 import json # 导入 json 模块
 import secrets
 import time
+from datetime import datetime, timedelta
+from astrbot.api import logger
 from typing import Optional, List, Dict, Any
 from dataclasses import asdict
 from functools import wraps
@@ -14,7 +16,7 @@ from hypercorn.config import Config as HypercornConfig
 
 from .config import PluginConfig
 from .core.factory import FactoryManager
-from .core.interfaces import IPersonaManager, IPersonaUpdater, IDataStorage, PersonaUpdateRecord
+from .persona_web_manager import PersonaWebManager, set_persona_web_manager, get_persona_web_manager
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
@@ -29,14 +31,18 @@ cors(app) # 启用 CORS
 
 # 全局变量，用于存储插件实例和服务
 plugin_config: Optional[PluginConfig] = None
-persona_manager: Optional[IPersonaManager] = None
-persona_updater: Optional[IPersonaUpdater] = None
-database_manager: Optional[IDataStorage] = None
+persona_manager: Optional[Any] = None
+persona_updater: Optional[Any] = None
+database_manager: Optional[Any] = None
+db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
 
 # 新增的变量
-pending_updates: List[PersonaUpdateRecord] = []
+pending_updates: List[Any] = []
 password_config: Dict[str, Any] = {} # 用于存储密码配置
+
+# 设置日志
+# logger = logging.getLogger(__name__)
 
 # 性能指标存储
 llm_call_metrics: Dict[str, Dict[str, Any]] = {}
@@ -71,23 +77,52 @@ def is_authenticated():
 async def set_plugin_services(
     config: PluginConfig,
     factory_manager: FactoryManager,
-    llm_c = None  # 不再使用LLMClient
+    llm_c = None,  # 不再使用LLMClient
+    astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, llm_client, pending_updates
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates
     plugin_config = config
     llm_client = llm_c
 
-    # 从工厂管理器获取服务实例
+    # 总是创建PersonaWebManager，无论是否传入AstrBot PersonaManager
     try:
-        persona_manager = factory_manager.get_service("persona_manager")
+        if astrbot_persona_manager:
+            persona_manager = astrbot_persona_manager
+            logger.info(f"设置AstrBot PersonaManager: {type(astrbot_persona_manager)}")
+        else:
+            logger.warning("未传入AstrBot PersonaManager，将创建空的PersonaWebManager")
+            # 从工厂管理器获取服务实例
+            try:
+                persona_manager = factory_manager.get_service("persona_manager")
+            except Exception as e:
+                logger.error(f"获取persona_manager服务失败: {e}")
+                persona_manager = None
+        
+        # 总是初始化人格Web管理器（即使PersonaManager为None）
+        persona_web_mgr = set_persona_web_manager(astrbot_persona_manager)
+        logger.info(f"创建PersonaWebManager: {persona_web_mgr}")
+        await persona_web_mgr.initialize()
+        logger.info("PersonaWebManager初始化成功")
+    except Exception as e:
+        logger.error(f"PersonaWebManager初始化失败: {e}", exc_info=True)
+        # 即使初始化失败，也要创建一个空的PersonaWebManager以避免500错误
+        try:
+            set_persona_web_manager(None)
+            logger.info("创建了空的PersonaWebManager作为后备方案")
+        except Exception as fallback_e:
+            logger.error(f"创建后备PersonaWebManager失败: {fallback_e}")
+    
+    # 从工厂管理器获取其他服务实例
+    try:
         persona_updater = factory_manager.get_service("persona_updater")
         database_manager = factory_manager.get_service("database_manager")
+        db_manager = database_manager  # 设置别名
     except Exception as e:
-        print(f"获取服务实例失败: {e}")
-        persona_manager = None
+        logger.error(f"获取服务实例失败: {e}")
         persona_updater = None
         database_manager = None
+        db_manager = None
 
     # 加载待审查的人格更新
     if persona_updater:
@@ -496,6 +531,448 @@ async def get_analytics_trends():
         
     except Exception as e:
         return jsonify({"error": f"获取趋势数据失败: {str(e)}"}), 500
+
+# 人格管理相关API端点
+
+@api_bp.route("/persona_management/list")
+@require_auth
+async def get_personas_list():
+    """获取所有人格列表"""
+    try:
+        logger.info("开始获取人格列表...")
+        persona_web_mgr = get_persona_web_manager()
+        logger.info(f"PersonaWebManager实例: {persona_web_mgr}")
+        
+        if not persona_web_mgr:
+            logger.warning("PersonaWebManager未初始化，返回空列表")
+            return jsonify({"personas": []})
+        
+        logger.info("调用get_all_personas_for_web...")
+        personas = await persona_web_mgr.get_all_personas_for_web()
+        logger.info(f"获取到 {len(personas)} 个人格")
+        
+        return jsonify({"personas": personas})
+        
+    except Exception as e:
+        logger.error(f"获取人格列表失败: {e}", exc_info=True)
+        # 返回空列表而不是错误，避免前端显示错误
+        return jsonify({"personas": []})
+
+@api_bp.route("/persona_management/get/<persona_id>")
+@require_auth 
+async def get_persona_details(persona_id: str):
+    """获取特定人格详情"""
+    if not persona_manager:
+        return jsonify({"error": "PersonaManager未初始化"}), 500
+        
+    try:
+        persona = await persona_manager.get_persona(persona_id)
+        if not persona:
+            return jsonify({"error": "人格不存在"}), 404
+            
+        persona_dict = {
+            "persona_id": persona.persona_id,
+            "system_prompt": persona.system_prompt,
+            "begin_dialogs": persona.begin_dialogs,
+            "tools": persona.tools,
+            "created_at": persona.created_at.isoformat() if persona.created_at else None,
+            "updated_at": persona.updated_at.isoformat() if persona.updated_at else None,
+        }
+        
+        return jsonify(persona_dict)
+        
+    except Exception as e:
+        print(f"获取人格详情失败: {e}")
+        return jsonify({"error": f"获取人格详情失败: {str(e)}"}), 500
+
+@api_bp.route("/persona_management/create", methods=["POST"])
+@require_auth
+async def create_persona():
+    """创建新人格"""
+    persona_web_mgr = get_persona_web_manager()
+    if not persona_web_mgr:
+        return jsonify({"error": "人格管理功能暂不可用，请检查AstrBot PersonaManager配置"}), 503
+        
+    try:
+        data = await request.get_json()
+        result = await persona_web_mgr.create_persona_via_web(data)
+        
+        if result["success"]:
+            return jsonify({"message": "人格创建成功", "persona_id": result["persona_id"]})
+        else:
+            return jsonify({"error": result["error"]}), 400
+            
+    except Exception as e:
+        logger.error(f"创建人格失败: {e}", exc_info=True)
+        return jsonify({"error": f"创建人格失败: {str(e)}"}), 500
+
+@api_bp.route("/persona_management/update/<persona_id>", methods=["POST"])
+@require_auth
+async def update_persona(persona_id: str):
+    """更新人格"""
+    persona_web_mgr = get_persona_web_manager()
+    if not persona_web_mgr:
+        return jsonify({"error": "人格管理功能暂不可用，请检查AstrBot PersonaManager配置"}), 503
+        
+    try:
+        data = await request.get_json()
+        result = await persona_web_mgr.update_persona_via_web(persona_id, data)
+        
+        if result["success"]:
+            return jsonify({"message": "人格更新成功"})
+        else:
+            return jsonify({"error": result["error"]}), 400
+            
+    except Exception as e:
+        logger.error(f"更新人格失败: {e}", exc_info=True)
+        return jsonify({"error": f"更新人格失败: {str(e)}"}), 500
+
+@api_bp.route("/persona_management/delete/<persona_id>", methods=["POST"])
+@require_auth
+async def delete_persona(persona_id: str):
+    """删除人格"""
+    persona_web_mgr = get_persona_web_manager()
+    if not persona_web_mgr:
+        return jsonify({"error": "人格管理功能暂不可用，请检查AstrBot PersonaManager配置"}), 503
+        
+    try:
+        result = await persona_web_mgr.delete_persona_via_web(persona_id)
+        
+        if result["success"]:
+            return jsonify({"message": "人格删除成功"})
+        else:
+            return jsonify({"error": result["error"]}), 400
+            
+    except Exception as e:
+        logger.error(f"删除人格失败: {e}", exc_info=True)
+        return jsonify({"error": f"删除人格失败: {str(e)}"}), 500
+
+@api_bp.route("/persona_management/default")
+@require_auth
+async def get_default_persona():
+    """获取默认人格"""
+    persona_web_mgr = get_persona_web_manager()
+    if not persona_web_mgr:
+        # 返回一个基本的默认人格，而不是错误
+        return jsonify({
+            "persona_id": "default",
+            "system_prompt": "You are a helpful assistant.",
+            "begin_dialogs": [],
+            "tools": []
+        })
+        
+    try:
+        default_persona = await persona_web_mgr.get_default_persona_for_web()
+        return jsonify(default_persona)
+        
+    except Exception as e:
+        logger.error(f"获取默认人格失败: {e}", exc_info=True)
+        # 返回基本默认人格而不是错误
+        return jsonify({
+            "persona_id": "default",
+            "system_prompt": "You are a helpful assistant.",
+            "begin_dialogs": [],
+            "tools": []
+        })
+
+@api_bp.route("/persona_management/export/<persona_id>")
+@require_auth
+async def export_persona(persona_id: str):
+    """导出人格配置"""
+    if not persona_manager:
+        return jsonify({"error": "PersonaManager未初始化"}), 500
+        
+    try:
+        persona = await persona_manager.get_persona(persona_id)
+        if not persona:
+            return jsonify({"error": "人格不存在"}), 404
+            
+        from datetime import datetime
+        persona_export = {
+            "persona_id": persona.persona_id,
+            "system_prompt": persona.system_prompt,
+            "begin_dialogs": persona.begin_dialogs,
+            "tools": persona.tools,
+            "export_time": datetime.now().isoformat(),
+            "export_version": "1.0"
+        }
+        
+        return jsonify(persona_export)
+        
+    except Exception as e:
+        print(f"导出人格失败: {e}")
+        return jsonify({"error": f"导出人格失败: {str(e)}"}), 500
+
+@api_bp.route("/persona_management/import", methods=["POST"])
+@require_auth
+async def import_persona():
+    """导入人格配置"""
+    if not persona_manager:
+        return jsonify({"error": "PersonaManager未初始化"}), 500
+        
+    try:
+        data = await request.get_json()
+        
+        # 验证导入数据格式
+        required_fields = ["persona_id", "system_prompt"]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"缺少必需字段: {field}"}), 400
+                
+        persona_id = data["persona_id"]
+        system_prompt = data["system_prompt"]
+        begin_dialogs = data.get("begin_dialogs", [])
+        tools = data.get("tools", [])
+        
+        # 检查是否覆盖现有人格
+        overwrite = data.get("overwrite", False)
+        existing_persona = await persona_manager.get_persona(persona_id)
+        
+        if existing_persona and not overwrite:
+            return jsonify({
+                "error": "人格已存在，如要覆盖请设置overwrite=true"
+            }), 400
+            
+        # 创建或更新人格
+        if existing_persona:
+            success = await persona_manager.update_persona(
+                persona_id=persona_id,
+                system_prompt=system_prompt,
+                begin_dialogs=begin_dialogs,
+                tools=tools
+            )
+            action = "更新"
+        else:
+            success = await persona_manager.create_persona(
+                persona_id=persona_id,
+                system_prompt=system_prompt,
+                begin_dialogs=begin_dialogs,
+                tools=tools
+            )
+            action = "创建"
+            
+        if success:
+            print(f"成功导入人格: {persona_id} ({action})")
+            return jsonify({"message": f"人格{action}成功", "persona_id": persona_id})
+        else:
+            return jsonify({"error": f"人格{action}失败"}), 500
+            
+    except Exception as e:
+        print(f"导入人格失败: {e}")
+        return jsonify({"error": f"导入人格失败: {str(e)}"}), 500
+
+@api_bp.route("/style_learning/results", methods=["GET"])
+@require_auth
+async def get_style_learning_results():
+    """获取风格学习结果"""
+    try:
+        # 初始化空数据结构
+        results_data = {
+            'statistics': {
+                'unique_styles': 0,
+                'avg_confidence': 0,
+                'total_samples': 0,
+                'latest_update': None
+            },
+            'style_progress': []
+        }
+        
+        if db_manager:
+            try:
+                # 尝试从数据库获取真实数据
+                real_stats = await db_manager.get_style_learning_statistics()
+                if real_stats:
+                    results_data['statistics'].update(real_stats)
+                    
+                real_progress = await db_manager.get_style_progress_data()
+                if real_progress:
+                    results_data['style_progress'] = real_progress
+            except Exception as e:
+                logger.warning(f"无法从数据库获取风格学习数据: {e}")
+        
+        return jsonify(results_data)
+    
+    except Exception as e:
+        logger.error(f"获取风格学习结果失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/patterns", methods=["GET"])
+@require_auth
+async def get_style_learning_patterns():
+    """获取风格学习模式"""
+    try:
+        # 初始化空模式数据
+        patterns_data = {
+            'emotion_patterns': [],
+            'language_patterns': [],
+            'topic_preferences': []
+        }
+        
+        if db_manager:
+            try:
+                # 尝试从数据库获取真实模式数据
+                real_patterns = await db_manager.get_learning_patterns_data()
+                if real_patterns:
+                    patterns_data.update(real_patterns)
+            except Exception as e:
+                logger.warning(f"无法从数据库获取学习模式数据: {e}")
+        
+        return jsonify(patterns_data)
+    
+    except Exception as e:
+        logger.error(f"获取风格学习模式失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/metrics/detailed", methods=["GET"])
+@require_auth
+async def get_detailed_metrics():
+    """获取详细性能监控数据"""
+    try:
+        # 初始化空详细数据
+        detailed_data = {
+            'api_metrics': {
+                'hours': [],
+                'response_times': []
+            },
+            'database_metrics': {
+                'table_stats': {}
+            },
+            'system_metrics': {
+                'memory_percent': 0,
+                'cpu_percent': 0,
+                'disk_percent': 0
+            }
+        }
+        
+        if db_manager:
+            try:
+                # 尝试从数据库获取真实详细数据
+                real_detailed = await db_manager.get_detailed_metrics()
+                if real_detailed:
+                    detailed_data.update(real_detailed)
+            except Exception as e:
+                logger.warning(f"无法从数据库获取详细监控数据: {e}")
+        
+        return jsonify(detailed_data)
+    
+    except Exception as e:
+        logger.error(f"获取详细监控数据失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/metrics/trends", methods=["GET"])
+@require_auth
+async def get_metrics_trends():
+    """获取指标趋势数据"""
+    try:
+        # 初始化空趋势数据
+        trends_data = {
+            'message_growth': 0,
+            'filtered_growth': 0,
+            'llm_growth': 0,
+            'sessions_growth': 0
+        }
+        
+        if db_manager:
+            try:
+                # 尝试从数据库获取真实趋势数据
+                real_trends = await db_manager.get_trends_data()
+                if real_trends:
+                    trends_data.update(real_trends)
+            except Exception as e:
+                logger.warning(f"无法从数据库获取趋势数据: {e}")
+        
+        return jsonify(trends_data)
+    
+    except Exception as e:
+        logger.error(f"获取趋势数据失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/content_text", methods=["GET"])
+@require_auth
+async def get_style_learning_content_text():
+    """获取对话风格学习的所有内容文本"""
+    try:
+        # 从数据库获取学习相关的文本内容
+        content_data = {
+            'dialogues': [],
+            'analysis': [],
+            'features': [],
+            'history': []
+        }
+        
+        if db_manager:
+            try:
+                # 获取对话示例文本
+                if hasattr(db_manager, 'get_filtered_messages_sample'):
+                    dialogue_samples = await asyncio.to_thread(
+                        db_manager.get_filtered_messages_sample, 20
+                    )
+                    if dialogue_samples:
+                        for msg in dialogue_samples:
+                            content_data['dialogues'].append({
+                                'timestamp': msg.get('timestamp', ''),
+                                'text': f"用户: {msg.get('content', '')}\n助手: {msg.get('context', {}).get('response', '暂无回复')}",
+                                'metadata': f"置信度: {msg.get('confidence_score', 0):.1%}"
+                            })
+            except Exception as e:
+                logger.warning(f"获取对话示例文本失败: {e}")
+            
+            try:
+                # 获取风格分析结果
+                if hasattr(db_manager, 'get_style_analysis_results'):
+                    analysis_results = await asyncio.to_thread(
+                        db_manager.get_style_analysis_results, limit=10
+                    )
+                    if analysis_results:
+                        for result in analysis_results:
+                            content_data['analysis'].append({
+                                'timestamp': result.get('created_at', ''),
+                                'text': result.get('analysis_text', ''),
+                                'metadata': f"分析类型: {result.get('analysis_type', '未知')}"
+                            })
+            except Exception as e:
+                logger.warning(f"获取风格分析结果失败: {e}")
+            
+            try:
+                # 获取提炼的风格特征
+                if hasattr(db_manager, 'get_learned_style_features'):
+                    style_features = await asyncio.to_thread(
+                        db_manager.get_learned_style_features, limit=10
+                    )
+                    if style_features:
+                        for feature in style_features:
+                            content_data['features'].append({
+                                'timestamp': feature.get('updated_at', ''),
+                                'text': feature.get('feature_description', ''),
+                                'metadata': f"特征权重: {feature.get('weight', 0):.2f}"
+                            })
+            except Exception as e:
+                logger.warning(f"获取风格特征失败: {e}")
+            
+            try:
+                # 获取学习历程记录
+                if hasattr(db_manager, 'get_learning_session_history'):
+                    learning_history = await asyncio.to_thread(
+                        db_manager.get_learning_session_history, limit=15
+                    )
+                    if learning_history:
+                        for session in learning_history:
+                            content_data['history'].append({
+                                'timestamp': session.get('start_time', ''),
+                                'text': f"学习会话: {session.get('session_id', '')}\n处理消息: {session.get('messages_processed', 0)}条\n学习成果: {session.get('learning_results', '无具体描述')}",
+                                'metadata': f"状态: {session.get('status', '未知')}"
+                            })
+            except Exception as e:
+                logger.warning(f"获取学习历程记录失败: {e}")
+        
+        # 如果数据库中没有数据，返回空数据结构
+        # 不提供示例数据，让前端显示"暂无数据"状态
+        
+        return jsonify(content_data)
+    
+    except Exception as e:
+        logger.error(f"获取学习内容文本失败: {e}")
+        return jsonify({'error': str(e)}), 500
 
 # 新增的高级功能API端点
 

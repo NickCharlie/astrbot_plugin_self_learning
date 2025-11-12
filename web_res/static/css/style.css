@@ -21,6 +21,254 @@ body {
 .elevation-3 { box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23); }
 .elevation-4 { box-shadow: 0 14px 28px rgba(0,0,0,0.25), 0 10px 10px rgba(0,0,0,0.22); }
 
+/* 人格编辑对话框样式 */
+.persona-edit-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    padding: 20px;
+}
+
+.persona-edit-dialog {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 24px 38px rgba(0,0,0,0.14), 0 9px 46px rgba(0,0,0,0.12), 0 11px 15px rgba(0,0,0,0.20);
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.dialog-header {
+    padding: 24px;
+    border-bottom: 1px solid #e0e0e0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f5f5f5;
+}
+
+.dialog-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: #212121;
+}
+
+.close-btn {
+    background: none;
+    border: none;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #757575;
+    transition: all 0.3s ease;
+}
+
+.close-btn:hover {
+    background-color: #e0e0e0;
+    color: #212121;
+}
+
+.dialog-content {
+    padding: 24px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.update-info {
+    background: #f8f9fa;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 24px;
+    border-left: 4px solid #1976d2;
+}
+
+.update-info p {
+    margin: 4px 0;
+    font-size: 14px;
+}
+
+.content-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.editor-section h4 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 500;
+    color: #424242;
+}
+
+.editor-section textarea {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    resize: vertical;
+    transition: border-color 0.3s ease;
+}
+
+.editor-section textarea:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.editor-section textarea[readonly] {
+    background-color: #f5f5f5;
+    color: #666;
+}
+
+.dialog-actions {
+    padding: 16px 24px;
+    border-top: 1px solid #e0e0e0;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    background: #f5f5f5;
+}
+
+.content-preview {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #666;
+    border-left: 3px solid #ddd;
+    margin: 8px 0;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    color: #757575;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.persona-update-item .update-preview {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px solid #e0e0e0;
+}
+
+.persona-update-item .update-preview p {
+    font-weight: 500;
+    margin: 8px 0 4px 0;
+    color: #424242;
+}
+
+/* 配置页面扩展样式 */
+.config-category {
+    margin-bottom: 32px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.config-category h3 {
+    background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+    color: white;
+    margin: 0;
+    padding: 16px 20px;
+    font-size: 16px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.config-category h3 i {
+    font-size: 20px;
+}
+
+.config-category .config-grid {
+    padding: 20px;
+    background: #fafafa;
+}
+
+.config-category .config-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    box-shadow: none;
+}
+
+.config-category .config-card h4 {
+    color: #424242;
+    font-size: 14px;
+    font-weight: 500;
+    margin: 0 0 16px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.form-group input[type="range"] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: #ddd;
+    outline: none;
+    margin-bottom: 4px;
+}
+
+.form-group input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #1976d2;
+    cursor: pointer;
+}
+
+.form-group input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #1976d2;
+    cursor: pointer;
+    border: none;
+}
+
+.range-value {
+    display: inline-block;
+    min-width: 60px;
+    color: #666;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* 范围滑块实时更新样式 */
+.range-updated {
+    color: #1976d2;
+    font-weight: 600;
+}
+
 /* 登录页面样式 */
 .login-container {
     display: flex;
@@ -338,6 +586,15 @@ body {
     font-size: 14px;
     color: #757575;
     margin-bottom: 8px;
+}
+
+.stat-description {
+    display: block;
+    font-size: 11px;
+    color: #999;
+    line-height: 1.3;
+    margin-bottom: 6px;
+    font-style: italic;
 }
 
 .stat-trend {
@@ -996,4 +1253,684 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: #a1a1a1;
+}
+
+/* ========== 人格管理页面样式 ========== */
+
+.persona-management-section {
+    padding: 24px;
+}
+
+.management-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.management-controls .btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    text-transform: none;
+    transition: background-color 0.2s ease;
+}
+
+.management-controls .btn-primary {
+    background-color: #1976d2;
+    color: white;
+}
+
+.management-controls .btn-primary:hover {
+    background-color: #1565c0;
+}
+
+.management-controls .btn-info {
+    background-color: #0288d1;
+    color: white;
+}
+
+.management-controls .btn-info:hover {
+    background-color: #0277bd;
+}
+
+.management-controls .btn-success {
+    background-color: #388e3c;
+    color: white;
+}
+
+.management-controls .btn-success:hover {
+    background-color: #2e7d32;
+}
+
+/* 人格列表网格 */
+.personas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+    gap: 24px;
+    margin: 24px 0;
+}
+
+/* 人格卡片 */
+.persona-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.persona-card:hover {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.persona-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background-color: #f5f5f5;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.persona-card-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    color: #1976d2;
+}
+
+.persona-card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #666;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.btn-icon:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    color: #333;
+}
+
+.btn-icon.btn-danger:hover {
+    background-color: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+}
+
+.persona-card-content {
+    padding: 16px 20px;
+}
+
+.persona-field {
+    margin-bottom: 12px;
+}
+
+.persona-field label {
+    display: block;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.persona-prompt-preview,
+.persona-dialogs-preview,
+.persona-tools-preview {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.persona-time {
+    font-size: 12px;
+    color: #999;
+}
+
+/* 空状态 */
+.no-personas {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: #666;
+}
+
+.no-personas .material-icons {
+    font-size: 64px;
+    color: #ccc;
+    margin-bottom: 16px;
+}
+
+.no-personas h3 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    font-weight: 400;
+}
+
+.no-personas p {
+    margin: 0;
+    font-size: 14px;
+}
+
+.loading-placeholder {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f0f0f0;
+    border-left: 4px solid #1976d2;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 16px auto;
+}
+
+/* 默认人格部分 */
+.default-persona-section {
+    margin-top: 40px;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 24px;
+}
+
+.default-persona-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    color: #333;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.default-persona-section .material-icons {
+    color: #ff9800;
+}
+
+.default-persona-card {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+}
+
+.no-default-persona {
+    text-align: center;
+    padding: 40px;
+    color: #666;
+}
+
+.no-default-persona .material-icons {
+    font-size: 48px;
+    color: #ff9800;
+    margin-bottom: 12px;
+}
+
+/* 人格对话框样式 */
+.persona-dialog-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    animation: fadeIn 0.2s ease;
+}
+
+.persona-dialog {
+    background: white;
+    border-radius: 8px;
+    width: 90vw;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dialog-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #e0e0e0;
+    background-color: #f5f5f5;
+}
+
+.dialog-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 500;
+    color: #333;
+}
+
+.close-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #666;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.close-btn:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.dialog-content {
+    padding: 24px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.backup-notice {
+    background-color: #e3f2fd;
+    border: 1px solid #bbdefb;
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #1976d2;
+    font-size: 14px;
+}
+
+.backup-notice .material-icons {
+    font-size: 18px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #333;
+    font-size: 14px;
+}
+
+.form-group input[type="text"],
+.form-group textarea,
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: border-color 0.2s ease;
+    box-sizing: border-box;
+}
+
+.form-group input[type="text"]:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.dialog-actions {
+    padding: 16px 24px;
+    border-top: 1px solid #e0e0e0;
+    background-color: #f5f5f5;
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+}
+
+.dialog-actions .btn {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.dialog-actions .btn-secondary {
+    background-color: #e0e0e0;
+    color: #333;
+}
+
+.dialog-actions .btn-secondary:hover {
+    background-color: #d0d0d0;
+}
+
+.dialog-actions .btn-primary {
+    background-color: #1976d2;
+    color: white;
+}
+
+.dialog-actions .btn-primary:hover {
+    background-color: #1565c0;
+}
+
+/* 开关样式 */
+.switch-label {
+    display: flex !important;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    margin-bottom: 8px !important;
+}
+
+.switch-slider {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background-color: #ccc;
+    border-radius: 12px;
+    transition: background-color 0.2s ease;
+}
+
+.switch-slider:before {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: white;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.switch-label input[type="checkbox"] {
+    display: none;
+}
+
+.switch-label input[type="checkbox"]:checked + .switch-slider {
+    background-color: #1976d2;
+}
+
+.switch-label input[type="checkbox"]:checked + .switch-slider:before {
+    transform: translateX(20px);
+}
+
+/* 学习内容文本汇总样式 */
+.learning-content-section {
+    margin-top: 40px;
+    padding: 24px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.learning-content-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    color: #1976d2;
+    font-size: 20px;
+    font-weight: 500;
+}
+
+.content-controls {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.search-box {
+    position: relative;
+    flex: 1;
+    max-width: 300px;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 8px 40px 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.2s ease;
+}
+
+.search-box input:focus {
+    outline: none;
+    border-color: #1976d2;
+    box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+.search-box .material-icons {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #666;
+    font-size: 20px;
+}
+
+.learning-content-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+    gap: 24px;
+}
+
+.content-category {
+    background: #f8f9fa;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.content-category h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #1976d2, #1565c0);
+    color: white;
+    margin: 0;
+    padding: 16px 20px;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.content-text-area {
+    padding: 20px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: white;
+}
+
+.loading-message {
+    color: #666;
+    font-style: italic;
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.content-item {
+    margin-bottom: 16px;
+    padding: 12px 16px;
+    background: #f5f5f5;
+    border-radius: 6px;
+    border-left: 4px solid #1976d2;
+    transition: transform 0.2s ease;
+}
+
+.content-item:hover {
+    transform: translateX(4px);
+    background: #e8f4fd;
+}
+
+.content-timestamp {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.content-text {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #333;
+    white-space: pre-wrap;
+}
+
+.content-metadata {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #888;
+}
+
+.highlight {
+    background: #ffeb3b;
+    padding: 1px 3px;
+    border-radius: 3px;
+}
+
+.no-content {
+    text-align: center;
+    color: #666;
+    font-style: italic;
+    padding: 40px 20px;
+}
+
+.export-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+}
+
+.export-dialog-content {
+    background: white;
+    border-radius: 8px;
+    padding: 24px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 80%;
+    overflow-y: auto;
+}
+
+.export-format-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.format-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.format-option:hover {
+    background-color: #f5f5f5;
+}
+
+.format-option input[type="radio"] {
+    margin-right: 8px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .learning-content-container {
+        grid-template-columns: 1fr;
+    }
+    
+    .content-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .search-box {
+        max-width: none;
+    }
+}
+
+/* 响应式设计 - 人格管理 */
+@media (max-width: 768px) {
+    .personas-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .persona-dialog {
+        width: 95vw;
+        margin: 20px;
+    }
+    
+    .management-controls {
+        flex-wrap: wrap;
+    }
 }

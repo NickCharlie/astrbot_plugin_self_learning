@@ -144,6 +144,52 @@ function initializeNavigation() {
             loadPageData(targetPage);
         });
     });
+    
+    // 初始化范围滑块事件监听
+    initializeRangeSliders();
+}
+
+// 初始化范围滑块
+function initializeRangeSliders() {
+    document.querySelectorAll('input[type="range"]').forEach(slider => {
+        const updateDisplay = () => {
+            const valueSpan = slider.parentElement.querySelector('.range-value');
+            if (valueSpan) {
+                let displayValue = slider.value;
+                
+                // 根据不同的滑块类型格式化显示值
+                if (slider.id.includes('Hour')) {
+                    if (slider.id === 'moodChangeHour') {
+                        displayValue = `${slider.value}:00`;
+                    } else {
+                        displayValue = `${slider.value} 小时`;
+                    }
+                } else if (slider.id.includes('Days')) {
+                    displayValue = `${slider.value} 天`;
+                } else if (slider.id.includes('Threshold') || slider.id.includes('Rate')) {
+                    displayValue = parseFloat(slider.value).toFixed(2);
+                } else if (slider.id.includes('Length')) {
+                    displayValue = `${slider.value} 字符`;
+                } else if (slider.id.includes('Messages') || slider.id.includes('Size') || slider.id.includes('Sample')) {
+                    displayValue = `${slider.value} 条`;
+                } else if (slider.id.includes('Dialogs') || slider.id.includes('Backups')) {
+                    displayValue = `${slider.value} 个`;
+                } else {
+                    displayValue = slider.value;
+                }
+                
+                valueSpan.textContent = displayValue;
+                valueSpan.classList.add('range-updated');
+                setTimeout(() => valueSpan.classList.remove('range-updated'), 300);
+            }
+        };
+        
+        slider.addEventListener('input', updateDisplay);
+        slider.addEventListener('change', updateDisplay);
+        
+        // 初始化显示值
+        updateDisplay();
+    });
 }
 
 // 加载初始数据
@@ -189,8 +235,48 @@ function renderOverviewStats() {
     const totalLLMCalls = Object.values(stats.llm_calls || {}).reduce((sum, model) => sum + (model.total_calls || 0), 0);
     document.getElementById('total-llm-calls').textContent = formatNumber(totalLLMCalls);
     
-    // 模拟学习会话数
-    document.getElementById('learning-sessions').textContent = formatNumber(Math.floor(totalLLMCalls / 10) || 0);
+    // 使用学习会话统计的真实数据
+    const learningSessionsCount = stats.learning_sessions?.active_sessions || 0;
+    document.getElementById('learning-sessions').textContent = formatNumber(learningSessionsCount);
+
+    // 加载并显示真实的趋势百分比
+    fetch('/api/metrics/trends')
+        .then(response => response.json())
+        .then(trendsData => {
+            // 更新趋势指标（使用正确的ID）
+            updateTrendIndicator('messages-trend', trendsData.message_growth);
+            updateTrendIndicator('filtered-trend', trendsData.filtered_growth);
+            updateTrendIndicator('llm-trend', trendsData.llm_growth);
+            updateTrendIndicator('sessions-trend', trendsData.sessions_growth);
+        })
+        .catch(error => {
+            console.error('加载趋势数据失败:', error);
+            // 趋势数据加载失败时显示0%
+            updateTrendIndicator('messages-trend', 0);
+            updateTrendIndicator('filtered-trend', 0);
+            updateTrendIndicator('llm-trend', 0);
+            updateTrendIndicator('sessions-trend', 0);
+        });
+}
+
+// 更新趋势指示器
+function updateTrendIndicator(elementId, percentage) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        const isPositive = percentage >= 0;
+        const symbol = isPositive ? '+' : '';
+        const color = isPositive ? '#4caf50' : '#f44336';
+        
+        element.textContent = `${symbol}${percentage}%`;
+        element.style.color = color;
+        
+        // 更新图标
+        const icon = element.parentElement.querySelector('.material-icons');
+        if (icon) {
+            icon.textContent = isPositive ? 'trending_up' : 'trending_down';
+            icon.style.color = color;
+        }
+    }
 }
 
 // 初始化图表
@@ -209,6 +295,9 @@ function initializeCharts() {
     
     // 系统状态雷达图
     initializeSystemStatusRadar();
+    
+    // 对话风格学习可视化
+    initializeStyleLearningDashboard();
     
     // 用户活跃度热力图
     initializeActivityHeatmap();
@@ -269,7 +358,7 @@ function initializeMessageTrendLine() {
     const chart = echarts.init(chartDom, 'material');
     chartInstances['message-trend-line'] = chart;
     
-    // 使用真实数据或从API获取趋势数据
+    // 优先使用真实数据，失败时使用空数据而非模拟数据
     fetch('/api/analytics/trends')
         .then(response => response.json())
         .then(data => {
@@ -320,22 +409,17 @@ function initializeMessageTrendLine() {
         })
         .catch(error => {
             console.error('加载趋势数据失败:', error);
-            // 使用模拟数据作为后备
-            initializeMessageTrendLineWithMockData(chart);
+            // 显示空图表而不是模拟数据
+            initializeEmptyMessageTrendLine(chart);
         });
 }
 
-// 后备的模拟数据方法
-function initializeMessageTrendLineWithMockData(chart) {
+// 空数据的消息趋势图
+function initializeEmptyMessageTrendLine(chart) {
     const hours = [];
-    const rawMessages = [];
-    const filteredMessages = [];
-    
     for (let i = 23; i >= 0; i--) {
         const hour = new Date(Date.now() - i * 60 * 60 * 1000);
         hours.push(hour.getHours() + ':00');
-        rawMessages.push(Math.floor(Math.random() * 50) + 10);
-        filteredMessages.push(Math.floor(Math.random() * 20) + 5);
     }
     
     const option = {
@@ -360,14 +444,14 @@ function initializeMessageTrendLineWithMockData(chart) {
             {
                 name: '原始消息',
                 type: 'line',
-                data: rawMessages,
+                data: new Array(24).fill(0),
                 smooth: true,
                 itemStyle: { color: '#2196f3' }
             },
             {
                 name: '筛选消息',
                 type: 'line',
-                data: filteredMessages,
+                data: new Array(24).fill(0),
                 smooth: true,
                 itemStyle: { color: '#4caf50' }
             }
@@ -531,8 +615,41 @@ function initializeSystemStatusRadar() {
     const chart = echarts.init(chartDom, 'material');
     chartInstances['system-status-radar'] = chart;
     
+    // 从当前指标计算真实的系统状态
+    const stats = currentMetrics;
+    
+    // 消息抓取效率 (基于真实消息收集情况)
+    const totalMessages = stats.total_messages_collected || 0;
+    const messageCapture = totalMessages > 0 ? Math.min(100, (totalMessages / 1000) * 100) : 0;
+    
+    // 数据筛选质量 (基于筛选率)
+    const filteredMessages = stats.filtered_messages || 0;
+    const filteringQuality = totalMessages > 0 ? (filteredMessages / totalMessages) * 100 : 0;
+    
+    // LLM调用健康度 (基于成功率)
+    const llmCalls = stats.llm_calls || {};
+    const llmModels = Object.values(llmCalls);
+    const avgSuccessRate = llmModels.length > 0 ? 
+        llmModels.reduce((sum, model) => sum + (model.success_rate || 0), 0) / llmModels.length * 100 : 0;
+    
+    // 学习质量 (基于学习效率)
+    const learningQuality = stats.learning_efficiency || 0;
+    
+    // 响应速度 (基于LLM平均响应时间，越快分数越高)
+    const avgResponseTime = llmModels.length > 0 ? 
+        llmModels.reduce((sum, model) => sum + (model.avg_response_time_ms || 0), 0) / llmModels.length : 2000;
+    const responseSpeed = Math.max(0, 100 - (avgResponseTime / 20)); // 2000ms = 0分，0ms = 100分
+    
+    // 系统稳定性 (基于CPU和内存使用率)
+    const systemMetrics = stats.system_metrics || {};
+    const cpuHealth = Math.max(0, 100 - (systemMetrics.cpu_percent || 0));
+    const memoryHealth = Math.max(0, 100 - (systemMetrics.memory_percent || 0));
+    const systemStability = (cpuHealth + memoryHealth) / 2;
+    
     const option = {
-        tooltip: {},
+        tooltip: {
+            formatter: '{b}: {c}%'
+        },
         radar: {
             indicator: [
                 { name: '消息抓取', max: 100 },
@@ -551,7 +668,14 @@ function initializeSystemStatusRadar() {
                 type: 'radar',
                 data: [
                     {
-                        value: [85, 92, 78, 88, 82, 95],
+                        value: [
+                            Math.round(messageCapture),
+                            Math.round(filteringQuality),
+                            Math.round(avgSuccessRate),
+                            Math.round(learningQuality),
+                            Math.round(responseSpeed),
+                            Math.round(systemStability)
+                        ],
                         name: '当前状态',
                         itemStyle: { color: '#1976d2' },
                         areaStyle: { opacity: 0.3 }
@@ -564,13 +688,134 @@ function initializeSystemStatusRadar() {
     chart.setOption(option);
 }
 
+// 对话风格学习可视化
+function initializeStyleLearningDashboard() {
+    const chartDom = document.getElementById('style-learning-dashboard');
+    const chart = echarts.init(chartDom, 'material');
+    chartInstances['style-learning-dashboard'] = chart;
+    
+    // 获取风格学习数据
+    fetch('/api/style_learning/results')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                // 显示获取失败状态
+                initializeEmptyStyleLearningChart(chart, data.error);
+                return;
+            }
+            
+            const styleProgress = data.style_progress || [];
+            
+            if (styleProgress.length === 0) {
+                initializeEmptyStyleLearningChart(chart, '暂无风格学习数据');
+                return;
+            }
+            
+            const styles = styleProgress.map(item => item.style_type);
+            const confidenceData = styleProgress.map(item => item.avg_confidence);
+            const sampleData = styleProgress.map(item => item.total_samples);
+            
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    }
+                },
+                legend: {
+                    data: ['平均置信度(%)', '样本数量']
+                },
+                xAxis: {
+                    type: 'category',
+                    data: styles,
+                    axisLabel: {
+                        rotate: 45
+                    }
+                },
+                yAxis: [
+                    {
+                        type: 'value',
+                        name: '置信度(%)',
+                        position: 'left',
+                        max: 100
+                    },
+                    {
+                        type: 'value',
+                        name: '样本数量',
+                        position: 'right'
+                    }
+                ],
+                series: [
+                    {
+                        name: '平均置信度(%)',
+                        type: 'bar',
+                        data: confidenceData,
+                        itemStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: '#667eea' },
+                                { offset: 1, color: '#764ba2' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '样本数量',
+                        type: 'line',
+                        yAxisIndex: 1,
+                        data: sampleData,
+                        itemStyle: {
+                            color: '#f093fb'
+                        },
+                        lineStyle: {
+                            width: 3
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option);
+        })
+        .catch(error => {
+            console.error('获取风格学习数据失败:', error);
+            initializeEmptyStyleLearningChart(chart, '获取数据失败，请检查网络连接');
+        });
+}
+
+// 空的风格学习图表
+function initializeEmptyStyleLearningChart(chart, message) {
+    const option = {
+        title: {
+            text: message || '暂无数据',
+            left: 'center',
+            top: 'middle',
+            textStyle: {
+                fontSize: 14,
+                color: '#999'
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: []
+        },
+        yAxis: {
+            type: 'value'
+        },
+        series: [{
+            name: '风格学习',
+            type: 'bar',
+            data: []
+        }]
+    };
+    
+    chart.setOption(option);
+}
+
 // 用户活跃度热力图
 function initializeActivityHeatmap() {
     const chartDom = document.getElementById('activity-heatmap');
     const chart = echarts.init(chartDom, 'material');
     chartInstances['activity-heatmap'] = chart;
     
-    // 从API获取热力图数据
+    // 从API获取真实热力图数据
     fetch('/api/analytics/trends')
         .then(response => response.json())
         .then(data => {
@@ -606,7 +851,7 @@ function initializeActivityHeatmap() {
                 },
                 visualMap: {
                     min: 0,
-                    max: 50,
+                    max: Math.max(...actualData.map(item => item[2]), 10), // 动态设置最大值
                     calculable: true,
                     orient: 'horizontal',
                     left: 'center',
@@ -637,13 +882,13 @@ function initializeActivityHeatmap() {
         })
         .catch(error => {
             console.error('加载活跃度数据失败:', error);
-            // 使用模拟数据作为后备
-            initializeActivityHeatmapWithMockData(chart);
+            // 使用空数据而不是模拟数据
+            initializeEmptyActivityHeatmap(chart);
         });
 }
 
-// 后备的活跃度热力图
-function initializeActivityHeatmapWithMockData(chart) {
+// 空活跃度热力图
+function initializeEmptyActivityHeatmap(chart) {
     const hours = [];
     const days = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
     for (let i = 0; i < 24; i++) {
@@ -653,7 +898,7 @@ function initializeActivityHeatmapWithMockData(chart) {
     const data = [];
     for (let i = 0; i < 7; i++) {
         for (let j = 0; j < 24; j++) {
-            data.push([j, i, Math.floor(Math.random() * 50)]);
+            data.push([j, i, 0]); // 全部设为0
         }
     }
     
@@ -684,7 +929,7 @@ function initializeActivityHeatmapWithMockData(chart) {
         },
         visualMap: {
             min: 0,
-            max: 50,
+            max: 10,
             calculable: true,
             orient: 'horizontal',
             left: 'center',
@@ -817,27 +1062,92 @@ async function loadLearningStatus() {
 
 // 渲染配置页面
 function renderConfigPage() {
-    // 更新开关状态
+    // 基础开关
     document.getElementById('enableMessageCapture').checked = currentConfig.enable_message_capture || false;
     document.getElementById('enableAutoLearning').checked = currentConfig.enable_auto_learning || false;
     document.getElementById('enableRealtimeLearning').checked = currentConfig.enable_realtime_learning || false;
+    document.getElementById('enableRealtimeLLMFilter').checked = currentConfig.enable_realtime_llm_filter || false;
+    document.getElementById('enableWebInterface').checked = currentConfig.enable_web_interface || true;
+    document.getElementById('webInterfacePort').value = currentConfig.web_interface_port || 7833;
     
-    // 更新其他配置项
+    // MaiBot增强功能
+    document.getElementById('enableMaibotFeatures').checked = currentConfig.enable_maibot_features || true;
+    document.getElementById('enableExpressionPatterns').checked = currentConfig.enable_expression_patterns || true;
+    document.getElementById('enableMemoryGraph').checked = currentConfig.enable_memory_graph || true;
+    document.getElementById('enableKnowledgeGraph').checked = currentConfig.enable_knowledge_graph || true;
+    document.getElementById('enableTimeDecay').checked = currentConfig.enable_time_decay || true;
+    
+    // 目标设置
     if (currentConfig.target_qq_list) {
         document.getElementById('targetQQList').value = currentConfig.target_qq_list.join(', ');
     }
-    
-    if (currentConfig.learning_interval_hours) {
-        document.getElementById('learningInterval').value = currentConfig.learning_interval_hours;
+    if (currentConfig.target_blacklist) {
+        document.getElementById('targetBlacklist').value = currentConfig.target_blacklist.join(', ');
     }
+    document.getElementById('currentPersonaName').value = currentConfig.current_persona_name || 'default';
     
-    if (currentConfig.filter_model_name) {
-        document.getElementById('filterModel').value = currentConfig.filter_model_name;
-    }
+    // LLM提供商
+    document.getElementById('filterProviderId').value = currentConfig.filter_provider_id || '';
+    document.getElementById('refineProviderId').value = currentConfig.refine_provider_id || '';
+    document.getElementById('reinforceProviderId').value = currentConfig.reinforce_provider_id || '';
     
-    if (currentConfig.refine_model_name) {
-        document.getElementById('refineModel').value = currentConfig.refine_model_name;
-    }
+    // 学习参数
+    document.getElementById('learningInterval').value = currentConfig.learning_interval_hours || 6;
+    document.getElementById('minMessagesForLearning').value = currentConfig.min_messages_for_learning || 50;
+    document.getElementById('maxMessagesPerBatch').value = currentConfig.max_messages_per_batch || 200;
+    
+    // 筛选参数
+    document.getElementById('messageMinLength').value = currentConfig.message_min_length || 5;
+    document.getElementById('messageMaxLength').value = currentConfig.message_max_length || 500;
+    document.getElementById('confidenceThreshold').value = currentConfig.confidence_threshold || 0.7;
+    document.getElementById('relevanceThreshold').value = currentConfig.relevance_threshold || 0.6;
+    
+    // 风格分析
+    document.getElementById('styleAnalysisBatchSize').value = currentConfig.style_analysis_batch_size || 100;
+    document.getElementById('styleUpdateThreshold').value = currentConfig.style_update_threshold || 0.6;
+    
+    // 机器学习设置
+    document.getElementById('enableMLAnalysis').checked = currentConfig.enable_ml_analysis || true;
+    document.getElementById('maxMLSampleSize').value = currentConfig.max_ml_sample_size || 100;
+    document.getElementById('mlCacheTimeoutHours').value = currentConfig.ml_cache_timeout_hours || 1;
+    
+    // 人格备份
+    document.getElementById('autoBackupEnabled').checked = currentConfig.auto_backup_enabled || true;
+    document.getElementById('backupIntervalHours').value = currentConfig.backup_interval_hours || 24;
+    document.getElementById('maxBackupsPerGroup').value = currentConfig.max_backups_per_group || 10;
+    
+    // 高级设置
+    document.getElementById('debugMode').checked = currentConfig.debug_mode || false;
+    document.getElementById('saveRawMessages').checked = currentConfig.save_raw_messages || true;
+    document.getElementById('autoBackupIntervalDays').value = currentConfig.auto_backup_interval_days || 7;
+    
+    // PersonaUpdater配置
+    document.getElementById('personaMergeStrategy').value = currentConfig.persona_merge_strategy || 'smart';
+    document.getElementById('maxMoodImitationDialogs').value = currentConfig.max_mood_imitation_dialogs || 20;
+    document.getElementById('enablePersonaEvolution').checked = currentConfig.enable_persona_evolution || true;
+    document.getElementById('personaCompatibilityThreshold').value = currentConfig.persona_compatibility_threshold || 0.6;
+    document.getElementById('autoApplyPersonaUpdates').checked = currentConfig.auto_apply_persona_updates || true;
+    document.getElementById('personaUpdateBackupEnabled').checked = currentConfig.persona_update_backup_enabled || true;
+    
+    // 好感度系统
+    document.getElementById('enableAffectionSystem').checked = currentConfig.enable_affection_system || true;
+    document.getElementById('maxTotalAffection').value = currentConfig.max_total_affection || 250;
+    document.getElementById('maxUserAffection').value = currentConfig.max_user_affection || 100;
+    document.getElementById('affectionDecayRate').value = currentConfig.affection_decay_rate || 0.95;
+    document.getElementById('dailyMoodChange').checked = currentConfig.daily_mood_change || true;
+    document.getElementById('moodAffectAffection').checked = currentConfig.mood_affect_affection || true;
+    
+    // 情绪系统
+    document.getElementById('enableDailyMood').checked = currentConfig.enable_daily_mood || true;
+    document.getElementById('enableStartupRandomMood').checked = currentConfig.enable_startup_random_mood || true;
+    document.getElementById('moodChangeHour').value = currentConfig.mood_change_hour || 6;
+    document.getElementById('moodPersistenceHours').value = currentConfig.mood_persistence_hours || 24;
+    
+    // 刷新所有滑块的显示值
+    document.querySelectorAll('input[type="range"]').forEach(slider => {
+        const event = new Event('input');
+        slider.dispatchEvent(event);
+    });
 }
 
 // 渲染人格更新列表
@@ -852,12 +1162,22 @@ function renderPersonaUpdates(updates) {
     reviewList.innerHTML = updates.map(update => `
         <div class="persona-update-item">
             <div class="update-content">
-                <h4>更新 ID: ${update.id}</h4>
+                <h4>更新 ID: ${update.id} - ${update.update_type || '人格更新'}</h4>
                 <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
                 <p><strong>时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
-                <p><strong>内容:</strong> ${update.content || '未提供'}</p>
+                <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
+                <div class="update-preview">
+                    <p><strong>原始内容:</strong></p>
+                    <div class="content-preview">${(update.original_content || '').substring(0, 200)}${update.original_content && update.original_content.length > 200 ? '...' : ''}</div>
+                    <p><strong>建议更新:</strong></p>
+                    <div class="content-preview">${(update.proposed_content || '').substring(0, 200)}${update.proposed_content && update.proposed_content.length > 200 ? '...' : ''}</div>
+                </div>
             </div>
             <div class="update-actions">
+                <button class="btn btn-primary" onclick="editPersonaUpdate(${update.id})">
+                    <i class="material-icons">edit</i>
+                    编辑
+                </button>
                 <button class="btn btn-success" onclick="reviewUpdate(${update.id}, 'approve')">
                     <i class="material-icons">check</i>
                     批准
@@ -898,14 +1218,85 @@ function renderLearningStatus(status) {
 
 // 保存配置
 async function saveConfiguration() {
+    // 收集所有配置项
     const newConfig = {
-        enable_message_capture: document.getElementById('enableMessageCapture').checked,
-        enable_auto_learning: document.getElementById('enableAutoLearning').checked,
-        enable_realtime_learning: document.getElementById('enableRealtimeLearning').checked,
-        target_qq_list: document.getElementById('targetQQList').value.split(',').map(qq => qq.trim()).filter(qq => qq),
-        learning_interval_hours: parseInt(document.getElementById('learningInterval').value),
-        filter_model_name: document.getElementById('filterModel').value,
-        refine_model_name: document.getElementById('refineModel').value
+        // 基础开关
+        enable_message_capture: document.getElementById('enableMessageCapture')?.checked || false,
+        enable_auto_learning: document.getElementById('enableAutoLearning')?.checked || false,
+        enable_realtime_learning: document.getElementById('enableRealtimeLearning')?.checked || false,
+        enable_realtime_llm_filter: document.getElementById('enableRealtimeLLMFilter')?.checked || false,
+        enable_web_interface: document.getElementById('enableWebInterface')?.checked || true,
+        web_interface_port: parseInt(document.getElementById('webInterfacePort')?.value) || 7833,
+        
+        // MaiBot增强功能
+        enable_maibot_features: document.getElementById('enableMaibotFeatures')?.checked || true,
+        enable_expression_patterns: document.getElementById('enableExpressionPatterns')?.checked || true,
+        enable_memory_graph: document.getElementById('enableMemoryGraph')?.checked || true,
+        enable_knowledge_graph: document.getElementById('enableKnowledgeGraph')?.checked || true,
+        enable_time_decay: document.getElementById('enableTimeDecay')?.checked || true,
+        
+        // QQ号设置
+        target_qq_list: (document.getElementById('targetQQList')?.value || '').split(',').map(qq => qq.trim()).filter(qq => qq),
+        target_blacklist: (document.getElementById('targetBlacklist')?.value || '').split(',').map(qq => qq.trim()).filter(qq => qq),
+        
+        // LLM提供商设置
+        filter_provider_id: document.getElementById('filterProviderId')?.value || null,
+        refine_provider_id: document.getElementById('refineProviderId')?.value || null,
+        reinforce_provider_id: document.getElementById('reinforceProviderId')?.value || null,
+        
+        // 学习参数
+        learning_interval_hours: parseInt(document.getElementById('learningInterval')?.value) || 6,
+        min_messages_for_learning: parseInt(document.getElementById('minMessagesForLearning')?.value) || 50,
+        max_messages_per_batch: parseInt(document.getElementById('maxMessagesPerBatch')?.value) || 200,
+        
+        // 筛选参数
+        message_min_length: parseInt(document.getElementById('messageMinLength')?.value) || 5,
+        message_max_length: parseInt(document.getElementById('messageMaxLength')?.value) || 500,
+        confidence_threshold: parseFloat(document.getElementById('confidenceThreshold')?.value) || 0.7,
+        relevance_threshold: parseFloat(document.getElementById('relevanceThreshold')?.value) || 0.6,
+        
+        // 风格分析参数
+        style_analysis_batch_size: parseInt(document.getElementById('styleAnalysisBatchSize')?.value) || 100,
+        style_update_threshold: parseFloat(document.getElementById('styleUpdateThreshold')?.value) || 0.6,
+        
+        // 机器学习设置
+        enable_ml_analysis: document.getElementById('enableMLAnalysis')?.checked || true,
+        max_ml_sample_size: parseInt(document.getElementById('maxMLSampleSize')?.value) || 100,
+        ml_cache_timeout_hours: parseInt(document.getElementById('mlCacheTimeoutHours')?.value) || 1,
+        
+        // 人格备份设置
+        auto_backup_enabled: document.getElementById('autoBackupEnabled')?.checked || true,
+        backup_interval_hours: parseInt(document.getElementById('backupIntervalHours')?.value) || 24,
+        max_backups_per_group: parseInt(document.getElementById('maxBackupsPerGroup')?.value) || 10,
+        
+        // 高级设置
+        debug_mode: document.getElementById('debugMode')?.checked || false,
+        save_raw_messages: document.getElementById('saveRawMessages')?.checked || true,
+        auto_backup_interval_days: parseInt(document.getElementById('autoBackupIntervalDays')?.value) || 7,
+        
+        // 好感度系统配置
+        enable_affection_system: document.getElementById('enableAffectionSystem')?.checked || true,
+        max_total_affection: parseInt(document.getElementById('maxTotalAffection')?.value) || 250,
+        max_user_affection: parseInt(document.getElementById('maxUserAffection')?.value) || 100,
+        affection_decay_rate: parseFloat(document.getElementById('affectionDecayRate')?.value) || 0.95,
+        daily_mood_change: document.getElementById('dailyMoodChange')?.checked || true,
+        mood_affect_affection: document.getElementById('moodAffectAffection')?.checked || true,
+        
+        // 情绪系统配置
+        enable_daily_mood: document.getElementById('enableDailyMood')?.checked || true,
+        enable_startup_random_mood: document.getElementById('enableStartupRandomMood')?.checked || true,
+        mood_change_hour: parseInt(document.getElementById('moodChangeHour')?.value) || 6,
+        mood_persistence_hours: parseInt(document.getElementById('moodPersistenceHours')?.value) || 24,
+        
+        // PersonaUpdater配置
+        persona_merge_strategy: document.getElementById('personaMergeStrategy')?.value || 'smart',
+        max_mood_imitation_dialogs: parseInt(document.getElementById('maxMoodImitationDialogs')?.value) || 20,
+        enable_persona_evolution: document.getElementById('enablePersonaEvolution')?.checked || true,
+        persona_compatibility_threshold: parseFloat(document.getElementById('personaCompatibilityThreshold')?.value) || 0.6,
+        
+        // 人格更新方式配置
+        auto_apply_persona_updates: document.getElementById('autoApplyPersonaUpdates')?.checked || true,
+        persona_update_backup_enabled: document.getElementById('personaUpdateBackupEnabled')?.checked || true
     };
     
     try {
@@ -922,19 +1313,27 @@ async function saveConfiguration() {
         if (response.ok) {
             const result = await response.json();
             currentConfig = result.new_config;
-            showSuccess('配置保存成功');
+            showSuccess('配置保存成功，所有设置已同步更新');
             
-            // 更新仪表盘
+            // 实时更新显示
             setTimeout(() => {
+                // 重新加载配置以确保同步
+                loadConfig();
+                // 更新仪表盘数据
                 renderOverviewStats();
                 updateSystemStatusRadar();
+                // 刷新图表数据
+                if (document.querySelector('#dashboard-page.active')) {
+                    refreshDashboard();
+                }
             }, 1000);
         } else {
-            throw new Error('保存配置失败');
+            const errorData = await response.json();
+            throw new Error(errorData.error || '保存配置失败');
         }
     } catch (error) {
         console.error('保存配置失败:', error);
-        showError('保存配置失败，请重试');
+        showError(`保存配置失败: ${error.message}`);
     } finally {
         hideSpinner(document.getElementById('saveConfig'));
     }
@@ -983,6 +1382,133 @@ async function reviewUpdate(updateId, action) {
     }
 }
 
+// 编辑人格更新内容
+function editPersonaUpdate(updateId) {
+    // 查找待审查的人格更新数据
+    fetch(`/api/persona_updates`)
+        .then(response => response.json())
+        .then(updates => {
+            const update = updates.find(u => u.id === updateId);
+            if (!update) {
+                showError('未找到对应的更新记录');
+                return;
+            }
+            
+            showPersonaEditDialog(update);
+        })
+        .catch(error => {
+            console.error('获取更新详情失败:', error);
+            showError('获取更新详情失败');
+        });
+}
+
+// 显示人格编辑对话框
+function showPersonaEditDialog(update) {
+    const dialogHTML = `
+        <div class="persona-edit-overlay" id="personaEditOverlay">
+            <div class="persona-edit-dialog">
+                <div class="dialog-header">
+                    <h3>编辑人格更新 - ID: ${update.id}</h3>
+                    <button class="close-btn" onclick="closePersonaEditDialog()">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+                <div class="dialog-content">
+                    <div class="update-info">
+                        <p><strong>更新类型:</strong> ${update.update_type || '人格更新'}</p>
+                        <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
+                        <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
+                        <p><strong>时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
+                    </div>
+                    
+                    <div class="content-editor">
+                        <div class="editor-section">
+                            <h4>原始人格内容</h4>
+                            <textarea id="originalContent" readonly rows="8">${update.original_content || ''}</textarea>
+                        </div>
+                        
+                        <div class="editor-section">
+                            <h4>建议更新内容</h4>
+                            <textarea id="proposedContent" rows="12">${update.proposed_content || ''}</textarea>
+                            <small class="form-hint">💡 您可以手动修改建议的人格内容，然后选择批准或拒绝</small>
+                        </div>
+                        
+                        <div class="editor-section">
+                            <h4>审查备注</h4>
+                            <textarea id="reviewComment" rows="3" placeholder="可选：添加审查备注..."></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="dialog-actions">
+                    <button class="btn btn-secondary" onclick="closePersonaEditDialog()">
+                        <i class="material-icons">close</i>
+                        取消
+                    </button>
+                    <button class="btn btn-danger" onclick="reviewPersonaUpdate(${update.id}, 'reject')">
+                        <i class="material-icons">close</i>
+                        拒绝更新
+                    </button>
+                    <button class="btn btn-success" onclick="reviewPersonaUpdate(${update.id}, 'approve')">
+                        <i class="material-icons">check</i>
+                        批准更新
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 添加对话框到页面
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // 添加点击外部关闭功能
+    const overlay = document.getElementById('personaEditOverlay');
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closePersonaEditDialog();
+        }
+    });
+}
+
+// 关闭人格编辑对话框
+function closePersonaEditDialog() {
+    const overlay = document.getElementById('personaEditOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+// 通过编辑对话框审查人格更新
+async function reviewPersonaUpdate(updateId, action) {
+    try {
+        const proposedContent = document.getElementById('proposedContent')?.value || '';
+        const reviewComment = document.getElementById('reviewComment')?.value || '';
+        
+        const response = await fetch(`/api/persona_updates/${updateId}/review`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                action,
+                comment: reviewComment,
+                modified_content: proposedContent
+            })
+        });
+        
+        if (response.ok) {
+            showSuccess(`人格更新已${action === 'approve' ? '批准' : '拒绝'}`);
+            closePersonaEditDialog();
+            await loadPersonaUpdates(); // 重新加载列表
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '审查操作失败');
+        }
+    } catch (error) {
+        console.error('审查操作失败:', error);
+        showError(`操作失败: ${error.message}`);
+    }
+}
+
 // 更新LLM使用图表
 function updateLLMUsageChart(timeRange) {
     // 模拟根据时间范围更新数据
@@ -1026,6 +1552,11 @@ function updateSystemStatusRadar() {
 
 // 加载页面数据
 async function loadPageData(page) {
+    // 当离开人格管理页面时，停止自动更新
+    if (page !== 'persona-management') {
+        stopPersonaAutoUpdate();
+    }
+    
     switch (page) {
         case 'dashboard':
             await loadMetrics();
@@ -1046,6 +1577,12 @@ async function loadPageData(page) {
         case 'learning-status':
             await loadLearningStatus();
             break;
+        case 'style-learning':
+            await loadStyleLearningData();
+            break;
+        case 'persona-management':
+            await loadPersonaManagementData();
+            break;
         case 'metrics':
             await loadMetrics();
             renderDetailedMetrics();
@@ -1053,33 +1590,460 @@ async function loadPageData(page) {
     }
 }
 
+// 加载对话风格学习数据
+async function loadStyleLearningData() {
+    updateRefreshIndicator('加载中...');
+    try {
+        // 并行加载学习成果和模式数据
+        const [resultsResponse, patternsResponse] = await Promise.all([
+            fetch('/api/style_learning/results'),
+            fetch('/api/style_learning/patterns')
+        ]);
+        
+        if (resultsResponse.ok && patternsResponse.ok) {
+            const results = await resultsResponse.json();
+            const patterns = await patternsResponse.json();
+            
+            // 检查是否有错误
+            if (results.error) {
+                throw new Error(results.error);
+            }
+            if (patterns.error) {
+                throw new Error(patterns.error);
+            }
+            
+            // 更新统计概览
+            renderStyleLearningStats(results.statistics || {});
+            
+            // 初始化图表
+            initializeStyleLearningCharts(results, patterns);
+            
+            // 更新学习模式列表
+            renderLearningPatterns(patterns);
+            
+            updateRefreshIndicator('刚刚更新');
+        } else {
+            const resultsText = await resultsResponse.text();
+            const patternsText = await patternsResponse.text();
+            console.error('API响应错误:', { resultsText, patternsText });
+            throw new Error('获取风格学习数据失败');
+        }
+    } catch (error) {
+        console.error('加载对话风格学习数据失败:', error);
+        showError(`加载数据失败: ${error.message || '请检查网络连接'}`);
+        updateRefreshIndicator('更新失败');
+    }
+}
+
+// 渲染风格学习统计
+function renderStyleLearningStats(stats) {
+    document.getElementById('style-types-count').textContent = stats.unique_styles || 0;
+    document.getElementById('avg-confidence').textContent = (stats.avg_confidence || 0) + '%';
+    document.getElementById('total-samples').textContent = formatNumber(stats.total_samples || 0);
+    
+    // 格式化最新更新时间
+    if (stats.latest_update) {
+        const updateTime = new Date(stats.latest_update * 1000);
+        document.getElementById('latest-update').textContent = updateTime.toLocaleString();
+    } else {
+        document.getElementById('latest-update').textContent = '--';
+    }
+}
+
+// 初始化风格学习图表
+function initializeStyleLearningCharts(results, patterns) {
+    // 风格学习进度图
+    initializeStyleProgressChart(results.style_progress || []);
+    
+    // 情感表达模式图
+    initializeEmotionPatternsChart(patterns.emotion_patterns || []);
+    
+    // 语言风格分布图
+    initializeLanguageStyleChart(patterns.language_patterns || []);
+    
+    // 主题偏好分析图
+    initializeTopicPreferencesChart(patterns.topic_preferences || []);
+}
+
+// 风格学习进度图表
+function initializeStyleProgressChart(progressData) {
+    const chartDom = document.getElementById('style-progress-chart');
+    const chart = echarts.init(chartDom, 'material');
+    chartInstances['style-progress-chart'] = chart;
+    
+    // 检查数据有效性并提供默认值
+    if (!progressData || !Array.isArray(progressData) || progressData.length === 0) {
+        // 显示空数据图表
+        const option = {
+            title: {
+                text: '暂无风格学习数据',
+                left: 'center',
+                top: 'middle',
+                textStyle: {
+                    fontSize: 14,
+                    color: '#999'
+                }
+            },
+            xAxis: { type: 'category', data: [] },
+            yAxis: [{ type: 'value', name: '置信度(%)' }, { type: 'value', name: '样本数量' }],
+            series: [{ name: '置信度', type: 'bar', data: [] }, { name: '样本数量', type: 'line', data: [] }]
+        };
+        chart.setOption(option);
+        return;
+    }
+    
+    const styles = progressData.map(item => item.style_type || '未知');
+    const confidenceData = progressData.map(item => item.avg_confidence || 0);
+    const sampleData = progressData.map(item => item.total_samples || 0);
+    
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: {
+                type: 'cross'
+            }
+        },
+        legend: {
+            data: ['置信度', '样本数量']
+        },
+        xAxis: {
+            type: 'category',
+            data: styles,
+            axisLabel: {
+                rotate: 45
+            }
+        },
+        yAxis: [
+            {
+                type: 'value',
+                name: '置信度(%)',
+                position: 'left',
+                max: 100
+            },
+            {
+                type: 'value',
+                name: '样本数量',
+                position: 'right'
+            }
+        ],
+        series: [
+            {
+                name: '置信度',
+                type: 'bar',
+                data: confidenceData,
+                itemStyle: {
+                    color: '#1976d2'
+                }
+            },
+            {
+                name: '样本数量',
+                type: 'line',
+                yAxisIndex: 1,
+                data: sampleData,
+                itemStyle: {
+                    color: '#4caf50'
+                }
+            }
+        ]
+    };
+    
+    chart.setOption(option);
+}
+
+// 情感表达模式图表
+function initializeEmotionPatternsChart(emotionData) {
+    const chartDom = document.getElementById('emotion-patterns-chart');
+    const chart = echarts.init(chartDom, 'material');
+    chartInstances['emotion-patterns-chart'] = chart;
+    
+    // 检查数据有效性并提供默认值
+    if (!emotionData || !Array.isArray(emotionData) || emotionData.length === 0) {
+        // 显示空数据图表
+        const option = {
+            title: {
+                text: '暂无情感模式数据',
+                left: 'center',
+                top: 'middle',
+                textStyle: {
+                    fontSize: 14,
+                    color: '#999'
+                }
+            },
+            series: [{
+                name: '情感表达',
+                type: 'pie',
+                radius: ['40%', '70%'],
+                center: ['50%', '45%'],
+                data: [{ name: '暂无数据', value: 1 }]
+            }]
+        };
+        chart.setOption(option);
+        return;
+    }
+    
+    const data = emotionData.map(item => ({
+        name: item.pattern || '未知模式',
+        value: item.frequency || 0
+    }));
+    
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: '{a} <br/>{b}: {c} ({d}%)'
+        },
+        legend: {
+            bottom: '5%',
+            left: 'center'
+        },
+        series: [
+            {
+                name: '情感表达',
+                type: 'pie',
+                radius: ['40%', '70%'],
+                center: ['50%', '45%'],
+                data: data,
+                emphasis: {
+                    itemStyle: {
+                        shadowBlur: 10,
+                        shadowOffsetX: 0,
+                        shadowColor: 'rgba(0, 0, 0, 0.5)'
+                    }
+                }
+            }
+        ]
+    };
+    
+    chart.setOption(option);
+}
+
+// 语言风格分布图表
+function initializeLanguageStyleChart(languageData) {
+    const chartDom = document.getElementById('language-style-chart');
+    const chart = echarts.init(chartDom, 'material');
+    chartInstances['language-style-chart'] = chart;
+    
+    // 检查数据有效性并提供默认值
+    if (!languageData || !Array.isArray(languageData) || languageData.length === 0) {
+        // 显示空数据图表
+        const option = {
+            title: {
+                text: '暂无语言风格数据',
+                left: 'center',
+                top: 'middle',
+                textStyle: {
+                    fontSize: 14,
+                    color: '#999'
+                }
+            },
+            xAxis: { type: 'category', data: ['暂无数据'] },
+            yAxis: { type: 'value', name: '使用频率' },
+            series: [{ name: '语言风格', type: 'bar', data: [0] }]
+        };
+        chart.setOption(option);
+        return;
+    }
+    
+    const styles = languageData.map(item => item.style || '未知风格');
+    const frequencies = languageData.map(item => item.frequency || 0);
+    
+    const option = {
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: {
+                type: 'shadow'
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: styles,
+            axisLabel: {
+                rotate: 45
+            }
+        },
+        yAxis: {
+            type: 'value',
+            name: '使用频率'
+        },
+        series: [
+            {
+                name: '语言风格',
+                type: 'bar',
+                data: frequencies,
+                itemStyle: {
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: '#ff9800' },
+                        { offset: 1, color: '#ffcc80' }
+                    ])
+                }
+            }
+        ]
+    };
+    
+    chart.setOption(option);
+}
+
+// 主题偏好分析图表
+function initializeTopicPreferencesChart(topicData) {
+    const chartDom = document.getElementById('topic-preferences-chart');
+    const chart = echarts.init(chartDom, 'material');
+    chartInstances['topic-preferences-chart'] = chart;
+    
+    // 检查数据有效性并提供默认值
+    if (!topicData || !Array.isArray(topicData) || topicData.length === 0) {
+        // 显示空数据图表
+        const option = {
+            title: {
+                text: '暂无主题偏好数据',
+                left: 'center',
+                top: 'middle',
+                textStyle: {
+                    fontSize: 14,
+                    color: '#999'
+                }
+            },
+            radar: {
+                indicator: [{ name: '暂无数据', max: 100 }],
+                center: ['50%', '50%'],
+                radius: '75%'
+            },
+            series: [{
+                name: '主题偏好',
+                type: 'radar',
+                data: [{ value: [0], name: '兴趣水平' }]
+            }]
+        };
+        chart.setOption(option);
+        return;
+    }
+    
+    const topics = topicData.map(item => item.topic || '未知主题');
+    const interestLevels = topicData.map(item => item.interest_level || 0);
+    
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c}%'
+        },
+        radar: {
+            indicator: topics.map(topic => ({ name: topic, max: 100 })),
+            center: ['50%', '50%'],
+            radius: '75%'
+        },
+        series: [
+            {
+                name: '主题偏好',
+                type: 'radar',
+                data: [
+                    {
+                        value: interestLevels,
+                        name: '兴趣水平',
+                        itemStyle: { color: '#9c27b0' },
+                        areaStyle: { opacity: 0.3 }
+                    }
+                ]
+            }
+        ]
+    };
+    
+    chart.setOption(option);
+}
+
+// 渲染学习模式列表
+function renderLearningPatterns(patterns) {
+    // 检查patterns数据有效性
+    if (!patterns || typeof patterns !== 'object') {
+        patterns = {
+            emotion_patterns: [],
+            language_patterns: [],
+            topic_preferences: []
+        };
+    }
+    
+    // 渲染情感表达模式
+    const emotionList = document.getElementById('emotion-patterns-list');
+    const emotionPatterns = patterns.emotion_patterns || [];
+    if (emotionPatterns.length === 0) {
+        emotionList.innerHTML = '<div class="no-data">暂无情感表达模式数据</div>';
+    } else {
+        emotionList.innerHTML = emotionPatterns.map(pattern => `
+            <div class="pattern-item">
+                <span class="pattern-name">${pattern.pattern || '未知模式'}</span>
+                <span class="pattern-frequency">频率: ${pattern.frequency || 0}</span>
+                <span class="pattern-confidence">置信度: ${pattern.confidence || 0}%</span>
+            </div>
+        `).join('');
+    }
+    
+    // 渲染语言风格模式
+    const languageList = document.getElementById('language-patterns-list');
+    const languagePatterns = patterns.language_patterns || [];
+    if (languagePatterns.length === 0) {
+        languageList.innerHTML = '<div class="no-data">暂无语言风格模式数据</div>';
+    } else {
+        languageList.innerHTML = languagePatterns.map(pattern => `
+            <div class="pattern-item">
+                <span class="pattern-name">${pattern.style || '未知风格'}</span>
+                <span class="pattern-context">环境: ${pattern.context || 'general'}</span>
+                <span class="pattern-frequency">频率: ${pattern.frequency || 0}</span>
+            </div>
+        `).join('');
+    }
+    
+    // 渲染主题偏好模式
+    const topicList = document.getElementById('topic-patterns-list');
+    const topicPatterns = patterns.topic_preferences || [];
+    if (topicPatterns.length === 0) {
+        topicList.innerHTML = '<div class="no-data">暂无主题偏好模式数据</div>';
+    } else {
+        topicList.innerHTML = topicPatterns.map(pattern => `
+            <div class="pattern-item">
+                <span class="pattern-name">${pattern.topic || '未知主题'}</span>
+                <span class="pattern-style">风格: ${pattern.response_style || 'normal'}</span>
+                <span class="pattern-interest">兴趣度: ${pattern.interest_level || 0}%</span>
+            </div>
+        `).join('');
+    }
+}
+
 // 渲染详细监控
 function renderDetailedMetrics() {
-    // API监控图表
-    initializeAPIMetricsChart();
-    
-    // 数据库监控图表
-    initializeDBMetricsChart();
-    
-    // 内存使用图表
-    initializeMemoryMetricsChart();
+    // 加载详细监控数据
+    fetch('/api/metrics/detailed')
+        .then(response => response.json())
+        .then(data => {
+            // 使用真实数据初始化图表
+            initializeAPIMetricsChart(data.api_metrics);
+            initializeDBMetricsChart(data.database_metrics);
+            initializeMemoryMetricsChart(data.system_metrics);
+        })
+        .catch(error => {
+            console.error('加载详细监控数据失败:', error);
+            // 使用空数据初始化图表
+            initializeAPIMetricsChart({});
+            initializeDBMetricsChart({});
+            initializeMemoryMetricsChart({});
+        });
 }
 
 // API监控图表
-function initializeAPIMetricsChart() {
+function initializeAPIMetricsChart(apiData = {}) {
     const chartDom = document.getElementById('api-metrics-chart');
     if (!chartDom) return;
     
     const chart = echarts.init(chartDom, 'material');
     chartInstances['api-metrics-chart'] = chart;
     
+    const hours = apiData.hours || ['暂无数据'];
+    const responseTimes = apiData.response_times || [0];
+    
     const option = {
         tooltip: {
-            trigger: 'axis'
+            trigger: 'axis',
+            formatter: '{b}<br/>{a}: {c}ms'
         },
         xAxis: {
             type: 'category',
-            data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
+            data: hours
         },
         yAxis: {
             type: 'value',
@@ -1089,9 +2053,10 @@ function initializeAPIMetricsChart() {
             {
                 name: 'API响应时间',
                 type: 'line',
-                data: [120, 132, 101, 134, 90, 230],
+                data: responseTimes,
                 smooth: true,
-                itemStyle: { color: '#1976d2' }
+                itemStyle: { color: '#1976d2' },
+                areaStyle: { opacity: 0.3 }
             }
         ]
     };
@@ -1100,31 +2065,48 @@ function initializeAPIMetricsChart() {
 }
 
 // 数据库监控图表
-function initializeDBMetricsChart() {
+function initializeDBMetricsChart(dbData = {}) {
     const chartDom = document.getElementById('db-metrics-chart');
     if (!chartDom) return;
     
     const chart = echarts.init(chartDom, 'material');
     chartInstances['db-metrics-chart'] = chart;
     
+    const tableStats = dbData.table_stats || {};
+    const tableNames = Object.keys(tableStats);
+    const tableCounts = Object.values(tableStats);
+    
+    // 如果没有数据，显示空图表
+    const data = tableNames.length > 0 ? tableCounts : [0];
+    const labels = tableNames.length > 0 ? tableNames : ['暂无数据'];
+    
     const option = {
         tooltip: {
-            trigger: 'axis'
+            trigger: 'axis',
+            formatter: '{b}<br/>{a}: {c} 条记录'
         },
         xAxis: {
             type: 'category',
-            data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
+            data: labels,
+            axisLabel: {
+                rotate: 45
+            }
         },
         yAxis: {
             type: 'value',
-            name: '查询时间(ms)'
+            name: '记录数量'
         },
         series: [
             {
-                name: '数据库查询',
+                name: '数据表记录',
                 type: 'bar',
-                data: [20, 25, 18, 30, 22, 28],
-                itemStyle: { color: '#4caf50' }
+                data: data,
+                itemStyle: { 
+                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                        { offset: 0, color: '#4caf50' },
+                        { offset: 1, color: '#81c784' }
+                    ])
+                }
             }
         ]
     };
@@ -1133,35 +2115,43 @@ function initializeDBMetricsChart() {
 }
 
 // 内存使用图表
-function initializeMemoryMetricsChart() {
+function initializeMemoryMetricsChart(systemData = {}) {
     const chartDom = document.getElementById('memory-metrics-chart');
     if (!chartDom) return;
     
     const chart = echarts.init(chartDom, 'material');
     chartInstances['memory-metrics-chart'] = chart;
     
+    const memoryPercent = systemData.memory_percent || 0;
+    const cpuPercent = systemData.cpu_percent || 0;
+    const diskPercent = systemData.disk_percent || 0;
+    
+    // 显示实时系统资源使用情况
     const option = {
         tooltip: {
-            trigger: 'axis',
-            formatter: '{b}<br/>{a}: {c}%'
+            formatter: '{a}<br/>{b}: {c}%'
         },
-        xAxis: {
-            type: 'category',
-            data: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
-        },
-        yAxis: {
-            type: 'value',
-            name: '使用率(%)',
-            max: 100
+        radar: {
+            indicator: [
+                { name: 'CPU', max: 100 },
+                { name: '内存', max: 100 },
+                { name: '磁盘', max: 100 }
+            ],
+            center: ['50%', '50%'],
+            radius: '75%'
         },
         series: [
             {
-                name: '内存使用率',
-                type: 'line',
-                data: [45, 52, 48, 60, 55, 58],
-                smooth: true,
-                areaStyle: { opacity: 0.3 },
-                itemStyle: { color: '#ff9800' }
+                name: '系统资源',
+                type: 'radar',
+                data: [
+                    {
+                        value: [cpuPercent, memoryPercent, diskPercent],
+                        name: '当前使用率',
+                        itemStyle: { color: '#ff9800' },
+                        areaStyle: { opacity: 0.3 }
+                    }
+                ]
             }
         ]
     };
@@ -1177,34 +2167,63 @@ function initializeLearningHistoryChart() {
     const chart = echarts.init(chartDom, 'material');
     chartInstances['learning-history-chart'] = chart;
     
-    const option = {
-        tooltip: {
-            trigger: 'axis'
-        },
-        xAxis: {
-            type: 'category',
-            data: ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-        },
-        yAxis: {
-            type: 'value',
-            name: '学习次数'
-        },
-        series: [
-            {
-                name: '学习会话',
-                type: 'bar',
-                data: [12, 15, 8, 20, 18, 6, 9],
-                itemStyle: {
-                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: '#9c27b0' },
-                        { offset: 1, color: '#e1bee7' }
-                    ])
-                }
-            }
-        ]
-    };
-    
-    chart.setOption(option);
+    // 从analytics/trends获取真实的学习历史数据
+    fetch('/api/analytics/trends')
+        .then(response => response.json())
+        .then(data => {
+            const dailyTrends = data.daily_trends || [];
+            const dates = dailyTrends.map(item => item.date);
+            const sessions = dailyTrends.map(item => item.learning_sessions || 0);
+            
+            const option = {
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: '{b}<br/>{a}: {c}次'
+                },
+                xAxis: {
+                    type: 'category',
+                    data: dates.length > 0 ? dates : ['暂无数据'],
+                    axisLabel: {
+                        rotate: 45
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '学习次数'
+                },
+                series: [
+                    {
+                        name: '学习会话',
+                        type: 'bar',
+                        data: sessions.length > 0 ? sessions : [0],
+                        itemStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: '#9c27b0' },
+                                { offset: 1, color: '#e1bee7' }
+                            ])
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option);
+        })
+        .catch(error => {
+            console.error('加载学习历史数据失败:', error);
+            // 显示空图表
+            const option = {
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: ['暂无数据'] },
+                yAxis: { type: 'value', name: '学习次数' },
+                series: [{
+                    name: '学习会话',
+                    type: 'bar',
+                    data: [0],
+                    itemStyle: { color: '#9c27b0' }
+                }]
+            };
+            chart.setOption(option);
+        });
 }
 
 // 刷新仪表盘
@@ -1299,11 +2318,1127 @@ window.addEventListener('resize', () => {
 // 页面可见性改变时暂停/恢复刷新
 document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
-        // 页面隐藏时可以暂停定时器
+        // 页面隐藏时暂停定时器
         console.log('页面隐藏，暂停刷新');
+        stopPersonaAutoUpdate();
     } else {
         // 页面显示时可以立即刷新一次
         console.log('页面显示，恢复刷新');
         refreshDashboard();
+        // 如果在人格管理页面，重启自动更新
+        if (document.querySelector('#persona-management-page.active')) {
+            startPersonaAutoUpdate();
+        }
     }
 });
+
+// 页面卸载时清理定时器
+window.addEventListener('beforeunload', () => {
+    stopPersonaAutoUpdate();
+});
+
+// ========== 人格管理功能 ==========
+
+let currentPersonas = [];
+let defaultPersona = null;
+let personaUpdateInterval = null;
+
+// 启动人格数据实时更新
+function startPersonaAutoUpdate() {
+    // 清除之前的定时器
+    if (personaUpdateInterval) {
+        clearInterval(personaUpdateInterval);
+    }
+    
+    // 每3秒更新一次人格数据
+    personaUpdateInterval = setInterval(async () => {
+        if (document.querySelector('#persona-management-page.active')) {
+            await updatePersonaDataSilently();
+        }
+    }, 3000);
+    
+    console.log('人格数据自动更新已启动 (每3秒)');
+}
+
+// 停止人格数据实时更新
+function stopPersonaAutoUpdate() {
+    if (personaUpdateInterval) {
+        clearInterval(personaUpdateInterval);
+        personaUpdateInterval = null;
+        console.log('人格数据自动更新已停止');
+    }
+}
+
+// 静默更新人格数据（不显示加载提示）
+async function updatePersonaDataSilently() {
+    try {
+        // 并行加载人格列表和默认人格
+        const [personasResponse, defaultPersonaResponse] = await Promise.all([
+            fetch('/api/persona_management/list'),
+            fetch('/api/persona_management/default')
+        ]);
+        
+        if (personasResponse.ok) {
+            try {
+                const personasData = await personasResponse.json();
+                const newPersonas = personasData.personas || [];
+                
+                // 检查数据是否有变化
+                if (JSON.stringify(newPersonas) !== JSON.stringify(currentPersonas)) {
+                    currentPersonas = newPersonas;
+                    renderPersonasGrid(currentPersonas);
+                    console.log(`人格列表已更新 (${newPersonas.length} 个人格)`);
+                }
+            } catch (jsonError) {
+                console.warn('静默更新: 解析人格列表JSON失败:', jsonError);
+            }
+        }
+        
+        if (defaultPersonaResponse.ok) {
+            try {
+                const newDefaultPersona = await defaultPersonaResponse.json();
+                
+                // 检查默认人格是否有变化
+                if (JSON.stringify(newDefaultPersona) !== JSON.stringify(defaultPersona)) {
+                    defaultPersona = newDefaultPersona;
+                    renderDefaultPersona(defaultPersona);
+                    console.log('默认人格已更新');
+                }
+            } catch (jsonError) {
+                console.warn('静默更新: 解析默认人格JSON失败:', jsonError);
+            }
+        }
+        
+    } catch (error) {
+        console.warn('静默更新人格数据失败:', error);
+    }
+}
+
+// 加载人格管理数据
+async function loadPersonaManagementData() {
+    updateRefreshIndicator('加载中...');
+    try {
+        // 并行加载人格列表和默认人格
+        const [personasResponse, defaultPersonaResponse] = await Promise.all([
+            fetch('/api/persona_management/list'),
+            fetch('/api/persona_management/default')
+        ]);
+        
+        if (personasResponse.ok) {
+            try {
+                const personasData = await personasResponse.json();
+                currentPersonas = personasData.personas || [];
+                renderPersonasGrid(currentPersonas);
+            } catch (jsonError) {
+                console.error('解析人格列表JSON失败:', jsonError);
+                currentPersonas = [];
+                renderPersonasGrid([]);
+            }
+        } else {
+            throw new Error('加载人格列表失败');
+        }
+        
+        if (defaultPersonaResponse.ok) {
+            try {
+                defaultPersona = await defaultPersonaResponse.json();
+                renderDefaultPersona(defaultPersona);
+            } catch (jsonError) {
+                console.error('解析默认人格JSON失败:', jsonError);
+                renderDefaultPersona(null);
+            }
+        } else {
+            console.warn('加载默认人格失败');
+            renderDefaultPersona(null);
+        }
+        
+        // 绑定事件处理器
+        bindPersonaManagementEvents();
+        
+        // 启动自动更新
+        startPersonaAutoUpdate();
+        
+        updateRefreshIndicator('刚刚更新');
+    } catch (error) {
+        console.error('加载人格管理数据失败:', error);
+        showError(`加载数据失败: ${error.message}`);
+        updateRefreshIndicator('更新失败');
+        
+        // 确保在错误情况下也有基本的UI
+        renderPersonasGrid([]);
+        renderDefaultPersona(null);
+        
+        // 即使出错也尝试启动自动更新
+        startPersonaAutoUpdate();
+    }
+}
+
+// 渲染人格列表
+function renderPersonasGrid(personas) {
+    const grid = document.getElementById('personas-grid');
+    
+    if (!personas || personas.length === 0) {
+        grid.innerHTML = `
+            <div class="no-personas">
+                <i class="material-icons">person_outline</i>
+                <h3>暂无人格</h3>
+                <p>点击"创建人格"按钮来创建第一个人格</p>
+            </div>
+        `;
+        return;
+    }
+    
+    grid.innerHTML = personas.map(persona => {
+        // 安全地处理可能为null的数组和字符串
+        if (!persona || typeof persona !== 'object') {
+            return ''; // 跳过无效的persona对象
+        }
+        
+        const personaId = (persona.persona_id && typeof persona.persona_id === 'string') ? persona.persona_id : 'unknown';
+        const dialogsCount = (persona.begin_dialogs && Array.isArray(persona.begin_dialogs) && persona.begin_dialogs.length) ? persona.begin_dialogs.length : 0;
+        const toolsCount = (persona.tools && Array.isArray(persona.tools) && persona.tools.length) ? persona.tools.length : 0;
+        const systemPrompt = (persona.system_prompt && typeof persona.system_prompt === 'string') ? persona.system_prompt : '暂无系统提示';
+        
+        return `
+        <div class="persona-card" data-persona-id="${personaId}">
+            <div class="persona-card-header">
+                <h3>${personaId}</h3>
+                <div class="persona-card-actions">
+                    <button class="btn-icon" onclick="editPersona('${personaId}')" title="编辑">
+                        <i class="material-icons">edit</i>
+                    </button>
+                    <button class="btn-icon" onclick="exportPersona('${personaId}')" title="导出">
+                        <i class="material-icons">download</i>
+                    </button>
+                    <button class="btn-icon btn-danger" onclick="deletePersona('${personaId}')" title="删除">
+                        <i class="material-icons">delete</i>
+                    </button>
+                </div>
+            </div>
+            <div class="persona-card-content">
+                <div class="persona-field">
+                    <label>系统提示:</label>
+                    <div class="persona-prompt-preview">${truncateText(systemPrompt, 100)}</div>
+                </div>
+                <div class="persona-field">
+                    <label>开始对话:</label>
+                    <div class="persona-dialogs-preview">${dialogsCount} 条对话</div>
+                </div>
+                <div class="persona-field">
+                    <label>工具:</label>
+                    <div class="persona-tools-preview">${toolsCount} 个工具</div>
+                </div>
+                <div class="persona-field">
+                    <label>创建时间:</label>
+                    <div class="persona-time">${formatDateTime(persona.created_at)}</div>
+                </div>
+                <div class="persona-field">
+                    <label>更新时间:</label>
+                    <div class="persona-time">${formatDateTime(persona.updated_at)}</div>
+                </div>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+// 渲染默认人格
+function renderDefaultPersona(persona) {
+    const card = document.getElementById('default-persona-card');
+    
+    if (!persona || typeof persona !== 'object') {
+        card.innerHTML = `
+            <div class="no-default-persona">
+                <i class="material-icons">warning</i>
+                <p>无法加载默认人格信息</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // 安全地处理可能为null的数组和属性
+    const dialogsCount = (persona.begin_dialogs && Array.isArray(persona.begin_dialogs) && persona.begin_dialogs.length) ? persona.begin_dialogs.length : 0;
+    const toolsCount = (persona.tools && Array.isArray(persona.tools) && persona.tools.length) ? persona.tools.length : 0;
+    const systemPrompt = (persona.system_prompt && typeof persona.system_prompt === 'string') ? persona.system_prompt : '暂无系统提示';
+    
+    card.innerHTML = `
+        <div class="default-persona-content">
+            <div class="persona-field">
+                <label>系统提示:</label>
+                <div class="persona-prompt-preview">${truncateText(systemPrompt, 200)}</div>
+            </div>
+            <div class="persona-field">
+                <label>开始对话:</label>
+                <div class="persona-dialogs-preview">${dialogsCount} 条对话</div>
+            </div>
+            <div class="persona-field">
+                <label>工具:</label>
+                <div class="persona-tools-preview">${toolsCount} 个工具</div>
+            </div>
+        </div>
+    `;
+}
+
+// 绑定人格管理事件
+function bindPersonaManagementEvents() {
+    // 创建人格按钮
+    const createBtn = document.getElementById('createPersonaBtn');
+    if (createBtn) {
+        createBtn.addEventListener('click', showCreatePersonaDialog);
+    }
+    
+    // 导入人格按钮
+    const importBtn = document.getElementById('importPersonaBtn');
+    if (importBtn) {
+        importBtn.addEventListener('click', showImportPersonaDialog);
+    }
+    
+    // 刷新列表按钮
+    const refreshBtn = document.getElementById('refreshPersonasBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', loadPersonaManagementData);
+    }
+}
+
+// 显示创建人格对话框
+function showCreatePersonaDialog() {
+    const dialogHTML = `
+        <div class="persona-dialog-overlay" id="personaDialogOverlay">
+            <div class="persona-dialog">
+                <div class="dialog-header">
+                    <h3>创建新人格</h3>
+                    <button class="close-btn" onclick="closePersonaDialog()">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+                <div class="dialog-content">
+                    <form id="createPersonaForm">
+                        <div class="form-group">
+                            <label for="personaId">人格ID *</label>
+                            <input type="text" id="personaId" required placeholder="输入唯一的人格ID">
+                            <small class="form-hint">人格的唯一标识符，只能包含字母、数字、下划线和短横线</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="systemPrompt">系统提示 *</label>
+                            <textarea id="systemPrompt" rows="8" required placeholder="输入系统提示词..."></textarea>
+                            <small class="form-hint">定义人格的性格、行为和回应风格</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="beginDialogs">开始对话 (JSON数组)</label>
+                            <textarea id="beginDialogs" rows="4" placeholder='[{"role": "user", "content": "你好"}, {"role": "assistant", "content": "你好！很高兴见到你"}]'></textarea>
+                            <small class="form-hint">定义人格的初始对话，JSON格式</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="tools">工具列表 (JSON数组)</label>
+                            <textarea id="tools" rows="3" placeholder='["web_search", "calculator"]'></textarea>
+                            <small class="form-hint">人格可以使用的工具列表，JSON格式</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="dialog-actions">
+                    <button class="btn btn-secondary" onclick="closePersonaDialog()">取消</button>
+                    <button class="btn btn-primary" onclick="createPersona()">创建人格</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // 添加点击外部关闭功能
+    const overlay = document.getElementById('personaDialogOverlay');
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closePersonaDialog();
+        }
+    });
+}
+
+// 显示编辑人格对话框
+async function editPersona(personaId) {
+    try {
+        showSpinner(document.querySelector(`[data-persona-id="${personaId}"]`));
+        
+        const response = await fetch(`/api/persona_management/get/${personaId}`);
+        if (!response.ok) {
+            throw new Error('获取人格详情失败');
+        }
+        
+        const persona = await response.json();
+        
+        // 创建备份（按照要求的命名格式：原人格名-年月日具体时间-备份）
+        const now = new Date();
+        const backupName = `${personaId}-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}-备份`;
+        
+        const dialogHTML = `
+            <div class="persona-dialog-overlay" id="personaDialogOverlay">
+                <div class="persona-dialog">
+                    <div class="dialog-header">
+                        <h3>编辑人格: ${personaId}</h3>
+                        <button class="close-btn" onclick="closePersonaDialog()">
+                            <i class="material-icons">close</i>
+                        </button>
+                    </div>
+                    <div class="dialog-content">
+                        <div class="backup-notice">
+                            <i class="material-icons">info</i>
+                            <span>保存时将自动备份为: ${backupName}</span>
+                        </div>
+                        <form id="editPersonaForm">
+                            <input type="hidden" id="editPersonaId" value="${personaId}">
+                            
+                            <div class="form-group">
+                                <label for="editSystemPrompt">系统提示 *</label>
+                                <textarea id="editSystemPrompt" rows="8" required>${persona.system_prompt}</textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="editBeginDialogs">开始对话 (JSON数组)</label>
+                                <textarea id="editBeginDialogs" rows="4">${JSON.stringify(persona.begin_dialogs, null, 2)}</textarea>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="editTools">工具列表 (JSON数组)</label>
+                                <textarea id="editTools" rows="3">${JSON.stringify(persona.tools, null, 2)}</textarea>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="dialog-actions">
+                        <button class="btn btn-secondary" onclick="closePersonaDialog()">取消</button>
+                        <button class="btn btn-primary" onclick="updatePersona()">保存修改</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.insertAdjacentHTML('beforeend', dialogHTML);
+        
+        // 添加点击外部关闭功能
+        const overlay = document.getElementById('personaDialogOverlay');
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closePersonaDialog();
+            }
+        });
+        
+    } catch (error) {
+        console.error('加载人格详情失败:', error);
+        showError(`加载人格详情失败: ${error.message}`);
+    } finally {
+        hideSpinner(document.querySelector(`[data-persona-id="${personaId}"]`));
+    }
+}
+
+// 创建人格
+async function createPersona() {
+    try {
+        const personaId = document.getElementById('personaId').value.trim();
+        const systemPrompt = document.getElementById('systemPrompt').value.trim();
+        const beginDialogsText = document.getElementById('beginDialogs').value.trim();
+        const toolsText = document.getElementById('tools').value.trim();
+        
+        if (!personaId || !systemPrompt) {
+            showError('人格ID和系统提示不能为空');
+            return;
+        }
+        
+        // 解析JSON
+        let beginDialogs = [];
+        let tools = [];
+        
+        try {
+            if (beginDialogsText) {
+                beginDialogs = JSON.parse(beginDialogsText);
+            }
+            if (toolsText) {
+                tools = JSON.parse(toolsText);
+            }
+        } catch (e) {
+            showError('JSON格式错误，请检查开始对话和工具列表的格式');
+            return;
+        }
+        
+        const response = await fetch('/api/persona_management/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                persona_id: personaId,
+                system_prompt: systemPrompt,
+                begin_dialogs: beginDialogs,
+                tools: tools
+            })
+        });
+        
+        if (response.ok) {
+            showSuccess('人格创建成功');
+            closePersonaDialog();
+            // 立即更新人格数据
+            await updatePersonaDataSilently();
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '创建人格失败');
+        }
+        
+    } catch (error) {
+        console.error('创建人格失败:', error);
+        showError(`创建人格失败: ${error.message}`);
+    }
+}
+
+// 更新人格
+async function updatePersona() {
+    try {
+        const personaId = document.getElementById('editPersonaId').value;
+        const systemPrompt = document.getElementById('editSystemPrompt').value.trim();
+        const beginDialogsText = document.getElementById('editBeginDialogs').value.trim();
+        const toolsText = document.getElementById('editTools').value.trim();
+        
+        if (!systemPrompt) {
+            showError('系统提示不能为空');
+            return;
+        }
+        
+        // 解析JSON
+        let beginDialogs = [];
+        let tools = [];
+        
+        try {
+            if (beginDialogsText) {
+                beginDialogs = JSON.parse(beginDialogsText);
+            }
+            if (toolsText) {
+                tools = JSON.parse(toolsText);
+            }
+        } catch (e) {
+            showError('JSON格式错误，请检查开始对话和工具列表的格式');
+            return;
+        }
+        
+        // 先创建备份
+        const now = new Date();
+        const backupName = `${personaId}-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}-备份`;
+        
+        // 获取当前人格信息用于备份
+        const currentPersona = currentPersonas.find(p => p.persona_id === personaId);
+        if (currentPersona) {
+            try {
+                await fetch('/api/persona_management/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        persona_id: backupName,
+                        system_prompt: currentPersona.system_prompt,
+                        begin_dialogs: currentPersona.begin_dialogs,
+                        tools: currentPersona.tools
+                    })
+                });
+                console.log(`已创建备份: ${backupName}`);
+            } catch (backupError) {
+                console.warn('创建备份失败:', backupError);
+            }
+        }
+        
+        // 更新人格
+        const response = await fetch(`/api/persona_management/update/${personaId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                system_prompt: systemPrompt,
+                begin_dialogs: beginDialogs,
+                tools: tools
+            })
+        });
+        
+        if (response.ok) {
+            showSuccess('人格更新成功');
+            closePersonaDialog();
+            // 立即更新人格数据
+            await updatePersonaDataSilently();
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '更新人格失败');
+        }
+        
+    } catch (error) {
+        console.error('更新人格失败:', error);
+        showError(`更新人格失败: ${error.message}`);
+    }
+}
+
+// 删除人格
+async function deletePersona(personaId) {
+    if (!confirm(`确定要删除人格 "${personaId}" 吗？此操作无法撤销。`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/persona_management/delete/${personaId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (response.ok) {
+            showSuccess('人格删除成功');
+            // 立即更新人格数据
+            await updatePersonaDataSilently();
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '删除人格失败');
+        }
+        
+    } catch (error) {
+        console.error('删除人格失败:', error);
+        showError(`删除人格失败: ${error.message}`);
+    }
+}
+
+// 导出人格
+async function exportPersona(personaId) {
+    try {
+        const response = await fetch(`/api/persona_management/export/${personaId}`);
+        if (!response.ok) {
+            throw new Error('导出人格失败');
+        }
+        
+        const personaData = await response.json();
+        
+        // 创建下载链接
+        const dataStr = JSON.stringify(personaData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `persona-${personaId}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        showSuccess('人格导出成功');
+        
+    } catch (error) {
+        console.error('导出人格失败:', error);
+        showError(`导出人格失败: ${error.message}`);
+    }
+}
+
+// 显示导入人格对话框
+function showImportPersonaDialog() {
+    const dialogHTML = `
+        <div class="persona-dialog-overlay" id="personaDialogOverlay">
+            <div class="persona-dialog">
+                <div class="dialog-header">
+                    <h3>导入人格</h3>
+                    <button class="close-btn" onclick="closePersonaDialog()">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+                <div class="dialog-content">
+                    <form id="importPersonaForm">
+                        <div class="form-group">
+                            <label for="personaFile">选择人格文件</label>
+                            <input type="file" id="personaFile" accept=".json" onchange="handlePersonaFileSelect(event)">
+                            <small class="form-hint">选择之前导出的人格JSON文件</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="importPersonaData">人格数据</label>
+                            <textarea id="importPersonaData" rows="10" placeholder="或者直接粘贴人格JSON数据..."></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="switch-label">
+                                <input type="checkbox" id="overwritePersona">
+                                <span class="switch-slider"></span>
+                                覆盖已存在的人格
+                            </label>
+                            <small class="form-hint">如果人格ID已存在，是否覆盖现有人格</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="dialog-actions">
+                    <button class="btn btn-secondary" onclick="closePersonaDialog()">取消</button>
+                    <button class="btn btn-primary" onclick="importPersona()">导入人格</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // 添加点击外部关闭功能
+    const overlay = document.getElementById('personaDialogOverlay');
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closePersonaDialog();
+        }
+    });
+}
+
+// 处理人格文件选择
+function handlePersonaFileSelect(event) {
+    const file = event.target.files[0];
+    if (file && file.type === 'application/json') {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const personaData = JSON.parse(e.target.result);
+                document.getElementById('importPersonaData').value = JSON.stringify(personaData, null, 2);
+            } catch (error) {
+                showError('无效的JSON文件格式');
+            }
+        };
+        reader.readAsText(file);
+    } else {
+        showError('请选择有效的JSON文件');
+    }
+}
+
+// 导入人格
+async function importPersona() {
+    try {
+        const personaDataText = document.getElementById('importPersonaData').value.trim();
+        const overwrite = document.getElementById('overwritePersona').checked;
+        
+        if (!personaDataText) {
+            showError('请选择文件或输入人格数据');
+            return;
+        }
+        
+        let personaData;
+        try {
+            personaData = JSON.parse(personaDataText);
+        } catch (e) {
+            showError('无效的JSON格式');
+            return;
+        }
+        
+        // 验证必需字段
+        if (!personaData.persona_id || !personaData.system_prompt) {
+            showError('人格数据缺少必需字段 (persona_id, system_prompt)');
+            return;
+        }
+        
+        personaData.overwrite = overwrite;
+        
+        const response = await fetch('/api/persona_management/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(personaData)
+        });
+        
+        if (response.ok) {
+            showSuccess('人格导入成功');
+            closePersonaDialog();
+            // 立即更新人格数据
+            await updatePersonaDataSilently();
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || '导入人格失败');
+        }
+        
+    } catch (error) {
+        console.error('导入人格失败:', error);
+        showError(`导入人格失败: ${error.message}`);
+    }
+}
+
+// 关闭人格对话框
+function closePersonaDialog() {
+    const overlay = document.getElementById('personaDialogOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
+// ========== 学习内容文本汇总功能 ==========
+
+let allLearningContent = {
+    dialogues: [],
+    analysis: [],
+    features: [],
+    history: []
+};
+
+// 加载对话风格学习数据时也加载文本内容
+async function loadStyleLearningData() {
+    updateRefreshIndicator('加载中...');
+    try {
+        // 并行加载学习成果、模式数据和文本内容
+        const [resultsResponse, patternsResponse, contentResponse] = await Promise.all([
+            fetch('/api/style_learning/results'),
+            fetch('/api/style_learning/patterns'),
+            fetch('/api/style_learning/content_text')
+        ]);
+        
+        if (resultsResponse.ok && patternsResponse.ok) {
+            const results = await resultsResponse.json();
+            const patterns = await patternsResponse.json();
+            
+            // 检查是否有错误
+            if (results.error) {
+                throw new Error(results.error);
+            }
+            if (patterns.error) {
+                throw new Error(patterns.error);
+            }
+            
+            // 更新统计概览
+            renderStyleLearningStats(results.statistics || {});
+            
+            // 初始化图表
+            initializeStyleLearningCharts(results, patterns);
+            
+            // 更新学习模式列表
+            renderLearningPatterns(patterns);
+            
+            // 加载学习内容文本
+            if (contentResponse.ok) {
+                const contentData = await contentResponse.json();
+                allLearningContent = contentData || allLearningContent;
+                renderAllLearningContent();
+            } else {
+                console.warn('加载学习内容文本失败，使用默认数据');
+                loadFallbackLearningContent();
+            }
+            
+            updateRefreshIndicator('刚刚更新');
+        } else {
+            const resultsText = await resultsResponse.text();
+            const patternsText = await patternsResponse.text();
+            console.error('API响应错误:', { resultsText, patternsText });
+            throw new Error('获取风格学习数据失败');
+        }
+    } catch (error) {
+        console.error('加载对话风格学习数据失败:', error);
+        showError(`加载数据失败: ${error.message || '请检查网络连接'}`);
+        updateRefreshIndicator('更新失败');
+        
+        // 加载备用内容
+        loadFallbackLearningContent();
+    }
+}
+
+// 加载所有学习内容文本
+async function loadAllLearningContent() {
+    try {
+        updateRefreshIndicator('加载学习内容中...');
+        
+        const response = await fetch('/api/style_learning/content_text');
+        if (response.ok) {
+            const contentData = await response.json();
+            allLearningContent = contentData || allLearningContent;
+            renderAllLearningContent();
+            showSuccess('学习内容已刷新');
+        } else {
+            console.warn('无法从API加载内容，使用备用数据');
+            loadFallbackLearningContent();
+        }
+        
+        updateRefreshIndicator('刚刚更新');
+    } catch (error) {
+        console.error('加载学习内容失败:', error);
+        showError('加载内容失败，请检查网络连接');
+        loadFallbackLearningContent();
+    }
+}
+
+// 加载备用学习内容（当API不可用时）
+function loadFallbackLearningContent() {
+    // 当API不可用时，显示空数据而不是示例数据
+    allLearningContent = {
+        dialogues: [],
+        analysis: [],
+        features: [],
+        history: []
+    };
+    
+    renderAllLearningContent();
+}
+
+// 渲染所有学习内容
+function renderAllLearningContent() {
+    renderContentCategory('dialogue-content', allLearningContent.dialogues, '对话示例');
+    renderContentCategory('analysis-content', allLearningContent.analysis, '分析结果');
+    renderContentCategory('features-content', allLearningContent.features, '风格特征');
+    renderContentCategory('history-content', allLearningContent.history, '学习历程');
+}
+
+// 渲染单个内容类别
+function renderContentCategory(containerId, content, categoryName) {
+    const container = document.getElementById(containerId);
+    
+    if (!content || content.length === 0) {
+        container.innerHTML = `<div class="no-content">暂无${categoryName}数据</div>`;
+        return;
+    }
+    
+    container.innerHTML = content.map(item => `
+        <div class="content-item">
+            <div class="content-timestamp">${item.timestamp || '未知时间'}</div>
+            <div class="content-text">${item.text || '无内容'}</div>
+            ${item.metadata ? `<div class="content-metadata">${item.metadata}</div>` : ''}
+        </div>
+    `).join('');
+}
+
+// 搜索和过滤学习内容
+function filterLearningContent() {
+    const searchTerm = document.getElementById('contentSearchInput').value.toLowerCase();
+    const allItems = document.querySelectorAll('.content-item');
+    
+    allItems.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        if (text.includes(searchTerm)) {
+            item.style.display = 'block';
+            // 高亮搜索词
+            highlightSearchTerm(item, searchTerm);
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// 高亮搜索词
+function highlightSearchTerm(element, searchTerm) {
+    if (!searchTerm.trim()) {
+        // 清除之前的高亮
+        element.innerHTML = element.innerHTML.replace(/<mark class="highlight">/g, '').replace(/<\/mark>/g, '');
+        return;
+    }
+    
+    const textNodes = element.querySelectorAll('.content-text');
+    textNodes.forEach(node => {
+        const originalText = node.textContent;
+        const highlightedText = originalText.replace(
+            new RegExp(`(${searchTerm})`, 'gi'),
+            '<mark class="highlight">$1</mark>'
+        );
+        node.innerHTML = highlightedText;
+    });
+}
+
+// 导出学习内容
+function exportLearningContent() {
+    showExportDialog();
+}
+
+// 显示导出对话框
+function showExportDialog() {
+    const dialogHTML = `
+        <div class="export-dialog" id="exportDialog">
+            <div class="export-dialog-content">
+                <h3>导出学习内容</h3>
+                <p>选择要导出的内容格式：</p>
+                
+                <div class="export-format-options">
+                    <label class="format-option">
+                        <input type="radio" name="exportFormat" value="json" checked>
+                        <span>JSON格式 - 包含所有数据和元信息</span>
+                    </label>
+                    <label class="format-option">
+                        <input type="radio" name="exportFormat" value="txt">
+                        <span>纯文本格式 - 仅包含学习内容文本</span>
+                    </label>
+                    <label class="format-option">
+                        <input type="radio" name="exportFormat" value="markdown">
+                        <span>Markdown格式 - 结构化文档</span>
+                    </label>
+                </div>
+                
+                <div class="dialog-actions">
+                    <button class="btn btn-secondary" onclick="closeExportDialog()">取消</button>
+                    <button class="btn btn-primary" onclick="performExport()">导出</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // 添加点击外部关闭功能
+    const overlay = document.getElementById('exportDialog');
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closeExportDialog();
+        }
+    });
+}
+
+// 关闭导出对话框
+function closeExportDialog() {
+    const dialog = document.getElementById('exportDialog');
+    if (dialog) {
+        dialog.remove();
+    }
+}
+
+// 执行导出
+function performExport() {
+    const selectedFormat = document.querySelector('input[name="exportFormat"]:checked').value;
+    let content = '';
+    let filename = '';
+    let mimeType = '';
+    
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    
+    switch (selectedFormat) {
+        case 'json':
+            content = JSON.stringify(allLearningContent, null, 2);
+            filename = `learning-content-${timestamp}.json`;
+            mimeType = 'application/json';
+            break;
+            
+        case 'txt':
+            content = formatAsText(allLearningContent);
+            filename = `learning-content-${timestamp}.txt`;
+            mimeType = 'text/plain';
+            break;
+            
+        case 'markdown':
+            content = formatAsMarkdown(allLearningContent);
+            filename = `learning-content-${timestamp}.md`;
+            mimeType = 'text/markdown';
+            break;
+    }
+    
+    // 创建下载链接
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    closeExportDialog();
+    showSuccess('学习内容已导出');
+}
+
+// 格式化为纯文本
+function formatAsText(content) {
+    let text = '对话风格学习内容汇总\n';
+    text += '='.repeat(30) + '\n\n';
+    
+    if (content.dialogues && content.dialogues.length > 0) {
+        text += '【对话示例文本】\n';
+        content.dialogues.forEach(item => {
+            text += `时间: ${item.timestamp}\n`;
+            text += `内容: ${item.text}\n`;
+            if (item.metadata) text += `备注: ${item.metadata}\n`;
+            text += '\n';
+        });
+        text += '\n';
+    }
+    
+    if (content.analysis && content.analysis.length > 0) {
+        text += '【学习分析结果】\n';
+        content.analysis.forEach(item => {
+            text += `时间: ${item.timestamp}\n`;
+            text += `内容: ${item.text}\n`;
+            if (item.metadata) text += `备注: ${item.metadata}\n`;
+            text += '\n';
+        });
+        text += '\n';
+    }
+    
+    if (content.features && content.features.length > 0) {
+        text += '【提炼的风格特征】\n';
+        content.features.forEach(item => {
+            text += `时间: ${item.timestamp}\n`;
+            text += `内容: ${item.text}\n`;
+            if (item.metadata) text += `备注: ${item.metadata}\n`;
+            text += '\n';
+        });
+        text += '\n';
+    }
+    
+    if (content.history && content.history.length > 0) {
+        text += '【学习历程记录】\n';
+        content.history.forEach(item => {
+            text += `时间: ${item.timestamp}\n`;
+            text += `内容: ${item.text}\n`;
+            if (item.metadata) text += `备注: ${item.metadata}\n`;
+            text += '\n';
+        });
+    }
+    
+    return text;
+}
+
+// 格式化为Markdown
+function formatAsMarkdown(content) {
+    let md = '# 对话风格学习内容汇总\n\n';
+    
+    if (content.dialogues && content.dialogues.length > 0) {
+        md += '## 对话示例文本\n\n';
+        content.dialogues.forEach(item => {
+            md += `### ${item.timestamp}\n\n`;
+            md += '```\n';
+            md += item.text + '\n';
+            md += '```\n\n';
+            if (item.metadata) md += `**备注:** ${item.metadata}\n\n`;
+        });
+    }
+    
+    if (content.analysis && content.analysis.length > 0) {
+        md += '## 学习分析结果\n\n';
+        content.analysis.forEach(item => {
+            md += `### ${item.timestamp}\n\n`;
+            md += item.text + '\n\n';
+            if (item.metadata) md += `**备注:** ${item.metadata}\n\n`;
+        });
+    }
+    
+    if (content.features && content.features.length > 0) {
+        md += '## 提炼的风格特征\n\n';
+        content.features.forEach(item => {
+            md += `### ${item.timestamp}\n\n`;
+            md += item.text + '\n\n';
+            if (item.metadata) md += `**备注:** ${item.metadata}\n\n`;
+        });
+    }
+    
+    if (content.history && content.history.length > 0) {
+        md += '## 学习历程记录\n\n';
+        content.history.forEach(item => {
+            md += `### ${item.timestamp}\n\n`;
+            md += item.text + '\n\n';
+            if (item.metadata) md += `**备注:** ${item.metadata}\n\n`;
+        });
+    }
+    
+    return md;
+}
+
+// 工具函数
+function truncateText(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+function formatDateTime(dateTimeStr) {
+    if (!dateTimeStr) return '--';
+    try {
+        const date = new Date(dateTimeStr);
+        return date.toLocaleString();
+    } catch (e) {
+        return dateTimeStr;
+    }
+}

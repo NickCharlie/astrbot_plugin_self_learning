@@ -495,12 +495,44 @@ class ProgressiveLearningService:
             else:
                 logger.warning(f"学习质量不达标，跳过更新，得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             
+            # 【新增】记录学习批次到数据库，供webui查询使用
+            batch_name = f"batch_{group_id}_{int(time.time())}"
+            start_time = batch_start_time.timestamp()
+            end_time = time.time()
+            
+            # 连接到全局消息数据库记录学习批次
+            conn = await self.db_manager._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            try:
+                await cursor.execute('''
+                    INSERT INTO learning_batches 
+                    (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
+                     message_count, filtered_count, success, error_message)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    group_id,
+                    batch_name, 
+                    start_time,
+                    end_time,
+                    quality_metrics.consistency_score,
+                    len(unprocessed_messages),
+                    len(unprocessed_messages),
+                    len(filtered_messages),
+                    success,
+                    None if success else f"质量得分不达标: {quality_metrics.consistency_score:.3f}"
+                ))
+                await conn.commit()
+                logger.debug(f"学习批次记录已保存: {batch_name}")
+            except Exception as e:
+                logger.error(f"保存学习批次记录失败: {e}")
+            
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self.current_session.session_id if self.current_session else '',
                 'timestamp': time.time(),
                 'quality_score': quality_metrics.consistency_score,
-                'learning_time': (datetime.now() - batch_start_time).total_seconds(),
+                'learning_time': end_time - start_time,
                 'success': success,
                 'successful_pattern': json.dumps({}) if success else '',
                 'failed_pattern': json.dumps({'reason': 'quality_threshold_not_met', 'score': quality_metrics.consistency_score}) if not success else ''
@@ -521,7 +553,7 @@ class ProgressiveLearningService:
             if success and self.current_session and self.current_session.messages_processed % 500 == 0:
                 asyncio.create_task(self._execute_strategy_optimization_background(group_id))
             
-            batch_duration = (datetime.now() - batch_start_time).total_seconds()
+            batch_duration = end_time - start_time
             logger.info(f"后台学习批次完成，耗时: {batch_duration:.2f}秒")
             
         except Exception as e:

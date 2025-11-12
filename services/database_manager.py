@@ -306,6 +306,25 @@ class DatabaseManager(AsyncServiceBase):
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_strategy_optimization_group ON strategy_optimization_results(group_id)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_learning_performance_group ON learning_performance_history(group_id)')
             
+            # 创建LLM调用统计表
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS llm_call_statistics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    provider_type TEXT NOT NULL, -- filter, refine, reinforce
+                    model_name TEXT,
+                    total_calls INTEGER DEFAULT 0,
+                    success_calls INTEGER DEFAULT 0,
+                    failed_calls INTEGER DEFAULT 0,
+                    total_response_time_ms INTEGER DEFAULT 0,
+                    avg_response_time_ms REAL DEFAULT 0,
+                    success_rate REAL DEFAULT 0,
+                    last_call_time REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(provider_type, model_name)
+                )
+            ''')
+            
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
             
@@ -433,6 +452,94 @@ class DatabaseManager(AsyncServiceBase):
                     original_persona TEXT, -- JSON格式存储
                     imitation_dialogues TEXT, -- JSON格式存储模仿对话
                     backup_reason TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 风格学习记录表
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS style_learning_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    style_type TEXT NOT NULL,
+                    learned_patterns TEXT, -- JSON格式存储学习到的模式
+                    confidence_score REAL,
+                    sample_count INTEGER,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 情感表达模式表
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS emotion_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    emotional_pattern TEXT NOT NULL,
+                    confidence_score REAL,
+                    frequency INTEGER DEFAULT 0,
+                    context_type TEXT,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 语言风格模式表
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS language_style_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    language_style TEXT NOT NULL,
+                    example_phrases TEXT, -- JSON格式存储示例短语
+                    usage_frequency INTEGER DEFAULT 0,
+                    context_type TEXT DEFAULT 'general',
+                    confidence_score REAL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 主题偏好表
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS topic_preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    topic_category TEXT NOT NULL,
+                    interest_level REAL,
+                    response_style TEXT,
+                    sample_count INTEGER DEFAULT 0,
+                    confidence_score REAL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 人格更新审查表
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    update_type TEXT NOT NULL, -- style_update, persona_update, learning_update
+                    original_content TEXT, -- 原始人格内容
+                    proposed_content TEXT, -- 建议的新内容
+                    confidence_score REAL,
+                    reason TEXT, -- 更新原因
+                    sample_messages TEXT, -- JSON格式存储触发更新的示例消息
+                    review_status TEXT DEFAULT 'pending', -- pending, approved, rejected
+                    reviewer_comment TEXT,
+                    created_at REAL,
+                    reviewed_at REAL,
+                    auto_score REAL, -- 自动评分
+                    manual_override BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            
+            # 学习批次表 (如果不存在)
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS learning_batches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_name TEXT,
+                    start_time REAL,
+                    end_time REAL,
+                    processed_messages INTEGER DEFAULT 0,
+                    success BOOLEAN DEFAULT FALSE,
+                    error_message TEXT,
+                    learning_type TEXT, -- style_learning, persona_update, etc.
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -2054,6 +2161,117 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"获取好感度历史失败: {e}")
             return []
 
+    async def record_llm_call_statistics(self, provider_type: str, model_name: str, 
+                                        success: bool, response_time_ms: int) -> bool:
+        """记录LLM调用统计数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            current_time = time.time()
+            
+            # 查询当前统计数据
+            await cursor.execute('''
+                SELECT total_calls, success_calls, failed_calls, total_response_time_ms
+                FROM llm_call_statistics 
+                WHERE provider_type = ? AND model_name = ?
+            ''', (provider_type, model_name))
+            
+            row = await cursor.fetchone()
+            if row:
+                # 更新现有记录
+                total_calls = row[0] + 1
+                success_calls = row[1] + (1 if success else 0)
+                failed_calls = row[2] + (0 if success else 1)
+                total_response_time = row[3] + response_time_ms
+                avg_response_time = total_response_time / total_calls
+                success_rate = success_calls / total_calls
+                
+                await cursor.execute('''
+                    UPDATE llm_call_statistics 
+                    SET total_calls = ?, success_calls = ?, failed_calls = ?, 
+                        total_response_time_ms = ?, avg_response_time_ms = ?, 
+                        success_rate = ?, last_call_time = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE provider_type = ? AND model_name = ?
+                ''', (total_calls, success_calls, failed_calls, total_response_time,
+                      avg_response_time, success_rate, current_time, provider_type, model_name))
+            else:
+                # 插入新记录
+                success_calls = 1 if success else 0
+                failed_calls = 0 if success else 1
+                success_rate = 1.0 if success else 0.0
+                
+                await cursor.execute('''
+                    INSERT INTO llm_call_statistics 
+                    (provider_type, model_name, total_calls, success_calls, failed_calls,
+                     total_response_time_ms, avg_response_time_ms, success_rate, last_call_time)
+                    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+                ''', (provider_type, model_name, success_calls, failed_calls,
+                      response_time_ms, response_time_ms, success_rate, current_time))
+            
+            await conn.commit()
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"记录LLM调用统计失败: {e}")
+            return False
+
+    async def get_llm_call_statistics(self) -> Dict[str, Any]:
+        """获取LLM调用统计数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                SELECT provider_type, model_name, total_calls, success_calls, failed_calls,
+                       avg_response_time_ms, success_rate, last_call_time
+                FROM llm_call_statistics
+                ORDER BY provider_type, total_calls DESC
+            ''')
+            
+            statistics = {}
+            total_calls = 0
+            
+            for row in await cursor.fetchall():
+                provider_type = row[0]
+                model_name = row[1] or f"{provider_type}_model"
+                
+                stats = {
+                    "total_calls": row[2],
+                    "success_calls": row[3], 
+                    "failed_calls": row[4],
+                    "avg_response_time_ms": row[5] or 0,
+                    "success_rate": row[6] or 0,
+                    "last_call_time": row[7]
+                }
+                
+                statistics[f"{provider_type}_{model_name}"] = stats
+                total_calls += row[2]
+            
+            # 如果没有统计数据，返回默认结构
+            if not statistics:
+                statistics = {
+                    "filter_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0},
+                    "refine_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}, 
+                    "reinforce_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}
+                }
+            
+            return {
+                "statistics": statistics,
+                "total_calls": total_calls
+            }
+            
+        except Exception as e:
+            self._logger.error(f"获取LLM调用统计失败: {e}")
+            return {
+                "statistics": {
+                    "filter_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0},
+                    "refine_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0},
+                    "reinforce_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}
+                },
+                "total_calls": 0
+            }
+
     async def export_messages_learning_data(self) -> Dict[str, Any]:
         """导出消息学习数据"""
         try:
@@ -2198,3 +2416,347 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"清空所有消息数据失败: {e}", exc_info=True)
             raise DataStorageError(f"清空所有消息数据失败: {str(e)}")
+
+    # Web界面需要的统计方法
+    async def get_style_learning_statistics(self) -> Dict[str, Any]:
+        """获取风格学习统计数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 获取基础统计
+            await cursor.execute('''
+                SELECT 
+                    COUNT(DISTINCT group_id) as unique_groups,
+                    AVG(confidence) as avg_confidence,
+                    COUNT(*) as total_samples
+                FROM filtered_messages
+            ''')
+            
+            row = await cursor.fetchone()
+            if row:
+                unique_styles = row[0] or 0
+                avg_confidence = row[1] or 0.0
+                total_samples = row[2] or 0
+            else:
+                unique_styles = 0
+                avg_confidence = 0.0
+                total_samples = 0
+            
+            # 获取最新更新时间
+            await cursor.execute('''
+                SELECT MAX(timestamp) FROM filtered_messages
+            ''')
+            latest_update = await cursor.fetchone()
+            latest_update_time = latest_update[0] if latest_update and latest_update[0] else None
+            
+            return {
+                'unique_styles': unique_styles,
+                'avg_confidence': round(avg_confidence, 2),
+                'total_samples': total_samples,
+                'latest_update': datetime.fromtimestamp(latest_update_time).isoformat() if latest_update_time else None
+            }
+            
+        except Exception as e:
+            self._logger.error(f"获取风格学习统计失败: {e}")
+            return {
+                'unique_styles': 0,
+                'avg_confidence': 0,
+                'total_samples': 0,
+                'latest_update': None
+            }
+
+    async def get_style_progress_data(self) -> List[Dict[str, Any]]:
+        """获取风格进度数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 获取学习批次的进度数据
+            await cursor.execute('''
+                SELECT 
+                    group_id,
+                    end_time,
+                    quality_score,
+                    filtered_count,
+                    message_count
+                FROM learning_batches
+                WHERE success = 1 AND end_time IS NOT NULL
+                ORDER BY end_time DESC
+                LIMIT 20
+            ''')
+            
+            progress_data = []
+            for row in await cursor.fetchall():
+                progress_data.append({
+                    'group_id': row[0],
+                    'timestamp': row[1],
+                    'quality_score': row[2] or 0,
+                    'filtered_count': row[3] or 0,
+                    'message_count': row[4] or 0,
+                    'efficiency': (row[3] / row[4] * 100) if row[4] > 0 else 0
+                })
+            
+            return progress_data
+            
+        except Exception as e:
+            self._logger.error(f"获取风格进度数据失败: {e}")
+            return []
+
+    async def get_learning_patterns_data(self) -> Dict[str, Any]:
+        """获取学习模式数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 情感模式分析（基于置信度和筛选原因）
+            await cursor.execute('''
+                SELECT 
+                    filter_reason,
+                    AVG(confidence) as avg_confidence,
+                    COUNT(*) as count
+                FROM filtered_messages
+                WHERE filter_reason IS NOT NULL
+                GROUP BY filter_reason
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            
+            emotion_patterns = []
+            for row in await cursor.fetchall():
+                emotion_patterns.append({
+                    'pattern': row[0],
+                    'confidence': round(row[1], 2),
+                    'frequency': row[2]
+                })
+            
+            # 语言模式分析（基于消息长度和时间分布）
+            await cursor.execute('''
+                SELECT 
+                    CASE 
+                        WHEN LENGTH(message) < 20 THEN 'short'
+                        WHEN LENGTH(message) < 100 THEN 'medium'
+                        ELSE 'long'
+                    END as message_type,
+                    COUNT(*) as count,
+                    AVG(confidence) as avg_confidence
+                FROM filtered_messages
+                GROUP BY message_type
+            ''')
+            
+            language_patterns = []
+            for row in await cursor.fetchall():
+                language_patterns.append({
+                    'type': row[0],
+                    'count': row[1],
+                    'avg_confidence': round(row[2], 2)
+                })
+            
+            # 话题偏好分析（基于群组活跃度）
+            await cursor.execute('''
+                SELECT 
+                    group_id,
+                    COUNT(*) as message_count,
+                    AVG(confidence) as avg_confidence
+                FROM filtered_messages
+                GROUP BY group_id
+                ORDER BY message_count DESC
+                LIMIT 10
+            ''')
+            
+            topic_preferences = []
+            for row in await cursor.fetchall():
+                topic_preferences.append({
+                    'group_id': row[0],
+                    'message_count': row[1],
+                    'avg_confidence': round(row[2], 2)
+                })
+            
+            return {
+                'emotion_patterns': emotion_patterns,
+                'language_patterns': language_patterns,
+                'topic_preferences': topic_preferences
+            }
+            
+        except Exception as e:
+            self._logger.error(f"获取学习模式数据失败: {e}")
+            return {
+                'emotion_patterns': [],
+                'language_patterns': [],
+                'topic_preferences': []
+            }
+
+    async def get_detailed_metrics(self) -> Dict[str, Any]:
+        """获取详细性能监控数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # API指标（基于学习批次的执行时间）
+            await cursor.execute('''
+                SELECT 
+                    strftime('%H', datetime(start_time, 'unixepoch')) as hour,
+                    AVG((CASE WHEN end_time IS NOT NULL THEN end_time - start_time ELSE 0 END)) as avg_response_time
+                FROM learning_batches
+                WHERE start_time > ? AND end_time IS NOT NULL
+                GROUP BY hour
+                ORDER BY hour
+            ''', (time.time() - 86400,))  # 最近24小时
+            
+            api_hours = []
+            api_response_times = []
+            for row in await cursor.fetchall():
+                api_hours.append(f"{row[0]}:00")
+                api_response_times.append(round(row[1] * 1000, 2))  # 转换为毫秒
+            
+            # 数据库表统计
+            tables_to_check = ['raw_messages', 'filtered_messages', 'learning_batches', 'persona_update_records']
+            table_stats = {}
+            
+            for table in tables_to_check:
+                try:
+                    await cursor.execute(f'SELECT COUNT(*) FROM {table}')
+                    count = await cursor.fetchone()
+                    table_stats[table] = count[0] if count else 0
+                except Exception as table_error:
+                    self._logger.debug(f"无法获取表 {table} 统计: {table_error}")
+                    table_stats[table] = 0
+            
+            # 系统指标
+            import psutil
+            try:
+                memory = psutil.virtual_memory()
+                # 在Windows上使用主驱动器
+                disk_path = 'C:\\' if os.name == 'nt' else '/'
+                disk = psutil.disk_usage(disk_path)
+                
+                system_metrics = {
+                    'memory_percent': memory.percent,
+                    'cpu_percent': psutil.cpu_percent(),
+                    'disk_percent': round(disk.used / disk.total * 100, 2)
+                }
+            except Exception as system_error:
+                self._logger.warning(f"获取系统指标失败: {system_error}")
+                system_metrics = {
+                    'memory_percent': 0,
+                    'cpu_percent': 0,
+                    'disk_percent': 0
+                }
+            
+            return {
+                'api_metrics': {
+                    'hours': api_hours,
+                    'response_times': api_response_times
+                },
+                'database_metrics': {
+                    'table_stats': table_stats
+                },
+                'system_metrics': system_metrics
+            }
+            
+        except Exception as e:
+            self._logger.error(f"获取详细监控数据失败: {e}")
+            return {
+                'api_metrics': {
+                    'hours': [],
+                    'response_times': []
+                },
+                'database_metrics': {
+                    'table_stats': {}
+                },
+                'system_metrics': {
+                    'memory_percent': 0,
+                    'cpu_percent': 0,
+                    'disk_percent': 0
+                }
+            }
+
+    async def get_trends_data(self) -> Dict[str, Any]:
+        """获取指标趋势数据"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 计算7天和30天前的时间戳
+            now = time.time()
+            week_ago = now - (7 * 24 * 3600)
+            month_ago = now - (30 * 24 * 3600)
+            
+            # 消息增长趋势
+            await cursor.execute('''
+                SELECT 
+                    COUNT(CASE WHEN timestamp > ? THEN 1 END) as week_count,
+                    COUNT(CASE WHEN timestamp > ? THEN 1 END) as month_count,
+                    COUNT(*) as total_count
+                FROM raw_messages
+            ''', (week_ago, month_ago))
+            
+            message_stats = await cursor.fetchone()
+            if message_stats:
+                week_messages = message_stats[0] or 0
+                month_messages = message_stats[1] or 0
+                total_messages = message_stats[2] or 0
+                
+                # 计算增长率
+                if month_messages > week_messages:
+                    message_growth = ((week_messages * 4 - (month_messages - week_messages)) / (month_messages - week_messages) * 100) if (month_messages - week_messages) > 0 else 0
+                else:
+                    message_growth = 0
+            else:
+                message_growth = 0
+            
+            # 筛选消息增长趋势
+            await cursor.execute('''
+                SELECT 
+                    COUNT(CASE WHEN timestamp > ? THEN 1 END) as week_filtered,
+                    COUNT(CASE WHEN timestamp > ? THEN 1 END) as month_filtered
+                FROM filtered_messages
+            ''', (week_ago, month_ago))
+            
+            filtered_stats = await cursor.fetchone()
+            if filtered_stats:
+                week_filtered = filtered_stats[0] or 0
+                month_filtered = filtered_stats[1] or 0
+                
+                if month_filtered > week_filtered:
+                    filtered_growth = ((week_filtered * 4 - (month_filtered - week_filtered)) / (month_filtered - week_filtered) * 100) if (month_filtered - week_filtered) > 0 else 0
+                else:
+                    filtered_growth = 0
+            else:
+                filtered_growth = 0
+            
+            # LLM调用增长（基于学习批次）
+            await cursor.execute('''
+                SELECT 
+                    COUNT(CASE WHEN start_time > ? THEN 1 END) as week_sessions,
+                    COUNT(CASE WHEN start_time > ? THEN 1 END) as month_sessions
+                FROM learning_batches
+            ''', (week_ago, month_ago))
+            
+            session_stats = await cursor.fetchone()
+            if session_stats:
+                week_sessions = session_stats[0] or 0
+                month_sessions = session_stats[1] or 0
+                
+                if month_sessions > week_sessions:
+                    sessions_growth = ((week_sessions * 4 - (month_sessions - week_sessions)) / (month_sessions - week_sessions) * 100) if (month_sessions - week_sessions) > 0 else 0
+                else:
+                    sessions_growth = 0
+            else:
+                sessions_growth = 0
+            
+            return {
+                'message_growth': round(message_growth, 1),
+                'filtered_growth': round(filtered_growth, 1),
+                'llm_growth': round(sessions_growth, 1),
+                'sessions_growth': round(sessions_growth, 1)
+            }
+            
+        except Exception as e:
+            self._logger.error(f"获取趋势数据失败: {e}")
+            return {
+                'message_growth': 0,
+                'filtered_growth': 0,
+                'llm_growth': 0,
+                'sessions_growth': 0
+            }

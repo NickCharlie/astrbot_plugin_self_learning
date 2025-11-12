@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.6", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -131,10 +131,43 @@ class SelfLearningPlugin(star.Star):
             # 设置插件服务
             try:
                 logger.info("Debug: 开始设置插件服务")
+                
+                # 尝试获取AstrBot框架的PersonaManager
+                astrbot_persona_manager = None
+                try:
+                    # 通过context的persona_manager属性获取框架的PersonaManager
+                    if hasattr(self.context, 'persona_manager'):
+                        astrbot_persona_manager = self.context.persona_manager
+                        if astrbot_persona_manager:
+                            logger.info(f"立即启动: 成功获取AstrBot框架PersonaManager: {type(astrbot_persona_manager)}")
+                            # 检查PersonaManager是否已初始化
+                            if hasattr(astrbot_persona_manager, 'personas'):
+                                logger.info(f"立即启动: PersonaManager已有personas属性，人格数量: {len(getattr(astrbot_persona_manager, 'personas', []))}")
+                            else:
+                                logger.info("立即启动: PersonaManager还没有personas属性，可能需要初始化")
+                        else:
+                            logger.warning("立即启动: Context中persona_manager为None")
+                    else:
+                        logger.warning("立即启动: Context中没有persona_manager属性")
+                        
+                    # 额外尝试：如果persona_manager为None，尝试延迟获取
+                    if not astrbot_persona_manager:
+                        logger.info("立即启动: 尝试延迟获取PersonaManager...")
+                        await asyncio.sleep(3)  # 等待3秒，给AstrBot更多初始化时间
+                        if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                            astrbot_persona_manager = self.context.persona_manager
+                            logger.info(f"立即启动: 延迟获取成功: {type(astrbot_persona_manager)}")
+                        else:
+                            logger.warning("立即启动: 延迟获取PersonaManager仍然失败，可能AstrBot还在初始化中")
+                            
+                except Exception as pe:
+                    logger.error(f"立即启动: 获取AstrBot框架PersonaManager失败: {pe}", exc_info=True)
+                
                 await set_plugin_services(
                     self.plugin_config,
                     self.factory_manager,
-                    None
+                    None,  # 不再传递已弃用的 LLMClient
+                    astrbot_persona_manager  # 传递框架PersonaManager
                 )
                 logger.info("Debug: 插件服务设置完成")
             except Exception as e:
@@ -284,10 +317,42 @@ class SelfLearningPlugin(star.Star):
             logger.info("Debug: 开始设置Web服务器插件服务")
             # 设置插件服务
             try:
+                # 尝试获取AstrBot框架的PersonaManager
+                astrbot_persona_manager = None
+                try:
+                    # 通过context的persona_manager属性获取框架的PersonaManager
+                    if hasattr(self.context, 'persona_manager'):
+                        astrbot_persona_manager = self.context.persona_manager
+                        if astrbot_persona_manager:
+                            logger.info(f"成功获取AstrBot框架PersonaManager: {type(astrbot_persona_manager)}")
+                            # 检查PersonaManager是否已初始化
+                            if hasattr(astrbot_persona_manager, 'personas'):
+                                logger.info(f"PersonaManager已有personas属性，人格数量: {len(getattr(astrbot_persona_manager, 'personas', []))}")
+                            else:
+                                logger.info("PersonaManager还没有personas属性，可能需要初始化")
+                        else:
+                            logger.warning("Context中persona_manager为None")
+                    else:
+                        logger.warning("Context中没有persona_manager属性")
+                        
+                    # 额外尝试：如果persona_manager为None，尝试延迟获取
+                    if not astrbot_persona_manager:
+                        logger.info("尝试延迟获取PersonaManager...")
+                        await asyncio.sleep(2)  # 等待2秒
+                        if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                            astrbot_persona_manager = self.context.persona_manager
+                            logger.info(f"延迟获取成功: {type(astrbot_persona_manager)}")
+                        else:
+                            logger.warning("延迟获取PersonaManager仍然失败")
+                            
+                except Exception as pe:
+                    logger.error(f"获取AstrBot框架PersonaManager失败: {pe}", exc_info=True)
+                
                 await set_plugin_services(
                     self.plugin_config,
                     self.factory_manager, # 传递 factory_manager
-                    None  # 不再传递已弃用的 LLMClient
+                    None,  # 不再传递已弃用的 LLMClient
+                    astrbot_persona_manager  # 传递框架PersonaManager
                 )
                 logger.info("Web服务器插件服务设置完成")
             except Exception as e:

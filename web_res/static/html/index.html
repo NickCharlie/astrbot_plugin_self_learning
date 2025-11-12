@@ -32,6 +32,10 @@
                     <i class="material-icons">rate_review</i>
                     <span>人格审查</span>
                 </li>
+                <li class="menu-item" data-page="persona-management">
+                    <i class="material-icons">person</i>
+                    <span>人格管理</span>
+                </li>
                 <li class="menu-item" data-page="metrics">
                     <i class="material-icons">analytics</i>
                     <span>详细监控</span>
@@ -39,6 +43,10 @@
                 <li class="menu-item" data-page="learning-status">
                     <i class="material-icons">psychology</i>
                     <span>学习状态</span>
+                </li>
+                <li class="menu-item" data-page="style-learning">
+                    <i class="material-icons">chat</i>
+                    <span>对话风格学习</span>
                 </li>
             </ul>
         </div>
@@ -81,6 +89,7 @@
                             <div class="stat-content">
                                 <div class="stat-number" id="total-messages">0</div>
                                 <div class="stat-label">总消息数</div>
+                                <small class="stat-description">与机器人交互的所有消息数量</small>
                                 <div class="stat-trend positive">
                                     <i class="material-icons">trending_up</i>
                                     <span id="messages-trend">+12%</span>
@@ -95,6 +104,7 @@
                             <div class="stat-content">
                                 <div class="stat-number" id="filtered-messages">0</div>
                                 <div class="stat-label">筛选消息数</div>
+                                <small class="stat-description">通过质量筛选的有效学习消息数量</small>
                                 <div class="stat-trend positive">
                                     <i class="material-icons">trending_up</i>
                                     <span id="filtered-trend">+8%</span>
@@ -225,6 +235,23 @@
                             </div>
                         </div>
 
+                        <!-- 对话风格学习可视化 -->
+                        <div class="chart-container">
+                            <div class="chart-header">
+                                <h3>对话风格学习进度</h3>
+                                <div class="chart-controls">
+                                    <select id="style-dashboard-range">
+                                        <option value="7d">近7天</option>
+                                        <option value="30d" selected>近30天</option>
+                                        <option value="90d">近90天</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="chart-content">
+                                <div id="style-learning-dashboard" class="chart"></div>
+                            </div>
+                        </div>
+
                         <!-- 用户活跃度热力图 -->
                         <div class="chart-container wide">
                             <div class="chart-header">
@@ -245,64 +272,456 @@
                 <!-- 插件配置页面 -->
                 <div id="config-page" class="page">
                     <div class="config-section">
-                        <h2>基础配置</h2>
-                        <div class="config-grid">
-                            <div class="config-card">
-                                <h3>消息抓取设置</h3>
-                                <div class="form-group">
-                                    <label class="switch-label">
-                                        <input type="checkbox" id="enableMessageCapture">
-                                        <span class="switch-slider"></span>
-                                        启用消息抓取
-                                    </label>
+                        <h2>插件配置</h2>
+                        
+                        <!-- 基础开关设置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">toggle_on</i> 基础开关</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>核心功能</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableMessageCapture">
+                                            <span class="switch-slider"></span>
+                                            启用消息抓取
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableAutoLearning">
+                                            <span class="switch-slider"></span>
+                                            启用自动学习
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableRealtimeLearning">
+                                            <span class="switch-slider"></span>
+                                            启用实时学习
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableRealtimeLLMFilter">
+                                            <span class="switch-slider"></span>
+                                            启用实时LLM筛选
+                                        </label>
+                                    </div>
                                 </div>
-                                <div class="form-group">
-                                    <label for="targetQQList">目标QQ列表</label>
-                                    <textarea id="targetQQList" placeholder="输入QQ号，用逗号分隔。留空则学习所有用户消息"></textarea>
-                                    <small class="form-hint">💡 为空时将学习群内所有用户的消息，有助于学习更丰富的表达风格</small>
-                                </div>
-                            </div>
-
-                            <div class="config-card">
-                                <h3>学习设置</h3>
-                                <div class="form-group">
-                                    <label class="switch-label">
-                                        <input type="checkbox" id="enableAutoLearning">
-                                        <span class="switch-slider"></span>
-                                        启用自动学习
-                                    </label>
-                                </div>
-                                <div class="form-group">
-                                    <label class="switch-label">
-                                        <input type="checkbox" id="enableRealtimeLearning">
-                                        <span class="switch-slider"></span>
-                                        启用实时学习
-                                    </label>
-                                </div>
-                                <div class="form-group">
-                                    <label for="learningInterval">学习间隔(小时)</label>
-                                    <input type="number" id="learningInterval" min="1" max="168" value="6">
-                                </div>
-                            </div>
-
-                            <div class="config-card">
-                                <h3>模型配置</h3>
-                                <div class="form-group">
-                                    <label for="filterModel">筛选模型</label>
-                                    <select id="filterModel">
-                                        <option value="gpt-4o-mini">GPT-4o-mini</option>
-                                        <option value="gpt-3.5-turbo">GPT-3.5-turbo</option>
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="refineModel">提炼模型</label>
-                                    <select id="refineModel">
-                                        <option value="gpt-4o">GPT-4o</option>
-                                        <option value="gpt-4">GPT-4</option>
-                                    </select>
+                                
+                                <div class="config-card">
+                                    <h4>Web界面</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableWebInterface">
+                                            <span class="switch-slider"></span>
+                                            启用Web界面
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="webInterfacePort">Web界面端口</label>
+                                        <input type="number" id="webInterfacePort" min="1" max="65535" value="7833">
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- MaiBot增强功能 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">psychology</i> MaiBot增强功能</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>智能增强</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableMaibotFeatures">
+                                            <span class="switch-slider"></span>
+                                            启用MaiBot增强功能
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableExpressionPatterns">
+                                            <span class="switch-slider"></span>
+                                            启用表达模式学习
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="config-card">
+                                    <h4>记忆系统</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableMemoryGraph">
+                                            <span class="switch-slider"></span>
+                                            启用记忆图系统
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableKnowledgeGraph">
+                                            <span class="switch-slider"></span>
+                                            启用知识图谱
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableTimeDecay">
+                                            <span class="switch-slider"></span>
+                                            启用时间衰减机制
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- QQ号设置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">people</i> 目标设置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>QQ号配置</h4>
+                                    <div class="form-group">
+                                        <label for="targetQQList">目标QQ列表</label>
+                                        <textarea id="targetQQList" placeholder="输入QQ号，用逗号分隔。留空则学习所有用户消息"></textarea>
+                                        <small class="form-hint">💡 为空时将学习群内所有用户的消息，有助于学习更丰富的表达风格</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="targetBlacklist">学习黑名单</label>
+                                        <textarea id="targetBlacklist" placeholder="输入要排除的QQ号，用逗号分隔"></textarea>
+                                        <small class="form-hint">💡 这些用户的消息将被忽略，不会用于学习</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="currentPersonaName">当前人格名称</label>
+                                        <input type="text" id="currentPersonaName" value="default">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- LLM模型配置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">smart_toy</i> LLM模型配置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>模型提供商</h4>
+                                    <div class="form-group">
+                                        <label for="filterProviderId">筛选模型提供商ID</label>
+                                        <input type="text" id="filterProviderId" placeholder="筛选模型使用的提供商ID">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="refineProviderId">提炼模型提供商ID</label>
+                                        <input type="text" id="refineProviderId" placeholder="提炼模型使用的提供商ID">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="reinforceProviderId">强化模型提供商ID</label>
+                                        <input type="text" id="reinforceProviderId" placeholder="强化模型使用的提供商ID">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 学习参数 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">school</i> 学习参数</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>学习设置</h4>
+                                    <div class="form-group">
+                                        <label for="learningInterval">学习间隔(小时)</label>
+                                        <input type="range" id="learningInterval" min="1" max="168" value="6">
+                                        <span class="range-value">6 小时</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="minMessagesForLearning">最少消息数量才开始学习</label>
+                                        <input type="range" id="minMessagesForLearning" min="10" max="500" value="50">
+                                        <span class="range-value">50 条</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxMessagesPerBatch">每批处理的最大消息数量</label>
+                                        <input type="range" id="maxMessagesPerBatch" min="50" max="1000" value="200">
+                                        <span class="range-value">200 条</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 筛选参数 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">filter_list</i> 筛选参数</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>消息筛选</h4>
+                                    <div class="form-group">
+                                        <label for="messageMinLength">消息最小长度</label>
+                                        <input type="range" id="messageMinLength" min="1" max="50" value="5">
+                                        <span class="range-value">5 字符</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="messageMaxLength">消息最大长度</label>
+                                        <input type="range" id="messageMaxLength" min="100" max="2000" value="500">
+                                        <span class="range-value">500 字符</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="confidenceThreshold">筛选置信度阈值</label>
+                                        <input type="range" id="confidenceThreshold" min="0.1" max="1.0" step="0.1" value="0.7">
+                                        <span class="range-value">0.7</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="relevanceThreshold">相关性阈值</label>
+                                        <input type="range" id="relevanceThreshold" min="0.1" max="1.0" step="0.1" value="0.6">
+                                        <span class="range-value">0.6</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 风格分析 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">style</i> 风格分析</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>分析设置</h4>
+                                    <div class="form-group">
+                                        <label for="styleAnalysisBatchSize">风格分析批次大小</label>
+                                        <input type="range" id="styleAnalysisBatchSize" min="50" max="500" value="100">
+                                        <span class="range-value">100 条</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="styleUpdateThreshold">风格更新阈值</label>
+                                        <input type="range" id="styleUpdateThreshold" min="0.1" max="1.0" step="0.1" value="0.6">
+                                        <span class="range-value">0.6</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 机器学习设置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">auto_awesome</i> 机器学习设置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>ML配置</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableMLAnalysis">
+                                            <span class="switch-slider"></span>
+                                            启用ML分析
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxMLSampleSize">ML样本最大数量</label>
+                                        <input type="range" id="maxMLSampleSize" min="50" max="500" value="100">
+                                        <span class="range-value">100 条</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="mlCacheTimeoutHours">ML缓存超时(小时)</label>
+                                        <input type="range" id="mlCacheTimeoutHours" min="1" max="24" value="1">
+                                        <span class="range-value">1 小时</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 人格备份设置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">backup</i> 人格备份设置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>备份配置</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="autoBackupEnabled">
+                                            <span class="switch-slider"></span>
+                                            启用自动备份
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="backupIntervalHours">备份间隔(小时)</label>
+                                        <input type="range" id="backupIntervalHours" min="1" max="168" value="24">
+                                        <span class="range-value">24 小时</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxBackupsPerGroup">每群最大备份数</label>
+                                        <input type="range" id="maxBackupsPerGroup" min="5" max="50" value="10">
+                                        <span class="range-value">10 个</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 高级设置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">settings_applications</i> 高级设置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>调试与存储</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="debugMode">
+                                            <span class="switch-slider"></span>
+                                            调试模式
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="saveRawMessages">
+                                            <span class="switch-slider"></span>
+                                            保存原始消息
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="autoBackupIntervalDays">自动备份间隔(天)</label>
+                                        <input type="range" id="autoBackupIntervalDays" min="1" max="30" value="7">
+                                        <span class="range-value">7 天</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- PersonaUpdater配置 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">person</i> 人格更新配置</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>人格管理</h4>
+                                    <div class="form-group">
+                                        <label for="personaMergeStrategy">人格合并策略</label>
+                                        <select id="personaMergeStrategy">
+                                            <option value="smart">智能合并</option>
+                                            <option value="replace">替换</option>
+                                            <option value="append">追加</option>
+                                            <option value="prepend">前置</option>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxMoodImitationDialogs">最大对话风格模仿数量</label>
+                                        <input type="range" id="maxMoodImitationDialogs" min="10" max="50" value="20">
+                                        <span class="range-value">20 个</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enablePersonaEvolution">
+                                            <span class="switch-slider"></span>
+                                            启用人格演化跟踪
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="personaCompatibilityThreshold">人格兼容性阈值</label>
+                                        <input type="range" id="personaCompatibilityThreshold" min="0.1" max="1.0" step="0.1" value="0.6">
+                                        <span class="range-value">0.6</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="usePersonaManagerUpdates" checked>
+                                            <span class="switch-slider"></span>
+                                            使用PersonaManager更新
+                                        </label>
+                                        <small class="form-hint">💡 启用后将使用框架原生PersonaManager方法更新人格 默认打开</small>
+                                    </div>
+                                </div>
+                                
+                                <div class="config-card">
+                                    <h4>更新方式</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="autoApplyPersonaUpdates">
+                                            <span class="switch-slider"></span>
+                                            自动应用人格更新
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="personaUpdateBackupEnabled">
+                                            <span class="switch-slider"></span>
+                                            启用更新前备份
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 好感度系统 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">favorite</i> 好感度系统</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>好感度配置</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableAffectionSystem">
+                                            <span class="switch-slider"></span>
+                                            启用好感度系统
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxTotalAffection">bot总好感度满分值</label>
+                                        <input type="range" id="maxTotalAffection" min="100" max="500" value="250">
+                                        <span class="range-value">250</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="maxUserAffection">单个用户最大好感度</label>
+                                        <input type="range" id="maxUserAffection" min="50" max="200" value="100">
+                                        <span class="range-value">100</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="affectionDecayRate">好感度衰减比例</label>
+                                        <input type="range" id="affectionDecayRate" min="0.8" max="1.0" step="0.01" value="0.95">
+                                        <span class="range-value">0.95</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="dailyMoodChange">
+                                            <span class="switch-slider"></span>
+                                            启用每日情绪变化
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="moodAffectAffection">
+                                            <span class="switch-slider"></span>
+                                            情绪影响好感度变化
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 情绪系统 -->
+                        <div class="config-category">
+                            <h3><i class="material-icons">sentiment_satisfied</i> 情绪系统</h3>
+                            <div class="config-grid">
+                                <div class="config-card">
+                                    <h4>情绪配置</h4>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableDailyMood">
+                                            <span class="switch-slider"></span>
+                                            启用每日情绪
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="switch-label">
+                                            <input type="checkbox" id="enableStartupRandomMood">
+                                            <span class="switch-slider"></span>
+                                            启用启动时随机情绪初始化
+                                        </label>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="moodChangeHour">情绪更新时间(24小时制)</label>
+                                        <input type="range" id="moodChangeHour" min="0" max="23" value="6">
+                                        <span class="range-value">6:00</span>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="moodPersistenceHours">情绪持续时间(小时)</label>
+                                        <input type="range" id="moodPersistenceHours" min="1" max="72" value="24">
+                                        <span class="range-value">24 小时</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="config-actions">
                             <button class="btn btn-primary" id="saveConfig">
                                 <i class="material-icons">save</i>
@@ -311,6 +730,14 @@
                             <button class="btn btn-secondary" id="resetConfig">
                                 <i class="material-icons">refresh</i>
                                 重置配置
+                            </button>
+                            <button class="btn btn-info" id="exportConfig">
+                                <i class="material-icons">download</i>
+                                导出配置
+                            </button>
+                            <button class="btn btn-warning" id="importConfig">
+                                <i class="material-icons">upload</i>
+                                导入配置
                             </button>
                         </div>
                     </div>
@@ -371,6 +798,201 @@
                             <div class="learning-card">
                                 <h3>学习历史</h3>
                                 <div id="learning-history-chart" class="chart"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 人格管理页面 -->
+                <div id="persona-management-page" class="page">
+                    <div class="persona-management-section">
+                        <div class="section-header">
+                            <h2>人格管理</h2>
+                            <div class="management-controls">
+                                <button class="btn btn-primary" id="createPersonaBtn">
+                                    <i class="material-icons">add</i>
+                                    创建人格
+                                </button>
+                                <button class="btn btn-info" id="importPersonaBtn">
+                                    <i class="material-icons">upload</i>
+                                    导入人格
+                                </button>
+                                <button class="btn btn-success" id="refreshPersonasBtn">
+                                    <i class="material-icons">refresh</i>
+                                    刷新列表
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 人格列表 -->
+                        <div class="personas-grid" id="personas-grid">
+                            <!-- 人格卡片将在这里动态加载 -->
+                            <div class="persona-card loading-placeholder">
+                                <div class="loading-spinner"></div>
+                                <p>正在加载人格列表...</p>
+                            </div>
+                        </div>
+
+                        <!-- 默认人格显示 -->
+                        <div class="default-persona-section">
+                            <h3><i class="material-icons">star</i> 默认人格</h3>
+                            <div class="default-persona-card" id="default-persona-card">
+                                <!-- 默认人格内容将在这里显示 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 对话风格学习页面 -->
+                <div id="style-learning-page" class="page">
+                    <div class="style-learning-section">
+                        <h2>对话风格学习成果</h2>
+                        
+                        <!-- 学习统计概览 -->
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">forum</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="style-types-count">0</h3>
+                                    <p>学习风格类型</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">trending_up</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="avg-confidence">0%</h3>
+                                    <p>平均置信度</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">data_usage</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="total-samples">0</h3>
+                                    <p>总样本数量</p>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">update</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="latest-update">--</h3>
+                                    <p>最新更新</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 学习进度和成果展示 -->
+                        <div class="charts-grid">
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>风格学习进度</h3>
+                                    <div class="chart-controls">
+                                        <select id="style-time-range">
+                                            <option value="7">近7天</option>
+                                            <option value="30">近30天</option>
+                                            <option value="90">近90天</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="style-progress-chart" class="chart"></div>
+                            </div>
+
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>情感表达模式</h3>
+                                </div>
+                                <div id="emotion-patterns-chart" class="chart"></div>
+                            </div>
+
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>语言风格分布</h3>
+                                </div>
+                                <div id="language-style-chart" class="chart"></div>
+                            </div>
+
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>主题偏好分析</h3>
+                                </div>
+                                <div id="topic-preferences-chart" class="chart"></div>
+                            </div>
+                        </div>
+
+                        <!-- 学习内容文本汇总 -->
+                        <div class="learning-content-section">
+                            <h3><i class="material-icons">library_books</i> 学习内容文本汇总</h3>
+                            <div class="content-controls">
+                                <button class="btn btn-secondary" onclick="loadAllLearningContent()">
+                                    <i class="material-icons">refresh</i>
+                                    刷新内容
+                                </button>
+                                <button class="btn btn-info" onclick="exportLearningContent()">
+                                    <i class="material-icons">download</i>
+                                    导出文本
+                                </button>
+                                <div class="search-box">
+                                    <input type="text" id="contentSearchInput" placeholder="搜索学习内容..." onkeyup="filterLearningContent()">
+                                    <i class="material-icons">search</i>
+                                </div>
+                            </div>
+                            <div class="learning-content-container">
+                                <div class="content-category">
+                                    <h4><i class="material-icons">chat</i> 对话示例文本</h4>
+                                    <div class="content-text-area" id="dialogue-content">
+                                        <div class="loading-message">正在加载对话内容...</div>
+                                    </div>
+                                </div>
+                                <div class="content-category">
+                                    <h4><i class="material-icons">psychology</i> 学习分析结果</h4>
+                                    <div class="content-text-area" id="analysis-content">
+                                        <div class="loading-message">正在加载分析内容...</div>
+                                    </div>
+                                </div>
+                                <div class="content-category">
+                                    <h4><i class="material-icons">description</i> 提炼的风格特征</h4>
+                                    <div class="content-text-area" id="features-content">
+                                        <div class="loading-message">正在加载特征内容...</div>
+                                    </div>
+                                </div>
+                                <div class="content-category">
+                                    <h4><i class="material-icons">timeline</i> 学习历程记录</h4>
+                                    <div class="content-text-area" id="history-content">
+                                        <div class="loading-message">正在加载历程记录...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 学习模式详情 -->
+                        <div class="learning-patterns-section">
+                            <h3>学习到的对话模式</h3>
+                            <div class="patterns-container">
+                                <div class="pattern-category">
+                                    <h4><i class="material-icons">sentiment_satisfied</i> 情感表达</h4>
+                                    <div id="emotion-patterns-list" class="patterns-list">
+                                        <!-- 动态加载情感表达模式 -->
+                                    </div>
+                                </div>
+                                <div class="pattern-category">
+                                    <h4><i class="material-icons">text_format</i> 语言风格</h4>
+                                    <div id="language-patterns-list" class="patterns-list">
+                                        <!-- 动态加载语言风格模式 -->
+                                    </div>
+                                </div>
+                                <div class="pattern-category">
+                                    <h4><i class="material-icons">topic</i> 主题偏好</h4>
+                                    <div id="topic-patterns-list" class="patterns-list">
+                                        <!-- 动态加载主题偏好模式 -->
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

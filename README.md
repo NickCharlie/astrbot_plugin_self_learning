@@ -52,7 +52,7 @@ This project's license has been changed from MIT to **GNU General Public License
 
 ---
 
-## 目前插件正在测试阶段 有许多Bug还没有修好 webui暂时无法使用
+## 目前插件正在测试阶段 有许多Bug还没有修好
 
 ## 欢迎加入QQ群聊 1021544792 反馈你所遇到的Bug
 
