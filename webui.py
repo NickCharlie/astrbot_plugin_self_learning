@@ -115,11 +115,34 @@ async def set_plugin_services(
     
     # 从工厂管理器获取其他服务实例
     try:
-        persona_updater = factory_manager.get_service("persona_updater")
+        logger.info("开始初始化WebUI服务...")
+        
+        # 使用更直接的方法获取服务
+        service_factory = factory_manager.get_service_factory()
+        logger.info("成功获取服务工厂")
+        
+        # 获取人格更新器
+        logger.info("正在获取人格更新器...")
+        persona_updater = service_factory.get_persona_updater()
+        
+        # 确保数据库管理器已创建
+        logger.info("正在获取数据库管理器...")
+        service_factory.create_database_manager()
         database_manager = factory_manager.get_service("database_manager")
         db_manager = database_manager  # 设置别名
+        
+        if persona_updater:
+            logger.info(f"成功获取人格更新器: {type(persona_updater)}")
+        else:
+            logger.warning("人格更新器为None")
+            
+        if database_manager:
+            logger.info(f"成功获取数据库管理器: {type(database_manager)}")
+        else:
+            logger.warning("数据库管理器为None")
+            
     except Exception as e:
-        logger.error(f"获取服务实例失败: {e}")
+        logger.error(f"获取服务实例失败: {e}", exc_info=True)
         persona_updater = None
         database_manager = None
         db_manager = None
@@ -258,8 +281,42 @@ async def update_plugin_config():
 async def get_persona_updates():
     """获取需要人工审查的人格更新内容"""
     if persona_updater:
-        updates = await persona_updater.get_pending_persona_updates()
-        return jsonify([record.__dict__ for record in updates])
+        try:
+            updates = await persona_updater.get_pending_persona_updates()
+            # 将PersonaUpdateRecord对象转换为字典格式，确保数据完整
+            updates_data = []
+            for record in updates:
+                # 使用dataclass的asdict或手动转换
+                if hasattr(record, '__dict__'):
+                    record_dict = record.__dict__.copy()
+                else:
+                    # 手动构建字典
+                    record_dict = {
+                        'id': getattr(record, 'id', None),
+                        'timestamp': getattr(record, 'timestamp', 0),
+                        'group_id': getattr(record, 'group_id', 'default'),
+                        'update_type': getattr(record, 'update_type', 'unknown'),
+                        'original_content': getattr(record, 'original_content', ''),
+                        'new_content': getattr(record, 'new_content', ''),
+                        'reason': getattr(record, 'reason', ''),
+                        'status': getattr(record, 'status', 'pending'),
+                        'reviewer_comment': getattr(record, 'reviewer_comment', None),
+                        'review_time': getattr(record, 'review_time', None)
+                    }
+                
+                # 添加一些前端需要的字段
+                record_dict['proposed_content'] = record_dict.get('new_content', '')
+                record_dict['confidence_score'] = 0.8  # 默认置信度
+                record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
+                record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
+                
+                updates_data.append(record_dict)
+            
+            logger.info(f"返回 {len(updates_data)} 条人格更新记录给WebUI")
+            return jsonify(updates_data)
+        except Exception as e:
+            logger.error(f"获取人格更新记录失败: {e}", exc_info=True)
+            return jsonify({"error": f"获取人格更新记录失败: {str(e)}"}), 500
     return jsonify({"error": "Persona updater not initialized"}), 500
 
 @api_bp.route("/persona_updates/<int:update_id>/review", methods=["POST"])
@@ -267,12 +324,59 @@ async def get_persona_updates():
 async def review_persona_update(update_id: int):
     """审查人格更新内容 (批准/拒绝)"""
     if persona_updater:
-        data = await request.get_json()
-        action = data.get("action")
-        result = await persona_updater.review_persona_update(update_id, action)
-        if result:
-            return jsonify({"message": f"Update {update_id} {action}d successfully"})
-        return jsonify({"error": "Failed to update persona review status"}), 500
+        try:
+            data = await request.get_json()
+            action = data.get("action")
+            comment = data.get("comment", "")
+            
+            # 将action转换为合适的status
+            if action == "approve":
+                status = "approved"
+            elif action == "reject":
+                status = "rejected"
+            else:
+                return jsonify({"error": "Invalid action, must be 'approve' or 'reject'"}), 400
+            
+            result = await persona_updater.review_persona_update(update_id, status, comment)
+            if result:
+                logger.info(f"人格更新 {update_id} 已审查为 {status}")
+                return jsonify({"message": f"Update {update_id} {action}d successfully"})
+            return jsonify({"error": "Failed to update persona review status"}), 500
+        except Exception as e:
+            logger.error(f"审查人格更新失败: {e}", exc_info=True)
+            return jsonify({"error": f"审查失败: {str(e)}"}), 500
+    return jsonify({"error": "Persona updater not initialized"}), 500
+
+# 添加一个测试接口，用于创建测试数据
+@api_bp.route("/test/create_persona_update", methods=["POST"])
+@require_auth
+async def create_test_persona_update():
+    """创建测试人格更新记录（仅用于开发调试）"""
+    if persona_updater:
+        try:
+            import time
+            from ..core.interfaces import PersonaUpdateRecord
+            
+            # 创建一个测试记录
+            test_record = PersonaUpdateRecord(
+                timestamp=time.time(),
+                group_id="742376823",
+                update_type="prompt_update", 
+                original_content="You are a helpful assistant.",
+                new_content="You are a helpful assistant with a friendly and enthusiastic personality. You enjoy helping users with their questions and respond in a warm, encouraging manner.",
+                reason="强化学习生成的prompt过短，采用保守融合策略"
+            )
+            
+            record_id = await persona_updater.record_persona_update_for_review(test_record)
+            logger.info(f"创建测试人格更新记录，ID: {record_id}")
+            
+            return jsonify({
+                "message": "Test persona update record created successfully",
+                "record_id": record_id
+            })
+        except Exception as e:
+            logger.error(f"创建测试记录失败: {e}", exc_info=True)
+            return jsonify({"error": f"创建测试记录失败: {str(e)}"}), 500
     return jsonify({"error": "Persona updater not initialized"}), 500
 
 @api_bp.route("/metrics")

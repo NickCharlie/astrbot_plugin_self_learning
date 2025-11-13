@@ -152,7 +152,24 @@ class PersonaUpdater(IPersonaUpdater):
         """获取所有待审查的人格更新"""
         try:
             records_data = await self.db_manager.get_pending_persona_update_records()
-            return [PersonaUpdateRecord(**data) for data in records_data]
+            records = []
+            for data in records_data:
+                # 确保数据包含所需字段，并提供默认值
+                record = PersonaUpdateRecord(
+                    id=data.get('id'),
+                    timestamp=data.get('timestamp', time.time()),
+                    group_id=data.get('group_id', 'default'),
+                    update_type=data.get('update_type', 'unknown'),
+                    original_content=data.get('original_content', ''),
+                    new_content=data.get('new_content', ''),
+                    reason=data.get('reason', ''),
+                    status=data.get('status', 'pending'),
+                    reviewer_comment=data.get('reviewer_comment'),
+                    review_time=data.get('review_time')
+                )
+                records.append(record)
+            self._logger.info(f"获取到 {len(records)} 条待审查的人格更新记录")
+            return records
         except Exception as e:
             self._logger.error(f"获取待审查人格更新失败: {e}")
             return []

@@ -280,6 +280,15 @@ class IServiceFactory(ABC):
     def create_quality_monitor(self) -> IQualityMonitor:
         """创建质量监控器"""
         pass
+    
+    @abstractmethod
+    def create_persona_updater(self) -> IPersonaUpdater:
+        """创建人格更新器"""
+        pass
+    
+    def get_persona_updater(self) -> Optional[IPersonaUpdater]:
+        """获取已创建的人格更新器实例，如果不存在则创建（默认实现）"""
+        return self.create_persona_updater()
 
 
 class IAsyncService(ABC):

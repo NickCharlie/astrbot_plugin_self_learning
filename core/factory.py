@@ -473,6 +473,21 @@ class ServiceFactory(IServiceFactory):
             self._logger.error(f"导入人格更新器失败: {e}", exc_info=True)
             raise ServiceError(f"创建人格更新器失败: {str(e)}")
 
+    def get_persona_updater(self) -> Optional[IPersonaUpdater]:
+        """获取已创建的人格更新器实例，如果不存在则创建"""
+        cache_key = "persona_updater"
+        
+        # 如果已存在，直接返回
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        # 如果不存在，创建新实例
+        try:
+            return self.create_persona_updater()
+        except Exception as e:
+            self._logger.error(f"获取人格更新器失败: {e}", exc_info=True)
+            return None
+
     def get_service_registry(self) -> ServiceRegistry:
         """获取服务注册表"""
         return self._registry
