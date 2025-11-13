@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.6", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.7", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -729,6 +729,9 @@ class SelfLearningPlugin(star.Star):
             
             self.learning_stats.total_messages_collected += 1
             
+            # 确保配置中的统计也得到更新，用于WebUI显示
+            self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
+            
             # 处理增强交互（多轮对话管理）
             try:
                 await self.enhanced_interaction.update_conversation_context(
@@ -928,7 +931,11 @@ class SelfLearningPlugin(star.Star):
                     'confidence': 0.6  # 无LLM筛选的置信度较低
                 })
                 self.learning_stats.filtered_messages += 1
-                return
+                
+                # 确保配置中的统计也得到更新，用于WebUI显示
+                if not hasattr(self.plugin_config, 'filtered_messages'):
+                    self.plugin_config.filtered_messages = 0
+                self.plugin_config.filtered_messages = self.learning_stats.filtered_messages
             
             # 如果启用LLM筛选，则获取当前人格描述并进行筛选
             current_persona_description = await self.persona_manager.get_current_persona_description()
@@ -945,6 +952,11 @@ class SelfLearningPlugin(star.Star):
                     'confidence': 0.8  # 实时筛选置信度
                 })
                 self.learning_stats.filtered_messages += 1
+                
+                # 确保配置中的统计也得到更新，用于WebUI显示
+                if not hasattr(self.plugin_config, 'filtered_messages'):
+                    self.plugin_config.filtered_messages = 0
+                self.plugin_config.filtered_messages = self.learning_stats.filtered_messages
                 
         except Exception as e:
             logger.error(StatusMessages.REALTIME_PROCESSING_ERROR.format(error=e), exc_info=True)

@@ -2454,7 +2454,7 @@ class DatabaseManager(AsyncServiceBase):
                 'unique_styles': unique_styles,
                 'avg_confidence': round(avg_confidence, 2),
                 'total_samples': total_samples,
-                'latest_update': datetime.fromtimestamp(latest_update_time).isoformat() if latest_update_time else None
+                'latest_update': latest_update_time  # 返回时间戳而不是ISO格式
             }
             
         except Exception as e:
@@ -2508,6 +2508,24 @@ class DatabaseManager(AsyncServiceBase):
         try:
             conn = await self._get_messages_db_connection()
             cursor = await conn.cursor()
+            
+            # 检查是否有数据
+            await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
+            data_count = (await cursor.fetchone())[0]
+            
+            if data_count == 0:
+                # 如果没有数据，返回友好提示
+                return {
+                    'emotion_patterns': [
+                        {'pattern': '暂无情感模式数据', 'confidence': 0, 'frequency': 0}
+                    ],
+                    'language_patterns': [
+                        {'type': '暂无语言模式数据', 'count': 0, 'avg_confidence': 0}
+                    ],
+                    'topic_preferences': [
+                        {'group_id': '暂无话题偏好数据', 'message_count': 0, 'avg_confidence': 0}
+                    ]
+                }
             
             # 情感模式分析（基于置信度和筛选原因）
             await cursor.execute('''
@@ -2570,6 +2588,28 @@ class DatabaseManager(AsyncServiceBase):
                     'group_id': row[0],
                     'message_count': row[1],
                     'avg_confidence': round(row[2], 2)
+                })
+            
+            # 如果没有任何数据，添加友好提示
+            if not emotion_patterns:
+                emotion_patterns.append({
+                    'pattern': '暂无情感模式数据，请先进行对话学习',
+                    'confidence': 0,
+                    'frequency': 0
+                })
+            
+            if not language_patterns:
+                language_patterns.append({
+                    'type': '暂无语言模式数据，请先进行对话学习',
+                    'count': 0,
+                    'avg_confidence': 0
+                })
+            
+            if not topic_preferences:
+                topic_preferences.append({
+                    'group_id': '暂无话题偏好数据，请先进行群聊对话',
+                    'message_count': 0,
+                    'avg_confidence': 0
                 })
             
             return {
@@ -2760,3 +2800,40 @@ class DatabaseManager(AsyncServiceBase):
                 'llm_growth': 0,
                 'sessions_growth': 0
             }
+
+    async def get_recent_learning_batches(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取最近的学习批次记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                SELECT id, group_id, start_time, end_time, quality_score,
+                       processed_messages, batch_name, message_count, 
+                       filtered_count, success, error_message
+                FROM learning_batches 
+                ORDER BY start_time DESC 
+                LIMIT ?
+            ''', (limit,))
+            
+            batches = []
+            for row in await cursor.fetchall():
+                batches.append({
+                    'id': row[0],
+                    'group_id': row[1],
+                    'start_time': row[2],
+                    'end_time': row[3],
+                    'quality_score': row[4],
+                    'processed_messages': row[5],
+                    'batch_name': row[6],
+                    'message_count': row[7],
+                    'filtered_count': row[8],
+                    'success': bool(row[9]),
+                    'error_message': row[10]
+                })
+            
+            return batches
+            
+        except Exception as e:
+            self._logger.error(f"获取学习批次记录失败: {e}")
+            return []

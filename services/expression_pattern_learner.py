@@ -258,6 +258,11 @@ class ExpressionPatternLearner:
                     temperature=0.3,  # 使用MaiBot的temperature设置
                     model_type="refine"  # 使用精炼模型
                 )
+                
+                # 检查response是否有效
+                if not response:
+                    logger.warning(f"LLM生成的response为空或None，可能是模型调用失败")
+                    response = ""
             else:
                 logger.error("LLM适配器未正确配置或缺少generate_response方法")
                 raise ExpressionLearningError("LLM适配器未正确配置")
@@ -314,6 +319,11 @@ class ExpressionPatternLearner:
         """
         patterns = []
         current_time = time.time()
+        
+        # 检查response是否为None或空字符串
+        if not response:
+            logger.warning(f"LLM返回的response为空或None，无法解析表达模式")
+            return patterns
         
         for line in response.splitlines():
             line = line.strip()

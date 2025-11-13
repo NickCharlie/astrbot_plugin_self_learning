@@ -282,27 +282,22 @@ async def get_metrics():
     try:
         # 获取真实的LLM调用统计
         llm_stats = {}
-        if llm_client:
-            # 从LLM客户端获取真实调用统计
-            llm_stats = {
-                "gpt-4o": {
-                    "total_calls": getattr(llm_client, '_gpt4o_calls', 150),
-                    "avg_response_time_ms": getattr(llm_client, '_gpt4o_avg_time', 1200),
-                    "success_rate": getattr(llm_client, '_gpt4o_success', 0.95),
-                    "error_count": getattr(llm_client, '_gpt4o_errors', 8)
-                },
-                "gpt-4o-mini": {
-                    "total_calls": getattr(llm_client, '_gpt4o_mini_calls', 300),
-                    "avg_response_time_ms": getattr(llm_client, '_gpt4o_mini_avg_time', 500),
-                    "success_rate": getattr(llm_client, '_gpt4o_mini_success', 0.98),
-                    "error_count": getattr(llm_client, '_gpt4o_mini_errors', 6)
-                }
-            }
+        if llm_client and hasattr(llm_client, 'get_call_statistics'):
+            # 从LLM适配器获取真实调用统计
+            real_stats = llm_client.get_call_statistics()
+            for provider_type, stats in real_stats.items():
+                if provider_type != 'overall':
+                    llm_stats[f"{provider_type}_provider"] = {
+                        "total_calls": stats.get('total_calls', 0),
+                        "avg_response_time_ms": stats.get('avg_response_time_ms', 0),
+                        "success_rate": stats.get('success_rate', 1.0),
+                        "error_count": stats.get('error_count', 0)
+                    }
         else:
-            # 模拟数据
+            # 后备的模拟数据
             llm_stats = {
-                "gpt-4o": {"total_calls": 150, "avg_response_time_ms": 1200, "success_rate": 0.95, "error_count": 8},
-                "gpt-4o-mini": {"total_calls": 300, "avg_response_time_ms": 500, "success_rate": 0.98, "error_count": 6}
+                "filter_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 1.0, "error_count": 0},
+                "refine_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 1.0, "error_count": 0}
             }
         
         # 获取真实的消息统计
@@ -311,7 +306,7 @@ async def get_metrics():
         if database_manager:
             try:
                 # 从数据库获取真实统计
-                stats = await database_manager.get_message_statistics()
+                stats = await database_manager.get_messages_statistics()
                 total_messages = stats.get('total_messages', 0)
                 filtered_messages = stats.get('filtered_messages', 0)
             except Exception as e:
@@ -423,43 +418,57 @@ async def get_realtime_metrics():
 async def get_learning_status():
     """获取学习状态详情"""
     try:
-        if not persona_updater:
-            return jsonify({"error": "Persona updater not initialized"}), 500
-        
-        # 获取学习状态
+        # 获取真实的学习状态
         learning_status = {
-            "current_session": {
-                "session_id": f"sess_{int(time.time())}",
-                "start_time": "2024-08-21 10:30:00",
-                "status": "active" if plugin_config and plugin_config.enable_auto_learning else "stopped",
-                "messages_processed": 156,
-                "learning_progress": 75.5,
-                "current_task": "分析用户对话风格" if plugin_config and plugin_config.enable_auto_learning else "等待中"
-            },
-            "today_summary": {
-                "sessions_completed": 3,
-                "total_messages_learned": 428,
-                "persona_updates": 2,
-                "success_rate": 0.89
-            },
-            "recent_activities": [
-                {
-                    "timestamp": time.time() - 3600,
-                    "activity": "完成用户123456的对话风格分析",
-                    "result": "成功"
-                },
-                {
-                    "timestamp": time.time() - 7200,
-                    "activity": "更新人格描述",
-                    "result": "待审查"
-                },
-                {
-                    "timestamp": time.time() - 10800,
-                    "activity": "筛选新消息50条",
-                    "result": "成功"
-                }
-            ]
+            "current_session": {"error": "无会话数据"},
+            "today_summary": {"error": "无今日统计数据"},
+            "recent_activities": []
         }
+        
+        if database_manager:
+            try:
+                # 获取最新的学习会话
+                recent_sessions = await database_manager.get_recent_learning_sessions("default", 1)
+                if recent_sessions:
+                    latest_session = recent_sessions[0]
+                    learning_status["current_session"] = {
+                        "session_id": latest_session.get('session_id', '未知'),
+                        "start_time": datetime.fromtimestamp(latest_session.get('start_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                        "status": "已完成" if latest_session.get('success') else "失败",
+                        "messages_processed": latest_session.get('messages_processed', 0),
+                        "learning_progress": round(latest_session.get('quality_score', 0) * 100, 1),
+                        "current_task": f"已处理{latest_session.get('filtered_messages', 0)}条筛选消息"
+                    }
+                
+                # 获取今日统计
+                message_stats = await database_manager.get_messages_statistics()
+                all_sessions = await database_manager.get_recent_learning_sessions("default", 10)
+                learning_status["today_summary"] = {
+                    "sessions_completed": len(all_sessions) if all_sessions else 0,
+                    "total_messages_learned": message_stats.get('filtered_messages', 0),
+                    "persona_updates": 0,  # TODO: 从数据库获取人格更新次数
+                    "success_rate": (sum(1 for s in all_sessions if s.get('success', False)) / len(all_sessions)) if all_sessions else 0.0
+                }
+                
+                # 获取最近活动（基于学习批次）
+                recent_batches = await database_manager.get_recent_learning_batches(3)
+                for batch in recent_batches:
+                    learning_status["recent_activities"].append({
+                        "timestamp": batch.get('start_time', time.time()),
+                        "activity": f"学习批次: {batch.get('batch_name', '未命名')}，处理{batch.get('message_count', 0)}条消息",
+                        "result": "成功" if batch.get('success') else "失败"
+                    })
+                
+                if not learning_status["recent_activities"]:
+                    learning_status["recent_activities"] = [{"error": "暂无最近活动数据"}]
+                    
+            except Exception as e:
+                logger.warning(f"获取真实学习状态数据失败: {e}")
+                learning_status = {
+                    "current_session": {"error": f"获取会话数据失败: {str(e)}"},
+                    "today_summary": {"error": f"获取统计数据失败: {str(e)}"},
+                    "recent_activities": [{"error": f"获取活动数据失败: {str(e)}"}]
+                }
         
         return jsonify(learning_status)
         
@@ -902,68 +911,97 @@ async def get_style_learning_content_text():
         
         if db_manager:
             try:
-                # 获取对话示例文本
-                if hasattr(db_manager, 'get_filtered_messages_sample'):
-                    dialogue_samples = await asyncio.to_thread(
-                        db_manager.get_filtered_messages_sample, 20
-                    )
-                    if dialogue_samples:
-                        for msg in dialogue_samples:
-                            content_data['dialogues'].append({
-                                'timestamp': msg.get('timestamp', ''),
-                                'text': f"用户: {msg.get('content', '')}\n助手: {msg.get('context', {}).get('response', '暂无回复')}",
-                                'metadata': f"置信度: {msg.get('confidence_score', 0):.1%}"
-                            })
+                # 获取对话示例文本 - 使用现有的方法
+                recent_messages = await db_manager.get_filtered_messages_for_learning(20)
+                if recent_messages:
+                    for msg in recent_messages:
+                        content_data['dialogues'].append({
+                            'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                            'text': f"用户: {msg.get('message', '暂无内容')}",
+                            'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
+                        })
+                else:
+                    # 没有数据时提供友好提示
+                    content_data['dialogues'].append({
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'text': '暂无对话数据，请先进行一些群聊对话，系统会自动学习和筛选有价值的内容',
+                        'metadata': '系统提示'
+                    })
             except Exception as e:
                 logger.warning(f"获取对话示例文本失败: {e}")
+                content_data['dialogues'].append({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'text': f'获取对话数据时出错: {str(e)}',
+                    'metadata': '错误信息'
+                })
             
             try:
-                # 获取风格分析结果
-                if hasattr(db_manager, 'get_style_analysis_results'):
-                    analysis_results = await asyncio.to_thread(
-                        db_manager.get_style_analysis_results, limit=10
-                    )
-                    if analysis_results:
-                        for result in analysis_results:
-                            content_data['analysis'].append({
-                                'timestamp': result.get('created_at', ''),
-                                'text': result.get('analysis_text', ''),
-                                'metadata': f"分析类型: {result.get('analysis_type', '未知')}"
-                            })
+                # 获取风格分析结果 - 使用学习批次数据
+                recent_batches = await db_manager.get_recent_learning_batches(limit=5)
+                if recent_batches:
+                    for batch in recent_batches:
+                        content_data['analysis'].append({
+                            'timestamp': datetime.fromtimestamp(batch.get('start_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                            'text': f"学习批次: {batch.get('batch_name', '未命名')}\n处理消息: {batch.get('message_count', 0)}条\n质量得分: {batch.get('quality_score', 0):.2f}",
+                            'metadata': f"成功: {'是' if batch.get('success') else '否'}"
+                        })
+                else:
+                    content_data['analysis'].append({
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'text': '暂无学习分析数据，系统还未开始自动学习过程',
+                        'metadata': '系统提示'
+                    })
             except Exception as e:
                 logger.warning(f"获取风格分析结果失败: {e}")
+                content_data['analysis'].append({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'text': f'获取分析数据时出错: {str(e)}',
+                    'metadata': '错误信息'
+                })
             
             try:
-                # 获取提炼的风格特征
-                if hasattr(db_manager, 'get_learned_style_features'):
-                    style_features = await asyncio.to_thread(
-                        db_manager.get_learned_style_features, limit=10
-                    )
-                    if style_features:
-                        for feature in style_features:
-                            content_data['features'].append({
-                                'timestamp': feature.get('updated_at', ''),
-                                'text': feature.get('feature_description', ''),
-                                'metadata': f"特征权重: {feature.get('weight', 0):.2f}"
-                            })
+                # 获取提炼的风格特征 - 使用表达模式数据
+                conn = await db_manager._get_messages_db_connection()
+                cursor = await conn.cursor()
+                await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
+                expression_patterns = await cursor.fetchall()
+                
+                if expression_patterns:
+                    for pattern in expression_patterns:
+                        content_data['features'].append({
+                            'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
+                            'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
+                            'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
+                        })
+                else:
+                    content_data['features'].append({
+                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        'text': '暂无学习到的表达模式，请耐心等待系统学习',
+                        'metadata': '系统提示'
+                    })
             except Exception as e:
                 logger.warning(f"获取风格特征失败: {e}")
+                content_data['features'].append({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'text': f'获取特征数据时出错: {str(e)}',
+                    'metadata': '错误信息'
+                })
             
             try:
-                # 获取学习历程记录
-                if hasattr(db_manager, 'get_learning_session_history'):
-                    learning_history = await asyncio.to_thread(
-                        db_manager.get_learning_session_history, limit=15
-                    )
-                    if learning_history:
-                        for session in learning_history:
-                            content_data['history'].append({
-                                'timestamp': session.get('start_time', ''),
-                                'text': f"学习会话: {session.get('session_id', '')}\n处理消息: {session.get('messages_processed', 0)}条\n学习成果: {session.get('learning_results', '无具体描述')}",
-                                'metadata': f"状态: {session.get('status', '未知')}"
-                            })
+                # 获取学习历程记录 - 使用现有的方法
+                message_stats = await db_manager.get_messages_statistics()
+                content_data['history'].append({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'text': f"系统统计:\n总消息数: {message_stats.get('total_messages', 0)}条\n已筛选: {message_stats.get('filtered_messages', 0)}条\n待学习: {message_stats.get('unused_filtered_messages', 0)}条",
+                    'metadata': '实时统计'
+                })
             except Exception as e:
                 logger.warning(f"获取学习历程记录失败: {e}")
+                content_data['history'].append({
+                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                    'text': f'获取历程数据时出错: {str(e)}',
+                    'metadata': '错误信息'
+                })
         
         # 如果数据库中没有数据，返回空数据结构
         # 不提供示例数据，让前端显示"暂无数据"状态

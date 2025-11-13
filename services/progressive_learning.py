@@ -567,9 +567,18 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.error(f"后台策略优化失败: {e}")
 
-    async def _generate_updated_persona_with_refinement(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
+    async def _generate_updated_persona_with_refinement(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Any) -> Dict[str, Any]:
         """使用提炼模型生成更新后的人格"""
         try:
+            # 如果style_analysis是AnalysisResult对象，提取其data属性
+            if hasattr(style_analysis, 'data') and style_analysis.data:
+                analysis_data = style_analysis.data
+            elif isinstance(style_analysis, dict):
+                analysis_data = style_analysis
+            else:
+                analysis_data = {}
+                logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
+            
             # 使用多维度分析器的框架适配器生成人格更新
             if hasattr(self.multidimensional_analyzer, 'llm_adapter') and self.multidimensional_analyzer.llm_adapter:
                 llm_adapter = self.multidimensional_analyzer.llm_adapter
@@ -577,7 +586,7 @@ class ProgressiveLearningService:
                 if llm_adapter.has_refine_provider() and llm_adapter.providers_configured >= 2:
                     # 准备输入数据
                     current_persona_json = json.dumps(current_persona, ensure_ascii=False, indent=2, default=self._json_serializer)
-                    style_analysis_json = json.dumps(style_analysis, ensure_ascii=False, indent=2, default=self._json_serializer)
+                    style_analysis_json = json.dumps(analysis_data, ensure_ascii=False, indent=2, default=self._json_serializer)
                     
                     # 调用框架适配器
                     response = await llm_adapter.refine_chat_completion(
@@ -807,11 +816,20 @@ class ProgressiveLearningService:
             # 构建增量学习内容
             learning_content = []
             
-            if 'enhanced_prompt' in style_analysis:
-                learning_content.append(style_analysis['enhanced_prompt'])
+            # 如果style_analysis是AnalysisResult对象，提取其data属性
+            if hasattr(style_analysis, 'data') and style_analysis.data:
+                analysis_data = style_analysis.data
+            elif isinstance(style_analysis, dict):
+                analysis_data = style_analysis
+            else:
+                analysis_data = {}
+                logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
             
-            if 'learning_insights' in style_analysis:
-                insights = style_analysis['learning_insights']
+            if 'enhanced_prompt' in analysis_data:
+                learning_content.append(analysis_data['enhanced_prompt'])
+            
+            if 'learning_insights' in analysis_data:
+                insights = analysis_data['learning_insights']
                 if insights:
                     learning_content.append(insights)
             

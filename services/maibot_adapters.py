@@ -74,7 +74,11 @@ class MaiBotStyleAnalyzer(IStyleAnalyzer):
             # group_id = messages[0].group_id - 不再需要从消息中获取
             
             # 使用MaiBot的表达模式学习
-            patterns = await self.expression_learner.learn_expression_patterns(messages, group_id)
+            try:
+                patterns = await self.expression_learner.learn_expression_patterns(messages, group_id)
+            except Exception as e:
+                logger.error(f"表达模式学习失败: {e}")
+                patterns = []  # 使用空列表作为fallback
             
             # 转换为现有架构期望的格式
             style_data = {

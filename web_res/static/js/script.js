@@ -1642,9 +1642,13 @@ function renderStyleLearningStats(stats) {
     document.getElementById('total-samples').textContent = formatNumber(stats.total_samples || 0);
     
     // 格式化最新更新时间
-    if (stats.latest_update) {
+    if (stats.latest_update && !isNaN(stats.latest_update)) {
         const updateTime = new Date(stats.latest_update * 1000);
-        document.getElementById('latest-update').textContent = updateTime.toLocaleString();
+        if (isNaN(updateTime.getTime())) {
+            document.getElementById('latest-update').textContent = '--';
+        } else {
+            document.getElementById('latest-update').textContent = updateTime.toLocaleString();
+        }
     } else {
         document.getElementById('latest-update').textContent = '--';
     }
