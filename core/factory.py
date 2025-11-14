@@ -864,6 +864,34 @@ class ComponentFactory:
             self._logger.error(f"导入好感度管理服务失败: {e}", exc_info=True)
             raise ServiceError(f"创建好感度管理服务失败: {str(e)}")
 
+    def create_expression_pattern_learner(self):
+        """创建表达模式学习器"""
+        cache_key = "expression_pattern_learner"
+        
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        try:
+            from ..services.expression_pattern_learner import ExpressionPatternLearner
+            
+            # 使用单例模式获取实例
+            service = ExpressionPatternLearner.get_instance(
+                config=self.config,
+                db_manager=self.service_factory.create_database_manager(),
+                context=self.service_factory.context,
+                llm_adapter=self.service_factory.create_framework_llm_adapter()
+            )
+            
+            self._service_cache[cache_key] = service
+            self._registry.register_service("expression_pattern_learner", service)
+            
+            self._logger.info("创建表达模式学习器成功")
+            return service
+            
+        except ImportError as e:
+            self._logger.error(f"导入表达模式学习器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建表达模式学习器失败: {str(e)}")
+
 
 # 全局工厂实例管理器
 class FactoryManager:

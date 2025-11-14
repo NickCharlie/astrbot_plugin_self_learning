@@ -325,6 +325,42 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             
+            # 风格学习记录表 (从群组数据库移至消息数据库)
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS style_learning_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    style_type TEXT NOT NULL,
+                    learned_patterns TEXT, -- JSON格式存储学习到的模式
+                    confidence_score REAL,
+                    sample_count INTEGER,
+                    learning_time REAL NOT NULL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 语言风格模式表 (从群组数据库移至消息数据库)
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS language_style_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    language_style TEXT NOT NULL,
+                    example_phrases TEXT, -- JSON格式存储示例短语
+                    usage_frequency INTEGER DEFAULT 0,
+                    context_type TEXT DEFAULT 'general',
+                    confidence_score REAL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 为新表创建索引
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_learning_group ON style_learning_records(group_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_learning_time ON style_learning_records(learning_time)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_group ON language_style_patterns(group_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_frequency ON language_style_patterns(usage_frequency)')
+            
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
             
@@ -1385,6 +1421,25 @@ class DatabaseManager(AsyncServiceBase):
         except aiosqlite.Error as e:
             logger.error(f"更新人格更新记录状态失败: {e}", exc_info=True)
             raise DataStorageError(f"更新人格更新记录状态失败: {str(e)}")
+
+    async def delete_persona_update_record(self, record_id: int) -> bool:
+        """删除人格更新记录"""
+        conn = await self._get_messages_db_connection()
+        cursor = await conn.cursor()
+        
+        try:
+            await cursor.execute('''
+                DELETE FROM persona_update_records
+                WHERE id = ?
+            ''', (record_id,))
+            
+            await conn.commit()
+            logger.debug(f"人格更新记录 {record_id} 已删除")
+            return cursor.rowcount > 0
+            
+        except aiosqlite.Error as e:
+            logger.error(f"删除人格更新记录失败: {e}", exc_info=True)
+            raise DataStorageError(f"删除人格更新记录失败: {str(e)}")
 
     # ========== 高级功能数据库操作方法 ==========
 

@@ -77,8 +77,37 @@ class PersonaUpdater(IPersonaUpdater):
             persona_name = getattr(current_persona, 'name', 'unknown') if hasattr(current_persona, 'name') else 'unknown'
             self._logger.info(f"当前人格: {persona_name} for group {group_id}")
             
+            # ===== 创建备份（如果启用） =====
+            backup_id = None
+            if self.config.persona_update_backup_enabled:
+                try:
+                    backup_id = await self.backup_manager.create_backup_before_update(
+                        group_id, 
+                        f"风格学习更新前备份 - {style_analysis.get('source', '未知来源')}"
+                    )
+                    self._logger.info(f"群组 {group_id} 创建备份成功，备份ID: {backup_id}")
+                except Exception as backup_error:
+                    self._logger.error(f"创建备份失败: {backup_error}")
+                    # 不阻止更新继续进行
+            
             # ===== 保存更新前的人格状态用于对比 =====
-            before_persona = await self._clone_persona_data(current_persona)
+            def clone_persona_data(persona_data: Any) -> Dict[str, Any]:
+                """临时克隆人格数据用于对比"""
+                try:
+                    if isinstance(persona_data, dict):
+                        return persona_data.copy()
+                    else:
+                        # 如果是对象，转换为字典
+                        return {
+                            'name': getattr(persona_data, 'name', ''),
+                            'prompt': getattr(persona_data, 'prompt', ''),
+                            'settings': getattr(persona_data, 'settings', {})
+                        }
+                except Exception as e:
+                    self._logger.error(f"克隆人格数据失败: {e}")
+                    return {}
+            
+            before_persona = clone_persona_data(current_persona)
             
             # 1. 生成基于风格分析的增量更新特征并写入txt文件
             await self._generate_and_save_style_features(group_id, style_analysis)
@@ -113,7 +142,7 @@ class PersonaUpdater(IPersonaUpdater):
                 await self._apply_style_attributes(current_persona, style_analysis['style_attributes'])
             
             # ===== 生成并输出格式化的更新报告 =====
-            after_persona = await self._clone_persona_data(current_persona)
+            after_persona = clone_persona_data(current_persona)
             update_details = {
                 'new_features_count': len(style_analysis.get('style_features', [])),
                 'style_adjustments': self._extract_style_adjustments(style_analysis),
@@ -230,6 +259,22 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             self._logger.error(f"撤回人格更新审查失败: {e}")
             raise PersonaUpdateError(f"撤回人格更新审查失败: {str(e)}")
+
+    async def delete_persona_update_review(self, update_id: int) -> bool:
+        """删除人格更新审查记录"""
+        try:
+            result = await self.db_manager.delete_persona_update_record(update_id)
+            
+            if result:
+                self._logger.info(f"人格更新审查记录 {update_id} 已删除")
+            else:
+                self._logger.warning(f"未找到人格更新审查记录 {update_id}")
+            
+            return result
+            
+        except Exception as e:
+            self._logger.error(f"删除人格更新审查记录失败: {e}")
+            raise PersonaUpdateError(f"删除人格更新审查记录失败: {str(e)}")
 
     async def get_current_persona_description(self, group_id: str) -> Optional[str]:
         """获取当前人格的描述"""
@@ -382,6 +427,74 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             self._logger.error(f"应用风格属性失败: {e}")
     
+    async def _update_style_based_features_with_maibot(self, current_persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]):
+        """使用MaiBot功能更新风格相关特征"""
+        try:
+            self._logger.info("开始使用MaiBot功能更新风格特征")
+            
+            # 1. 使用表达模式学习器分析消息
+            if hasattr(self, 'expression_learner') and self.expression_learner:
+                patterns = await self.expression_learner.learn_expression_patterns(filtered_messages, current_persona.get('group_id', 'default'))
+                
+                # 将学习到的模式添加到人格中
+                if patterns and hasattr(current_persona, 'expression_patterns'):
+                    current_persona.expression_patterns = patterns
+                    self._logger.info(f"更新了 {len(patterns)} 个表达模式")
+            
+            # 2. 更新记忆图谱
+            if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
+                for msg in filtered_messages:
+                    await self.memory_graph_manager.add_memory_node(
+                        memory_id=f"msg_{msg.timestamp}",
+                        content=msg.message,
+                        memory_type="dialogue_style",
+                        tags=['style_learning'],
+                        metadata={'sender': msg.sender_name, 'group_id': msg.group_id}
+                    )
+                self._logger.info(f"向记忆图谱添加了 {len(filtered_messages)} 个风格记忆节点")
+            
+            # 3. 更新知识图谱
+            if hasattr(self, 'knowledge_graph_manager') and self.knowledge_graph_manager:
+                style_entity = {
+                    'entity_id': f"style_{current_persona.get('group_id', 'default')}_{int(time.time())}",
+                    'entity_type': 'communication_style',
+                    'properties': style_analysis.get('style_attributes', {}),
+                    'context': '用户交流风格特征'
+                }
+                
+                await self.knowledge_graph_manager.add_entity(
+                    entity_id=style_entity['entity_id'],
+                    entity_type=style_entity['entity_type'],
+                    properties=style_entity['properties'],
+                    context=style_entity['context']
+                )
+                self._logger.info("向知识图谱添加了风格实体")
+                
+        except Exception as e:
+            self._logger.error(f"使用MaiBot更新风格特征失败: {e}")
+    
+    def _extract_style_adjustments(self, style_analysis: Dict[str, Any]) -> str:
+        """从风格分析中提取风格调整信息"""
+        try:
+            adjustments = []
+            
+            if 'style_attributes' in style_analysis:
+                attrs = style_analysis['style_attributes']
+                if isinstance(attrs, dict):
+                    for key, value in attrs.items():
+                        if key in ['tone', 'formality', 'enthusiasm']:
+                            adjustments.append(f"{key}: {value}")
+            
+            if 'expression_patterns' in style_analysis:
+                patterns = style_analysis['expression_patterns']
+                if isinstance(patterns, list) and patterns:
+                    adjustments.append(f"表达模式: {len(patterns)}项")
+            
+            return ', '.join(adjustments) if adjustments else '无特定调整'
+            
+        except Exception as e:
+            return f"提取失败: {str(e)}"
+    
     async def analyze_persona_compatibility(self, target_style: Dict[str, Any]) -> AnalysisResult:
         """分析目标风格与当前人格的兼容性"""
         try:
@@ -428,6 +541,299 @@ class PersonaUpdater(IPersonaUpdater):
                 data={},
                 error=str(e)
             )
+
+    async def _generate_and_save_style_features(self, group_id: str, style_analysis: Dict[str, Any]) -> bool:
+        """
+        基于风格分析生成增量更新特征并保存到PersonaManager
+        只使用PersonaManager方式，不再使用文件
+        """
+        try:
+            self._logger.info(f"开始生成风格特征 for group {group_id}")
+            
+            # 从风格分析中提取关键信息
+            style_features = []
+            
+            # 1. 从style_analysis中提取通用风格特征
+            if 'style_analysis' in style_analysis:
+                analysis_data = style_analysis['style_analysis']
+                
+                # 提取语言风格特征
+                if 'language_style' in analysis_data:
+                    lang_style = analysis_data['language_style']
+                    if isinstance(lang_style, dict):
+                        if lang_style.get('formality', 0) > 0.7:
+                            style_features.append("+ 使用正式礼貌的表达方式")
+                        elif lang_style.get('formality', 0) < 0.3:
+                            style_features.append("+ 使用轻松随意的语调")
+                        
+                        if lang_style.get('enthusiasm', 0) > 0.7:
+                            style_features.append("+ 表现出热情活跃的态度")
+                        elif lang_style.get('enthusiasm', 0) < 0.3:
+                            style_features.append("+ 保持冷静内敛的风格")
+                
+                # 提取情绪表达特征
+                if 'emotional_patterns' in analysis_data:
+                    emotions = analysis_data['emotional_patterns']
+                    if isinstance(emotions, dict):
+                        dominant_emotion = emotions.get('dominant_emotion')
+                        if dominant_emotion:
+                            emotion_map = {
+                                'positive': '+ 更多使用积极正面的表达',
+                                'cheerful': '+ 表现出开朗乐观的性格',
+                                'calm': '+ 保持平和理性的语调',
+                                'enthusiastic': '+ 展现热情饱满的精神状态'
+                            }
+                            if dominant_emotion in emotion_map:
+                                style_features.append(emotion_map[dominant_emotion])
+                
+                # 提取交互特征
+                if 'interaction_style' in analysis_data:
+                    interaction = analysis_data['interaction_style']
+                    if isinstance(interaction, dict):
+                        if interaction.get('response_length') == 'detailed':
+                            style_features.append("~ 回复时提供更详细的解释")
+                        elif interaction.get('response_length') == 'concise':
+                            style_features.append("~ 回复时保持简洁明了")
+                        
+                        if interaction.get('question_tendency', 0) > 0.6:
+                            style_features.append("+ 适当主动提问以了解更多信息")
+            
+            # 2. 使用MaiBot的表达模式学习来生成场景-表达特征
+            if hasattr(self, 'expression_learner') and self.expression_learner:
+                try:
+                    # 将style_analysis转换为消息格式供表达学习器使用
+                    mock_messages = []
+                    if 'common_phrases' in style_analysis.get('style_analysis', {}):
+                        phrases = style_analysis['style_analysis']['common_phrases']
+                        if isinstance(phrases, list):
+                            for i, phrase in enumerate(phrases[:5]):  # 取前5个短语
+                                mock_messages.append(MessageData(
+                                    sender_id=f"style_user_{i}",
+                                    sender_name=f"分析用户{i}",
+                                    message=phrase,
+                                    group_id=group_id,
+                                    timestamp=time.time(),
+                                    platform="style_analysis"
+                                ))
+                    
+                    if mock_messages:
+                        # 使用表达模式学习器分析
+                        patterns = await self.expression_learner.learn_expression_patterns(mock_messages, group_id)
+                        
+                        # 将学习到的表达模式转换为增量特征
+                        for pattern in patterns[:3]:  # 取前3个模式
+                            if hasattr(pattern, 'scene') and hasattr(pattern, 'expression'):
+                                feature = f"~ 当{pattern.scene}时，使用\"{pattern.expression}\"这样的表达方式"
+                                style_features.append(feature)
+                
+                except Exception as e:
+                    self._logger.warning(f"MaiBot表达模式学习失败: {e}")
+            
+            # 3. 如果没有提取到足够特征，添加通用特征
+            if len(style_features) < 2:
+                style_features.extend([
+                    "~ 根据对话风格调整回复的语气和表达方式",
+                    "+ 保持与用户交流风格的一致性"
+                ])
+            
+            # 4. 只使用PersonaManager，不再使用文件方式
+            if style_features:
+                update_content = "\n".join(style_features)
+                
+                # 使用PersonaManager直接更新
+                success = await self._apply_persona_manager_update(group_id, update_content)
+                if success:
+                    self._logger.info(f"已通过PersonaManager应用 {len(style_features)} 个风格特征")
+                    return True
+                else:
+                    self._logger.warning("PersonaManager更新失败")
+                    return False
+            else:
+                self._logger.warning("未能提取到风格特征")
+                return False
+                
+        except Exception as e:
+            self._logger.error(f"生成和保存风格特征失败: {e}")
+            return False
+
+    async def _apply_persona_manager_update(self, group_id: str, update_content: str) -> bool:
+        """使用PersonaManager应用增量更新"""
+        try:
+            if not self.persona_manager_updater.is_available():
+                self._logger.warning("PersonaManager不可用")
+                return False
+            
+            # 如果启用备份，先创建备份persona
+            if self.config.persona_update_backup_enabled:
+                await self._create_backup_persona_with_manager(group_id)
+            
+            # 应用增量更新
+            success = await self.persona_manager_updater.apply_incremental_update(group_id, update_content)
+            
+            if success:
+                self._logger.info(f"群组 {group_id} PersonaManager增量更新成功")
+                
+                # 如果启用自动应用且是自动学习模式
+                if self.config.auto_apply_persona_updates:
+                    # 清理旧版本（保留最近5个）
+                    await self.persona_manager_updater.cleanup_old_personas(group_id, keep_count=5)
+                
+                return True
+            else:
+                self._logger.error(f"群组 {group_id} PersonaManager增量更新失败")
+                return False
+                
+        except Exception as e:
+            self._logger.error(f"PersonaManager更新失败: {e}")
+            return False
+
+    async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
+        """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""
+        try:
+            # 获取当前人格信息
+            provider = self.context.get_using_provider()
+            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+                self._logger.warning("无法获取当前人格信息，跳过备份")
+                return False
+            
+            current_persona = provider.curr_personality
+            
+            # 提取原人格信息
+            if hasattr(current_persona, 'prompt'):
+                original_prompt = current_persona.prompt
+                original_name = getattr(current_persona, 'name', '默认人格')
+            elif isinstance(current_persona, dict):
+                original_prompt = current_persona.get('prompt', '')
+                original_name = current_persona.get('name', '默认人格')
+            else:
+                self._logger.warning("无法解析当前人格数据")
+                return False
+            
+            # 生成备份persona名称：原人格名_年月日时间_备份人格
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            backup_persona_id = f"{original_name}_{timestamp}_备份人格"
+            
+            # 创建备份persona，包含完整的原始内容
+            persona_manager = self.persona_manager_updater.persona_manager
+            if persona_manager:
+                backup_persona = await persona_manager.create_persona(
+                    persona_id=backup_persona_id,
+                    system_prompt=original_prompt,
+                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
+                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                )
+                
+                if backup_persona:
+                    self._logger.info(f"成功创建备份persona: {backup_persona_id}")
+                    return True
+                else:
+                    self._logger.error("创建备份persona失败")
+                    return False
+            else:
+                self._logger.error("PersonaManager不可用，无法创建备份")
+                return False
+                
+        except Exception as e:
+            self._logger.error(f"创建备份persona失败: {e}")
+            return False
+
+    async def format_persona_update_report(self, group_id: str, before_persona: Dict[str, Any], 
+                                         after_persona: Dict[str, Any], update_details: Dict[str, Any]) -> str:
+        """
+        格式化人格更新报告
+        
+        Args:
+            group_id: 群组ID
+            before_persona: 更新前的人格数据
+            after_persona: 更新后的人格数据
+            update_details: 更新详情
+        
+        Returns:
+            格式化的人格更新报告
+        """
+        try:
+            from ..statics.messages import CommandMessages
+            
+            # 生成变化摘要
+            change_summary = await self._generate_change_summary(before_persona, after_persona, update_details)
+            
+            # 格式化前后对比
+            before_content = self._format_persona_content(before_persona)
+            after_content = self._format_persona_content(after_persona)
+            
+            # 构建完整报告
+            report = CommandMessages.PERSONA_UPDATE_HEADER.format(group_id=group_id)
+            report += "\n" + CommandMessages.PERSONA_UPDATE_SUCCESS
+            report += "\n" + CommandMessages.PERSONA_BEFORE_AFTER.format(
+                before_content=before_content,
+                after_content=after_content,
+                change_summary=change_summary
+            )
+            
+            return report
+            
+        except Exception as e:
+            self._logger.error(f"格式化人格更新报告失败: {e}")
+            from ..statics.messages import CommandMessages
+            return CommandMessages.PERSONA_UPDATE_FAILED.format(error=str(e))
+    
+    def _format_persona_content(self, persona_data: Dict[str, Any]) -> str:
+        """格式化人格内容"""
+        try:
+            if isinstance(persona_data, dict):
+                name = persona_data.get('name', '未知人格')
+                prompt = persona_data.get('prompt', '无描述')
+            else:
+                name = getattr(persona_data, 'name', '未知人格')
+                prompt = getattr(persona_data, 'prompt', '无描述')
+            
+            # 截断过长的prompt
+            if len(prompt) > 200:
+                prompt = prompt[:200] + "..."
+            
+            return f"人格名称: {name}\n人格描述: {prompt}"
+            
+        except Exception as e:
+            return f"格式化失败: {str(e)}"
+    
+    async def _generate_change_summary(self, before_persona: Dict[str, Any], 
+                                     after_persona: Dict[str, Any], 
+                                     update_details: Dict[str, Any]) -> str:
+        """生成变化摘要"""
+        try:
+            from ..statics.messages import CommandMessages
+            
+            # 计算prompt长度变化
+            before_prompt = self._get_persona_prompt(before_persona)
+            after_prompt = self._get_persona_prompt(after_persona)
+            
+            length_before = len(before_prompt)
+            length_after = len(after_prompt)
+            length_change = f"+{length_after - length_before}" if length_after > length_before else str(length_after - length_before)
+            
+            # 统计新增特征
+            new_features_count = update_details.get('new_features_count', 0)
+            style_adjustments = update_details.get('style_adjustments', '无')
+            update_reason = update_details.get('reason', '风格学习更新')
+            
+            return CommandMessages.PERSONA_CHANGE_SUMMARY.format(
+                prompt_length_before=length_before,
+                prompt_length_after=length_after,
+                length_change=length_change,
+                new_features_count=new_features_count,
+                style_adjustments=style_adjustments,
+                update_reason=update_reason
+            )
+            
+        except Exception as e:
+            return f"生成变化摘要失败: {str(e)}"
+    
+    def _get_persona_prompt(self, persona_data: Any) -> str:
+        """获取人格prompt"""
+        if isinstance(persona_data, dict):
+            return persona_data.get('prompt', '')
+        else:
+            return getattr(persona_data, 'prompt', '')
 
 
 class PersonaAnalyzer:
@@ -491,6 +897,15 @@ class PersonaAnalyzer:
                 keywords.append(word)
         
         return keywords
+
+    async def stop(self):
+        """停止服务"""
+        try:
+            self._logger.info("人格更新服务已停止")
+            return True
+        except Exception as e:
+            self._logger.error(f"停止人格更新服务失败: {e}")
+            return False
 
     async def _generate_and_save_style_features(self, group_id: str, style_analysis: Dict[str, Any]) -> bool:
         """
@@ -586,25 +1001,18 @@ class PersonaAnalyzer:
                     "+ 保持与用户交流风格的一致性"
                 ])
             
-            # 4. 根据配置选择保存方式：PersonaManager或文件
+            # 4. 根据配置选择保存方式：只使用PersonaManager，不再使用文件方式
             if style_features:
                 update_content = "\n".join(style_features)
                 
-                if self.config.use_persona_manager_updates:
-                    # 使用PersonaManager直接更新
-                    success = await self._apply_persona_manager_update(group_id, update_content)
-                    if success:
-                        self._logger.info(f"已通过PersonaManager应用 {len(style_features)} 个风格特征")
-                        return True
-                    else:
-                        self._logger.warning("PersonaManager更新失败，回退到文件方式")
-                        # 回退到文件方式
-                
-                # 传统的文件方式（回退或配置选择）
-                persona_updates_file = os.path.join(self.config.data_dir, "persona_updates.txt")
-                await self._append_to_persona_updates_file(update_content, persona_updates_file)
-                self._logger.info(f"已保存 {len(style_features)} 个风格特征到 persona_updates.txt")
-                return True
+                # 使用PersonaManager直接更新
+                success = await self._apply_persona_manager_update(group_id, update_content)
+                if success:
+                    self._logger.info(f"已通过PersonaManager应用 {len(style_features)} 个风格特征")
+                    return True
+                else:
+                    self._logger.warning("PersonaManager更新失败")
+                    return False
             else:
                 self._logger.warning("未能提取到风格特征")
                 return False
@@ -613,209 +1021,88 @@ class PersonaAnalyzer:
             self._logger.error(f"生成和保存风格特征失败: {e}")
             return False
 
-    async def _update_style_based_features_with_maibot(self, persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
-        """
-        使用MaiBot功能更新风格特征，而不是直接保存对话内容
-        """
+    async def _apply_persona_manager_update(self, group_id: str, update_content: str) -> bool:
+        """使用PersonaManager应用增量更新"""
         try:
-            self._logger.info("使用MaiBot功能更新风格特征...")
+            if not self.persona_manager_updater.is_available():
+                self._logger.warning("PersonaManager不可用")
+                return False
             
-            # 1. 使用记忆图管理器处理消息
-            if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
-                try:
-                    for message in filtered_messages[-5:]:  # 处理最近5条消息
-                        # 转换格式
-                        if isinstance(message, dict):
-                            msg_data = MessageData(
-                                sender_id=message.get('sender_id', ''),
-                                sender_name=message.get('sender_name', ''),
-                                message=message.get('message', ''),
-                                group_id=message.get('group_id', ''),
-                                timestamp=message.get('timestamp', time.time()),
-                                platform=message.get('platform', 'unknown')
-                            )
-                        else:
-                            msg_data = message
-                        
-                        # 添加到记忆图
-                        await self.memory_graph_manager.add_memory_from_message(msg_data, msg_data.group_id)
-                    
-                    self._logger.info("记忆图更新完成")
-                except Exception as e:
-                    self._logger.warning(f"记忆图更新失败: {e}")
+            # 如果启用备份，先创建备份persona
+            if self.config.persona_update_backup_enabled:
+                await self._create_backup_persona_with_manager(group_id)
             
-            # 2. 使用知识图谱管理器提取语言模式
-            if hasattr(self, 'knowledge_graph_manager') and self.knowledge_graph_manager:
-                try:
-                    for message in filtered_messages[-3:]:  # 处理最近3条消息
-                        # 转换格式
-                        if isinstance(message, dict):
-                            msg_data = MessageData(
-                                sender_id=message.get('sender_id', ''),
-                                sender_name=message.get('sender_name', ''),
-                                message=message.get('message', ''),
-                                group_id=message.get('group_id', ''),
-                                timestamp=message.get('timestamp', time.time()),
-                                platform=message.get('platform', 'unknown')
-                            )
-                        else:
-                            msg_data = message
-                        
-                        # 处理知识图谱
-                        await self.knowledge_graph_manager.process_message_for_knowledge_graph(msg_data, msg_data.group_id)
-                    
-                    self._logger.info("知识图谱更新完成")
-                except Exception as e:
-                    self._logger.warning(f"知识图谱更新失败: {e}")
+            # 应用增量更新
+            success = await self.persona_manager_updater.apply_incremental_update(group_id, update_content)
             
-            # 3. 更新人格的mood_imitation_dialogs为分析出的特征而不是原始对话
-            current_dialogs = persona.get('mood_imitation_dialogs', [])
-            
-            # 从风格分析中提取代表性表达方式
-            new_features = []
-            if 'style_analysis' in style_analysis:
-                analysis_data = style_analysis['style_analysis']
+            if success:
+                self._logger.info(f"群组 {group_id} PersonaManager增量更新成功")
                 
-                # 提取常用短语作为特征示例
-                if 'common_phrases' in analysis_data:
-                    phrases = analysis_data['common_phrases']
-                    if isinstance(phrases, list):
-                        for phrase in phrases[:5]:  # 最多5个特征短语
-                            if phrase and len(phrase.strip()) > 3:
-                                new_features.append(f"风格特征: {phrase.strip()}")
+                # 如果启用自动应用且是自动学习模式
+                if self.config.auto_apply_persona_updates:
+                    # 清理旧版本（保留最近5个）
+                    await self.persona_manager_updater.cleanup_old_personas(group_id, keep_count=5)
                 
-                # 提取语调特征
-                if 'tone_indicators' in analysis_data:
-                    tones = analysis_data['tone_indicators']
-                    if isinstance(tones, list):
-                        for tone in tones[:3]:  # 最多3个语调特征
-                            if tone:
-                                new_features.append(f"语调特征: {tone}")
-            
-            # 如果没有提取到特征，使用真实的消息内容作为风格参考
-            if not new_features:
-                # 从筛选消息中提取代表性的真实对话作为风格特征
-                representative_messages = filtered_messages[-5:] if filtered_messages else []
-                for msg in representative_messages:
-                    message_content = msg.get('message', '').strip()
-                    if message_content and len(message_content) >= 5:
-                        # 截取适当长度的消息内容作为风格示例
-                        if len(message_content) > 30:
-                            truncated_content = message_content[:30] + "..."
-                        else:
-                            truncated_content = message_content
-                        new_features.append(f"真实语言风格示例: {truncated_content}")
+                return True
+            else:
+                self._logger.error(f"群组 {group_id} PersonaManager增量更新失败")
+                return False
                 
-                # 如果仍然没有有效内容，则跳过特征更新而不是生成模拟数据
-                if not new_features:
-                    self._logger.info("没有足够的真实消息内容可用于特征提取，跳过风格特征更新")
-                    return True
-            
-            # 合并现有特征和新特征
-            max_features = self.config.max_mood_imitation_dialogs or 20
-            all_features = current_dialogs + new_features
-            
-            if len(all_features) > max_features:
-                # 保留最新的特征
-                all_features = all_features[-max_features:]
-            
-            persona['mood_imitation_dialogs'] = all_features
-            self._logger.info(f"使用MaiBot功能更新风格特征，新增{len(new_features)}个特征，总计{len(all_features)}个")
-            
-            return True
-            
         except Exception as e:
-            self._logger.error(f"使用MaiBot功能更新风格特征失败: {e}")
+            self._logger.error(f"PersonaManager更新失败: {e}")
             return False
 
-    async def _append_to_persona_updates_file(self, update_content: str, file_path: str):
-        """向人格更新文件追加内容"""
+    async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
+        """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""
         try:
-            # 确保目录存在
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            # 获取当前人格信息
+            provider = self.context.get_using_provider()
+            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+                self._logger.warning("无法获取当前人格信息，跳过备份")
+                return False
             
-            # 检查文件是否存在
-            if not os.path.exists(file_path):
-                # 创建文件头部
-                header_content = """# 增量人格更新文件
-# 本文件用于存储增量的人格文本更新
-# 每次执行时会读取此文件的新内容并应用到当前人格
-
-# 格式：每行一条增量更新，支持以下格式：
-# 1. 直接添加特征：+ 特征描述
-# 2. 修改行为：~ 行为描述
-# 3. 注释行：# 开头的行会被忽略
-
-# 示例：
-# + 更加幽默风趣，喜欢使用轻松的语调
-# ~ 回复时更加亲切，经常使用感叹号
-# + 对新技术话题表现出浓厚兴趣
-
-# 以下是待应用的增量更新：
-
-"""
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write(header_content)
+            current_persona = provider.curr_personality
             
-            # 追加新内容
-            with open(file_path, 'a', encoding='utf-8') as f:
-                f.write(f"\n{update_content}\n")
+            # 提取原人格信息
+            if hasattr(current_persona, 'prompt'):
+                original_prompt = current_persona.prompt
+                original_name = getattr(current_persona, 'name', '默认人格')
+            elif isinstance(current_persona, dict):
+                original_prompt = current_persona.get('prompt', '')
+                original_name = current_persona.get('name', '默认人格')
+            else:
+                self._logger.warning("无法解析当前人格数据")
+                return False
             
-            self._logger.info(f"已向 {file_path} 追加增量更新内容")
+            # 生成备份persona名称：原人格名_年月日时间_备份人格
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            backup_persona_id = f"{original_name}_{timestamp}_备份人格"
             
+            # 创建备份persona，包含完整的原始内容
+            persona_manager = self.persona_manager_updater.persona_manager
+            if persona_manager:
+                backup_persona = await persona_manager.create_persona(
+                    persona_id=backup_persona_id,
+                    system_prompt=original_prompt,
+                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
+                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                )
+                
+                if backup_persona:
+                    self._logger.info(f"成功创建备份persona: {backup_persona_id}")
+                    return True
+                else:
+                    self._logger.error("创建备份persona失败")
+                    return False
+            else:
+                self._logger.error("PersonaManager不可用，无法创建备份")
+                return False
+                
         except Exception as e:
-            self._logger.error(f"写入人格更新文件失败: {e}")
-
-    async def stop(self):
-        """停止服务"""
-        try:
-            self._logger.info("人格更新服务已停止")
-            return True
-        except Exception as e:
-            self._logger.error(f"停止人格更新服务失败: {e}")
+            self._logger.error(f"创建备份persona失败: {e}")
             return False
 
     # ===== 人格格式化输出功能 =====
-    
-    async def format_persona_update_report(self, group_id: str, before_persona: Dict[str, Any], 
-                                         after_persona: Dict[str, Any], update_details: Dict[str, Any]) -> str:
-        """
-        格式化人格更新报告
-        
-        Args:
-            group_id: 群组ID
-            before_persona: 更新前的人格数据
-            after_persona: 更新后的人格数据
-            update_details: 更新详情
-        
-        Returns:
-            格式化的人格更新报告
-        """
-        try:
-            from ..statics.messages import CommandMessages
-            
-            # 生成变化摘要
-            change_summary = await self._generate_change_summary(before_persona, after_persona, update_details)
-            
-            # 格式化前后对比
-            before_content = self._format_persona_content(before_persona)
-            after_content = self._format_persona_content(after_persona)
-            
-            # 构建完整报告
-            report = CommandMessages.PERSONA_UPDATE_HEADER.format(group_id=group_id)
-            report += "\n" + CommandMessages.PERSONA_UPDATE_SUCCESS
-            report += "\n" + CommandMessages.PERSONA_BEFORE_AFTER.format(
-                before_content=before_content,
-                after_content=after_content,
-                change_summary=change_summary
-            )
-            
-            return report
-            
-        except Exception as e:
-            self._logger.error(f"格式化人格更新报告失败: {e}")
-            from ..statics.messages import CommandMessages
-            return CommandMessages.PERSONA_UPDATE_FAILED.format(error=str(e))
     
     async def format_current_persona_display(self, group_id: str) -> str:
         """
@@ -876,70 +1163,12 @@ class PersonaAnalyzer:
             self._logger.error(f"格式化当前人格显示失败: {e}")
             return f"❌ 获取人格信息失败: {str(e)}"
     
-    def _format_persona_content(self, persona_data: Dict[str, Any]) -> str:
-        """格式化人格内容"""
-        try:
-            if isinstance(persona_data, dict):
-                name = persona_data.get('name', '未知人格')
-                prompt = persona_data.get('prompt', '无描述')
-            else:
-                name = getattr(persona_data, 'name', '未知人格')
-                prompt = getattr(persona_data, 'prompt', '无描述')
-            
-            # 截断过长的prompt
-            if len(prompt) > 200:
-                prompt = prompt[:200] + "..."
-            
-            return f"人格名称: {name}\n人格描述: {prompt}"
-            
-        except Exception as e:
-            return f"格式化失败: {str(e)}"
-    
-    async def _generate_change_summary(self, before_persona: Dict[str, Any], 
-                                     after_persona: Dict[str, Any], 
-                                     update_details: Dict[str, Any]) -> str:
-        """生成变化摘要"""
-        try:
-            from ..statics.messages import CommandMessages
-            
-            # 计算prompt长度变化
-            before_prompt = self._get_persona_prompt(before_persona)
-            after_prompt = self._get_persona_prompt(after_persona)
-            
-            length_before = len(before_prompt)
-            length_after = len(after_prompt)
-            length_change = f"+{length_after - length_before}" if length_after > length_before else str(length_after - length_before)
-            
-            # 统计新增特征
-            new_features_count = update_details.get('new_features_count', 0)
-            style_adjustments = update_details.get('style_adjustments', '无')
-            update_reason = update_details.get('reason', '风格学习更新')
-            
-            return CommandMessages.PERSONA_CHANGE_SUMMARY.format(
-                prompt_length_before=length_before,
-                prompt_length_after=length_after,
-                length_change=length_change,
-                new_features_count=new_features_count,
-                style_adjustments=style_adjustments,
-                update_reason=update_reason
-            )
-            
-        except Exception as e:
-            return f"生成变化摘要失败: {str(e)}"
-    
     def _get_persona_name(self, persona_data: Any) -> str:
         """获取人格名称"""
         if isinstance(persona_data, dict):
             return persona_data.get('name', '默认人格')
         else:
             return getattr(persona_data, 'name', '默认人格')
-    
-    def _get_persona_prompt(self, persona_data: Any) -> str:
-        """获取人格prompt"""
-        if isinstance(persona_data, dict):
-            return persona_data.get('prompt', '')
-        else:
-            return getattr(persona_data, 'prompt', '')
     
     def _format_persona_prompt(self, persona_data: Any) -> str:
         """格式化人格prompt用于显示"""
@@ -1030,28 +1259,83 @@ class PersonaAnalyzer:
             self._logger.error(f"克隆人格数据失败: {e}")
             return {}
     
-    def _extract_style_adjustments(self, style_analysis: Dict[str, Any]) -> str:
-        """从风格分析中提取风格调整信息"""
+    async def apply_persona_update(self, group_id: str, update_content: str) -> bool:
+        """应用人格更新 - 外部调用接口"""
         try:
-            adjustments = []
+            self._logger.info(f"开始应用群组 {group_id} 的人格更新")
             
-            if 'style_attributes' in style_analysis:
-                attrs = style_analysis['style_attributes']
-                if isinstance(attrs, dict):
-                    for key, value in attrs.items():
-                        if key in ['tone', 'formality', 'enthusiasm']:
-                            adjustments.append(f"{key}: {value}")
+            # 使用PersonaManager应用更新
+            if self.config.use_persona_manager_updates:
+                success = await self._apply_persona_manager_update(group_id, update_content)
+            else:
+                # 使用传统方式（如果有的话）
+                self._logger.warning("PersonaManager更新已禁用，使用传统方式")
+                success = await self._apply_traditional_persona_update(group_id, update_content)
             
-            if 'expression_patterns' in style_analysis:
-                patterns = style_analysis['expression_patterns']
-                if isinstance(patterns, list) and patterns:
-                    adjustments.append(f"表达模式: {len(patterns)}项")
-            
-            return ', '.join(adjustments) if adjustments else '无特定调整'
+            if success:
+                self._logger.info(f"群组 {group_id} 人格更新应用成功")
+            else:
+                self._logger.error(f"群组 {group_id} 人格更新应用失败")
+                
+            return success
             
         except Exception as e:
-            return f"提取失败: {str(e)}"
-    
+            self._logger.error(f"应用人格更新失败: {e}")
+            return False
+
+    async def _apply_traditional_persona_update(self, group_id: str, update_content: str) -> bool:
+        """传统方式应用人格更新（直接修改当前人格）"""
+        try:
+            # 获取当前提供商
+            provider = self.context.get_using_provider()
+            if not provider:
+                self._logger.error("无法获取当前LLM提供商")
+                return False
+                
+            # 获取当前人格
+            if not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+                self._logger.error("当前提供商没有设置人格")
+                return False
+            
+            current_persona = provider.curr_personality
+            
+            # 根据合并策略处理更新
+            if self.config.persona_merge_strategy == "append":
+                # 追加模式
+                if hasattr(current_persona, 'prompt'):
+                    current_persona.prompt = current_persona.prompt + "\n\n" + update_content
+                elif isinstance(current_persona, dict):
+                    current_persona['prompt'] = current_persona.get('prompt', '') + "\n\n" + update_content
+                    
+            elif self.config.persona_merge_strategy == "prepend":
+                # 前置模式
+                if hasattr(current_persona, 'prompt'):
+                    current_persona.prompt = update_content + "\n\n" + current_persona.prompt
+                elif isinstance(current_persona, dict):
+                    current_persona['prompt'] = update_content + "\n\n" + current_persona.get('prompt', '')
+                    
+            elif self.config.persona_merge_strategy == "replace":
+                # 替换模式
+                if hasattr(current_persona, 'prompt'):
+                    current_persona.prompt = update_content
+                elif isinstance(current_persona, dict):
+                    current_persona['prompt'] = update_content
+                    
+            else:
+                # 默认智能合并模式
+                if hasattr(current_persona, 'prompt'):
+                    current_persona.prompt = self._merge_prompts(current_persona.prompt, update_content)
+                elif isinstance(current_persona, dict):
+                    current_prompt = current_persona.get('prompt', '')
+                    current_persona['prompt'] = self._merge_prompts(current_prompt, update_content)
+            
+            self._logger.info(f"群组 {group_id} 传统方式人格更新完成")
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"传统方式应用人格更新失败: {e}")
+            return False
+
     async def _apply_persona_manager_update(self, group_id: str, update_content: str) -> bool:
         """使用PersonaManager应用增量更新"""
         try:

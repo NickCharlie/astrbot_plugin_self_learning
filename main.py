@@ -1042,9 +1042,29 @@ class SelfLearningPlugin(star.Star):
             logger.info(f"群组 {group_id} 准备进行表达风格学习，有效消息数：{len(message_data_list)}")
             
             # 调用表达模式学习器进行学习
-            expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
-            
-            if expression_learner:
+            try:
+                expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
+                
+                if not expression_learner:
+                    logger.error("无法创建表达模式学习器")
+                    return
+                
+                # 启动学习器服务（如果尚未启动）
+                if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+                    await expression_learner.start()
+                    logger.info("表达模式学习器已启动")
+                
+                # 检查LLM适配器是否可用
+                if not expression_learner.llm_adapter:
+                    logger.warning("表达模式学习器缺少LLM适配器，无法进行学习")
+                    return
+                
+                # 检查LLM提供商是否可用
+                if not expression_learner.llm_adapter.has_refine_provider():
+                    logger.warning("表达模式学习器的LLM适配器缺少refine provider，无法进行学习")
+                    return
+                
+                logger.info(f"群组 {group_id} 开始调用表达模式学习器")
                 learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
                 
                 if learning_success:
@@ -1054,6 +1074,8 @@ class SelfLearningPlugin(star.Star):
                     try:
                         learned_patterns = await expression_learner.get_expression_patterns(group_id, limit=5)
                         if learned_patterns:
+                            logger.info(f"群组 {group_id} 获取到 {len(learned_patterns)} 个学习到的表达模式")
+                            
                             # 动态临时加入prompt（不加入人格）
                             await self._apply_style_to_prompt_temporarily(group_id, learned_patterns)
                             
@@ -1068,6 +1090,8 @@ class SelfLearningPlugin(star.Star):
                                 logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt，并已提交人格审查")
                             else:
                                 logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt")
+                        else:
+                            logger.warning(f"群组 {group_id} 表达风格学习成功，但没有获取到表达模式")
                     except Exception as e:
                         logger.error(f"处理表达风格学习结果失败: {e}")
                     
@@ -1076,13 +1100,14 @@ class SelfLearningPlugin(star.Star):
                         self.learning_stats.style_updates += 1
                     
                     # 触发增量更新回调（动态临时更新prompt）
-                    if self.update_system_prompt_callback:
+                    if hasattr(self, 'update_system_prompt_callback') and self.update_system_prompt_callback:
                         await self.update_system_prompt_callback(group_id)
                         logger.info(f"群组 {group_id} 表达风格学习结果已应用到system_prompt")
                 else:
-                    logger.debug(f"群组 {group_id} 表达风格学习未产生有效结果")
-            else:
-                logger.warning("表达模式学习器未正确初始化")
+                    logger.warning(f"群组 {group_id} 表达风格学习未产生有效结果")
+                    
+            except Exception as e:
+                logger.error(f"群组 {group_id} 表达模式学习器调用失败: {e}")
                 
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
@@ -1168,7 +1193,7 @@ class SelfLearningPlugin(star.Star):
                 
                 if conversation_pairs and len(conversation_pairs) > 0:
                     # 生成基于真实对话关系的学习内容
-                    dialog_content = self._format_real_conversation_pairs(conversation_pairs, relationships, group_id)
+                    dialog_content = await self._format_real_conversation_pairs(conversation_pairs, relationships, group_id)
                     
                     # 获取分析质量信息
                     quality_info = await relationship_analyzer.analyze_conversation_quality(relationships)
@@ -1193,34 +1218,236 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"群组 {group_id} 生成真实对话学习内容失败: {e}")
             return ""
 
-    def _format_real_conversation_pairs(self, conversation_pairs: List[Any], relationships: List[Any], group_id: str) -> str:
-        """格式化真实对话对为学习内容"""
+    async def _generate_style_analysis_text(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
+        """生成*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:，使用提炼模型进行智能分析"""
+        try:
+            # 使用LLM提炼模型进行深度分析
+            if hasattr(self, 'llm_adapter') and self.llm_adapter and self.llm_adapter.has_refine_provider():
+                logger.info("使用提炼模型进行风格分析...")
+                try:
+                    # 直接调用异步方法获取提炼模型结果
+                    result = await self.generate_llm_style_analysis_async(conversation_pairs, relationships)
+                    if result and "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:" in result:
+                        logger.info("成功获取提炼模型风格分析结果")
+                        return result
+                    else:
+                        logger.warning("提炼模型返回结果格式异常，使用基本分析")
+                        return self._generate_basic_style_analysis(conversation_pairs, relationships)
+                except Exception as llm_error:
+                    logger.error(f"提炼模型分析失败: {llm_error}")
+                    return self._generate_basic_style_analysis(conversation_pairs, relationships)
+            else:
+                logger.info("提炼模型不可用，使用基本风格分析")
+                # 回退到基本分析
+                return self._generate_basic_style_analysis(conversation_pairs, relationships)
+                
+        except Exception as e:
+            logger.error(f"生成*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:失败: {e}")
+            # 返回默认分析
+            return "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度\n3. 适当使用口语化表达增加亲和力"
+    
+    async def generate_llm_style_analysis_async(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
+        """异步版本的LLM风格分析，使用提炼模型进行深度分析"""
+        try:
+            logger.info(f"开始使用提炼模型分析 {len(conversation_pairs)} 个对话对")
+            
+            # 构建分析prompt
+            conversation_text = ""
+            for i, (sender_content, reply_content) in enumerate(conversation_pairs[:5], 1):
+                # 清理消息中的@信息，只保留实际对话内容
+                cleaned_sender = self._clean_at_mentions(sender_content)
+                cleaned_reply = self._clean_at_mentions(reply_content)
+                
+                conversation_text += f"对话{i}:\nA: {cleaned_sender}\nB: {cleaned_reply}\n\n"
+            
+            if not conversation_text.strip():
+                logger.warning("没有有效的对话内容进行分析")
+                return self._generate_basic_style_analysis(conversation_pairs, relationships)
+            
+            # 构建详细的分析prompt，要求提炼模型输出标准格式
+            prompt = f"""请深入分析以下真实对话中B用户的表达风格，提供具体、可操作的建议：
+
+{conversation_text}
+
+请从以下几个方面全面分析B用户的表达风格特点：
+1. **回复长度和结构特征** - 分析B用户喜欢用长句还是短句，是否有特定的句式结构
+2. **语气和语调特点** - 分析语气是正式、随意、热情、冷静等特征
+3. **互动方式和态度** - 分析回应的积极性、主动性和参与度
+4. **语言习惯和表达偏好** - 分析用词习惯、表情符号使用、语气词等
+5. **情感表达方式** - 分析情感表达的方式和强度
+
+要求：
+- 每条建议要具体明确，说明在什么情况下应该怎样表达
+- 用自然的语言描述，避免抽象或学术化的表述
+- 总共给出4-5条最重要的风格特征建议
+- **必须严格按照以下格式输出**：
+
+*下面是你在生成回复的时候需要遵循并且需要做出的改变:
+1. [第一条具体的风格特征建议]
+2. [第二条具体的风格特征建议]
+3. [第三条具体的风格特征建议]
+4. [第四条具体的风格特征建议]
+
+请只返回上述格式的分析结果，不要其他内容。"""
+
+            logger.info("调用提炼模型进行风格分析...")
+            
+            # 调用提炼模型
+            response = await self.llm_adapter.refine_chat_completion(
+                prompt=prompt,
+                system_prompt="你是一个专业的对话风格分析师，擅长从真实对话中提炼具体可操作的表达特征和建议。你的分析必须基于实际观察，给出的建议要具体明确且容易理解。"
+            )
+            
+            if response and response.strip():
+                # 验证返回格式是否正确
+                if "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:" in response and any(f"{i}." in response for i in range(1, 5)):
+                    # 清理和格式化响应
+                    cleaned_response = response.strip()
+                    logger.info(f"提炼模型成功生成风格分析，长度: {len(cleaned_response)} 字符")
+                    logger.debug(f"提炼模型分析结果预览: {cleaned_response[:200]}...")
+                    return cleaned_response
+                else:
+                    logger.warning(f"提炼模型返回格式不正确，内容: {response[:200]}...")
+                    logger.warning("回退到基本分析方法")
+                    return self._generate_basic_style_analysis(conversation_pairs, relationships)
+            else:
+                logger.warning("提炼模型无响应或响应为空")
+                return self._generate_basic_style_analysis(conversation_pairs, relationships)
+                
+        except Exception as e:
+            logger.error(f"提炼模型风格分析失败: {e}", exc_info=True)
+            return self._generate_basic_style_analysis(conversation_pairs, relationships)
+    
+    def _clean_at_mentions(self, text: str) -> str:
+        """清理消息中的@信息，只保留实际对话内容"""
+        if not text:
+            return text
+        
+        try:
+            import re
+            # 匹配@用户名(数字ID) 格式
+            # 示例: @中科大舞萌学院地雷系_铃铃猫(1456503094) 明晚，可能很晚
+            # 清理后: 明晚，可能很晚
+            
+            # 正则表达式：匹配@开头直到)结束的部分
+            pattern = r'@[^)]*\)\s*'
+            cleaned_text = re.sub(pattern, '', text)
+            
+            # 如果清理后的文本为空或太短，返回原文本（可能不是@格式）
+            if not cleaned_text.strip() or len(cleaned_text.strip()) < 2:
+                return text
+            
+            # 清理多余的空格
+            cleaned_text = cleaned_text.strip()
+            
+            # 如果清理前后有显著差异，记录日志
+            if len(text) - len(cleaned_text) > 10:
+                logger.debug(f"清理@信息: '{text[:50]}...' -> '{cleaned_text[:50]}...'")
+            
+            return cleaned_text
+            
+        except Exception as e:
+            logger.warning(f"清理@信息失败: {e}，返回原文本")
+            return text
+    
+    def _generate_basic_style_analysis(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
+        """生成基本的*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:（回退方法）"""
+        try:
+            # 分析对话特征，同样需要清理@信息
+            cleaned_pairs = []
+            for sender_content, reply_content in conversation_pairs:
+                cleaned_sender = self._clean_at_mentions(sender_content)
+                cleaned_reply = self._clean_at_mentions(reply_content)
+                cleaned_pairs.append((cleaned_sender, cleaned_reply))
+            
+            analysis_points = []
+            
+            # 1. 分析回复长度模式
+            short_replies = sum(1 for _, reply in cleaned_pairs if len(reply.strip()) <= 15)
+            long_replies = len(cleaned_pairs) - short_replies
+            
+            if short_replies > long_replies:
+                analysis_points.append("回复时要简洁明了，避免冗长啰嗦，多用短句表达")
+            elif long_replies > short_replies:
+                analysis_points.append("回复要详细具体，提供完整信息，不要过于简短")
+            else:
+                analysis_points.append("根据问题复杂度调整回复长度，简单问题简答，复杂问题详答")
+            
+            # 2. 分析语气特征
+            casual_indicators = ['哈哈', '嘿嘿', '嗯嗯', '好的', '好吧', '行吧', '额', '呃']
+            formal_indicators = ['您好', '请问', '感谢', '不好意思', '抱歉', '非常']
+            
+            casual_count = sum(1 for _, reply in cleaned_pairs 
+                             if any(indicator in reply for indicator in casual_indicators))
+            formal_count = sum(1 for _, reply in cleaned_pairs 
+                             if any(indicator in reply for indicator in formal_indicators))
+            
+            if casual_count > formal_count:
+                analysis_points.append("保持轻松随意的语气，多用口语化表达，可以加入语气词")
+            elif formal_count > casual_count:
+                analysis_points.append("使用正式礼貌的语言风格，注意用词的准确性和得体性")
+            else:
+                analysis_points.append("根据对话氛围调整语气，既要亲切又要适度正式")
+            
+            # 3. 分析互动模式
+            question_replies = sum(1 for _, reply in cleaned_pairs if any(q in reply for q in ['?', '？', '吗', '呢']))
+            if question_replies > len(cleaned_pairs) * 0.3:
+                analysis_points.append("适时反问和追问，保持对话的互动性，引导话题深入")
+            else:
+                analysis_points.append("多提供确定性的回答，给出明确的信息和建议")
+            
+            # 4. 分析表情使用
+            emoji_count = sum(1 for _, reply in cleaned_pairs 
+                            if any(emoji in reply for emoji in ['😄', '😊', '😂', '🤔', '👍', '❤️', '💯']))
+            if emoji_count > 0:
+                analysis_points.append("适当使用表情符号增加亲和力，但不要过度使用影响正式性")
+            
+            # 5. 分析回应积极性
+            positive_words = ['好', '棒', '不错', '可以', '没问题', '当然', '很好']
+            positive_count = sum(1 for _, reply in cleaned_pairs 
+                               if any(word in reply for word in positive_words))
+            
+            if positive_count > len(cleaned_pairs) * 0.5:
+                analysis_points.append("保持积极正面的回应态度，多给予肯定和鼓励")
+            else:
+                analysis_points.append("回答要客观中性，避免过于主观的价值判断")
+            
+            # 构建最终的*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:
+            style_text_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
+            for i, point in enumerate(analysis_points[:4], 1):  # 最多4条建议
+                style_text_lines.append(f"{i}. {point}")
+            
+            return "\n".join(style_text_lines)
+            
+        except Exception as e:
+            logger.error(f"生成基本*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:失败: {e}")
+            # 返回默认分析
+            return "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度\n3. 适当使用口语化表达增加亲和力"
+
+    async def _format_real_conversation_pairs(self, conversation_pairs: List[Any], relationships: List[Any], group_id: str) -> str:
+        """格式化真实对话对为严格的Few Shots格式"""
         if not conversation_pairs:
             return ""
             
-        dialog_lines = [
-            "*基于真实用户对话关系的语言风格学习示例*",
-            "",
-            "以下是通过智能分析识别出的真实对话关系：",
-            ""
-        ]
+        # 生成严格的Few Shots格式
+        dialog_lines = []
         
-        # 显示最相关的对话对（最多5个）
-        display_pairs = conversation_pairs[:5]
-        for i, (sender_content, reply_content) in enumerate(display_pairs, 1):
-            # 确保内容是真实用户消息
-            dialog_lines.append(f"【真实对话 {i}】")
-            dialog_lines.append(f"发起者: {sender_content}")
-            dialog_lines.append(f"回应者: {reply_content}")
-            dialog_lines.append("")
+        # 首先生成风格学习分析文本
+        style_analysis = await self._generate_style_analysis_text(conversation_pairs, relationships)
+        if style_analysis:
+            dialog_lines.extend(style_analysis.split('\n'))
+            dialog_lines.append("")  # 空行分隔
         
-        dialog_lines.extend([
-            "*注意事项:*",
-            "• 以上全部为真实用户之间的对话记录",
-            "• 请学习其中体现的自然语言风格和表达习惯", 
-            "• 避免机械模仿，重点理解表达的自然性和适应性",
-            ""
-        ])
+        # 然后添加严格的Few Shots对话格式
+        dialog_lines.append("*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:")
+        
+        # 选择最高质量的对话对（最多3-4组）
+        display_pairs = conversation_pairs[:4]
+        
+        for sender_content, reply_content in display_pairs:
+            # 严格按照 A:xxx B:xxx 格式
+            dialog_lines.append(f"A:{sender_content}")
+            dialog_lines.append(f"B:{reply_content}")
         
         return "\n".join(dialog_lines)
 
@@ -1260,24 +1487,81 @@ class SelfLearningPlugin(star.Star):
     async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
         """创建对话风格学习结果的审查请求"""
         try:
+            logger.info(f"开始为群组 {group_id} 创建风格学习审查请求，模式数量: {len(learned_patterns)}")
+            
+            # 安全转换learned_patterns为字典格式
+            patterns_data = []
+            try:
+                for i, pattern in enumerate(learned_patterns):
+                    try:
+                        if hasattr(pattern, 'to_dict'):
+                            # 如果对象有to_dict方法
+                            patterns_data.append(pattern.to_dict())
+                        elif hasattr(pattern, '__dict__'):
+                            # 如果是普通对象，转换其属性
+                            pattern_dict = {
+                                'situation': getattr(pattern, 'situation', getattr(pattern, 'scene', '')),
+                                'expression': getattr(pattern, 'expression', ''),
+                                'weight': getattr(pattern, 'weight', 0.5),
+                                'style_type': getattr(pattern, 'style_type', 'general'),
+                                'confidence': getattr(pattern, 'confidence', 0.5)
+                            }
+                            patterns_data.append(pattern_dict)
+                        elif isinstance(pattern, dict):
+                            # 如果已经是字典
+                            patterns_data.append(pattern)
+                        else:
+                            # 其他情况，创建基本字典
+                            patterns_data.append({
+                                'expression': str(pattern),
+                                'weight': 0.5,
+                                'style_type': 'general'
+                            })
+                            logger.warning(f"模式 {i} 格式未知，使用字符串表示: {str(pattern)[:50]}...")
+                    except Exception as pattern_error:
+                        logger.error(f"转换模式 {i} 失败: {pattern_error}")
+                        # 添加一个错误占位符
+                        patterns_data.append({
+                            'expression': f'模式转换错误: {str(pattern_error)[:50]}',
+                            'weight': 0.1,
+                            'style_type': 'error'
+                        })
+            except Exception as patterns_error:
+                logger.error(f"转换learned_patterns失败: {patterns_error}")
+                patterns_data = [{'expression': '模式数据转换失败', 'weight': 0.1, 'style_type': 'error'}]
+            
+            # 验证few_shots_content
+            if not few_shots_content or not few_shots_content.strip():
+                logger.warning("few_shots_content为空，使用默认内容")
+                few_shots_content = "对话风格学习内容生成失败"
+                
             # 构建审查内容
             review_data = {
                 'type': 'style_learning',
                 'group_id': group_id,
                 'timestamp': time.time(),
-                'learned_patterns': [pattern.to_dict() for pattern in learned_patterns],
+                'learned_patterns': patterns_data,
                 'few_shots_content': few_shots_content,
                 'status': 'pending',  # pending, approved, rejected
-                'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）'
+                'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(patterns_data)} 个表达模式）'
             }
             
-            # 保存到数据库的审查表
-            await self.db_manager.create_style_learning_review(review_data)
+            logger.info(f"审查数据构建完成: type={review_data['type']}, group_id={review_data['group_id']}, patterns_count={len(patterns_data)}")
             
-            logger.info(f"对话风格学习审查请求已创建: {group_id}")
+            # 保存到数据库的审查表
+            try:
+                review_id = await self.db_manager.create_style_learning_review(review_data)
+                logger.info(f"✅ 对话风格学习审查请求创建成功: group_id={group_id}, review_id={review_id}")
+                logger.info(f"📋 审查内容预览: {few_shots_content[:100]}...")
+                return review_id
+            except Exception as db_error:
+                logger.error(f"❌ 数据库保存风格学习审查失败: {db_error}")
+                raise
             
         except Exception as e:
-            logger.error(f"创建对话风格学习审查请求失败: {e}")
+            logger.error(f"❌ 创建对话风格学习审查请求失败: {e}", exc_info=True)
+            # 不抛出异常，避免中断主流程
+            return None
 
     @filter.command("learning_status")
     @filter.permission_type(PermissionType.ADMIN)
@@ -1935,6 +2219,119 @@ PersonaManager模式优势：
         except Exception as e:
             logger.error(f"切换人格更新模式失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 切换人格更新模式失败: {str(e)}")
+
+    @filter.command("force_expression_learning")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def force_expression_learning_command(self, event: AstrMessageEvent):
+        """强制触发表达风格学习"""
+        try:
+            group_id = event.get_group_id() or event.get_sender_id()
+            yield event.plain_result(f"🔄 开始强制触发群组 {group_id} 的表达风格学习...")
+            
+            # 获取最近的原始消息
+            recent_raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=30)
+            
+            if not recent_raw_messages or len(recent_raw_messages) < 3:
+                yield event.plain_result(f"❌ 群组 {group_id} 原始消息数量不足（{len(recent_raw_messages) if recent_raw_messages else 0}条），无法进行学习")
+                return
+            
+            # 转换为 MessageData 格式
+            from .core.interfaces import MessageData
+            message_data_list = []
+            bot_messages = 0
+            for msg in recent_raw_messages:
+                if msg.get('sender_id') != "bot":  # 不学习机器人的消息
+                    message_data = MessageData(
+                        sender_id=msg.get('sender_id', ''),
+                        sender_name=msg.get('sender_name', ''),
+                        message=msg.get('message', ''),
+                        group_id=group_id,
+                        timestamp=msg.get('timestamp', time.time()),
+                        platform=msg.get('platform', 'default'),
+                        message_id=msg.get('message_id'),
+                        reply_to=msg.get('reply_to')
+                    )
+                    message_data_list.append(message_data)
+                else:
+                    bot_messages += 1
+            
+            yield event.plain_result(f"📊 找到 {len(message_data_list)} 条用户消息，{bot_messages} 条机器人消息")
+            
+            if len(message_data_list) < 3:
+                yield event.plain_result(f"❌ 用户消息数量不足（{len(message_data_list)}条），无法进行学习")
+                return
+            
+            # 创建表达模式学习器
+            try:
+                expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
+                
+                if not expression_learner:
+                    yield event.plain_result("❌ 无法创建表达模式学习器")
+                    return
+                
+                # 启动学习器服务
+                if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+                    await expression_learner.start()
+                    yield event.plain_result("✅ 表达模式学习器已启动")
+                
+                # 检查LLM适配器
+                if not expression_learner.llm_adapter:
+                    yield event.plain_result("❌ 表达模式学习器缺少LLM适配器")
+                    return
+                
+                # 检查LLM提供商
+                if not expression_learner.llm_adapter.has_refine_provider():
+                    yield event.plain_result("⚠️ 表达模式学习器缺少refine provider，将尝试使用可用的provider")
+                    
+                    # 检查是否有其他可用的provider
+                    if not (expression_learner.llm_adapter.has_filter_provider() or 
+                           expression_learner.llm_adapter.has_reinforce_provider()):
+                        yield event.plain_result("❌ 没有任何可用的LLM provider")
+                        return
+                
+                yield event.plain_result("🧠 开始表达模式学习...")
+                
+                # 强制触发学习，跳过间隔检查
+                original_last_time = expression_learner.last_learning_times.get(group_id, 0)
+                expression_learner.last_learning_times[group_id] = 0  # 重置时间以强制学习
+                
+                learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
+                
+                # 恢复原始时间
+                expression_learner.last_learning_times[group_id] = original_last_time
+                
+                if learning_success:
+                    yield event.plain_result("✅ 表达风格学习成功！")
+                    
+                    # 获取学习到的表达模式
+                    learned_patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
+                    if learned_patterns:
+                        result_text = f"🎯 学习到 {len(learned_patterns)} 个表达模式：\n\n"
+                        for i, pattern in enumerate(learned_patterns[:5], 1):
+                            result_text += f"{i}. 当\"{pattern.situation}\"时，使用\"{pattern.expression}\"（权重: {pattern.weight:.1f}）\n"
+                        
+                        if len(learned_patterns) > 5:
+                            result_text += f"\n...等共 {len(learned_patterns)} 个模式"
+                        
+                        yield event.plain_result(result_text)
+                        
+                        # 应用到临时prompt
+                        await self._apply_style_to_prompt_temporarily(group_id, learned_patterns)
+                        yield event.plain_result("✅ 表达模式已临时应用到当前会话")
+                        
+                    else:
+                        yield event.plain_result("⚠️ 学习成功但没有获取到具体的表达模式")
+                else:
+                    yield event.plain_result("❌ 表达风格学习失败或没有产生有效结果")
+                    yield event.plain_result("💡 可能原因：消息内容不够丰富，或LLM模型无法有效分析")
+                    
+            except Exception as e:
+                yield event.plain_result(f"❌ 表达模式学习器执行失败: {str(e)}")
+                logger.error(f"强制表达风格学习失败: {e}", exc_info=True)
+                
+        except Exception as e:
+            logger.error(f"强制表达风格学习命令失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 命令执行失败: {str(e)}")
 
     @filter.command("clean_duplicate_content")
     @filter.permission_type(PermissionType.ADMIN)
