@@ -987,19 +987,18 @@ class ProgressiveLearningService:
 
 请仔细检查新人格内容是否合理，决定是否应用此次学习结果。"""
 
-            # 保存完整内容，不进行截断（移除之前的500字符限制）
-            original_content_full = current_persona_str
-            new_content_full = updated_persona_str
+            # 截断过长的内容用于存储
+            original_content_truncated = current_persona_str[:500] + "..." if len(current_persona_str) > 500 else current_persona_str
+            new_content_truncated = updated_persona_str[:500] + "..." if len(updated_persona_str) > 500 else updated_persona_str
 
             # 创建审查记录
             review_record = PersonaUpdateRecord(
                 timestamp=time.time(),
                 group_id=group_id,
                 update_type="persona_learning_review", 
-                original_content=original_content_full,
-                new_content=new_content_full,
+                original_content=original_content_truncated,
+                new_content=new_content_truncated,
                 reason=reason,
-                confidence_score=quality_metrics.consistency_score,  # 使用实际的质量得分
                 status='pending'
             )
             
@@ -1027,15 +1026,14 @@ class ProgressiveLearningService:
                 # 插入审查记录
                 await cursor.execute('''
                     INSERT INTO persona_update_reviews 
-                    (timestamp, group_id, update_type, original_content, new_content, confidence_score, reason, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (timestamp, group_id, update_type, original_content, new_content, reason, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     review_record.timestamp,
                     review_record.group_id,
                     review_record.update_type,
                     review_record.original_content,
                     review_record.new_content,
-                    review_record.confidence_score,  # 添加置信度
                     review_record.reason,
                     review_record.status
                 ))

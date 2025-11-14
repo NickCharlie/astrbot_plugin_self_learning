@@ -2831,7 +2831,7 @@ class DatabaseManager(AsyncServiceBase):
             conn = await self._get_messages_db_connection()
             cursor = await conn.cursor()
             
-            # 确保表存在（使用统一的结构）
+            # 确保表存在（使用progressive_learning.py中的结构）
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS persona_update_reviews (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2840,8 +2840,6 @@ class DatabaseManager(AsyncServiceBase):
                     update_type TEXT NOT NULL,
                     original_content TEXT,
                     new_content TEXT,
-                    proposed_content TEXT, -- 建议的新内容（兼容字段）
-                    confidence_score REAL, -- 置信度得分
                     reason TEXT,
                     status TEXT NOT NULL DEFAULT 'pending',
                     reviewer_comment TEXT,
@@ -2849,20 +2847,9 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             
-            # 为旧表添加缺失的列（如果不存在）
-            try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN proposed_content TEXT')
-            except:
-                pass  # 列已存在
-            try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN confidence_score REAL')
-            except:
-                pass  # 列已存在
-            
             await cursor.execute('''
                 SELECT id, timestamp, group_id, update_type, original_content, 
-                       new_content, proposed_content, confidence_score, reason, status, 
-                       reviewer_comment, review_time
+                       new_content, reason, status, reviewer_comment, review_time
                 FROM persona_update_reviews
                 WHERE status = 'pending'
                 ORDER BY timestamp DESC
@@ -2871,358 +2858,7 @@ class DatabaseManager(AsyncServiceBase):
             
             reviews = []
             for row in await cursor.fetchall():
-                # 确保有proposed_content字段，如果为空则使用new_content
-                proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
-                confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
-                
                 reviews.append({
-                    'id': row[0],
-                    'timestamp': row[1],
-                    'group_id': row[2],
-                    'update_type': row[3],
-                    'original_content': row[4],
-                    'new_content': row[5],
-                    'proposed_content': proposed_content,
-                    'confidence_score': confidence_score,
-                    'reason': row[8],
-                    'status': row[9],
-                    'reviewer_comment': row[10],
-                    'review_time': row[11]
-                })
-            
-            return reviews
-            
-        except Exception as e:
-            self._logger.error(f"获取待审查人格学习记录失败: {e}")
-            return []
-
-    async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None, modified_content: str = None) -> bool:
-        """更新人格学习审查状态"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 如果有修改后的内容，也要更新proposed_content字段
-            if modified_content:
-                await cursor.execute('''
-                    UPDATE persona_update_reviews
-                    SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
-                    WHERE id = ?
-                ''', (status, comment, time.time(), modified_content, modified_content, review_id))
-            else:
-                await cursor.execute('''
-                    UPDATE persona_update_reviews
-                    SET status = ?, reviewer_comment = ?, review_time = ?
-                    WHERE id = ?
-                ''', (status, comment, time.time(), review_id))
-            
-            await conn.commit()
-            return cursor.rowcount > 0
-            
-        except Exception as e:
-            self._logger.error(f"更新人格学习审查状态失败: {e}")
-            return False
-    
-    async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
-        """删除指定ID的人格学习审查记录"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 删除审查记录
-            await cursor.execute('''
-                DELETE FROM persona_update_reviews WHERE id = ?
-            ''', (review_id,))
-            
-            await conn.commit()
-            deleted_count = cursor.rowcount
-            
-            if deleted_count > 0:
-                self._logger.info(f"成功删除人格学习审查记录，ID: {review_id}")
-                return True
-            else:
-                self._logger.warning(f"未找到要删除的人格学习审查记录，ID: {review_id}")
-                return False
-            
-        except Exception as e:
-            self._logger.error(f"删除人格学习审查记录失败: {e}")
-            return False
-    
-    async def get_persona_learning_review_by_id(self, review_id: int) -> Optional[Dict[str, Any]]:
-        """获取指定ID的人格学习审查记录详情"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                SELECT id, group_id, original_content, new_content, proposed_content, 
-                       confidence_score, reason, status, reviewer_comment, review_time, timestamp
-                FROM persona_update_reviews
-                WHERE id = ?
-            ''', (review_id,))
-            
-            row = await cursor.fetchone()
-            if row:
-                return {
-                    'id': row[0],
-                    'group_id': row[1],
-                    'original_content': row[2],
-                    'new_content': row[3],
-                    'proposed_content': row[4] if row[4] else row[3],  # proposed_content或new_content
-                    'confidence_score': row[5] if row[5] is not None else 0.5,
-                    'reason': row[6],
-                    'status': row[7],
-                    'reviewer_comment': row[8],
-                    'review_time': row[9],
-                    'timestamp': row[10]
-                }
-            return None
-            
-        except Exception as e:
-            self._logger.error(f"获取人格学习审查记录失败: {e}")
-            return None
-
-    async def save_style_learning_record(self, record_data: Dict[str, Any]) -> bool:
-        """保存风格学习记录到数据库"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                INSERT INTO style_learning_records 
-                (style_type, learned_patterns, confidence_score, sample_count, group_id, learning_time)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                record_data.get('style_type'),
-                record_data.get('learned_patterns'),
-                record_data.get('confidence_score'),
-                record_data.get('sample_count'),
-                record_data.get('group_id'),
-                record_data.get('learning_time')
-            ))
-            
-            await conn.commit()
-            return True
-            
-        except Exception as e:
-            self._logger.error(f"保存风格学习记录失败: {e}")
-            return False
-
-    async def save_language_style_pattern(self, pattern_data: Dict[str, Any]) -> bool:
-        """保存语言风格模式到数据库"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 先检查是否已存在相同的语言风格
-            await cursor.execute('''
-                SELECT id FROM language_style_patterns 
-                WHERE language_style = ? AND group_id = ?
-            ''', (pattern_data.get('language_style'), pattern_data.get('group_id')))
-            
-            existing = await cursor.fetchone()
-            
-            if existing:
-                # 更新现有记录
-                await cursor.execute('''
-                    UPDATE language_style_patterns 
-                    SET example_phrases = ?, usage_frequency = ?, context_type = ?, last_updated = ?
-                    WHERE id = ?
-                ''', (
-                    pattern_data.get('example_phrases'),
-                    pattern_data.get('usage_frequency'),
-                    pattern_data.get('context_type'),
-                    pattern_data.get('last_updated'),
-                    existing[0]
-                ))
-            else:
-                # 插入新记录
-                await cursor.execute('''
-                    INSERT INTO language_style_patterns 
-                    (language_style, example_phrases, usage_frequency, context_type, group_id, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    pattern_data.get('language_style'),
-                    pattern_data.get('example_phrases'),
-                    pattern_data.get('usage_frequency'),
-                    pattern_data.get('context_type'),
-                    pattern_data.get('group_id'),
-                    pattern_data.get('last_updated')
-                ))
-            
-            await conn.commit()
-            return True
-            
-        except Exception as e:
-            self._logger.error(f"保存语言风格模式失败: {e}")
-            return False
-
-    async def get_reviewed_persona_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
-        """获取已审查的人格学习更新记录"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 构建查询条件
-            where_clause = "WHERE status != 'pending'"
-            params = []
-            
-            if status_filter:
-                where_clause += " AND status = ?"
-                params.append(status_filter)
-            
-            # 首先检查表是否存在并获取表结构
-            await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='persona_update_reviews'")
-            table_exists = await cursor.fetchone()
-            
-            if not table_exists:
-                self._logger.info("persona_update_reviews表不存在，返回空列表")
-                return []
-            
-            # 检查表结构，确定正确的字段名
-            await cursor.execute("PRAGMA table_info(persona_update_reviews)")
-            columns = await cursor.fetchall()
-            column_names = [col[1] for col in columns]
-            
-            # 根据实际的列名构建查询
-            if 'proposed_content' in column_names:
-                content_field = 'proposed_content'
-            elif 'new_content' in column_names:
-                content_field = 'new_content'
-            else:
-                # 如果两个字段都不存在，使用原始内容
-                content_field = 'original_content'
-            
-            # 使用实际存在的字段进行查询，并处理NULL值
-            await cursor.execute(f'''
-                SELECT id, group_id, original_content, {content_field}, reason, 
-                       status, reviewer_comment, review_time, timestamp
-                FROM persona_update_reviews
-                {where_clause}
-                ORDER BY COALESCE(review_time, timestamp) DESC
-                LIMIT ? OFFSET ?
-            ''', params + [limit, offset])
-            
-            rows = await cursor.fetchall()
-            updates = []
-            
-            for row in rows:
-                updates.append({
-                    'id': f"persona_learning_{row[0]}",
-                    'group_id': row[1] or 'default',
-                    'original_content': row[2] or '',
-                    'proposed_content': row[3] or '',  # 使用实际存在的字段
-                    'reason': row[4] or '人格学习更新',
-                    'confidence_score': 0.8,  # 默认置信度
-                    'status': row[5],
-                    'reviewer_comment': row[6] or '',
-                    'review_time': row[7] if row[7] else 0,
-                    'timestamp': row[8] if row[8] else 0,
-                    'update_type': 'persona_learning_review'
-                })
-            
-            return updates
-            
-        except Exception as e:
-            self._logger.error(f"获取已审查人格学习记录失败: {e}")
-            # 如果是表或列不存在的错误，返回空列表
-            if "no such table" in str(e).lower() or "no such column" in str(e).lower():
-                self._logger.info("人格学习审查表或字段不存在，返回空列表")
-                return []
-            return []
-
-    async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
-        """获取已审查的风格学习更新记录"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 构建查询条件
-            where_clause = "WHERE status != 'pending'"
-            params = []
-            
-            if status_filter:
-                where_clause += " AND status = ?"
-                params.append(status_filter)
-            
-            # 使用正确的字段名，没有review_time字段，使用updated_at，并处理NULL值
-            await cursor.execute(f'''
-                SELECT id, type, group_id, timestamp, learned_patterns, status, updated_at, description
-                FROM style_learning_reviews
-                {where_clause}
-                ORDER BY COALESCE(updated_at, timestamp) DESC
-                LIMIT ? OFFSET ?
-            ''', params + [limit, offset])
-            
-            rows = await cursor.fetchall()
-            updates = []
-            
-            for row in rows:
-                # 尝试解析learned_patterns以获取更多信息
-                try:
-                    learned_patterns = json.loads(row[4]) if row[4] else {}
-                    reason = learned_patterns.get('reason', '风格学习更新')
-                    original_content = learned_patterns.get('original_content', '原始风格特征')
-                    proposed_content = learned_patterns.get('proposed_content', row[4])  # 使用完整的learned_patterns作为proposed_content
-                    confidence_score = learned_patterns.get('confidence_score', 0.8)
-                except (json.JSONDecodeError, AttributeError):
-                    reason = row[7] or '风格学习更新'  # 使用description字段
-                    original_content = '原始风格特征'
-                    proposed_content = row[4] or '无内容'
-                    confidence_score = 0.8
-                
-                updates.append({
-                    'id': row[0],
-                    'group_id': row[2],
-                    'original_content': original_content,
-                    'proposed_content': proposed_content,
-                    'reason': reason,
-                    'confidence_score': confidence_score,
-                    'status': row[5],
-                    'reviewer_comment': '',  # 风格审查没有备注字段
-                    'review_time': row[6],  # 使用updated_at字段
-                    'timestamp': row[3],
-                    'update_type': f'style_learning_{row[1]}'
-                })
-            
-            return updates
-            
-        except Exception as e:
-            self._logger.error(f"获取已审查风格学习记录失败: {e}")
-            # 如果表不存在，返回空列表
-            if "no such table" in str(e).lower():
-                self._logger.info("风格学习审查表不存在，返回空列表")
-                return []
-            return []
-
-    async def get_reviewed_persona_update_records(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
-        """获取已审查的传统人格更新记录"""
-        try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 构建查询条件
-            where_clause = "WHERE status != 'pending'"
-            params = []
-            
-            if status_filter:
-                where_clause += " AND status = ?"
-                params.append(status_filter)
-            
-            await cursor.execute(f'''
-                SELECT id, timestamp, group_id, update_type, original_content, new_content, 
-                       reason, status, reviewer_comment, review_time
-                FROM persona_update_records
-                {where_clause}
-                ORDER BY review_time DESC
-                LIMIT ? OFFSET ?
-            ''', params + [limit, offset])
-            
-            rows = await cursor.fetchall()
-            records = []
-            
-            for row in rows:
-                records.append({
                     'id': row[0],
                     'timestamp': row[1],
                     'group_id': row[2],
@@ -3235,11 +2871,30 @@ class DatabaseManager(AsyncServiceBase):
                     'review_time': row[9]
                 })
             
-            return records
+            return reviews
             
         except Exception as e:
-            self._logger.error(f"获取已审查传统人格更新记录失败: {e}")
+            self._logger.error(f"获取待审查人格学习记录失败: {e}")
             return []
+
+    async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None) -> bool:
+        """更新人格学习审查状态"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                UPDATE persona_update_reviews
+                SET status = ?, reviewer_comment = ?, review_time = ?
+                WHERE id = ?
+            ''', (status, comment, time.time(), review_id))
+            
+            await conn.commit()
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            self._logger.error(f"更新人格学习审查状态失败: {e}")
+            return False
 
     async def update_style_review_status(self, review_id: int, status: str, group_id: str = None) -> bool:
         """更新风格学习审查状态"""

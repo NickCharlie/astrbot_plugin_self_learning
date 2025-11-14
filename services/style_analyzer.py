@@ -129,21 +129,14 @@ class StyleAnalyzerService:
             self.baseline_style = style_profile
             await self.db_manager.save_style_profile(group_id, {"profile_name": "baseline_style_profile", **self.baseline_style.__dict__})
             
-            # 准备返回结果
-            result = {
+            return {
                 'style_analysis': style_analysis,
                 'style_profile': self.baseline_style.__dict__, # 返回更新后的基准风格
                 'style_evolution': style_evolution.__dict__ if style_evolution else None,
                 'message_count': len(messages),
                 'analysis_timestamp': datetime.now().isoformat(),
-                'confidence': await self._calculate_analysis_confidence(messages),
-                'analyzed_messages': [{'message': msg.get('message', ''), 'sender': msg.get('sender_name', '')} for msg in messages[:10]]  # 保存前10条消息用于分析记录
+                'confidence': await self._calculate_analysis_confidence(messages)
             }
-            
-            # 将分析结果保存到数据库
-            await self._save_style_analysis_to_db(group_id, result)
-            
-            return result
             
         except Exception as e:
             logger.error(f"对话风格分析失败: {e}")
@@ -183,45 +176,6 @@ class StyleAnalyzerService:
         except Exception as e:
             logger.error(f"风格分析生成失败: {e}")
             return {"error": str(e)}
-
-    async def _save_style_analysis_to_db(self, group_id: str, analysis_result: Dict[str, Any]) -> bool:
-        """将风格分析结果保存到数据库"""
-        try:
-            if not self.database_manager:
-                return False
-            
-            # 保存到style_learning_records表
-            record_data = {
-                'style_type': 'comprehensive_analysis',
-                'learned_patterns': json.dumps(analysis_result, ensure_ascii=False),
-                'confidence_score': analysis_result.get('confidence', 0.8),
-                'sample_count': len(analysis_result.get('analyzed_messages', [])),
-                'group_id': group_id,
-                'learning_time': time.time()
-            }
-            
-            await self.database_manager.save_style_learning_record(record_data)
-            
-            # 如果有常用短语，保存到language_style_patterns表
-            if 'style_analysis' in analysis_result:
-                style_data = analysis_result['style_analysis']
-                if 'common_phrases' in style_data and isinstance(style_data['common_phrases'], list):
-                    pattern_data = {
-                        'language_style': 'common_expressions',
-                        'example_phrases': json.dumps(style_data['common_phrases'], ensure_ascii=False),
-                        'usage_frequency': len(style_data['common_phrases']),
-                        'context_type': f'group_{group_id}',
-                        'group_id': group_id,
-                        'last_updated': time.time()
-                    }
-                    await self.database_manager.save_language_style_pattern(pattern_data)
-            
-            logger.info(f"风格分析结果已保存到数据库，群组: {group_id}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"保存风格分析结果到数据库失败: {e}")
-            return False
 
     async def _extract_style_profile(self, text: str) -> StyleProfile:
         """提取数值化的风格档案"""
