@@ -754,8 +754,74 @@
                                 <span class="stat">已拒绝: <strong id="rejected-reviews">0</strong></span>
                             </div>
                         </div>
-                        <div class="review-list" id="review-list">
-                            <!-- 人格更新列表将在这里动态加载 -->
+                        
+                        <!-- 审查选项卡 -->
+                        <div class="review-tabs">
+                            <button class="tab-btn active" id="pending-tab" data-tab="pending">
+                                <i class="material-icons">pending_actions</i>
+                                待审查
+                            </button>
+                            <button class="tab-btn" id="reviewed-tab" data-tab="reviewed">
+                                <i class="material-icons">history</i>
+                                审查历史
+                            </button>
+                        </div>
+                        
+                        <!-- 待审查列表 -->
+                        <div class="tab-content active" id="pending-content">
+                            <!-- 批量操作控制栏 -->
+                            <div class="batch-operations-header">
+                                <div class="select-all-container">
+                                    <input type="checkbox" id="select-all-pending" onchange="toggleSelectAllPending()">
+                                    <label for="select-all-pending">全选</label>
+                                    <span class="selected-count">已选中 <span id="pending-selected-count">0</span> 项</span>
+                                </div>
+                                <div class="batch-operations" id="pending-batch-operations" style="display: none;">
+                                    <button class="btn btn-success batch-approve-btn" onclick="batchReviewPersonaUpdates(getSelectedReviewIds(), 'approve')">
+                                        <i class="material-icons">check</i>
+                                        批量批准
+                                    </button>
+                                    <button class="btn btn-danger batch-reject-btn" onclick="batchReviewPersonaUpdates(getSelectedReviewIds(), 'reject')">
+                                        <i class="material-icons">close</i>
+                                        批量拒绝
+                                    </button>
+                                    <button class="btn btn-secondary batch-delete-btn" onclick="batchDeletePersonaUpdates(getSelectedReviewIds())">
+                                        <i class="material-icons">delete</i>
+                                        批量删除
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="review-list" id="review-list">
+                                <!-- 待审查的人格更新列表将在这里动态加载 -->
+                            </div>
+                        </div>
+                        
+                        <!-- 已审查列表 -->
+                        <div class="tab-content" id="reviewed-content">
+                            <div class="reviewed-controls">
+                                <div class="filter-controls">
+                                    <button class="filter-btn active" data-filter="all">全部</button>
+                                    <button class="filter-btn" data-filter="approved">已批准</button>
+                                    <button class="filter-btn" data-filter="rejected">已拒绝</button>
+                                </div>
+                                <!-- 批量操作控制栏 -->
+                                <div class="batch-operations-header">
+                                    <div class="select-all-container">
+                                        <input type="checkbox" id="select-all-reviewed" onchange="toggleSelectAllReviewed()">
+                                        <label for="select-all-reviewed">全选</label>
+                                        <span class="selected-count">已选中 <span id="reviewed-selected-count">0</span> 项</span>
+                                    </div>
+                                    <div class="batch-operations" id="reviewed-batch-operations" style="display: none;">
+                                        <button class="btn btn-secondary batch-delete-reviewed-btn" onclick="batchDeletePersonaUpdates(getSelectedReviewedIds())">
+                                            <i class="material-icons">delete</i>
+                                            批量删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="review-list" id="reviewed-list">
+                                <!-- 已审查的人格更新列表将在这里动态加载 -->
+                            </div>
                         </div>
                     </div>
                 </div>

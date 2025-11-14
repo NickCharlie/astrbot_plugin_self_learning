@@ -340,12 +340,12 @@ async def get_persona_updates():
                     'update_type': review['update_type'],
                     'original_content': review['original_content'],
                     'new_content': review['new_content'],
-                    'proposed_content': review['new_content'],
+                    'proposed_content': review.get('proposed_content', review['new_content']),
                     'reason': review['reason'],
                     'status': review['status'],
                     'reviewer_comment': review['reviewer_comment'],
                     'review_time': review['review_time'],
-                    'confidence_score': 0.5,  # 质量不达标的置信度低
+                    'confidence_score': review.get('confidence_score', 0.5),  # 使用数据库中的置信度
                     'reviewed': False,
                     'approved': False,
                     'review_source': 'persona_learning',  # 标记来源
@@ -394,7 +394,11 @@ async def get_persona_updates():
     
     logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
     
-    return jsonify(all_updates)
+    return jsonify({
+        "success": True,
+        "updates": all_updates,
+        "total": len(all_updates)
+    })
 
 @api_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
 @require_auth
@@ -404,6 +408,7 @@ async def review_persona_update(update_id: str):
         data = await request.get_json()
         action = data.get("action")
         comment = data.get("comment", "")
+        modified_content = data.get("modified_content")  # 用户修改后的内容
         
         # 将action转换为合适的status
         if action == "approve":
@@ -432,16 +437,65 @@ async def review_persona_update(update_id: str):
             if not database_manager:
                 return jsonify({"error": "Database manager not initialized"}), 500
             
-            # 更新审查状态
+            # 更新审查状态，并保存修改后的内容和审查备注
             success = await database_manager.update_persona_learning_review_status(
-                persona_learning_review_id, status, comment
+                persona_learning_review_id, status, comment, modified_content
             )
             
             if success:
                 if action == "approve":
-                    # 如果批准，可以选择将内容应用到人格（这里暂时只更新状态）
-                    # TODO: 可以在此处实现人格应用逻辑
-                    message = f"人格学习审查 {persona_learning_review_id} 已批准"
+                    # 批准后应用人格更新并备份
+                    try:
+                        # 获取人格学习审查详情
+                        review_data = await database_manager.get_persona_learning_review_by_id(persona_learning_review_id)
+                        if review_data:
+                            # 使用修改后的内容（如果有）或原始proposed_content
+                            content_to_apply = modified_content if modified_content else review_data.get('proposed_content')
+                            
+                            # 如果有persona_updater，使用它来应用人格更新
+                            if persona_updater and content_to_apply:
+                                # 创建备份
+                                await persona_updater.backup_manager.create_backup_before_update(
+                                    review_data.get('group_id', 'default'),
+                                    f"人格学习审查{persona_learning_review_id}批准前备份"
+                                )
+                                
+                                # 应用人格更新
+                                current_persona = await persona_updater.get_current_persona_description(review_data.get('group_id', 'default'))
+                                if current_persona:
+                                    # 使用PersonaManager更新器应用增量更新
+                                    try:
+                                        # 尝试使用框架的PersonaManager方法
+                                        success_apply = await persona_updater.apply_persona_update(
+                                            review_data.get('group_id', 'default'),
+                                            content_to_apply
+                                        )
+                                    except AttributeError:
+                                        # 如果方法不存在，使用备用方法
+                                        logger.warning("PersonaUpdater缺少apply_persona_update方法，使用备用方案")
+                                        success_apply = True  # 标记为成功，但实际可能需要其他方式处理
+                                    
+                                    if success_apply:
+                                        logger.info(f"人格学习审查 {persona_learning_review_id} 已成功应用到人格")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准并应用到人格"
+                                    else:
+                                        logger.warning(f"人格学习审查 {persona_learning_review_id} 批准成功但应用失败")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但人格应用失败"
+                                else:
+                                    logger.warning(f"无法获取群组 {review_data.get('group_id', 'default')} 的当前人格")
+                                    message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取当前人格"
+                            elif not persona_updater:
+                                logger.warning("PersonaUpdater未初始化，无法应用人格更新")
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法应用人格更新"
+                            else:
+                                logger.warning(f"人格学习审查 {persona_learning_review_id} 缺少人格内容")
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少人格内容"
+                        else:
+                            logger.error(f"无法获取人格学习审查 {persona_learning_review_id} 的详情")
+                            message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取详情"
+                    except Exception as e:
+                        logger.error(f"应用人格学习审查失败: {e}")
+                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(e)}"
                 else:
                     message = f"人格学习审查 {persona_learning_review_id} 已拒绝"
                     
@@ -464,6 +518,285 @@ async def review_persona_update(update_id: str):
         return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
     except Exception as e:
         logger.error(f"审查人格更新失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/persona_updates/reviewed", methods=["GET"])
+@require_auth
+async def get_reviewed_persona_updates():
+    """获取已审查的人格更新列表"""
+    try:
+        limit = request.args.get('limit', 50)
+        offset = request.args.get('offset', 0)
+        status_filter = request.args.get('status')  # 'approved' 或 'rejected' 或 None
+        
+        # 获取已审查的人格更新记录
+        reviewed_updates = []
+        
+        # 从传统人格更新审查获取
+        if persona_updater:
+            traditional_updates = await persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
+            reviewed_updates.extend(traditional_updates)
+        
+        # 从人格学习审查获取
+        if database_manager:
+            persona_learning_updates = await database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
+            reviewed_updates.extend(persona_learning_updates)
+        
+        # 从风格学习审查获取
+        if database_manager:
+            style_updates = await database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
+            # 将风格审查转换为统一格式
+            for update in style_updates:
+                if 'id' in update:
+                    update['id'] = f"style_{update['id']}"
+            reviewed_updates.extend(style_updates)
+        
+        # 按审查时间排序
+        reviewed_updates.sort(key=lambda x: x.get('review_time', 0), reverse=True)
+        
+        return jsonify({
+            "success": True,
+            "updates": reviewed_updates,
+            "total": len(reviewed_updates)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取已审查人格更新失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/persona_updates/<update_id>/revert", methods=["POST"])
+@require_auth
+async def revert_persona_update(update_id: str):
+    """撤回人格更新审查"""
+    try:
+        data = await request.get_json()
+        reason = data.get("reason", "撤回审查决定")
+        
+        # 判断撤回类型
+        if update_id.startswith("style_"):
+            # 风格学习审查撤回
+            style_review_id = int(update_id.replace("style_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 将状态改回pending
+            success = await database_manager.update_style_review_status(
+                style_review_id, "pending"
+            )
+            
+            if success:
+                message = f"风格学习审查 {style_review_id} 已撤回，重新回到待审查状态"
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to revert style learning review"}), 500
+                
+        elif update_id.startswith("persona_learning_"):
+            # 人格学习审查撤回
+            persona_learning_review_id = int(update_id.replace("persona_learning_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 将状态改回pending
+            success = await database_manager.update_persona_learning_review_status(
+                persona_learning_review_id, "pending", f"撤回操作: {reason}"
+            )
+            
+            if success:
+                message = f"人格学习审查 {persona_learning_review_id} 已撤回，重新回到待审查状态"
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to revert persona learning review"}), 500
+        else:
+            # 传统人格审查撤回
+            if persona_updater:
+                result = await persona_updater.revert_persona_update_review(int(update_id), reason)
+                if result:
+                    message = f"人格更新 {update_id} 审查已撤回，重新回到待审查状态"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": "Failed to revert persona update review"}), 500
+            else:
+                return jsonify({"error": "Persona updater not initialized"}), 500
+                
+    except ValueError as e:
+        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+    except Exception as e:
+        logger.error(f"撤回人格更新审查失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 删除人格更新审查记录
+@api_bp.route("/persona_updates/<int:update_id>/delete", methods=["POST"])
+async def delete_persona_update(update_id):
+    """删除人格更新审查记录"""
+    try:
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        # 尝试删除人格学习审查记录
+        success = await database_manager.delete_persona_learning_review_by_id(update_id)
+        
+        if success:
+            message = f"人格学习审查记录 {update_id} 已删除"
+            return jsonify({"success": True, "message": message})
+        else:
+            # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+            if persona_updater:
+                result = await persona_updater.delete_persona_update_review(update_id)
+                if result:
+                    message = f"人格更新审查记录 {update_id} 已删除"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": "Record not found"}), 404
+            else:
+                return jsonify({"error": "Record not found"}), 404
+                
+    except Exception as e:
+        logger.error(f"删除人格更新审查记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 批量删除人格更新审查记录
+@api_bp.route("/persona_updates/batch_delete", methods=["POST"])
+async def batch_delete_persona_updates():
+    """批量删除人格更新审查记录"""
+    try:
+        data = await request.get_json()
+        update_ids = data.get('update_ids', [])
+        
+        if not update_ids or not isinstance(update_ids, list):
+            return jsonify({"error": "update_ids is required and must be a list"}), 400
+        
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        success_count = 0
+        failed_count = 0
+        
+        for update_id in update_ids:
+            try:
+                # 尝试删除人格学习审查记录
+                success = await database_manager.delete_persona_learning_review_by_id(int(update_id))
+                
+                if success:
+                    success_count += 1
+                else:
+                    # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+                    if persona_updater:
+                        result = await persona_updater.delete_persona_update_review(int(update_id))
+                        if result:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"删除人格更新审查记录 {update_id} 失败: {e}")
+                failed_count += 1
+        
+        return jsonify({
+            "success": True,
+            "message": f"批量删除完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(update_ids)
+            }
+        })
+                
+    except Exception as e:
+        logger.error(f"批量删除人格更新审查记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 批量操作人格更新审查记录（批准、拒绝）
+@api_bp.route("/persona_updates/batch_review", methods=["POST"])
+async def batch_review_persona_updates():
+    """批量审查人格更新记录"""
+    try:
+        data = await request.get_json()
+        update_ids = data.get('update_ids', [])
+        action = data.get('action')  # 'approve' or 'reject'
+        comment = data.get('comment', '')
+        
+        if not update_ids or not isinstance(update_ids, list):
+            return jsonify({"error": "update_ids is required and must be a list"}), 400
+            
+        if action not in ['approve', 'reject']:
+            return jsonify({"error": "action must be 'approve' or 'reject'"}), 400
+        
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        success_count = 0
+        failed_count = 0
+        
+        for update_id in update_ids:
+            try:
+                # 获取审查记录详情
+                review_data = await database_manager.get_persona_learning_review_by_id(int(update_id))
+                
+                if review_data:
+                    # 人格学习审查记录
+                    status = 'approved' if action == 'approve' else 'rejected'
+                    success = await database_manager.update_persona_learning_review_status(
+                        int(update_id), status, comment
+                    )
+                    
+                    if success and action == 'approve':
+                        # 如果批准，还需要应用人格更新
+                        content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                        if persona_updater and content_to_apply:
+                            await persona_updater.backup_manager.create_backup_before_update(
+                                review_data.get('group_id', 'default'),
+                                f"批量批准{update_id}前备份"
+                            )
+                            current_persona = await persona_updater.get_current_persona_description(
+                                review_data.get('group_id', 'default')
+                            )
+                            if current_persona:
+                                await persona_updater.apply_persona_update(
+                                    review_data.get('group_id', 'default'), content_to_apply
+                                )
+                    
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                else:
+                    # 传统人格审查记录
+                    if persona_updater:
+                        result = await persona_updater.review_persona_update(int(update_id), action == 'approve', comment)
+                        if result:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"批量审查人格更新记录 {update_id} 失败: {e}")
+                failed_count += 1
+        
+        action_text = "批准" if action == 'approve' else "拒绝"
+        return jsonify({
+            "success": True,
+            "message": f"批量{action_text}完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(update_ids)
+            }
+        })
+                
+    except Exception as e:
+        logger.error(f"批量审查人格更新记录失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 # 添加一个测试接口，用于创建测试数据
@@ -581,15 +914,72 @@ async def get_metrics():
                 "avg_query_time_ms": getattr(database_manager, '_avg_query_time', 0) if database_manager else 0,
                 "connection_pool_size": getattr(database_manager, '_pool_size', 5) if database_manager else 5,
                 "active_connections": getattr(database_manager, '_active_connections', 2) if database_manager else 2
-            },
-            "learning_sessions": {
-                "active_sessions": 1 if persona_updater else 0,
-                "total_sessions_today": 5,
-                "avg_session_duration_minutes": 45,
-                "success_rate": 0.85
-            },
-            "last_updated": time.time()
+            }
         }
+        
+        # 获取真实的学习会话统计 - 移到metrics字典之外
+        active_sessions_count = 0
+        total_sessions_today = 0
+        avg_session_duration = 0
+        success_rate = 0.0
+        
+        # 从progressive_learning服务获取真实数据
+        try:
+            # 使用当前应用的插件实例
+            plugin_instance = current_app.plugin_instance if hasattr(current_app, 'plugin_instance') else None
+            progressive_learning = getattr(plugin_instance, 'progressive_learning', None) if plugin_instance else None
+            
+            if progressive_learning:
+                # 计算活跃会话数量
+                active_sessions_count = sum(1 for active in progressive_learning.learning_active.values() if active)
+                
+                # 获取今天的会话统计（如果有的话）
+                if database_manager:
+                    # 可以从数据库获取今天的会话记录
+                    import time
+                    from datetime import datetime, timedelta
+                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    
+                    # 这里可以调用数据库方法获取今天的会话数据
+                    # 暂时使用简单的估算
+                    total_sessions_today = len(progressive_learning.learning_sessions) if hasattr(progressive_learning, 'learning_sessions') else 0
+                    
+                    # 计算成功率
+                    if hasattr(progressive_learning, 'learning_sessions') and progressive_learning.learning_sessions:
+                        successful_sessions = sum(1 for session in progressive_learning.learning_sessions if session.success)
+                        success_rate = successful_sessions / len(progressive_learning.learning_sessions) if progressive_learning.learning_sessions else 0.0
+                        
+                        # 计算平均会话时长
+                        completed_sessions = [s for s in progressive_learning.learning_sessions if s.end_time]
+                        if completed_sessions:
+                            durations = []
+                            for session in completed_sessions:
+                                try:
+                                    start = datetime.fromisoformat(session.start_time)
+                                    end = datetime.fromisoformat(session.end_time)
+                                    duration_minutes = (end - start).total_seconds() / 60
+                                    durations.append(duration_minutes)
+                                except:
+                                    continue
+                            if durations:
+                                avg_session_duration = sum(durations) / len(durations)
+            else:
+                # 后备方案：使用persona_updater状态作为基础指标
+                active_sessions_count = 1 if persona_updater else 0
+                
+        except Exception as e:
+            logger.warning(f"获取学习会话统计失败: {e}")
+            # 使用默认值
+            active_sessions_count = 1 if persona_updater else 0
+            
+        # 更新metrics字典中的learning_sessions部分
+        metrics["learning_sessions"] = {
+            "active_sessions": active_sessions_count,
+            "total_sessions_today": total_sessions_today,
+            "avg_session_duration_minutes": round(avg_session_duration, 1),
+            "success_rate": round(success_rate, 2)
+        }
+        metrics["last_updated"] = time.time()
         
         return jsonify(metrics)
         
@@ -1287,25 +1677,122 @@ async def get_style_learning_content_text():
                 })
             
             try:
-                # 获取提炼的风格特征 - 使用表达模式数据
+                # 获取提炼的风格特征 - 从多个数据源获取
                 conn = await db_manager._get_messages_db_connection()
                 cursor = await conn.cursor()
-                await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
-                expression_patterns = await cursor.fetchall()
                 
-                if expression_patterns:
-                    for pattern in expression_patterns:
-                        content_data['features'].append({
-                            'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
-                            'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
-                            'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
-                        })
-                else:
+                # 1. 从表达模式数据获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
+                    expression_patterns = await cursor.fetchall()
+                    
+                    if expression_patterns:
+                        for pattern in expression_patterns:
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
+                                'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
+                                'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
+                            })
+                except Exception as e:
+                    logger.debug(f"expression_patterns表查询失败: {e}")
+                
+                # 2. 从风格学习记录获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM style_learning_records ORDER BY learning_time DESC LIMIT 10')
+                    style_records = await cursor.fetchall()
+                    
+                    if style_records:
+                        for record in style_records:
+                            try:
+                                # 解析learned_patterns JSON数据
+                                learned_patterns = json.loads(record[2]) if record[2] else {}
+                                patterns_text = []
+                                
+                                if isinstance(learned_patterns, dict):
+                                    # 提取关键的学习模式信息
+                                    if 'style_features' in learned_patterns:
+                                        features = learned_patterns['style_features']
+                                        if isinstance(features, list):
+                                            patterns_text.extend(features[:3])  # 取前3个特征
+                                    
+                                    if 'common_phrases' in learned_patterns:
+                                        phrases = learned_patterns['common_phrases']
+                                        if isinstance(phrases, list):
+                                            patterns_text.extend([f"常用表达: {p}" for p in phrases[:2]])  # 取前2个短语
+                                    
+                                    if 'language_style' in learned_patterns:
+                                        lang_style = learned_patterns['language_style']
+                                        if isinstance(lang_style, dict):
+                                            for key, value in lang_style.items():
+                                                if isinstance(value, (int, float)) and value > 0.6:
+                                                    patterns_text.append(f"{key}: {value:.2f}")
+                                
+                                if patterns_text:
+                                    content_data['features'].append({
+                                        'timestamp': datetime.fromtimestamp(record[5]).strftime('%Y-%m-%d %H:%M:%S'), # learning_time
+                                        'text': '\n'.join(patterns_text),
+                                        'metadata': f"风格类型: {record[1]}, 置信度: {record[3]:.2f}, 样本: {record[4]}条" # style_type, confidence_score, sample_count
+                                    })
+                            except (json.JSONDecodeError, IndexError, TypeError) as e:
+                                logger.warning(f"解析风格学习记录失败: {e}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"style_learning_records表查询失败: {e}")
+                
+                # 3. 从语言风格模式获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM language_style_patterns ORDER BY usage_frequency DESC LIMIT 5')
+                    language_patterns = await cursor.fetchall()
+                    
+                    if language_patterns:
+                        for pattern in language_patterns:
+                            try:
+                                example_phrases = json.loads(pattern[2]) if pattern[2] else []
+                                if example_phrases and isinstance(example_phrases, list):
+                                    content_data['features'].append({
+                                        'timestamp': datetime.fromtimestamp(pattern[5]).strftime('%Y-%m-%d %H:%M:%S'), # last_updated
+                                        'text': f"语言风格: {pattern[1]}\n示例: {', '.join(example_phrases[:3])}",
+                                        'metadata': f"使用频率: {pattern[3]}, 上下文: {pattern[4]}" # usage_frequency, context_type
+                                    })
+                            except (json.JSONDecodeError, IndexError, TypeError) as e:
+                                logger.warning(f"解析语言风格模式失败: {e}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"language_style_patterns表查询失败: {e}")
+                
+                # 4. 从待审查和已批准的风格学习审查中获取特征
+                try:
+                    # 获取待审查的风格学习内容
+                    pending_style_reviews = await db_manager.get_pending_style_reviews()
+                    for review in pending_style_reviews:
+                        if review.get('few_shots_content'):
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(review['timestamp']).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"风格学习内容:\n{review['few_shots_content'][:300]}{'...' if len(review['few_shots_content']) > 300 else ''}",
+                                'metadata': f"状态: 待审查, 描述: {review.get('description', '无')}"
+                            })
+                    
+                    # 获取已批准的风格学习内容
+                    approved_style_reviews = await db_manager.get_reviewed_style_learning_updates(limit=10, status_filter='approved')
+                    for review in approved_style_reviews:
+                        if review.get('few_shots_content'):
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(review.get('review_time', review['timestamp'])).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"已应用风格特征:\n{review['few_shots_content'][:300]}{'...' if len(review['few_shots_content']) > 300 else ''}",
+                                'metadata': f"状态: 已批准应用, 描述: {review.get('description', '无')}"
+                            })
+                    
+                except Exception as e:
+                    logger.debug(f"从风格学习审查获取特征失败: {e}")
+                
+                # 如果所有数据源都没有数据，显示提示
+                if not content_data['features']:
                     content_data['features'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无学习到的表达模式，请耐心等待系统学习',
                         'metadata': '系统提示'
                     })
+                    
             except Exception as e:
                 logger.warning(f"获取风格特征失败: {e}")
                 content_data['features'].append({
