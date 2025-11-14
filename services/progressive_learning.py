@@ -958,9 +958,20 @@ class ProgressiveLearningService:
             from ..core.interfaces import PersonaUpdateRecord
             import time
             
+            # 将字典类型的人格数据转换为字符串
+            if isinstance(current_persona, dict):
+                current_persona_str = json.dumps(current_persona, ensure_ascii=False, indent=2)
+            else:
+                current_persona_str = str(current_persona) if current_persona else ""
+                
+            if isinstance(updated_persona, dict):
+                updated_persona_str = json.dumps(updated_persona, ensure_ascii=False, indent=2)
+            else:
+                updated_persona_str = str(updated_persona) if updated_persona else ""
+            
             # 计算变化内容摘要
-            current_length = len(current_persona) if current_persona else 0
-            updated_length = len(updated_persona) if updated_persona else 0
+            current_length = len(current_persona_str)
+            updated_length = len(updated_persona_str)
             
             # 构建详细的审查说明
             reason = f"""学习质量评估结果 (得分: {quality_metrics.consistency_score:.3f} < 阈值: {self.quality_threshold})
@@ -976,13 +987,17 @@ class ProgressiveLearningService:
 
 请仔细检查新人格内容是否合理，决定是否应用此次学习结果。"""
 
+            # 截断过长的内容用于存储
+            original_content_truncated = current_persona_str[:500] + "..." if len(current_persona_str) > 500 else current_persona_str
+            new_content_truncated = updated_persona_str[:500] + "..." if len(updated_persona_str) > 500 else updated_persona_str
+
             # 创建审查记录
             review_record = PersonaUpdateRecord(
                 timestamp=time.time(),
                 group_id=group_id,
                 update_type="persona_learning_review", 
-                original_content=current_persona[:500] + "..." if len(current_persona) > 500 else current_persona,
-                new_content=updated_persona[:500] + "..." if len(updated_persona) > 500 else updated_persona,
+                original_content=original_content_truncated,
+                new_content=new_content_truncated,
                 reason=reason,
                 status='pending'
             )

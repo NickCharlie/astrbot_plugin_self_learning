@@ -86,8 +86,9 @@ async def set_plugin_services(
     
     # 使用工厂管理器获取LLM适配器
     try:
-        llm_client = factory_manager.get_component_factory().create_framework_llm_adapter()
-        logger.info(f"从工厂管理器获取LLM适配器: {type(llm_client)}")
+        # 从ServiceFactory获取LLM适配器，而不是ComponentFactory
+        llm_client = factory_manager.get_service_factory().create_framework_llm_adapter()
+        logger.info(f"从服务工厂获取LLM适配器: {type(llm_client)}")
     except Exception as e:
         logger.error(f"获取LLM适配器失败: {e}")
         llm_client = llm_c  # 回退到传入的客户端
