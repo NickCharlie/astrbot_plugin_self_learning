@@ -53,6 +53,7 @@ class PersonaUpdateRecord:
     original_content: str # 更新前的内容
     new_content: str # 更新后的内容
     reason: str # 需要审查的原因
+    confidence_score: float = 0.5  # 置信度得分
     id: Optional[int] = None # 数据库ID
     status: str = "pending" # "pending", "approved", "rejected"
     reviewer_comment: Optional[str] = None

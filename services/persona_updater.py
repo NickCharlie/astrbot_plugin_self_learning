@@ -185,6 +185,52 @@ class PersonaUpdater(IPersonaUpdater):
             self._logger.error(f"审查人格更新失败: {e}")
             raise PersonaUpdateError(f"审查人格更新失败: {str(e)}")
 
+    async def get_reviewed_persona_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取已审查的传统人格更新记录"""
+        try:
+            # 从数据库获取已审查的记录
+            reviewed_records = await self.db_manager.get_reviewed_persona_update_records(limit, offset, status_filter)
+            
+            # 转换为统一格式
+            updates = []
+            for record in reviewed_records:
+                updates.append({
+                    'id': record.get('id'),
+                    'group_id': record.get('group_id', 'default'),
+                    'original_content': record.get('original_content', ''),
+                    'proposed_content': record.get('new_content', ''),
+                    'reason': record.get('reason', '传统人格更新'),
+                    'confidence_score': 0.9,  # 传统更新默认较高置信度
+                    'status': record.get('status'),
+                    'reviewer_comment': record.get('reviewer_comment'),
+                    'review_time': record.get('review_time'),
+                    'timestamp': record.get('timestamp'),
+                    'update_type': 'traditional_persona_update'
+                })
+            
+            return updates
+            
+        except Exception as e:
+            self._logger.error(f"获取已审查人格更新失败: {e}")
+            return []
+
+    async def revert_persona_update_review(self, update_id: int, reason: str) -> bool:
+        """撤回人格更新审查"""
+        try:
+            # 将状态重置为pending
+            result = await self.db_manager.update_persona_update_record_status(
+                update_id, "pending", f"撤回操作: {reason}"
+            )
+            
+            if result:
+                self._logger.info(f"人格更新 {update_id} 审查已撤回")
+            
+            return result
+            
+        except Exception as e:
+            self._logger.error(f"撤回人格更新审查失败: {e}")
+            raise PersonaUpdateError(f"撤回人格更新审查失败: {str(e)}")
+
     async def get_current_persona_description(self, group_id: str) -> Optional[str]:
         """获取当前人格的描述"""
         try:
@@ -618,12 +664,24 @@ class PersonaAnalyzer:
                             if tone:
                                 new_features.append(f"语调特征: {tone}")
             
-            # 如果没有提取到特征，使用默认的风格描述
+            # 如果没有提取到特征，使用真实的消息内容作为风格参考
             if not new_features:
-                new_features = [
-                    "风格特征: 基于对话分析的个性化表达",
-                    "交流特征: 适应用户的交流偏好"
-                ]
+                # 从筛选消息中提取代表性的真实对话作为风格特征
+                representative_messages = filtered_messages[-5:] if filtered_messages else []
+                for msg in representative_messages:
+                    message_content = msg.get('message', '').strip()
+                    if message_content and len(message_content) >= 5:
+                        # 截取适当长度的消息内容作为风格示例
+                        if len(message_content) > 30:
+                            truncated_content = message_content[:30] + "..."
+                        else:
+                            truncated_content = message_content
+                        new_features.append(f"真实语言风格示例: {truncated_content}")
+                
+                # 如果仍然没有有效内容，则跳过特征更新而不是生成模拟数据
+                if not new_features:
+                    self._logger.info("没有足够的真实消息内容可用于特征提取，跳过风格特征更新")
+                    return True
             
             # 合并现有特征和新特征
             max_features = self.config.max_mood_imitation_dialogs or 20

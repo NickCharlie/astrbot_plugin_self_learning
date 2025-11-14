@@ -153,6 +153,277 @@ body {
     border-radius: 4px;
     font-family: 'Courier New', monospace;
     font-size: 13px;
+    max-height: 150px;
+    overflow-y: auto;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.content-preview.full-content {
+    max-height: none;  /* 移除高度限制，允许显示全部内容 */
+    min-height: 100px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: break-word;
+    overflow-y: auto;  /* 内容过多时显示滚动条 */
+}
+
+.toggle-content-btn {
+    background: #2196f3;
+    color: white;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    cursor: pointer;
+    margin-left: 8px;
+    transition: background-color 0.2s;
+}
+
+.toggle-content-btn:hover {
+    background: #1976d2;
+}
+
+/* 审查页面选项卡样式 */
+.review-tabs {
+    display: flex;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e0e0e0;
+}
+
+.tab-btn {
+    background: none;
+    border: none;
+    padding: 12px 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #666;
+    border-bottom: 3px solid transparent;
+    transition: all 0.3s ease;
+}
+
+.tab-btn:hover {
+    background: #f5f5f5;
+    color: #333;
+}
+
+.tab-btn.active {
+    color: #2196f3;
+    border-bottom-color: #2196f3;
+    background: rgba(33, 150, 243, 0.05);
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* 已审查列表控件样式 */
+.reviewed-controls {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.filter-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.filter-controls::before {
+    content: '筛选:';
+    font-weight: 500;
+    color: #666;
+    margin-right: 8px;
+}
+
+.filter-btn {
+    background: white;
+    border: 1px solid #ddd;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 14px;
+}
+
+.filter-btn:hover {
+    border-color: #2196f3;
+    color: #2196f3;
+}
+
+.filter-btn.active {
+    background: #2196f3;
+    color: white;
+    border-color: #2196f3;
+}
+
+/* 已审查项目样式 */
+.reviewed-item {
+    margin-bottom: 20px;
+    position: relative;
+}
+
+.reviewed-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 2px;
+}
+
+.reviewed-item.approved::before {
+    background: #4caf50;
+}
+
+.reviewed-item.rejected::before {
+    background: #f44336;
+}
+
+.update-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.update-header h4 {
+    margin: 0;
+    color: #333;
+}
+
+.status-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-approved {
+    background: rgba(76, 175, 80, 0.1);
+    color: #4caf50;
+}
+
+.status-rejected {
+    background: rgba(244, 67, 54, 0.1);
+    color: #f44336;
+}
+
+.review-info {
+    background: #f8f9fa;
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+
+.review-info p {
+    margin: 4px 0;
+}
+
+/* 审查详情对话框样式 */
+.detail-info {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.info-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+}
+
+.info-section h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.info-section p {
+    margin: 8px 0;
+    line-height: 1.5;
+}
+
+.content-section {
+    margin-bottom: 20px;
+}
+
+.content-section h4 {
+    margin: 0 0 10px 0;
+    color: #333;
+    font-size: 16px;
+}
+
+.content-display {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 15px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+/* 撤回按钮特殊样式 */
+.btn.btn-warning {
+    background: #ff9800;
+    color: white;
+    border: none;
+}
+
+.btn.btn-warning:hover {
+    background: #f57c00;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .review-tabs {
+        flex-direction: column;
+        border-bottom: none;
+    }
+    
+    .tab-btn {
+        justify-content: center;
+        border-bottom: 1px solid #e0e0e0;
+        border-radius: 0;
+    }
+    
+    .update-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    
+    .filter-controls {
+        flex-wrap: wrap;
+    }
+    
+    .update-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .update-actions .btn {
+        width: 100%;
+    }
+}
     line-height: 1.4;
     color: #666;
     border-left: 3px solid #ddd;
@@ -974,10 +1245,243 @@ body {
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     transition: box-shadow 0.2s ease;
     border-left: 4px solid #1976d2;
+    position: relative; /* 为徽章定位做准备 */
 }
 
 .persona-update-item:hover {
     box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+/* ID徽章样式 */
+.update-id-badge {
+    margin-top: 4px;
+}
+
+.id-badge {
+    display: inline-block;
+    background-color: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    color: #666;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+}
+
+/* 类型徽章样式 */
+.type-badge {
+    position: absolute;
+    top: 8px;
+    left: 8px;  /* 移到左上角 */
+    padding: 1px 4px;  /* 更小的内边距 */
+    border-radius: 6px;  /* 更小的圆角 */
+    font-size: 8px;  /* 更小的字体 */
+    font-weight: 400;  /* 正常字重，不要太粗 */
+    text-transform: uppercase;
+    letter-spacing: 0.3px;  /* 减少字母间距 */
+    line-height: 1.1;
+    z-index: 2;
+    opacity: 0.8;  /* 略微透明，不那么突出 */
+}
+
+.type-badge.style-badge {
+    background-color: #e8f5e8;
+    color: #2e7d32;
+    border: 1px solid #81c784;
+}
+
+.type-badge.persona-badge {
+    background-color: #e3f2fd;
+    color: #1565c0;
+    border: 1px solid #64b5f6;
+}
+
+.type-badge.general-badge {
+    background-color: #f3e5f5;
+    color: #7b1fa2;
+    border: 1px solid #ba68c8;
+}
+
+/* 审查页面复选框样式 */
+.update-checkbox {
+    display: flex;
+    align-items: center;
+    margin-right: 16px;
+}
+
+.update-checkbox input[type="checkbox"] {
+    display: none;
+}
+
+.update-checkbox label {
+    position: relative;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.update-checkbox label::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.update-checkbox label::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 7px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.update-checkbox input[type="checkbox"]:checked + label::before {
+    background-color: #1976d2;
+    border-color: #1976d2;
+    box-shadow: 0 2px 6px rgba(25,118,210,0.3);
+}
+
+.update-checkbox input[type="checkbox"]:checked + label::after {
+    opacity: 1;
+}
+
+.update-checkbox label:hover::before {
+    border-color: #1976d2;
+    box-shadow: 0 2px 6px rgba(25,118,210,0.2);
+}
+
+/* 批量操作控制栏样式 */
+.batch-operations-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #e9ecef;
+}
+
+.select-all-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.select-all-container input[type="checkbox"] {
+    display: none;
+}
+
+.select-all-container label {
+    position: relative;
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.select-all-container label::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.select-all-container label::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 7px;
+    width: 6px;
+    height: 10px;
+    border: solid white;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 0;
+    transition: all 0.2s ease;
+}
+
+.select-all-container input[type="checkbox"]:checked + label::before {
+    background-color: #1976d2;
+    border-color: #1976d2;
+    box-shadow: 0 2px 6px rgba(25,118,210,0.3);
+}
+
+.select-all-container input[type="checkbox"]:checked + label::after {
+    opacity: 1;
+}
+
+.select-all-container label:hover::before {
+    border-color: #1976d2;
+    box-shadow: 0 2px 6px rgba(25,118,210,0.2);
+}
+
+.selected-count {
+    font-size: 14px;
+    color: #666;
+    font-weight: 500;
+}
+
+.batch-operations {
+    display: flex;
+    gap: 8px;
+}
+
+.batch-operations .btn {
+    padding: 8px 16px;
+    font-size: 14px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.batch-operations .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.batch-operations .btn.btn-success {
+    background: linear-gradient(135deg, #4caf50, #45a049);
+    color: white;
+}
+
+.batch-operations .btn.btn-danger {
+    background: linear-gradient(135deg, #f44336, #d32f2f);
+    color: white;
+}
+
+.batch-operations .btn.btn-secondary {
+    background: linear-gradient(135deg, #9e9e9e, #757575);
+    color: white;
 }
 
 .update-content {
