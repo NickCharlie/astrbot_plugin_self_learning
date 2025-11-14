@@ -844,6 +844,96 @@ class TemporaryPersonaUpdater:
             logger.error(f"清理重复内容失败: {e}")
             return content
 
+    async def apply_expression_style_learning(self, group_id: str, expression_patterns: List[Dict[str, Any]]) -> bool:
+        """应用表达风格学习结果到人格"""
+        try:
+            if not expression_patterns:
+                logger.debug(f"群组 {group_id} 没有新的表达风格模式需要应用")
+                return False
+            
+            # 构建表达风格描述
+            style_descriptions = []
+            for pattern in expression_patterns[:5]:  # 只取前5个最重要的
+                situation = pattern.get('situation', '').strip()
+                expression = pattern.get('expression', '').strip()
+                weight = pattern.get('weight', 1.0)
+                
+                if situation and expression:
+                    style_descriptions.append(f"当{situation}时，倾向于使用\"{expression}\"这样的表达方式")
+            
+            if not style_descriptions:
+                return False
+            
+            # 生成更新内容
+            update_content = f"""
+【表达风格特征】
+基于最近学习到的表达模式，在对话中体现以下语言风格特点：
+{chr(10).join(f'• {desc}' for desc in style_descriptions)}
+
+这些表达方式应该自然地融入到你的回复中，而不是刻意模仿。
+"""
+            
+            # 应用到当前人格
+            if self.config.use_persona_manager_updates:
+                # 使用PersonaManager方式
+                persona_manager_updater = self.factory_manager.get_service_factory().create_persona_manager_updater()
+                if persona_manager_updater and persona_manager_updater.is_available():
+                    success = await persona_manager_updater.apply_incremental_update(group_id, update_content.strip())
+                    if success:
+                        logger.info(f"群组 {group_id} 表达风格学习通过PersonaManager成功应用")
+                        return True
+                else:
+                    logger.warning("PersonaManager不可用，回退到传统文件方式")
+            
+            # 传统文件方式
+            await self._append_to_persona_updates_file(update_content.strip())
+            logger.info(f"群组 {group_id} 表达风格学习已添加到更新文件，包含 {len(style_descriptions)} 个表达模式")
+            return True
+            
+        except Exception as e:
+            logger.error(f"应用表达风格学习失败 for group {group_id}: {e}")
+            return False
+
+    async def apply_temporary_style_update(self, group_id: str, style_content: str) -> bool:
+        """临时应用风格更新到当前prompt（不修改人格文件）"""
+        try:
+            # 直接更新到当前使用的prompt中
+            provider = self.context.get_using_provider()
+            if not provider or not provider.curr_personality:
+                logger.warning("无法获取当前人格，临时风格更新失败")
+                return False
+            
+            current_prompt = provider.curr_personality.get('prompt', '')
+            
+            # 检查是否已经有临时风格特征，如果有则替换
+            lines = current_prompt.split('\n')
+            filtered_lines = []
+            in_temp_style_section = False
+            
+            for line in lines:
+                if '【临时表达风格特征】' in line:
+                    in_temp_style_section = True
+                    continue
+                elif in_temp_style_section and line.startswith('【') and '临时表达风格特征' not in line:
+                    # 遇到新的【标记，结束临时风格部分
+                    in_temp_style_section = False
+                    filtered_lines.append(line)
+                elif not in_temp_style_section:
+                    filtered_lines.append(line)
+            
+            # 在prompt末尾添加新的临时风格特征
+            updated_prompt = '\n'.join(filtered_lines).strip() + '\n\n' + style_content
+            
+            # 应用到当前人格
+            provider.curr_personality['prompt'] = updated_prompt
+            
+            logger.info(f"群组 {group_id} 临时风格更新已应用到当前prompt")
+            return True
+            
+        except Exception as e:
+            logger.error(f"临时风格更新失败 for group {group_id}: {e}")
+            return False
+
     async def _append_to_persona_updates_file(self, update_content: str):
         """向人格更新文件追加内容（带去重逻辑）"""
         try:

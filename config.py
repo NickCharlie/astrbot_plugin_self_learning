@@ -102,7 +102,7 @@ class PluginConfig:
     learning_log_path: Optional[str] = None
     
     # 用户可配置的存储路径（放在最后，用户可以自定义）
-    data_dir: str = "./data/plugins/astrabot_plugin_self_learning"  # 插件数据存储目录
+    data_dir: str = "./data/self_learning_data"  # 插件数据存储目录
     
     def __post_init__(self):
         """初始化后处理"""
@@ -115,7 +115,7 @@ class PluginConfig:
         
         # 确保 data_dir 不为空
         if not data_dir:
-            data_dir = "./data/plugins/astrbot_plugin_self_learning"
+            data_dir = "./data/self_learning_data"
             logger.warning(f"data_dir 为空，使用默认值: {data_dir}")
         
         # 从配置中提取各个配置组
@@ -200,7 +200,7 @@ class PluginConfig:
             persona_compatibility_threshold=config.get('persona_compatibility_threshold', 0.6),
             
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
-            data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/plugins/astrabot_plugin_self_learning")
+            data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
         )
 
     @classmethod

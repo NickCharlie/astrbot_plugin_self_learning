@@ -83,7 +83,14 @@ async def set_plugin_services(
     """设置插件服务实例"""
     global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates
     plugin_config = config
-    llm_client = llm_c
+    
+    # 使用工厂管理器获取LLM适配器
+    try:
+        llm_client = factory_manager.get_component_factory().create_framework_llm_adapter()
+        logger.info(f"从工厂管理器获取LLM适配器: {type(llm_client)}")
+    except Exception as e:
+        logger.error(f"获取LLM适配器失败: {e}")
+        llm_client = llm_c  # 回退到传入的客户端
 
     # 总是创建PersonaWebManager，无论是否传入AstrBot PersonaManager
     try:
@@ -152,7 +159,7 @@ async def set_plugin_services(
         try:
             pending_updates = await persona_updater.get_pending_persona_updates()
         except Exception as e:
-            print(f"加载待审查人格更新失败: {e}")
+            logger.error(f"加载待审查人格更新失败: {e}")
             pending_updates = []
 
     # 加载密码配置
@@ -218,11 +225,11 @@ async def change_password_page():
         return redirect(url_for('api.login_page'))
     
     # 添加调试信息
-    print(f"[DEBUG] Template folder: {WEB_HTML_DIR}")
-    print(f"[DEBUG] Looking for template: ，.html")
+    logger.debug(f"Template folder: {WEB_HTML_DIR}")
+    logger.debug(f"Looking for template: change_password.html")
     template_path = os.path.join(WEB_HTML_DIR, "change_password.html")
-    print(f"[DEBUG] Full template path: {template_path}")
-    print(f"[DEBUG] Template exists: {os.path.exists(template_path)}")
+    logger.debug(f"Full template path: {template_path}")
+    logger.debug(f"Template exists: {os.path.exists(template_path)}")
     
     return await render_template("change_password.html")
 
@@ -279,13 +286,15 @@ async def update_plugin_config():
 @api_bp.route("/persona_updates")
 @require_auth
 async def get_persona_updates():
-    """获取需要人工审查的人格更新内容"""
+    """获取需要人工审查的人格更新内容（包括风格学习审查）"""
+    all_updates = []
+    
+    # 1. 获取传统的人格更新审查
     if persona_updater:
         try:
-            updates = await persona_updater.get_pending_persona_updates()
+            traditional_updates = await persona_updater.get_pending_persona_updates()
             # 将PersonaUpdateRecord对象转换为字典格式，确保数据完整
-            updates_data = []
-            for record in updates:
+            for record in traditional_updates:
                 # 使用dataclass的asdict或手动转换
                 if hasattr(record, '__dict__'):
                     record_dict = record.__dict__.copy()
@@ -309,43 +318,96 @@ async def get_persona_updates():
                 record_dict['confidence_score'] = 0.8  # 默认置信度
                 record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
                 record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
+                record_dict['review_source'] = 'traditional'  # 标记来源
                 
-                updates_data.append(record_dict)
-            
-            logger.info(f"返回 {len(updates_data)} 条人格更新记录给WebUI")
-            return jsonify(updates_data)
+                all_updates.append(record_dict)
+                
         except Exception as e:
-            logger.error(f"获取人格更新记录失败: {e}", exc_info=True)
-            return jsonify({"error": f"获取人格更新记录失败: {str(e)}"}), 500
-    return jsonify({"error": "Persona updater not initialized"}), 500
-
-@api_bp.route("/persona_updates/<int:update_id>/review", methods=["POST"])
-@require_auth
-async def review_persona_update(update_id: int):
-    """审查人格更新内容 (批准/拒绝)"""
-    if persona_updater:
+            logger.error(f"获取传统人格更新失败: {e}")
+    
+    # 2. 获取风格学习审查
+    if database_manager:
         try:
-            data = await request.get_json()
-            action = data.get("action")
-            comment = data.get("comment", "")
+            style_reviews = await database_manager.get_pending_style_reviews()
             
-            # 将action转换为合适的status
-            if action == "approve":
-                status = "approved"
-            elif action == "reject":
-                status = "rejected"
-            else:
-                return jsonify({"error": "Invalid action, must be 'approve' or 'reject'"}), 400
-            
-            result = await persona_updater.review_persona_update(update_id, status, comment)
-            if result:
-                logger.info(f"人格更新 {update_id} 已审查为 {status}")
-                return jsonify({"message": f"Update {update_id} {action}d successfully"})
-            return jsonify({"error": "Failed to update persona review status"}), 500
+            for review in style_reviews:
+                # 转换为统一的审查格式
+                review_dict = {
+                    'id': f"style_{review['id']}",  # 添加前缀避免ID冲突
+                    'timestamp': review['timestamp'],
+                    'group_id': review['group_id'],
+                    'update_type': 'style_learning',
+                    'original_content': '原始人格',  # 风格学习是增量添加
+                    'new_content': review['few_shots_content'],
+                    'proposed_content': review['few_shots_content'],
+                    'reason': review['description'],
+                    'status': review['status'],
+                    'reviewer_comment': None,
+                    'review_time': None,
+                    'confidence_score': 0.9,  # 风格学习置信度高一些
+                    'reviewed': False,
+                    'approved': False,
+                    'review_source': 'style_learning',  # 标记来源
+                    'learned_patterns': review.get('learned_patterns', []),  # 额外信息
+                    'style_review_id': review['id']  # 原始ID用于审批操作
+                }
+                
+                all_updates.append(review_dict)
+                
         except Exception as e:
-            logger.error(f"审查人格更新失败: {e}", exc_info=True)
-            return jsonify({"error": f"审查失败: {str(e)}"}), 500
-    return jsonify({"error": "Persona updater not initialized"}), 500
+            logger.error(f"获取风格学习审查失败: {e}")
+    
+    # 按时间倒序排列
+    all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
+    
+    return jsonify(all_updates)
+
+@api_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
+@require_auth
+async def review_persona_update(update_id: str):
+    """审查人格更新内容 (批准/拒绝) - 包括风格学习审查"""
+    try:
+        data = await request.get_json()
+        action = data.get("action")
+        comment = data.get("comment", "")
+        
+        # 将action转换为合适的status
+        if action == "approve":
+            status = "approved"
+        elif action == "reject":
+            status = "rejected"
+        else:
+            return jsonify({"error": "Invalid action, must be 'approve' or 'reject'"}), 400
+        
+        # 判断是风格学习审查还是传统审查
+        if update_id.startswith("style_"):
+            # 风格学习审查
+            style_review_id = int(update_id.replace("style_", ""))
+            
+            if action == "approve":
+                # 批准风格学习审查
+                return await approve_style_learning_review(style_review_id)
+            else:
+                # 拒绝风格学习审查
+                return await reject_style_learning_review(style_review_id)
+        else:
+            # 传统人格审查
+            if persona_updater:
+                result = await persona_updater.review_persona_update(int(update_id), status, comment)
+                if result:
+                    return jsonify({"success": True, "message": f"人格更新 {update_id} 已{action}"})
+                else:
+                    return jsonify({"error": "Failed to update persona review status"}), 500
+            else:
+                return jsonify({"error": "Persona updater not initialized"}), 500
+                
+    except ValueError as e:
+        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+    except Exception as e:
+        logger.error(f"审查人格更新失败: {e}")
+        return jsonify({"error": str(e)}), 500
 
 # 添加一个测试接口，用于创建测试数据
 @api_bp.route("/test/create_persona_update", methods=["POST"])
@@ -414,7 +476,7 @@ async def get_metrics():
                 total_messages = stats.get('total_messages', 0)
                 filtered_messages = stats.get('filtered_messages', 0)
             except Exception as e:
-                print(f"获取数据库统计失败: {e}")
+                logger.warning(f"获取数据库统计失败: {e}")
                 # 使用配置中的统计作为后备
                 total_messages = plugin_config.total_messages_collected if plugin_config else 0
                 filtered_messages = getattr(plugin_config, 'filtered_messages', 0) if plugin_config else 0
@@ -475,9 +537,7 @@ async def get_metrics():
         return jsonify(metrics)
         
     except Exception as e:
-        print(f"获取性能指标失败: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"获取性能指标失败: {e}", exc_info=True)
         return jsonify({"error": f"获取性能指标失败: {str(e)}"}), 500
 
 @api_bp.route("/metrics/realtime")
@@ -695,7 +755,7 @@ async def get_persona_details(persona_id: str):
         return jsonify(persona_dict)
         
     except Exception as e:
-        print(f"获取人格详情失败: {e}")
+        logger.error(f"获取人格详情失败: {e}")
         return jsonify({"error": f"获取人格详情失败: {str(e)}"}), 500
 
 @api_bp.route("/persona_management/create", methods=["POST"])
@@ -813,7 +873,7 @@ async def export_persona(persona_id: str):
         return jsonify(persona_export)
         
     except Exception as e:
-        print(f"导出人格失败: {e}")
+        logger.error(f"导出人格失败: {e}")
         return jsonify({"error": f"导出人格失败: {str(e)}"}), 500
 
 @api_bp.route("/persona_management/import", methods=["POST"])
@@ -865,13 +925,13 @@ async def import_persona():
             action = "创建"
             
         if success:
-            print(f"成功导入人格: {persona_id} ({action})")
+            logger.info(f"成功导入人格: {persona_id} ({action})")
             return jsonify({"message": f"人格{action}成功", "persona_id": persona_id})
         else:
             return jsonify({"error": f"人格{action}失败"}), 500
             
     except Exception as e:
-        print(f"导入人格失败: {e}")
+        logger.error(f"导入人格失败: {e}")
         return jsonify({"error": f"导入人格失败: {str(e)}"}), 500
 
 @api_bp.route("/style_learning/results", methods=["GET"])
@@ -907,6 +967,112 @@ async def get_style_learning_results():
     
     except Exception as e:
         logger.error(f"获取风格学习结果失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews", methods=["GET"])
+@require_auth
+async def get_style_learning_reviews():
+    """获取对话风格学习审查列表"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        pending_reviews = await database_manager.get_pending_style_reviews(limit=50)
+        
+        # 格式化审查数据
+        formatted_reviews = []
+        for review in pending_reviews:
+            formatted_review = {
+                'id': review['id'],
+                'type': '对话风格学习',
+                'group_id': review['group_id'],
+                'description': review['description'],
+                'timestamp': review['timestamp'],
+                'created_at': review['created_at'],
+                'status': review['status'],
+                'learned_patterns': review['learned_patterns'],
+                'few_shots_content': review['few_shots_content']
+            }
+            formatted_reviews.append(formatted_review)
+        
+        return jsonify({
+            'reviews': formatted_reviews,
+            'total': len(formatted_reviews)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取风格学习审查列表失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews/<int:review_id>/approve", methods=["POST"])
+@require_auth
+async def approve_style_learning_review(review_id: int):
+    """批准对话风格学习审查"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        # 获取审查详情
+        pending_reviews = await database_manager.get_pending_style_reviews()
+        target_review = None
+        for review in pending_reviews:
+            if review['id'] == review_id:
+                target_review = review
+                break
+        
+        if not target_review:
+            return jsonify({'error': '审查记录不存在'}), 404
+        
+        # 更新状态为approved
+        success = await database_manager.update_style_review_status(review_id, 'approved', target_review['group_id'])
+        
+        if success:
+            # 应用到人格（Few Shots格式）
+            if target_review['few_shots_content']:
+                # 通过persona_updater应用到人格
+                persona_update_content = target_review['few_shots_content']
+                
+                if persona_updater:
+                    try:
+                        await persona_updater._append_to_persona_updates_file(persona_update_content)
+                        logger.info(f"风格学习审查 {review_id} 已批准并应用到人格")
+                    except Exception as e:
+                        logger.error(f"应用风格学习到人格失败: {e}")
+                        return jsonify({'error': '批准成功，但应用到人格失败'}), 500
+            
+            return jsonify({
+                'success': True,
+                'message': f'风格学习审查 {review_id} 已批准并应用到人格'
+            })
+        else:
+            return jsonify({'error': '批准失败，请检查审查记录状态'}), 500
+            
+    except Exception as e:
+        logger.error(f"批准风格学习审查失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews/<int:review_id>/reject", methods=["POST"])
+@require_auth
+async def reject_style_learning_review(review_id: int):
+    """拒绝对话风格学习审查"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        # 更新状态为rejected
+        success = await database_manager.update_style_review_status(review_id, 'rejected')
+        
+        if success:
+            logger.info(f"风格学习审查 {review_id} 已拒绝")
+            return jsonify({
+                'success': True,
+                'message': f'风格学习审查 {review_id} 已拒绝'
+            })
+        else:
+            return jsonify({'error': '拒绝失败，请检查审查记录状态'}), 500
+            
+    except Exception as e:
+        logger.error(f"拒绝风格学习审查失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @api_bp.route("/style_learning/patterns", methods=["GET"])
@@ -1296,18 +1462,18 @@ class Server:
     """Quart 服务器管理类"""
     def __init__(self, host: str = "0.0.0.0", port: int = 7833):
         try:
-            print(f"🔧 初始化Web服务器 (端口: {port})...")
+            logger.info(f"🔧 初始化Web服务器 (端口: {port})...")
 
             # 检查端口是否可用
-            print(f"Debug: 开始检查端口可用性")
+            logger.debug(f"Debug: 开始检查端口可用性")
             self._check_port_availability(port)
-            print(f"Debug: 端口检查完成")
+            logger.debug(f"Debug: 端口检查完成")
 
             self.host = host
             self.port = port
             self.server_task: Optional[asyncio.Task] = None
 
-            print(f"Debug: 创建 HypercornConfig")
+            logger.debug(f"Debug: 创建 HypercornConfig")
             self.config = HypercornConfig()
             self.config.bind = [f"{self.host}:{self.port}"]
             self.config.accesslog = "-" # 输出访问日志到 stdout
@@ -1317,17 +1483,17 @@ class Server:
             self.config.use_reloader = False
             self.config.workers = 1
 
-            print(f"✅ Web服务器初始化完成 (端口: {port})")
-            print(f"Debug: 配置绑定: {self.config.bind}")
+            logger.info(f"✅ Web服务器初始化完成 (端口: {port})")
+            logger.debug(f"Debug: 配置绑定: {self.config.bind}")
 
         except Exception as e:
-            print(f"❌ Web服务器初始化失败: {e}")
+            logger.error(f"❌ Web服务器初始化失败: {e}")
             import traceback
-            print(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
+            logger.error(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
             raise
     
     def _check_port_availability(self, port: int):
-        """检查端口可用性，如果被占用则等待或警告"""
+        """检查端口可用性，如果被占用则尝试清理或提供解决方案"""
         import socket
         
         # 检查端口是否被占用
@@ -1336,94 +1502,281 @@ class Server:
                 sock.settimeout(1)
                 result = sock.connect_ex(("127.0.0.1", port))
                 if result == 0:
-                    print(f"⚠️ 端口 {port} 被占用，这可能是之前的实例未正确关闭")
-                    print(f"🔄 Web服务器启动时将尝试重用该端口")
+                    logger.warning(f"端口 {port} 被占用，这可能是之前的插件实例未正确关闭")
+                    logger.info(f"Web服务器启动时将尝试重用该端口或自动处理冲突")
+                    
+                    # 尝试检查是否是本插件的残留进程
+                    try:
+                        import subprocess
+                        import sys
+                        if sys.platform == 'win32':
+                            # Windows: 使用netstat查看端口占用情况
+                            result = subprocess.run(['netstat', '-ano', '-p', 'TCP'], 
+                                                  capture_output=True, text=True, timeout=5)
+                            lines = result.stdout.split('\n')
+                            for line in lines:
+                                if f":{port}" in line and "LISTENING" in line:
+                                    logger.info(f"端口占用详情: {line.strip()}")
+                                    if "python" in line.lower() or "hypercorn" in line.lower():
+                                        logger.info(f"检测到可能的Python/Hypercorn进程占用端口")
+                                    break
+                        else:
+                            # Linux/Mac: 使用lsof或ss
+                            try:
+                                result = subprocess.run(['lsof', '-i', f':{port}'], 
+                                                      capture_output=True, text=True, timeout=5)
+                                if result.stdout:
+                                    logger.info(f"端口占用详情:\n{result.stdout}")
+                            except FileNotFoundError:
+                                try:
+                                    result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], 
+                                                          capture_output=True, text=True, timeout=5)
+                                    if result.stdout:
+                                        logger.info(f"端口占用详情:\n{result.stdout}")
+                                except FileNotFoundError:
+                                    logger.info(f"无法检查端口占用详情（缺少lsof和ss工具）")
+                    except Exception as check_error:
+                        logger.debug(f"检查端口占用详情时出错: {check_error}")
+                    
+                    logger.info(f"建议解决方案:")
+                    logger.info(f"   1. 等待几秒钟后重试（系统可能正在清理资源）")
+                    logger.info(f"   2. 重启AstrBot完全清理所有资源")
+                    logger.info(f"   3. 修改插件配置使用其他端口")
                 else:
-                    print(f"✅ 端口 {port} 可用")
+                    logger.debug(f"端口 {port} 可用")
         except Exception as e:
-            print(f"⚠️ 检查端口 {port} 时出错: {e}")
-            print(f"🔄 继续初始化，启动时处理端口冲突")
+            logger.warning(f"检查端口 {port} 时出错: {e}")
+            logger.info(f"继续初始化，启动时将处理任何端口冲突")
 
     async def start(self):
-        """启动服务器 - 增强版本，包含端口冲突处理"""
-        print(f"🚀 启动Web服务器 (端口: {self.port})...")
-        print(f"Debug: self.server_task = {self.server_task}")
-        print(f"Debug: host = {self.host}, port = {self.port}")
+        """启动服务器 - 增强版本，包含端口冲突处理和重试机制"""
+        logger.info(f"🚀 启动Web服务器 (端口: {self.port})...")
+        logger.debug(f"Debug: self.server_task = {self.server_task}")
+        logger.debug(f"Debug: host = {self.host}, port = {self.port}")
 
         if self.server_task and not self.server_task.done():
-            print("ℹ️ Web服务器已在运行中")
+            logger.info("ℹ️ Web服务器已在运行中")
             return # Server already running
         
+        # 启动前再次检查端口状态
+        port_available = await self._async_check_port_available(self.port)
+        if not port_available:
+            logger.warning(f"⚠️ 端口 {self.port} 仍被占用，尝试等待后重试...")
+            # 等待3秒后重试
+            await asyncio.sleep(3)
+            port_available = await self._async_check_port_available(self.port)
+            
+            if not port_available:
+                logger.warning(f"⚠️ 端口 {self.port} 持续被占用")
+                logger.info(f"🔄 继续尝试启动，Hypercorn可能能够处理端口复用")
+        
         try:
-            print(f"🔧 配置服务器绑定: {self.config.bind}")
-            print(f"Debug: 准备创建Hypercorn serve任务")
-            print(f"Debug: app类型: {type(app)}")
-            print(f"Debug: config类型: {type(self.config)}")
+            logger.info(f"🔧 配置服务器绑定: {self.config.bind}")
+            logger.debug(f"Debug: 准备创建Hypercorn serve任务")
+            logger.debug(f"Debug: app类型: {type(app)}")
+            logger.debug(f"Debug: config类型: {type(self.config)}")
 
-            # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
-            print(f"Debug: 调用 asyncio.create_task")
-            self.server_task = asyncio.create_task(
-                hypercorn.asyncio.serve(app, self.config)
-            )
+            # 添加重试机制
+            max_retries = 3
+            for retry_count in range(max_retries):
+                try:
+                    # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
+                    logger.debug(f"Debug: 调用 asyncio.create_task (尝试 {retry_count + 1}/{max_retries})")
+                    self.server_task = asyncio.create_task(
+                        hypercorn.asyncio.serve(app, self.config)
+                    )
 
-            print(f"✅ Web服务器任务已创建: {self.server_task}")
-            print(f"🌐 访问地址: http://{self.host}:{self.port}")
+                    logger.info(f"✅ Web服务器任务已创建: {self.server_task}")
+                    logger.info(f"🌐 访问地址: http://{self.host}:{self.port}")
 
-            # 等待服务器启动
-            print(f"Debug: 等待2秒让服务器启动")
-            await asyncio.sleep(2)
+                    # 等待服务器启动
+                    logger.debug(f"Debug: 等待服务器启动 (尝试 {retry_count + 1})")
+                    await asyncio.sleep(2)
 
-            # 检查服务器状态
-            print(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
-            if self.server_task and not self.server_task.done():
-                print(f"✅ Web服务器启动成功 (http://{self.host}:{self.port})")
-            else:
-                print(f"❌ Web服务器任务意外完成")
-                if self.server_task and self.server_task.done():
-                    try:
-                        # 获取任务异常
-                        exception = self.server_task.exception()
-                        if exception:
-                            print(f"❌ 服务器启动异常: {exception}")
-                            print(f"❌ 异常类型: {type(exception)}")
-                            import traceback
-                            print(f"❌ 异常堆栈: {traceback.format_exc()}")
-                    except Exception as ex:
-                        print(f"❌ 获取异常信息时出错: {ex}")
+                    # 检查服务器状态
+                    logger.debug(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
+                    if self.server_task and not self.server_task.done():
+                        # 验证服务器是否真的在监听端口
+                        if await self._verify_server_listening():
+                            logger.info(f"✅ Web服务器启动成功并正在监听端口 {self.port}")
+                            return  # 成功启动，退出重试循环
+                        else:
+                            logger.warning(f"⚠️ Web服务器任务运行中，但端口未响应 (尝试 {retry_count + 1})")
+                            if retry_count < max_retries - 1:
+                                # 取消当前任务，准备重试
+                                self.server_task.cancel()
+                                try:
+                                    await asyncio.wait_for(self.server_task, timeout=2.0)
+                                except:
+                                    pass
+                                self.server_task = None
+                                logger.info(f"🔄 准备重试启动...")
+                                await asyncio.sleep(2)
+                                continue
+                    else:
+                        logger.error(f"❌ Web服务器任务意外完成 (尝试 {retry_count + 1})")
+                        if self.server_task and self.server_task.done():
+                            try:
+                                # 获取任务异常
+                                exception = self.server_task.exception()
+                                if exception:
+                                    logger.error(f"❌ 服务器启动异常: {exception}")
+                                    logger.error(f"❌ 异常类型: {type(exception)}")
+                                    if "Address already in use" in str(exception):
+                                        logger.warning(f"🔧 检测到端口冲突，尝试重试...")
+                                        if retry_count < max_retries - 1:
+                                            await asyncio.sleep(3)  # 等待更长时间
+                                            continue
+                            except Exception as ex:
+                                logger.error(f"❌ 获取异常信息时出错: {ex}")
+                        
+                        if retry_count < max_retries - 1:
+                            logger.info(f"🔄 启动失败，等待后重试 (尝试 {retry_count + 1}/{max_retries})")
+                            await asyncio.sleep(5)
+                        continue
+                        
+                except Exception as start_error:
+                    logger.error(f"❌ 启动尝试 {retry_count + 1} 失败: {start_error}")
+                    if "Address already in use" in str(start_error) or "port" in str(start_error).lower():
+                        logger.warning(f"🔧 检测到端口 {self.port} 冲突")
+                        if retry_count < max_retries - 1:
+                            logger.info(f"⏳ 等待端口释放后重试...")
+                            await asyncio.sleep(5)
+                            continue
+                    elif retry_count < max_retries - 1:
+                        logger.info(f"🔄 等待后重试...")
+                        await asyncio.sleep(3)
+                        continue
+                    else:
+                        raise  # 最后一次重试也失败，抛出异常
+            
+            # 如果所有重试都失败了
+            logger.error(f"❌ 经过 {max_retries} 次重试，Web服务器仍无法启动")
+            self.server_task = None
                 
         except Exception as e:
-            print(f"❌ 启动Web服务器失败: {e}")
+            logger.error(f"❌ 启动Web服务器失败: {e}")
             
             # 检查是否是端口冲突
             if "Address already in use" in str(e) or "port" in str(e).lower():
-                print(f"🔧 检测到端口 {self.port} 冲突")
-                print(f"💡 建议: 插件重载时前一个实例可能未完全关闭")
+                logger.warning(f"🔧 确认检测到端口 {self.port} 冲突")
+                logger.info(f"💡 建议解决方案:")
+                logger.info(f"   1. 稍等片刻后重新加载插件")
+                logger.info(f"   2. 重启AstrBot以完全清理资源")
+                logger.info(f"   3. 在插件配置中修改web_interface_port为其他端口")
                 
             import traceback
-            traceback.print_exc()
+            logger.error(f"异常堆栈: {traceback.format_exc()}")
             self.server_task = None
 
+    async def _async_check_port_available(self, port: int) -> bool:
+        """异步检查端口是否可用"""
+        try:
+            import socket
+            loop = asyncio.get_event_loop()
+            
+            def check_port():
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1)
+                    result = sock.connect_ex(("127.0.0.1", port))
+                    return result != 0  # 连接失败表示端口可用
+            
+            return await loop.run_in_executor(None, check_port)
+        except Exception:
+            return True  # 检查失败时假设端口可用
+
+    async def _verify_server_listening(self) -> bool:
+        """验证服务器是否正在监听端口"""
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=2)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                try:
+                    async with session.get(f"http://{self.host}:{self.port}/") as response:
+                        return response.status in [200, 302, 404]  # 任何HTTP响应都表示服务器在运行
+                except aiohttp.ClientConnectorError:
+                    return False
+        except ImportError:
+            # 如果没有aiohttp，回退到socket检查
+            try:
+                import socket
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(2)
+                    result = sock.connect_ex(("127.0.0.1", self.port))
+                    return result == 0
+            except Exception:
+                return False
+        except Exception:
+            return False
+
     async def stop(self):
-        """停止服务器 - 增强版本，包含超时处理"""
-        print(f"🛑 正在停止Web服务器 (端口: {self.port})...")
+        """停止服务器 - 增强版本，包含更严格的资源清理和端口释放检查"""
+        logger.info(f"🛑 正在停止Web服务器 (端口: {self.port})...")
         
         if self.server_task and not self.server_task.done():
-            # 1. 尝试优雅关闭，设置超时
-            self.server_task.cancel()
             try:
-                await asyncio.wait_for(self.server_task, timeout=5.0)
-                print("✅ Web服务器已优雅停止")
-            except asyncio.CancelledError:
-                print("✅ Web服务器已取消")
-            except asyncio.TimeoutError:
-                print("⚠️ Web服务器停止超时，已强制取消")
+                # 1. 优雅关闭，设置更长的超时
+                logger.info("📋 开始优雅停止Web服务器...")
+                self.server_task.cancel()
+                
+                try:
+                    # 等待任务完成，增加超时时间
+                    await asyncio.wait_for(self.server_task, timeout=10.0)
+                    logger.info("✅ Web服务器已优雅停止")
+                except asyncio.CancelledError:
+                    logger.info("✅ Web服务器任务已取消")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Web服务器优雅停止超时，强制终止")
+                    # 强制终止任务
+                    if not self.server_task.done():
+                        try:
+                            self.server_task.cancel()
+                            await asyncio.sleep(1)  # 给一点时间让取消操作完成
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.warning(f"⚠️ 停止Web服务器时出现异常: {e}")
+                
+                # 2. 额外等待确保端口释放
+                logger.info("⏳ 等待端口资源释放...")
+                await asyncio.sleep(2)  # 给更多时间让端口释放
+                
+                # 3. 验证端口是否真的释放了
+                port_released = False
+                for attempt in range(3):  # 最多检查3次
+                    try:
+                        import socket
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                            sock.settimeout(1)
+                            result = sock.connect_ex(("127.0.0.1", self.port))
+                            if result != 0:  # 连接失败意味着端口已释放
+                                port_released = True
+                                logger.info(f"✅ 端口 {self.port} 已确认释放 (尝试 {attempt + 1}/3)")
+                                break
+                            else:
+                                logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/3)")
+                                if attempt < 2:  # 不是最后一次尝试
+                                    await asyncio.sleep(1)  # 等待1秒后重试
+                    except Exception as e:
+                        logger.debug(f"端口检查失败 (尝试 {attempt + 1}/3): {e}")
+                        # 如果检查失败，假设端口可能已经释放
+                        if attempt == 2:  # 最后一次尝试
+                            port_released = True
+                            logger.info("📝 端口检查失败，假定端口已释放")
+                
+                if port_released:
+                    logger.info(f"✅ Web服务器完全停止，端口 {self.port} 已释放")
+                else:
+                    logger.warning(f"⚠️ Web服务器已停止，但端口 {self.port} 可能仍被占用")
+                    logger.info("💡 提示: 如果遇到端口占用问题，请稍等片刻或重启AstrBot")
+                
             except Exception as e:
-                print(f"⚠️ 停止Web服务器时出错: {e}")
-            
-            # 2. 等待端口释放
-            await asyncio.sleep(1)
-            
-            self.server_task = None
-            print(f"🔧 Web服务器停止完成 (端口: {self.port})")
+                logger.error(f"❌ 停止Web服务器过程中发生错误: {e}", exc_info=True)
+            finally:
+                # 4. 无论如何都要重置任务引用
+                self.server_task = None
+                logger.info("🧹 Web服务器任务引用已清理")
         else:
-            print("ℹ️ Web服务器已经停止或未启动")
+            logger.info("ℹ️ Web服务器已经停止或未启动，无需停止操作")
+            
+        logger.info(f"🔧 Web服务器停止流程完成 (端口: {self.port})")
