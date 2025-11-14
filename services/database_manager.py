@@ -2825,6 +2825,77 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"获取待审查风格学习记录失败: {e}")
             return []
 
+    async def get_pending_persona_learning_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的人格学习记录（质量不达标的学习结果）"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 确保表存在（使用progressive_learning.py中的结构）
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    group_id TEXT NOT NULL,
+                    update_type TEXT NOT NULL,
+                    original_content TEXT,
+                    new_content TEXT,
+                    reason TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    reviewer_comment TEXT,
+                    review_time REAL
+                )
+            ''')
+            
+            await cursor.execute('''
+                SELECT id, timestamp, group_id, update_type, original_content, 
+                       new_content, reason, status, reviewer_comment, review_time
+                FROM persona_update_reviews
+                WHERE status = 'pending'
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            reviews = []
+            for row in await cursor.fetchall():
+                reviews.append({
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'group_id': row[2],
+                    'update_type': row[3],
+                    'original_content': row[4],
+                    'new_content': row[5],
+                    'reason': row[6],
+                    'status': row[7],
+                    'reviewer_comment': row[8],
+                    'review_time': row[9]
+                })
+            
+            return reviews
+            
+        except Exception as e:
+            self._logger.error(f"获取待审查人格学习记录失败: {e}")
+            return []
+
+    async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None) -> bool:
+        """更新人格学习审查状态"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                UPDATE persona_update_reviews
+                SET status = ?, reviewer_comment = ?, review_time = ?
+                WHERE id = ?
+            ''', (status, comment, time.time(), review_id))
+            
+            await conn.commit()
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            self._logger.error(f"更新人格学习审查状态失败: {e}")
+            return False
+
     async def update_style_review_status(self, review_id: int, status: str, group_id: str = None) -> bool:
         """更新风格学习审查状态"""
         try:

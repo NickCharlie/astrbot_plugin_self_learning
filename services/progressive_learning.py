@@ -486,14 +486,20 @@ class ProgressiveLearningService:
                 current_persona, updated_persona, filtered_messages
             )
             
-            # 根据质量评估决定是否应用更新
+            # 根据质量评估决定是否直接应用更新 还是 创建审查记录
             success = False
             if quality_metrics.consistency_score >= self.quality_threshold:
                 await self._apply_learning_updates(group_id, {}, filtered_messages)  # style_analysis may be empty
                 logger.info(f"学习更新已应用，质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
                 success = True
             else:
-                logger.warning(f"学习质量不达标，跳过更新，得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+                logger.warning(f"学习质量不达标，创建审查记录，得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+                # 【新增】即使质量不达标，也要创建审查记录让用户手动决定
+                await self._create_persona_review_for_low_quality(
+                    group_id, current_persona, updated_persona, quality_metrics, filtered_messages
+                )
+                logger.info(f"质量不达标的学习结果已添加到审查列表，用户可手动审查")
+                success = False  # 标记为未直接应用，需要审查
             
             # 【新增】记录学习批次到数据库，供webui查询使用
             batch_name = f"batch_{group_id}_{int(time.time())}"
@@ -943,4 +949,89 @@ class ProgressiveLearningService:
             return True
         except Exception as e:
             logger.error(f"停止渐进式学习服务失败: {e}")
+            return False
+
+    async def _create_persona_review_for_low_quality(self, group_id: str, current_persona: str, 
+                                                   updated_persona: str, quality_metrics, filtered_messages):
+        """为质量不达标的学习结果创建审查记录"""
+        try:
+            from ..core.interfaces import PersonaUpdateRecord
+            import time
+            
+            # 计算变化内容摘要
+            current_length = len(current_persona) if current_persona else 0
+            updated_length = len(updated_persona) if updated_persona else 0
+            
+            # 构建详细的审查说明
+            reason = f"""学习质量评估结果 (得分: {quality_metrics.consistency_score:.3f} < 阈值: {self.quality_threshold})
+
+质量分析详情:
+- 一致性得分: {quality_metrics.consistency_score:.3f}
+- 处理消息数: {len(filtered_messages)}
+- 原人格长度: {current_length} 字符
+- 新人格长度: {updated_length} 字符
+
+系统建议: 由于学习质量不达标，建议手动审查内容质量后决定是否应用。
+可能的问题包括：内容冗余、逻辑不连贯、与现有人格风格差异过大等。
+
+请仔细检查新人格内容是否合理，决定是否应用此次学习结果。"""
+
+            # 创建审查记录
+            review_record = PersonaUpdateRecord(
+                timestamp=time.time(),
+                group_id=group_id,
+                update_type="persona_learning_review", 
+                original_content=current_persona[:500] + "..." if len(current_persona) > 500 else current_persona,
+                new_content=updated_persona[:500] + "..." if len(updated_persona) > 500 else updated_persona,
+                reason=reason,
+                status='pending'
+            )
+            
+            # 直接保存到数据库 - 不依赖persona_updater
+            try:
+                conn = await self.db_manager._get_messages_db_connection()
+                cursor = await conn.cursor()
+                
+                # 确保审查表存在
+                await cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        group_id TEXT NOT NULL,
+                        update_type TEXT NOT NULL,
+                        original_content TEXT,
+                        new_content TEXT,
+                        reason TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        reviewer_comment TEXT,
+                        review_time REAL
+                    )
+                ''')
+                
+                # 插入审查记录
+                await cursor.execute('''
+                    INSERT INTO persona_update_reviews 
+                    (timestamp, group_id, update_type, original_content, new_content, reason, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    review_record.timestamp,
+                    review_record.group_id,
+                    review_record.update_type,
+                    review_record.original_content,
+                    review_record.new_content,
+                    review_record.reason,
+                    review_record.status
+                ))
+                
+                await conn.commit()
+                record_id = cursor.lastrowid
+                logger.info(f"质量不达标的人格学习审查记录已创建，ID: {record_id}")
+                return True
+                
+            except Exception as db_error:
+                logger.error(f"保存审查记录到数据库失败: {db_error}")
+                return False
+            
+        except Exception as e:
+            logger.error(f"创建质量不达标审查记录失败: {e}")
             return False

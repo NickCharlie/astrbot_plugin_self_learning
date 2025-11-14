@@ -286,7 +286,7 @@ async def update_plugin_config():
 @api_bp.route("/persona_updates")
 @require_auth
 async def get_persona_updates():
-    """获取需要人工审查的人格更新内容（包括风格学习审查）"""
+    """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）"""
     all_updates = []
     
     # 1. 获取传统的人格更新审查
@@ -325,7 +325,38 @@ async def get_persona_updates():
         except Exception as e:
             logger.error(f"获取传统人格更新失败: {e}")
     
-    # 2. 获取风格学习审查
+    # 2. 获取人格学习审查（质量不达标的学习结果）
+    if database_manager:
+        try:
+            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews()
+            
+            for review in persona_learning_reviews:
+                # 转换为统一的审查格式
+                review_dict = {
+                    'id': f"persona_learning_{review['id']}",  # 添加前缀避免ID冲突
+                    'timestamp': review['timestamp'],
+                    'group_id': review['group_id'],
+                    'update_type': review['update_type'],
+                    'original_content': review['original_content'],
+                    'new_content': review['new_content'],
+                    'proposed_content': review['new_content'],
+                    'reason': review['reason'],
+                    'status': review['status'],
+                    'reviewer_comment': review['reviewer_comment'],
+                    'review_time': review['review_time'],
+                    'confidence_score': 0.5,  # 质量不达标的置信度低
+                    'reviewed': False,
+                    'approved': False,
+                    'review_source': 'persona_learning',  # 标记来源
+                    'persona_learning_review_id': review['id']  # 原始ID用于审批操作
+                }
+                
+                all_updates.append(review_dict)
+                
+        except Exception as e:
+            logger.error(f"获取人格学习审查失败: {e}")
+    
+    # 3. 获取风格学习审查
     if database_manager:
         try:
             style_reviews = await database_manager.get_pending_style_reviews()
@@ -360,14 +391,14 @@ async def get_persona_updates():
     # 按时间倒序排列
     all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
     
-    logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
+    logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
     
     return jsonify(all_updates)
 
 @api_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
 @require_auth
 async def review_persona_update(update_id: str):
-    """审查人格更新内容 (批准/拒绝) - 包括风格学习审查"""
+    """审查人格更新内容 (批准/拒绝) - 包括风格学习审查和人格学习审查"""
     try:
         data = await request.get_json()
         action = data.get("action")
@@ -381,7 +412,7 @@ async def review_persona_update(update_id: str):
         else:
             return jsonify({"error": "Invalid action, must be 'approve' or 'reject'"}), 400
         
-        # 判断是风格学习审查还是传统审查
+        # 判断审查类型
         if update_id.startswith("style_"):
             # 风格学习审查
             style_review_id = int(update_id.replace("style_", ""))
@@ -392,6 +423,31 @@ async def review_persona_update(update_id: str):
             else:
                 # 拒绝风格学习审查
                 return await reject_style_learning_review(style_review_id)
+                
+        elif update_id.startswith("persona_learning_"):
+            # 人格学习审查（质量不达标的学习结果）
+            persona_learning_review_id = int(update_id.replace("persona_learning_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 更新审查状态
+            success = await database_manager.update_persona_learning_review_status(
+                persona_learning_review_id, status, comment
+            )
+            
+            if success:
+                if action == "approve":
+                    # 如果批准，可以选择将内容应用到人格（这里暂时只更新状态）
+                    # TODO: 可以在此处实现人格应用逻辑
+                    message = f"人格学习审查 {persona_learning_review_id} 已批准"
+                else:
+                    message = f"人格学习审查 {persona_learning_review_id} 已拒绝"
+                    
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to update persona learning review status"}), 500
+                
         else:
             # 传统人格审查
             if persona_updater:
