@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.3.8", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -1104,54 +1104,50 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"临时应用风格到prompt失败: {e}")
 
     async def _generate_few_shots_dialog(self, group_id: str, message_data_list: List[Any]) -> str:
-        """生成Few Shots对话格式的内容"""
+        """生成基于真实聊天上下文的对话内容（不使用错误的配对逻辑）"""
         try:
-            # 筛选出有效的对话片段
-            dialog_pairs = []
-            
             # 将消息按时间排序
             sorted_messages = sorted(message_data_list, key=lambda x: x.timestamp)
             
-            # 查找连续的对话
-            for i in range(len(sorted_messages) - 1):
-                current_msg = sorted_messages[i]
-                next_msg = sorted_messages[i + 1]
-                
-                # 确保是不同用户的对话
-                if current_msg.sender_id != next_msg.sender_id:
-                    # 清理消息内容
-                    user_msg = current_msg.message.strip()
-                    bot_response = next_msg.message.strip()
-                    
-                    # 过滤掉太短或无意义的消息
-                    if (len(user_msg) >= 5 and len(bot_response) >= 5 and
-                        user_msg not in ['？', '？？', '...', '。。。'] and
-                        bot_response not in ['？', '？？', '...', '。。。']):
-                        
-                        dialog_pairs.append({
-                            'user': user_msg,
-                            'assistant': bot_response
-                        })
+            # 构建真实的对话上下文，而不是错误的配对
+            valid_messages = []
+            for msg in sorted_messages:
+                # 过滤有效消息
+                message_content = msg.message.strip()
+                if (len(message_content) >= 3 and 
+                    message_content not in ['？', '？？', '...', '。。。', '嗯', '哦', '额']):
+                    valid_messages.append({
+                        'sender_id': msg.sender_id,
+                        'content': message_content,
+                        'timestamp': msg.timestamp
+                    })
             
-            # 选择最佳的对话片段（取前5个）
-            if len(dialog_pairs) >= 3:
-                selected_pairs = dialog_pairs[:5]
+            # 如果有足够的有效消息，生成基于真实上下文的对话示例
+            if len(valid_messages) >= 3:
+                # 选择代表性的消息作为真实聊天记录示例
+                selected_messages = valid_messages[-10:]  # 取最近10条有效消息
                 
-                # 生成Few Shots格式
-                few_shots_lines = [
-                    "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"
+                # 生成真实聊天记录格式（不是人工配对的对话）
+                dialog_lines = [
+                    "*基于真实聊天记录的语言风格示例（按时间顺序）:"
                 ]
                 
-                for pair in selected_pairs:
-                    few_shots_lines.append(f"A: {pair['user']}")
-                    few_shots_lines.append(f"B: {pair['assistant']}")
+                for i, msg in enumerate(selected_messages):
+                    # 使用匿名化的用户标识
+                    user_label = f"用户{hash(msg['sender_id']) % 100:02d}"
+                    dialog_lines.append(f"{user_label}: {msg['content']}")
                 
-                return '\n'.join(few_shots_lines)
+                dialog_lines.append("")
+                dialog_lines.append("*请参考以上真实聊天记录中体现的语言风格和表达方式。")
+                
+                return '\n'.join(dialog_lines)
             
+            # 如果消息不足，返回空字符串而不是错误配对的内容
+            logger.info(f"群组 {group_id} 有效消息数量不足（{len(valid_messages)}），跳过对话内容生成")
             return ""
             
         except Exception as e:
-            logger.error(f"生成Few Shots对话失败: {e}")
+            logger.error(f"生成真实聊天对话失败: {e}")
             return ""
 
     async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
