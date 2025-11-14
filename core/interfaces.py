@@ -259,6 +259,25 @@ class IEventPublisher(ABC):
         pass
 
 
+class IMessageRelationshipAnalyzer(ABC):
+    """消息关系分析器接口"""
+    
+    @abstractmethod
+    async def analyze_message_relationships(self, messages: List[Dict[str, Any]], group_id: str) -> List[Any]:
+        """分析消息之间的关系"""
+        pass
+    
+    @abstractmethod
+    async def get_conversation_pairs(self, relationships: List[Any]) -> List[tuple]:
+        """从关系中提取对话对"""
+        pass
+    
+    @abstractmethod
+    async def analyze_conversation_quality(self, relationships: List[Any]) -> Dict[str, Any]:
+        """分析对话质量"""
+        pass
+
+
 class IServiceFactory(ABC):
     """服务工厂接口"""
     
@@ -285,6 +304,11 @@ class IServiceFactory(ABC):
     @abstractmethod
     def create_persona_updater(self) -> IPersonaUpdater:
         """创建人格更新器"""
+        pass
+    
+    @abstractmethod
+    def create_message_relationship_analyzer(self) -> IMessageRelationshipAnalyzer:
+        """创建消息关系分析器"""
         pass
     
     def get_persona_updater(self) -> Optional[IPersonaUpdater]:

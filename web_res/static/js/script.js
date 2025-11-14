@@ -97,6 +97,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         logoutBtn.addEventListener('click', logout);
     }
     
+    // 绑定重新学习按钮事件
+    const relearnBtn = document.getElementById('relearnBtn');
+    if (relearnBtn) {
+        relearnBtn.addEventListener('click', triggerRelearn);
+    }
+    
     // 注册ECharts主题
     echarts.registerTheme('material', materialTheme);
     
@@ -4211,6 +4217,63 @@ if (originalReviewPersonaUpdate) {
         
         return result;
     };
+}
+
+// 触发重新学习函数
+async function triggerRelearn() {
+    const relearnBtn = document.getElementById('relearnBtn');
+    if (!relearnBtn) return;
+    
+    // 显示确认对话框
+    if (!confirm('确定要重新学习所有历史消息吗？\n\n这将重置所有学习状态并重新处理所有消息数据，可能需要较长时间。')) {
+        return;
+    }
+    
+    // 设置按钮为加载状态
+    const originalText = relearnBtn.innerHTML;
+    relearnBtn.disabled = true;
+    relearnBtn.classList.add('loading');
+    relearnBtn.innerHTML = '<i class="material-icons">refresh</i><span>学习中...</span>';
+    
+    try {
+        console.log('开始触发重新学习...');
+        
+        const response = await fetch('/api/relearn', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showNotification(
+                `重新学习已启动！将处理 ${result.total_messages} 条历史消息`, 
+                'success'
+            );
+            
+            // 延迟刷新仪表板数据
+            setTimeout(() => {
+                if (typeof refreshDashboard === 'function') {
+                    refreshDashboard();
+                }
+            }, 2000);
+        } else {
+            const errorMsg = result.error || '重新学习启动失败';
+            showNotification(`启动失败: ${errorMsg}`, 'error');
+            console.error('重新学习启动失败:', result);
+        }
+        
+    } catch (error) {
+        console.error('重新学习请求失败:', error);
+        showNotification(`请求失败: ${error.message}`, 'error');
+    } finally {
+        // 恢复按钮状态
+        relearnBtn.disabled = false;
+        relearnBtn.classList.remove('loading');
+        relearnBtn.innerHTML = originalText;
+    }
 }
 
 // 页面加载完成后初始化选项卡

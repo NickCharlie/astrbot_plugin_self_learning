@@ -356,8 +356,8 @@ PROGRESSIVE_LEARNING_GENERATE_UPDATED_PERSONA_PROMPT = """
 {{
     "name": "更新后的人格名称",
     "prompt": "更新后的完整人格描述",
-    "begin_dialogs": ["开场对话列表"],
-    "mood_imitation_dialogs": ["情绪模拟对话列表"]
+    "begin_dialogs": [],
+    "mood_imitation_dialogs": []
 }}
 """
 

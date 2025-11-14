@@ -11,7 +11,7 @@ from astrbot.api import logger # 使用框架提供的logger
 from .interfaces import (
     IServiceFactory, IMessageCollector, IStyleAnalyzer, ILearningStrategy,
     IQualityMonitor, IPersonaManager, IPersonaUpdater, IMLAnalyzer, IIntelligentResponder,
-    LearningStrategyType
+    IMessageRelationshipAnalyzer, LearningStrategyType
 )
 from .patterns import StrategyFactory, ServiceRegistry, EventBus
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
@@ -119,6 +119,31 @@ class ServiceFactory(IServiceFactory):
             self._logger.error(f"导入风格分析器失败: {e}", exc_info=True)
             raise ServiceError(f"创建风格分析器失败: {str(e)}")
     
+    def create_message_relationship_analyzer(self):
+        """创建消息关系分析器"""
+        cache_key = "message_relationship_analyzer"
+        
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        try:
+            from ..services.message_relationship_analyzer import MessageRelationshipAnalyzer
+            
+            service = MessageRelationshipAnalyzer(
+                self.config,
+                self.context, 
+                llm_adapter=self.create_framework_llm_adapter()
+            )
+            self._service_cache[cache_key] = service
+            self._registry.register_service("message_relationship_analyzer", service)
+            
+            self._logger.info("创建消息关系分析器成功")
+            return service
+            
+        except ImportError as e:
+            self._logger.error(f"导入消息关系分析器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建消息关系分析器失败: {str(e)}")
+
     def create_learning_strategy(self, strategy_type: str) -> ILearningStrategy:
         """创建学习策略 - 优先使用MaiBot增强版本"""
         try:

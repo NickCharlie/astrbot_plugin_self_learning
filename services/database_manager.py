@@ -2634,28 +2634,54 @@ class DatabaseManager(AsyncServiceBase):
                     'environment': 'general'
                 }]
             
-            # 话题偏好分析（基于群组活跃度和消息主题）
+            # 话题偏好分析（基于群组活跃度和智能主题识别）
+            topic_preferences = []
+            
+            # 获取各个群组的消息数据进行主题分析
             await cursor.execute('''
                 SELECT 
                     group_id,
                     COUNT(*) as message_count,
                     AVG(LENGTH(message)) as avg_length
                 FROM raw_messages
-                WHERE group_id IS NOT NULL 
+                WHERE group_id IS NOT NULL AND LENGTH(TRIM(message)) > 3
                 GROUP BY group_id
-                HAVING COUNT(*) > 5
+                HAVING COUNT(*) > 10
                 ORDER BY message_count DESC
-                LIMIT 10
+                LIMIT 8
             ''')
             
-            topic_preferences = []
-            for row in await cursor.fetchall():
+            group_data = await cursor.fetchall()
+            
+            for row in group_data:
+                group_id = row[0]
+                message_count = row[1]
+                avg_length = row[2]
+                
+                # 获取该群组的代表性消息进行主题分析
+                await cursor.execute('''
+                    SELECT message 
+                    FROM raw_messages 
+                    WHERE group_id = ? AND LENGTH(TRIM(message)) > 5 AND LENGTH(TRIM(message)) < 200
+                    ORDER BY LENGTH(message) DESC, timestamp DESC 
+                    LIMIT 20
+                ''', (group_id,))
+                
+                messages = await cursor.fetchall()
+                if not messages:
+                    continue
+                    
+                # 智能主题识别
+                topic_analysis = self._analyze_topic_from_messages([msg[0] for msg in messages])
+                topic_name = topic_analysis['topic']
+                conversation_style = topic_analysis['style']
+                
                 # 根据消息长度和数量推断兴趣度
-                interest_level = min(100, max(10, (row[1] * row[2]) / 50))  # 调整算法
-                group_name = f'群聊话题-{row[0][-6:]}'  # 显示群组ID后6位
+                interest_level = min(100, max(10, (message_count * avg_length) / 50))
+                
                 topic_preferences.append({
-                    'topic': group_name,
-                    'style': '日常对话',
+                    'topic': topic_name,
+                    'style': conversation_style,
                     'interest_level': round(interest_level, 1)
                 })
             
@@ -3440,6 +3466,77 @@ class DatabaseManager(AsyncServiceBase):
                 'llm_growth': 0,
                 'sessions_growth': 0
             }
+
+    def _analyze_topic_from_messages(self, messages: List[str]) -> Dict[str, str]:
+        """
+        基于消息内容智能分析群聊主题
+        
+        Args:
+            messages: 消息列表
+            
+        Returns:
+            包含topic和style的字典
+        """
+        try:
+            if not messages:
+                return {'topic': '空群聊', 'style': 'unknown'}
+            
+            # 合并所有消息文本
+            all_text = ' '.join(messages).lower()
+            
+            # 定义主题关键词库
+            topic_keywords = {
+                '技术讨论': ['代码', '编程', 'python', 'java', 'javascript', 'bug', '算法', '开发', '前端', '后端', 'api', '数据库', 'sql', 'git', '项目', '需求', '测试', '部署'],
+                '游戏娱乐': ['游戏', '玩家', '攻略', '装备', '副本', '公会', 'pvp', '角色', '技能', '等级', '经验', '任务', '活动', '充值', '抽卡', '开黑', '上分'],
+                '学习交流': ['学习', '作业', '考试', '复习', '笔记', '课程', '老师', '同学', '知识', '问题', '答案', '教程', '资料', '书籍', '论文', '研究'],
+                '工作协作': ['工作', '会议', '项目', '任务', '进度', '汇报', '客户', '合作', '团队', '领导', '同事', '业务', '方案', '文档', '流程', '审批'],
+                '生活日常': ['吃饭', '睡觉', '天气', '心情', '家人', '朋友', '购物', '电影', '音乐', '旅游', '美食', '健康', '运动', '休息', '周末'],
+                '兴趣爱好': ['摄影', '绘画', '音乐', '电影', '书籍', '旅行', '美食', '运动', '健身', '瑜伽', '跑步', '骑行', '爬山', '游泳', '篮球'],
+                '商务合作': ['合作', '商务', '业务', '客户', '项目', '方案', '报价', '合同', '付款', '发票', '产品', '服务', '市场', '销售', '推广'],
+                '技术支持': ['问题', '故障', '错误', '修复', '解决', '帮助', '支持', '教程', '指导', '操作', '配置', '安装', '更新', '维护', '优化'],
+                '闲聊灌水': ['哈哈', '嘿嘿', '😂', '😄', '笑死', '有趣', '无聊', '随便', '聊天', '扯淡', '吐槽', '搞笑', '段子', '表情', '发呆'],
+                '通知公告': ['通知', '公告', '重要', '注意', '提醒', '截止', '时间', '安排', '活动', '报名', '参加', '会议', '培训', '讲座', '活动']
+            }
+            
+            # 分析主题匹配度
+            topic_scores = {}
+            for topic, keywords in topic_keywords.items():
+                score = 0
+                for keyword in keywords:
+                    score += all_text.count(keyword)
+                topic_scores[topic] = score
+            
+            # 获取得分最高的主题
+            best_topic = max(topic_scores.items(), key=lambda x: x[1])
+            
+            if best_topic[1] == 0:  # 没有匹配到任何关键词
+                return {'topic': '综合聊天', 'style': '日常对话'}
+            
+            # 根据主题确定对话风格
+            style_mapping = {
+                '技术讨论': '技术交流',
+                '游戏娱乐': '轻松娱乐', 
+                '学习交流': '学术讨论',
+                '工作协作': '工作协调',
+                '生活日常': '日常闲聊',
+                '兴趣爱好': '兴趣分享',
+                '商务合作': '商务沟通',
+                '技术支持': '技术答疑',
+                '闲聊灌水': '轻松聊天',
+                '通知公告': '信息通知'
+            }
+            
+            topic = best_topic[0]
+            style = style_mapping.get(topic, '日常对话')
+            
+            return {
+                'topic': topic,
+                'style': style
+            }
+            
+        except Exception as e:
+            self._logger.error(f"主题分析失败: {e}")
+            return {'topic': '未知主题', 'style': '日常对话'}
 
     async def get_recent_learning_batches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近的学习批次记录"""

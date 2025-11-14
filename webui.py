@@ -36,6 +36,7 @@ persona_updater: Optional[Any] = None
 database_manager: Optional[Any] = None
 db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
+progressive_learning: Optional[Any] = None  # 添加progressive_learning全局变量
 
 # 新增的变量
 pending_updates: List[Any] = []
@@ -139,6 +140,10 @@ async def set_plugin_services(
         database_manager = factory_manager.get_service("database_manager")
         db_manager = database_manager  # 设置别名
         
+        # 获取progressive_learning服务
+        logger.info("正在获取progressive_learning服务...")
+        progressive_learning = factory_manager.get_service("progressive_learning")
+        
         if persona_updater:
             logger.info(f"成功获取人格更新器: {type(persona_updater)}")
         else:
@@ -149,11 +154,17 @@ async def set_plugin_services(
         else:
             logger.warning("数据库管理器为None")
             
+        if progressive_learning:
+            logger.info(f"成功获取progressive_learning服务: {type(progressive_learning)}")
+        else:
+            logger.warning("progressive_learning服务为None")
+            
     except Exception as e:
         logger.error(f"获取服务实例失败: {e}", exc_info=True)
         persona_updater = None
         database_manager = None
         db_manager = None
+        progressive_learning = None
 
     # 加载待审查的人格更新
     if persona_updater:
@@ -830,6 +841,106 @@ async def create_test_persona_update():
             logger.error(f"创建测试记录失败: {e}", exc_info=True)
             return jsonify({"error": f"创建测试记录失败: {str(e)}"}), 500
     return jsonify({"error": "Persona updater not initialized"}), 500
+
+@api_bp.route("/relearn", methods=["POST"])
+@require_auth
+async def trigger_relearn():
+    """触发重新学习所有历史消息"""
+    try:
+        global progressive_learning, database_manager
+        
+        # 如果全局变量中没有progressive_learning，尝试重新获取
+        if not progressive_learning:
+            try:
+                from .core.factory import FactoryManager
+                factory_manager = FactoryManager()
+                progressive_learning = factory_manager.get_service("progressive_learning")
+                logger.info("重新获取progressive_learning服务成功")
+            except Exception as e:
+                logger.error(f"重新获取progressive_learning服务失败: {e}")
+        
+        if not progressive_learning:
+            return jsonify({
+                "success": False,
+                "error": "Progressive learning service not available"
+            }), 500
+        
+        # 获取消息统计信息
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "Database manager not available"
+            }), 500
+            
+        # 获取消息统计
+        stats = await database_manager.get_messages_statistics()
+        total_messages = stats.get('total_messages', 0)
+        
+        if total_messages == 0:
+            return jsonify({
+                "success": False,
+                "error": "没有找到可学习的历史消息"
+            })
+        
+        logger.info(f"开始重新学习，共{total_messages}条历史消息")
+        
+        # 重置所有消息为未处理状态，触发重新学习
+        conn = await database_manager._get_messages_db_connection()
+        cursor = await conn.cursor()
+        
+        # 将所有消息标记为未处理
+        await cursor.execute('UPDATE raw_messages SET processed = FALSE')
+        # 清空筛选消息中的学习状态
+        await cursor.execute('UPDATE filtered_messages SET used_for_learning = FALSE')
+        await conn.commit()
+        
+        # 异步启动重新学习任务
+        import asyncio
+        
+        # 获取所有有消息的群组ID
+        try:
+            conn = await database_manager._get_messages_db_connection()
+            cursor = await conn.cursor()
+            await cursor.execute('SELECT DISTINCT group_id FROM raw_messages WHERE group_id IS NOT NULL')
+            group_rows = await cursor.fetchall()
+            
+            if group_rows:
+                # 为每个群组启动学习任务
+                learning_tasks = []
+                for row in group_rows:
+                    group_id = row[0]
+                    if group_id:  # 确保group_id不为空
+                        logger.info(f"启动群组 {group_id} 的重新学习任务")
+                        task = asyncio.create_task(progressive_learning.start_learning(group_id))
+                        learning_tasks.append(task)
+                
+                if not learning_tasks:
+                    # 没有有效的群组ID，使用默认群组
+                    logger.info("没有找到有效的群组ID，使用默认群组启动学习")
+                    asyncio.create_task(progressive_learning.start_learning("default"))
+            else:
+                # 没有消息，使用默认群组
+                logger.info("没有找到消息记录，使用默认群组启动学习")
+                asyncio.create_task(progressive_learning.start_learning("default"))
+                
+        except Exception as e:
+            logger.warning(f"获取群组列表失败，使用默认群组: {e}")
+            asyncio.create_task(progressive_learning.start_learning("default"))
+        
+        logger.info("重新学习任务已启动")
+        
+        return jsonify({
+            "success": True,
+            "message": f"重新学习已启动，将处理 {total_messages} 条历史消息",
+            "total_messages": total_messages
+        })
+        
+    except Exception as e:
+        logger.error(f"启动重新学习失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False, 
+            "error": f"启动重新学习失败: {str(e)}"
+        }), 500
 
 @api_bp.route("/metrics")
 @require_auth

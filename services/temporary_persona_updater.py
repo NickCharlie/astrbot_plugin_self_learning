@@ -143,13 +143,16 @@ class TemporaryPersonaUpdater:
         Args:
             group_id: 群组ID
             new_features: 新的特征字符串列表
-            example_dialogs: 需要模仿的对话列表
+            example_dialogs: 需要模仿的对话列表（注意：这些应该是从真实消息提取的特征，不是虚假对话）
             duration_minutes: 临时人格持续时间（分钟）
         
         Returns:
             bool: 是否应用成功
         """
         try:
+            # 验证example_dialogs不包含虚假对话
+            validated_dialogs = await self._validate_dialog_authenticity(example_dialogs)
+            
             # 检查是否已有活动的临时人格
             if group_id in self.active_temp_personas:
                 raise SelfLearningError(TemporaryPersonaMessages.ERROR_TEMP_PERSONA_CONFLICT)
@@ -160,9 +163,9 @@ class TemporaryPersonaUpdater:
             # 获取当前人格
             original_persona = await self.persona_updater.get_current_persona(group_id)
             
-            # 创建临时增强人格
+            # 创建临时增强人格（使用验证后的对话）
             temp_persona = await self._create_enhanced_persona(
-                original_persona, new_features, example_dialogs
+                original_persona, new_features, validated_dialogs
             )
             
             # 应用临时人格到系统
@@ -1309,6 +1312,35 @@ class TemporaryPersonaUpdater:
         except Exception as e:
             logger.error(f"创建情绪备份persona失败: {e}")
             return False
+
+    async def _validate_dialog_authenticity(self, dialogs: List[str]) -> List[str]:
+        """验证对话数据的真实性，过滤虚假对话"""
+        validated_dialogs = []
+        
+        # 定义虚假对话的特征模式
+        fake_patterns = [
+            r'A:\s*你最近干.*呢.*\?',  # "A: 你最近干啥呢？"模式
+            r'B:\s*',                 # "B: "开头的模式
+            r'用户\d+:\s*',           # "用户01: "模式
+            r'.*:\s*你最近.*',        # 任何包含"你最近"的对话格式
+            r'开场对话列表',          # 示例文本
+            r'情绪模拟对话列表',       # 示例文本
+        ]
+        
+        import re
+        for dialog in dialogs:
+            is_fake = False
+            for pattern in fake_patterns:
+                if re.search(pattern, dialog, re.IGNORECASE):
+                    logger.warning(f"检测到可能的虚假对话，已过滤: {dialog}")
+                    is_fake = True
+                    break
+            
+            if not is_fake and len(dialog.strip()) > 3:  # 只保留有效的真实对话
+                validated_dialogs.append(dialog)
+        
+        logger.info(f"对话验证完成: 原始{len(dialogs)}条，验证后{len(validated_dialogs)}条")
+        return validated_dialogs
 
     async def stop(self):
         """停止服务"""

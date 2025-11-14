@@ -292,32 +292,60 @@ class PersonaUpdater(IPersonaUpdater):
             return f"{original}\n\n补充风格特征：{enhancement}"
     
     async def _update_mood_imitation_dialogs(self, persona: Personality, filtered_messages: List[Dict[str, Any]]):
-        """更新对话风格模仿"""
+        """更新对话风格模仿 - 只使用经过验证的真实消息特征"""
         try:
             current_dialogs = persona.get('mood_imitation_dialogs', [])
             
-            # 从过滤后的消息中提取高质量对话
-            new_dialogs = []
+            # 从过滤后的消息中提取高质量对话特征（不是原始对话）
+            new_features = []
             for msg in filtered_messages[-10:]:  # 取最近10条
                 message_text = msg.get('message', '').strip()
                 if message_text and len(message_text) > self.config.message_min_length:
-                    if message_text not in current_dialogs:
-                        new_dialogs.append(message_text)
+                    if self._is_authentic_message(message_text) and message_text not in current_dialogs:
+                        # 提取语言特征而不是保存原始对话
+                        feature = f"风格特征: {message_text[:30]}..." if len(message_text) > 30 else f"风格特征: {message_text}"
+                        new_features.append(feature)
             
-            if new_dialogs:
+            if new_features:
+                # 过滤现有对话中的虚假内容
+                validated_current = [d for d in current_dialogs if self._is_authentic_message(d)]
+                
                 # 保持对话列表长度合理
                 max_dialogs = self.config.max_mood_imitation_dialogs or 20
-                all_dialogs = current_dialogs + new_dialogs
+                all_features = validated_current + new_features
                 
-                if len(all_dialogs) > max_dialogs:
-                    # 保留最新的对话
-                    all_dialogs = all_dialogs[-max_dialogs:]
+                if len(all_features) > max_dialogs:
+                    # 保留最新的特征
+                    all_features = all_features[-max_dialogs:]
                 
-                persona['mood_imitation_dialogs'] = all_dialogs
-                self._logger.info(f"更新对话风格模仿，新增{len(new_dialogs)}条，总计{len(all_dialogs)}条")
+                persona['mood_imitation_dialogs'] = all_features
+                self._logger.info(f"更新对话风格模仿，新增{len(new_features)}条验证后特征，总计{len(all_features)}条")
             
         except Exception as e:
             self._logger.error(f"更新对话风格模仿失败: {e}")
+    
+    def _is_authentic_message(self, text: str) -> bool:
+        """验证消息是否为真实消息（非虚假对话）"""
+        if not text or len(text.strip()) < 3:
+            return False
+        
+        # 检测虚假对话模式
+        fake_patterns = [
+            r'A:\s*你最近干.*呢.*\?',
+            r'B:\s*',
+            r'用户\d+:\s*',
+            r'.*:\s*你最近.*',
+            r'开场对话列表',
+            r'情绪模拟对话列表',
+            r'风格特征:.*',  # 避免重复嵌套
+        ]
+        
+        import re
+        for pattern in fake_patterns:
+            if re.search(pattern, text, re.IGNORECASE):
+                return False
+        
+        return True
     
     async def _apply_style_attributes(self, persona: Personality, style_attributes: Dict[str, Any]):
         """应用风格属性"""
