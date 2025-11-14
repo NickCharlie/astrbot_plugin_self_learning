@@ -325,6 +325,42 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             
+            # 风格学习记录表 (从群组数据库移至消息数据库)
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS style_learning_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    style_type TEXT NOT NULL,
+                    learned_patterns TEXT, -- JSON格式存储学习到的模式
+                    confidence_score REAL,
+                    sample_count INTEGER,
+                    learning_time REAL NOT NULL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 语言风格模式表 (从群组数据库移至消息数据库)
+            await cursor.execute(''' 
+                CREATE TABLE IF NOT EXISTS language_style_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    language_style TEXT NOT NULL,
+                    example_phrases TEXT, -- JSON格式存储示例短语
+                    usage_frequency INTEGER DEFAULT 0,
+                    context_type TEXT DEFAULT 'general',
+                    confidence_score REAL,
+                    last_updated REAL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 为新表创建索引
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_learning_group ON style_learning_records(group_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_learning_time ON style_learning_records(learning_time)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_group ON language_style_patterns(group_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_frequency ON language_style_patterns(usage_frequency)')
+            
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
             
@@ -1007,11 +1043,11 @@ class DatabaseManager(AsyncServiceBase):
             for row in await cursor.fetchall():
                 quality_scores = {}
                 try:
-                    if row[4]:  # quality_scores
+                    if row[4]:
                         quality_scores = json.loads(row[4])
-                except (json.JSONDecodeError, TypeError):
+                except json.JSONDecodeError:
                     pass
-                
+                    
                 messages.append({
                     'id': row[0],
                     'message': row[1],
@@ -1020,11 +1056,54 @@ class DatabaseManager(AsyncServiceBase):
                     'quality_scores': quality_scores,
                     'timestamp': row[5]
                 })
-            
+                
             return messages
             
         except aiosqlite.Error as e:
             logger.error(f"获取最近筛选消息失败: {e}", exc_info=True)
+            return []
+
+    async def get_recent_raw_messages(self, group_id: str, limit: int = 25) -> List[Dict[str, Any]]:
+        """
+        获取指定群组最近的原始消息，用于表达风格学习
+        
+        Args:
+            group_id: 群组ID
+            limit: 消息数量限制
+            
+        Returns:
+            原始消息列表
+        """
+        conn = await self._get_messages_db_connection()
+        cursor = await conn.cursor()
+        
+        try:
+            await cursor.execute('''
+                SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, message_id, reply_to
+                FROM raw_messages 
+                WHERE group_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (group_id, limit))
+            
+            messages = []
+            for row in await cursor.fetchall():
+                messages.append({
+                    'id': row[0],
+                    'sender_id': row[1],
+                    'sender_name': row[2],
+                    'message': row[3],
+                    'group_id': row[4],
+                    'platform': row[5],
+                    'timestamp': row[6],
+                    'message_id': row[7],
+                    'reply_to': row[8]
+                })
+                
+            return messages
+            
+        except aiosqlite.Error as e:
+            logger.error(f"获取最近原始消息失败: {e}", exc_info=True)
             return []
 
     async def get_messages_statistics(self) -> Dict[str, Any]:
@@ -1342,6 +1421,25 @@ class DatabaseManager(AsyncServiceBase):
         except aiosqlite.Error as e:
             logger.error(f"更新人格更新记录状态失败: {e}", exc_info=True)
             raise DataStorageError(f"更新人格更新记录状态失败: {str(e)}")
+
+    async def delete_persona_update_record(self, record_id: int) -> bool:
+        """删除人格更新记录"""
+        conn = await self._get_messages_db_connection()
+        cursor = await conn.cursor()
+        
+        try:
+            await cursor.execute('''
+                DELETE FROM persona_update_records
+                WHERE id = ?
+            ''', (record_id,))
+            
+            await conn.commit()
+            logger.debug(f"人格更新记录 {record_id} 已删除")
+            return cursor.rowcount > 0
+            
+        except aiosqlite.Error as e:
+            logger.error(f"删除人格更新记录失败: {e}", exc_info=True)
+            raise DataStorageError(f"删除人格更新记录失败: {str(e)}")
 
     # ========== 高级功能数据库操作方法 ==========
 
@@ -2506,60 +2604,73 @@ class DatabaseManager(AsyncServiceBase):
     async def get_learning_patterns_data(self) -> Dict[str, Any]:
         """获取学习模式数据"""
         try:
+            # 首先尝试获取表达模式数据（来自expression_patterns表）
+            expression_patterns = await self.get_expression_patterns_for_webui()
+            
+            # 获取其他学习数据
             conn = await self._get_messages_db_connection()
             cursor = await conn.cursor()
             
-            # 检查是否有数据
+            # 检查是否有原始消息数据
+            await cursor.execute('SELECT COUNT(*) FROM raw_messages')
+            raw_data_count = (await cursor.fetchone())[0]
+            
+            # 检查是否有筛选消息数据
             await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-            data_count = (await cursor.fetchone())[0]
+            filtered_data_count = (await cursor.fetchone())[0]
             
-            if data_count == 0:
-                # 如果没有数据，返回友好提示
-                return {
-                    'emotion_patterns': [
-                        {'pattern': '暂无情感模式数据', 'confidence': 0, 'frequency': 0}
-                    ],
-                    'language_patterns': [
-                        {'type': '暂无语言模式数据', 'count': 0, 'avg_confidence': 0}
-                    ],
-                    'topic_preferences': [
-                        {'group_id': '暂无话题偏好数据', 'message_count': 0, 'avg_confidence': 0}
-                    ]
-                }
+            # 如果有表达模式数据，使用它；否则使用默认提示
+            if expression_patterns:
+                emotion_patterns = []
+                for pattern in expression_patterns[:10]:  # 显示前10个
+                    situation = pattern.get('situation', '场景描述').strip()
+                    expression = pattern.get('expression', '表达方式').strip()
+                    weight = pattern.get('weight', 0)
+                    
+                    # 确保不显示空的或无意义的数据
+                    if situation and expression and situation != '未知' and expression != '未知':
+                        pattern_name = f"情感表达-{situation[:10]}"  # 截取前10个字符作为模式名
+                        emotion_patterns.append({
+                            'pattern': pattern_name,
+                            'confidence': round(weight * 20, 2),  # 将权重转换为置信度百分比
+                            'frequency': max(1, int(weight))  # 确保频率至少为1
+                        })
+                
+                # 如果没有有效的表达模式，添加一个说明
+                if not emotion_patterns:
+                    emotion_patterns.append({
+                        'pattern': '正在学习表达模式',
+                        'confidence': 30.0,
+                        'frequency': 1
+                    })
+            else:
+                # 如果没有表达模式，但有原始数据，显示学习中状态
+                if raw_data_count > 0:
+                    emotion_patterns = [{
+                        'pattern': '正在学习表达模式，请稍候...',
+                        'confidence': 50.0,
+                        'frequency': raw_data_count
+                    }]
+                else:
+                    emotion_patterns = [{
+                        'pattern': '暂无对话数据，请先进行对话',
+                        'confidence': 0.0,
+                        'frequency': 0
+                    }]
             
-            # 情感模式分析（基于置信度和筛选原因）
-            await cursor.execute('''
-                SELECT 
-                    filter_reason,
-                    AVG(confidence) as avg_confidence,
-                    COUNT(*) as count
-                FROM filtered_messages
-                WHERE filter_reason IS NOT NULL
-                GROUP BY filter_reason
-                ORDER BY count DESC
-                LIMIT 10
-            ''')
-            
-            emotion_patterns = []
-            for row in await cursor.fetchall():
-                emotion_patterns.append({
-                    'pattern': row[0],
-                    'confidence': round(row[1], 2),
-                    'frequency': row[2]
-                })
-            
-            # 语言模式分析（基于消息长度和时间分布）
+            # 语言风格分析（基于原始消息长度分布）
             await cursor.execute('''
                 SELECT 
                     CASE 
-                        WHEN LENGTH(message) < 20 THEN 'short'
-                        WHEN LENGTH(message) < 100 THEN 'medium'
-                        ELSE 'long'
-                    END as message_type,
-                    COUNT(*) as count,
-                    AVG(confidence) as avg_confidence
-                FROM filtered_messages
-                GROUP BY message_type
+                        WHEN LENGTH(message) < 10 THEN '简短表达'
+                        WHEN LENGTH(message) < 30 THEN '适中表达'
+                        WHEN LENGTH(message) < 100 THEN '详细表达'
+                        ELSE '长篇表达'
+                    END as style_type,
+                    COUNT(*) as count
+                FROM raw_messages
+                WHERE message IS NOT NULL AND LENGTH(TRIM(message)) > 0
+                GROUP BY style_type
             ''')
             
             language_patterns = []
@@ -2567,50 +2678,75 @@ class DatabaseManager(AsyncServiceBase):
                 language_patterns.append({
                     'type': row[0],
                     'count': row[1],
-                    'avg_confidence': round(row[2], 2)
+                    'environment': 'general'
                 })
             
-            # 话题偏好分析（基于群组活跃度）
+            # 如果没有语言模式数据
+            if not language_patterns:
+                language_patterns = [{
+                    'type': '暂无语言风格数据',
+                    'count': 0,
+                    'environment': 'general'
+                }]
+            
+            # 话题偏好分析（基于群组活跃度和智能主题识别）
+            topic_preferences = []
+            
+            # 获取各个群组的消息数据进行主题分析
             await cursor.execute('''
                 SELECT 
                     group_id,
                     COUNT(*) as message_count,
-                    AVG(confidence) as avg_confidence
-                FROM filtered_messages
+                    AVG(LENGTH(message)) as avg_length
+                FROM raw_messages
+                WHERE group_id IS NOT NULL AND LENGTH(TRIM(message)) > 3
                 GROUP BY group_id
+                HAVING COUNT(*) > 10
                 ORDER BY message_count DESC
-                LIMIT 10
+                LIMIT 8
             ''')
             
-            topic_preferences = []
-            for row in await cursor.fetchall():
+            group_data = await cursor.fetchall()
+            
+            for row in group_data:
+                group_id = row[0]
+                message_count = row[1]
+                avg_length = row[2]
+                
+                # 获取该群组的代表性消息进行主题分析
+                await cursor.execute('''
+                    SELECT message 
+                    FROM raw_messages 
+                    WHERE group_id = ? AND LENGTH(TRIM(message)) > 5 AND LENGTH(TRIM(message)) < 200
+                    ORDER BY LENGTH(message) DESC, timestamp DESC 
+                    LIMIT 20
+                ''', (group_id,))
+                
+                messages = await cursor.fetchall()
+                if not messages:
+                    continue
+                    
+                # 智能主题识别
+                topic_analysis = self._analyze_topic_from_messages([msg[0] for msg in messages])
+                topic_name = topic_analysis['topic']
+                conversation_style = topic_analysis['style']
+                
+                # 根据消息长度和数量推断兴趣度
+                interest_level = min(100, max(10, (message_count * avg_length) / 50))
+                
                 topic_preferences.append({
-                    'group_id': row[0],
-                    'message_count': row[1],
-                    'avg_confidence': round(row[2], 2)
+                    'topic': topic_name,
+                    'style': conversation_style,
+                    'interest_level': round(interest_level, 1)
                 })
             
-            # 如果没有任何数据，添加友好提示
-            if not emotion_patterns:
-                emotion_patterns.append({
-                    'pattern': '暂无情感模式数据，请先进行对话学习',
-                    'confidence': 0,
-                    'frequency': 0
-                })
-            
-            if not language_patterns:
-                language_patterns.append({
-                    'type': '暂无语言模式数据，请先进行对话学习',
-                    'count': 0,
-                    'avg_confidence': 0
-                })
-            
+            # 如果没有话题偏好数据
             if not topic_preferences:
-                topic_preferences.append({
-                    'group_id': '暂无话题偏好数据，请先进行群聊对话',
-                    'message_count': 0,
-                    'avg_confidence': 0
-                })
+                topic_preferences = [{
+                    'topic': '暂无话题数据',
+                    'style': '等待中', 
+                    'interest_level': 0.0
+                }]
             
             return {
                 'emotion_patterns': emotion_patterns,
@@ -2621,10 +2757,595 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取学习模式数据失败: {e}")
             return {
-                'emotion_patterns': [],
-                'language_patterns': [],
-                'topic_preferences': []
+                'emotion_patterns': [
+                    {'pattern': '数据获取失败，请检查系统状态', 'confidence': 0, 'frequency': 0}
+                ],
+                'language_patterns': [
+                    {'type': '数据获取失败', 'count': 0, 'environment': 'general'}
+                ],
+                'topic_preferences': [
+                    {'topic': '数据获取失败', 'style': 'normal', 'interest_level': 0}
+                ]
             }
+
+    async def get_expression_patterns_for_webui(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """获取表达模式数据用于WebUI显示"""
+        try:
+            # 检查表是否存在
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 检查表是否存在
+            await cursor.execute('''
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='expression_patterns'
+            ''')
+            
+            table_exists = await cursor.fetchone()
+            if not table_exists:
+                self._logger.debug("expression_patterns表不存在")
+                return []
+            
+            # 获取表达模式数据
+            await cursor.execute('''
+                SELECT situation, expression, weight, last_active_time, group_id
+                FROM expression_patterns
+                ORDER BY weight DESC, last_active_time DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            patterns = []
+            for row in await cursor.fetchall():
+                patterns.append({
+                    'situation': row[0],
+                    'expression': row[1],
+                    'weight': row[2],
+                    'last_active_time': row[3],
+                    'group_id': row[4]
+                })
+            
+            return patterns
+            
+        except Exception as e:
+            self._logger.error(f"获取表达模式失败: {e}")
+            return []
+
+    async def create_style_learning_review(self, review_data: Dict[str, Any]) -> int:
+        """创建对话风格学习审查记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 确保审查表存在
+            await self._ensure_style_review_table_exists(cursor)
+            
+            # 插入审查记录
+            await cursor.execute('''
+                INSERT INTO style_learning_reviews 
+                (type, group_id, timestamp, learned_patterns, few_shots_content, status, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                review_data['type'],
+                review_data['group_id'],
+                review_data['timestamp'],
+                json.dumps(review_data['learned_patterns'], ensure_ascii=False),
+                review_data['few_shots_content'],
+                review_data['status'],
+                review_data['description']
+            ))
+            
+            review_id = cursor.lastrowid
+            await conn.commit()
+            
+            self._logger.info(f"创建风格学习审查记录成功，ID: {review_id}")
+            return review_id
+            
+        except Exception as e:
+            self._logger.error(f"创建风格学习审查记录失败: {e}")
+            raise DataStorageError(f"创建风格学习审查记录失败: {str(e)}")
+
+    async def _ensure_style_review_table_exists(self, cursor):
+        """确保风格学习审查表存在"""
+        await cursor.execute('''
+            CREATE TABLE IF NOT EXISTS style_learning_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                type TEXT NOT NULL,
+                group_id TEXT NOT NULL,
+                timestamp REAL NOT NULL,
+                learned_patterns TEXT,  -- JSON格式存储学习到的模式
+                few_shots_content TEXT,  -- Few shots对话内容
+                status TEXT DEFAULT 'pending',  -- pending, approved, rejected
+                description TEXT,
+                created_at REAL DEFAULT (strftime('%s', 'now')),
+                updated_at REAL DEFAULT (strftime('%s', 'now'))
+            )
+        ''')
+
+    async def get_pending_style_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的风格学习记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 确保表存在
+            await self._ensure_style_review_table_exists(cursor)
+            
+            await cursor.execute('''
+                SELECT id, type, group_id, timestamp, learned_patterns, few_shots_content, 
+                       status, description, created_at
+                FROM style_learning_reviews
+                WHERE status = 'pending'
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            reviews = []
+            for row in await cursor.fetchall():
+                learned_patterns = []
+                try:
+                    if row[4]:  # learned_patterns
+                        learned_patterns = json.loads(row[4])
+                except json.JSONDecodeError:
+                    pass
+                    
+                reviews.append({
+                    'id': row[0],
+                    'type': row[1],
+                    'group_id': row[2],
+                    'timestamp': row[3],
+                    'learned_patterns': learned_patterns,
+                    'few_shots_content': row[5],
+                    'status': row[6],
+                    'description': row[7],
+                    'created_at': row[8]
+                })
+            
+            return reviews
+            
+        except Exception as e:
+            self._logger.error(f"获取待审查风格学习记录失败: {e}")
+            return []
+
+    async def get_pending_persona_learning_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的人格学习记录（质量不达标的学习结果）"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 确保表存在（使用统一的结构）
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    group_id TEXT NOT NULL,
+                    update_type TEXT NOT NULL,
+                    original_content TEXT,
+                    new_content TEXT,
+                    proposed_content TEXT, -- 建议的新内容（兼容字段）
+                    confidence_score REAL, -- 置信度得分
+                    reason TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    reviewer_comment TEXT,
+                    review_time REAL
+                )
+            ''')
+            
+            # 为旧表添加缺失的列（如果不存在）
+            try:
+                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN proposed_content TEXT')
+            except:
+                pass  # 列已存在
+            try:
+                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN confidence_score REAL')
+            except:
+                pass  # 列已存在
+            
+            await cursor.execute('''
+                SELECT id, timestamp, group_id, update_type, original_content, 
+                       new_content, proposed_content, confidence_score, reason, status, 
+                       reviewer_comment, review_time
+                FROM persona_update_reviews
+                WHERE status = 'pending'
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (limit,))
+            
+            reviews = []
+            for row in await cursor.fetchall():
+                # 确保有proposed_content字段，如果为空则使用new_content
+                proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
+                confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
+                
+                reviews.append({
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'group_id': row[2],
+                    'update_type': row[3],
+                    'original_content': row[4],
+                    'new_content': row[5],
+                    'proposed_content': proposed_content,
+                    'confidence_score': confidence_score,
+                    'reason': row[8],
+                    'status': row[9],
+                    'reviewer_comment': row[10],
+                    'review_time': row[11]
+                })
+            
+            return reviews
+            
+        except Exception as e:
+            self._logger.error(f"获取待审查人格学习记录失败: {e}")
+            return []
+
+    async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None, modified_content: str = None) -> bool:
+        """更新人格学习审查状态"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 如果有修改后的内容，也要更新proposed_content字段
+            if modified_content:
+                await cursor.execute('''
+                    UPDATE persona_update_reviews
+                    SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
+                    WHERE id = ?
+                ''', (status, comment, time.time(), modified_content, modified_content, review_id))
+            else:
+                await cursor.execute('''
+                    UPDATE persona_update_reviews
+                    SET status = ?, reviewer_comment = ?, review_time = ?
+                    WHERE id = ?
+                ''', (status, comment, time.time(), review_id))
+            
+            await conn.commit()
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            self._logger.error(f"更新人格学习审查状态失败: {e}")
+            return False
+    
+    async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
+        """删除指定ID的人格学习审查记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 删除审查记录
+            await cursor.execute('''
+                DELETE FROM persona_update_reviews WHERE id = ?
+            ''', (review_id,))
+            
+            await conn.commit()
+            deleted_count = cursor.rowcount
+            
+            if deleted_count > 0:
+                self._logger.info(f"成功删除人格学习审查记录，ID: {review_id}")
+                return True
+            else:
+                self._logger.warning(f"未找到要删除的人格学习审查记录，ID: {review_id}")
+                return False
+            
+        except Exception as e:
+            self._logger.error(f"删除人格学习审查记录失败: {e}")
+            return False
+    
+    async def get_persona_learning_review_by_id(self, review_id: int) -> Optional[Dict[str, Any]]:
+        """获取指定ID的人格学习审查记录详情"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                SELECT id, group_id, original_content, new_content, proposed_content, 
+                       confidence_score, reason, status, reviewer_comment, review_time, timestamp
+                FROM persona_update_reviews
+                WHERE id = ?
+            ''', (review_id,))
+            
+            row = await cursor.fetchone()
+            if row:
+                return {
+                    'id': row[0],
+                    'group_id': row[1],
+                    'original_content': row[2],
+                    'new_content': row[3],
+                    'proposed_content': row[4] if row[4] else row[3],  # proposed_content或new_content
+                    'confidence_score': row[5] if row[5] is not None else 0.5,
+                    'reason': row[6],
+                    'status': row[7],
+                    'reviewer_comment': row[8],
+                    'review_time': row[9],
+                    'timestamp': row[10]
+                }
+            return None
+            
+        except Exception as e:
+            self._logger.error(f"获取人格学习审查记录失败: {e}")
+            return None
+
+    async def save_style_learning_record(self, record_data: Dict[str, Any]) -> bool:
+        """保存风格学习记录到数据库"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                INSERT INTO style_learning_records 
+                (style_type, learned_patterns, confidence_score, sample_count, group_id, learning_time)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (
+                record_data.get('style_type'),
+                record_data.get('learned_patterns'),
+                record_data.get('confidence_score'),
+                record_data.get('sample_count'),
+                record_data.get('group_id'),
+                record_data.get('learning_time')
+            ))
+            
+            await conn.commit()
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"保存风格学习记录失败: {e}")
+            return False
+
+    async def save_language_style_pattern(self, pattern_data: Dict[str, Any]) -> bool:
+        """保存语言风格模式到数据库"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 先检查是否已存在相同的语言风格
+            await cursor.execute('''
+                SELECT id FROM language_style_patterns 
+                WHERE language_style = ? AND group_id = ?
+            ''', (pattern_data.get('language_style'), pattern_data.get('group_id')))
+            
+            existing = await cursor.fetchone()
+            
+            if existing:
+                # 更新现有记录
+                await cursor.execute('''
+                    UPDATE language_style_patterns 
+                    SET example_phrases = ?, usage_frequency = ?, context_type = ?, last_updated = ?
+                    WHERE id = ?
+                ''', (
+                    pattern_data.get('example_phrases'),
+                    pattern_data.get('usage_frequency'),
+                    pattern_data.get('context_type'),
+                    pattern_data.get('last_updated'),
+                    existing[0]
+                ))
+            else:
+                # 插入新记录
+                await cursor.execute('''
+                    INSERT INTO language_style_patterns 
+                    (language_style, example_phrases, usage_frequency, context_type, group_id, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    pattern_data.get('language_style'),
+                    pattern_data.get('example_phrases'),
+                    pattern_data.get('usage_frequency'),
+                    pattern_data.get('context_type'),
+                    pattern_data.get('group_id'),
+                    pattern_data.get('last_updated')
+                ))
+            
+            await conn.commit()
+            return True
+            
+        except Exception as e:
+            self._logger.error(f"保存语言风格模式失败: {e}")
+            return False
+
+    async def get_reviewed_persona_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取已审查的人格学习更新记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 构建查询条件
+            where_clause = "WHERE status != 'pending'"
+            params = []
+            
+            if status_filter:
+                where_clause += " AND status = ?"
+                params.append(status_filter)
+            
+            # 首先检查表是否存在并获取表结构
+            await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='persona_update_reviews'")
+            table_exists = await cursor.fetchone()
+            
+            if not table_exists:
+                self._logger.info("persona_update_reviews表不存在，返回空列表")
+                return []
+            
+            # 检查表结构，确定正确的字段名
+            await cursor.execute("PRAGMA table_info(persona_update_reviews)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            # 根据实际的列名构建查询
+            if 'proposed_content' in column_names:
+                content_field = 'proposed_content'
+            elif 'new_content' in column_names:
+                content_field = 'new_content'
+            else:
+                # 如果两个字段都不存在，使用原始内容
+                content_field = 'original_content'
+            
+            # 使用实际存在的字段进行查询，并处理NULL值
+            await cursor.execute(f'''
+                SELECT id, group_id, original_content, {content_field}, reason, 
+                       status, reviewer_comment, review_time, timestamp
+                FROM persona_update_reviews
+                {where_clause}
+                ORDER BY COALESCE(review_time, timestamp) DESC
+                LIMIT ? OFFSET ?
+            ''', params + [limit, offset])
+            
+            rows = await cursor.fetchall()
+            updates = []
+            
+            for row in rows:
+                updates.append({
+                    'id': f"persona_learning_{row[0]}",
+                    'group_id': row[1] or 'default',
+                    'original_content': row[2] or '',
+                    'proposed_content': row[3] or '',  # 使用实际存在的字段
+                    'reason': row[4] or '人格学习更新',
+                    'confidence_score': 0.8,  # 默认置信度
+                    'status': row[5],
+                    'reviewer_comment': row[6] or '',
+                    'review_time': row[7] if row[7] else 0,
+                    'timestamp': row[8] if row[8] else 0,
+                    'update_type': 'persona_learning_review'
+                })
+            
+            return updates
+            
+        except Exception as e:
+            self._logger.error(f"获取已审查人格学习记录失败: {e}")
+            # 如果是表或列不存在的错误，返回空列表
+            if "no such table" in str(e).lower() or "no such column" in str(e).lower():
+                self._logger.info("人格学习审查表或字段不存在，返回空列表")
+                return []
+            return []
+
+    async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取已审查的风格学习更新记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 构建查询条件
+            where_clause = "WHERE status != 'pending'"
+            params = []
+            
+            if status_filter:
+                where_clause += " AND status = ?"
+                params.append(status_filter)
+            
+            # 使用正确的字段名，没有review_time字段，使用updated_at，并处理NULL值
+            await cursor.execute(f'''
+                SELECT id, type, group_id, timestamp, learned_patterns, status, updated_at, description
+                FROM style_learning_reviews
+                {where_clause}
+                ORDER BY COALESCE(updated_at, timestamp) DESC
+                LIMIT ? OFFSET ?
+            ''', params + [limit, offset])
+            
+            rows = await cursor.fetchall()
+            updates = []
+            
+            for row in rows:
+                # 尝试解析learned_patterns以获取更多信息
+                try:
+                    learned_patterns = json.loads(row[4]) if row[4] else {}
+                    reason = learned_patterns.get('reason', '风格学习更新')
+                    original_content = learned_patterns.get('original_content', '原始风格特征')
+                    proposed_content = learned_patterns.get('proposed_content', row[4])  # 使用完整的learned_patterns作为proposed_content
+                    confidence_score = learned_patterns.get('confidence_score', 0.8)
+                except (json.JSONDecodeError, AttributeError):
+                    reason = row[7] or '风格学习更新'  # 使用description字段
+                    original_content = '原始风格特征'
+                    proposed_content = row[4] or '无内容'
+                    confidence_score = 0.8
+                
+                updates.append({
+                    'id': row[0],
+                    'group_id': row[2],
+                    'original_content': original_content,
+                    'proposed_content': proposed_content,
+                    'reason': reason,
+                    'confidence_score': confidence_score,
+                    'status': row[5],
+                    'reviewer_comment': '',  # 风格审查没有备注字段
+                    'review_time': row[6],  # 使用updated_at字段
+                    'timestamp': row[3],
+                    'update_type': f'style_learning_{row[1]}'
+                })
+            
+            return updates
+            
+        except Exception as e:
+            self._logger.error(f"获取已审查风格学习记录失败: {e}")
+            # 如果表不存在，返回空列表
+            if "no such table" in str(e).lower():
+                self._logger.info("风格学习审查表不存在，返回空列表")
+                return []
+            return []
+
+    async def get_reviewed_persona_update_records(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取已审查的传统人格更新记录"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            # 构建查询条件
+            where_clause = "WHERE status != 'pending'"
+            params = []
+            
+            if status_filter:
+                where_clause += " AND status = ?"
+                params.append(status_filter)
+            
+            await cursor.execute(f'''
+                SELECT id, timestamp, group_id, update_type, original_content, new_content, 
+                       reason, status, reviewer_comment, review_time
+                FROM persona_update_records
+                {where_clause}
+                ORDER BY review_time DESC
+                LIMIT ? OFFSET ?
+            ''', params + [limit, offset])
+            
+            rows = await cursor.fetchall()
+            records = []
+            
+            for row in rows:
+                records.append({
+                    'id': row[0],
+                    'timestamp': row[1],
+                    'group_id': row[2],
+                    'update_type': row[3],
+                    'original_content': row[4],
+                    'new_content': row[5],
+                    'reason': row[6],
+                    'status': row[7],
+                    'reviewer_comment': row[8],
+                    'review_time': row[9]
+                })
+            
+            return records
+            
+        except Exception as e:
+            self._logger.error(f"获取已审查传统人格更新记录失败: {e}")
+            return []
+
+    async def update_style_review_status(self, review_id: int, status: str, group_id: str = None) -> bool:
+        """更新风格学习审查状态"""
+        try:
+            conn = await self._get_messages_db_connection()
+            cursor = await conn.cursor()
+            
+            await cursor.execute('''
+                UPDATE style_learning_reviews
+                SET status = ?, updated_at = ?
+                WHERE id = ?
+            ''', (status, time.time(), review_id))
+            
+            await conn.commit()
+            
+            if cursor.rowcount > 0:
+                self._logger.info(f"更新风格学习审查状态成功: ID={review_id}, 状态={status}")
+                return True
+            else:
+                self._logger.warning(f"更新风格学习审查状态失败: 未找到ID={review_id}的记录")
+                return False
+                
+        except Exception as e:
+            self._logger.error(f"更新风格学习审查状态失败: {e}")
+            return False
 
     async def get_detailed_metrics(self) -> Dict[str, Any]:
         """获取详细性能监控数据"""
@@ -2800,6 +3521,77 @@ class DatabaseManager(AsyncServiceBase):
                 'llm_growth': 0,
                 'sessions_growth': 0
             }
+
+    def _analyze_topic_from_messages(self, messages: List[str]) -> Dict[str, str]:
+        """
+        基于消息内容智能分析群聊主题
+        
+        Args:
+            messages: 消息列表
+            
+        Returns:
+            包含topic和style的字典
+        """
+        try:
+            if not messages:
+                return {'topic': '空群聊', 'style': 'unknown'}
+            
+            # 合并所有消息文本
+            all_text = ' '.join(messages).lower()
+            
+            # 定义主题关键词库
+            topic_keywords = {
+                '技术讨论': ['代码', '编程', 'python', 'java', 'javascript', 'bug', '算法', '开发', '前端', '后端', 'api', '数据库', 'sql', 'git', '项目', '需求', '测试', '部署'],
+                '游戏娱乐': ['游戏', '玩家', '攻略', '装备', '副本', '公会', 'pvp', '角色', '技能', '等级', '经验', '任务', '活动', '充值', '抽卡', '开黑', '上分'],
+                '学习交流': ['学习', '作业', '考试', '复习', '笔记', '课程', '老师', '同学', '知识', '问题', '答案', '教程', '资料', '书籍', '论文', '研究'],
+                '工作协作': ['工作', '会议', '项目', '任务', '进度', '汇报', '客户', '合作', '团队', '领导', '同事', '业务', '方案', '文档', '流程', '审批'],
+                '生活日常': ['吃饭', '睡觉', '天气', '心情', '家人', '朋友', '购物', '电影', '音乐', '旅游', '美食', '健康', '运动', '休息', '周末'],
+                '兴趣爱好': ['摄影', '绘画', '音乐', '电影', '书籍', '旅行', '美食', '运动', '健身', '瑜伽', '跑步', '骑行', '爬山', '游泳', '篮球'],
+                '商务合作': ['合作', '商务', '业务', '客户', '项目', '方案', '报价', '合同', '付款', '发票', '产品', '服务', '市场', '销售', '推广'],
+                '技术支持': ['问题', '故障', '错误', '修复', '解决', '帮助', '支持', '教程', '指导', '操作', '配置', '安装', '更新', '维护', '优化'],
+                '闲聊灌水': ['哈哈', '嘿嘿', '😂', '😄', '笑死', '有趣', '无聊', '随便', '聊天', '扯淡', '吐槽', '搞笑', '段子', '表情', '发呆'],
+                '通知公告': ['通知', '公告', '重要', '注意', '提醒', '截止', '时间', '安排', '活动', '报名', '参加', '会议', '培训', '讲座', '活动']
+            }
+            
+            # 分析主题匹配度
+            topic_scores = {}
+            for topic, keywords in topic_keywords.items():
+                score = 0
+                for keyword in keywords:
+                    score += all_text.count(keyword)
+                topic_scores[topic] = score
+            
+            # 获取得分最高的主题
+            best_topic = max(topic_scores.items(), key=lambda x: x[1])
+            
+            if best_topic[1] == 0:  # 没有匹配到任何关键词
+                return {'topic': '综合聊天', 'style': '日常对话'}
+            
+            # 根据主题确定对话风格
+            style_mapping = {
+                '技术讨论': '技术交流',
+                '游戏娱乐': '轻松娱乐', 
+                '学习交流': '学术讨论',
+                '工作协作': '工作协调',
+                '生活日常': '日常闲聊',
+                '兴趣爱好': '兴趣分享',
+                '商务合作': '商务沟通',
+                '技术支持': '技术答疑',
+                '闲聊灌水': '轻松聊天',
+                '通知公告': '信息通知'
+            }
+            
+            topic = best_topic[0]
+            style = style_mapping.get(topic, '日常对话')
+            
+            return {
+                'topic': topic,
+                'style': style
+            }
+            
+        except Exception as e:
+            self._logger.error(f"主题分析失败: {e}")
+            return {'topic': '未知主题', 'style': '日常对话'}
 
     async def get_recent_learning_batches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近的学习批次记录"""

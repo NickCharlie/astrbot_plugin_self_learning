@@ -53,6 +53,7 @@ class PersonaUpdateRecord:
     original_content: str # 更新前的内容
     new_content: str # 更新后的内容
     reason: str # 需要审查的原因
+    confidence_score: float = 0.5  # 置信度得分
     id: Optional[int] = None # 数据库ID
     status: str = "pending" # "pending", "approved", "rejected"
     reviewer_comment: Optional[str] = None
@@ -258,6 +259,25 @@ class IEventPublisher(ABC):
         pass
 
 
+class IMessageRelationshipAnalyzer(ABC):
+    """消息关系分析器接口"""
+    
+    @abstractmethod
+    async def analyze_message_relationships(self, messages: List[Dict[str, Any]], group_id: str) -> List[Any]:
+        """分析消息之间的关系"""
+        pass
+    
+    @abstractmethod
+    async def get_conversation_pairs(self, relationships: List[Any]) -> List[tuple]:
+        """从关系中提取对话对"""
+        pass
+    
+    @abstractmethod
+    async def analyze_conversation_quality(self, relationships: List[Any]) -> Dict[str, Any]:
+        """分析对话质量"""
+        pass
+
+
 class IServiceFactory(ABC):
     """服务工厂接口"""
     
@@ -280,6 +300,20 @@ class IServiceFactory(ABC):
     def create_quality_monitor(self) -> IQualityMonitor:
         """创建质量监控器"""
         pass
+    
+    @abstractmethod
+    def create_persona_updater(self) -> IPersonaUpdater:
+        """创建人格更新器"""
+        pass
+    
+    @abstractmethod
+    def create_message_relationship_analyzer(self) -> IMessageRelationshipAnalyzer:
+        """创建消息关系分析器"""
+        pass
+    
+    def get_persona_updater(self) -> Optional[IPersonaUpdater]:
+        """获取已创建的人格更新器实例，如果不存在则创建（默认实现）"""
+        return self.create_persona_updater()
 
 
 class IAsyncService(ABC):

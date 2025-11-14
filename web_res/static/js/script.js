@@ -97,6 +97,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         logoutBtn.addEventListener('click', logout);
     }
     
+    // 绑定重新学习按钮事件
+    const relearnBtn = document.getElementById('relearnBtn');
+    if (relearnBtn) {
+        relearnBtn.addEventListener('click', triggerRelearn);
+    }
+    
     // 注册ECharts主题
     echarts.registerTheme('material', materialTheme);
     
@@ -1030,14 +1036,24 @@ async function loadPersonaUpdates() {
     try {
         const response = await fetch('/api/persona_updates');
         if (response.ok) {
-            const updates = await response.json();
-            renderPersonaUpdates(updates);
-            updateReviewStats(updates);
+            const data = await response.json();
+            // 确保 data 有正确的结构
+            if (data && data.success && Array.isArray(data.updates)) {
+                renderPersonaUpdates(data.updates);
+                await updateReviewStats(data.updates);
+            } else {
+                console.error('人格更新数据格式不正确:', data);
+                renderPersonaUpdates([]);
+                await updateReviewStats([]);
+            }
         } else {
             throw new Error('加载人格更新失败');
         }
     } catch (error) {
         console.error('加载人格更新失败:', error);
+        // 确保即使出错也能正常渲染空列表
+        renderPersonaUpdates([]);
+        await updateReviewStats([]);
     }
 }
 
@@ -1159,47 +1175,184 @@ function renderPersonaUpdates(updates) {
         return;
     }
     
-    reviewList.innerHTML = updates.map(update => `
-        <div class="persona-update-item">
+    // 清空列表
+    reviewList.innerHTML = '';
+    
+    // 为每个更新创建元素并绑定事件
+    updates.forEach(update => {
+        const updateElement = document.createElement('div');
+        updateElement.className = 'persona-update-item';
+        
+        // 确定更新类型和对应的徽章
+        const updateType = update.update_type || 'persona_update';
+        let typeBadge = '';
+        let typeText = '';
+        
+        if (updateType.includes('style') || updateType === 'style_learning') {
+            typeBadge = '<span class="type-badge style-badge">风格学习</span>';
+            typeText = '风格学习更新';
+        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+            typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
+            typeText = '人格学习更新';
+        } else {
+            typeBadge = '<span class="type-badge general-badge">常规更新</span>';
+            typeText = '常规更新';
+        }
+        
+        updateElement.innerHTML = `
+            ${typeBadge}
+            <div class="update-header">
+                <div class="update-checkbox">
+                    <input type="checkbox" class="review-checkbox" value="${update.id}" id="review-${update.id}">
+                    <label for="review-${update.id}"></label>
+                </div>
+                <div class="update-info">
+                    <div class="update-id-badge">
+                        <span class="id-badge">${update.id}</span>
+                    </div>
+                </div>
+            </div>
             <div class="update-content">
-                <h4>更新 ID: ${update.id} - ${update.update_type || '人格更新'}</h4>
                 <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
                 <p><strong>时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
                 <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
                 <div class="update-preview">
-                    <p><strong>原始内容:</strong></p>
-                    <div class="content-preview">${(update.original_content || '').substring(0, 200)}${update.original_content && update.original_content.length > 200 ? '...' : ''}</div>
-                    <p><strong>建议更新:</strong></p>
-                    <div class="content-preview">${(update.proposed_content || '').substring(0, 200)}${update.proposed_content && update.proposed_content.length > 200 ? '...' : ''}</div>
+                    <p><strong>原始内容:</strong> <button class="toggle-content-btn" data-target="original-${update.id}">展开完整内容</button></p>
+                    <div class="content-preview" id="original-${update.id}" data-collapsed="true">${truncateText(update.original_content || '', 200)}</div>
+                    <div class="content-preview full-content" id="original-full-${update.id}" style="display: none;">${update.original_content || ''}</div>
+                    
+                    <p><strong>建议更新:</strong> <button class="toggle-content-btn" data-target="proposed-${update.id}">展开完整内容</button></p>
+                    <div class="content-preview" id="proposed-${update.id}" data-collapsed="true">${truncateText(update.proposed_content || '', 200)}</div>
+                    <div class="content-preview full-content" id="proposed-full-${update.id}" style="display: none;">${update.proposed_content || ''}</div>
                 </div>
             </div>
             <div class="update-actions">
-                <button class="btn btn-primary" onclick="editPersonaUpdate(${update.id})">
+                <button class="btn btn-primary edit-btn">
                     <i class="material-icons">edit</i>
                     编辑
                 </button>
-                <button class="btn btn-success" onclick="reviewUpdate(${update.id}, 'approve')">
+                <button class="btn btn-success approve-btn">
                     <i class="material-icons">check</i>
                     批准
                 </button>
-                <button class="btn btn-danger" onclick="reviewUpdate(${update.id}, 'reject')">
+                <button class="btn btn-danger reject-btn">
                     <i class="material-icons">close</i>
                     拒绝
                 </button>
+                <button class="btn btn-secondary delete-btn">
+                    <i class="material-icons">delete</i>
+                    删除
+                </button>
             </div>
-        </div>
-    `).join('');
+        `;
+        
+        // 绑定事件处理器
+        const editBtn = updateElement.querySelector('.edit-btn');
+        const approveBtn = updateElement.querySelector('.approve-btn');
+        const rejectBtn = updateElement.querySelector('.reject-btn');
+        const deleteBtn = updateElement.querySelector('.delete-btn');
+        const toggleBtns = updateElement.querySelectorAll('.toggle-content-btn');
+        
+        editBtn.addEventListener('click', () => editPersonaUpdate(update.id));
+        approveBtn.addEventListener('click', () => reviewUpdate(update.id, 'approve'));
+        rejectBtn.addEventListener('click', () => reviewUpdate(update.id, 'reject'));
+        deleteBtn.addEventListener('click', () => deletePersonaUpdate(update.id));
+        
+        // 添加复选框变化监听器
+        const checkbox = updateElement.querySelector('.review-checkbox');
+        if (checkbox) {
+            checkbox.addEventListener('change', updateBatchOperationsVisibility);
+        }
+        
+        // 绑定展开/收起按钮
+        toggleBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => toggleContentView(e.target));
+        });
+        
+        reviewList.appendChild(updateElement);
+    });
+}
+
+// 切换内容显示（展开/收起）
+function toggleContentView(button) {
+    const target = button.getAttribute('data-target');
+    const shortContent = document.getElementById(target);
+    
+    // 更智能的全内容ID生成
+    let fullContentId;
+    if (target.includes('reviewed-original-')) {
+        fullContentId = target.replace('reviewed-original-', 'reviewed-original-full-');
+    } else if (target.includes('reviewed-proposed-')) {
+        fullContentId = target.replace('reviewed-proposed-', 'reviewed-proposed-full-');
+    } else if (target.includes('original-')) {
+        fullContentId = target.replace('original-', 'original-full-');
+    } else if (target.includes('proposed-')) {
+        fullContentId = target.replace('proposed-', 'proposed-full-');
+    } else {
+        fullContentId = target + '-full';
+    }
+    
+    const fullContent = document.getElementById(fullContentId);
+    
+    if (!shortContent || !fullContent) {
+        console.warn('找不到内容元素:', target, fullContentId);
+        return;
+    }
+    
+    const isCollapsed = shortContent.getAttribute('data-collapsed') === 'true';
+    
+    if (isCollapsed) {
+        // 展开
+        shortContent.style.display = 'none';
+        fullContent.style.display = 'block';
+        button.textContent = '收起内容';
+        shortContent.setAttribute('data-collapsed', 'false');
+        fullContent.setAttribute('data-collapsed', 'false');
+    } else {
+        // 收起
+        shortContent.style.display = 'block';
+        fullContent.style.display = 'none';
+        button.textContent = '展开完整内容';
+        shortContent.setAttribute('data-collapsed', 'true');
+        fullContent.setAttribute('data-collapsed', 'true');
+    }
 }
 
 // 更新审查统计
-function updateReviewStats(updates) {
-    const pending = updates.filter(u => !u.reviewed).length;
-    const approved = updates.filter(u => u.reviewed && u.approved).length;
-    const rejected = updates.filter(u => u.reviewed && !u.approved).length;
-    
-    document.getElementById('pending-reviews').textContent = pending;
-    document.getElementById('approved-reviews').textContent = approved;
-    document.getElementById('rejected-reviews').textContent = rejected;
+async function updateReviewStats(pendingUpdates = []) {
+    try {
+        // 获取已审查的数据来计算统计
+        const reviewedResponse = await fetch('/api/persona_updates/reviewed');
+        let reviewedUpdates = [];
+        
+        if (reviewedResponse.ok) {
+            const reviewedData = await reviewedResponse.json();
+            if (reviewedData && reviewedData.success && Array.isArray(reviewedData.updates)) {
+                reviewedUpdates = reviewedData.updates;
+            }
+        }
+        
+        // 计算统计数据
+        const pending = pendingUpdates.length;
+        const approved = reviewedUpdates.filter(u => u.status === 'approved').length;
+        const rejected = reviewedUpdates.filter(u => u.status === 'rejected').length;
+        
+        // 更新页面显示
+        const pendingElement = document.getElementById('pending-reviews');
+        const approvedElement = document.getElementById('approved-reviews');  
+        const rejectedElement = document.getElementById('rejected-reviews');
+        
+        if (pendingElement) pendingElement.textContent = pending;
+        if (approvedElement) approvedElement.textContent = approved;
+        if (rejectedElement) rejectedElement.textContent = rejected;
+        
+    } catch (error) {
+        console.error('更新审查统计失败:', error);
+        // 出错时至少显示待审查数量
+        const pending = pendingUpdates.length;
+        const pendingElement = document.getElementById('pending-reviews');
+        if (pendingElement) pendingElement.textContent = pending;
+    }
 }
 
 // 渲染学习状态
@@ -1387,8 +1540,13 @@ function editPersonaUpdate(updateId) {
     // 查找待审查的人格更新数据
     fetch(`/api/persona_updates`)
         .then(response => response.json())
-        .then(updates => {
-            const update = updates.find(u => u.id === updateId);
+        .then(data => {
+            if (!data.success) {
+                showError('获取更新列表失败');
+                return;
+            }
+            
+            const update = data.updates.find(u => u.id === updateId);
             if (!update) {
                 showError('未找到对应的更新记录');
                 return;
@@ -1409,7 +1567,7 @@ function showPersonaEditDialog(update) {
             <div class="persona-edit-dialog">
                 <div class="dialog-header">
                     <h3>编辑人格更新 - ID: ${update.id}</h3>
-                    <button class="close-btn" onclick="closePersonaEditDialog()">
+                    <button class="close-btn" id="closeEditDialogBtn">
                         <i class="material-icons">close</i>
                     </button>
                 </div>
@@ -1424,12 +1582,12 @@ function showPersonaEditDialog(update) {
                     <div class="content-editor">
                         <div class="editor-section">
                             <h4>原始人格内容</h4>
-                            <textarea id="originalContent" readonly rows="8">${update.original_content || ''}</textarea>
+                            <textarea id="originalContent" readonly rows="15" style="resize: vertical; min-height: 200px;">${update.original_content || ''}</textarea>
                         </div>
                         
                         <div class="editor-section">
                             <h4>建议更新内容</h4>
-                            <textarea id="proposedContent" rows="12">${update.proposed_content || ''}</textarea>
+                            <textarea id="proposedContent" rows="15" style="resize: vertical; min-height: 200px;">${update.proposed_content || ''}</textarea>
                             <small class="form-hint">💡 您可以手动修改建议的人格内容，然后选择批准或拒绝</small>
                         </div>
                         
@@ -1440,15 +1598,15 @@ function showPersonaEditDialog(update) {
                     </div>
                 </div>
                 <div class="dialog-actions">
-                    <button class="btn btn-secondary" onclick="closePersonaEditDialog()">
+                    <button class="btn btn-secondary" id="cancelEditBtn">
                         <i class="material-icons">close</i>
                         取消
                     </button>
-                    <button class="btn btn-danger" onclick="reviewPersonaUpdate(${update.id}, 'reject')">
+                    <button class="btn btn-danger" id="rejectEditBtn">
                         <i class="material-icons">close</i>
                         拒绝更新
                     </button>
-                    <button class="btn btn-success" onclick="reviewPersonaUpdate(${update.id}, 'approve')">
+                    <button class="btn btn-success" id="approveEditBtn">
                         <i class="material-icons">check</i>
                         批准更新
                     </button>
@@ -1460,8 +1618,24 @@ function showPersonaEditDialog(update) {
     // 添加对话框到页面
     document.body.insertAdjacentHTML('beforeend', dialogHTML);
     
-    // 添加点击外部关闭功能
+    // 绑定事件处理器
     const overlay = document.getElementById('personaEditOverlay');
+    const closeBtn = document.getElementById('closeEditDialogBtn');
+    const cancelBtn = document.getElementById('cancelEditBtn');
+    const rejectBtn = document.getElementById('rejectEditBtn');
+    const approveBtn = document.getElementById('approveEditBtn');
+    
+    // 关闭对话框事件
+    const closeDialog = () => closePersonaEditDialog();
+    
+    closeBtn.addEventListener('click', closeDialog);
+    cancelBtn.addEventListener('click', closeDialog);
+    
+    // 批准和拒绝事件
+    rejectBtn.addEventListener('click', () => reviewPersonaUpdate(update.id, 'reject'));
+    approveBtn.addEventListener('click', () => reviewPersonaUpdate(update.id, 'approve'));
+    
+    // 添加点击外部关闭功能
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) {
             closePersonaEditDialog();
@@ -1507,6 +1681,228 @@ async function reviewPersonaUpdate(updateId, action) {
         console.error('审查操作失败:', error);
         showError(`操作失败: ${error.message}`);
     }
+}
+
+// 删除人格更新记录
+async function deletePersonaUpdate(updateId) {
+    if (!confirm('确定要删除这条记录吗？此操作不可撤销。')) {
+        return;
+    }
+    
+    try {
+        // 解析ID：如果是 persona_learning_20 格式，提取数字部分
+        let numericId = updateId;
+        if (typeof updateId === 'string') {
+            const match = updateId.match(/\d+$/);
+            if (match) {
+                numericId = parseInt(match[0]);
+            }
+        }
+        
+        const response = await fetch(`/api/persona_updates/${numericId}/delete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            // 重新加载列表
+            await loadPendingReviews();
+            // 如果当前在审查历史页面，也刷新已审查列表
+            if (document.querySelector('#reviewed-tab.active')) {
+                loadReviewedPersonaUpdates();
+            }
+        } else {
+            showError(data.error || '删除失败');
+        }
+    } catch (error) {
+        console.error('删除操作失败:', error);
+        showError('删除操作失败');
+    }
+}
+
+// 批量删除人格更新记录
+async function batchDeletePersonaUpdates(updateIds) {
+    if (!updateIds || updateIds.length === 0) {
+        showError('请选择要删除的记录');
+        return;
+    }
+    
+    if (!confirm(`确定要删除选中的 ${updateIds.length} 条记录吗？此操作不可撤销。`)) {
+        return;
+    }
+    
+    try {
+        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
+        const numericIds = updateIds.map(id => {
+            if (typeof id === 'string') {
+                const match = id.match(/\d+$/);
+                if (match) {
+                    return parseInt(match[0]);
+                }
+            }
+            return id;
+        });
+        
+        const response = await fetch('/api/persona_updates/batch_delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ update_ids: numericIds })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            // 重新加载列表
+            await loadPendingReviews();
+            // 如果当前在审查历史页面，也刷新已审查列表
+            if (document.querySelector('#reviewed-tab.active')) {
+                loadReviewedPersonaUpdates();
+            }
+            // 清除选中状态
+            clearAllSelections();
+        } else {
+            showError(data.error || '批量删除失败');
+        }
+    } catch (error) {
+        console.error('批量删除操作失败:', error);
+        showError('批量删除操作失败');
+    }
+}
+
+// 批量审查人格更新记录
+async function batchReviewPersonaUpdates(updateIds, action, comment = '') {
+    if (!updateIds || updateIds.length === 0) {
+        showError('请选择要操作的记录');
+        return;
+    }
+    
+    const actionText = action === 'approve' ? '批准' : '拒绝';
+    if (!confirm(`确定要批量${actionText}选中的 ${updateIds.length} 条记录吗？`)) {
+        return;
+    }
+    
+    try {
+        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
+        const numericIds = updateIds.map(id => {
+            if (typeof id === 'string') {
+                const match = id.match(/\d+$/);
+                if (match) {
+                    return parseInt(match[0]);
+                }
+            }
+            return id;
+        });
+        
+        const response = await fetch('/api/persona_updates/batch_review', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                update_ids: numericIds,
+                action: action,
+                comment: comment 
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(data.message);
+            // 重新加载列表
+            await loadPendingReviews();
+            // 如果当前在审查历史页面，也刷新已审查列表
+            if (document.querySelector('#reviewed-tab.active')) {
+                loadReviewedPersonaUpdates();
+            }
+            // 清除选中状态
+            clearAllSelections();
+        } else {
+            showError(data.error || `批量${actionText}失败`);
+        }
+    } catch (error) {
+        console.error(`批量${actionText}操作失败:`, error);
+        showError(`批量${actionText}操作失败`);
+    }
+}
+
+// 获取选中的记录ID列表
+function getSelectedReviewIds() {
+    const checkboxes = document.querySelectorAll('.review-checkbox:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+function getSelectedReviewedIds() {
+    const checkboxes = document.querySelectorAll('.reviewed-checkbox:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+// 清除所有选中状态
+function clearAllSelections() {
+    document.querySelectorAll('.review-checkbox, .reviewed-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    updateBatchOperationsVisibility();
+}
+
+// 更新批量操作按钮可见性
+function updateBatchOperationsVisibility() {
+    const selectedPendingCount = getSelectedReviewIds().length;
+    const selectedReviewedCount = getSelectedReviewedIds().length;
+    
+    // 更新待审查页面的批量操作按钮
+    const pendingBatchOps = document.getElementById('pending-batch-operations');
+    if (pendingBatchOps) {
+        pendingBatchOps.style.display = selectedPendingCount > 0 ? 'block' : 'none';
+    }
+    
+    // 更新审查历史页面的批量操作按钮
+    const reviewedBatchOps = document.getElementById('reviewed-batch-operations');
+    if (reviewedBatchOps) {
+        reviewedBatchOps.style.display = selectedReviewedCount > 0 ? 'block' : 'none';
+    }
+    
+    // 更新选中计数显示
+    const pendingSelectedCount = document.getElementById('pending-selected-count');
+    if (pendingSelectedCount) {
+        pendingSelectedCount.textContent = selectedPendingCount;
+    }
+    
+    const reviewedSelectedCount = document.getElementById('reviewed-selected-count');
+    if (reviewedSelectedCount) {
+        reviewedSelectedCount.textContent = selectedReviewedCount;
+    }
+}
+
+// 全选/取消全选
+function toggleSelectAllPending() {
+    const selectAllCheckbox = document.getElementById('select-all-pending');
+    const reviewCheckboxes = document.querySelectorAll('.review-checkbox');
+    
+    reviewCheckboxes.forEach(cb => {
+        cb.checked = selectAllCheckbox.checked;
+    });
+    
+    updateBatchOperationsVisibility();
+}
+
+function toggleSelectAllReviewed() {
+    const selectAllCheckbox = document.getElementById('select-all-reviewed');
+    const reviewCheckboxes = document.querySelectorAll('.reviewed-checkbox');
+    
+    reviewCheckboxes.forEach(cb => {
+        cb.checked = selectAllCheckbox.checked;
+    });
+    
+    updateBatchOperationsVisibility();
 }
 
 // 更新LLM使用图表
@@ -3446,3 +3842,446 @@ function formatDateTime(dateTimeStr) {
         return dateTimeStr;
     }
 }
+
+// ==================== 审查页面功能 ====================
+
+// 初始化审查页面选项卡
+function initializeReviewTabs() {
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const filterBtns = document.querySelectorAll('.filter-btn');
+
+    // 选项卡切换
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.getAttribute('data-tab');
+            
+            // 更新选项卡按钮状态
+            tabBtns.forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // 显示对应内容
+            tabContents.forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${tabName}-content`).classList.add('active');
+            
+            // 加载对应数据
+            if (tabName === 'pending') {
+                loadPendingReviews();
+            } else if (tabName === 'reviewed') {
+                loadReviewedPersonaUpdates();
+            }
+        });
+    });
+
+    // 过滤按钮
+    filterBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterBtns.forEach(f => f.classList.remove('active'));
+            btn.classList.add('active');
+            
+            const filter = btn.getAttribute('data-filter');
+            filterReviewedList(filter);
+        });
+    });
+}
+
+// 加载待审查的列表
+async function loadPendingReviews() {
+    try {
+        const response = await fetch('/api/persona_updates');
+        const data = await response.json();
+        
+        if (data.success) {
+            renderPersonaUpdates(data.updates);
+            await updateReviewStats(data.updates);
+        } else {
+            showError('加载待审查列表失败');
+        }
+    } catch (error) {
+        console.error('加载待审查列表失败:', error);
+        showError('加载待审查列表失败');
+    }
+}
+
+// 加载已审查的人格更新列表
+async function loadReviewedPersonaUpdates() {
+    try {
+        const response = await fetch('/api/persona_updates/reviewed');
+        const data = await response.json();
+        
+        if (data.success) {
+            renderReviewedPersonaUpdates(data.updates);
+        } else {
+            showError('加载审查历史失败');
+        }
+    } catch (error) {
+        console.error('加载审查历史失败:', error);
+        showError('加载审查历史失败');
+    }
+}
+
+// 渲染已审查的人格更新列表
+function renderReviewedPersonaUpdates(updates) {
+    const reviewedList = document.getElementById('reviewed-list');
+    
+    if (!updates || updates.length === 0) {
+        reviewedList.innerHTML = '<div class="no-updates">暂无审查历史</div>';
+        return;
+    }
+    
+    // 清空列表
+    reviewedList.innerHTML = '';
+    
+    // 为每个更新创建元素并绑定事件
+    updates.forEach(update => {
+        const updateElement = document.createElement('div');
+        updateElement.className = `persona-update-item reviewed-item ${update.status}`;
+        updateElement.setAttribute('data-status', update.status);
+        
+        const statusIcon = update.status === 'approved' ? 'check_circle' : 'cancel';
+        const statusText = update.status === 'approved' ? '已批准' : '已拒绝';
+        const statusClass = update.status === 'approved' ? 'status-approved' : 'status-rejected';
+        
+        // 确定更新类型和对应的徽章
+        const updateType = update.update_type || 'persona_update';
+        let typeBadge = '';
+        let typeText = '';
+        
+        if (updateType.includes('style') || updateType === 'style_learning') {
+            typeBadge = '<span class="type-badge style-badge">风格学习</span>';
+            typeText = '风格学习更新';
+        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+            typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
+            typeText = '人格学习更新';
+        } else {
+            typeBadge = '<span class="type-badge general-badge">常规更新</span>';
+            typeText = '常规更新';
+        }
+        
+        updateElement.innerHTML = `
+            ${typeBadge}
+            <div class="update-header">
+                <div class="update-checkbox">
+                    <input type="checkbox" class="reviewed-checkbox" value="${update.id}" id="reviewed-${update.id}">
+                    <label for="reviewed-${update.id}"></label>
+                </div>
+                <div class="update-info">
+                    <div class="update-id-badge">
+                        <span class="id-badge">${update.id}</span>
+                    </div>
+                </div>
+                <div class="status-badge ${statusClass}">
+                    <i class="material-icons">${statusIcon}</i>
+                    ${statusText}
+                </div>
+            </div>
+            <div class="update-content">
+                <div class="review-info">
+                    <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
+                    <p><strong>审查时间:</strong> ${update.review_time ? new Date(update.review_time * 1000).toLocaleString() : '未知'}</p>
+                    <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
+                    ${update.reviewer_comment ? `<p><strong>审查备注:</strong> ${update.reviewer_comment}</p>` : ''}
+                </div>
+                <div class="update-preview">
+                    <p><strong>原始内容:</strong> <button class="toggle-content-btn" data-target="reviewed-original-${update.id}">展开完整内容</button></p>
+                    <div class="content-preview" id="reviewed-original-${update.id}" data-collapsed="true">${truncateText(update.original_content || '', 200)}</div>
+                    <div class="content-preview full-content" id="reviewed-original-full-${update.id}" style="display: none;">${update.original_content || ''}</div>
+                    
+                    <p><strong>建议更新:</strong> <button class="toggle-content-btn" data-target="reviewed-proposed-${update.id}">展开完整内容</button></p>
+                    <div class="content-preview" id="reviewed-proposed-${update.id}" data-collapsed="true">${truncateText(update.proposed_content || '', 200)}</div>
+                    <div class="content-preview full-content" id="reviewed-proposed-full-${update.id}" style="display: none;">${update.proposed_content || ''}</div>
+                </div>
+            </div>
+            <div class="update-actions">
+                <button class="btn btn-warning revert-btn">
+                    <i class="material-icons">undo</i>
+                    撤回${update.status === 'approved' ? '批准' : '拒绝'}
+                </button>
+                <button class="btn btn-secondary view-detail-btn">
+                    <i class="material-icons">info</i>
+                    查看详情
+                </button>
+                <button class="btn btn-danger delete-btn">
+                    <i class="material-icons">delete</i>
+                    删除
+                </button>
+            </div>
+        `;
+        
+        // 绑定事件处理器
+        const revertBtn = updateElement.querySelector('.revert-btn');
+        const viewDetailBtn = updateElement.querySelector('.view-detail-btn');
+        const deleteBtn = updateElement.querySelector('.delete-btn');
+        const toggleBtns = updateElement.querySelectorAll('.toggle-content-btn');
+        
+        revertBtn.addEventListener('click', () => revertReview(update.id, update.status));
+        viewDetailBtn.addEventListener('click', () => viewReviewDetail(update));
+        deleteBtn.addEventListener('click', () => deletePersonaUpdate(update.id));
+        
+        // 添加复选框变化监听器
+        const checkbox = updateElement.querySelector('.reviewed-checkbox');
+        if (checkbox) {
+            checkbox.addEventListener('change', updateBatchOperationsVisibility);
+        }
+        
+        // 绑定展开/收起按钮
+        toggleBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => toggleContentView(e.target));
+        });
+        
+        reviewedList.appendChild(updateElement);
+    });
+}
+
+// 过滤已审查列表
+function filterReviewedList(filter) {
+    const reviewedItems = document.querySelectorAll('.reviewed-item');
+    
+    reviewedItems.forEach(item => {
+        const status = item.getAttribute('data-status');
+        
+        if (filter === 'all') {
+            item.style.display = 'block';
+        } else if (filter === 'approved' && status === 'approved') {
+            item.style.display = 'block';
+        } else if (filter === 'rejected' && status === 'rejected') {
+            item.style.display = 'block';
+        } else {
+            item.style.display = 'none';
+        }
+    });
+}
+
+// 撤回审查操作
+async function revertReview(updateId, currentStatus) {
+    const actionText = currentStatus === 'approved' ? '批准' : '拒绝';
+    
+    if (!confirm(`确定要撤回${actionText}操作吗？撤回后该更新将重新回到待审查列表。`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/persona_updates/${updateId}/revert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                reason: `撤回${actionText}操作`
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showSuccess(`成功撤回${actionText}操作`);
+            // 重新加载已审查列表
+            loadReviewedPersonaUpdates();
+            // 更新统计信息
+            loadPendingReviews();
+        } else {
+            showError(data.error || `撤回${actionText}操作失败`);
+        }
+    } catch (error) {
+        console.error('撤回操作失败:', error);
+        showError('撤回操作失败');
+    }
+}
+
+// 查看审查详情
+function viewReviewDetail(update) {
+    const dialogHTML = `
+        <div class="persona-edit-overlay" id="reviewDetailOverlay">
+            <div class="persona-edit-dialog">
+                <div class="dialog-header">
+                    <h3>审查详情 - ID: ${update.id}</h3>
+                    <button class="close-btn" id="closeDetailDialogBtn">
+                        <i class="material-icons">close</i>
+                    </button>
+                </div>
+                <div class="dialog-content">
+                    <div class="detail-info">
+                        <div class="info-section">
+                            <h4>基本信息</h4>
+                            <p><strong>更新类型:</strong> ${update.update_type || '人格更新'}</p>
+                            <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
+                            <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
+                            <p><strong>创建时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
+                        </div>
+                        
+                        <div class="info-section">
+                            <h4>审查信息</h4>
+                            <p><strong>审查状态:</strong> <span class="status-badge ${update.status === 'approved' ? 'status-approved' : 'status-rejected'}">${update.status === 'approved' ? '已批准' : '已拒绝'}</span></p>
+                            <p><strong>审查时间:</strong> ${update.review_time ? new Date(update.review_time * 1000).toLocaleString() : '未知'}</p>
+                            ${update.reviewer_comment ? `<p><strong>审查备注:</strong> ${update.reviewer_comment}</p>` : '<p><strong>审查备注:</strong> 无</p>'}
+                        </div>
+                        
+                        <div class="content-section">
+                            <h4>原始人格内容</h4>
+                            <div class="content-display">${update.original_content || '无内容'}</div>
+                        </div>
+                        
+                        <div class="content-section">
+                            <h4>建议更新内容</h4>
+                            <div class="content-display">${update.proposed_content || '无内容'}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dialog-actions">
+                    <button class="btn btn-secondary" id="closeDetailBtn">
+                        <i class="material-icons">close</i>
+                        关闭
+                    </button>
+                    <button class="btn btn-warning" id="revertDetailBtn">
+                        <i class="material-icons">undo</i>
+                        撤回${update.status === 'approved' ? '批准' : '拒绝'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // 添加对话框到页面
+    document.body.insertAdjacentHTML('beforeend', dialogHTML);
+    
+    // 绑定事件处理器
+    const overlay = document.getElementById('reviewDetailOverlay');
+    const closeBtn = document.getElementById('closeDetailDialogBtn');
+    const closeDetailBtn = document.getElementById('closeDetailBtn');
+    const revertDetailBtn = document.getElementById('revertDetailBtn');
+    
+    // 关闭对话框事件
+    const closeDialog = () => {
+        overlay.remove();
+    };
+    
+    closeBtn.addEventListener('click', closeDialog);
+    closeDetailBtn.addEventListener('click', closeDialog);
+    revertDetailBtn.addEventListener('click', () => {
+        closeDialog();
+        revertReview(update.id, update.status);
+    });
+    
+    // 添加点击外部关闭功能
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closeDialog();
+        }
+    });
+}
+
+// 修改原有的reviewUpdate函数，审查完成后刷新列表
+const originalReviewUpdate = window.reviewUpdate;
+if (originalReviewUpdate) {
+    window.reviewUpdate = async function(updateId, action) {
+        const result = await originalReviewUpdate(updateId, action);
+        
+        // 审查完成后，重新加载待审查列表和已审查列表
+        if (result !== false) {
+            setTimeout(() => {
+                loadPendingReviews();
+                // 如果当前在审查历史页面，也刷新已审查列表
+                if (document.querySelector('#reviewed-tab.active')) {
+                    loadReviewedPersonaUpdates();
+                }
+            }, 500);
+        }
+        
+        return result;
+    };
+}
+
+// 修改原有的reviewPersonaUpdate函数
+const originalReviewPersonaUpdate = window.reviewPersonaUpdate;
+if (originalReviewPersonaUpdate) {
+    window.reviewPersonaUpdate = async function(updateId, action) {
+        const result = await originalReviewPersonaUpdate(updateId, action);
+        
+        // 关闭编辑对话框
+        if (typeof closePersonaEditDialog === 'function') {
+            closePersonaEditDialog();
+        }
+        
+        // 审查完成后，重新加载待审查列表和已审查列表
+        if (result !== false) {
+            setTimeout(() => {
+                loadPendingReviews();
+                // 如果当前在审查历史页面，也刷新已审查列表
+                if (document.querySelector('#reviewed-tab.active')) {
+                    loadReviewedPersonaUpdates();
+                }
+            }, 500);
+        }
+        
+        return result;
+    };
+}
+
+// 触发重新学习函数
+async function triggerRelearn() {
+    const relearnBtn = document.getElementById('relearnBtn');
+    if (!relearnBtn) return;
+    
+    // 显示确认对话框
+    if (!confirm('确定要重新学习所有历史消息吗？\n\n这将重置所有学习状态并重新处理所有消息数据，可能需要较长时间。')) {
+        return;
+    }
+    
+    // 设置按钮为加载状态
+    const originalText = relearnBtn.innerHTML;
+    relearnBtn.disabled = true;
+    relearnBtn.classList.add('loading');
+    relearnBtn.innerHTML = '<i class="material-icons">refresh</i><span>学习中...</span>';
+    
+    try {
+        console.log('开始触发重新学习...');
+        
+        const response = await fetch('/api/relearn', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok && result.success) {
+            showNotification(
+                `重新学习已启动！将处理 ${result.total_messages} 条历史消息`, 
+                'success'
+            );
+            
+            // 延迟刷新仪表板数据
+            setTimeout(() => {
+                if (typeof refreshDashboard === 'function') {
+                    refreshDashboard();
+                }
+            }, 2000);
+        } else {
+            const errorMsg = result.error || '重新学习启动失败';
+            showNotification(`启动失败: ${errorMsg}`, 'error');
+            console.error('重新学习启动失败:', result);
+        }
+        
+    } catch (error) {
+        console.error('重新学习请求失败:', error);
+        showNotification(`请求失败: ${error.message}`, 'error');
+    } finally {
+        // 恢复按钮状态
+        relearnBtn.disabled = false;
+        relearnBtn.classList.remove('loading');
+        relearnBtn.innerHTML = originalText;
+    }
+}
+
+// 页面加载完成后初始化选项卡
+document.addEventListener('DOMContentLoaded', function() {
+    // 等待DOM完全加载后再初始化
+    setTimeout(() => {
+        if (document.querySelector('.tab-btn')) {
+            initializeReviewTabs();
+        }
+    }, 100);
+});

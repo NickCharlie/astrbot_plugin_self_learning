@@ -143,13 +143,16 @@ class TemporaryPersonaUpdater:
         Args:
             group_id: 群组ID
             new_features: 新的特征字符串列表
-            example_dialogs: 需要模仿的对话列表
+            example_dialogs: 需要模仿的对话列表（注意：这些应该是从真实消息提取的特征，不是虚假对话）
             duration_minutes: 临时人格持续时间（分钟）
         
         Returns:
             bool: 是否应用成功
         """
         try:
+            # 验证example_dialogs不包含虚假对话
+            validated_dialogs = await self._validate_dialog_authenticity(example_dialogs)
+            
             # 检查是否已有活动的临时人格
             if group_id in self.active_temp_personas:
                 raise SelfLearningError(TemporaryPersonaMessages.ERROR_TEMP_PERSONA_CONFLICT)
@@ -160,9 +163,9 @@ class TemporaryPersonaUpdater:
             # 获取当前人格
             original_persona = await self.persona_updater.get_current_persona(group_id)
             
-            # 创建临时增强人格
+            # 创建临时增强人格（使用验证后的对话）
             temp_persona = await self._create_enhanced_persona(
-                original_persona, new_features, example_dialogs
+                original_persona, new_features, validated_dialogs
             )
             
             # 应用临时人格到系统
@@ -844,6 +847,96 @@ class TemporaryPersonaUpdater:
             logger.error(f"清理重复内容失败: {e}")
             return content
 
+    async def apply_expression_style_learning(self, group_id: str, expression_patterns: List[Dict[str, Any]]) -> bool:
+        """应用表达风格学习结果到人格"""
+        try:
+            if not expression_patterns:
+                logger.debug(f"群组 {group_id} 没有新的表达风格模式需要应用")
+                return False
+            
+            # 构建表达风格描述
+            style_descriptions = []
+            for pattern in expression_patterns[:5]:  # 只取前5个最重要的
+                situation = pattern.get('situation', '').strip()
+                expression = pattern.get('expression', '').strip()
+                weight = pattern.get('weight', 1.0)
+                
+                if situation and expression:
+                    style_descriptions.append(f"当{situation}时，倾向于使用\"{expression}\"这样的表达方式")
+            
+            if not style_descriptions:
+                return False
+            
+            # 生成更新内容
+            update_content = f"""
+【表达风格特征】
+基于最近学习到的表达模式，在对话中体现以下语言风格特点：
+{chr(10).join(f'• {desc}' for desc in style_descriptions)}
+
+这些表达方式应该自然地融入到你的回复中，而不是刻意模仿。
+"""
+            
+            # 应用到当前人格
+            if self.config.use_persona_manager_updates:
+                # 使用PersonaManager方式
+                persona_manager_updater = self.factory_manager.get_service_factory().create_persona_manager_updater()
+                if persona_manager_updater and persona_manager_updater.is_available():
+                    success = await persona_manager_updater.apply_incremental_update(group_id, update_content.strip())
+                    if success:
+                        logger.info(f"群组 {group_id} 表达风格学习通过PersonaManager成功应用")
+                        return True
+                else:
+                    logger.warning("PersonaManager不可用，回退到传统文件方式")
+            
+            # 传统文件方式
+            await self._append_to_persona_updates_file(update_content.strip())
+            logger.info(f"群组 {group_id} 表达风格学习已添加到更新文件，包含 {len(style_descriptions)} 个表达模式")
+            return True
+            
+        except Exception as e:
+            logger.error(f"应用表达风格学习失败 for group {group_id}: {e}")
+            return False
+
+    async def apply_temporary_style_update(self, group_id: str, style_content: str) -> bool:
+        """临时应用风格更新到当前prompt（不修改人格文件）"""
+        try:
+            # 直接更新到当前使用的prompt中
+            provider = self.context.get_using_provider()
+            if not provider or not provider.curr_personality:
+                logger.warning("无法获取当前人格，临时风格更新失败")
+                return False
+            
+            current_prompt = provider.curr_personality.get('prompt', '')
+            
+            # 检查是否已经有临时风格特征，如果有则替换
+            lines = current_prompt.split('\n')
+            filtered_lines = []
+            in_temp_style_section = False
+            
+            for line in lines:
+                if '【临时表达风格特征】' in line:
+                    in_temp_style_section = True
+                    continue
+                elif in_temp_style_section and line.startswith('【') and '临时表达风格特征' not in line:
+                    # 遇到新的【标记，结束临时风格部分
+                    in_temp_style_section = False
+                    filtered_lines.append(line)
+                elif not in_temp_style_section:
+                    filtered_lines.append(line)
+            
+            # 在prompt末尾添加新的临时风格特征
+            updated_prompt = '\n'.join(filtered_lines).strip() + '\n\n' + style_content
+            
+            # 应用到当前人格
+            provider.curr_personality['prompt'] = updated_prompt
+            
+            logger.info(f"群组 {group_id} 临时风格更新已应用到当前prompt")
+            return True
+            
+        except Exception as e:
+            logger.error(f"临时风格更新失败 for group {group_id}: {e}")
+            return False
+
     async def _append_to_persona_updates_file(self, update_content: str):
         """向人格更新文件追加内容（带去重逻辑）"""
         try:
@@ -1219,6 +1312,35 @@ class TemporaryPersonaUpdater:
         except Exception as e:
             logger.error(f"创建情绪备份persona失败: {e}")
             return False
+
+    async def _validate_dialog_authenticity(self, dialogs: List[str]) -> List[str]:
+        """验证对话数据的真实性，过滤虚假对话"""
+        validated_dialogs = []
+        
+        # 定义虚假对话的特征模式
+        fake_patterns = [
+            r'A:\s*你最近干.*呢.*\?',  # "A: 你最近干啥呢？"模式
+            r'B:\s*',                 # "B: "开头的模式
+            r'用户\d+:\s*',           # "用户01: "模式
+            r'.*:\s*你最近.*',        # 任何包含"你最近"的对话格式
+            r'开场对话列表',          # 示例文本
+            r'情绪模拟对话列表',       # 示例文本
+        ]
+        
+        import re
+        for dialog in dialogs:
+            is_fake = False
+            for pattern in fake_patterns:
+                if re.search(pattern, dialog, re.IGNORECASE):
+                    logger.warning(f"检测到可能的虚假对话，已过滤: {dialog}")
+                    is_fake = True
+                    break
+            
+            if not is_fake and len(dialog.strip()) > 3:  # 只保留有效的真实对话
+                validated_dialogs.append(dialog)
+        
+        logger.info(f"对话验证完成: 原始{len(dialogs)}条，验证后{len(validated_dialogs)}条")
+        return validated_dialogs
 
     async def stop(self):
         """停止服务"""

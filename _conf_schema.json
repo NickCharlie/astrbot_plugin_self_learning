@@ -321,7 +321,7 @@
         "description": "数据存储目录",
         "type": "string",
         "hint": "插件数据存储的根目录路径。可以是相对路径或绝对路径",
-        "default": "./data/plugins/astrabot_plugin_self_learning"
+        "default": "./data/self_learning_data"
       }
     }
   }

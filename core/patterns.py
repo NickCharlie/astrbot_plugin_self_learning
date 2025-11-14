@@ -148,6 +148,10 @@ class AsyncServiceBase(IAsyncService):
         self._logger.info("重启服务")
         return await self.stop() and await self.start()
     
+    async def is_running(self) -> bool:
+        """检查服务是否正在运行"""
+        return self._status == ServiceLifecycle.RUNNING
+    
     async def health_check(self) -> bool:
         """健康检查"""
         return self._status == ServiceLifecycle.RUNNING

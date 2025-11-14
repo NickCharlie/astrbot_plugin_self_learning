@@ -36,6 +36,7 @@ persona_updater: Optional[Any] = None
 database_manager: Optional[Any] = None
 db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
+progressive_learning: Optional[Any] = None  # 添加progressive_learning全局变量
 
 # 新增的变量
 pending_updates: List[Any] = []
@@ -83,7 +84,15 @@ async def set_plugin_services(
     """设置插件服务实例"""
     global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates
     plugin_config = config
-    llm_client = llm_c
+    
+    # 使用工厂管理器获取LLM适配器
+    try:
+        # 从ServiceFactory获取LLM适配器，而不是ComponentFactory
+        llm_client = factory_manager.get_service_factory().create_framework_llm_adapter()
+        logger.info(f"从服务工厂获取LLM适配器: {type(llm_client)}")
+    except Exception as e:
+        logger.error(f"获取LLM适配器失败: {e}")
+        llm_client = llm_c  # 回退到传入的客户端
 
     # 总是创建PersonaWebManager，无论是否传入AstrBot PersonaManager
     try:
@@ -115,21 +124,62 @@ async def set_plugin_services(
     
     # 从工厂管理器获取其他服务实例
     try:
-        persona_updater = factory_manager.get_service("persona_updater")
+        logger.info("开始初始化WebUI服务...")
+        
+        # 使用更直接的方法获取服务
+        service_factory = factory_manager.get_service_factory()
+        logger.info("成功获取服务工厂")
+        
+        # 获取人格更新器
+        logger.info("正在获取人格更新器...")
+        persona_updater = service_factory.get_persona_updater()
+        
+        # 确保数据库管理器已创建
+        logger.info("正在获取数据库管理器...")
+        service_factory.create_database_manager()
         database_manager = factory_manager.get_service("database_manager")
         db_manager = database_manager  # 设置别名
+        
+        # 获取progressive_learning服务
+        logger.info("正在获取progressive_learning服务...")
+        progressive_learning = factory_manager.get_service("progressive_learning")
+        
+        # 关键修复：设置全局变量！
+        globals()['persona_updater'] = persona_updater
+        globals()['database_manager'] = database_manager
+        globals()['db_manager'] = database_manager
+        globals()['progressive_learning'] = progressive_learning
+        
+        if persona_updater:
+            logger.info(f"成功获取人格更新器: {type(persona_updater)}")
+            logger.info(f"全局persona_updater已设置: {globals().get('persona_updater') is not None}")
+        else:
+            logger.warning("人格更新器为None")
+            
+        if database_manager:
+            logger.info(f"成功获取数据库管理器: {type(database_manager)}")
+            logger.info(f"全局database_manager已设置: {globals().get('database_manager') is not None}")
+        else:
+            logger.warning("数据库管理器为None")
+            
+        if progressive_learning:
+            logger.info(f"成功获取progressive_learning服务: {type(progressive_learning)}")
+        else:
+            logger.warning("progressive_learning服务为None")
+            
     except Exception as e:
-        logger.error(f"获取服务实例失败: {e}")
-        persona_updater = None
-        database_manager = None
-        db_manager = None
+        logger.error(f"获取服务实例失败: {e}", exc_info=True)
+        globals()['persona_updater'] = None
+        globals()['database_manager'] = None
+        globals()['db_manager'] = None
+        globals()['progressive_learning'] = None
 
     # 加载待审查的人格更新
     if persona_updater:
         try:
             pending_updates = await persona_updater.get_pending_persona_updates()
         except Exception as e:
-            print(f"加载待审查人格更新失败: {e}")
+            logger.error(f"加载待审查人格更新失败: {e}")
             pending_updates = []
 
     # 加载密码配置
@@ -195,11 +245,11 @@ async def change_password_page():
         return redirect(url_for('api.login_page'))
     
     # 添加调试信息
-    print(f"[DEBUG] Template folder: {WEB_HTML_DIR}")
-    print(f"[DEBUG] Looking for template: ，.html")
+    logger.debug(f"Template folder: {WEB_HTML_DIR}")
+    logger.debug(f"Looking for template: change_password.html")
     template_path = os.path.join(WEB_HTML_DIR, "change_password.html")
-    print(f"[DEBUG] Full template path: {template_path}")
-    print(f"[DEBUG] Template exists: {os.path.exists(template_path)}")
+    logger.debug(f"Full template path: {template_path}")
+    logger.debug(f"Template exists: {os.path.exists(template_path)}")
     
     return await render_template("change_password.html")
 
@@ -256,24 +306,687 @@ async def update_plugin_config():
 @api_bp.route("/persona_updates")
 @require_auth
 async def get_persona_updates():
-    """获取需要人工审查的人格更新内容"""
+    """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）"""
+    all_updates = []
+    
+    # 1. 获取传统的人格更新审查
     if persona_updater:
-        updates = await persona_updater.get_pending_persona_updates()
-        return jsonify([record.__dict__ for record in updates])
-    return jsonify({"error": "Persona updater not initialized"}), 500
+        try:
+            traditional_updates = await persona_updater.get_pending_persona_updates()
+            # 将PersonaUpdateRecord对象转换为字典格式，确保数据完整
+            for record in traditional_updates:
+                # 使用dataclass的asdict或手动转换
+                if hasattr(record, '__dict__'):
+                    record_dict = record.__dict__.copy()
+                else:
+                    # 手动构建字典
+                    record_dict = {
+                        'id': getattr(record, 'id', None),
+                        'timestamp': getattr(record, 'timestamp', 0),
+                        'group_id': getattr(record, 'group_id', 'default'),
+                        'update_type': getattr(record, 'update_type', 'unknown'),
+                        'original_content': getattr(record, 'original_content', ''),
+                        'new_content': getattr(record, 'new_content', ''),
+                        'reason': getattr(record, 'reason', ''),
+                        'status': getattr(record, 'status', 'pending'),
+                        'reviewer_comment': getattr(record, 'reviewer_comment', None),
+                        'review_time': getattr(record, 'review_time', None)
+                    }
+                
+                # 添加一些前端需要的字段
+                record_dict['proposed_content'] = record_dict.get('new_content', '')
+                record_dict['confidence_score'] = 0.8  # 默认置信度
+                record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
+                record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
+                record_dict['review_source'] = 'traditional'  # 标记来源
+                
+                all_updates.append(record_dict)
+                
+        except Exception as e:
+            logger.error(f"获取传统人格更新失败: {e}")
+    
+    # 2. 获取人格学习审查（质量不达标的学习结果）
+    if database_manager:
+        try:
+            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews()
+            
+            for review in persona_learning_reviews:
+                # 转换为统一的审查格式
+                review_dict = {
+                    'id': f"persona_learning_{review['id']}",  # 添加前缀避免ID冲突
+                    'timestamp': review['timestamp'],
+                    'group_id': review['group_id'],
+                    'update_type': review['update_type'],
+                    'original_content': review['original_content'],
+                    'new_content': review['new_content'],
+                    'proposed_content': review.get('proposed_content', review['new_content']),
+                    'reason': review['reason'],
+                    'status': review['status'],
+                    'reviewer_comment': review['reviewer_comment'],
+                    'review_time': review['review_time'],
+                    'confidence_score': review.get('confidence_score', 0.5),  # 使用数据库中的置信度
+                    'reviewed': False,
+                    'approved': False,
+                    'review_source': 'persona_learning',  # 标记来源
+                    'persona_learning_review_id': review['id']  # 原始ID用于审批操作
+                }
+                
+                all_updates.append(review_dict)
+                
+        except Exception as e:
+            logger.error(f"获取人格学习审查失败: {e}")
+    
+    # 3. 获取风格学习审查
+    if database_manager:
+        try:
+            style_reviews = await database_manager.get_pending_style_reviews()
+            
+            for review in style_reviews:
+                # 转换为统一的审查格式
+                review_dict = {
+                    'id': f"style_{review['id']}",  # 添加前缀避免ID冲突
+                    'timestamp': review['timestamp'],
+                    'group_id': review['group_id'],
+                    'update_type': 'style_learning',
+                    'original_content': '原始人格',  # 风格学习是增量添加
+                    'new_content': review['few_shots_content'],
+                    'proposed_content': review['few_shots_content'],
+                    'reason': review['description'],
+                    'status': review['status'],
+                    'reviewer_comment': None,
+                    'review_time': None,
+                    'confidence_score': 0.9,  # 风格学习置信度高一些
+                    'reviewed': False,
+                    'approved': False,
+                    'review_source': 'style_learning',  # 标记来源
+                    'learned_patterns': review.get('learned_patterns', []),  # 额外信息
+                    'style_review_id': review['id']  # 原始ID用于审批操作
+                }
+                
+                all_updates.append(review_dict)
+                
+        except Exception as e:
+            logger.error(f"获取风格学习审查失败: {e}")
+    
+    # 按时间倒序排列
+    all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
+    
+    logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
+    
+    return jsonify({
+        "success": True,
+        "updates": all_updates,
+        "total": len(all_updates)
+    })
 
-@api_bp.route("/persona_updates/<int:update_id>/review", methods=["POST"])
+@api_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
 @require_auth
-async def review_persona_update(update_id: int):
-    """审查人格更新内容 (批准/拒绝)"""
-    if persona_updater:
+async def review_persona_update(update_id: str):
+    """审查人格更新内容 (批准/拒绝) - 包括风格学习审查和人格学习审查"""
+    try:
+        # 获取全局服务实例并进行调试检查
+        global persona_updater, database_manager
+        
+        logger.info(f"=== 开始审查人格更新 {update_id} ===")
+        logger.info(f"全局persona_updater状态: {persona_updater is not None}")
+        logger.info(f"全局database_manager状态: {database_manager is not None}")
+        
+        if persona_updater:
+            logger.info(f"PersonaUpdater类型: {type(persona_updater)}")
+            logger.info(f"PersonaUpdater backup_manager状态: {hasattr(persona_updater, 'backup_manager')}")
+            if hasattr(persona_updater, 'backup_manager'):
+                logger.info(f"backup_manager类型: {type(persona_updater.backup_manager)}")
+        
+        if database_manager:
+            logger.info(f"DatabaseManager类型: {type(database_manager)}")
+        
         data = await request.get_json()
         action = data.get("action")
-        result = await persona_updater.review_persona_update(update_id, action)
-        if result:
-            return jsonify({"message": f"Update {update_id} {action}d successfully"})
-        return jsonify({"error": "Failed to update persona review status"}), 500
+        comment = data.get("comment", "")
+        modified_content = data.get("modified_content")  # 用户修改后的内容
+        
+        logger.info(f"审查操作: {action}, 有修改内容: {modified_content is not None}")
+        
+        # 将action转换为合适的status
+        if action == "approve":
+            status = "approved"
+        elif action == "reject":
+            status = "rejected"
+        else:
+            return jsonify({"error": "Invalid action, must be 'approve' or 'reject'"}), 400
+        
+        # 判断审查类型
+        if update_id.startswith("style_"):
+            # 风格学习审查
+            style_review_id = int(update_id.replace("style_", ""))
+            
+            if action == "approve":
+                # 批准风格学习审查
+                return await approve_style_learning_review(style_review_id)
+            else:
+                # 拒绝风格学习审查
+                return await reject_style_learning_review(style_review_id)
+                
+        elif update_id.startswith("persona_learning_"):
+            # 人格学习审查（质量不达标的学习结果）
+            persona_learning_review_id = int(update_id.replace("persona_learning_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 更新审查状态，并保存修改后的内容和审查备注
+            success = await database_manager.update_persona_learning_review_status(
+                persona_learning_review_id, status, comment, modified_content
+            )
+            
+            if success:
+                if action == "approve":
+                    # 批准后应用人格更新并备份
+                    try:
+                        # 获取人格学习审查详情
+                        review_data = await database_manager.get_persona_learning_review_by_id(persona_learning_review_id)
+                        if review_data:
+                            # 使用修改后的内容（如果有）或原始proposed_content
+                            content_to_apply = modified_content if modified_content else review_data.get('proposed_content')
+                            
+                            # 如果有persona_updater，使用它来应用人格更新
+                            if persona_updater and content_to_apply:
+                                try:
+                                    logger.info(f"开始应用人格学习审查 {persona_learning_review_id}，群组: {review_data.get('group_id', 'default')}")
+                                    logger.info(f"待应用内容长度: {len(content_to_apply)} 字符")
+                                    
+                                    # 使用已经写好的完整人格更新方法
+                                    # 首先需要将content_to_apply转换为style_analysis格式
+                                    style_analysis = {
+                                        'enhanced_prompt': content_to_apply,
+                                        'style_features': [],
+                                        'style_attributes': {},
+                                        'confidence': 0.8,
+                                        'source': f'人格学习审查{persona_learning_review_id}'
+                                    }
+                                    logger.info(f"构建style_analysis: {style_analysis['source']}")
+                                    
+                                    # 使用空的filtered_messages（因为我们直接有学习内容）
+                                    filtered_messages = []
+                                    
+                                    # 调用框架API方式的人格更新方法（包含自动备份）
+                                    logger.info("调用update_persona_with_style方法...")
+                                    success_apply = await persona_updater.update_persona_with_style(
+                                        review_data.get('group_id', 'default'),
+                                        style_analysis,
+                                        filtered_messages
+                                    )
+                                    logger.info(f"update_persona_with_style返回结果: {success_apply}")
+                                    
+                                    if success_apply:
+                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已成功应用到人格（使用框架API方式）")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准并应用到人格"
+                                    else:
+                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但应用失败")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但人格应用失败"
+                                        
+                                except Exception as apply_error:
+                                    logger.error(f"❌ 应用人格更新失败: {apply_error}", exc_info=True)
+                                    message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
+                            elif not persona_updater:
+                                logger.warning("PersonaUpdater未初始化，无法应用人格更新")
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法应用人格更新"
+                            else:
+                                logger.warning(f"人格学习审查 {persona_learning_review_id} 缺少人格内容")
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少人格内容"
+                        else:
+                            logger.error(f"无法获取人格学习审查 {persona_learning_review_id} 的详情")
+                            message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取详情"
+                    except Exception as e:
+                        logger.error(f"应用人格学习审查失败: {e}")
+                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(e)}"
+                else:
+                    message = f"人格学习审查 {persona_learning_review_id} 已拒绝"
+                    
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to update persona learning review status"}), 500
+                
+        else:
+            # 传统人格审查
+            if persona_updater:
+                result = await persona_updater.review_persona_update(int(update_id), status, comment)
+                if result:
+                    return jsonify({"success": True, "message": f"人格更新 {update_id} 已{action}"})
+                else:
+                    return jsonify({"error": "Failed to update persona review status"}), 500
+            else:
+                return jsonify({"error": "Persona updater not initialized"}), 500
+                
+    except ValueError as e:
+        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+    except Exception as e:
+        logger.error(f"审查人格更新失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/persona_updates/reviewed", methods=["GET"])
+@require_auth
+async def get_reviewed_persona_updates():
+    """获取已审查的人格更新列表"""
+    try:
+        limit = request.args.get('limit', 50)
+        offset = request.args.get('offset', 0)
+        status_filter = request.args.get('status')  # 'approved' 或 'rejected' 或 None
+        
+        # 获取已审查的人格更新记录
+        reviewed_updates = []
+        
+        # 从传统人格更新审查获取
+        if persona_updater:
+            traditional_updates = await persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
+            reviewed_updates.extend(traditional_updates)
+        
+        # 从人格学习审查获取
+        if database_manager:
+            persona_learning_updates = await database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
+            reviewed_updates.extend(persona_learning_updates)
+        
+        # 从风格学习审查获取
+        if database_manager:
+            style_updates = await database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
+            # 将风格审查转换为统一格式
+            for update in style_updates:
+                if 'id' in update:
+                    update['id'] = f"style_{update['id']}"
+            reviewed_updates.extend(style_updates)
+        
+        # 按审查时间排序
+        reviewed_updates.sort(key=lambda x: x.get('review_time', 0), reverse=True)
+        
+        return jsonify({
+            "success": True,
+            "updates": reviewed_updates,
+            "total": len(reviewed_updates)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取已审查人格更新失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/persona_updates/<update_id>/revert", methods=["POST"])
+@require_auth
+async def revert_persona_update(update_id: str):
+    """撤回人格更新审查"""
+    try:
+        data = await request.get_json()
+        reason = data.get("reason", "撤回审查决定")
+        
+        # 判断撤回类型
+        if update_id.startswith("style_"):
+            # 风格学习审查撤回
+            style_review_id = int(update_id.replace("style_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 将状态改回pending
+            success = await database_manager.update_style_review_status(
+                style_review_id, "pending"
+            )
+            
+            if success:
+                message = f"风格学习审查 {style_review_id} 已撤回，重新回到待审查状态"
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to revert style learning review"}), 500
+                
+        elif update_id.startswith("persona_learning_"):
+            # 人格学习审查撤回
+            persona_learning_review_id = int(update_id.replace("persona_learning_", ""))
+            
+            if not database_manager:
+                return jsonify({"error": "Database manager not initialized"}), 500
+            
+            # 将状态改回pending
+            success = await database_manager.update_persona_learning_review_status(
+                persona_learning_review_id, "pending", f"撤回操作: {reason}"
+            )
+            
+            if success:
+                message = f"人格学习审查 {persona_learning_review_id} 已撤回，重新回到待审查状态"
+                return jsonify({"success": True, "message": message})
+            else:
+                return jsonify({"error": "Failed to revert persona learning review"}), 500
+        else:
+            # 传统人格审查撤回
+            if persona_updater:
+                result = await persona_updater.revert_persona_update_review(int(update_id), reason)
+                if result:
+                    message = f"人格更新 {update_id} 审查已撤回，重新回到待审查状态"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": "Failed to revert persona update review"}), 500
+            else:
+                return jsonify({"error": "Persona updater not initialized"}), 500
+                
+    except ValueError as e:
+        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+    except Exception as e:
+        logger.error(f"撤回人格更新审查失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 删除人格更新审查记录
+@api_bp.route("/persona_updates/<int:update_id>/delete", methods=["POST"])
+async def delete_persona_update(update_id):
+    """删除人格更新审查记录"""
+    try:
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        # 尝试删除人格学习审查记录
+        success = await database_manager.delete_persona_learning_review_by_id(update_id)
+        
+        if success:
+            message = f"人格学习审查记录 {update_id} 已删除"
+            return jsonify({"success": True, "message": message})
+        else:
+            # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+            if persona_updater:
+                result = await persona_updater.delete_persona_update_review(update_id)
+                if result:
+                    message = f"人格更新审查记录 {update_id} 已删除"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": "Record not found"}), 404
+            else:
+                return jsonify({"error": "Record not found"}), 404
+                
+    except Exception as e:
+        logger.error(f"删除人格更新审查记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 批量删除人格更新审查记录
+@api_bp.route("/persona_updates/batch_delete", methods=["POST"])
+async def batch_delete_persona_updates():
+    """批量删除人格更新审查记录"""
+    try:
+        data = await request.get_json()
+        update_ids = data.get('update_ids', [])
+        
+        if not update_ids or not isinstance(update_ids, list):
+            return jsonify({"error": "update_ids is required and must be a list"}), 400
+        
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        success_count = 0
+        failed_count = 0
+        
+        for update_id in update_ids:
+            try:
+                # 尝试删除人格学习审查记录
+                success = await database_manager.delete_persona_learning_review_by_id(int(update_id))
+                
+                if success:
+                    success_count += 1
+                else:
+                    # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+                    if persona_updater:
+                        result = await persona_updater.delete_persona_update_review(int(update_id))
+                        if result:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"删除人格更新审查记录 {update_id} 失败: {e}")
+                failed_count += 1
+        
+        return jsonify({
+            "success": True,
+            "message": f"批量删除完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(update_ids)
+            }
+        })
+                
+    except Exception as e:
+        logger.error(f"批量删除人格更新审查记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 批量操作人格更新审查记录（批准、拒绝）
+@api_bp.route("/persona_updates/batch_review", methods=["POST"])
+async def batch_review_persona_updates():
+    """批量审查人格更新记录"""
+    try:
+        data = await request.get_json()
+        update_ids = data.get('update_ids', [])
+        action = data.get('action')  # 'approve' or 'reject'
+        comment = data.get('comment', '')
+        
+        if not update_ids or not isinstance(update_ids, list):
+            return jsonify({"error": "update_ids is required and must be a list"}), 400
+            
+        if action not in ['approve', 'reject']:
+            return jsonify({"error": "action must be 'approve' or 'reject'"}), 400
+        
+        # 使用全局变量而不是 current_app.plugin_instance
+        global database_manager, persona_updater
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+        
+        success_count = 0
+        failed_count = 0
+        
+        for update_id in update_ids:
+            try:
+                # 获取审查记录详情
+                review_data = await database_manager.get_persona_learning_review_by_id(int(update_id))
+                
+                if review_data:
+                    # 人格学习审查记录
+                    status = 'approved' if action == 'approve' else 'rejected'
+                    success = await database_manager.update_persona_learning_review_status(
+                        int(update_id), status, comment
+                    )
+                    
+                    if success and action == 'approve':
+                        # 如果批准，还需要应用人格更新
+                        content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                        if persona_updater and content_to_apply:
+                            try:
+                                # 使用已经写好的完整人格更新方法
+                                style_analysis = {
+                                    'enhanced_prompt': content_to_apply,
+                                    'style_features': [],
+                                    'style_attributes': {},
+                                    'confidence': 0.8,
+                                    'source': f'批量审查{update_id}'
+                                }
+                                
+                                # 调用框架API方式的人格更新方法（包含自动备份）
+                                success_apply = await persona_updater.update_persona_with_style(
+                                    review_data.get('group_id', 'default'), 
+                                    style_analysis,
+                                    []  # 空的filtered_messages
+                                )
+                                
+                                if success_apply:
+                                    logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
+                                else:
+                                    logger.warning(f"批量审查 {update_id} 应用失败")
+                                    
+                            except Exception as apply_error:
+                                logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
+                    
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                else:
+                    # 传统人格审查记录
+                    if persona_updater:
+                        result = await persona_updater.review_persona_update(int(update_id), action == 'approve', comment)
+                        if result:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    else:
+                        failed_count += 1
+                        
+            except Exception as e:
+                logger.error(f"批量审查人格更新记录 {update_id} 失败: {e}")
+                failed_count += 1
+        
+        action_text = "批准" if action == 'approve' else "拒绝"
+        return jsonify({
+            "success": True,
+            "message": f"批量{action_text}完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(update_ids)
+            }
+        })
+                
+    except Exception as e:
+        logger.error(f"批量审查人格更新记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# 添加一个测试接口，用于创建测试数据
+@api_bp.route("/test/create_persona_update", methods=["POST"])
+@require_auth
+async def create_test_persona_update():
+    """创建测试人格更新记录（仅用于开发调试）"""
+    if persona_updater:
+        try:
+            import time
+            from ..core.interfaces import PersonaUpdateRecord
+            
+            # 创建一个测试记录
+            test_record = PersonaUpdateRecord(
+                timestamp=time.time(),
+                group_id="742376823",
+                update_type="prompt_update", 
+                original_content="You are a helpful assistant.",
+                new_content="You are a helpful assistant with a friendly and enthusiastic personality. You enjoy helping users with their questions and respond in a warm, encouraging manner.",
+                reason="强化学习生成的prompt过短，采用保守融合策略"
+            )
+            
+            record_id = await persona_updater.record_persona_update_for_review(test_record)
+            logger.info(f"创建测试人格更新记录，ID: {record_id}")
+            
+            return jsonify({
+                "message": "Test persona update record created successfully",
+                "record_id": record_id
+            })
+        except Exception as e:
+            logger.error(f"创建测试记录失败: {e}", exc_info=True)
+            return jsonify({"error": f"创建测试记录失败: {str(e)}"}), 500
     return jsonify({"error": "Persona updater not initialized"}), 500
+
+@api_bp.route("/relearn", methods=["POST"])
+@require_auth
+async def trigger_relearn():
+    """触发重新学习所有历史消息"""
+    try:
+        global progressive_learning, database_manager
+        
+        # 如果全局变量中没有progressive_learning，尝试重新获取
+        if not progressive_learning:
+            try:
+                from .core.factory import FactoryManager
+                factory_manager = FactoryManager()
+                progressive_learning = factory_manager.get_service("progressive_learning")
+                logger.info("重新获取progressive_learning服务成功")
+            except Exception as e:
+                logger.error(f"重新获取progressive_learning服务失败: {e}")
+        
+        if not progressive_learning:
+            return jsonify({
+                "success": False,
+                "error": "Progressive learning service not available"
+            }), 500
+        
+        # 获取消息统计信息
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "Database manager not available"
+            }), 500
+            
+        # 获取消息统计
+        stats = await database_manager.get_messages_statistics()
+        total_messages = stats.get('total_messages', 0)
+        
+        if total_messages == 0:
+            return jsonify({
+                "success": False,
+                "error": "没有找到可学习的历史消息"
+            })
+        
+        logger.info(f"开始重新学习，共{total_messages}条历史消息")
+        
+        # 重置所有消息为未处理状态，触发重新学习
+        conn = await database_manager._get_messages_db_connection()
+        cursor = await conn.cursor()
+        
+        # 将所有消息标记为未处理
+        await cursor.execute('UPDATE raw_messages SET processed = FALSE')
+        # 清空筛选消息中的学习状态
+        await cursor.execute('UPDATE filtered_messages SET used_for_learning = FALSE')
+        await conn.commit()
+        
+        # 异步启动重新学习任务
+        import asyncio
+        
+        # 获取所有有消息的群组ID
+        try:
+            conn = await database_manager._get_messages_db_connection()
+            cursor = await conn.cursor()
+            await cursor.execute('SELECT DISTINCT group_id FROM raw_messages WHERE group_id IS NOT NULL')
+            group_rows = await cursor.fetchall()
+            
+            if group_rows:
+                # 为每个群组启动学习任务
+                learning_tasks = []
+                for row in group_rows:
+                    group_id = row[0]
+                    if group_id:  # 确保group_id不为空
+                        logger.info(f"启动群组 {group_id} 的重新学习任务")
+                        task = asyncio.create_task(progressive_learning.start_learning(group_id))
+                        learning_tasks.append(task)
+                
+                if not learning_tasks:
+                    # 没有有效的群组ID，使用默认群组
+                    logger.info("没有找到有效的群组ID，使用默认群组启动学习")
+                    asyncio.create_task(progressive_learning.start_learning("default"))
+            else:
+                # 没有消息，使用默认群组
+                logger.info("没有找到消息记录，使用默认群组启动学习")
+                asyncio.create_task(progressive_learning.start_learning("default"))
+                
+        except Exception as e:
+            logger.warning(f"获取群组列表失败，使用默认群组: {e}")
+            asyncio.create_task(progressive_learning.start_learning("default"))
+        
+        logger.info("重新学习任务已启动")
+        
+        return jsonify({
+            "success": True,
+            "message": f"重新学习已启动，将处理 {total_messages} 条历史消息",
+            "total_messages": total_messages
+        })
+        
+    except Exception as e:
+        logger.error(f"启动重新学习失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False, 
+            "error": f"启动重新学习失败: {str(e)}"
+        }), 500
 
 @api_bp.route("/metrics")
 @require_auth
@@ -310,7 +1023,7 @@ async def get_metrics():
                 total_messages = stats.get('total_messages', 0)
                 filtered_messages = stats.get('filtered_messages', 0)
             except Exception as e:
-                print(f"获取数据库统计失败: {e}")
+                logger.warning(f"获取数据库统计失败: {e}")
                 # 使用配置中的统计作为后备
                 total_messages = plugin_config.total_messages_collected if plugin_config else 0
                 filtered_messages = getattr(plugin_config, 'filtered_messages', 0) if plugin_config else 0
@@ -358,22 +1071,77 @@ async def get_metrics():
                 "avg_query_time_ms": getattr(database_manager, '_avg_query_time', 0) if database_manager else 0,
                 "connection_pool_size": getattr(database_manager, '_pool_size', 5) if database_manager else 5,
                 "active_connections": getattr(database_manager, '_active_connections', 2) if database_manager else 2
-            },
-            "learning_sessions": {
-                "active_sessions": 1 if persona_updater else 0,
-                "total_sessions_today": 5,
-                "avg_session_duration_minutes": 45,
-                "success_rate": 0.85
-            },
-            "last_updated": time.time()
+            }
         }
+        
+        # 获取真实的学习会话统计 - 移到metrics字典之外
+        active_sessions_count = 0
+        total_sessions_today = 0
+        avg_session_duration = 0
+        success_rate = 0.0
+        
+        # 从progressive_learning服务获取真实数据
+        try:
+            # 使用当前应用的插件实例
+            plugin_instance = current_app.plugin_instance if hasattr(current_app, 'plugin_instance') else None
+            progressive_learning = getattr(plugin_instance, 'progressive_learning', None) if plugin_instance else None
+            
+            if progressive_learning:
+                # 计算活跃会话数量
+                active_sessions_count = sum(1 for active in progressive_learning.learning_active.values() if active)
+                
+                # 获取今天的会话统计（如果有的话）
+                if database_manager:
+                    # 可以从数据库获取今天的会话记录
+                    import time
+                    from datetime import datetime, timedelta
+                    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+                    
+                    # 这里可以调用数据库方法获取今天的会话数据
+                    # 暂时使用简单的估算
+                    total_sessions_today = len(progressive_learning.learning_sessions) if hasattr(progressive_learning, 'learning_sessions') else 0
+                    
+                    # 计算成功率
+                    if hasattr(progressive_learning, 'learning_sessions') and progressive_learning.learning_sessions:
+                        successful_sessions = sum(1 for session in progressive_learning.learning_sessions if session.success)
+                        success_rate = successful_sessions / len(progressive_learning.learning_sessions) if progressive_learning.learning_sessions else 0.0
+                        
+                        # 计算平均会话时长
+                        completed_sessions = [s for s in progressive_learning.learning_sessions if s.end_time]
+                        if completed_sessions:
+                            durations = []
+                            for session in completed_sessions:
+                                try:
+                                    start = datetime.fromisoformat(session.start_time)
+                                    end = datetime.fromisoformat(session.end_time)
+                                    duration_minutes = (end - start).total_seconds() / 60
+                                    durations.append(duration_minutes)
+                                except:
+                                    continue
+                            if durations:
+                                avg_session_duration = sum(durations) / len(durations)
+            else:
+                # 后备方案：使用persona_updater状态作为基础指标
+                active_sessions_count = 1 if persona_updater else 0
+                
+        except Exception as e:
+            logger.warning(f"获取学习会话统计失败: {e}")
+            # 使用默认值
+            active_sessions_count = 1 if persona_updater else 0
+            
+        # 更新metrics字典中的learning_sessions部分
+        metrics["learning_sessions"] = {
+            "active_sessions": active_sessions_count,
+            "total_sessions_today": total_sessions_today,
+            "avg_session_duration_minutes": round(avg_session_duration, 1),
+            "success_rate": round(success_rate, 2)
+        }
+        metrics["last_updated"] = time.time()
         
         return jsonify(metrics)
         
     except Exception as e:
-        print(f"获取性能指标失败: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"获取性能指标失败: {e}", exc_info=True)
         return jsonify({"error": f"获取性能指标失败: {str(e)}"}), 500
 
 @api_bp.route("/metrics/realtime")
@@ -591,7 +1359,7 @@ async def get_persona_details(persona_id: str):
         return jsonify(persona_dict)
         
     except Exception as e:
-        print(f"获取人格详情失败: {e}")
+        logger.error(f"获取人格详情失败: {e}")
         return jsonify({"error": f"获取人格详情失败: {str(e)}"}), 500
 
 @api_bp.route("/persona_management/create", methods=["POST"])
@@ -709,7 +1477,7 @@ async def export_persona(persona_id: str):
         return jsonify(persona_export)
         
     except Exception as e:
-        print(f"导出人格失败: {e}")
+        logger.error(f"导出人格失败: {e}")
         return jsonify({"error": f"导出人格失败: {str(e)}"}), 500
 
 @api_bp.route("/persona_management/import", methods=["POST"])
@@ -761,13 +1529,13 @@ async def import_persona():
             action = "创建"
             
         if success:
-            print(f"成功导入人格: {persona_id} ({action})")
+            logger.info(f"成功导入人格: {persona_id} ({action})")
             return jsonify({"message": f"人格{action}成功", "persona_id": persona_id})
         else:
             return jsonify({"error": f"人格{action}失败"}), 500
             
     except Exception as e:
-        print(f"导入人格失败: {e}")
+        logger.error(f"导入人格失败: {e}")
         return jsonify({"error": f"导入人格失败: {str(e)}"}), 500
 
 @api_bp.route("/style_learning/results", methods=["GET"])
@@ -803,6 +1571,112 @@ async def get_style_learning_results():
     
     except Exception as e:
         logger.error(f"获取风格学习结果失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews", methods=["GET"])
+@require_auth
+async def get_style_learning_reviews():
+    """获取对话风格学习审查列表"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        pending_reviews = await database_manager.get_pending_style_reviews(limit=50)
+        
+        # 格式化审查数据
+        formatted_reviews = []
+        for review in pending_reviews:
+            formatted_review = {
+                'id': review['id'],
+                'type': '对话风格学习',
+                'group_id': review['group_id'],
+                'description': review['description'],
+                'timestamp': review['timestamp'],
+                'created_at': review['created_at'],
+                'status': review['status'],
+                'learned_patterns': review['learned_patterns'],
+                'few_shots_content': review['few_shots_content']
+            }
+            formatted_reviews.append(formatted_review)
+        
+        return jsonify({
+            'reviews': formatted_reviews,
+            'total': len(formatted_reviews)
+        })
+        
+    except Exception as e:
+        logger.error(f"获取风格学习审查列表失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews/<int:review_id>/approve", methods=["POST"])
+@require_auth
+async def approve_style_learning_review(review_id: int):
+    """批准对话风格学习审查"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        # 获取审查详情
+        pending_reviews = await database_manager.get_pending_style_reviews()
+        target_review = None
+        for review in pending_reviews:
+            if review['id'] == review_id:
+                target_review = review
+                break
+        
+        if not target_review:
+            return jsonify({'error': '审查记录不存在'}), 404
+        
+        # 更新状态为approved
+        success = await database_manager.update_style_review_status(review_id, 'approved', target_review['group_id'])
+        
+        if success:
+            # 应用到人格（Few Shots格式）
+            if target_review['few_shots_content']:
+                # 通过persona_updater应用到人格
+                persona_update_content = target_review['few_shots_content']
+                
+                if persona_updater:
+                    try:
+                        await persona_updater._append_to_persona_updates_file(persona_update_content)
+                        logger.info(f"风格学习审查 {review_id} 已批准并应用到人格")
+                    except Exception as e:
+                        logger.error(f"应用风格学习到人格失败: {e}")
+                        return jsonify({'error': '批准成功，但应用到人格失败'}), 500
+            
+            return jsonify({
+                'success': True,
+                'message': f'风格学习审查 {review_id} 已批准并应用到人格'
+            })
+        else:
+            return jsonify({'error': '批准失败，请检查审查记录状态'}), 500
+            
+    except Exception as e:
+        logger.error(f"批准风格学习审查失败: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/reviews/<int:review_id>/reject", methods=["POST"])
+@require_auth
+async def reject_style_learning_review(review_id: int):
+    """拒绝对话风格学习审查"""
+    try:
+        if not database_manager:
+            return jsonify({'error': '数据库管理器未初始化'}), 500
+        
+        # 更新状态为rejected
+        success = await database_manager.update_style_review_status(review_id, 'rejected')
+        
+        if success:
+            logger.info(f"风格学习审查 {review_id} 已拒绝")
+            return jsonify({
+                'success': True,
+                'message': f'风格学习审查 {review_id} 已拒绝'
+            })
+        else:
+            return jsonify({'error': '拒绝失败，请检查审查记录状态'}), 500
+            
+    except Exception as e:
+        logger.error(f"拒绝风格学习审查失败: {e}")
         return jsonify({'error': str(e)}), 500
 
 @api_bp.route("/style_learning/patterns", methods=["GET"])
@@ -960,25 +1834,122 @@ async def get_style_learning_content_text():
                 })
             
             try:
-                # 获取提炼的风格特征 - 使用表达模式数据
+                # 获取提炼的风格特征 - 从多个数据源获取
                 conn = await db_manager._get_messages_db_connection()
                 cursor = await conn.cursor()
-                await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
-                expression_patterns = await cursor.fetchall()
                 
-                if expression_patterns:
-                    for pattern in expression_patterns:
-                        content_data['features'].append({
-                            'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
-                            'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
-                            'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
-                        })
-                else:
+                # 1. 从表达模式数据获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
+                    expression_patterns = await cursor.fetchall()
+                    
+                    if expression_patterns:
+                        for pattern in expression_patterns:
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
+                                'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
+                                'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
+                            })
+                except Exception as e:
+                    logger.debug(f"expression_patterns表查询失败: {e}")
+                
+                # 2. 从风格学习记录获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM style_learning_records ORDER BY learning_time DESC LIMIT 10')
+                    style_records = await cursor.fetchall()
+                    
+                    if style_records:
+                        for record in style_records:
+                            try:
+                                # 解析learned_patterns JSON数据
+                                learned_patterns = json.loads(record[2]) if record[2] else {}
+                                patterns_text = []
+                                
+                                if isinstance(learned_patterns, dict):
+                                    # 提取关键的学习模式信息
+                                    if 'style_features' in learned_patterns:
+                                        features = learned_patterns['style_features']
+                                        if isinstance(features, list):
+                                            patterns_text.extend(features[:3])  # 取前3个特征
+                                    
+                                    if 'common_phrases' in learned_patterns:
+                                        phrases = learned_patterns['common_phrases']
+                                        if isinstance(phrases, list):
+                                            patterns_text.extend([f"常用表达: {p}" for p in phrases[:2]])  # 取前2个短语
+                                    
+                                    if 'language_style' in learned_patterns:
+                                        lang_style = learned_patterns['language_style']
+                                        if isinstance(lang_style, dict):
+                                            for key, value in lang_style.items():
+                                                if isinstance(value, (int, float)) and value > 0.6:
+                                                    patterns_text.append(f"{key}: {value:.2f}")
+                                
+                                if patterns_text:
+                                    content_data['features'].append({
+                                        'timestamp': datetime.fromtimestamp(record[5]).strftime('%Y-%m-%d %H:%M:%S'), # learning_time
+                                        'text': '\n'.join(patterns_text),
+                                        'metadata': f"风格类型: {record[1]}, 置信度: {record[3]:.2f}, 样本: {record[4]}条" # style_type, confidence_score, sample_count
+                                    })
+                            except (json.JSONDecodeError, IndexError, TypeError) as e:
+                                logger.warning(f"解析风格学习记录失败: {e}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"style_learning_records表查询失败: {e}")
+                
+                # 3. 从语言风格模式获取（如果表存在）
+                try:
+                    await cursor.execute('SELECT * FROM language_style_patterns ORDER BY usage_frequency DESC LIMIT 5')
+                    language_patterns = await cursor.fetchall()
+                    
+                    if language_patterns:
+                        for pattern in language_patterns:
+                            try:
+                                example_phrases = json.loads(pattern[2]) if pattern[2] else []
+                                if example_phrases and isinstance(example_phrases, list):
+                                    content_data['features'].append({
+                                        'timestamp': datetime.fromtimestamp(pattern[5]).strftime('%Y-%m-%d %H:%M:%S'), # last_updated
+                                        'text': f"语言风格: {pattern[1]}\n示例: {', '.join(example_phrases[:3])}",
+                                        'metadata': f"使用频率: {pattern[3]}, 上下文: {pattern[4]}" # usage_frequency, context_type
+                                    })
+                            except (json.JSONDecodeError, IndexError, TypeError) as e:
+                                logger.warning(f"解析语言风格模式失败: {e}")
+                                continue
+                except Exception as e:
+                    logger.debug(f"language_style_patterns表查询失败: {e}")
+                
+                # 4. 从待审查和已批准的风格学习审查中获取特征
+                try:
+                    # 获取待审查的风格学习内容
+                    pending_style_reviews = await db_manager.get_pending_style_reviews()
+                    for review in pending_style_reviews:
+                        if review.get('few_shots_content'):
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(review['timestamp']).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"风格学习内容:\n{review['few_shots_content'][:300]}{'...' if len(review['few_shots_content']) > 300 else ''}",
+                                'metadata': f"状态: 待审查, 描述: {review.get('description', '无')}"
+                            })
+                    
+                    # 获取已批准的风格学习内容
+                    approved_style_reviews = await db_manager.get_reviewed_style_learning_updates(limit=10, status_filter='approved')
+                    for review in approved_style_reviews:
+                        if review.get('few_shots_content'):
+                            content_data['features'].append({
+                                'timestamp': datetime.fromtimestamp(review.get('review_time', review['timestamp'])).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"已应用风格特征:\n{review['few_shots_content'][:300]}{'...' if len(review['few_shots_content']) > 300 else ''}",
+                                'metadata': f"状态: 已批准应用, 描述: {review.get('description', '无')}"
+                            })
+                    
+                except Exception as e:
+                    logger.debug(f"从风格学习审查获取特征失败: {e}")
+                
+                # 如果所有数据源都没有数据，显示提示
+                if not content_data['features']:
                     content_data['features'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无学习到的表达模式，请耐心等待系统学习',
                         'metadata': '系统提示'
                     })
+                    
             except Exception as e:
                 logger.warning(f"获取风格特征失败: {e}")
                 content_data['features'].append({
@@ -1179,6 +2150,533 @@ async def generate_recommendations():
     except Exception as e:
         return jsonify({"error": f"生成推荐失败: {str(e)}"}), 500
 
+@api_bp.route("/style_learning/stats", methods=["GET"])
+@require_auth
+async def get_style_learning_stats():
+    """获取对话风格学习统计数据"""
+    try:
+        from .core.factory import FactoryManager
+        
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        
+        # 获取表达模式学习器
+        component_factory = factory_manager.get_component_factory()
+        expression_learner = component_factory.create_expression_pattern_learner()
+        
+        # 获取数据库管理器
+        db_manager = service_factory.create_database_manager()
+        
+        # 获取基本统计信息
+        stats = {
+            'style_types_count': 0,
+            'avg_confidence': 0,
+            'total_samples': 0,
+            'latest_update': '--',
+            'learning_groups': [],
+            'style_features': []
+        }
+        
+        try:
+            # 获取所有群组的表达模式
+            group_patterns = {}
+            if hasattr(expression_learner, 'get_all_group_patterns'):
+                group_patterns = await expression_learner.get_all_group_patterns()
+            
+            if group_patterns:
+                total_confidence = 0
+                pattern_count = 0
+                style_types = set()
+                
+                for group_id, patterns in group_patterns.items():
+                    for pattern in patterns:
+                        style_types.add(getattr(pattern, 'style_type', 'general'))
+                        total_confidence += getattr(pattern, 'weight', 0.5)
+                        pattern_count += 1
+                
+                stats['style_types_count'] = len(style_types)
+                stats['avg_confidence'] = round((total_confidence / pattern_count * 100) if pattern_count > 0 else 0, 1)
+                stats['total_samples'] = pattern_count
+                
+                # 获取最新更新时间
+                latest_time = 0
+                for group_id, patterns in group_patterns.items():
+                    for pattern in patterns:
+                        if hasattr(pattern, 'created_time'):
+                            latest_time = max(latest_time, pattern.created_time)
+                
+                if latest_time > 0:
+                    import time
+                    from datetime import datetime
+                    stats['latest_update'] = datetime.fromtimestamp(latest_time).strftime('%Y-%m-%d %H:%M')
+            
+            # 获取学习群组列表
+            stats['learning_groups'] = list(group_patterns.keys()) if group_patterns else []
+            
+            # 提取风格特征
+            if group_patterns:
+                style_features = []
+                for group_id, patterns in group_patterns.items():
+                    for pattern in patterns[:5]:  # 只取前5个作为展示
+                        if hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
+                            style_features.append({
+                                'situation': pattern.situation,
+                                'expression': pattern.expression,
+                                'weight': getattr(pattern, 'weight', 0.5),
+                                'group_id': group_id
+                            })
+                
+                stats['style_features'] = style_features[:10]  # 最多返回10个特征
+            
+        except Exception as e:
+            logger.warning(f"获取表达模式统计失败: {e}")
+        
+        return jsonify(stats)
+        
+    except Exception as e:
+        logger.error(f"获取风格学习统计失败: {e}")
+        return jsonify({"error": f"获取统计数据失败: {str(e)}"}), 500
+
+@api_bp.route("/style_learning/content", methods=["GET"])
+@require_auth
+async def get_style_learning_content():
+    """获取对话风格学习内容文本"""
+    try:
+        from .core.factory import FactoryManager
+        import os
+        
+        factory_manager = FactoryManager()
+        
+        # 获取数据库管理器
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+        
+        # 获取消息关系分析器
+        relationship_analyzer = service_factory.create_message_relationship_analyzer()
+        
+        content = {
+            'dialogue_content': '',
+            'analysis_content': '',
+            'features_content': '',
+            'history_content': ''
+        }
+        
+        group_id = request.args.get('group_id', 'default')
+        
+        try:
+            # 1. 获取对话示例文本
+            recent_messages = await db_manager.get_recent_filtered_messages(group_id, limit=20)
+            if recent_messages:
+                relationships = await relationship_analyzer.analyze_message_relationships(recent_messages, group_id)
+                conversation_pairs = await relationship_analyzer.get_conversation_pairs(relationships)
+                
+                if conversation_pairs:
+                    dialogue_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
+                    for sender_content, reply_content in conversation_pairs[:5]:
+                        dialogue_lines.append(f"A:{sender_content}")
+                        dialogue_lines.append(f"B:{reply_content}")
+                    content['dialogue_content'] = "\n".join(dialogue_lines)
+                else:
+                    content['dialogue_content'] = "暂无对话示例数据"
+            else:
+                content['dialogue_content'] = "暂无消息数据"
+            
+            # 2. 获取风格分析结果
+            component_factory = factory_manager.get_component_factory()
+            expression_learner = component_factory.create_expression_pattern_learner()
+            
+            try:
+                patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
+                if patterns:
+                    analysis_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
+                    for i, pattern in enumerate(patterns[:4], 1):
+                        situation = getattr(pattern, 'situation', '未知情境')
+                        expression = getattr(pattern, 'expression', '未知表达')
+                        analysis_lines.append(f"{i}. 当{situation}时，使用\"{expression}\"这样的表达")
+                    content['analysis_content'] = "\n".join(analysis_lines)
+                else:
+                    content['analysis_content'] = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
+            except Exception as e:
+                logger.warning(f"获取表达模式失败: {e}")
+                content['analysis_content'] = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
+            
+            # 3. 获取提炼的风格特征
+            try:
+                patterns = await expression_learner.get_expression_patterns(group_id, limit=15)
+                if patterns:
+                    features_lines = ["提炼的风格特征:"]
+                    for i, pattern in enumerate(patterns[:8], 1):
+                        situation = getattr(pattern, 'situation', '通用情境')
+                        weight = getattr(pattern, 'weight', 0.5)
+                        features_lines.append(f"{i}. {situation} (置信度: {weight:.2f})")
+                    content['features_content'] = "\n".join(features_lines)
+                else:
+                    content['features_content'] = "暂无提炼的风格特征"
+            except Exception as e:
+                logger.warning(f"获取风格特征失败: {e}")
+                content['features_content'] = "暂无提炼的风格特征"
+            
+            # 4. 获取学习历程记录
+            try:
+                # 从数据库获取学习历史记录
+                learning_sessions = await db_manager.get_learning_sessions(group_id, limit=5)
+                if learning_sessions:
+                    history_lines = ["学习历程记录:"]
+                    for session in learning_sessions:
+                        timestamp = session.get('end_time', session.get('start_time', 0))
+                        if timestamp:
+                            import time
+                            from datetime import datetime
+                            time_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M')
+                            style_updates = session.get('style_updates', 0)
+                            total_messages = session.get('total_messages', 0)
+                            history_lines.append(f"• {time_str}: 处理{total_messages}条消息，更新{style_updates}个风格")
+                    content['history_content'] = "\n".join(history_lines)
+                else:
+                    content['history_content'] = "暂无学习历程记录"
+            except Exception as e:
+                logger.warning(f"获取学习历史失败: {e}")
+                content['history_content'] = "暂无学习历程记录"
+        
+        except Exception as e:
+            logger.error(f"获取学习内容失败: {e}")
+            content = {
+                'dialogue_content': f"获取对话内容失败: {str(e)}",
+                'analysis_content': f"获取分析内容失败: {str(e)}",
+                'features_content': f"获取特征内容失败: {str(e)}",
+                'history_content': f"获取历程记录失败: {str(e)}"
+            }
+        
+        return jsonify(content)
+        
+    except Exception as e:
+        logger.error(f"获取风格学习内容失败: {e}")
+        return jsonify({"error": f"获取学习内容失败: {str(e)}"}), 500
+
+@api_bp.route("/style_learning/trigger", methods=["POST"])
+@require_auth
+async def trigger_style_learning():
+    """手动触发对话风格学习"""
+    try:
+        data = await request.get_json()
+        group_id = data.get('group_id', 'default')
+        
+        from .core.factory import FactoryManager
+        
+        factory_manager = FactoryManager()
+        component_factory = factory_manager.get_component_factory()
+        service_factory = factory_manager.get_service_factory()
+        
+        # 获取表达模式学习器
+        expression_learner = component_factory.create_expression_pattern_learner()
+        db_manager = service_factory.create_database_manager()
+        
+        # 获取最近的原始消息
+        recent_messages = await db_manager.get_recent_raw_messages(group_id, limit=30)
+        
+        if not recent_messages or len(recent_messages) < 3:
+            return jsonify({
+                "success": False,
+                "message": f"群组 {group_id} 消息数量不足（{len(recent_messages) if recent_messages else 0}条），无法进行学习",
+                "patterns_count": 0
+            })
+        
+        # 转换为 MessageData 格式
+        from .core.interfaces import MessageData
+        import time
+        
+        message_data_list = []
+        for msg in recent_messages:
+            if msg.get('sender_id') != "bot":  # 不学习机器人的消息
+                message_data = MessageData(
+                    sender_id=msg.get('sender_id', ''),
+                    sender_name=msg.get('sender_name', ''),
+                    message=msg.get('message', ''),
+                    group_id=group_id,
+                    timestamp=msg.get('timestamp', time.time()),
+                    platform=msg.get('platform', 'default'),
+                    message_id=msg.get('message_id'),
+                    reply_to=msg.get('reply_to')
+                )
+                message_data_list.append(message_data)
+        
+        if len(message_data_list) < 3:
+            return jsonify({
+                "success": False,
+                "message": f"有效用户消息数量不足（{len(message_data_list)}条），无法进行学习",
+                "patterns_count": 0
+            })
+        
+        # 启动表达模式学习器
+        if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+            await expression_learner.start()
+        
+        # 强制触发学习
+        if hasattr(expression_learner, 'last_learning_times'):
+            expression_learner.last_learning_times[group_id] = 0  # 重置时间以强制学习
+        
+        learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
+        
+        if learning_success:
+            # 获取学习到的模式数量
+            patterns = await expression_learner.get_expression_patterns(group_id, limit=20)
+            patterns_count = len(patterns) if patterns else 0
+            
+            return jsonify({
+                "success": True,
+                "message": f"群组 {group_id} 风格学习成功",
+                "patterns_count": patterns_count,
+                "processed_messages": len(message_data_list)
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "风格学习未产生有效结果",
+                "patterns_count": 0
+            })
+        
+    except Exception as e:
+        logger.error(f"触发风格学习失败: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"触发学习失败: {str(e)}",
+            "patterns_count": 0
+        }), 500
+
+@api_bp.route("/relearn", methods=["POST"])
+@require_auth
+async def relearn_all():
+    """重新学习按钮 - 包括风格重新学习"""
+    try:
+        data = await request.get_json()
+        group_id = data.get('group_id', 'default')
+        include_style_learning = data.get('include_style_learning', True)
+        
+        from .core.factory import FactoryManager
+        
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        component_factory = factory_manager.get_component_factory()
+        
+        results = {
+            'success': True,
+            'message': '',
+            'progressive_learning': False,
+            'style_learning': False,
+            'processed_messages': 0,
+            'new_patterns': 0,
+            'persona_update_submitted': False,
+            'errors': []
+        }
+        
+        try:
+            # 1. 重新执行渐进式学习
+            progressive_learning = service_factory.create_progressive_learning()
+            db_manager = service_factory.create_database_manager()
+            
+            logger.info(f"开始重新学习群组 {group_id}...")
+            
+            # 检查消息数量（但不强制要求）
+            stats = await db_manager.get_message_statistics(group_id)
+            total_messages = stats.get('total_messages', 0)
+            
+            # 执行渐进式学习批次
+            try:
+                await progressive_learning._execute_learning_batch(group_id)
+                results['progressive_learning'] = True
+                results['processed_messages'] = total_messages
+                logger.info(f"群组 {group_id} 渐进式学习重新执行完成")
+            except Exception as e:
+                error_msg = f"渐进式学习失败: {str(e)}"
+                results['errors'].append(error_msg)
+                logger.error(error_msg)
+            
+            # 2. 风格重新学习（无消息门槛限制）
+            if include_style_learning:
+                try:
+                    expression_learner = component_factory.create_expression_pattern_learner()
+                    
+                    # 获取所有可用的原始消息用于风格学习
+                    recent_messages = await db_manager.get_recent_raw_messages(group_id, limit=100)
+                    
+                    if recent_messages:
+                        # 转换为 MessageData 格式
+                        from .core.interfaces import MessageData
+                        import time
+                        
+                        message_data_list = []
+                        for msg in recent_messages:
+                            if msg.get('sender_id') != "bot":  # 不学习机器人的消息
+                                message_data = MessageData(
+                                    sender_id=msg.get('sender_id', ''),
+                                    sender_name=msg.get('sender_name', ''),
+                                    message=msg.get('message', ''),
+                                    group_id=group_id,
+                                    timestamp=msg.get('timestamp', time.time()),
+                                    platform=msg.get('platform', 'default'),
+                                    message_id=msg.get('message_id'),
+                                    reply_to=msg.get('reply_to')
+                                )
+                                message_data_list.append(message_data)
+                        
+                        # 即使只有1条消息也进行学习（重新学习模式无门槛）
+                        if message_data_list:
+                            # 清理旧的学习结果
+                            if hasattr(expression_learner, 'clear_patterns_for_group'):
+                                await expression_learner.clear_patterns_for_group(group_id)
+                            
+                            # 启动表达模式学习器
+                            if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+                                await expression_learner.start()
+                            
+                            # 强制重新学习（无时间限制）
+                            if hasattr(expression_learner, 'last_learning_times'):
+                                expression_learner.last_learning_times[group_id] = 0  # 重置时间
+                            
+                            learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
+                            
+                            if learning_success:
+                                # 获取新学习的模式数量
+                                patterns = await expression_learner.get_expression_patterns(group_id, limit=30)
+                                results['new_patterns'] = len(patterns) if patterns else 0
+                                results['style_learning'] = True
+                                
+                                # 执行人格学习和申请流程
+                                try:
+                                    persona_updater = service_factory.create_persona_updater()
+                                    
+                                    # 基于学习到的风格生成人格更新内容
+                                    if patterns:
+                                        # 生成风格学习内容用于人格申请
+                                        style_content = await self._generate_persona_update_from_patterns(patterns, group_id)
+                                        
+                                        if style_content:
+                                            # 提交人格学习审查申请
+                                            await db_manager.add_persona_learning_review(
+                                                group_id=group_id,
+                                                proposed_content=style_content,
+                                                learning_source="重新学习-风格分析",
+                                                confidence_score=0.8,  # 重新学习给高置信度
+                                                raw_analysis=f"基于{len(patterns)}个风格模式生成",
+                                                metadata={
+                                                    "relearn_triggered": True,
+                                                    "patterns_count": len(patterns),
+                                                    "messages_processed": len(message_data_list)
+                                                }
+                                            )
+                                            
+                                            results['persona_update_submitted'] = True
+                                            logger.info(f"群组 {group_id} 已提交基于风格学习的人格更新申请")
+                                        
+                                except Exception as e:
+                                    error_msg = f"人格申请流程失败: {str(e)}"
+                                    results['errors'].append(error_msg)
+                                    logger.error(error_msg)
+                                
+                                logger.info(f"群组 {group_id} 风格重新学习完成，学到 {results['new_patterns']} 个新模式")
+                            else:
+                                error_msg = "风格重新学习未产生有效结果"
+                                results['errors'].append(error_msg)
+                                logger.warning(error_msg)
+                        else:
+                            error_msg = f"没有有效的用户消息，跳过风格学习"
+                            results['errors'].append(error_msg)
+                            logger.warning(error_msg)
+                    else:
+                        error_msg = f"群组 {group_id} 没有找到任何消息，跳过风格学习"
+                        results['errors'].append(error_msg)
+                        logger.warning(error_msg)
+                        
+                except Exception as e:
+                    error_msg = f"风格重新学习失败: {str(e)}"
+                    results['errors'].append(error_msg)
+                    logger.error(error_msg)
+            
+            # 3. 构建结果消息
+            success_parts = []
+            if results['progressive_learning']:
+                success_parts.append(f"渐进式学习已完成（处理{results['processed_messages']}条消息）")
+            if results['style_learning']:
+                success_parts.append(f"风格重新学习已完成（学到{results['new_patterns']}个新模式）")
+            if results['persona_update_submitted']:
+                success_parts.append("人格更新申请已提交，等待审查")
+            
+            if success_parts:
+                results['message'] = "重新学习完成：" + "，".join(success_parts)
+                
+                if results['errors']:
+                    results['message'] += f"。注意：{len(results['errors'])}个警告"
+            else:
+                results['success'] = False
+                results['message'] = "重新学习失败：" + "；".join(results['errors']) if results['errors'] else "未知错误"
+            
+        except Exception as e:
+            results['success'] = False
+            results['message'] = f"重新学习过程中发生严重错误: {str(e)}"
+            logger.error(f"重新学习失败: {e}", exc_info=True)
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logger.error(f"重新学习API失败: {e}")
+        return jsonify({
+            "success": False,
+            "error": f"重新学习请求失败: {str(e)}",
+            "progressive_learning": False,
+            "style_learning": False,
+            "processed_messages": 0,
+            "new_patterns": 0,
+            "persona_update_submitted": False
+        }), 500
+
+async def _generate_persona_update_from_patterns(patterns, group_id: str) -> str:
+    """基于风格模式生成人格更新内容"""
+    try:
+        if not patterns:
+            return ""
+        
+        # 构建风格学习文本
+        style_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
+        
+        # 提取主要风格特征
+        for i, pattern in enumerate(patterns[:4], 1):  # 取前4个最重要的模式
+            situation = getattr(pattern, 'situation', '通用情境')
+            expression = getattr(pattern, 'expression', '自然表达')
+            weight = getattr(pattern, 'weight', 0.5)
+            
+            # 生成具体的风格建议
+            if weight > 0.7:
+                style_lines.append(f"{i}. 在{situation}时，要{expression}，保持这种高置信度的表达风格")
+            elif weight > 0.5:
+                style_lines.append(f"{i}. 当遇到{situation}的情况，适当使用{expression}的方式回应")
+            else:
+                style_lines.append(f"{i}. 参考{situation}场景下的{expression}表达方式，灵活运用")
+        
+        # 构建Few Shots对话示例
+        few_shots_lines = [
+            "",
+            "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"
+        ]
+        
+        # 基于模式生成示例对话
+        for i, pattern in enumerate(patterns[:3], 1):  # 前3个模式作为对话示例
+            situation = getattr(pattern, 'situation', '询问问题')
+            expression = getattr(pattern, 'expression', '好的，我来帮你')
+            
+            # 生成符合模式的示例对话
+            few_shots_lines.append(f"A:{situation}")
+            few_shots_lines.append(f"B:{expression}")
+        
+        # 合并所有内容
+        full_content = "\n".join(style_lines + few_shots_lines)
+        
+        logger.info(f"为群组 {group_id} 生成了基于 {len(patterns)} 个模式的人格更新内容")
+        return full_content
+        
+    except Exception as e:
+        logger.error(f"生成人格更新内容失败: {e}")
+        return ""
+
 app.register_blueprint(api_bp)
 
 # 添加根路由重定向
@@ -1192,18 +2690,18 @@ class Server:
     """Quart 服务器管理类"""
     def __init__(self, host: str = "0.0.0.0", port: int = 7833):
         try:
-            print(f"🔧 初始化Web服务器 (端口: {port})...")
+            logger.info(f"🔧 初始化Web服务器 (端口: {port})...")
 
             # 检查端口是否可用
-            print(f"Debug: 开始检查端口可用性")
+            logger.debug(f"Debug: 开始检查端口可用性")
             self._check_port_availability(port)
-            print(f"Debug: 端口检查完成")
+            logger.debug(f"Debug: 端口检查完成")
 
             self.host = host
             self.port = port
             self.server_task: Optional[asyncio.Task] = None
 
-            print(f"Debug: 创建 HypercornConfig")
+            logger.debug(f"Debug: 创建 HypercornConfig")
             self.config = HypercornConfig()
             self.config.bind = [f"{self.host}:{self.port}"]
             self.config.accesslog = "-" # 输出访问日志到 stdout
@@ -1213,17 +2711,17 @@ class Server:
             self.config.use_reloader = False
             self.config.workers = 1
 
-            print(f"✅ Web服务器初始化完成 (端口: {port})")
-            print(f"Debug: 配置绑定: {self.config.bind}")
+            logger.info(f"✅ Web服务器初始化完成 (端口: {port})")
+            logger.debug(f"Debug: 配置绑定: {self.config.bind}")
 
         except Exception as e:
-            print(f"❌ Web服务器初始化失败: {e}")
+            logger.error(f"❌ Web服务器初始化失败: {e}")
             import traceback
-            print(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
+            logger.error(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
             raise
     
     def _check_port_availability(self, port: int):
-        """检查端口可用性，如果被占用则等待或警告"""
+        """检查端口可用性，如果被占用则尝试清理或提供解决方案"""
         import socket
         
         # 检查端口是否被占用
@@ -1232,94 +2730,281 @@ class Server:
                 sock.settimeout(1)
                 result = sock.connect_ex(("127.0.0.1", port))
                 if result == 0:
-                    print(f"⚠️ 端口 {port} 被占用，这可能是之前的实例未正确关闭")
-                    print(f"🔄 Web服务器启动时将尝试重用该端口")
+                    logger.warning(f"端口 {port} 被占用，这可能是之前的插件实例未正确关闭")
+                    logger.info(f"Web服务器启动时将尝试重用该端口或自动处理冲突")
+                    
+                    # 尝试检查是否是本插件的残留进程
+                    try:
+                        import subprocess
+                        import sys
+                        if sys.platform == 'win32':
+                            # Windows: 使用netstat查看端口占用情况
+                            result = subprocess.run(['netstat', '-ano', '-p', 'TCP'], 
+                                                  capture_output=True, text=True, timeout=5)
+                            lines = result.stdout.split('\n')
+                            for line in lines:
+                                if f":{port}" in line and "LISTENING" in line:
+                                    logger.info(f"端口占用详情: {line.strip()}")
+                                    if "python" in line.lower() or "hypercorn" in line.lower():
+                                        logger.info(f"检测到可能的Python/Hypercorn进程占用端口")
+                                    break
+                        else:
+                            # Linux/Mac: 使用lsof或ss
+                            try:
+                                result = subprocess.run(['lsof', '-i', f':{port}'], 
+                                                      capture_output=True, text=True, timeout=5)
+                                if result.stdout:
+                                    logger.info(f"端口占用详情:\n{result.stdout}")
+                            except FileNotFoundError:
+                                try:
+                                    result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], 
+                                                          capture_output=True, text=True, timeout=5)
+                                    if result.stdout:
+                                        logger.info(f"端口占用详情:\n{result.stdout}")
+                                except FileNotFoundError:
+                                    logger.info(f"无法检查端口占用详情（缺少lsof和ss工具）")
+                    except Exception as check_error:
+                        logger.debug(f"检查端口占用详情时出错: {check_error}")
+                    
+                    logger.info(f"建议解决方案:")
+                    logger.info(f"   1. 等待几秒钟后重试（系统可能正在清理资源）")
+                    logger.info(f"   2. 重启AstrBot完全清理所有资源")
+                    logger.info(f"   3. 修改插件配置使用其他端口")
                 else:
-                    print(f"✅ 端口 {port} 可用")
+                    logger.debug(f"端口 {port} 可用")
         except Exception as e:
-            print(f"⚠️ 检查端口 {port} 时出错: {e}")
-            print(f"🔄 继续初始化，启动时处理端口冲突")
+            logger.warning(f"检查端口 {port} 时出错: {e}")
+            logger.info(f"继续初始化，启动时将处理任何端口冲突")
 
     async def start(self):
-        """启动服务器 - 增强版本，包含端口冲突处理"""
-        print(f"🚀 启动Web服务器 (端口: {self.port})...")
-        print(f"Debug: self.server_task = {self.server_task}")
-        print(f"Debug: host = {self.host}, port = {self.port}")
+        """启动服务器 - 增强版本，包含端口冲突处理和重试机制"""
+        logger.info(f"🚀 启动Web服务器 (端口: {self.port})...")
+        logger.debug(f"Debug: self.server_task = {self.server_task}")
+        logger.debug(f"Debug: host = {self.host}, port = {self.port}")
 
         if self.server_task and not self.server_task.done():
-            print("ℹ️ Web服务器已在运行中")
+            logger.info("ℹ️ Web服务器已在运行中")
             return # Server already running
         
+        # 启动前再次检查端口状态
+        port_available = await self._async_check_port_available(self.port)
+        if not port_available:
+            logger.warning(f"⚠️ 端口 {self.port} 仍被占用，尝试等待后重试...")
+            # 等待3秒后重试
+            await asyncio.sleep(3)
+            port_available = await self._async_check_port_available(self.port)
+            
+            if not port_available:
+                logger.warning(f"⚠️ 端口 {self.port} 持续被占用")
+                logger.info(f"🔄 继续尝试启动，Hypercorn可能能够处理端口复用")
+        
         try:
-            print(f"🔧 配置服务器绑定: {self.config.bind}")
-            print(f"Debug: 准备创建Hypercorn serve任务")
-            print(f"Debug: app类型: {type(app)}")
-            print(f"Debug: config类型: {type(self.config)}")
+            logger.info(f"🔧 配置服务器绑定: {self.config.bind}")
+            logger.debug(f"Debug: 准备创建Hypercorn serve任务")
+            logger.debug(f"Debug: app类型: {type(app)}")
+            logger.debug(f"Debug: config类型: {type(self.config)}")
 
-            # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
-            print(f"Debug: 调用 asyncio.create_task")
-            self.server_task = asyncio.create_task(
-                hypercorn.asyncio.serve(app, self.config)
-            )
+            # 添加重试机制
+            max_retries = 3
+            for retry_count in range(max_retries):
+                try:
+                    # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
+                    logger.debug(f"Debug: 调用 asyncio.create_task (尝试 {retry_count + 1}/{max_retries})")
+                    self.server_task = asyncio.create_task(
+                        hypercorn.asyncio.serve(app, self.config)
+                    )
 
-            print(f"✅ Web服务器任务已创建: {self.server_task}")
-            print(f"🌐 访问地址: http://{self.host}:{self.port}")
+                    logger.info(f"✅ Web服务器任务已创建: {self.server_task}")
+                    logger.info(f"🌐 访问地址: http://{self.host}:{self.port}")
 
-            # 等待服务器启动
-            print(f"Debug: 等待2秒让服务器启动")
-            await asyncio.sleep(2)
+                    # 等待服务器启动
+                    logger.debug(f"Debug: 等待服务器启动 (尝试 {retry_count + 1})")
+                    await asyncio.sleep(2)
 
-            # 检查服务器状态
-            print(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
-            if self.server_task and not self.server_task.done():
-                print(f"✅ Web服务器启动成功 (http://{self.host}:{self.port})")
-            else:
-                print(f"❌ Web服务器任务意外完成")
-                if self.server_task and self.server_task.done():
-                    try:
-                        # 获取任务异常
-                        exception = self.server_task.exception()
-                        if exception:
-                            print(f"❌ 服务器启动异常: {exception}")
-                            print(f"❌ 异常类型: {type(exception)}")
-                            import traceback
-                            print(f"❌ 异常堆栈: {traceback.format_exc()}")
-                    except Exception as ex:
-                        print(f"❌ 获取异常信息时出错: {ex}")
+                    # 检查服务器状态
+                    logger.debug(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
+                    if self.server_task and not self.server_task.done():
+                        # 验证服务器是否真的在监听端口
+                        if await self._verify_server_listening():
+                            logger.info(f"✅ Web服务器启动成功并正在监听端口 {self.port}")
+                            return  # 成功启动，退出重试循环
+                        else:
+                            logger.warning(f"⚠️ Web服务器任务运行中，但端口未响应 (尝试 {retry_count + 1})")
+                            if retry_count < max_retries - 1:
+                                # 取消当前任务，准备重试
+                                self.server_task.cancel()
+                                try:
+                                    await asyncio.wait_for(self.server_task, timeout=2.0)
+                                except:
+                                    pass
+                                self.server_task = None
+                                logger.info(f"🔄 准备重试启动...")
+                                await asyncio.sleep(2)
+                                continue
+                    else:
+                        logger.error(f"❌ Web服务器任务意外完成 (尝试 {retry_count + 1})")
+                        if self.server_task and self.server_task.done():
+                            try:
+                                # 获取任务异常
+                                exception = self.server_task.exception()
+                                if exception:
+                                    logger.error(f"❌ 服务器启动异常: {exception}")
+                                    logger.error(f"❌ 异常类型: {type(exception)}")
+                                    if "Address already in use" in str(exception):
+                                        logger.warning(f"🔧 检测到端口冲突，尝试重试...")
+                                        if retry_count < max_retries - 1:
+                                            await asyncio.sleep(3)  # 等待更长时间
+                                            continue
+                            except Exception as ex:
+                                logger.error(f"❌ 获取异常信息时出错: {ex}")
+                        
+                        if retry_count < max_retries - 1:
+                            logger.info(f"🔄 启动失败，等待后重试 (尝试 {retry_count + 1}/{max_retries})")
+                            await asyncio.sleep(5)
+                        continue
+                        
+                except Exception as start_error:
+                    logger.error(f"❌ 启动尝试 {retry_count + 1} 失败: {start_error}")
+                    if "Address already in use" in str(start_error) or "port" in str(start_error).lower():
+                        logger.warning(f"🔧 检测到端口 {self.port} 冲突")
+                        if retry_count < max_retries - 1:
+                            logger.info(f"⏳ 等待端口释放后重试...")
+                            await asyncio.sleep(5)
+                            continue
+                    elif retry_count < max_retries - 1:
+                        logger.info(f"🔄 等待后重试...")
+                        await asyncio.sleep(3)
+                        continue
+                    else:
+                        raise  # 最后一次重试也失败，抛出异常
+            
+            # 如果所有重试都失败了
+            logger.error(f"❌ 经过 {max_retries} 次重试，Web服务器仍无法启动")
+            self.server_task = None
                 
         except Exception as e:
-            print(f"❌ 启动Web服务器失败: {e}")
+            logger.error(f"❌ 启动Web服务器失败: {e}")
             
             # 检查是否是端口冲突
             if "Address already in use" in str(e) or "port" in str(e).lower():
-                print(f"🔧 检测到端口 {self.port} 冲突")
-                print(f"💡 建议: 插件重载时前一个实例可能未完全关闭")
+                logger.warning(f"🔧 确认检测到端口 {self.port} 冲突")
+                logger.info(f"💡 建议解决方案:")
+                logger.info(f"   1. 稍等片刻后重新加载插件")
+                logger.info(f"   2. 重启AstrBot以完全清理资源")
+                logger.info(f"   3. 在插件配置中修改web_interface_port为其他端口")
                 
             import traceback
-            traceback.print_exc()
+            logger.error(f"异常堆栈: {traceback.format_exc()}")
             self.server_task = None
 
+    async def _async_check_port_available(self, port: int) -> bool:
+        """异步检查端口是否可用"""
+        try:
+            import socket
+            loop = asyncio.get_event_loop()
+            
+            def check_port():
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1)
+                    result = sock.connect_ex(("127.0.0.1", port))
+                    return result != 0  # 连接失败表示端口可用
+            
+            return await loop.run_in_executor(None, check_port)
+        except Exception:
+            return True  # 检查失败时假设端口可用
+
+    async def _verify_server_listening(self) -> bool:
+        """验证服务器是否正在监听端口"""
+        try:
+            import aiohttp
+            timeout = aiohttp.ClientTimeout(total=2)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                try:
+                    async with session.get(f"http://{self.host}:{self.port}/") as response:
+                        return response.status in [200, 302, 404]  # 任何HTTP响应都表示服务器在运行
+                except aiohttp.ClientConnectorError:
+                    return False
+        except ImportError:
+            # 如果没有aiohttp，回退到socket检查
+            try:
+                import socket
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(2)
+                    result = sock.connect_ex(("127.0.0.1", self.port))
+                    return result == 0
+            except Exception:
+                return False
+        except Exception:
+            return False
+
     async def stop(self):
-        """停止服务器 - 增强版本，包含超时处理"""
-        print(f"🛑 正在停止Web服务器 (端口: {self.port})...")
+        """停止服务器 - 增强版本，包含更严格的资源清理和端口释放检查"""
+        logger.info(f"🛑 正在停止Web服务器 (端口: {self.port})...")
         
         if self.server_task and not self.server_task.done():
-            # 1. 尝试优雅关闭，设置超时
-            self.server_task.cancel()
             try:
-                await asyncio.wait_for(self.server_task, timeout=5.0)
-                print("✅ Web服务器已优雅停止")
-            except asyncio.CancelledError:
-                print("✅ Web服务器已取消")
-            except asyncio.TimeoutError:
-                print("⚠️ Web服务器停止超时，已强制取消")
+                # 1. 优雅关闭，设置更长的超时
+                logger.info("📋 开始优雅停止Web服务器...")
+                self.server_task.cancel()
+                
+                try:
+                    # 等待任务完成，增加超时时间
+                    await asyncio.wait_for(self.server_task, timeout=10.0)
+                    logger.info("✅ Web服务器已优雅停止")
+                except asyncio.CancelledError:
+                    logger.info("✅ Web服务器任务已取消")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Web服务器优雅停止超时，强制终止")
+                    # 强制终止任务
+                    if not self.server_task.done():
+                        try:
+                            self.server_task.cancel()
+                            await asyncio.sleep(1)  # 给一点时间让取消操作完成
+                        except Exception:
+                            pass
+                except Exception as e:
+                    logger.warning(f"⚠️ 停止Web服务器时出现异常: {e}")
+                
+                # 2. 额外等待确保端口释放
+                logger.info("⏳ 等待端口资源释放...")
+                await asyncio.sleep(2)  # 给更多时间让端口释放
+                
+                # 3. 验证端口是否真的释放了
+                port_released = False
+                for attempt in range(3):  # 最多检查3次
+                    try:
+                        import socket
+                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                            sock.settimeout(1)
+                            result = sock.connect_ex(("127.0.0.1", self.port))
+                            if result != 0:  # 连接失败意味着端口已释放
+                                port_released = True
+                                logger.info(f"✅ 端口 {self.port} 已确认释放 (尝试 {attempt + 1}/3)")
+                                break
+                            else:
+                                logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/3)")
+                                if attempt < 2:  # 不是最后一次尝试
+                                    await asyncio.sleep(1)  # 等待1秒后重试
+                    except Exception as e:
+                        logger.debug(f"端口检查失败 (尝试 {attempt + 1}/3): {e}")
+                        # 如果检查失败，假设端口可能已经释放
+                        if attempt == 2:  # 最后一次尝试
+                            port_released = True
+                            logger.info("📝 端口检查失败，假定端口已释放")
+                
+                if port_released:
+                    logger.info(f"✅ Web服务器完全停止，端口 {self.port} 已释放")
+                else:
+                    logger.warning(f"⚠️ Web服务器已停止，但端口 {self.port} 可能仍被占用")
+                    logger.info("💡 提示: 如果遇到端口占用问题，请稍等片刻或重启AstrBot")
+                
             except Exception as e:
-                print(f"⚠️ 停止Web服务器时出错: {e}")
-            
-            # 2. 等待端口释放
-            await asyncio.sleep(1)
-            
-            self.server_task = None
-            print(f"🔧 Web服务器停止完成 (端口: {self.port})")
+                logger.error(f"❌ 停止Web服务器过程中发生错误: {e}", exc_info=True)
+            finally:
+                # 4. 无论如何都要重置任务引用
+                self.server_task = None
+                logger.info("🧹 Web服务器任务引用已清理")
         else:
-            print("ℹ️ Web服务器已经停止或未启动")
+            logger.info("ℹ️ Web服务器已经停止或未启动，无需停止操作")
+            
+        logger.info(f"🔧 Web服务器停止流程完成 (端口: {self.port})")

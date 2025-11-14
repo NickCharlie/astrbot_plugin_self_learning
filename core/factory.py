@@ -11,7 +11,7 @@ from astrbot.api import logger # 使用框架提供的logger
 from .interfaces import (
     IServiceFactory, IMessageCollector, IStyleAnalyzer, ILearningStrategy,
     IQualityMonitor, IPersonaManager, IPersonaUpdater, IMLAnalyzer, IIntelligentResponder,
-    LearningStrategyType
+    IMessageRelationshipAnalyzer, LearningStrategyType
 )
 from .patterns import StrategyFactory, ServiceRegistry, EventBus
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
@@ -119,6 +119,31 @@ class ServiceFactory(IServiceFactory):
             self._logger.error(f"导入风格分析器失败: {e}", exc_info=True)
             raise ServiceError(f"创建风格分析器失败: {str(e)}")
     
+    def create_message_relationship_analyzer(self):
+        """创建消息关系分析器"""
+        cache_key = "message_relationship_analyzer"
+        
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        try:
+            from ..services.message_relationship_analyzer import MessageRelationshipAnalyzer
+            
+            service = MessageRelationshipAnalyzer(
+                self.config,
+                self.context, 
+                llm_adapter=self.create_framework_llm_adapter()
+            )
+            self._service_cache[cache_key] = service
+            self._registry.register_service("message_relationship_analyzer", service)
+            
+            self._logger.info("创建消息关系分析器成功")
+            return service
+            
+        except ImportError as e:
+            self._logger.error(f"导入消息关系分析器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建消息关系分析器失败: {str(e)}")
+
     def create_learning_strategy(self, strategy_type: str) -> ILearningStrategy:
         """创建学习策略 - 优先使用MaiBot增强版本"""
         try:
@@ -473,6 +498,21 @@ class ServiceFactory(IServiceFactory):
             self._logger.error(f"导入人格更新器失败: {e}", exc_info=True)
             raise ServiceError(f"创建人格更新器失败: {str(e)}")
 
+    def get_persona_updater(self) -> Optional[IPersonaUpdater]:
+        """获取已创建的人格更新器实例，如果不存在则创建"""
+        cache_key = "persona_updater"
+        
+        # 如果已存在，直接返回
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        # 如果不存在，创建新实例
+        try:
+            return self.create_persona_updater()
+        except Exception as e:
+            self._logger.error(f"获取人格更新器失败: {e}", exc_info=True)
+            return None
+
     def get_service_registry(self) -> ServiceRegistry:
         """获取服务注册表"""
         return self._registry
@@ -823,6 +863,34 @@ class ComponentFactory:
         except ImportError as e:
             self._logger.error(f"导入好感度管理服务失败: {e}", exc_info=True)
             raise ServiceError(f"创建好感度管理服务失败: {str(e)}")
+
+    def create_expression_pattern_learner(self):
+        """创建表达模式学习器"""
+        cache_key = "expression_pattern_learner"
+        
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+        
+        try:
+            from ..services.expression_pattern_learner import ExpressionPatternLearner
+            
+            # 使用单例模式获取实例
+            service = ExpressionPatternLearner.get_instance(
+                config=self.config,
+                db_manager=self.service_factory.create_database_manager(),
+                context=self.service_factory.context,
+                llm_adapter=self.service_factory.create_framework_llm_adapter()
+            )
+            
+            self._service_cache[cache_key] = service
+            self._registry.register_service("expression_pattern_learner", service)
+            
+            self._logger.info("创建表达模式学习器成功")
+            return service
+            
+        except ImportError as e:
+            self._logger.error(f"导入表达模式学习器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建表达模式学习器失败: {str(e)}")
 
 
 # 全局工厂实例管理器
