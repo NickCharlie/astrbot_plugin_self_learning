@@ -437,55 +437,57 @@ class AffectionManager(AsyncServiceBase):
         """获取活跃群组列表（从数据库中获取最近有消息的群组）"""
         try:
             # 从数据库获取最近24小时内有消息的群组
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 先尝试获取最近24小时内有消息的群组
-            cutoff_time = time.time() - 86400  # 24小时前
-            await cursor.execute('''
-                SELECT DISTINCT group_id, COUNT(*) as msg_count
-                FROM raw_messages 
-                WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
-                GROUP BY group_id
-                HAVING msg_count >= 3
-                ORDER BY msg_count DESC
-                LIMIT 20
-            ''', (cutoff_time,))
-            
-            active_groups = []
-            for row in await cursor.fetchall():
-                if row[0]:  # 确保group_id不为空
-                    active_groups.append(row[0])
-            
-            # 如果24小时内没有活跃群组，扩大时间范围到7天，降低消息数要求
-            if not active_groups:
-                cutoff_time = time.time() - 604800  # 7天前
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 先尝试获取最近24小时内有消息的群组
+                cutoff_time = time.time() - 86400  # 24小时前
                 await cursor.execute('''
                     SELECT DISTINCT group_id, COUNT(*) as msg_count
                     FROM raw_messages 
                     WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
                     GROUP BY group_id
-                    HAVING msg_count >= 1
+                    HAVING msg_count >= 3
                     ORDER BY msg_count DESC
-                    LIMIT 10
+                    LIMIT 20
                 ''', (cutoff_time,))
                 
+                active_groups = []
                 for row in await cursor.fetchall():
                     if row[0]:  # 确保group_id不为空
                         active_groups.append(row[0])
-            
-            # 如果还是没有，获取所有有消息记录的群组
-            if not active_groups:
-                await cursor.execute('''
-                    SELECT DISTINCT group_id
-                    FROM raw_messages 
-                    WHERE group_id IS NOT NULL AND group_id != ''
-                    LIMIT 5
-                ''')
                 
-                for row in await cursor.fetchall():
-                    if row[0]:  # 确保group_id不为空
-                        active_groups.append(row[0])
+                # 如果24小时内没有活跃群组，扩大时间范围到7天，降低消息数要求
+                if not active_groups:
+                    cutoff_time = time.time() - 604800  # 7天前
+                    await cursor.execute('''
+                        SELECT DISTINCT group_id, COUNT(*) as msg_count
+                        FROM raw_messages 
+                        WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
+                        GROUP BY group_id
+                        HAVING msg_count >= 1
+                        ORDER BY msg_count DESC
+                        LIMIT 10
+                    ''', (cutoff_time,))
+                    
+                    for row in await cursor.fetchall():
+                        if row[0]:  # 确保group_id不为空
+                            active_groups.append(row[0])
+                
+                # 如果还是没有，获取所有有消息记录的群组
+                if not active_groups:
+                    await cursor.execute('''
+                        SELECT DISTINCT group_id
+                        FROM raw_messages 
+                        WHERE group_id IS NOT NULL AND group_id != ''
+                        LIMIT 5
+                    ''')
+                    
+                    for row in await cursor.fetchall():
+                        if row[0]:  # 确保group_id不为空
+                            active_groups.append(row[0])
+                
+                await cursor.close()
             
             self._logger.info(f"找到 {len(active_groups)} 个活跃群组用于情绪初始化")
             return active_groups

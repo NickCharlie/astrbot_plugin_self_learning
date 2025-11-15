@@ -679,28 +679,28 @@ class LightweightMLAnalyzer:
         """获取用户消息（限制数量）"""
         try:
             # 从全局消息数据库获取连接
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                SELECT message, timestamp, sender_name, sender_id, group_id
-                FROM raw_messages 
-                WHERE sender_id = ? AND group_id = ? AND timestamp > ?
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (user_id, group_id, time.time() - 86400 * 7, limit))  # 最近7天
-            
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'message': row[0],
-                    'timestamp': row[1],
-                    'sender_name': row[2],
-                    'sender_id': row[3],
-                    'group_id': row[4]
-                })
-            
-            return messages
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                await cursor.execute('''
+                    SELECT message, timestamp, sender_name, sender_id, group_id
+                    FROM raw_messages 
+                    WHERE sender_id = ? AND group_id = ? AND timestamp > ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (user_id, group_id, time.time() - 86400 * 7, limit))  # 最近7天
+                
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'message': row[0],
+                        'timestamp': row[1],
+                        'sender_name': row[2],
+                        'sender_id': row[3],
+                        'group_id': row[4]
+                    })
+                
+                return messages
             
         except Exception as e:
             logger.error(f"获取用户消息失败: {e}")
@@ -865,27 +865,27 @@ class LightweightMLAnalyzer:
         """获取群聊最近消息"""
         try:
             # 从全局消息数据库获取连接
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                SELECT message, timestamp, sender_id, group_id
-                FROM raw_messages 
-                WHERE group_id = ? AND timestamp > ?
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (group_id, time.time() - 3600 * 6, limit))  # 最近6小时
-            
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'message': row[0],
-                    'timestamp': row[1],
-                    'sender_id': row[2],
-                    'group_id': row[3]
-                })
-            
-            return messages
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                await cursor.execute('''
+                    SELECT message, timestamp, sender_id, group_id
+                    FROM raw_messages 
+                    WHERE group_id = ? AND timestamp > ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (group_id, time.time() - 3600 * 6, limit))  # 最近6小时
+                
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'message': row[0],
+                        'timestamp': row[1],
+                        'sender_id': row[2],
+                        'group_id': row[3]
+                    })
+                
+                return messages
             
         except Exception as e:
             logger.error(f"获取群聊最近消息失败: {e}")
@@ -1045,27 +1045,27 @@ class LightweightMLAnalyzer:
         """获取最活跃用户"""
         try:
             # 从全局消息数据库获取连接
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                SELECT sender_id, sender_name, COUNT(*) as message_count
-                FROM raw_messages 
-                WHERE group_id = ? AND timestamp > ?
-                GROUP BY sender_id, sender_name
-                ORDER BY message_count DESC
-                LIMIT ?
-            ''', (group_id, time.time() - 86400, limit))  # 最近24小时
-            
-            users = []
-            for row in await cursor.fetchall():
-                users.append({
-                    'user_id': row[0],
-                    'user_name': row[1],
-                    'message_count': row[2]
-                })
-            
-            return users
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                await cursor.execute('''
+                    SELECT sender_id, sender_name, COUNT(*) as message_count
+                    FROM raw_messages 
+                    WHERE group_id = ? AND timestamp > ?
+                    GROUP BY sender_id, sender_name
+                    ORDER BY message_count DESC
+                    LIMIT ?
+                ''', (group_id, time.time() - 86400, limit))  # 最近24小时
+                
+                users = []
+                for row in await cursor.fetchall():
+                    users.append({
+                        'user_id': row[0],
+                        'user_name': row[1],
+                        'message_count': row[2]
+                    })
+                
+                return users
             
         except Exception as e:
             logger.error(f"获取最活跃用户失败: {e}")

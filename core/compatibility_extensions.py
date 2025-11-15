@@ -109,32 +109,32 @@ class DatabaseManagerExtension:
         """获取学习批次历史（基于真实数据库查询）"""
         try:
             # 从全局消息数据库查询学习批次记录
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            start_timestamp = time.time() - (days * 24 * 3600)
-            
-            await cursor.execute('''
-                SELECT * FROM learning_batches 
-                WHERE start_time >= ? AND group_id = ?
-                ORDER BY start_time DESC 
-                LIMIT 30
-            ''', (start_timestamp, group_id))
-            
-            rows = await cursor.fetchall()
-            history = []
-            
-            for row in rows:
-                history.append({
-                    'start_time': row[2],  # start_time column
-                    'end_time': row[3],    # end_time column
-                    'group_id': row[1],    # group_id column
-                    'quality_score': row[4] if row[4] else 0.5,  # quality_score column
-                    'processed_messages': row[5] if row[5] else 0,  # processed_messages column
-                    'processing_time': (row[3] - row[2]) if (row[3] and row[2]) else 0  # calculate from timestamps
-                })
-            
-            return history
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                start_timestamp = time.time() - (days * 24 * 3600)
+                
+                await cursor.execute('''
+                    SELECT * FROM learning_batches 
+                    WHERE start_time >= ? AND group_id = ?
+                    ORDER BY start_time DESC 
+                    LIMIT 30
+                ''', (start_timestamp, group_id))
+                
+                rows = await cursor.fetchall()
+                history = []
+                
+                for row in rows:
+                    history.append({
+                        'start_time': row[2],  # start_time column
+                        'end_time': row[3],    # end_time column
+                        'group_id': row[1],    # group_id column
+                        'quality_score': row[4] if row[4] else 0.5,  # quality_score column
+                        'processed_messages': row[5] if row[5] else 0,  # processed_messages column
+                        'processing_time': (row[3] - row[2]) if (row[3] and row[2]) else 0  # calculate from timestamps
+                    })
+                
+                return history
             
         except Exception as e:
             from astrbot.api import logger
@@ -146,34 +146,34 @@ class DatabaseManagerExtension:
         """根据时间范围获取消息（基于真实数据库查询）"""
         try:
             # 从全局消息数据库查询指定时间范围内的消息
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            start_timestamp = start_time.timestamp()
-            end_timestamp = end_time.timestamp()
-            
-            await cursor.execute('''
-                SELECT sender_id, sender_name, message, group_id, platform, timestamp 
-                FROM raw_messages 
-                WHERE timestamp >= ? AND timestamp <= ? AND group_id = ?
-                ORDER BY timestamp ASC
-                LIMIT 1000
-            ''', (start_timestamp, end_timestamp, group_id))
-            
-            rows = await cursor.fetchall()
-            messages = []
-            
-            for row in rows:
-                messages.append({
-                    'timestamp': row[5],    # timestamp column
-                    'group_id': row[3],     # group_id column
-                    'sender_id': row[0],    # sender_id column
-                    'sender_name': row[1],  # sender_name column
-                    'message': row[2],      # message column
-                    'platform': row[4]      # platform column
-                })
-            
-            return messages
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                start_timestamp = start_time.timestamp()
+                end_timestamp = end_time.timestamp()
+                
+                await cursor.execute('''
+                    SELECT sender_id, sender_name, message, group_id, platform, timestamp 
+                    FROM raw_messages 
+                    WHERE timestamp >= ? AND timestamp <= ? AND group_id = ?
+                    ORDER BY timestamp ASC
+                    LIMIT 1000
+                ''', (start_timestamp, end_timestamp, group_id))
+                
+                rows = await cursor.fetchall()
+                messages = []
+                
+                for row in rows:
+                    messages.append({
+                        'timestamp': row[5],    # timestamp column
+                        'group_id': row[3],     # group_id column
+                        'sender_id': row[0],    # sender_id column
+                        'sender_name': row[1],  # sender_name column
+                        'message': row[2],      # message column
+                        'platform': row[4]      # platform column
+                    })
+                
+                return messages
             
         except Exception as e:
             from astrbot.api import logger
@@ -213,26 +213,26 @@ class DatabaseManagerExtension:
         """获取消息统计（基于真实数据库查询）"""
         try:
             # 从全局消息数据库查询真实统计
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 查询原始消息总数
-            await cursor.execute('SELECT COUNT(*) FROM raw_messages')
-            total_messages = (await cursor.fetchone())[0]
-            
-            # 查询筛选后消息数
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-            filtered_messages = (await cursor.fetchone())[0]
-            
-            # 查询已用于学习的消息数
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = 1')
-            processed_messages = (await cursor.fetchone())[0]
-            
-            return {
-                'total_messages': total_messages,
-                'filtered_messages': filtered_messages, 
-                'processed_messages': processed_messages
-            }
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 查询原始消息总数
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
+                total_messages = (await cursor.fetchone())[0]
+                
+                # 查询筛选后消息数
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
+                filtered_messages = (await cursor.fetchone())[0]
+                
+                # 查询已用于学习的消息数
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = 1')
+                processed_messages = (await cursor.fetchone())[0]
+                
+                return {
+                    'total_messages': total_messages,
+                    'filtered_messages': filtered_messages, 
+                    'processed_messages': processed_messages
+                }
             
         except Exception as e:
             from astrbot.api import logger

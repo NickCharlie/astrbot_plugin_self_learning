@@ -7,7 +7,7 @@ import asyncio
 import time
 import re # 导入正则表达式模块
 from datetime import datetime
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
 from astrbot.api.event import AstrMessageEvent
@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.1", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -49,31 +49,22 @@ class SelfLearningPlugin(star.Star):
         self.config = config or {}
         
         # 初始化插件配置
-        # 设置插件数据目录为 ./data/self_learning_data
+        # 获取插件数据目录，并传递给 PluginConfig
         try:
-            # 优先使用 ./data/self_learning_data 作为默认路径
-            plugin_data_dir = os.path.join(".", "data", "self_learning_data")
-            
-            # 如果能获取到 AstrBot 数据路径，尝试在其基础上设置
             astrbot_data_path = get_astrbot_data_path()
-            if astrbot_data_path is not None:
-                # 如果获取到 AstrBot 数据路径，在其基础上创建 self_learning_data 目录
-                alternative_data_dir = os.path.join(astrbot_data_path, "plugins", "astrbot_plugin_self_learning")
-                # 但仍然使用相对路径作为主要选择
-                logger.info(f"AstrBot数据路径可用: {astrbot_data_path}")
-                logger.info(f"备选数据目录: {alternative_data_dir}")
-            else:
-                logger.warning("无法获取 AstrBot 数据路径")
+            if astrbot_data_path is None:
+                # 回退到当前目录下的 data 目录
+                astrbot_data_path = os.path.join(os.path.dirname(__file__), "data")
+                logger.warning("无法获取 AstrBot 数据路径，使用插件目录下的 data 目录")
+            plugin_data_dir = os.path.join(astrbot_data_path, "plugins", "astrbot_plugin_self_learning")
             
-            # 使用绝对路径确保正确性
-            plugin_data_dir = os.path.abspath(plugin_data_dir)
             logger.info(f"插件数据目录: {plugin_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
             
         except Exception as e:
             logger.error(f"初始化插件配置失败: {e}")
             # 使用最保险的默认配置
-            default_data_dir = os.path.abspath(os.path.join(".", "data", "self_learning_data"))
+            default_data_dir = os.path.join(os.path.dirname(__file__), "data")
             logger.warning(f"使用默认数据目录: {default_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=default_data_dir)
         
@@ -250,9 +241,6 @@ class SelfLearningPlugin(star.Star):
             
             # 初始化内部组件
             self._setup_internal_components()
-            
-            # 执行启动时的数据验证和清理
-            asyncio.create_task(self._startup_data_validation())
 
             logger.info(StatusMessages.FACTORY_SERVICES_INIT_COMPLETE)
             
@@ -685,15 +673,15 @@ class SelfLearningPlugin(star.Star):
                bool(re.match(pattern_without_prefix, message_text, re.IGNORECASE))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent):
+    async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
         """监听所有消息，收集用户对话数据"""
         
         try:
-            # 检查插件是否正在卸载或统计对象是否已被清理
-            if self.learning_stats is None:
-                logger.debug("插件正在卸载或统计对象已清理，跳过消息处理")
+            # 检查event参数
+            if event is None:
+                logger.warning("on_message调用时event参数为None，跳过处理")
                 return
-                
+            
             # 获取消息文本
             message_text = event.get_message_str()
             if not message_text or len(message_text.strip()) == 0:
@@ -744,15 +732,10 @@ class SelfLearningPlugin(star.Star):
                 'platform': event.get_platform_name()
             })
             
-            # 检查统计对象是否仍然存在（防止插件卸载过程中的竞态条件）
-            if self.learning_stats is not None:
-                self.learning_stats.total_messages_collected += 1
-                
-                # 确保配置中的统计也得到更新，用于WebUI显示
-                self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
-            else:
-                logger.warning("learning_stats对象为None，跳过统计更新")
-                return  # 如果统计对象已被清理，说明插件正在卸载，直接返回
+            self.learning_stats.total_messages_collected += 1
+            
+            # 确保配置中的统计也得到更新，用于WebUI显示
+            self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
             
             # 处理增强交互（多轮对话管理）
             try:
@@ -901,28 +884,64 @@ class SelfLearningPlugin(star.Star):
         """获取活跃群组列表"""
         try:
             # 获取最近有消息的群组
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 获取最近24小时内有消息的群组
-            cutoff_time = time.time() - 86400
-            await cursor.execute('''
-                SELECT DISTINCT group_id, COUNT(*) as msg_count
-                FROM raw_messages 
-                WHERE timestamp > ? AND group_id IS NOT NULL
-                GROUP BY group_id
-                HAVING msg_count >= ?
-                ORDER BY msg_count DESC
-                LIMIT 10
-            ''', (cutoff_time, self.plugin_config.min_messages_for_learning))
-            
-            active_groups = []
-            for row in await cursor.fetchall():
-                if row[0]:  # 确保group_id不为空
-                    active_groups.append(row[0])
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 首先尝试获取最近24小时内有消息的群组
+                cutoff_time = time.time() - 86400
+                await cursor.execute('''
+                    SELECT DISTINCT group_id, COUNT(*) as msg_count
+                    FROM raw_messages 
+                    WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
+                    GROUP BY group_id
+                    HAVING msg_count >= ?
+                    ORDER BY msg_count DESC
+                    LIMIT 10
+                ''', (cutoff_time, self.plugin_config.min_messages_for_learning))
+                
+                active_groups = []
+                for row in await cursor.fetchall():
+                    if row[0]:  # 确保group_id不为空
+                        active_groups.append(row[0])
+                
+                # 如果最近24小时没有活跃群组，扩大时间范围到7天
+                if not active_groups:
+                    logger.warning("最近24小时内没有活跃群组，扩大搜索范围到7天...")
+                    cutoff_time = time.time() - (86400 * 7)  # 7天
+                    await cursor.execute('''
+                        SELECT DISTINCT group_id, COUNT(*) as msg_count
+                        FROM raw_messages 
+                        WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
+                        GROUP BY group_id
+                        HAVING msg_count >= ?
+                        ORDER BY msg_count DESC
+                        LIMIT 10
+                    ''', (cutoff_time, max(1, self.plugin_config.min_messages_for_learning // 2)))  # 降低消息数要求
                     
-            logger.info(f"发现 {len(active_groups)} 个活跃群组")
-            return active_groups
+                    for row in await cursor.fetchall():
+                        if row[0]:
+                            active_groups.append(row[0])
+                
+                # 如果还是没有，获取所有有消息的群组（无时间限制）
+                if not active_groups:
+                    logger.warning("7天内也没有活跃群组，获取所有有消息记录的群组...")
+                    await cursor.execute('''
+                        SELECT DISTINCT group_id, COUNT(*) as msg_count
+                        FROM raw_messages 
+                        WHERE group_id IS NOT NULL AND group_id != ''
+                        GROUP BY group_id
+                        ORDER BY msg_count DESC
+                        LIMIT 10
+                    ''')
+                    
+                    for row in await cursor.fetchall():
+                        if row[0]:
+                            active_groups.append(row[0])
+                            
+                await cursor.close()
+                        
+                logger.info(f"发现 {len(active_groups)} 个活跃群组: {active_groups if active_groups else '无'}")
+                return active_groups
             
         except Exception as e:
             logger.error(f"获取活跃群组失败: {e}")
@@ -955,10 +974,7 @@ class SelfLearningPlugin(star.Star):
                     'timestamp': time.time(),
                     'confidence': 0.6  # 无LLM筛选的置信度较低
                 })
-                
-                # 检查统计对象是否仍然存在
-                if self.learning_stats is not None:
-                    self.learning_stats.filtered_messages += 1
+                self.learning_stats.filtered_messages += 1
                 
                 # 确保配置中的统计也得到更新，用于WebUI显示
                 if not hasattr(self.plugin_config, 'filtered_messages'):
@@ -979,10 +995,7 @@ class SelfLearningPlugin(star.Star):
                     'timestamp': time.time(),
                     'confidence': 0.8  # 实时筛选置信度
                 })
-                
-                # 检查统计对象是否仍然存在
-                if self.learning_stats is not None:
-                    self.learning_stats.filtered_messages += 1
+                self.learning_stats.filtered_messages += 1
                 
                 # 确保配置中的统计也得到更新，用于WebUI显示
                 if not hasattr(self.plugin_config, 'filtered_messages'):
@@ -993,78 +1006,89 @@ class SelfLearningPlugin(star.Star):
             logger.error(StatusMessages.REALTIME_PROCESSING_ERROR.format(error=e), exc_info=True)
 
     async def _process_expression_style_learning(self, group_id: str, message_text: str, sender_id: str):
-        """处理表达风格学习 - 每收集10条消息进行一次学习"""
+        """处理表达风格学习 - 直接学习，无需消息筛选"""
         try:
-            # 检查当前消息计数
-            message_count_key = f"expression_learning_count_{group_id}"
-            current_count = getattr(self, message_count_key, 0)
-            current_count += 1
-            setattr(self, message_count_key, current_count)
+            # 添加频率控制，避免过度学习
+            current_time = time.time()
+            last_learning_key = f"last_expression_learning_{group_id}"
+            last_learning_time = getattr(self, last_learning_key, 0)
             
-            # 每收集10条消息进行一次风格学习
-            if current_count < 10:
-                logger.debug(f"群组 {group_id} 表达风格学习消息计数: {current_count}/10")
+            # 表达风格学习间隔：每2分钟最多学习一次（减少间隔）
+            if current_time - last_learning_time < 120:  # 2分钟间隔
+                logger.debug(f"群组 {group_id} 表达风格学习间隔未到，剩余时间: {120 - (current_time - last_learning_time):.1f}秒")
                 return
             
-            # 重置计数器
-            setattr(self, message_count_key, 0)
+            # 检查是否有足够的消息进行学习（降低阈值）
+            stats = await self.message_collector.get_statistics(group_id)
+            raw_message_count = stats.get('raw_messages', 0)
             
-            logger.info(f"群组 {group_id} 达到10条消息，开始表达风格学习")
+            # 需要至少5条消息才开始表达风格学习（降低阈值）
+            if raw_message_count < 5:
+                logger.debug(f"群组 {group_id} 原始消息数量不足，当前：{raw_message_count}，需要至少5条")
+                return
+            
+            logger.info(f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}")
             
             # 获取最近的原始消息用于学习（不使用筛选后的消息）
-            recent_raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=20)
+            recent_raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=25)
             
-            if not recent_raw_messages or len(recent_raw_messages) < 3:
+            if not recent_raw_messages or len(recent_raw_messages) < 3:  # 降低阈值
                 logger.debug(f"群组 {group_id} 原始消息数量不足，数据库中只有 {len(recent_raw_messages) if recent_raw_messages else 0} 条")
                 return
             
-            # 转换为 MessageData 格式
+            # 转换为 MessageData 格式，并应用正则表达式过滤
             from .core.interfaces import MessageData
+            import re
+            
             message_data_list = []
             for msg in recent_raw_messages:
                 if msg.get('sender_id') != sender_id:  # 不学习自己的消息
+                    message_content = msg.get('message', '')
+                    
+                    # 应用与webui.py相同的过滤逻辑
+                    # 1. 基础过滤：长度检查
+                    if len(message_content.strip()) < 5:
+                        continue
+                    if len(message_content) > 500:
+                        continue
+                        
+                    # 2. 关键词过滤：无意义消息
+                    if message_content.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
+                        continue
+                    
+                    # 3. @符号处理：提取@用户名后的消息内容
+                    processed_message = message_content
+                    if '@' in message_content:
+                        # 使用正则表达式匹配 @用户名 后的内容
+                        at_pattern = r'@[^\s]+\s+'
+                        processed_message = re.sub(at_pattern, '', message_content).strip()
+                        
+                        # 如果处理后消息为空或过短，跳过
+                        if len(processed_message.strip()) < 5:
+                            continue
+                    
                     message_data = MessageData(
                         sender_id=msg.get('sender_id', ''),
                         sender_name=msg.get('sender_name', ''),
-                        message=msg.get('message', ''),
+                        message=processed_message,  # 使用处理后的消息内容
                         group_id=group_id,
                         timestamp=msg.get('timestamp', time.time()),
                         platform=msg.get('platform', 'default'),
-                        message_id=msg.get('message_id'),
-                        reply_to=msg.get('reply_to')
+                        message_id=msg.get('id'),  # 使用id而不是message_id
+                        reply_to=None  # raw_messages表中没有reply_to字段
                     )
                     message_data_list.append(message_data)
             
-            if len(message_data_list) < 3:
+            if len(message_data_list) < 3:  # 降低阈值
                 logger.debug(f"群组 {group_id} 有效学习消息不足3条，跳过表达风格学习，当前：{len(message_data_list)}")
                 return
             
             logger.info(f"群组 {group_id} 准备进行表达风格学习，有效消息数：{len(message_data_list)}")
             
             # 调用表达模式学习器进行学习
-            try:
-                expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
-                
-                if not expression_learner:
-                    logger.error("无法创建表达模式学习器")
-                    return
-                
-                # 启动学习器服务（如果尚未启动）
-                if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
-                    await expression_learner.start()
-                    logger.info("表达模式学习器已启动")
-                
-                # 检查LLM适配器是否可用
-                if not expression_learner.llm_adapter:
-                    logger.warning("表达模式学习器缺少LLM适配器，无法进行学习")
-                    return
-                
-                # 检查LLM提供商是否可用
-                if not expression_learner.llm_adapter.has_refine_provider():
-                    logger.warning("表达模式学习器的LLM适配器缺少refine provider，无法进行学习")
-                    return
-                
-                logger.info(f"群组 {group_id} 开始调用表达模式学习器")
+            expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
+            
+            if expression_learner:
                 learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
                 
                 if learning_success:
@@ -1074,8 +1098,6 @@ class SelfLearningPlugin(star.Star):
                     try:
                         learned_patterns = await expression_learner.get_expression_patterns(group_id, limit=5)
                         if learned_patterns:
-                            logger.info(f"群组 {group_id} 获取到 {len(learned_patterns)} 个学习到的表达模式")
-                            
                             # 动态临时加入prompt（不加入人格）
                             await self._apply_style_to_prompt_temporarily(group_id, learned_patterns)
                             
@@ -1090,24 +1112,23 @@ class SelfLearningPlugin(star.Star):
                                 logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt，并已提交人格审查")
                             else:
                                 logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt")
-                        else:
-                            logger.warning(f"群组 {group_id} 表达风格学习成功，但没有获取到表达模式")
                     except Exception as e:
                         logger.error(f"处理表达风格学习结果失败: {e}")
                     
-                    # 统计更新 
-                    if self.learning_stats is not None:
-                        self.learning_stats.style_updates += 1
+                    # 更新学习时间
+                    setattr(self, last_learning_key, current_time)
+                    
+                    # 统计更新
+                    self.learning_stats.style_updates += 1
                     
                     # 触发增量更新回调（动态临时更新prompt）
-                    if hasattr(self, 'update_system_prompt_callback') and self.update_system_prompt_callback:
+                    if self.update_system_prompt_callback:
                         await self.update_system_prompt_callback(group_id)
                         logger.info(f"群组 {group_id} 表达风格学习结果已应用到system_prompt")
                 else:
-                    logger.warning(f"群组 {group_id} 表达风格学习未产生有效结果")
-                    
-            except Exception as e:
-                logger.error(f"群组 {group_id} 表达模式学习器调用失败: {e}")
+                    logger.debug(f"群组 {group_id} 表达风格学习未产生有效结果")
+            else:
+                logger.warning("表达模式学习器未正确初始化")
                 
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
@@ -1149,419 +1170,77 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"临时应用风格到prompt失败: {e}")
 
     async def _generate_few_shots_dialog(self, group_id: str, message_data_list: List[Any]) -> str:
-        """基于真实对话关系分析生成学习示例 - 完全基于真实用户消息"""
+        """生成Few Shots对话格式的内容"""
         try:
-            if not message_data_list:
-                logger.debug(f"群组 {group_id} 没有可用的消息数据")
-                return ""
+            # 筛选出有效的对话片段
+            dialog_pairs = []
             
-            # 将消息按时间排序，确保分析的是真实的时间序列
+            # 将消息按时间排序
             sorted_messages = sorted(message_data_list, key=lambda x: x.timestamp)
             
-            # 过滤出有效的真实消息
-            valid_messages = []
-            for msg in sorted_messages:
-                message_content = msg.message.strip()
-                # 过滤掉无意义的短消息，但保留所有真实用户输入
-                if (len(message_content) >= 2 and 
-                    message_content not in ['？', '？？', '...', '。。。', '???', '…']):
-                    valid_messages.append({
-                        'message_id': getattr(msg, 'message_id', f"real_msg_{hash(msg.sender_id + str(msg.timestamp)) % 10000}"),
-                        'sender_id': msg.sender_id,
-                        'message': message_content,
-                        'timestamp': msg.timestamp
-                    })
-            
-            if len(valid_messages) < 2:
-                logger.debug(f"群组 {group_id} 有效消息数量不足（{len(valid_messages)}），无法进行对话关系分析")
-                return ""
-            
-            # 限制分析范围到最近的消息，避免处理过多数据
-            analysis_messages = valid_messages[-20:]  # 分析最近20条真实消息
-            
-            try:
-                # 使用消息关系分析器进行智能分析
-                relationship_analyzer = self.factory_manager.get_service_factory().create_message_relationship_analyzer()
-                relationships = await relationship_analyzer.analyze_message_relationships(analysis_messages, group_id)
+            # 查找连续的对话
+            for i in range(len(sorted_messages) - 1):
+                current_msg = sorted_messages[i]
+                next_msg = sorted_messages[i + 1]
                 
-                if not relationships:
-                    logger.debug(f"群组 {group_id} 未发现任何消息关系")
-                    return self._generate_simple_conversation_context(analysis_messages, group_id)
-                
-                # 提取高质量的真实对话对
-                conversation_pairs = await relationship_analyzer.get_conversation_pairs(relationships)
-                
-                if conversation_pairs and len(conversation_pairs) > 0:
-                    # 生成基于真实对话关系的学习内容
-                    dialog_content = await self._format_real_conversation_pairs(conversation_pairs, relationships, group_id)
+                # 确保是不同用户的对话
+                if current_msg.sender_id != next_msg.sender_id:
+                    # 清理消息内容
+                    user_msg = current_msg.message.strip()
+                    bot_response = next_msg.message.strip()
                     
-                    # 获取分析质量信息
-                    quality_info = await relationship_analyzer.analyze_conversation_quality(relationships)
-                    
-                    # 添加分析统计信息（帮助理解数据质量）
-                    if quality_info.get('total_relationships', 0) > 0:
-                        dialog_content += f"\n\n*真实对话分析统计: 发现{quality_info['total_relationships']}个消息关系，"
-                        dialog_content += f"平均置信度{quality_info['avg_confidence']:.2f}，"
-                        dialog_content += f"直接回复{quality_info['direct_replies']}个*"
-                    
-                    logger.info(f"群组 {group_id} 基于智能关系分析生成了真实对话学习内容，包含 {len(conversation_pairs)} 个对话对")
-                    return dialog_content
-                else:
-                    logger.debug(f"群组 {group_id} 未提取到有效的对话对")
-                    return self._generate_simple_conversation_context(analysis_messages, group_id)
-                    
-            except Exception as e:
-                logger.warning(f"群组 {group_id} 智能关系分析失败，使用简单方法: {e}")
-                return self._generate_simple_conversation_context(analysis_messages, group_id)
+                    # 过滤掉太短或无意义的消息
+                    if (len(user_msg) >= 5 and len(bot_response) >= 5 and
+                        user_msg not in ['？', '？？', '...', '。。。'] and
+                        bot_response not in ['？', '？？', '...', '。。。']):
+                        
+                        dialog_pairs.append({
+                            'user': user_msg,
+                            'assistant': bot_response
+                        })
             
-        except Exception as e:
-            logger.error(f"群组 {group_id} 生成真实对话学习内容失败: {e}")
-            return ""
-
-    async def _generate_style_analysis_text(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
-        """生成*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:，使用提炼模型进行智能分析"""
-        try:
-            # 使用LLM提炼模型进行深度分析
-            if hasattr(self, 'llm_adapter') and self.llm_adapter and self.llm_adapter.has_refine_provider():
-                logger.info("使用提炼模型进行风格分析...")
-                try:
-                    # 直接调用异步方法获取提炼模型结果
-                    result = await self.generate_llm_style_analysis_async(conversation_pairs, relationships)
-                    if result and "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:" in result:
-                        logger.info("成功获取提炼模型风格分析结果")
-                        return result
-                    else:
-                        logger.warning("提炼模型返回结果格式异常，使用基本分析")
-                        return self._generate_basic_style_analysis(conversation_pairs, relationships)
-                except Exception as llm_error:
-                    logger.error(f"提炼模型分析失败: {llm_error}")
-                    return self._generate_basic_style_analysis(conversation_pairs, relationships)
-            else:
-                logger.info("提炼模型不可用，使用基本风格分析")
-                # 回退到基本分析
-                return self._generate_basic_style_analysis(conversation_pairs, relationships)
+            # 选择最佳的对话片段（取前5个）
+            if len(dialog_pairs) >= 3:
+                selected_pairs = dialog_pairs[:5]
                 
-        except Exception as e:
-            logger.error(f"生成*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:失败: {e}")
-            # 返回默认分析
-            return "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度\n3. 适当使用口语化表达增加亲和力"
-    
-    async def generate_llm_style_analysis_async(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
-        """异步版本的LLM风格分析，使用提炼模型进行深度分析"""
-        try:
-            logger.info(f"开始使用提炼模型分析 {len(conversation_pairs)} 个对话对")
-            
-            # 构建分析prompt
-            conversation_text = ""
-            for i, (sender_content, reply_content) in enumerate(conversation_pairs[:5], 1):
-                # 清理消息中的@信息，只保留实际对话内容
-                cleaned_sender = self._clean_at_mentions(sender_content)
-                cleaned_reply = self._clean_at_mentions(reply_content)
+                # 生成Few Shots格式
+                few_shots_lines = [
+                    "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"
+                ]
                 
-                conversation_text += f"对话{i}:\nA: {cleaned_sender}\nB: {cleaned_reply}\n\n"
-            
-            if not conversation_text.strip():
-                logger.warning("没有有效的对话内容进行分析")
-                return self._generate_basic_style_analysis(conversation_pairs, relationships)
-            
-            # 构建详细的分析prompt，要求提炼模型输出标准格式
-            prompt = f"""请深入分析以下真实对话中B用户的表达风格，提供具体、可操作的建议：
-
-{conversation_text}
-
-请从以下几个方面全面分析B用户的表达风格特点：
-1. **回复长度和结构特征** - 分析B用户喜欢用长句还是短句，是否有特定的句式结构
-2. **语气和语调特点** - 分析语气是正式、随意、热情、冷静等特征
-3. **互动方式和态度** - 分析回应的积极性、主动性和参与度
-4. **语言习惯和表达偏好** - 分析用词习惯、表情符号使用、语气词等
-5. **情感表达方式** - 分析情感表达的方式和强度
-
-要求：
-- 每条建议要具体明确，说明在什么情况下应该怎样表达
-- 用自然的语言描述，避免抽象或学术化的表述
-- 总共给出4-5条最重要的风格特征建议
-- **必须严格按照以下格式输出**：
-
-*下面是你在生成回复的时候需要遵循并且需要做出的改变:
-1. [第一条具体的风格特征建议]
-2. [第二条具体的风格特征建议]
-3. [第三条具体的风格特征建议]
-4. [第四条具体的风格特征建议]
-
-请只返回上述格式的分析结果，不要其他内容。"""
-
-            logger.info("调用提炼模型进行风格分析...")
-            
-            # 调用提炼模型
-            response = await self.llm_adapter.refine_chat_completion(
-                prompt=prompt,
-                system_prompt="你是一个专业的对话风格分析师，擅长从真实对话中提炼具体可操作的表达特征和建议。你的分析必须基于实际观察，给出的建议要具体明确且容易理解。"
-            )
-            
-            if response and response.strip():
-                # 验证返回格式是否正确
-                if "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:" in response and any(f"{i}." in response for i in range(1, 5)):
-                    # 清理和格式化响应
-                    cleaned_response = response.strip()
-                    logger.info(f"提炼模型成功生成风格分析，长度: {len(cleaned_response)} 字符")
-                    logger.debug(f"提炼模型分析结果预览: {cleaned_response[:200]}...")
-                    return cleaned_response
-                else:
-                    logger.warning(f"提炼模型返回格式不正确，内容: {response[:200]}...")
-                    logger.warning("回退到基本分析方法")
-                    return self._generate_basic_style_analysis(conversation_pairs, relationships)
-            else:
-                logger.warning("提炼模型无响应或响应为空")
-                return self._generate_basic_style_analysis(conversation_pairs, relationships)
+                for pair in selected_pairs:
+                    few_shots_lines.append(f"A: {pair['user']}")
+                    few_shots_lines.append(f"B: {pair['assistant']}")
                 
-        except Exception as e:
-            logger.error(f"提炼模型风格分析失败: {e}", exc_info=True)
-            return self._generate_basic_style_analysis(conversation_pairs, relationships)
-    
-    def _clean_at_mentions(self, text: str) -> str:
-        """清理消息中的@信息，只保留实际对话内容"""
-        if not text:
-            return text
-        
-        try:
-            import re
-            # 匹配@用户名(数字ID) 格式
-            # 示例: @中科大舞萌学院地雷系_铃铃猫(1456503094) 明晚，可能很晚
-            # 清理后: 明晚，可能很晚
+                return '\n'.join(few_shots_lines)
             
-            # 正则表达式：匹配@开头直到)结束的部分
-            pattern = r'@[^)]*\)\s*'
-            cleaned_text = re.sub(pattern, '', text)
-            
-            # 如果清理后的文本为空或太短，返回原文本（可能不是@格式）
-            if not cleaned_text.strip() or len(cleaned_text.strip()) < 2:
-                return text
-            
-            # 清理多余的空格
-            cleaned_text = cleaned_text.strip()
-            
-            # 如果清理前后有显著差异，记录日志
-            if len(text) - len(cleaned_text) > 10:
-                logger.debug(f"清理@信息: '{text[:50]}...' -> '{cleaned_text[:50]}...'")
-            
-            return cleaned_text
-            
-        except Exception as e:
-            logger.warning(f"清理@信息失败: {e}，返回原文本")
-            return text
-    
-    def _generate_basic_style_analysis(self, conversation_pairs: List[Any], relationships: List[Any]) -> str:
-        """生成基本的*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:（回退方法）"""
-        try:
-            # 分析对话特征，同样需要清理@信息
-            cleaned_pairs = []
-            for sender_content, reply_content in conversation_pairs:
-                cleaned_sender = self._clean_at_mentions(sender_content)
-                cleaned_reply = self._clean_at_mentions(reply_content)
-                cleaned_pairs.append((cleaned_sender, cleaned_reply))
-            
-            analysis_points = []
-            
-            # 1. 分析回复长度模式
-            short_replies = sum(1 for _, reply in cleaned_pairs if len(reply.strip()) <= 15)
-            long_replies = len(cleaned_pairs) - short_replies
-            
-            if short_replies > long_replies:
-                analysis_points.append("回复时要简洁明了，避免冗长啰嗦，多用短句表达")
-            elif long_replies > short_replies:
-                analysis_points.append("回复要详细具体，提供完整信息，不要过于简短")
-            else:
-                analysis_points.append("根据问题复杂度调整回复长度，简单问题简答，复杂问题详答")
-            
-            # 2. 分析语气特征
-            casual_indicators = ['哈哈', '嘿嘿', '嗯嗯', '好的', '好吧', '行吧', '额', '呃']
-            formal_indicators = ['您好', '请问', '感谢', '不好意思', '抱歉', '非常']
-            
-            casual_count = sum(1 for _, reply in cleaned_pairs 
-                             if any(indicator in reply for indicator in casual_indicators))
-            formal_count = sum(1 for _, reply in cleaned_pairs 
-                             if any(indicator in reply for indicator in formal_indicators))
-            
-            if casual_count > formal_count:
-                analysis_points.append("保持轻松随意的语气，多用口语化表达，可以加入语气词")
-            elif formal_count > casual_count:
-                analysis_points.append("使用正式礼貌的语言风格，注意用词的准确性和得体性")
-            else:
-                analysis_points.append("根据对话氛围调整语气，既要亲切又要适度正式")
-            
-            # 3. 分析互动模式
-            question_replies = sum(1 for _, reply in cleaned_pairs if any(q in reply for q in ['?', '？', '吗', '呢']))
-            if question_replies > len(cleaned_pairs) * 0.3:
-                analysis_points.append("适时反问和追问，保持对话的互动性，引导话题深入")
-            else:
-                analysis_points.append("多提供确定性的回答，给出明确的信息和建议")
-            
-            # 4. 分析表情使用
-            emoji_count = sum(1 for _, reply in cleaned_pairs 
-                            if any(emoji in reply for emoji in ['😄', '😊', '😂', '🤔', '👍', '❤️', '💯']))
-            if emoji_count > 0:
-                analysis_points.append("适当使用表情符号增加亲和力，但不要过度使用影响正式性")
-            
-            # 5. 分析回应积极性
-            positive_words = ['好', '棒', '不错', '可以', '没问题', '当然', '很好']
-            positive_count = sum(1 for _, reply in cleaned_pairs 
-                               if any(word in reply for word in positive_words))
-            
-            if positive_count > len(cleaned_pairs) * 0.5:
-                analysis_points.append("保持积极正面的回应态度，多给予肯定和鼓励")
-            else:
-                analysis_points.append("回答要客观中性，避免过于主观的价值判断")
-            
-            # 构建最终的*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:
-            style_text_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
-            for i, point in enumerate(analysis_points[:4], 1):  # 最多4条建议
-                style_text_lines.append(f"{i}. {point}")
-            
-            return "\n".join(style_text_lines)
-            
-        except Exception as e:
-            logger.error(f"生成基本*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:失败: {e}")
-            # 返回默认分析
-            return "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度\n3. 适当使用口语化表达增加亲和力"
-
-    async def _format_real_conversation_pairs(self, conversation_pairs: List[Any], relationships: List[Any], group_id: str) -> str:
-        """格式化真实对话对为严格的Few Shots格式"""
-        if not conversation_pairs:
             return ""
             
-        # 生成严格的Few Shots格式
-        dialog_lines = []
-        
-        # 首先生成风格学习分析文本
-        style_analysis = await self._generate_style_analysis_text(conversation_pairs, relationships)
-        if style_analysis:
-            dialog_lines.extend(style_analysis.split('\n'))
-            dialog_lines.append("")  # 空行分隔
-        
-        # 然后添加严格的Few Shots对话格式
-        dialog_lines.append("*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:")
-        
-        # 选择最高质量的对话对（最多3-4组）
-        display_pairs = conversation_pairs[:4]
-        
-        for sender_content, reply_content in display_pairs:
-            # 严格按照 A:xxx B:xxx 格式
-            dialog_lines.append(f"A:{sender_content}")
-            dialog_lines.append(f"B:{reply_content}")
-        
-        return "\n".join(dialog_lines)
-
-    def _generate_simple_conversation_context(self, messages: List[Dict], group_id: str) -> str:
-        """生成简单的真实对话上下文（当无法进行关系分析时）"""
-        if not messages:
+        except Exception as e:
+            logger.error(f"生成Few Shots对话失败: {e}")
             return ""
-        
-        # 选择最近的消息展示真实对话流
-        display_messages = messages[-8:]  # 显示最近8条真实消息
-        
-        dialog_lines = [
-            "*真实聊天记录时间序列*",
-            "",
-            "以下是按时间顺序的真实用户消息：",
-            ""
-        ]
-        
-        for msg in display_messages:
-            # 为保护隐私，用户ID进行哈希处理
-            user_label = f"用户{hash(msg['sender_id']) % 100:02d}"
-            timestamp_str = time.strftime("%H:%M", time.localtime(msg.get('timestamp', 0)))
-            dialog_lines.append(f"[{timestamp_str}] {user_label}: {msg['message']}")
-        
-        dialog_lines.extend([
-            "",
-            "*使用说明:*", 
-            "• 以上为真实用户发送的原始消息",
-            "• 请观察其中的语言风格和表达特点",
-            "• 学习自然对话的节奏和方式",
-            ""
-        ])
-        
-        logger.info(f"群组 {group_id} 生成了简单真实对话上下文，包含 {len(display_messages)} 条消息")
-        return "\n".join(dialog_lines)
 
     async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
         """创建对话风格学习结果的审查请求"""
         try:
-            logger.info(f"开始为群组 {group_id} 创建风格学习审查请求，模式数量: {len(learned_patterns)}")
-            
-            # 安全转换learned_patterns为字典格式
-            patterns_data = []
-            try:
-                for i, pattern in enumerate(learned_patterns):
-                    try:
-                        if hasattr(pattern, 'to_dict'):
-                            # 如果对象有to_dict方法
-                            patterns_data.append(pattern.to_dict())
-                        elif hasattr(pattern, '__dict__'):
-                            # 如果是普通对象，转换其属性
-                            pattern_dict = {
-                                'situation': getattr(pattern, 'situation', getattr(pattern, 'scene', '')),
-                                'expression': getattr(pattern, 'expression', ''),
-                                'weight': getattr(pattern, 'weight', 0.5),
-                                'style_type': getattr(pattern, 'style_type', 'general'),
-                                'confidence': getattr(pattern, 'confidence', 0.5)
-                            }
-                            patterns_data.append(pattern_dict)
-                        elif isinstance(pattern, dict):
-                            # 如果已经是字典
-                            patterns_data.append(pattern)
-                        else:
-                            # 其他情况，创建基本字典
-                            patterns_data.append({
-                                'expression': str(pattern),
-                                'weight': 0.5,
-                                'style_type': 'general'
-                            })
-                            logger.warning(f"模式 {i} 格式未知，使用字符串表示: {str(pattern)[:50]}...")
-                    except Exception as pattern_error:
-                        logger.error(f"转换模式 {i} 失败: {pattern_error}")
-                        # 添加一个错误占位符
-                        patterns_data.append({
-                            'expression': f'模式转换错误: {str(pattern_error)[:50]}',
-                            'weight': 0.1,
-                            'style_type': 'error'
-                        })
-            except Exception as patterns_error:
-                logger.error(f"转换learned_patterns失败: {patterns_error}")
-                patterns_data = [{'expression': '模式数据转换失败', 'weight': 0.1, 'style_type': 'error'}]
-            
-            # 验证few_shots_content
-            if not few_shots_content or not few_shots_content.strip():
-                logger.warning("few_shots_content为空，使用默认内容")
-                few_shots_content = "对话风格学习内容生成失败"
-                
             # 构建审查内容
             review_data = {
                 'type': 'style_learning',
                 'group_id': group_id,
                 'timestamp': time.time(),
-                'learned_patterns': patterns_data,
+                'learned_patterns': [pattern.to_dict() for pattern in learned_patterns],
                 'few_shots_content': few_shots_content,
                 'status': 'pending',  # pending, approved, rejected
-                'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(patterns_data)} 个表达模式）'
+                'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）'
             }
             
-            logger.info(f"审查数据构建完成: type={review_data['type']}, group_id={review_data['group_id']}, patterns_count={len(patterns_data)}")
-            
             # 保存到数据库的审查表
-            try:
-                review_id = await self.db_manager.create_style_learning_review(review_data)
-                logger.info(f"✅ 对话风格学习审查请求创建成功: group_id={group_id}, review_id={review_id}")
-                logger.info(f"📋 审查内容预览: {few_shots_content[:100]}...")
-                return review_id
-            except Exception as db_error:
-                logger.error(f"❌ 数据库保存风格学习审查失败: {db_error}")
-                raise
+            await self.db_manager.create_style_learning_review(review_data)
+            
+            logger.info(f"对话风格学习审查请求已创建: {group_id}")
             
         except Exception as e:
-            logger.error(f"❌ 创建对话风格学习审查请求失败: {e}", exc_info=True)
-            # 不抛出异常，避免中断主流程
-            return None
+            logger.error(f"创建对话风格学习审查请求失败: {e}")
 
     @filter.command("learning_status")
     @filter.permission_type(PermissionType.ADMIN)
@@ -2220,119 +1899,6 @@ PersonaManager模式优势：
             logger.error(f"切换人格更新模式失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 切换人格更新模式失败: {str(e)}")
 
-    @filter.command("force_expression_learning")
-    @filter.permission_type(PermissionType.ADMIN)
-    async def force_expression_learning_command(self, event: AstrMessageEvent):
-        """强制触发表达风格学习"""
-        try:
-            group_id = event.get_group_id() or event.get_sender_id()
-            yield event.plain_result(f"🔄 开始强制触发群组 {group_id} 的表达风格学习...")
-            
-            # 获取最近的原始消息
-            recent_raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=30)
-            
-            if not recent_raw_messages or len(recent_raw_messages) < 3:
-                yield event.plain_result(f"❌ 群组 {group_id} 原始消息数量不足（{len(recent_raw_messages) if recent_raw_messages else 0}条），无法进行学习")
-                return
-            
-            # 转换为 MessageData 格式
-            from .core.interfaces import MessageData
-            message_data_list = []
-            bot_messages = 0
-            for msg in recent_raw_messages:
-                if msg.get('sender_id') != "bot":  # 不学习机器人的消息
-                    message_data = MessageData(
-                        sender_id=msg.get('sender_id', ''),
-                        sender_name=msg.get('sender_name', ''),
-                        message=msg.get('message', ''),
-                        group_id=group_id,
-                        timestamp=msg.get('timestamp', time.time()),
-                        platform=msg.get('platform', 'default'),
-                        message_id=msg.get('message_id'),
-                        reply_to=msg.get('reply_to')
-                    )
-                    message_data_list.append(message_data)
-                else:
-                    bot_messages += 1
-            
-            yield event.plain_result(f"📊 找到 {len(message_data_list)} 条用户消息，{bot_messages} 条机器人消息")
-            
-            if len(message_data_list) < 3:
-                yield event.plain_result(f"❌ 用户消息数量不足（{len(message_data_list)}条），无法进行学习")
-                return
-            
-            # 创建表达模式学习器
-            try:
-                expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
-                
-                if not expression_learner:
-                    yield event.plain_result("❌ 无法创建表达模式学习器")
-                    return
-                
-                # 启动学习器服务
-                if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
-                    await expression_learner.start()
-                    yield event.plain_result("✅ 表达模式学习器已启动")
-                
-                # 检查LLM适配器
-                if not expression_learner.llm_adapter:
-                    yield event.plain_result("❌ 表达模式学习器缺少LLM适配器")
-                    return
-                
-                # 检查LLM提供商
-                if not expression_learner.llm_adapter.has_refine_provider():
-                    yield event.plain_result("⚠️ 表达模式学习器缺少refine provider，将尝试使用可用的provider")
-                    
-                    # 检查是否有其他可用的provider
-                    if not (expression_learner.llm_adapter.has_filter_provider() or 
-                           expression_learner.llm_adapter.has_reinforce_provider()):
-                        yield event.plain_result("❌ 没有任何可用的LLM provider")
-                        return
-                
-                yield event.plain_result("🧠 开始表达模式学习...")
-                
-                # 强制触发学习，跳过间隔检查
-                original_last_time = expression_learner.last_learning_times.get(group_id, 0)
-                expression_learner.last_learning_times[group_id] = 0  # 重置时间以强制学习
-                
-                learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
-                
-                # 恢复原始时间
-                expression_learner.last_learning_times[group_id] = original_last_time
-                
-                if learning_success:
-                    yield event.plain_result("✅ 表达风格学习成功！")
-                    
-                    # 获取学习到的表达模式
-                    learned_patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
-                    if learned_patterns:
-                        result_text = f"🎯 学习到 {len(learned_patterns)} 个表达模式：\n\n"
-                        for i, pattern in enumerate(learned_patterns[:5], 1):
-                            result_text += f"{i}. 当\"{pattern.situation}\"时，使用\"{pattern.expression}\"（权重: {pattern.weight:.1f}）\n"
-                        
-                        if len(learned_patterns) > 5:
-                            result_text += f"\n...等共 {len(learned_patterns)} 个模式"
-                        
-                        yield event.plain_result(result_text)
-                        
-                        # 应用到临时prompt
-                        await self._apply_style_to_prompt_temporarily(group_id, learned_patterns)
-                        yield event.plain_result("✅ 表达模式已临时应用到当前会话")
-                        
-                    else:
-                        yield event.plain_result("⚠️ 学习成功但没有获取到具体的表达模式")
-                else:
-                    yield event.plain_result("❌ 表达风格学习失败或没有产生有效结果")
-                    yield event.plain_result("💡 可能原因：消息内容不够丰富，或LLM模型无法有效分析")
-                    
-            except Exception as e:
-                yield event.plain_result(f"❌ 表达模式学习器执行失败: {str(e)}")
-                logger.error(f"强制表达风格学习失败: {e}", exc_info=True)
-                
-        except Exception as e:
-            logger.error(f"强制表达风格学习命令失败: {e}", exc_info=True)
-            yield event.plain_result(f"❌ 命令执行失败: {str(e)}")
-
     @filter.command("clean_duplicate_content")
     @filter.permission_type(PermissionType.ADMIN)
     async def clean_duplicate_content_command(self, event: AstrMessageEvent):
@@ -2381,188 +1947,119 @@ PersonaManager模式优势：
             yield event.plain_result(f"❌ 清理重复内容失败: {str(e)}")
 
     async def terminate(self):
-        """插件卸载时的清理工作 - 增强版：确保完全释放端口和资源"""
+        """插件卸载时的清理工作 - 增强后台任务管理"""
         try:
-            logger.info("🔄 开始插件完全清理工作...")
+            logger.info("开始插件清理工作...")
             
-            # 1. 优先停止 Web 服务器 - 防止端口占用
+            # 1. 停止所有学习任务
+            logger.info("停止所有学习任务...")
+            for group_id, task in list(self.learning_tasks.items()):
+                try:
+                    # 先停止学习流程
+                    await self.progressive_learning.stop_learning()
+                    
+                    # 取消学习任务
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    
+                    logger.info(f"群组 {group_id} 学习任务已停止")
+                except Exception as e:
+                    logger.error(f"停止群组 {group_id} 学习任务失败: {e}")
+            
+            self.learning_tasks.clear()
+            
+            # 2. 停止学习调度器
+            if hasattr(self, 'learning_scheduler'):
+                try:
+                    await self.learning_scheduler.stop()
+                    logger.info("学习调度器已停止")
+                except Exception as e:
+                    logger.error(f"停止学习调度器失败: {e}")
+                
+            # 3. 取消所有后台任务
+            logger.info("取消所有后台任务...")
+            for task in list(self.background_tasks):
+                try:
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                except Exception as e:
+                    logger.error(LogMessages.BACKGROUND_TASK_CANCEL_ERROR.format(error=e))
+            
+            self.background_tasks.clear()
+            
+            # 4. 停止所有服务
+            logger.info("停止所有服务...")
+            if hasattr(self, 'factory_manager'):
+                try:
+                    await self.factory_manager.cleanup()
+                    logger.info("服务工厂已清理")
+                except Exception as e:
+                    logger.error(f"清理服务工厂失败: {e}")
+            
+            # 5. 清理临时人格
+            if hasattr(self, 'temporary_persona_updater'):
+                try:
+                    await self.temporary_persona_updater.cleanup_temp_personas()
+                    logger.info("临时人格已清理")
+                except Exception as e:
+                    logger.error(f"清理临时人格失败: {e}")
+                
+            # 6. 保存最终状态
+            if hasattr(self, 'message_collector'):
+                try:
+                    await self.message_collector.save_state()
+                    logger.info("消息收集器状态已保存")
+                except Exception as e:
+                    logger.error(f"保存消息收集器状态失败: {e}")
+                
+            # 7. 停止 Web 服务器 - 增强版
             global server_instance, _server_cleanup_lock
             async with _server_cleanup_lock:
                 if server_instance:
                     try:
-                        logger.info(f"🛑 正在停止Web服务器 (端口: {server_instance.port})...")
+                        logger.info(f"正在停止Web服务器 (端口: {server_instance.port})...")
                         
                         # 记录服务器信息用于日志
                         port = server_instance.port
-                        host = server_instance.host
                         
-                        # 调用增强的停止方法，设置更长的超时
+                        # 调用增强的停止方法
                         await server_instance.stop()
                         
-                        # 额外等待确保端口完全释放
-                        logger.info(f"⏳ 等待端口 {port} 完全释放...")
-                        await asyncio.sleep(3)  # 增加等待时间到3秒
-                        
-                        # 尝试验证端口是否真的释放了
-                        import socket
-                        try:
-                            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                                sock.settimeout(1)
-                                result = sock.connect_ex((host, port))
-                                if result != 0:
-                                    logger.info(f"✅ 端口 {port} 已确认释放")
-                                else:
-                                    logger.warning(f"⚠️ 端口 {port} 可能仍被占用")
-                        except Exception as check_error:
-                            logger.debug(f"端口检查失败: {check_error}")
+                        # 额外等待确保端口释放
+                        await asyncio.sleep(1)
                         
                         # 重置全局实例
                         server_instance = None
                         
-                        logger.info(f"✅ Web服务器清理完成，端口 {port} 已释放")
+                        logger.info(f"Web服务器已停止，端口 {port} 已释放")
                     except Exception as e:
-                        logger.error(f"❌ 停止Web服务器失败: {e}", exc_info=True)
+                        logger.error(f"停止Web服务器失败: {e}", exc_info=True)
                         # 即使出错也要重置实例，避免重复尝试
                         server_instance = None
-                        
-                        # 强制清理：直接杀死可能的残留进程（仅在Windows上）
-                        try:
-                            if hasattr(server_instance, 'port'):
-                                port = server_instance.port
-                                logger.warning(f"⚠️ 尝试强制清理端口 {port}...")
-                                # 在Windows上可以尝试使用netstat和taskkill
-                                import subprocess
-                                import sys
-                                if sys.platform == 'win32':
-                                    # 查找占用端口的进程
-                                    result = subprocess.run(['netstat', '-ano'], capture_output=True, text=True)
-                                    if f":{port}" in result.stdout:
-                                        logger.info(f"发现端口 {port} 仍被占用，Windows将在下次重启插件时自动处理")
-                                        
-                        except Exception as force_clean_error:
-                            logger.debug(f"强制清理失败: {force_clean_error}")
                 else:
-                    logger.info("ℹ️ Web服务器未运行，跳过停止操作")
-            
-            # 2. 停止所有学习任务
-            logger.info("🔄 停止所有学习任务...")
-            if hasattr(self, 'learning_tasks'):
-                for group_id, task in list(self.learning_tasks.items()):
-                    try:
-                        # 先停止学习流程
-                        if hasattr(self, 'progressive_learning'):
-                            await self.progressive_learning.stop_learning()
-                        
-                        # 取消学习任务
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                await asyncio.wait_for(task, timeout=5.0)
-                            except (asyncio.CancelledError, asyncio.TimeoutError):
-                                pass
-                        
-                        logger.info(f"✅ 群组 {group_id} 学习任务已停止")
-                    except Exception as e:
-                        logger.error(f"❌ 停止群组 {group_id} 学习任务失败: {e}")
+                    logger.info("Web服务器已经停止或未初始化")
                 
-                self.learning_tasks.clear()
-            
-            # 3. 停止学习调度器
-            if hasattr(self, 'learning_scheduler'):
-                try:
-                    await self.learning_scheduler.stop()
-                    logger.info("✅ 学习调度器已停止")
-                except Exception as e:
-                    logger.error(f"❌ 停止学习调度器失败: {e}")
-                    
-            # 4. 取消所有后台任务
-            logger.info("🔄 取消所有后台任务...")
-            if hasattr(self, 'background_tasks'):
-                for task in list(self.background_tasks):
-                    try:
-                        if not task.done():
-                            task.cancel()
-                            try:
-                                await asyncio.wait_for(task, timeout=3.0)
-                            except (asyncio.CancelledError, asyncio.TimeoutError):
-                                pass
-                    except Exception as e:
-                        logger.error(f"❌ 取消后台任务失败: {e}")
-                
-                self.background_tasks.clear()
-                logger.info("✅ 所有后台任务已清理")
-            
-            # 5. 停止数据库连接
-            if hasattr(self, 'db_manager'):
-                try:
-                    logger.info("🔄 关闭数据库连接...")
-                    await self.db_manager.stop()
-                    logger.info("✅ 数据库连接已关闭")
-                except Exception as e:
-                    logger.error(f"❌ 关闭数据库连接失败: {e}")
-            
-            # 6. 停止所有服务
-            logger.info("🔄 清理所有服务...")
-            if hasattr(self, 'factory_manager'):
-                try:
-                    await self.factory_manager.cleanup()
-                    logger.info("✅ 服务工厂已清理")
-                except Exception as e:
-                    logger.error(f"❌ 清理服务工厂失败: {e}")
-            
-            # 7. 清理临时人格
-            if hasattr(self, 'temporary_persona_updater'):
-                try:
-                    await self.temporary_persona_updater.cleanup_temp_personas()
-                    logger.info("✅ 临时人格已清理")
-                except Exception as e:
-                    logger.error(f"❌ 清理临时人格失败: {e}")
-                    
-            # 8. 保存最终状态
-            if hasattr(self, 'message_collector'):
-                try:
-                    await self.message_collector.save_state()
-                    logger.info("✅ 消息收集器状态已保存")
-                except Exception as e:
-                    logger.error(f"❌ 保存消息收集器状态失败: {e}")
-                
-            # 9. 保存配置到文件
+            # 8. 保存配置到文件
             try:
-                if hasattr(self, 'plugin_config') and self.plugin_config:
-                    config_path = os.path.join(self.plugin_config.data_dir, 'config.json')
-                    with open(config_path, 'w', encoding='utf-8') as f:
-                        json.dump(self.plugin_config.to_dict(), f, ensure_ascii=False, indent=2)
-                    logger.info("✅ 插件配置已保存")
+                config_path = os.path.join(self.plugin_config.data_dir, 'config.json')
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.plugin_config.to_dict(), f, ensure_ascii=False, indent=2)
+                logger.info(LogMessages.PLUGIN_CONFIG_SAVED)
             except Exception as e:
-                logger.error(f"❌ 保存配置失败: {e}")
+                logger.error(f"保存配置失败: {e}")
             
-            # 10. 最终清理 - 清空所有引用
-            logger.info("🔄 执行最终清理...")
-            try:
-                # 清空消息缓存
-                if hasattr(self, 'message_dedup_cache'):
-                    self.message_dedup_cache.clear()
-                
-                # 清理统计数据
-                if hasattr(self, 'learning_stats'):
-                    self.learning_stats = None
-                
-                logger.info("✅ 最终清理完成")
-            except Exception as e:
-                logger.error(f"❌ 最终清理失败: {e}")
-            
-            logger.info("🎉 插件清理工作全部完成！端口和资源已完全释放。")
+            logger.info(LogMessages.PLUGIN_UNLOAD_SUCCESS)
             
         except Exception as e:
-            logger.error(f"❌ 插件清理过程中发生严重错误: {e}", exc_info=True)
-            
-            # 即使出现错误，也要确保Web服务器实例被重置
-            try:
-                if server_instance:
-                    server_instance = None
-                    logger.warning("⚠️ 已强制重置Web服务器实例")
-            except:
-                pass
+            logger.error(LogMessages.PLUGIN_UNLOAD_CLEANUP_FAILED.format(error=e), exc_info=True)
     
     def _format_communication_style(self, communication_style: dict) -> str:
         """
@@ -2682,66 +2179,3 @@ PersonaManager模式优势：
         except Exception as e:
             logger.debug(f"格式化情感倾向失败: {e}")
             return ""
-    
-    async def _startup_data_validation(self):
-        """启动时的数据验证和清理"""
-        try:
-            logger.info("开始启动数据验证...")
-            
-            # 等待数据库启动完成
-            await asyncio.sleep(3)
-            
-            # 验证并清理虚假对话数据
-            await self._validate_and_clean_fake_dialogs()
-            
-            logger.info("启动数据验证完成")
-            
-        except Exception as e:
-            logger.error(f"启动数据验证失败: {e}")
-    
-    async def _validate_and_clean_fake_dialogs(self):
-        """验证和清理虚假对话数据"""
-        try:
-            fake_patterns = [
-                r'A:\s*你最近干.*呢.*\?',  # "A: 你最近干啥呢？"模式
-                r'B:\s*',                 # "B: "开头的模式
-                r'用户\d+:\s*',           # "用户01: "模式
-                r'.*:\s*你最近.*',        # 任何包含"你最近"的对话格式
-                r'开场对话列表',          # 示例文本
-                r'情绪模拟对话列表',       # 示例文本
-            ]
-            
-            def is_fake_dialog(text: str) -> bool:
-                if not text or len(text.strip()) < 3:
-                    return False
-                for pattern in fake_patterns:
-                    if re.search(pattern, text, re.IGNORECASE):
-                        return True
-                return False
-            
-            cleaned_count = 0
-            
-            # 检查并清理数据库中的虚假消息
-            try:
-                if self.db_manager and await self.db_manager.is_running():
-                    # 这里可以添加数据库清理逻辑
-                    # 由于数据库结构复杂，建议使用单独的清理工具
-                    logger.info("数据库虚假数据清理需要使用专用清理工具")
-            except Exception as e:
-                logger.warning(f"数据库验证失败: {e}")
-            
-            # 检查已加载的persona数据
-            try:
-                if hasattr(self, 'persona_manager') and self.persona_manager:
-                    # 这里可以添加persona数据验证逻辑
-                    logger.info("persona数据验证...")
-            except Exception as e:
-                logger.warning(f"persona验证失败: {e}")
-            
-            if cleaned_count > 0:
-                logger.info(f"启动验证: 清理了{cleaned_count}条虚假对话数据")
-            else:
-                logger.info("启动验证: 未发现虚假对话数据")
-                
-        except Exception as e:
-            logger.error(f"数据验证过程中出错: {e}")

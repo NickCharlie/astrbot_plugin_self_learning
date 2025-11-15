@@ -164,37 +164,38 @@ class MultidimensionalAnalyzer:
         """从数据库加载用户画像"""
         try:
             # 获取所有活跃群组
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 查询最近活跃的用户
+                await cursor.execute('''
+                    SELECT DISTINCT group_id, sender_id, sender_name, COUNT(*) as msg_count
+                    FROM raw_messages 
+                    WHERE timestamp > ? 
+                    GROUP BY group_id, sender_id
+                    HAVING msg_count >= 5
+                    ORDER BY msg_count DESC
+                    LIMIT 500
+                ''', (time.time() - 7 * 24 * 3600,))  # 最近7天
+                
+                users = await cursor.fetchall()
+                
+                for group_id, sender_id, sender_name, msg_count in users:
+                    if group_id and sender_id:
+                        user_key = f"{group_id}:{sender_id}"
+                        self.user_profiles[user_key] = {
+                            'user_id': sender_id,
+                            'name': sender_name or f"用户{sender_id}",
+                            'group_id': group_id,
+                            'message_count': msg_count,
+                            'topics': [],
+                            'communication_style': {},
+                            'last_activity': time.time(),
+                            'created_at': time.time()
+                        }
+                
+                await cursor.close()
             
-            # 查询最近活跃的用户
-            await cursor.execute('''
-                SELECT DISTINCT group_id, sender_id, sender_name, COUNT(*) as msg_count
-                FROM raw_messages 
-                WHERE timestamp > ? 
-                GROUP BY group_id, sender_id
-                HAVING msg_count >= 5
-                ORDER BY msg_count DESC
-                LIMIT 500
-            ''', (time.time() - 7 * 24 * 3600,))  # 最近7天
-            
-            users = await cursor.fetchall()
-            
-            for group_id, sender_id, sender_name, msg_count in users:
-                if group_id and sender_id:
-                    user_key = f"{group_id}:{sender_id}"
-                    self.user_profiles[user_key] = {
-                        'user_id': sender_id,
-                        'name': sender_name or f"用户{sender_id}",
-                        'group_id': group_id,
-                        'message_count': msg_count,
-                        'topics': [],
-                        'communication_style': {},
-                        'last_activity': time.time(),
-                        'created_at': time.time()
-                    }
-            
-            await conn.close()
             logger.info(f"从数据库加载了 {len(self.user_profiles)} 个用户画像")
             
         except Exception as e:
@@ -207,35 +208,36 @@ class MultidimensionalAnalyzer:
             self.social_graph = {}
             
             # 分析用户间的交互关系
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 查询用户在同一群组中的交互
-            await cursor.execute('''
-                SELECT group_id, sender_id, COUNT(*) as interaction_count
-                FROM raw_messages 
-                WHERE timestamp > ? AND group_id IS NOT NULL
-                GROUP BY group_id, sender_id
-                HAVING interaction_count >= 3
-            ''', (time.time() - 7 * 24 * 3600,))
-            
-            interactions = await cursor.fetchall()
-            
-            # 构建基础社交关系
-            for group_id, sender_id, count in interactions:
-                if sender_id not in self.social_graph:
-                    self.social_graph[sender_id] = []
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
                 
-                # 为简化，暂时记录用户在各群组的活跃度
-                relation_info = {
-                    'target_user': group_id,
-                    'relation_type': 'group_member',
-                    'strength': min(1.0, count / 100.0),  # 基于消息数量计算关系强度
-                    'last_interaction': time.time()
-                }
-                self.social_graph[sender_id].append(relation_info)
+                # 查询用户在同一群组中的交互
+                await cursor.execute('''
+                    SELECT group_id, sender_id, COUNT(*) as interaction_count
+                    FROM raw_messages 
+                    WHERE timestamp > ? AND group_id IS NOT NULL
+                    GROUP BY group_id, sender_id
+                    HAVING interaction_count >= 3
+                ''', (time.time() - 7 * 24 * 3600,))
+                
+                interactions = await cursor.fetchall()
+                
+                # 构建基础社交关系
+                for group_id, sender_id, count in interactions:
+                    if sender_id not in self.social_graph:
+                        self.social_graph[sender_id] = []
+                    
+                    # 为简化，暂时记录用户在各群组的活跃度
+                    relation_info = {
+                        'target_user': group_id,
+                        'relation_type': 'group_member',
+                        'strength': min(1.0, count / 100.0),  # 基于消息数量计算关系强度
+                        'last_interaction': time.time()
+                    }
+                    self.social_graph[sender_id].append(relation_info)
+                
+                await cursor.close()
             
-            await conn.close()
             logger.info(f"构建了 {len(self.social_graph)} 个用户的社交关系")
             
         except Exception as e:

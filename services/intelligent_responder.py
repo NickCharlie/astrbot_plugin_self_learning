@@ -531,27 +531,28 @@ class IntelligentResponder:
     async def _record_response(self, group_id: str, sender_id: str, original_message: str, response: str):
         """记录回复信息用于学习"""
         try:
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 简化实现：filtered_messages 表用于记录所有经过筛选的消息，包括BOT的回复。
-            # 实际应用中，可能需要为BOT回复创建单独的表以区分。
-            await cursor.execute('''
-                INSERT OR IGNORE INTO filtered_messages 
-                (message, sender_id, group_id, confidence, filter_reason, timestamp, used_for_learning)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                f"BOT回复: {response}",
-                "bot",
-                group_id,  # 添加 group_id 字段
-                1.0, # 假设BOT回复的置信度为1.0
-                f"回复{sender_id}: {original_message[:self.PROMPT_MESSAGE_LENGTH_LIMIT]}", # 使用常量
-                time.time(),
-                False # BOT回复不用于学习，避免循环学习
-            ))
-            
-            await conn.commit()
-            
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 简化实现：filtered_messages 表用于记录所有经过筛选的消息，包括BOT的回复。
+                # 实际应用中，可能需要为BOT回复创建单独的表以区分。
+                await cursor.execute('''
+                    INSERT OR IGNORE INTO filtered_messages 
+                    (message, sender_id, group_id, confidence, filter_reason, timestamp, used_for_learning)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    f"BOT回复: {response}",
+                    "bot",
+                    group_id,  # 添加 group_id 字段
+                    1.0, # 假设BOT回复的置信度为1.0
+                    f"回复{sender_id}: {original_message[:self.PROMPT_MESSAGE_LENGTH_LIMIT]}", # 使用常量
+                    time.time(),
+                    False # BOT回复不用于学习，避免循环学习
+                ))
+                
+                await conn.commit()
+                await cursor.close()
+                
         except Exception as e:
             logger.error(f"记录回复失败: {e}")
 
@@ -602,18 +603,20 @@ class IntelligentResponder:
         """分析群氛围"""
         try:
             # 从全局消息数据库获取连接
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            # 分析最近消息的情感倾向
-            await cursor.execute('''
-                SELECT COUNT(*) as total_messages,
-                       AVG(LENGTH(message)) as avg_length
-                FROM raw_messages 
-                WHERE timestamp > ?
-            ''', (time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS,))  # 最近1小时
-            
-            row = await cursor.fetchone()
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 分析最近消息的情感倾向
+                await cursor.execute('''
+                    SELECT COUNT(*) as total_messages,
+                           AVG(LENGTH(message)) as avg_length
+                    FROM raw_messages 
+                    WHERE timestamp > ?
+                ''', (time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS,))  # 最近1小时
+                
+                row = await cursor.fetchone()
+                
+                await cursor.close()
             
             total_messages = row[0] if row else 0
             avg_length = row[1] if row else 0.0

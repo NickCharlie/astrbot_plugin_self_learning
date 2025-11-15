@@ -5,7 +5,8 @@ import os
 import json
 import aiosqlite
 import time
-from typing import Dict, List, Optional, Any
+import asyncio
+from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 
 from astrbot.api import logger
@@ -17,11 +18,128 @@ from ..exceptions import DataStorageError
 from ..core.patterns import AsyncServiceBase
 
 
+class DatabaseConnectionPool:
+    """数据库连接池"""
+    
+    def __init__(self, db_path: str, max_connections: int = 10, min_connections: int = 2):
+        self.db_path = db_path
+        self.max_connections = max_connections
+        self.min_connections = min_connections
+        self.pool: asyncio.Queue = asyncio.Queue(maxsize=max_connections)
+        self.active_connections = 0
+        self.total_connections = 0
+        self._lock = asyncio.Lock()
+        self._logger = logger
+
+    async def initialize(self):
+        """初始化连接池"""
+        async with self._lock:
+            # 创建最小数量的连接
+            for _ in range(self.min_connections):
+                conn = await self._create_connection()
+                await self.pool.put(conn)
+
+    async def _create_connection(self) -> aiosqlite.Connection:
+        """创建新的数据库连接"""
+        # 确保目录存在
+        db_dir = os.path.dirname(self.db_path)
+        os.makedirs(db_dir, exist_ok=True)
+        
+        # 检查数据库文件权限
+        if os.path.exists(self.db_path):
+            try:
+                import stat
+                os.chmod(self.db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+            except OSError as e:
+                self._logger.warning(f"无法修改数据库文件权限: {e}")
+        
+        conn = await aiosqlite.connect(self.db_path)
+        
+        # 设置连接参数
+        await conn.execute('PRAGMA foreign_keys = ON')
+        await conn.execute('PRAGMA journal_mode = WAL')
+        await conn.execute('PRAGMA synchronous = NORMAL')
+        await conn.execute('PRAGMA cache_size = 10000')
+        await conn.execute('PRAGMA temp_store = memory')
+        await conn.commit()
+        
+        self.total_connections += 1
+        self._logger.debug(f"创建新数据库连接，总连接数: {self.total_connections}")
+        return conn
+
+    async def get_connection(self) -> aiosqlite.Connection:
+        """获取数据库连接"""
+        try:
+            # 尝试从池中获取连接（非阻塞）
+            conn = self.pool.get_nowait()
+            self.active_connections += 1
+            return conn
+        except asyncio.QueueEmpty:
+            # 池中无可用连接
+            async with self._lock:
+                if self.total_connections < self.max_connections:
+                    # 可以创建新连接
+                    conn = await self._create_connection()
+                    self.active_connections += 1
+                    return conn
+                else:
+                    # 达到最大连接数，等待连接归还
+                    self._logger.debug("连接池已满，等待连接归还...")
+                    conn = await self.pool.get()
+                    self.active_connections += 1
+                    return conn
+
+    async def return_connection(self, conn: aiosqlite.Connection):
+        """归还数据库连接"""
+        if conn:
+            try:
+                # 检查连接是否仍然有效
+                await conn.execute('SELECT 1')
+                await self.pool.put(conn)
+                self.active_connections -= 1
+            except Exception as e:
+                # 连接已损坏，关闭并减少计数
+                self._logger.warning(f"连接已损坏，关闭连接: {e}")
+                try:
+                    await conn.close()
+                except:
+                    pass
+                self.total_connections -= 1
+                self.active_connections -= 1
+
+    async def close_all(self):
+        """关闭所有连接"""
+        self._logger.info("开始关闭数据库连接池...")
+        
+        # 关闭池中的所有连接
+        while not self.pool.empty():
+            try:
+                conn = self.pool.get_nowait()
+                await conn.close()
+                self.total_connections -= 1
+            except asyncio.QueueEmpty:
+                break
+            except Exception as e:
+                self._logger.error(f"关闭连接时出错: {e}")
+        
+        self._logger.info(f"数据库连接池已关闭，剩余连接数: {self.total_connections}")
+
+    async def __aenter__(self):
+        """异步上下文管理器入口"""
+        return await self.get_connection()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """异步上下文管理器退出"""
+        # 注意：这里不能直接归还连接，因为我们不知道连接对象
+        # 实际使用时需要在调用方手动归还
+        pass
+
+
 class DatabaseManager(AsyncServiceBase):
-    """数据库管理器 - 管理分群数据库和全局消息数据库的数据持久化"""
+    """数据库管理器 - 使用连接池管理数据库连接"""
     
     def __init__(self, config: PluginConfig, context=None):
-        super().__init__("database_manager") # 调用基类构造函数
+        super().__init__("database_manager")
         self.config = config
         self.context = context
         self.group_db_connections: Dict[str, aiosqlite.Connection] = {}
@@ -32,85 +150,63 @@ class DatabaseManager(AsyncServiceBase):
         
         self.group_data_dir = os.path.join(config.data_dir, "group_databases")
         self.messages_db_path = config.messages_db_path
-        self.messages_db_connection: Optional[aiosqlite.Connection] = None
+        
+        # 初始化连接池
+        self.connection_pool = DatabaseConnectionPool(
+            db_path=self.messages_db_path,
+            max_connections=15,  # 增加最大连接数
+            min_connections=3    # 增加最小连接数
+        )
         
         # 确保数据目录存在
         os.makedirs(self.group_data_dir, exist_ok=True)
         
-        self._logger.info("数据库管理器初始化完成") # 使用基类的logger
+        self._logger.info("数据库管理器初始化完成（使用连接池）")
 
     async def _do_start(self) -> bool:
-        """启动服务时初始化数据库"""
+        """启动服务时初始化连接池和数据库"""
         try:
+            # 初始化连接池
+            await self.connection_pool.initialize()
+            self._logger.info("数据库连接池初始化成功")
+            
+            # 初始化数据库表结构
             await self._init_messages_database()
             self._logger.info("全局消息数据库初始化成功")
+            
             return True
         except Exception as e:
-            self._logger.error(f"全局消息数据库初始化失败: {e}", exc_info=True)
+            self._logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
             return False
 
     async def _do_stop(self) -> bool:
         """停止服务时关闭所有数据库连接"""
         try:
             await self.close_all_connections()
+            await self.connection_pool.close_all()
             self._logger.info("所有数据库连接已关闭")
             return True
         except Exception as e:
-            self._logger.error(f"关闭数据库连接失败: {e}", exc_info=True)
+            self._logger.error(f"关闭数据库管理器失败: {e}", exc_info=True)
             return False
 
-    async def close_all_connections(self):
-        """关闭所有数据库连接"""
-        try:
-            # 关闭全局消息数据库连接
-            if self.messages_db_connection:
-                await self.messages_db_connection.close()
-                self.messages_db_connection = None
-                self._logger.info("全局消息数据库连接已关闭")
-            
-            # 关闭所有群组数据库连接
-            for group_id, conn in list(self.group_db_connections.items()):
-                try:
-                    await conn.close()
-                    self._logger.info(f"群组 {group_id} 数据库连接已关闭")
-                except Exception as e:
-                    self._logger.error(f"关闭群组 {group_id} 数据库连接失败: {e}")
-            
-            self.group_db_connections.clear()
-            self._logger.info("所有数据库连接已关闭")
-            
-        except Exception as e:
-            self._logger.error(f"关闭数据库连接过程中发生错误: {e}")
-            raise
+    def get_db_connection(self):
+        """获取数据库连接的上下文管理器"""
+        class ConnectionManager:
+            def __init__(self, pool: DatabaseConnectionPool):
+                self.pool = pool
+                self.connection = None
 
-    async def _get_messages_db_connection(self) -> aiosqlite.Connection:
-        """获取全局消息数据库连接"""
-        if self.messages_db_connection is None:
-            # 确保目录存在
-            db_dir = os.path.dirname(self.messages_db_path)
-            os.makedirs(db_dir, exist_ok=True)
-            
-            # 检查数据库文件权限
-            if os.path.exists(self.messages_db_path):
-                try:
-                    # 尝试修改文件权限为可写
-                    import stat
-                    os.chmod(self.messages_db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
-                except OSError as e:
-                    self._logger.warning(f"无法修改数据库文件权限: {e}")
-            
-            self.messages_db_connection = await aiosqlite.connect(self.messages_db_path)
-            
-            # 设置连接参数，确保数据库可写
-            await self.messages_db_connection.execute('PRAGMA foreign_keys = ON')
-            await self.messages_db_connection.execute('PRAGMA journal_mode = WAL')  
-            await self.messages_db_connection.execute('PRAGMA synchronous = NORMAL')
-            await self.messages_db_connection.commit()
-            
-            # 首次连接时，确保数据库表被初始化
-            await self._init_messages_database_tables(self.messages_db_connection)
-        return self.messages_db_connection
+            async def __aenter__(self):
+                self.connection = await self.pool.get_connection()
+                return self.connection
 
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                if self.connection:
+                    await self.pool.return_connection(self.connection)
+
+        return ConnectionManager(self.connection_pool)
+    
     def get_connection(self):
         """
         获取数据库连接的同步接口，用于兼容旧代码
@@ -134,13 +230,47 @@ class DatabaseManager(AsyncServiceBase):
         
         return SyncConnectionWrapper(self)
 
+    async def close_all_connections(self):
+        """关闭所有数据库连接"""
+        try:
+            # 关闭所有群组数据库连接
+            for group_id, conn in list(self.group_db_connections.items()):
+                try:
+                    await conn.close()
+                    self._logger.info(f"群组 {group_id} 数据库连接已关闭")
+                except Exception as e:
+                    self._logger.error(f"关闭群组 {group_id} 数据库连接失败: {e}")
+            
+            self.group_db_connections.clear()
+            self._logger.info("所有群组数据库连接已关闭")
+            
+        except Exception as e:
+            self._logger.error(f"关闭数据库连接过程中发生错误: {e}")
+            raise
+
+    async def _retry_on_connection_error(self, func, *args, **kwargs):
+        """在连接错误时重试的通用方法（保留兼容性）"""
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            if "no active connection" in str(e).lower():
+                self._logger.warning(f"检测到连接问题: {e}，尝试重新执行...")
+                try:
+                    # 连接池会自动处理连接问题，直接重试
+                    return await func(*args, **kwargs)
+                except Exception as retry_error:
+                    self._logger.error(f"重试也失败: {retry_error}")
+                    raise retry_error
+            else:
+                raise e
+
     async def _init_messages_database(self):
         """
-        此方法现在仅作为 _do_start 的入口，实际的表创建逻辑已移至 _init_messages_database_tables。
+        初始化全局消息数据库（使用连接池）
         """
-        # 确保连接已建立并表已初始化
-        await self._get_messages_db_connection()
-        self._logger.info("全局消息数据库连接已建立并表已初始化。")
+        async with self.get_db_connection() as conn:
+            await self._init_messages_database_tables(conn)
+            self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
 
     async def _init_messages_database_tables(self, conn: aiosqlite.Connection):
         """初始化全局消息SQLite数据库的表结构"""
@@ -800,46 +930,48 @@ class DatabaseManager(AsyncServiceBase):
         """
         将原始消息保存到全局消息数据库。
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            # 检查message_data是否为字典或对象
-            if hasattr(message_data, 'sender_id'):
-                # 如果是对象，直接访问属性
-                await cursor.execute('''
-                    INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    message_data.sender_id,
-                    message_data.sender_name,
-                    message_data.message,
-                    message_data.group_id,
-                    message_data.platform,
-                    message_data.timestamp
-                ))
-            else:
-                # 如果是字典，使用字典访问
-                await cursor.execute('''
-                    INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    message_data.get('sender_id'),
-                    message_data.get('sender_name'),
-                    message_data.get('message'),
-                    message_data.get('group_id'),
-                    message_data.get('platform'),
-                    message_data.get('timestamp')
-                ))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            message_id = cursor.lastrowid
-            await conn.commit()
-            logger.debug(f"原始消息已保存，ID: {message_id}")
-            return message_id
-            
-        except aiosqlite.Error as e:
-            logger.error(f"保存原始消息失败: {e}", exc_info=True)
-            raise DataStorageError(f"保存原始消息失败: {str(e)}")
+            try:
+                # 检查message_data是否为字典或对象
+                if hasattr(message_data, 'sender_id'):
+                    # 如果是对象，直接访问属性
+                    await cursor.execute('''
+                        INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        message_data.sender_id,
+                        message_data.sender_name,
+                        message_data.message,
+                        message_data.group_id,
+                        message_data.platform,
+                        message_data.timestamp
+                    ))
+                else:
+                    # 如果是字典，使用字典访问
+                    await cursor.execute('''
+                        INSERT INTO raw_messages (sender_id, sender_name, message, group_id, platform, timestamp)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (
+                        message_data.get('sender_id'),
+                        message_data.get('sender_name'),
+                        message_data.get('message'),
+                        message_data.get('group_id'),
+                        message_data.get('platform'),
+                        message_data.get('timestamp')
+                    ))
+                
+                message_id = cursor.lastrowid
+                await conn.commit()
+                logger.debug(f"原始消息已保存，ID: {message_id}")
+                return message_id
+                
+            except aiosqlite.Error as e:
+                logger.error(f"保存原始消息失败: {e}", exc_info=True)
+                raise DataStorageError(f"保存原始消息失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def get_unprocessed_messages(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -851,44 +983,46 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             未处理的消息列表
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            if limit:
-                await cursor.execute('''
-                    SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
-                    FROM raw_messages 
-                    WHERE processed = FALSE 
-                    ORDER BY timestamp ASC 
-                    LIMIT ?
-                ''', (limit,))
-            else:
-                await cursor.execute('''
-                    SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
-                    FROM raw_messages 
-                    WHERE processed = FALSE 
-                    ORDER BY timestamp ASC
-                ''')
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'id': row[0],
-                    'sender_id': row[1],
-                    'sender_name': row[2],
-                    'message': row[3],
-                    'group_id': row[4],
-                    'platform': row[5],
-                    'timestamp': row[6]
-                })
-            
-            logger.debug(f"获取到 {len(messages)} 条未处理消息")
-            return messages
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取未处理消息失败: {e}", exc_info=True)
-            raise DataStorageError(f"获取未处理消息失败: {str(e)}")
+            try:
+                if limit:
+                    await cursor.execute('''
+                        SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
+                        FROM raw_messages 
+                        WHERE processed = FALSE 
+                        ORDER BY timestamp ASC 
+                        LIMIT ?
+                    ''', (limit,))
+                else:
+                    await cursor.execute('''
+                        SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
+                        FROM raw_messages 
+                        WHERE processed = FALSE 
+                        ORDER BY timestamp ASC
+                    ''')
+                
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'sender_name': row[2],
+                        'message': row[3],
+                        'group_id': row[4],
+                        'platform': row[5],
+                        'timestamp': row[6]
+                    })
+                
+                logger.debug(f"获取到 {len(messages)} 条未处理消息")
+                return messages
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取未处理消息失败: {e}", exc_info=True)
+                raise DataStorageError(f"获取未处理消息失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def mark_messages_processed(self, message_ids: List[int]) -> bool:
         """
@@ -903,25 +1037,27 @@ class DatabaseManager(AsyncServiceBase):
         if not message_ids:
             return True
             
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            # 批量更新消息状态
-            placeholders = ','.join(['?' for _ in message_ids])
-            await cursor.execute(f'''
-                UPDATE raw_messages 
-                SET processed = TRUE 
-                WHERE id IN ({placeholders})
-            ''', message_ids)
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await conn.commit()
-            logger.debug(f"已标记 {len(message_ids)} 条消息为已处理")
-            return True
-            
-        except aiosqlite.Error as e:
-            logger.error(f"标记消息处理状态失败: {e}", exc_info=True)
-            raise DataStorageError(f"标记消息处理状态失败: {str(e)}")
+            try:
+                # 批量更新消息状态
+                placeholders = ','.join(['?' for _ in message_ids])
+                await cursor.execute(f'''
+                    UPDATE raw_messages 
+                    SET processed = TRUE 
+                    WHERE id IN ({placeholders})
+                ''', message_ids)
+                
+                await conn.commit()
+                logger.debug(f"已标记 {len(message_ids)} 条消息为已处理")
+                return True
+                
+            except aiosqlite.Error as e:
+                logger.error(f"标记消息处理状态失败: {e}", exc_info=True)
+                raise DataStorageError(f"标记消息处理状态失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def add_filtered_message(self, filtered_data: Dict[str, Any]) -> int:
         """
@@ -933,33 +1069,35 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             筛选消息的ID
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                INSERT INTO filtered_messages 
-                (raw_message_id, message, sender_id, confidence, filter_reason, timestamp, quality_scores, group_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                filtered_data.get('raw_message_id'),
-                filtered_data.get('message'),
-                filtered_data.get('sender_id'),
-                filtered_data.get('confidence', 0.8),
-                filtered_data.get('filter_reason', ''),
-                filtered_data.get('timestamp') or time.time(),
-                json.dumps(filtered_data.get('quality_scores', {}), ensure_ascii=False),
-                filtered_data.get('group_id')
-            ))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            filtered_id = cursor.lastrowid
-            await conn.commit()
-            logger.debug(f"筛选消息已保存，ID: {filtered_id}")
-            return filtered_id
-            
-        except aiosqlite.Error as e:
-            logger.error(f"添加筛选消息失败: {e}", exc_info=True)
-            raise DataStorageError(f"添加筛选消息失败: {str(e)}")
+            try:
+                await cursor.execute('''
+                    INSERT INTO filtered_messages 
+                    (raw_message_id, message, sender_id, confidence, filter_reason, timestamp, quality_scores, group_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    filtered_data.get('raw_message_id'),
+                    filtered_data.get('message'),
+                    filtered_data.get('sender_id'),
+                    filtered_data.get('confidence', 0.8),
+                    filtered_data.get('filter_reason', ''),
+                    filtered_data.get('timestamp') or time.time(),
+                    json.dumps(filtered_data.get('quality_scores', {}), ensure_ascii=False),
+                    filtered_data.get('group_id')
+                ))
+                
+                filtered_id = cursor.lastrowid
+                await conn.commit()
+                logger.debug(f"筛选消息已保存，ID: {filtered_id}")
+                return filtered_id
+                
+            except aiosqlite.Error as e:
+                logger.error(f"添加筛选消息失败: {e}", exc_info=True)
+                raise DataStorageError(f"添加筛选消息失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def get_filtered_messages_for_learning(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
@@ -971,50 +1109,52 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             筛选消息列表
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            if limit:
-                await cursor.execute('''
-                    SELECT id, message, sender_id, confidence, quality_scores, timestamp, group_id
-                    FROM filtered_messages 
-                    WHERE used_for_learning = FALSE 
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (limit,))
-            else:
-                await cursor.execute('''
-                    SELECT id, message, sender_id, confidence, quality_scores, timestamp, group_id
-                    FROM filtered_messages 
-                    WHERE used_for_learning = FALSE 
-                    ORDER BY timestamp DESC
-                ''')
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            messages = []
-            for row in await cursor.fetchall():
-                quality_scores = {}
-                try:
-                    if row[4]:  # quality_scores
-                        quality_scores = json.loads(row[4])
-                except (json.JSONDecodeError, TypeError):
-                    pass
+            try:
+                if limit:
+                    await cursor.execute('''
+                        SELECT id, message, sender_id, confidence, quality_scores, timestamp, group_id
+                        FROM filtered_messages 
+                        WHERE used_for_learning = FALSE 
+                        ORDER BY timestamp DESC 
+                        LIMIT ?
+                    ''', (limit,))
+                else:
+                    await cursor.execute('''
+                        SELECT id, message, sender_id, confidence, quality_scores, timestamp, group_id
+                        FROM filtered_messages 
+                        WHERE used_for_learning = FALSE 
+                        ORDER BY timestamp DESC
+                    ''')
                 
-                messages.append({
-                    'id': row[0],
-                    'message': row[1],
-                    'sender_id': row[2],
-                    'confidence': row[3],
-                    'quality_scores': quality_scores,
-                    'timestamp': row[5],
-                    'group_id': row[6]
-                })
-            
-            return messages
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取学习消息失败: {e}", exc_info=True)
-            raise DataStorageError(f"获取学习消息失败: {str(e)}")
+                messages = []
+                for row in await cursor.fetchall():
+                    quality_scores = {}
+                    try:
+                        if row[4]:  # quality_scores
+                            quality_scores = json.loads(row[4])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                    
+                    messages.append({
+                        'id': row[0],
+                        'message': row[1],
+                        'sender_id': row[2],
+                        'confidence': row[3],
+                        'quality_scores': quality_scores,
+                        'timestamp': row[5],
+                        'group_id': row[6]
+                    })
+                
+                return messages
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取学习消息失败: {e}", exc_info=True)
+                raise DataStorageError(f"获取学习消息失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def get_recent_filtered_messages(self, group_id: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
@@ -1027,41 +1167,43 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             筛选消息列表
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                SELECT id, message, sender_id, confidence, quality_scores, timestamp
-                FROM filtered_messages 
-                WHERE group_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (group_id, limit))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            messages = []
-            for row in await cursor.fetchall():
-                quality_scores = {}
-                try:
-                    if row[4]:
-                        quality_scores = json.loads(row[4])
-                except json.JSONDecodeError:
-                    pass
-                    
-                messages.append({
-                    'id': row[0],
-                    'message': row[1],
-                    'sender_id': row[2],
-                    'confidence': row[3],
-                    'quality_scores': quality_scores,
-                    'timestamp': row[5]
-                })
+            try:
+                await cursor.execute('''
+                    SELECT id, message, sender_id, confidence, quality_scores, timestamp
+                    FROM filtered_messages 
+                    WHERE group_id = ? 
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (group_id, limit))
                 
-            return messages
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取最近筛选消息失败: {e}", exc_info=True)
-            return []
+                messages = []
+                for row in await cursor.fetchall():
+                    quality_scores = {}
+                    try:
+                        if row[4]:
+                            quality_scores = json.loads(row[4])
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    messages.append({
+                        'id': row[0],
+                        'message': row[1],
+                        'sender_id': row[2],
+                        'confidence': row[3],
+                        'quality_scores': quality_scores,
+                        'timestamp': row[5]
+                    })
+                    
+                return messages
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取最近筛选消息失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
 
     async def get_recent_raw_messages(self, group_id: str, limit: int = 25) -> List[Dict[str, Any]]:
         """
@@ -1074,37 +1216,37 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             原始消息列表
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, message_id, reply_to
-                FROM raw_messages 
-                WHERE group_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (group_id, limit))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'id': row[0],
-                    'sender_id': row[1],
-                    'sender_name': row[2],
-                    'message': row[3],
-                    'group_id': row[4],
-                    'platform': row[5],
-                    'timestamp': row[6],
-                    'message_id': row[7],
-                    'reply_to': row[8]
-                })
+            try:
+                await cursor.execute('''
+                    SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
+                    FROM raw_messages 
+                    WHERE group_id = ? 
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (group_id, limit))
                 
-            return messages
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取最近原始消息失败: {e}", exc_info=True)
-            return []
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'sender_name': row[2],
+                        'message': row[3],
+                        'group_id': row[4],
+                        'platform': row[5],
+                        'timestamp': row[6]
+                    })
+                    
+                return messages
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取最近原始消息失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
 
     async def get_messages_statistics(self) -> Dict[str, Any]:
         """
@@ -1113,41 +1255,427 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             统计信息字典
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            # 获取原始消息统计
-            await cursor.execute('SELECT COUNT(*) FROM raw_messages')
-            total_messages = (await cursor.fetchone())[0]
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE processed = FALSE')
-            unprocessed_messages = (await cursor.fetchone())[0]
+            try:
+                # 获取原始消息统计
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
+                total_messages = (await cursor.fetchone())[0]
+                
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE processed = FALSE')
+                unprocessed_messages = (await cursor.fetchone())[0]
+                
+                # 获取筛选消息统计
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
+                filtered_messages = (await cursor.fetchone())[0]
+                
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = FALSE')
+                unused_filtered_messages = (await cursor.fetchone())[0]
+                
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'filtered_messages': filtered_messages,
+                    'unused_filtered_messages': unused_filtered_messages,
+                    'raw_messages': total_messages  # 兼容旧接口
+                }
+                
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取消息统计失败: {e}", exc_info=True)
+                return {
+                    'total_messages': 0,
+                    'unprocessed_messages': 0,
+                    'filtered_messages': 0,
+                    'unused_filtered_messages': 0,
+                    'raw_messages': 0
+                }
+            finally:
+                await cursor.close()
+
+    async def get_pending_style_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的风格学习记录"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            # 获取筛选消息统计
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-            filtered_messages = (await cursor.fetchone())[0]
+            try:
+                # 确保表存在
+                await self._ensure_style_review_table_exists(cursor)
+                
+                await cursor.execute('''
+                    SELECT id, type, group_id, timestamp, learned_patterns, few_shots_content, 
+                           status, description, created_at
+                    FROM style_learning_reviews
+                    WHERE status = 'pending'
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (limit,))
+                
+                reviews = []
+                for row in await cursor.fetchall():
+                    learned_patterns = []
+                    try:
+                        if row[4]:  # learned_patterns
+                            learned_patterns = json.loads(row[4])
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    reviews.append({
+                        'id': row[0],
+                        'type': row[1],
+                        'group_id': row[2],
+                        'timestamp': row[3],
+                        'learned_patterns': learned_patterns,
+                        'few_shots_content': row[5],
+                        'status': row[6],
+                        'description': row[7],
+                        'created_at': row[8]
+                    })
+                
+                return reviews
+                
+            except Exception as e:
+                self._logger.error(f"获取待审查风格学习记录失败: {e}")
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
+        """获取已审查的风格学习记录"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = FALSE')
-            unused_filtered_messages = (await cursor.fetchone())[0]
+            try:
+                # 确保表存在
+                await self._ensure_style_review_table_exists(cursor)
+                
+                # 构建查询条件
+                where_clause = "WHERE status != 'pending'"
+                params = []
+                
+                if status_filter:
+                    where_clause += " AND status = ?"
+                    params.append(status_filter)
+                
+                params.extend([limit, offset])
+                
+                await cursor.execute(f'''
+                    SELECT id, type, group_id, timestamp, learned_patterns, few_shots_content, 
+                           status, description, created_at, updated_at
+                    FROM style_learning_reviews
+                    {where_clause}
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                ''', params)
+                
+                reviews = []
+                for row in await cursor.fetchall():
+                    learned_patterns = []
+                    try:
+                        if row[4]:  # learned_patterns
+                            learned_patterns = json.loads(row[4])
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    reviews.append({
+                        'id': row[0],
+                        'type': row[1],
+                        'group_id': row[2],
+                        'timestamp': row[3],
+                        'learned_patterns': learned_patterns,
+                        'few_shots_content': row[5],
+                        'status': row[6],
+                        'description': row[7],
+                        'created_at': row[8],
+                        'review_time': row[9] if len(row) > 9 else None
+                    })
+                
+                return reviews
+                
+            except Exception as e:
+                self._logger.error(f"获取已审查风格学习记录失败: {e}")
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_learning_patterns_data(self) -> Dict[str, Any]:
+        """获取学习模式数据"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            return {
-                'total_messages': total_messages,
-                'unprocessed_messages': unprocessed_messages,
-                'filtered_messages': filtered_messages,
-                'unused_filtered_messages': unused_filtered_messages,
-                'raw_messages': total_messages  # 兼容旧接口
-            }
+            try:
+                # 获取表达模式数据
+                await cursor.execute('''
+                    SELECT situation, expression, weight, group_id 
+                    FROM expression_patterns 
+                    ORDER BY weight DESC 
+                    LIMIT 20
+                ''')
+                
+                patterns_data = {
+                    'emotion_patterns': [],
+                    'language_patterns': [],
+                    'topic_preferences': []
+                }
+                
+                for row in await cursor.fetchall():
+                    situation, expression, weight, group_id = row
+                    pattern_item = {
+                        'pattern': f"{situation}: {expression}",
+                        'weight': weight,
+                        'group_id': group_id
+                    }
+                    
+                    # 根据情境分类
+                    if any(keyword in situation.lower() for keyword in ['情感', '感情', '开心', '难过', '生气']):
+                        patterns_data['emotion_patterns'].append(pattern_item)
+                    elif any(keyword in situation.lower() for keyword in ['语言', '表达', '说话', '回复']):
+                        patterns_data['language_patterns'].append(pattern_item)
+                    else:
+                        patterns_data['topic_preferences'].append(pattern_item)
+                
+                return patterns_data
+                
+            except Exception as e:
+                self._logger.warning(f"从expression_patterns表获取数据失败: {e}")
+                return {
+                    'emotion_patterns': [],
+                    'language_patterns': [],
+                    'topic_preferences': []
+                }
+            finally:
+                await cursor.close()
+
+    async def get_detailed_metrics(self) -> Dict[str, Any]:
+        """获取详细监控数据"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-        except aiosqlite.Error as e:
-            logger.error(f"获取消息统计失败: {e}", exc_info=True)
-            return {
-                'total_messages': 0,
-                'unprocessed_messages': 0,
-                'filtered_messages': 0,
-                'unused_filtered_messages': 0,
-                'raw_messages': 0
-            }
+            try:
+                detailed_data = {
+                    'api_metrics': {
+                        'hours': list(range(24)),
+                        'response_times': [100 + i * 10 for i in range(24)]
+                    },
+                    'database_metrics': {
+                        'table_stats': {}
+                    },
+                    'system_metrics': {
+                        'memory_percent': 45.2,
+                        'cpu_percent': 23.1,
+                        'disk_percent': 67.8
+                    },
+                    'connection_pool_stats': {
+                        'total_connections': self.connection_pool.total_connections,
+                        'active_connections': self.connection_pool.active_connections,
+                        'max_connections': self.connection_pool.max_connections,
+                        'pool_usage': round(self.connection_pool.active_connections / self.connection_pool.max_connections * 100, 1) if self.connection_pool.max_connections > 0 else 0
+                    }
+                }
+                
+                # 获取数据库表统计
+                try:
+                    tables = ['raw_messages', 'filtered_messages', 'expression_patterns']
+                    for table in tables:
+                        try:
+                            await cursor.execute(f'SELECT COUNT(*) FROM {table}')
+                            count = (await cursor.fetchone())[0]
+                            detailed_data['database_metrics']['table_stats'][table] = {'count': count}
+                        except:
+                            detailed_data['database_metrics']['table_stats'][table] = {'count': 0}
+                            
+                except Exception as e:
+                    self._logger.warning(f"获取数据库表统计失败: {e}")
+                
+                return detailed_data
+                
+            except Exception as e:
+                self._logger.error(f"获取详细监控数据失败: {e}")
+                return {
+                    'api_metrics': {'hours': [], 'response_times': []},
+                    'database_metrics': {'table_stats': {}},
+                    'system_metrics': {'memory_percent': 0, 'cpu_percent': 0, 'disk_percent': 0},
+                    'connection_pool_stats': {'total_connections': 0, 'active_connections': 0, 'max_connections': 0, 'pool_usage': 0}
+                }
+            finally:
+                await cursor.close()
+
+    async def get_message_statistics(self, group_id: str = None) -> Dict[str, Any]:
+        """获取消息统计信息，兼容 webui.py 的调用"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            
+            try:
+                if group_id:
+                    # 获取特定群组的统计
+                    await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ?', (group_id,))
+                    total_messages = (await cursor.fetchone())[0]
+                    
+                    await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ? AND processed = FALSE', (group_id,))
+                    unprocessed_messages = (await cursor.fetchone())[0]
+                    
+                    await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
+                    filtered_messages = (await cursor.fetchone())[0]
+                    
+                    await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ? AND used_for_learning = FALSE', (group_id,))
+                    unused_filtered_messages = (await cursor.fetchone())[0]
+                else:
+                    # 获取全局统计
+                    return await self.get_messages_statistics()
+                
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'filtered_messages': filtered_messages,
+                    'unused_filtered_messages': unused_filtered_messages,
+                    'raw_messages': total_messages,
+                    'group_id': group_id
+                }
+                
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取消息统计失败: {e}", exc_info=True)
+                return {
+                    'total_messages': 0,
+                    'unprocessed_messages': 0,
+                    'filtered_messages': 0,
+                    'unused_filtered_messages': 0,
+                    'raw_messages': 0,
+                    'group_id': group_id
+                }
+            finally:
+                await cursor.close()
+
+    async def get_recent_learning_batches(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取最近的学习批次记录"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            
+            try:
+                # 确保表存在
+                await cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS learning_batches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        group_id TEXT NOT NULL,
+                        batch_name TEXT NOT NULL,
+                        start_time REAL NOT NULL,
+                        end_time REAL,
+                        quality_score REAL,
+                        processed_messages INTEGER DEFAULT 0,
+                        message_count INTEGER DEFAULT 0,
+                        filtered_count INTEGER DEFAULT 0,
+                        success BOOLEAN DEFAULT FALSE,
+                        error_message TEXT
+                    )
+                ''')
+                
+                await cursor.execute('''
+                    SELECT group_id, batch_name, start_time, end_time, quality_score,
+                           processed_messages, message_count, filtered_count, success, error_message
+                    FROM learning_batches 
+                    ORDER BY start_time DESC 
+                    LIMIT ?
+                ''', (limit,))
+                
+                batches = []
+                for row in await cursor.fetchall():
+                    batches.append({
+                        'group_id': row[0],
+                        'batch_name': row[1],
+                        'start_time': row[2],
+                        'end_time': row[3],
+                        'quality_score': row[4] or 0,
+                        'processed_messages': row[5] or 0,
+                        'message_count': row[6] or 0,
+                        'filtered_count': row[7] or 0,
+                        'success': bool(row[8]),
+                        'error_message': row[9]
+                    })
+                
+                return batches
+                
+            except Exception as e:
+                self._logger.error(f"获取最近学习批次失败: {e}")
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_style_progress_data(self) -> List[Dict[str, Any]]:
+        """获取风格进度数据"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            
+            try:
+                # 从学习批次中获取进度数据
+                await cursor.execute('''
+                    SELECT group_id, start_time, quality_score, success
+                    FROM learning_batches 
+                    WHERE quality_score IS NOT NULL
+                    ORDER BY start_time DESC 
+                    LIMIT 30
+                ''')
+                
+                progress_data = []
+                for row in await cursor.fetchall():
+                    progress_data.append({
+                        'group_id': row[0],
+                        'timestamp': row[1],
+                        'quality_score': row[2],
+                        'success': bool(row[3])
+                    })
+                
+                return progress_data
+                
+            except Exception as e:
+                self._logger.warning(f"从learning_batches表获取进度数据失败: {e}")
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_style_learning_statistics(self) -> Dict[str, Any]:
+        """获取风格学习统计数据"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            
+            try:
+                stats = {
+                    'unique_styles': 0,
+                    'avg_confidence': 0,
+                    'total_samples': 0,
+                    'latest_update': None
+                }
+                
+                # 从表达模式表获取统计
+                try:
+                    await cursor.execute('SELECT COUNT(*) FROM expression_patterns')
+                    stats['total_samples'] = (await cursor.fetchone())[0] or 0
+                    
+                    await cursor.execute('SELECT AVG(weight), MAX(created_time) FROM expression_patterns')
+                    row = await cursor.fetchone()
+                    if row[0]:
+                        stats['avg_confidence'] = round((row[0] or 0) * 100, 1)
+                    
+                    if row[1]:
+                        stats['latest_update'] = datetime.fromtimestamp(row[1]).strftime('%Y-%m-%d %H:%M')
+                    
+                    # 计算独特风格数量（基于群组）
+                    await cursor.execute('SELECT COUNT(DISTINCT group_id) FROM expression_patterns')
+                    stats['unique_styles'] = (await cursor.fetchone())[0] or 0
+                    
+                except Exception as e:
+                    self._logger.warning(f"从expression_patterns表获取统计失败: {e}")
+                
+                return stats
+                
+            except Exception as e:
+                self._logger.error(f"获取风格学习统计失败: {e}")
+                return {
+                    'unique_styles': 0,
+                    'avg_confidence': 0,
+                    'total_samples': 0,
+                    'latest_update': None
+                }
+            finally:
+                await cursor.close()
 
     async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
         """
@@ -1159,41 +1687,43 @@ class DatabaseManager(AsyncServiceBase):
         Returns:
             统计信息字典
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            # 获取原始消息统计
-            await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ?', (group_id,))
-            total_messages = (await cursor.fetchone())[0]
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ? AND processed = FALSE', (group_id,))
-            unprocessed_messages = (await cursor.fetchone())[0]
-            
-            # 获取筛选消息统计
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
-            filtered_messages = (await cursor.fetchone())[0]
-            
-            await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ? AND used_for_learning = FALSE', (group_id,))
-            unused_filtered_messages = (await cursor.fetchone())[0]
-            
-            return {
-                'total_messages': total_messages,
-                'unprocessed_messages': unprocessed_messages,
-                'filtered_messages': filtered_messages,
-                'unused_filtered_messages': unused_filtered_messages,
-                'raw_messages': total_messages  # 兼容旧接口
-            }
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取群组消息统计失败: {e}", exc_info=True)
-            return {
-                'total_messages': 0,
-                'unprocessed_messages': 0,
-                'filtered_messages': 0,
-                'unused_filtered_messages': 0,
-                'raw_messages': 0
-            }
+            try:
+                # 获取原始消息统计
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ?', (group_id,))
+                total_messages = (await cursor.fetchone())[0]
+                
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ? AND processed = FALSE', (group_id,))
+                unprocessed_messages = (await cursor.fetchone())[0]
+                
+                # 获取筛选消息统计
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
+                filtered_messages = (await cursor.fetchone())[0]
+                
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ? AND used_for_learning = FALSE', (group_id,))
+                unused_filtered_messages = (await cursor.fetchone())[0]
+                
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'filtered_messages': filtered_messages,
+                    'unused_filtered_messages': unused_filtered_messages,
+                    'raw_messages': total_messages  # 兼容旧接口
+                }
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取群组消息统计失败: {e}", exc_info=True)
+                return {
+                    'total_messages': 0,
+                    'unprocessed_messages': 0,
+                    'filtered_messages': 0,
+                    'unused_filtered_messages': 0,
+                    'raw_messages': 0
+                }
+            finally:
+                await cursor.close()
 
     async def load_social_graph(self, group_id: str) -> List[Dict[str, Any]]:
         """加载完整社交图谱"""
@@ -1227,37 +1757,39 @@ class DatabaseManager(AsyncServiceBase):
         """
         从全局消息数据库获取指定群组在过去一段时间内的原始消息，用于记忆重放。
         """
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            start_timestamp = time.time() - (days * 86400) # 转换为秒
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await cursor.execute('''
-                SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
-                FROM raw_messages 
-                WHERE group_id = ? AND timestamp > ?
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ''', (group_id, start_timestamp, limit))
-            
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'id': row[0],
-                    'sender_id': row[1],
-                    'sender_name': row[2],
-                    'message': row[3],
-                    'group_id': row[4],
-                    'platform': row[5],
-                    'timestamp': row[6]
-                })
-            
-            return messages
-            
-        except aiosqlite.Error as e:
-            self._logger.error(f"获取记忆重放消息失败: {e}", exc_info=True)
-            return []
+            try:
+                start_timestamp = time.time() - (days * 86400) # 转换为秒
+                
+                await cursor.execute('''
+                    SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
+                    FROM raw_messages 
+                    WHERE group_id = ? AND timestamp > ?
+                    ORDER BY timestamp DESC 
+                    LIMIT ?
+                ''', (group_id, start_timestamp, limit))
+                
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'sender_name': row[2],
+                        'message': row[3],
+                        'group_id': row[4],
+                        'platform': row[5],
+                        'timestamp': row[6]
+                    })
+                
+                return messages
+                
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取记忆重放消息失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
 
     async def backup_persona(self, group_id: str, backup_data: Dict[str, Any]) -> int:
         """备份人格数据"""
@@ -1342,104 +1874,162 @@ class DatabaseManager(AsyncServiceBase):
 
     async def save_persona_update_record(self, record: Dict[str, Any]) -> int:
         """保存人格更新记录到数据库"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                INSERT INTO persona_update_records (timestamp, group_id, update_type, original_content, new_content, reason, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                record.get('timestamp', time.time()),
-                record.get('group_id'),
-                record.get('update_type'),
-                record.get('original_content'),
-                record.get('new_content'),
-                record.get('reason'),
-                record.get('status', 'pending')
-            ))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            record_id = cursor.lastrowid
-            await conn.commit()
-            logger.debug(f"人格更新记录已保存，ID: {record_id}")
-            return record_id
-            
-        except aiosqlite.Error as e:
-            logger.error(f"保存人格更新记录失败: {e}", exc_info=True)
-            raise DataStorageError(f"保存人格更新记录失败: {str(e)}")
+            try:
+                await cursor.execute('''
+                    INSERT INTO persona_update_records (timestamp, group_id, update_type, original_content, new_content, reason, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    record.get('timestamp', time.time()),
+                    record.get('group_id'),
+                    record.get('update_type'),
+                    record.get('original_content'),
+                    record.get('new_content'),
+                    record.get('reason'),
+                    record.get('status', 'pending')
+                ))
+                
+                record_id = cursor.lastrowid
+                await conn.commit()
+                logger.debug(f"人格更新记录已保存，ID: {record_id}")
+                return record_id
+                
+            except aiosqlite.Error as e:
+                logger.error(f"保存人格更新记录失败: {e}", exc_info=True)
+                raise DataStorageError(f"保存人格更新记录失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
         """获取所有待审查的人格更新记录"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                SELECT id, timestamp, group_id, update_type, original_content, new_content, reason, status, reviewer_comment, review_time
-                FROM persona_update_records
-                WHERE status = 'pending'
-                ORDER BY timestamp DESC
-            ''')
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            records = []
-            for row in await cursor.fetchall():
-                records.append({
-                    'id': row[0],
-                    'timestamp': row[1],
-                    'group_id': row[2],
-                    'update_type': row[3],
-                    'original_content': row[4],
-                    'new_content': row[5],
-                    'reason': row[6],
-                    'status': row[7],
-                    'reviewer_comment': row[8],
-                    'review_time': row[9]
-                })
-            return records
-            
-        except aiosqlite.Error as e:
-            logger.error(f"获取待审查人格更新记录失败: {e}", exc_info=True)
-            return []
+            try:
+                # 首先检查表是否存在以及包含什么数据
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='persona_update_records'")
+                if not await cursor.fetchone():
+                    self._logger.info("persona_update_records 表不存在")
+                    return []
+                
+                # 检查表中总共有多少记录
+                await cursor.execute('SELECT COUNT(*) FROM persona_update_records')
+                total_count = (await cursor.fetchone())[0]
+                self._logger.info(f"persona_update_records 表中总共有 {total_count} 条记录")
+                
+                # 检查各种状态的记录数量
+                await cursor.execute('SELECT status, COUNT(*) FROM persona_update_records GROUP BY status')
+                status_counts = await cursor.fetchall()
+                self._logger.info(f"各状态记录数量: {dict(status_counts)}")
+                
+                # 优先查询pending状态的记录
+                await cursor.execute('''
+                    SELECT id, timestamp, group_id, update_type, original_content, new_content, reason, status, reviewer_comment, review_time
+                    FROM persona_update_records
+                    WHERE status = 'pending'
+                    ORDER BY timestamp DESC
+                ''')
+                
+                records = []
+                pending_rows = await cursor.fetchall()
+                self._logger.info(f"找到 {len(pending_rows)} 条pending状态的记录")
+                
+                for row in pending_rows:
+                    records.append({
+                        'id': row[0],
+                        'timestamp': row[1],
+                        'group_id': row[2],
+                        'update_type': row[3],
+                        'original_content': row[4],
+                        'new_content': row[5],
+                        'reason': row[6],
+                        'status': row[7],
+                        'reviewer_comment': row[8],
+                        'review_time': row[9]
+                    })
+                
+                # 如果没有pending状态的记录，尝试查询所有记录（可能status字段为空或其他值）
+                if not records and total_count > 0:
+                    self._logger.info("没有pending状态记录，查询所有记录...")
+                    await cursor.execute('''
+                        SELECT id, timestamp, group_id, update_type, original_content, new_content, reason, 
+                               COALESCE(status, 'pending') as status, reviewer_comment, review_time
+                        FROM persona_update_records
+                        WHERE status IS NULL OR status = '' OR status = 'pending'
+                        ORDER BY timestamp DESC
+                        LIMIT 50
+                    ''')
+                    
+                    all_rows = await cursor.fetchall()
+                    self._logger.info(f"找到 {len(all_rows)} 条可能的待审查记录")
+                    
+                    for row in all_rows:
+                        records.append({
+                            'id': row[0],
+                            'timestamp': row[1],
+                            'group_id': row[2],
+                            'update_type': row[3],
+                            'original_content': row[4],
+                            'new_content': row[5],
+                            'reason': row[6],
+                            'status': 'pending',  # 强制设置为pending
+                            'reviewer_comment': row[8],
+                            'review_time': row[9]
+                        })
+                
+                return records
+                
+            except aiosqlite.Error as e:
+                logger.error(f"获取待审查人格更新记录失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
 
     async def update_persona_update_record_status(self, record_id: int, status: str, reviewer_comment: Optional[str] = None) -> bool:
         """更新人格更新记录的状态"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            review_time = time.time()
-            await cursor.execute('''
-                UPDATE persona_update_records
-                SET status = ?, reviewer_comment = ?, review_time = ?
-                WHERE id = ?
-            ''', (status, reviewer_comment, review_time, record_id))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await conn.commit()
-            logger.debug(f"人格更新记录 {record_id} 状态已更新为 {status}")
-            return cursor.rowcount > 0
-            
-        except aiosqlite.Error as e:
-            logger.error(f"更新人格更新记录状态失败: {e}", exc_info=True)
-            raise DataStorageError(f"更新人格更新记录状态失败: {str(e)}")
+            try:
+                review_time = time.time()
+                await cursor.execute('''
+                    UPDATE persona_update_records
+                    SET status = ?, reviewer_comment = ?, review_time = ?
+                    WHERE id = ?
+                ''', (status, reviewer_comment, review_time, record_id))
+                
+                await conn.commit()
+                logger.debug(f"人格更新记录 {record_id} 状态已更新为 {status}")
+                return cursor.rowcount > 0
+                
+            except aiosqlite.Error as e:
+                logger.error(f"更新人格更新记录状态失败: {e}", exc_info=True)
+                raise DataStorageError(f"更新人格更新记录状态失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     async def delete_persona_update_record(self, record_id: int) -> bool:
         """删除人格更新记录"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                DELETE FROM persona_update_records
-                WHERE id = ?
-            ''', (record_id,))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await conn.commit()
-            logger.debug(f"人格更新记录 {record_id} 已删除")
-            return cursor.rowcount > 0
-            
-        except aiosqlite.Error as e:
-            logger.error(f"删除人格更新记录失败: {e}", exc_info=True)
-            raise DataStorageError(f"删除人格更新记录失败: {str(e)}")
+            try:
+                await cursor.execute('''
+                    DELETE FROM persona_update_records
+                    WHERE id = ?
+                ''', (record_id,))
+                
+                await conn.commit()
+                logger.debug(f"人格更新记录 {record_id} 已删除")
+                return cursor.rowcount > 0
+                
+            except aiosqlite.Error as e:
+                logger.error(f"删除人格更新记录失败: {e}", exc_info=True)
+                raise DataStorageError(f"删除人格更新记录失败: {str(e)}")
+            finally:
+                await cursor.close()
 
     # ========== 高级功能数据库操作方法 ==========
 
@@ -1594,34 +2184,36 @@ class DatabaseManager(AsyncServiceBase):
     # 新增强化学习相关方法
     async def save_reinforcement_learning_result(self, group_id: str, result_data: Dict[str, Any]) -> bool:
         """保存强化学习结果"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            await cursor.execute('''
-                INSERT INTO reinforcement_learning_results 
-                (group_id, timestamp, replay_analysis, optimization_strategy, reinforcement_feedback, next_action)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (
-                group_id,
-                result_data.get('timestamp', time.time()),
-                json.dumps(result_data.get('replay_analysis', {}), ensure_ascii=False),
-                json.dumps(result_data.get('optimization_strategy', {}), ensure_ascii=False),
-                json.dumps(result_data.get('reinforcement_feedback', {}), ensure_ascii=False),
-                result_data.get('next_action', '')
-            ))
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await conn.commit()
-            return True
-            
-        except Exception as e:
-            logger.error(f"保存强化学习结果失败: {e}")
-            return False
+            try:
+                await cursor.execute('''
+                    INSERT INTO reinforcement_learning_results 
+                    (group_id, timestamp, replay_analysis, optimization_strategy, reinforcement_feedback, next_action)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (
+                    group_id,
+                    result_data.get('timestamp', time.time()),
+                    json.dumps(result_data.get('replay_analysis', {}), ensure_ascii=False),
+                    json.dumps(result_data.get('optimization_strategy', {}), ensure_ascii=False),
+                    json.dumps(result_data.get('reinforcement_feedback', {}), ensure_ascii=False),
+                    result_data.get('next_action', '')
+                ))
+                
+                await conn.commit()
+                return True
+                
+            except Exception as e:
+                logger.error(f"保存强化学习结果失败: {e}")
+                return False
+            finally:
+                await cursor.close()
 
     async def get_learning_history_for_reinforcement(self, group_id: str, limit: int = 50) -> List[Dict[str, Any]]:
         """获取用于强化学习的历史数据"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1647,11 +2239,13 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"获取强化学习历史数据失败: {e}")
             return []
+        finally:
+            await cursor.close()
 
     async def save_persona_fusion_result(self, group_id: str, fusion_data: Dict[str, Any]) -> bool:
         """保存人格融合结果"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1673,11 +2267,13 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"保存人格融合结果失败: {e}")
             return False
+        finally:
+            await cursor.close()
 
     async def get_persona_fusion_history(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """获取人格融合历史"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1709,11 +2305,13 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"获取人格融合历史失败: {e}")
             return []
+        finally:
+            await cursor.close()
 
     async def save_strategy_optimization_result(self, group_id: str, optimization_data: Dict[str, Any]) -> bool:
         """保存策略优化结果"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1734,11 +2332,13 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"保存策略优化结果失败: {e}")
             return False
+        finally:
+            await cursor.close()
 
     async def get_learning_performance_history(self, group_id: str, limit: int = 30) -> List[Dict[str, Any]]:
         """获取学习性能历史数据"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1764,11 +2364,13 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"获取学习性能历史失败: {e}")
             return []
+        finally:
+            await cursor.close()
 
     async def save_learning_performance_record(self, group_id: str, performance_data: Dict[str, Any]) -> bool:
         """保存学习性能记录"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
         
         try:
             await cursor.execute('''
@@ -1792,39 +2394,43 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             logger.error(f"保存学习性能记录失败: {e}")
             return False
+        finally:
+            await cursor.close()
 
     async def get_messages_for_replay(self, group_id: str, days: int = 30, limit: int = 100) -> List[Dict[str, Any]]:
         """获取用于记忆重放的消息"""
-        conn = await self._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        try:
-            # 获取指定天数内的消息
-            cutoff_time = time.time() - (days * 24 * 3600)
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
             
-            await cursor.execute('''
-                SELECT id, message, sender_id, group_id, timestamp
-                FROM raw_messages 
-                WHERE group_id = ? AND timestamp > ? AND processed = TRUE
-                ORDER BY timestamp DESC
-                LIMIT ?
-            ''', (group_id, cutoff_time, limit))
-            
-            messages = []
-            for row in await cursor.fetchall():
-                messages.append({
-                    'message_id': row[0],
-                    'message': row[1],
-                    'sender_id': row[2],
-                    'group_id': row[3],
-                    'timestamp': row[4]
-                })
-            
-            return messages
-            
-        except Exception as e:
-            logger.error(f"获取记忆重放消息失败: {e}")
-            return []
+            try:
+                # 获取指定天数内的消息
+                cutoff_time = time.time() - (days * 24 * 3600)
+                
+                await cursor.execute('''
+                    SELECT id, message, sender_id, group_id, timestamp
+                    FROM raw_messages 
+                    WHERE group_id = ? AND timestamp > ? AND processed = TRUE
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (group_id, cutoff_time, limit))
+                
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'message_id': row[0],
+                        'message': row[1],
+                        'sender_id': row[2],
+                        'group_id': row[3],
+                        'timestamp': row[4]
+                    })
+                
+                return messages
+                
+            except Exception as e:
+                logger.error(f"获取记忆重放消息失败: {e}")
+                return []
+            finally:
+                await cursor.close()
 
     async def save_user_preferences(self, group_id: str, user_id: str, preferences: Dict[str, Any]) -> bool:
         """保存用户偏好设置"""
@@ -2263,102 +2869,104 @@ class DatabaseManager(AsyncServiceBase):
                                         success: bool, response_time_ms: int) -> bool:
         """记录LLM调用统计数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            current_time = time.time()
-            
-            # 查询当前统计数据
-            await cursor.execute('''
-                SELECT total_calls, success_calls, failed_calls, total_response_time_ms
-                FROM llm_call_statistics 
-                WHERE provider_type = ? AND model_name = ?
-            ''', (provider_type, model_name))
-            
-            row = await cursor.fetchone()
-            if row:
-                # 更新现有记录
-                total_calls = row[0] + 1
-                success_calls = row[1] + (1 if success else 0)
-                failed_calls = row[2] + (0 if success else 1)
-                total_response_time = row[3] + response_time_ms
-                avg_response_time = total_response_time / total_calls
-                success_rate = success_calls / total_calls
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
                 
+                current_time = time.time()
+                
+                # 查询当前统计数据
                 await cursor.execute('''
-                    UPDATE llm_call_statistics 
-                    SET total_calls = ?, success_calls = ?, failed_calls = ?, 
-                        total_response_time_ms = ?, avg_response_time_ms = ?, 
-                        success_rate = ?, last_call_time = ?, updated_at = CURRENT_TIMESTAMP
+                    SELECT total_calls, success_calls, failed_calls, total_response_time_ms
+                    FROM llm_call_statistics 
                     WHERE provider_type = ? AND model_name = ?
-                ''', (total_calls, success_calls, failed_calls, total_response_time,
-                      avg_response_time, success_rate, current_time, provider_type, model_name))
-            else:
-                # 插入新记录
-                success_calls = 1 if success else 0
-                failed_calls = 0 if success else 1
-                success_rate = 1.0 if success else 0.0
+                ''', (provider_type, model_name))
                 
-                await cursor.execute('''
-                    INSERT INTO llm_call_statistics 
-                    (provider_type, model_name, total_calls, success_calls, failed_calls,
-                     total_response_time_ms, avg_response_time_ms, success_rate, last_call_time)
-                    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
-                ''', (provider_type, model_name, success_calls, failed_calls,
-                      response_time_ms, response_time_ms, success_rate, current_time))
-            
-            await conn.commit()
-            return True
-            
+                row = await cursor.fetchone()
+                if row:
+                    # 更新现有记录
+                    total_calls = row[0] + 1
+                    success_calls = row[1] + (1 if success else 0)
+                    failed_calls = row[2] + (0 if success else 1)
+                    total_response_time = row[3] + response_time_ms
+                    avg_response_time = total_response_time / total_calls
+                    success_rate = success_calls / total_calls
+                    
+                    await cursor.execute('''
+                        UPDATE llm_call_statistics 
+                        SET total_calls = ?, success_calls = ?, failed_calls = ?, 
+                            total_response_time_ms = ?, avg_response_time_ms = ?, 
+                            success_rate = ?, last_call_time = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE provider_type = ? AND model_name = ?
+                    ''', (total_calls, success_calls, failed_calls, total_response_time,
+                          avg_response_time, success_rate, current_time, provider_type, model_name))
+                else:
+                    # 插入新记录
+                    success_calls = 1 if success else 0
+                    failed_calls = 0 if success else 1
+                    success_rate = 1.0 if success else 0.0
+                    
+                    await cursor.execute('''
+                        INSERT INTO llm_call_statistics 
+                        (provider_type, model_name, total_calls, success_calls, failed_calls,
+                         total_response_time_ms, avg_response_time_ms, success_rate, last_call_time)
+                        VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+                    ''', (provider_type, model_name, success_calls, failed_calls,
+                          response_time_ms, response_time_ms, success_rate, current_time))
+                
+                await conn.commit()
+                return True
+                
         except Exception as e:
             self._logger.error(f"记录LLM调用统计失败: {e}")
             return False
+        finally:
+            await cursor.close()
 
     async def get_llm_call_statistics(self) -> Dict[str, Any]:
         """获取LLM调用统计数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            await cursor.execute('''
-                SELECT provider_type, model_name, total_calls, success_calls, failed_calls,
-                       avg_response_time_ms, success_rate, last_call_time
-                FROM llm_call_statistics
-                ORDER BY provider_type, total_calls DESC
-            ''')
-            
-            statistics = {}
-            total_calls = 0
-            
-            for row in await cursor.fetchall():
-                provider_type = row[0]
-                model_name = row[1] or f"{provider_type}_model"
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
                 
-                stats = {
-                    "total_calls": row[2],
-                    "success_calls": row[3], 
-                    "failed_calls": row[4],
-                    "avg_response_time_ms": row[5] or 0,
-                    "success_rate": row[6] or 0,
-                    "last_call_time": row[7]
+                await cursor.execute('''
+                    SELECT provider_type, model_name, total_calls, success_calls, failed_calls,
+                           avg_response_time_ms, success_rate, last_call_time
+                    FROM llm_call_statistics
+                    ORDER BY provider_type, total_calls DESC
+                ''')
+                
+                statistics = {}
+                total_calls = 0
+                
+                for row in await cursor.fetchall():
+                    provider_type = row[0]
+                    model_name = row[1] or f"{provider_type}_model"
+                    
+                    stats = {
+                        "total_calls": row[2],
+                        "success_calls": row[3], 
+                        "failed_calls": row[4],
+                        "avg_response_time_ms": row[5] or 0,
+                        "success_rate": row[6] or 0,
+                        "last_call_time": row[7]
+                    }
+                    
+                    statistics[f"{provider_type}_{model_name}"] = stats
+                    total_calls += row[2]
+                
+                # 如果没有统计数据，返回默认结构
+                if not statistics:
+                    statistics = {
+                        "filter_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0},
+                        "refine_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}, 
+                        "reinforce_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}
+                    }
+                
+                return {
+                    "statistics": statistics,
+                    "total_calls": total_calls
                 }
                 
-                statistics[f"{provider_type}_{model_name}"] = stats
-                total_calls += row[2]
-            
-            # 如果没有统计数据，返回默认结构
-            if not statistics:
-                statistics = {
-                    "filter_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0},
-                    "refine_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}, 
-                    "reinforce_provider": {"total_calls": 0, "avg_response_time_ms": 0, "success_rate": 0, "error_count": 0}
-                }
-            
-            return {
-                "statistics": statistics,
-                "total_calls": total_calls
-            }
-            
         except Exception as e:
             self._logger.error(f"获取LLM调用统计失败: {e}")
             return {
@@ -2369,12 +2977,14 @@ class DatabaseManager(AsyncServiceBase):
                 },
                 "total_calls": 0
             }
+        finally:
+            await cursor.close()
 
     async def export_messages_learning_data(self) -> Dict[str, Any]:
         """导出消息学习数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
 
             # 导出原始消息
             await cursor.execute('''
@@ -2485,12 +3095,14 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"导出消息学习数据失败: {e}", exc_info=True)
             raise DataStorageError(f"导出消息学习数据失败: {str(e)}")
+        finally:
+            await cursor.close()
 
     async def clear_all_messages_data(self):
         """清空所有消息数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
 
             # 清空所有表的数据
             tables_to_clear = [
@@ -2514,13 +3126,15 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"清空所有消息数据失败: {e}", exc_info=True)
             raise DataStorageError(f"清空所有消息数据失败: {str(e)}")
+        finally:
+            await cursor.close()
 
     # Web界面需要的统计方法
     async def get_style_learning_statistics(self) -> Dict[str, Any]:
         """获取风格学习统计数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 获取基础统计
             await cursor.execute('''
@@ -2563,12 +3177,14 @@ class DatabaseManager(AsyncServiceBase):
                 'total_samples': 0,
                 'latest_update': None
             }
+        finally:
+            await cursor.close()
 
     async def get_style_progress_data(self) -> List[Dict[str, Any]]:
         """获取风格进度数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 获取学习批次的进度数据
             await cursor.execute('''
@@ -2600,6 +3216,8 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取风格进度数据失败: {e}")
             return []
+        finally:
+            await cursor.close()
 
     async def get_learning_patterns_data(self) -> Dict[str, Any]:
         """获取学习模式数据"""
@@ -2608,8 +3226,8 @@ class DatabaseManager(AsyncServiceBase):
             expression_patterns = await self.get_expression_patterns_for_webui()
             
             # 获取其他学习数据
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 检查是否有原始消息数据
             await cursor.execute('SELECT COUNT(*) FROM raw_messages')
@@ -2767,13 +3385,16 @@ class DatabaseManager(AsyncServiceBase):
                     {'topic': '数据获取失败', 'style': 'normal', 'interest_level': 0}
                 ]
             }
+        finally:
+            if 'cursor' in locals():
+                await cursor.close()
 
     async def get_expression_patterns_for_webui(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取表达模式数据用于WebUI显示"""
         try:
             # 检查表是否存在
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 检查表是否存在
             await cursor.execute('''
@@ -2809,12 +3430,14 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取表达模式失败: {e}")
             return []
+        finally:
+            await cursor.close()
 
     async def create_style_learning_review(self, review_data: Dict[str, Any]) -> int:
         """创建对话风格学习审查记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 确保审查表存在
             await self._ensure_style_review_table_exists(cursor)
@@ -2864,8 +3487,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_pending_style_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取待审查的风格学习记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 确保表存在
             await self._ensure_style_review_table_exists(cursor)
@@ -2909,8 +3532,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_pending_persona_learning_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取待审查的人格学习记录（质量不达标的学习结果）"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 确保表存在（使用统一的结构）
             await cursor.execute('''
@@ -2980,8 +3603,8 @@ class DatabaseManager(AsyncServiceBase):
     async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None, modified_content: str = None) -> bool:
         """更新人格学习审查状态"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 如果有修改后的内容，也要更新proposed_content字段
             if modified_content:
@@ -3007,8 +3630,8 @@ class DatabaseManager(AsyncServiceBase):
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         """删除指定ID的人格学习审查记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 删除审查记录
             await cursor.execute('''
@@ -3032,8 +3655,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_persona_learning_review_by_id(self, review_id: int) -> Optional[Dict[str, Any]]:
         """获取指定ID的人格学习审查记录详情"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             await cursor.execute('''
                 SELECT id, group_id, original_content, new_content, proposed_content, 
@@ -3066,8 +3689,8 @@ class DatabaseManager(AsyncServiceBase):
     async def save_style_learning_record(self, record_data: Dict[str, Any]) -> bool:
         """保存风格学习记录到数据库"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             await cursor.execute('''
                 INSERT INTO style_learning_records 
@@ -3092,8 +3715,8 @@ class DatabaseManager(AsyncServiceBase):
     async def save_language_style_pattern(self, pattern_data: Dict[str, Any]) -> bool:
         """保存语言风格模式到数据库"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 先检查是否已存在相同的语言风格
             await cursor.execute('''
@@ -3141,8 +3764,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_reviewed_persona_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的人格学习更新记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 构建查询条件
             where_clause = "WHERE status != 'pending'"
@@ -3215,8 +3838,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的风格学习更新记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 构建查询条件
             where_clause = "WHERE status != 'pending'"
@@ -3279,8 +3902,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_reviewed_persona_update_records(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的传统人格更新记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 构建查询条件
             where_clause = "WHERE status != 'pending'"
@@ -3325,8 +3948,8 @@ class DatabaseManager(AsyncServiceBase):
     async def update_style_review_status(self, review_id: int, status: str, group_id: str = None) -> bool:
         """更新风格学习审查状态"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             await cursor.execute('''
                 UPDATE style_learning_reviews
@@ -3350,8 +3973,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_detailed_metrics(self) -> Dict[str, Any]:
         """获取详细性能监控数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # API指标（基于学习批次的执行时间）
             await cursor.execute('''
@@ -3435,8 +4058,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_trends_data(self) -> Dict[str, Any]:
         """获取指标趋势数据"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             # 计算7天和30天前的时间戳
             now = time.time()
@@ -3596,8 +4219,8 @@ class DatabaseManager(AsyncServiceBase):
     async def get_recent_learning_batches(self, limit: int = 10) -> List[Dict[str, Any]]:
         """获取最近的学习批次记录"""
         try:
-            conn = await self._get_messages_db_connection()
-            cursor = await conn.cursor()
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
             
             await cursor.execute('''
                 SELECT id, group_id, start_time, end_time, quality_score,

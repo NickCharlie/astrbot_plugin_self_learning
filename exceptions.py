@@ -78,6 +78,11 @@ class TimeDecayError(SelfLearningError):
     pass
 
 
+class MessageAnalysisError(SelfLearningError):
+    """消息分析异常"""
+    pass
+
+
 class KnowledgeGraphError(SelfLearningError):
     """知识图谱异常"""
     pass
