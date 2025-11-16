@@ -253,19 +253,25 @@ class ExpressionPatternLearner:
             
             # 调用LLM生成回复 - 使用通用的generate_response方法
             if self.llm_adapter and hasattr(self.llm_adapter, 'generate_response'):
-                response = await self.llm_adapter.generate_response(
-                    prompt, 
-                    temperature=0.3,  # 使用MaiBot的temperature设置
-                    model_type="refine"  # 使用精炼模型
-                )
-                
-                # 检查response是否有效
-                if not response:
-                    logger.warning(f"LLM生成的response为空或None，可能是模型调用失败")
-                    response = ""
+                try:
+                    response = await self.llm_adapter.generate_response(
+                        prompt, 
+                        temperature=0.3,  # 使用MaiBot的temperature设置
+                        model_type="refine"  # 使用精炼模型
+                    )
+                    
+                    # 检查response是否有效
+                    if not response:
+                        logger.warning(f"LLM生成的response为空或None，可能是模型调用失败，尝试使用简化算法")
+                        # 使用简化的规则生成基本表达模式
+                        response = self._generate_fallback_expression_patterns(messages)
+                    
+                except Exception as llm_error:
+                    logger.warning(f"LLM调用异常: {llm_error}，使用简化算法生成表达模式")
+                    response = self._generate_fallback_expression_patterns(messages)
             else:
-                logger.error("LLM适配器未正确配置或缺少generate_response方法")
-                raise ExpressionLearningError("LLM适配器未正确配置")
+                logger.warning("LLM适配器未正确配置或缺少generate_response方法，使用简化算法")
+                response = self._generate_fallback_expression_patterns(messages)
             
             logger.debug(f"表达模式学习response: {response}")
             
@@ -305,6 +311,102 @@ class ExpressionPatternLearner:
                 context_lines.append(f"{timestamp_str} {sender}: {content}")
         
         return '\n'.join(context_lines)
+    
+    def _generate_fallback_expression_patterns(self, messages: List[MessageData]) -> str:
+        """
+        当LLM不可用时的降级方案：使用简单规则生成基本表达模式
+        
+        Args:
+            messages: 消息列表
+            
+        Returns:
+            str: JSON格式的表达模式字符串
+        """
+        try:
+            patterns = []
+            
+            # 分析消息特征
+            for msg in messages[:10]:  # 只分析前10条消息
+                content = msg.message.strip()
+                if len(content) < 5:
+                    continue
+                
+                # 基于简单规则创建表达模式
+                pattern_data = {}
+                
+                # 检测感叹类型
+                if '！' in content or '!' in content:
+                    if '太' in content or '好' in content or '棒' in content:
+                        pattern_data = {
+                            "situation": "对某件事表示惊喜或赞赏",
+                            "expression": content[:15] + ('...' if len(content) > 15 else ''),
+                            "weight": 0.7,
+                            "context": "积极情感表达"
+                        }
+                    elif '什么' in content or '怎么' in content:
+                        pattern_data = {
+                            "situation": "对某事感到意外或疑问",
+                            "expression": content[:15] + ('...' if len(content) > 15 else ''),
+                            "weight": 0.6,
+                            "context": "疑问情感表达"
+                        }
+                
+                # 检测疑问类型
+                elif '？' in content or '?' in content:
+                    pattern_data = {
+                        "situation": "询问或疑问",
+                        "expression": content[:20] + ('...' if len(content) > 20 else ''),
+                        "weight": 0.5,
+                        "context": "疑问表达"
+                    }
+                
+                # 检测口语化表达
+                elif any(word in content for word in ['哈哈', '呵呵', '嗯嗯', '啊啊', '哦哦']):
+                    pattern_data = {
+                        "situation": "轻松愉快的对话",
+                        "expression": content[:12] + ('...' if len(content) > 12 else ''),
+                        "weight": 0.4,
+                        "context": "口语化表达"
+                    }
+                
+                # 检测表情符号
+                elif any(emoji in content for emoji in ['😊', '😄', '😢', '😂', '🤔', '👍', '❤️']):
+                    pattern_data = {
+                        "situation": "表达情感状态",
+                        "expression": content[:10] + ('...' if len(content) > 10 else ''),
+                        "weight": 0.6,
+                        "context": "表情符号表达"
+                    }
+                
+                if pattern_data:
+                    patterns.append(pattern_data)
+            
+            # 如果没有找到任何模式，创建一个默认模式
+            if not patterns:
+                patterns.append({
+                    "situation": "日常对话",
+                    "expression": "正常交流",
+                    "weight": 0.3,
+                    "context": "基本对话模式"
+                })
+            
+            # 返回JSON格式
+            return json.dumps({"patterns": patterns[:5]}, ensure_ascii=False, indent=2)
+            
+        except Exception as e:
+            logger.error(f"降级表达模式生成失败: {e}")
+            # 返回最简单的默认响应
+            default_patterns = {
+                "patterns": [
+                    {
+                        "situation": "日常对话",
+                        "expression": "自然交流",
+                        "weight": 0.3,
+                        "context": "默认对话模式"
+                    }
+                ]
+            }
+            return json.dumps(default_patterns, ensure_ascii=False)
     
     def _parse_expression_response(self, response: str, group_id: str) -> List[ExpressionPattern]:
         """

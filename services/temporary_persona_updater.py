@@ -63,7 +63,63 @@ class TemporaryPersonaUpdater:
         self.persona_manager_updater = PersonaManagerUpdater(config, context)
         
         logger.info("临时人格更新器初始化完成")
-    
+
+    async def _get_framework_persona(self, group_id: str = None) -> Optional[Dict[str, Any]]:
+        """
+        获取框架当前人格的辅助方法 - 兼容新旧框架API
+        返回: Personality的字典表示
+        """
+        try:
+            # 优先使用新版PersonaManager
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+                if persona:
+                    return dict(persona) if isinstance(persona, dict) else persona
+
+            # 回退到旧方法（兼容性）
+            provider = self.context.get_using_provider()
+            if provider and hasattr(provider, 'curr_personality') and provider.curr_personality:
+                return dict(provider.curr_personality) if isinstance(provider.curr_personality, dict) else provider.curr_personality
+
+            return None
+        except Exception as e:
+            logger.warning(f"获取框架人格失败: {e}")
+            return None
+
+    async def _update_framework_persona(self, persona_id: str, system_prompt: str, begin_dialogs: List[str] = None, tools: List[str] = None) -> bool:
+        """
+        更新框架人格的辅助方法 - 兼容新旧框架API
+        """
+        try:
+            # 优先使用新版PersonaManager
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                await self.context.persona_manager.update_persona(
+                    persona_id=persona_id,
+                    system_prompt=system_prompt,
+                    begin_dialogs=begin_dialogs,
+                    tools=tools
+                )
+                return True
+
+            # 回退到旧方法（兼容性）- 直接修改provider.curr_personality
+            provider = self.context.get_using_provider()
+            if provider and hasattr(provider, 'curr_personality'):
+                if isinstance(provider.curr_personality, dict):
+                    provider.curr_personality['prompt'] = system_prompt
+                    if begin_dialogs is not None:
+                        provider.curr_personality['begin_dialogs'] = begin_dialogs
+                else:
+                    if hasattr(provider.curr_personality, 'prompt'):
+                        provider.curr_personality.prompt = system_prompt
+                    if begin_dialogs is not None and hasattr(provider.curr_personality, 'begin_dialogs'):
+                        provider.curr_personality.begin_dialogs = begin_dialogs
+                return True
+
+            return False
+        except Exception as e:
+            logger.error(f"更新框架人格失败: {e}")
+            return False
+
     def _ensure_backup_directory(self):
         """确保备份目录存在"""
         try:

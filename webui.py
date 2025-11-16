@@ -3327,7 +3327,7 @@ async def relearn_all():
                         group_stats = await db_manager.get_message_statistics(group_id)
                         
                         # 检查原始消息表的情况
-                        async with self.db_manager.get_db_connection() as conn:
+                        async with db_manager.get_db_connection() as conn:
                             cursor = await conn.cursor()
                         
                         # 检查所有群组的原始消息

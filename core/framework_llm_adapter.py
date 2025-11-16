@@ -33,53 +33,142 @@ class FrameworkLLMAdapter:
         
         self.providers_configured = 0
         
+        # 获取所有可用的Provider列表作为备选
+        available_providers = []
+        try:
+            # 尝试获取所有Provider的ID列表
+            if hasattr(self.context, 'get_all_provider_ids'):
+                provider_ids = self.context.get_all_provider_ids()
+                for provider_id in provider_ids:
+                    provider = self.context.get_provider_by_id(provider_id)
+                    if provider and provider.meta().provider_type == ProviderType.CHAT_COMPLETION:
+                        available_providers.append(provider)
+            logger.info(f"发现 {len(available_providers)} 个可用的CHAT_COMPLETION类型Provider")
+        except Exception as e:
+            logger.warning(f"获取可用Provider列表失败: {e}")
+        
+        # 初始化筛选Provider
         if config.filter_provider_id:
             self.filter_provider = self.context.get_provider_by_id(config.filter_provider_id)
             if not self.filter_provider:
                 logger.warning(f"找不到筛选Provider: {config.filter_provider_id}")
+                # 如果指定的Provider不存在，尝试使用第一个可用的Provider
+                if available_providers:
+                    self.filter_provider = available_providers[0]
+                    logger.info(f"自动分配筛选Provider: {self.filter_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.filter_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"筛选Provider类型错误: {config.filter_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.filter_provider = None
+                    # 尝试使用备选Provider
+                    if available_providers:
+                        self.filter_provider = available_providers[0]
+                        logger.info(f"自动分配筛选Provider: {self.filter_provider.meta().id}")
                 else:
                     logger.info(f"筛选Provider已配置: {config.filter_provider_id}")
-                    self.providers_configured += 1
+                    
+        if self.filter_provider:
+            self.providers_configured += 1
                 
+        # 初始化提炼Provider
         if config.refine_provider_id:
             self.refine_provider = self.context.get_provider_by_id(config.refine_provider_id)
             if not self.refine_provider:
                 logger.warning(f"找不到提炼Provider: {config.refine_provider_id}")
+                # 如果指定的Provider不存在，尝试使用可用的Provider（避免与filter重复）
+                for provider in available_providers:
+                    if provider != self.filter_provider:
+                        self.refine_provider = provider
+                        logger.info(f"自动分配提炼Provider: {self.refine_provider.meta().id}")
+                        break
+                if not self.refine_provider and available_providers:
+                    # 如果没有其他Provider，也可以复用filter_provider
+                    self.refine_provider = available_providers[0]
+                    logger.info(f"复用筛选Provider作为提炼Provider: {self.refine_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.refine_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"提炼Provider类型错误: {config.refine_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.refine_provider = None
+                    # 尝试使用备选Provider
+                    for provider in available_providers:
+                        if provider != self.filter_provider:
+                            self.refine_provider = provider
+                            logger.info(f"自动分配提炼Provider: {self.refine_provider.meta().id}")
+                            break
                 else:
                     logger.info(f"提炼Provider已配置: {config.refine_provider_id}")
-                    self.providers_configured += 1
+                    
+        if self.refine_provider:
+            self.providers_configured += 1
                 
+        # 初始化强化Provider
         if config.reinforce_provider_id:
             self.reinforce_provider = self.context.get_provider_by_id(config.reinforce_provider_id)
             if not self.reinforce_provider:
                 logger.warning(f"找不到强化Provider: {config.reinforce_provider_id}")
+                # 如果指定的Provider不存在，尝试使用可用的Provider（避免与已有重复）
+                for provider in available_providers:
+                    if provider != self.filter_provider and provider != self.refine_provider:
+                        self.reinforce_provider = provider
+                        logger.info(f"自动分配强化Provider: {self.reinforce_provider.meta().id}")
+                        break
+                if not self.reinforce_provider and available_providers:
+                    # 如果没有其他Provider，也可以复用已有Provider
+                    self.reinforce_provider = available_providers[0]
+                    logger.info(f"复用Provider作为强化Provider: {self.reinforce_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.reinforce_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"强化Provider类型错误: {config.reinforce_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.reinforce_provider = None
+                    # 尝试使用备选Provider
+                    for provider in available_providers:
+                        if provider != self.filter_provider and provider != self.refine_provider:
+                            self.reinforce_provider = provider
+                            logger.info(f"自动分配强化Provider: {self.reinforce_provider.meta().id}")
+                            break
                 else:
                     logger.info(f"强化Provider已配置: {config.reinforce_provider_id}")
-                    self.providers_configured += 1
+                    
+        if self.reinforce_provider:
+            self.providers_configured += 1
+        
+        # 如果配置文件中没有指定任何Provider，尝试自动配置第一个可用的Provider到所有角色
+        if self.providers_configured == 0 and available_providers:
+            logger.warning("配置文件中未指定任何Provider，尝试自动配置...")
+            first_provider = available_providers[0]
+            self.filter_provider = first_provider
+            self.refine_provider = first_provider
+            self.reinforce_provider = first_provider
+            self.providers_configured = 3
+            logger.info(f"已自动配置Provider到所有角色: {first_provider.meta().id}")
         
         # 友好的配置状态提示
         if self.providers_configured == 0:
-            logger.info("💡 提示：暂未配置任何AI模型Provider。插件将使用简化算法运行，如需完整功能请在插件配置中设置模型Provider ID。")
+            logger.error("❌ 没有可用的AI模型Provider。请在AstrBot中配置至少一个CHAT_COMPLETION类型的Provider，并在插件配置中指定Provider ID。")
         elif self.providers_configured < 3:
             logger.info(f"ℹ️ 已配置 {self.providers_configured}/3 个AI模型Provider。部分高级功能可能使用简化算法。")
+        else:
+            logger.info(f"✅ 已成功配置所有 {self.providers_configured} 个AI模型Provider！")
+            
+        # 显示最终配置结果
+        config_summary = []
+        if self.filter_provider:
+            config_summary.append(f"筛选: {self.filter_provider.meta().id}")
+        if self.refine_provider:
+            config_summary.append(f"提炼: {self.refine_provider.meta().id}")
+        if self.reinforce_provider:
+            config_summary.append(f"强化: {self.reinforce_provider.meta().id}")
+        
+        if config_summary:
+            logger.info(f"📋 Provider配置摘要: {' | '.join(config_summary)}")
+        else:
+            logger.warning("⚠️ 所有Provider均未配置，插件功能将受限")
     
     async def filter_chat_completion(
         self,
@@ -90,8 +179,25 @@ class FrameworkLLMAdapter:
     ) -> Optional[str]:
         """使用筛选模型进行对话补全"""
         if not self.filter_provider:
-            logger.error("筛选Provider未配置")
-            return None
+            logger.warning("筛选Provider未配置，尝试使用备选Provider或降级处理")
+            # 尝试使用其他可用的Provider作为备选
+            fallback_provider = self.refine_provider or self.reinforce_provider
+            if fallback_provider:
+                logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
+                try:
+                    response = await fallback_provider.text_chat(
+                        prompt=prompt,
+                        contexts=contexts,
+                        system_prompt=system_prompt,
+                        **kwargs
+                    )
+                    return response.completion_text if response else None
+                except Exception as e:
+                    logger.error(f"备选Provider调用失败: {e}")
+                    return None
+            else:
+                logger.error("没有可用的Provider，无法执行筛选任务")
+                return None
             
         try:
             start_time = time.time()
@@ -128,8 +234,25 @@ class FrameworkLLMAdapter:
     ) -> Optional[str]:
         """使用提炼模型进行对话补全"""
         if not self.refine_provider:
-            logger.error("提炼Provider未配置")
-            return None
+            logger.warning("提炼Provider未配置，尝试使用备选Provider或降级处理")
+            # 尝试使用其他可用的Provider作为备选
+            fallback_provider = self.filter_provider or self.reinforce_provider
+            if fallback_provider:
+                logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
+                try:
+                    response = await fallback_provider.text_chat(
+                        prompt=prompt,
+                        contexts=contexts,
+                        system_prompt=system_prompt,
+                        **kwargs
+                    )
+                    return response.completion_text if response else None
+                except Exception as e:
+                    logger.error(f"备选Provider调用失败: {e}")
+                    return None
+            else:
+                logger.error("没有可用的Provider，无法执行提炼任务")
+                return None
             
         try:
             start_time = time.time()
@@ -166,8 +289,25 @@ class FrameworkLLMAdapter:
     ) -> Optional[str]:
         """使用强化模型进行对话补全"""
         if not self.reinforce_provider:
-            logger.error("强化Provider未配置")
-            return None
+            logger.warning("强化Provider未配置，尝试使用备选Provider或降级处理")
+            # 尝试使用其他可用的Provider作为备选
+            fallback_provider = self.refine_provider or self.filter_provider
+            if fallback_provider:
+                logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
+                try:
+                    response = await fallback_provider.text_chat(
+                        prompt=prompt,
+                        contexts=contexts,
+                        system_prompt=system_prompt,
+                        **kwargs
+                    )
+                    return response.completion_text if response else None
+                except Exception as e:
+                    logger.error(f"备选Provider调用失败: {e}")
+                    return None
+            else:
+                logger.error("没有可用的Provider，无法执行强化任务")
+                return None
             
         try:
             start_time = time.time()

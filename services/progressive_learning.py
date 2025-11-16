@@ -808,34 +808,54 @@ class ProgressiveLearningService:
             persona = await self.persona_manager.get_current_persona(group_id)
             if persona:
                 return persona
-            # 如果没有特定群组的人格，则返回默认结构
+
+            # 如果没有特定群组的人格，尝试从框架获取默认人格
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                try:
+                    default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+                    if default_persona:
+                        return {
+                            'prompt': default_persona.get('prompt', '默认人格'),
+                            'name': default_persona.get('name', 'default'),
+                            'style_parameters': {},
+                            'last_updated': datetime.now().isoformat()
+                        }
+                except Exception as e:
+                    logger.warning(f"从框架获取默认人格失败: {e}")
+
+            # 如果都失败，返回默认结构
             return {
-                'prompt': self.config.current_persona or "默认人格",
+                'prompt': "默认人格",
+                'name': 'default',
                 'style_parameters': {},
                 'last_updated': datetime.now().isoformat()
             }
         except Exception as e:
             logger.error(f"获取当前人格失败 for group {group_id}: {e}")
-            return {'prompt': '默认人格', 'style_parameters': {}}
+            return {'prompt': '默认人格', 'name': 'default', 'style_parameters': {}}
 
     async def _generate_updated_persona(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
         """生成更新后的人格 - 直接在原有文本后面追加增量学习内容"""
         try:
-            # 直接从框架获取当前人格
-            provider = self.context.get_using_provider()
-            if not provider or not provider.curr_personality:
+            # 使用新版框架API获取当前人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                logger.warning(f"无法获取PersonaManager for group {group_id}")
+                return current_persona
+
+            default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not default_persona:
                 logger.warning(f"无法获取当前人格 for group {group_id}")
                 return current_persona
-            
+
             # 获取原有人格文本
-            original_prompt = provider.curr_personality.get('prompt', '')
-            
+            original_prompt = default_persona.get('prompt', '')
+
             # 构建增量学习内容
             learning_content = []
-            
+
             # 正确处理AnalysisResult对象和字典类型
             from ..core.interfaces import AnalysisResult
-            
+
             if isinstance(style_analysis, AnalysisResult):
                 # 如果是AnalysisResult对象，提取data属性
                 analysis_data = style_analysis.data if style_analysis.data else {}
@@ -850,22 +870,22 @@ class ProgressiveLearningService:
             else:
                 analysis_data = {}
                 logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
-            
+
             if 'enhanced_prompt' in analysis_data:
                 learning_content.append(analysis_data['enhanced_prompt'])
-            
+
             if 'learning_insights' in analysis_data:
                 insights = analysis_data['learning_insights']
                 if insights:
                     learning_content.append(insights)
-            
+
             # 直接在原有文本后面追加新内容
             if learning_content:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
                 new_content = f"\n\n【学习更新 - {timestamp}】\n" + "\n".join(learning_content)
-                
-                # 创建更新后的人格
-                updated_persona = dict(provider.curr_personality)
+
+                # 创建更新后的人格 (Personality是TypedDict)
+                updated_persona = dict(default_persona)
                 updated_persona['prompt'] = original_prompt + new_content
                 updated_persona['last_updated'] = timestamp
                 

@@ -2031,6 +2031,40 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
+    async def get_persona_update_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取人格更新记录"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT id, timestamp, group_id, update_type, original_content, new_content, reason, status, reviewer_comment, review_time
+                    FROM persona_update_records
+                    WHERE id = ?
+                ''', (record_id,))
+
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        'id': row[0],
+                        'timestamp': row[1],
+                        'group_id': row[2],
+                        'update_type': row[3],
+                        'original_content': row[4],
+                        'new_content': row[5],
+                        'reason': row[6],
+                        'status': row[7],
+                        'reviewer_comment': row[8],
+                        'review_time': row[9]
+                    }
+                return None
+
+            except aiosqlite.Error as e:
+                logger.error(f"获取人格更新记录失败: {e}", exc_info=True)
+                return None
+            finally:
+                await cursor.close()
+
     # ========== 高级功能数据库操作方法 ==========
 
     async def save_emotion_profile(self, group_id: str, user_id: str, profile_data: Dict[str, Any]) -> bool:
