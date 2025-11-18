@@ -1128,6 +1128,7 @@ class DatabaseManager(AsyncServiceBase):
             await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
             filtered_messages = (await cursor.fetchone())[0]
             
+<<<<<<< Updated upstream
             await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = FALSE')
             unused_filtered_messages = (await cursor.fetchone())[0]
             
@@ -1138,6 +1139,65 @@ class DatabaseManager(AsyncServiceBase):
                 'unused_filtered_messages': unused_filtered_messages,
                 'raw_messages': total_messages  # 兼容旧接口
             }
+=======
+            try:
+                # 确保表存在
+                await self._ensure_style_review_table_exists(cursor)
+                
+                # 构建查询条件
+                where_clause = "WHERE status != 'pending'"
+                params = []
+                
+                if status_filter:
+                    where_clause += " AND status = ?"
+                    params.append(status_filter)
+                
+                params.extend([limit, offset])
+                
+                await cursor.execute(f'''
+                    SELECT id, type, group_id, timestamp, learned_patterns, few_shots_content, 
+                           status, description, created_at, updated_at
+                    FROM style_learning_reviews
+                    {where_clause}
+                    ORDER BY updated_at DESC
+                    LIMIT ? OFFSET ?
+                ''', params)
+                
+                reviews = []
+                for row in await cursor.fetchall():
+                    learned_patterns = []
+                    try:
+                        if row[4]:  # learned_patterns
+                            learned_patterns = json.loads(row[4])
+                    except json.JSONDecodeError:
+                        pass
+                        
+                    reviews.append({
+                        'id': row[0],
+                        'type': row[1],
+                        'group_id': row[2],
+                        'timestamp': row[3],
+                        'learned_patterns': learned_patterns,
+                        'few_shots_content': row[5],
+                        'status': row[6],
+                        'description': row[7],
+                        'created_at': row[8],
+                        'review_time': row[9] if len(row) > 9 else None
+                    })
+                
+                return reviews
+                
+            except Exception as e:
+                self._logger.error(f"获取已审查风格学习记录失败: {e}")
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_detailed_metrics(self) -> Dict[str, Any]:
+        """获取详细监控数据"""
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+>>>>>>> Stashed changes
             
         except aiosqlite.Error as e:
             logger.error(f"获取消息统计失败: {e}", exc_info=True)
@@ -2676,16 +2736,22 @@ class DatabaseManager(AsyncServiceBase):
             language_patterns = []
             for row in await cursor.fetchall():
                 language_patterns.append({
-                    'type': row[0],
+                    'style': row[0],  # 改为style字段以匹配前端
+                    'type': row[0],   # 保留type用于兼容性
                     'count': row[1],
+                    'frequency': row[1],  # 添加frequency字段用于前端显示
+                    'context': 'general',
                     'environment': 'general'
                 })
             
             # 如果没有语言模式数据
             if not language_patterns:
                 language_patterns = [{
+                    'style': '暂无语言风格数据',
                     'type': '暂无语言风格数据',
                     'count': 0,
+                    'frequency': 0,
+                    'context': 'general',
                     'environment': 'general'
                 }]
             
@@ -2739,12 +2805,21 @@ class DatabaseManager(AsyncServiceBase):
                     'style': conversation_style,
                     'interest_level': round(interest_level, 1)
                 })
-            
+
+            # 去重：确保每个话题只出现一次，保留兴趣度最高的
+            seen_topics = {}
+            for pref in topic_preferences:
+                topic = pref['topic']
+                if topic not in seen_topics or pref['interest_level'] > seen_topics[topic]['interest_level']:
+                    seen_topics[topic] = pref
+
+            topic_preferences = list(seen_topics.values())
+
             # 如果没有话题偏好数据
             if not topic_preferences:
                 topic_preferences = [{
                     'topic': '暂无话题数据',
-                    'style': '等待中', 
+                    'style': '等待中',
                     'interest_level': 0.0
                 }]
             
@@ -2930,32 +3005,37 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             
-            # 为旧表添加缺失的列（如果不存在）
+            # 尝试添加metadata列（如果表已存在但没有此列）
             try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN proposed_content TEXT')
+                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
             except:
                 pass  # 列已存在
-            try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN confidence_score REAL')
-            except:
-                pass  # 列已存在
-            
+
             await cursor.execute('''
-                SELECT id, timestamp, group_id, update_type, original_content, 
-                       new_content, proposed_content, confidence_score, reason, status, 
-                       reviewer_comment, review_time
+                SELECT id, timestamp, group_id, update_type, original_content,
+                       new_content, proposed_content, confidence_score, reason, status,
+                       reviewer_comment, review_time, metadata
                 FROM persona_update_reviews
                 WHERE status = 'pending'
                 ORDER BY timestamp DESC
                 LIMIT ?
             ''', (limit,))
-            
+
             reviews = []
+            import json
             for row in await cursor.fetchall():
                 # 确保有proposed_content字段，如果为空则使用new_content
                 proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
                 confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
-                
+
+                # 解析metadata JSON
+                metadata = {}
+                if row[12]:  # metadata字段
+                    try:
+                        metadata = json.loads(row[12])
+                    except:
+                        metadata = {}
+
                 reviews.append({
                     'id': row[0],
                     'timestamp': row[1],
@@ -2968,7 +3048,8 @@ class DatabaseManager(AsyncServiceBase):
                     'reason': row[8],
                     'status': row[9],
                     'reviewer_comment': row[10],
-                    'review_time': row[11]
+                    'review_time': row[11],
+                    'metadata': metadata  # 添加metadata字段
                 })
             
             return reviews
@@ -3173,33 +3254,52 @@ class DatabaseManager(AsyncServiceBase):
             else:
                 # 如果两个字段都不存在，使用原始内容
                 content_field = 'original_content'
-            
+
+            # 检查是否有metadata列
+            has_metadata = 'metadata' in column_names
+
             # 使用实际存在的字段进行查询，并处理NULL值
+            metadata_field = ', metadata' if has_metadata else ''
             await cursor.execute(f'''
-                SELECT id, group_id, original_content, {content_field}, reason, 
-                       status, reviewer_comment, review_time, timestamp
+                SELECT id, group_id, original_content, {content_field}, reason,
+                       status, reviewer_comment, review_time, timestamp{metadata_field}
                 FROM persona_update_reviews
                 {where_clause}
                 ORDER BY COALESCE(review_time, timestamp) DESC
                 LIMIT ? OFFSET ?
             ''', params + [limit, offset])
-            
+
             rows = await cursor.fetchall()
             updates = []
-            
+
+            import json
             for row in rows:
+                # 解析metadata（如果存在）
+                metadata = {}
+                if has_metadata and len(row) > 9 and row[9]:
+                    try:
+                        metadata = json.loads(row[9])
+                    except:
+                        metadata = {}
+
                 updates.append({
                     'id': f"persona_learning_{row[0]}",
                     'group_id': row[1] or 'default',
                     'original_content': row[2] or '',
                     'proposed_content': row[3] or '',  # 使用实际存在的字段
                     'reason': row[4] or '人格学习更新',
-                    'confidence_score': 0.8,  # 默认置信度
+                    'confidence_score': metadata.get('confidence_score', 0.8),  # 从metadata获取或使用默认值
                     'status': row[5],
                     'reviewer_comment': row[6] or '',
                     'review_time': row[7] if row[7] else 0,
                     'timestamp': row[8] if row[8] else 0,
-                    'update_type': 'persona_learning_review'
+                    'update_type': 'persona_learning_review',
+                    # 添加metadata中的关键字段
+                    'features_content': metadata.get('features_content', ''),
+                    'llm_response': metadata.get('llm_response', ''),
+                    'total_raw_messages': metadata.get('total_raw_messages', 0),
+                    'messages_analyzed': metadata.get('messages_analyzed', 0),
+                    'metadata': metadata
                 })
             
             return updates
@@ -3625,7 +3725,91 @@ class DatabaseManager(AsyncServiceBase):
                 })
             
             return batches
-            
+
         except Exception as e:
             self._logger.error(f"获取学习批次记录失败: {e}")
             return []
+
+    async def add_persona_learning_review(
+        self,
+        group_id: str,
+        proposed_content: str,
+        learning_source: str = "expression_learning",
+        confidence_score: float = 0.5,
+        raw_analysis: str = "",
+        metadata: Dict[str, Any] = None
+    ) -> int:
+        """添加人格学习审查记录
+
+        Args:
+            group_id: 群组ID
+            proposed_content: 建议的人格内容
+            learning_source: 学习来源
+            confidence_score: 置信度分数
+            raw_analysis: 原始分析结果
+            metadata: 元数据(包含features_content, llm_response, sample counts等)
+
+        Returns:
+            插入记录的ID
+        """
+        try:
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+            # 确保表存在并添加metadata列
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp REAL NOT NULL,
+                    group_id TEXT NOT NULL,
+                    update_type TEXT NOT NULL,
+                    original_content TEXT,
+                    new_content TEXT,
+                    proposed_content TEXT,
+                    confidence_score REAL,
+                    reason TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    reviewer_comment TEXT,
+                    review_time REAL,
+                    metadata TEXT
+                )
+            ''')
+
+            # 尝试添加metadata列（如果表已存在但没有此列）
+            try:
+                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
+            except:
+                pass  # 列已存在
+
+            # 准备元数据JSON
+            import json
+            metadata_json = json.dumps(metadata if metadata else {}, ensure_ascii=False)
+
+            # 插入记录
+            await cursor.execute('''
+                INSERT INTO persona_update_reviews
+                (timestamp, group_id, update_type, original_content, new_content,
+                 proposed_content, confidence_score, reason, status, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                time.time(),
+                group_id,
+                learning_source,  # update_type就是learning_source
+                "",  # original_content暂时为空
+                proposed_content,  # new_content
+                proposed_content,  # proposed_content
+                confidence_score,
+                raw_analysis,  # reason字段存储raw_analysis
+                'pending',
+                metadata_json
+            ))
+
+            await conn.commit()
+            record_id = cursor.lastrowid
+
+            self._logger.info(f"添加人格学习审查记录成功，ID: {record_id}, 群组: {group_id}")
+            return record_id
+
+        except Exception as e:
+            self._logger.error(f"添加人格学习审查记录失败: {e}")
+            raise
