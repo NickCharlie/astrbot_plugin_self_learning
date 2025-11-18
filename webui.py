@@ -307,12 +307,16 @@ async def update_plugin_config():
 @require_auth
 async def get_persona_updates():
     """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）"""
+    logger.info("开始获取persona_updates数据...")
     all_updates = []
     
     # 1. 获取传统的人格更新审查
     if persona_updater:
         try:
+            logger.info("正在获取传统人格更新...")
             traditional_updates = await persona_updater.get_pending_persona_updates()
+            logger.info(f"获取到 {len(traditional_updates)} 个传统人格更新")
+            
             # 将PersonaUpdateRecord对象转换为字典格式，确保数据完整
             for record in traditional_updates:
                 # 使用dataclass的asdict或手动转换
@@ -344,11 +348,15 @@ async def get_persona_updates():
                 
         except Exception as e:
             logger.error(f"获取传统人格更新失败: {e}")
+    else:
+        logger.warning("persona_updater 不可用")
     
     # 2. 获取人格学习审查（质量不达标的学习结果）
     if database_manager:
         try:
+            logger.info("正在获取人格学习审查...")
             persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews()
+            logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
             
             for review in persona_learning_reviews:
                 # 转换为统一的审查格式
@@ -380,12 +388,16 @@ async def get_persona_updates():
                 all_updates.append(review_dict)
                 
         except Exception as e:
-            logger.error(f"获取人格学习审查失败: {e}")
+            logger.error(f"获取人格学习审查失败: {e}", exc_info=True)
+    else:
+        logger.warning("database_manager 不可用")
     
     # 3. 获取风格学习审查
     if database_manager:
         try:
+            logger.info("正在获取风格学习审查...")
             style_reviews = await database_manager.get_pending_style_reviews()
+            logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
             
             for review in style_reviews:
                 # 转换为统一的审查格式
@@ -895,106 +907,6 @@ async def create_test_persona_update():
             logger.error(f"创建测试记录失败: {e}", exc_info=True)
             return jsonify({"error": f"创建测试记录失败: {str(e)}"}), 500
     return jsonify({"error": "Persona updater not initialized"}), 500
-
-@api_bp.route("/relearn", methods=["POST"])
-@require_auth
-async def trigger_relearn():
-    """触发重新学习所有历史消息"""
-    try:
-        global progressive_learning, database_manager
-        
-        # 如果全局变量中没有progressive_learning，尝试重新获取
-        if not progressive_learning:
-            try:
-                from .core.factory import FactoryManager
-                factory_manager = FactoryManager()
-                progressive_learning = factory_manager.get_service("progressive_learning")
-                logger.info("重新获取progressive_learning服务成功")
-            except Exception as e:
-                logger.error(f"重新获取progressive_learning服务失败: {e}")
-        
-        if not progressive_learning:
-            return jsonify({
-                "success": False,
-                "error": "Progressive learning service not available"
-            }), 500
-        
-        # 获取消息统计信息
-        if not database_manager:
-            return jsonify({
-                "success": False,
-                "error": "Database manager not available"
-            }), 500
-            
-        # 获取消息统计
-        stats = await database_manager.get_messages_statistics()
-        total_messages = stats.get('total_messages', 0)
-        
-        if total_messages == 0:
-            return jsonify({
-                "success": False,
-                "error": "没有找到可学习的历史消息"
-            })
-        
-        logger.info(f"开始重新学习，共{total_messages}条历史消息")
-        
-        # 重置所有消息为未处理状态，触发重新学习
-        conn = await database_manager._get_messages_db_connection()
-        cursor = await conn.cursor()
-        
-        # 将所有消息标记为未处理
-        await cursor.execute('UPDATE raw_messages SET processed = FALSE')
-        # 清空筛选消息中的学习状态
-        await cursor.execute('UPDATE filtered_messages SET used_for_learning = FALSE')
-        await conn.commit()
-        
-        # 异步启动重新学习任务
-        import asyncio
-        
-        # 获取所有有消息的群组ID
-        try:
-            conn = await database_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            await cursor.execute('SELECT DISTINCT group_id FROM raw_messages WHERE group_id IS NOT NULL')
-            group_rows = await cursor.fetchall()
-            
-            if group_rows:
-                # 为每个群组启动学习任务
-                learning_tasks = []
-                for row in group_rows:
-                    group_id = row[0]
-                    if group_id:  # 确保group_id不为空
-                        logger.info(f"启动群组 {group_id} 的重新学习任务")
-                        task = asyncio.create_task(progressive_learning.start_learning(group_id))
-                        learning_tasks.append(task)
-                
-                if not learning_tasks:
-                    # 没有有效的群组ID，使用默认群组
-                    logger.info("没有找到有效的群组ID，使用默认群组启动学习")
-                    asyncio.create_task(progressive_learning.start_learning("default"))
-            else:
-                # 没有消息，使用默认群组
-                logger.info("没有找到消息记录，使用默认群组启动学习")
-                asyncio.create_task(progressive_learning.start_learning("default"))
-                
-        except Exception as e:
-            logger.warning(f"获取群组列表失败，使用默认群组: {e}")
-            asyncio.create_task(progressive_learning.start_learning("default"))
-        
-        logger.info("重新学习任务已启动")
-        
-        return jsonify({
-            "success": True,
-            "message": f"重新学习已启动，将处理 {total_messages} 条历史消息",
-            "total_messages": total_messages
-        })
-        
-    except Exception as e:
-        logger.error(f"启动重新学习失败: {e}", exc_info=True)
-        return jsonify({
-            "success": False, 
-            "error": f"启动重新学习失败: {str(e)}"
-        }), 500
 
 @api_bp.route("/metrics")
 @require_auth
@@ -1782,6 +1694,7 @@ async def get_metrics_trends():
 @require_auth
 async def get_style_learning_content_text():
     """获取对话风格学习的所有内容文本"""
+    logger.info("开始执行get_style_learning_content_text API请求")
     try:
         # 从数据库获取学习相关的文本内容
         content_data = {
@@ -1790,58 +1703,77 @@ async def get_style_learning_content_text():
             'features': [],
             'history': []
         }
+        logger.debug("初始化content_data数据结构")
         
         if db_manager:
+            logger.info("数据库管理器可用，开始获取学习内容数据")
             try:
                 # 获取对话示例文本 - 使用现有的方法
+                logger.debug("开始获取对话示例文本...")
                 recent_messages = await db_manager.get_filtered_messages_for_learning(20)
+                logger.info(f"获取到 {len(recent_messages) if recent_messages else 0} 条筛选消息用于对话示例")
+                
                 if recent_messages:
-                    for msg in recent_messages:
+                    for i, msg in enumerate(recent_messages):
                         content_data['dialogues'].append({
                             'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
                             'text': f"用户: {msg.get('message', '暂无内容')}",
                             'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
                         })
+                        if i == 0:  # 记录第一条消息的详细信息用于调试
+                            logger.debug(f"第一条对话示例: 群组={msg.get('group_id')}, 时间={msg.get('timestamp')}, 内容长度={len(msg.get('message', ''))}")
+                    logger.info(f"成功添加 {len(recent_messages)} 条对话示例")
                 else:
                     # 没有数据时提供友好提示
+                    logger.warning("未找到筛选消息，显示默认提示")
                     content_data['dialogues'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无对话数据，请先进行一些群聊对话，系统会自动学习和筛选有价值的内容',
                         'metadata': '系统提示'
                     })
             except Exception as e:
-                logger.warning(f"获取对话示例文本失败: {e}")
+                logger.error(f"获取对话示例文本失败: {e}", exc_info=True)
                 content_data['dialogues'].append({
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'text': f'获取对话数据时出错: {str(e)}',
                     'metadata': '错误信息'
                 })
-<<<<<<< Updated upstream
-            
-=======
         else:
             logger.error("数据库管理器不可用，无法获取学习内容数据")
 
         if db_manager:
->>>>>>> Stashed changes
             try:
                 # 获取风格分析结果 - 使用学习批次数据
+                logger.info("开始获取风格学习分析结果...")
                 recent_batches = await db_manager.get_recent_learning_batches(limit=5)
+                logger.info(f"从数据库获取到 {len(recent_batches) if recent_batches else 0} 个学习批次记录")
+                
                 if recent_batches:
-                    for batch in recent_batches:
+                    for i, batch in enumerate(recent_batches):
+                        batch_name = batch.get('batch_name', '未命名')
+                        start_time = batch.get('start_time', time.time())
+                        message_count = batch.get('message_count', 0)
+                        quality_score = batch.get('quality_score', 0)
+                        success = batch.get('success', False)
+                        
+                        logger.debug(f"处理学习批次 {i+1}/{len(recent_batches)}: {batch_name}, "
+                                   f"消息数: {message_count}, 质量得分: {quality_score:.2f}, 成功: {success}")
+                        
                         content_data['analysis'].append({
-                            'timestamp': datetime.fromtimestamp(batch.get('start_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
-                            'text': f"学习批次: {batch.get('batch_name', '未命名')}\n处理消息: {batch.get('message_count', 0)}条\n质量得分: {batch.get('quality_score', 0):.2f}",
-                            'metadata': f"成功: {'是' if batch.get('success') else '否'}"
+                            'timestamp': datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
+                            'text': f"学习批次: {batch_name}\n处理消息: {message_count}条\n质量得分: {quality_score:.2f}",
+                            'metadata': f"成功: {'是' if success else '否'}"
                         })
+                    logger.info(f"成功添加 {len(recent_batches)} 个学习批次到分析内容")
                 else:
+                    logger.warning("未找到任何学习批次记录，可能系统尚未进行自动学习")
                     content_data['analysis'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无学习分析数据，系统还未开始自动学习过程',
                         'metadata': '系统提示'
                     })
             except Exception as e:
-                logger.warning(f"获取风格分析结果失败: {e}")
+                logger.error(f"获取风格分析结果失败: {e}", exc_info=True)
                 content_data['analysis'].append({
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'text': f'获取分析数据时出错: {str(e)}',
@@ -1850,93 +1782,66 @@ async def get_style_learning_content_text():
 
         if db_manager:
             try:
-                # 获取提炼的风格特征 - 从多个数据源获取
-                conn = await db_manager._get_messages_db_connection()
-                cursor = await conn.cursor()
+                # 获取提炼的风格特征 - 使用工厂模式的方法
+                logger.info("开始获取风格特征数据...")
                 
-                # 1. 从表达模式数据获取（如果表存在）
+                # 1. 从表达模式数据获取 - 使用工厂模式
                 try:
-                    await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
-                    expression_patterns = await cursor.fetchall()
+                    logger.debug("尝试获取表达模式学习器...")
+                    from .core.factory import FactoryManager
                     
-                    if expression_patterns:
-                        for pattern in expression_patterns:
-                            content_data['features'].append({
-                                'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
-                                'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
-                                'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
-                            })
-                except Exception as e:
-                    logger.debug(f"expression_patterns表查询失败: {e}")
-                
-                # 2. 从风格学习记录获取（如果表存在）
-                try:
-                    await cursor.execute('SELECT * FROM style_learning_records ORDER BY learning_time DESC LIMIT 10')
-                    style_records = await cursor.fetchall()
+                    factory_manager = FactoryManager()
+                    component_factory = factory_manager.get_component_factory()
+                    expression_learner = component_factory.create_expression_pattern_learner()
                     
-                    if style_records:
-                        for record in style_records:
-                            try:
-                                # 解析learned_patterns JSON数据
-                                learned_patterns = json.loads(record[2]) if record[2] else {}
-                                patterns_text = []
-                                
-                                if isinstance(learned_patterns, dict):
-                                    # 提取关键的学习模式信息
-                                    if 'style_features' in learned_patterns:
-                                        features = learned_patterns['style_features']
-                                        if isinstance(features, list):
-                                            patterns_text.extend(features[:3])  # 取前3个特征
-                                    
-                                    if 'common_phrases' in learned_patterns:
-                                        phrases = learned_patterns['common_phrases']
-                                        if isinstance(phrases, list):
-                                            patterns_text.extend([f"常用表达: {p}" for p in phrases[:2]])  # 取前2个短语
-                                    
-                                    if 'language_style' in learned_patterns:
-                                        lang_style = learned_patterns['language_style']
-                                        if isinstance(lang_style, dict):
-                                            for key, value in lang_style.items():
-                                                if isinstance(value, (int, float)) and value > 0.6:
-                                                    patterns_text.append(f"{key}: {value:.2f}")
-                                
-                                if patterns_text:
+                    # 获取所有群组的表达模式
+                    logger.debug("获取表达模式数据...")
+                    if hasattr(expression_learner, 'get_all_group_patterns'):
+                        group_patterns = await expression_learner.get_all_group_patterns()
+                        logger.info(f"从表达模式学习器获取到 {len(group_patterns)} 个群组的模式")
+                        
+                        pattern_count = 0
+                        for group_id, patterns in group_patterns.items():
+                            logger.debug(f"处理群组 {group_id} 的 {len(patterns)} 个表达模式")
+                            for pattern in patterns[:5]:  # 每个群组取前5个
+                                if hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
                                     content_data['features'].append({
-                                        'timestamp': datetime.fromtimestamp(record[5]).strftime('%Y-%m-%d %H:%M:%S'), # learning_time
-                                        'text': '\n'.join(patterns_text),
-                                        'metadata': f"风格类型: {record[1]}, 置信度: {record[3]:.2f}, 样本: {record[4]}条" # style_type, confidence_score, sample_count
+                                        'timestamp': datetime.fromtimestamp(getattr(pattern, 'last_active_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                                        'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
+                                        'metadata': f"权重: {getattr(pattern, 'weight', 0.5):.2f}, 群组: {group_id}"
                                     })
-                            except (json.JSONDecodeError, IndexError, TypeError) as e:
-                                logger.warning(f"解析风格学习记录失败: {e}")
-                                continue
-                except Exception as e:
-                    logger.debug(f"style_learning_records表查询失败: {e}")
-                
-                # 3. 从语言风格模式获取（如果表存在）
-                try:
-                    await cursor.execute('SELECT * FROM language_style_patterns ORDER BY usage_frequency DESC LIMIT 5')
-                    language_patterns = await cursor.fetchall()
-                    
-                    if language_patterns:
-                        for pattern in language_patterns:
-                            try:
-                                example_phrases = json.loads(pattern[2]) if pattern[2] else []
-                                if example_phrases and isinstance(example_phrases, list):
+                                    pattern_count += 1
+                        logger.info(f"成功添加 {pattern_count} 个表达模式特征")
+                    else:
+                        # 回退到传统方法
+                        logger.debug("表达模式学习器不支持get_all_group_patterns方法，使用传统SQL查询")
+                        async with db_manager.get_db_connection() as conn:
+                            cursor = await conn.cursor()
+                            
+                            await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
+                            expression_patterns = await cursor.fetchall()
+                            
+                            if expression_patterns:
+                                logger.info(f"从数据库直接查询到 {len(expression_patterns)} 个表达模式")
+                                for pattern in expression_patterns:
                                     content_data['features'].append({
-                                        'timestamp': datetime.fromtimestamp(pattern[5]).strftime('%Y-%m-%d %H:%M:%S'), # last_updated
-                                        'text': f"语言风格: {pattern[1]}\n示例: {', '.join(example_phrases[:3])}",
-                                        'metadata': f"使用频率: {pattern[3]}, 上下文: {pattern[4]}" # usage_frequency, context_type
+                                        'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
+                                        'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
+                                        'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
                                     })
-                            except (json.JSONDecodeError, IndexError, TypeError) as e:
-                                logger.warning(f"解析语言风格模式失败: {e}")
-                                continue
+                            else:
+                                logger.warning("数据库中未找到表达模式记录")
+                        
                 except Exception as e:
-                    logger.debug(f"language_style_patterns表查询失败: {e}")
+                    logger.warning(f"获取表达模式失败，将尝试其他数据源: {e}")
                 
-                # 4. 从待审查和已批准的风格学习审查中获取特征
+                # 2. 从风格学习审查中获取特征 - 使用工厂方法
                 try:
+                    logger.debug("获取风格学习审查数据...")
                     # 获取待审查的风格学习内容
                     pending_style_reviews = await db_manager.get_pending_style_reviews()
+                    logger.info(f"获取到 {len(pending_style_reviews) if pending_style_reviews else 0} 个待审查的风格学习记录")
+                    
                     for review in pending_style_reviews:
                         if review.get('few_shots_content'):
                             content_data['features'].append({
@@ -1947,6 +1852,8 @@ async def get_style_learning_content_text():
                     
                     # 获取已批准的风格学习内容
                     approved_style_reviews = await db_manager.get_reviewed_style_learning_updates(limit=10, status_filter='approved')
+                    logger.info(f"获取到 {len(approved_style_reviews) if approved_style_reviews else 0} 个已批准的风格学习记录")
+                    
                     for review in approved_style_reviews:
                         if review.get('few_shots_content'):
                             content_data['features'].append({
@@ -1956,18 +1863,21 @@ async def get_style_learning_content_text():
                             })
                     
                 except Exception as e:
-                    logger.debug(f"从风格学习审查获取特征失败: {e}")
+                    logger.warning(f"从风格学习审查获取特征失败: {e}")
                 
                 # 如果所有数据源都没有数据，显示提示
                 if not content_data['features']:
+                    logger.warning("未从任何数据源获取到风格特征，显示默认提示")
                     content_data['features'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无学习到的表达模式，请耐心等待系统学习',
                         'metadata': '系统提示'
                     })
+                else:
+                    logger.info(f"成功获取到 {len(content_data['features'])} 个风格特征")
                     
             except Exception as e:
-                logger.warning(f"获取风格特征失败: {e}")
+                logger.error(f"获取风格特征失败: {e}", exc_info=True)
                 content_data['features'].append({
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'text': f'获取特征数据时出错: {str(e)}',
@@ -1977,12 +1887,16 @@ async def get_style_learning_content_text():
         if db_manager:
             try:
                 # 获取学习历程记录 - 使用现有的方法
+                logger.info("开始获取学习历程记录...")
                 message_stats = await db_manager.get_messages_statistics()
+                logger.debug(f"获取到消息统计: {message_stats}")
+                
                 content_data['history'].append({
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'text': f"系统统计:\n总消息数: {message_stats.get('total_messages', 0)}条\n已筛选: {message_stats.get('filtered_messages', 0)}条\n待学习: {message_stats.get('unused_filtered_messages', 0)}条",
                     'metadata': '实时统计'
                 })
+                logger.info(f"成功添加学习历程记录")
             except Exception as e:
                 logger.warning(f"获取学习历程记录失败: {e}")
                 content_data['history'].append({
@@ -1990,11 +1904,6 @@ async def get_style_learning_content_text():
                     'text': f'获取历程数据时出错: {str(e)}',
                     'metadata': '错误信息'
                 })
-<<<<<<< Updated upstream
-        
-        # 如果数据库中没有数据，返回空数据结构
-        # 不提供示例数据，让前端显示"暂无数据"状态
-=======
 
         # 汇总所有获取的数据并记录最终状态
         logger.info("完成所有学习内容数据获取，开始汇总统计...")
@@ -2002,12 +1911,21 @@ async def get_style_learning_content_text():
         total_analysis = len(content_data['analysis'])
         total_features = len(content_data['features'])
         total_history = len(content_data['history'])
->>>>>>> Stashed changes
         
+        logger.info(f"内容数据汇总: 对话示例={total_dialogues}条, 分析结果={total_analysis}条, "
+                   f"特征数据={total_features}条, 历程记录={total_history}条")
+        
+        # 检查数据完整性
+        if total_dialogues == 0 and total_analysis == 0 and total_features == 0:
+            logger.warning("所有主要数据源都为空，可能系统尚未进行学习或数据库存在问题")
+        else:
+            logger.info("成功获取学习内容数据，数据完整性良好")
+        
+        logger.info("get_style_learning_content_text API请求处理完成")
         return jsonify(content_data)
     
     except Exception as e:
-        logger.error(f"获取学习内容文本失败: {e}")
+        logger.error(f"get_style_learning_content_text API处理失败: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
 
 # 新增的高级功能API端点
@@ -2324,14 +2242,14 @@ async def get_style_learning_content():
             try:
                 patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
                 if patterns:
-                    analysis_lines = ["*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"]
+                    analysis_lines = ["*Communication patterns learned from all user interactions:"]
                     for i, pattern in enumerate(patterns[:4], 1):
                         situation = getattr(pattern, 'situation', '未知情境')
                         expression = getattr(pattern, 'expression', '未知表达')
-                        analysis_lines.append(f"{i}. 当{situation}时，使用\"{expression}\"这样的表达")
+                        analysis_lines.append(f"{i}. 在{situation}时，群组用户倾向于使用\"{expression}\"这样的表达")
                     content['analysis_content'] = "\n".join(analysis_lines)
                 else:
-                    content['analysis_content'] = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
+                    content['analysis_content'] = "*Communication patterns learned from all user interactions:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
             except Exception as e:
                 logger.warning(f"获取表达模式失败: {e}")
                 content['analysis_content'] = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
@@ -2340,11 +2258,12 @@ async def get_style_learning_content():
             try:
                 patterns = await expression_learner.get_expression_patterns(group_id, limit=15)
                 if patterns:
-                    features_lines = ["提炼的风格特征:"]
+                    features_lines = ["群组表达风格特征:"]
                     for i, pattern in enumerate(patterns[:8], 1):
                         situation = getattr(pattern, 'situation', '通用情境')
+                        expression = getattr(pattern, 'expression', '未知表达')
                         weight = getattr(pattern, 'weight', 0.5)
-                        features_lines.append(f"{i}. {situation} (置信度: {weight:.2f})")
+                        features_lines.append(f"{i}. {situation}: \"{expression}\" (置信度: {weight:.2f})")
                     content['features_content'] = "\n".join(features_lines)
                 else:
                     content['features_content'] = "暂无提炼的风格特征"
@@ -2479,13 +2398,606 @@ async def trigger_style_learning():
             "patterns_count": 0
         }), 500
 
+@api_bp.route("/groups/info", methods=["GET"])
+@require_auth
+async def get_groups_info():
+    """获取所有群组的详细信息"""
+    logger.info("开始获取所有群组信息...")
+    try:
+        groups_info = {
+            'total_groups': 0,
+            'groups': [],
+            'database_status': {},
+            'recommendations': []
+        }
+        
+        if not database_manager:
+            return jsonify({'error': '数据库管理器不可用'}), 500
+        
+        # 获取数据库连接
+        async with database_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            
+            try:
+                # 1. 检查数据库总体状态
+                logger.debug("检查数据库总体状态...")
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
+                total_raw_messages = (await cursor.fetchone())[0]
+                
+                await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
+                total_filtered_messages = (await cursor.fetchone())[0]
+                
+                groups_info['database_status'] = {
+                    'total_raw_messages': total_raw_messages,
+                    'total_filtered_messages': total_filtered_messages,
+                    'tables_exist': True
+                }
+                
+                logger.info(f"数据库状态: 原始消息 {total_raw_messages} 条, 筛选消息 {total_filtered_messages} 条")
+                
+                # 2. 获取所有群组的详细信息
+                if total_raw_messages > 0:
+                    logger.debug("获取所有群组的详细统计...")
+                    await cursor.execute('''
+                    SELECT 
+                        group_id,
+                        COUNT(*) as message_count,
+                        MIN(timestamp) as earliest_message,
+                        MAX(timestamp) as latest_message,
+                        COUNT(DISTINCT sender_id) as unique_senders
+                    FROM raw_messages 
+                    WHERE group_id IS NOT NULL AND group_id != ''
+                    GROUP BY group_id 
+                    ORDER BY message_count DESC
+                ''')
+                
+                for row in await cursor.fetchall():
+                    group_id, message_count, earliest_ts, latest_ts, unique_senders = row
+                    
+                    # 获取该群组的筛选消息统计
+                    await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
+                    filtered_count = (await cursor.fetchone())[0]
+                    
+                    # 计算时间范围
+                    import datetime
+                    earliest_date = datetime.datetime.fromtimestamp(earliest_ts).strftime('%Y-%m-%d %H:%M:%S') if earliest_ts else 'N/A'
+                    latest_date = datetime.datetime.fromtimestamp(latest_ts).strftime('%Y-%m-%d %H:%M:%S') if latest_ts else 'N/A'
+                    
+                    # 计算活跃度
+                    days_span = (latest_ts - earliest_ts) / 86400 if earliest_ts and latest_ts else 0
+                    avg_messages_per_day = message_count / max(1, days_span) if days_span > 0 else 0
+                    
+                    group_info = {
+                        'group_id': group_id,
+                        'message_count': message_count,
+                        'filtered_count': filtered_count,
+                        'unique_senders': unique_senders,
+                        'earliest_message': earliest_date,
+                        'latest_message': latest_date,
+                        'days_span': round(days_span, 1),
+                        'avg_messages_per_day': round(avg_messages_per_day, 1),
+                        'learning_potential': 'high' if message_count > 100 and filtered_count > 10 else 'medium' if message_count > 20 else 'low'
+                    }
+                    
+                    groups_info['groups'].append(group_info)
+                    logger.debug(f"群组 {group_id}: {message_count} 条消息, {filtered_count} 条筛选, {unique_senders} 个用户")
+                
+                groups_info['total_groups'] = len(groups_info['groups'])
+                logger.info(f"找到 {groups_info['total_groups']} 个有消息记录的群组")
+            except Exception as e:
+                logger.error(e)
+
+            else:
+                try:
+                    logger.warning("数据库中没有任何原始消息记录")
+                    groups_info['recommendations'] = [
+                        "数据库中没有消息记录，这可能是因为:",
+                        "1. 插件刚刚安装，还没有收集到消息",
+                        "2. 消息收集功能未启用或配置错误",
+                        "3. 群聊中没有足够的消息活动",
+                        "建议: 在群聊中发送一些消息，然后重新检查"
+                    ]
+                
+                    # 3. 添加学习建议 - 修改为推荐所有群组都进行分析
+                    if groups_info['total_groups'] > 0:
+                        groups_info['recommendations'] = [
+                            f"发现 {groups_info['total_groups']} 个群组，建议对所有群组进行完整的关系分析和风格学习:",
+                            "• 使用 /groups/analyze_all 对所有群组进行关系分析",
+                            "• 使用 /groups/style_learning_all 对所有群组进行表达模式和风格分析",
+                            f"• 总计可分析原始消息: {total_raw_messages} 条"
+                        ]
+                    
+                    # 为每个群组添加分析状态
+                    for group in groups_info['groups']:
+                        if group['message_count'] > 50:
+                            group['analysis_ready'] = True
+                            group['analysis_recommendation'] = "可进行完整分析"
+                        elif group['message_count'] > 10:
+                            group['analysis_ready'] = True
+                            group['analysis_recommendation'] = "可进行基础分析"
+                        else:
+                            group['analysis_ready'] = False
+                            group['analysis_recommendation'] = "消息数量较少，建议积累更多消息"
+                
+                finally:
+                    await cursor.close()
+        
+        logger.info("群组信息获取完成")
+        return jsonify(groups_info)
+        
+    except Exception as e:
+        logger.error(f"获取群组信息失败: {e}", exc_info=True)
+        return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/groups/analyze_all", methods=["POST"])
+@require_auth
+async def analyze_all_groups():
+    """对所有群组进行关系分析和表达模式分析"""
+    logger.info("开始对所有群组进行关系分析...")
+    try:
+        from .core.factory import FactoryManager
+        
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        component_factory = factory_manager.get_component_factory()
+        
+        # 获取关系分析器和表达模式学习器
+        relationship_analyzer = service_factory.create_message_relationship_analyzer()
+        expression_learner = component_factory.create_expression_pattern_learner()
+        db_manager = service_factory.create_database_manager()
+        
+        # 获取所有群组
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+        
+        await cursor.execute('''
+            SELECT DISTINCT group_id, COUNT(*) as message_count 
+            FROM raw_messages 
+            WHERE group_id IS NOT NULL AND group_id != ''
+            GROUP BY group_id 
+            HAVING message_count >= 10
+            ORDER BY message_count DESC
+        ''')
+        all_groups = await cursor.fetchall()
+        await cursor.close()
+        await conn.close()
+        
+        if not all_groups:
+            return jsonify({
+                'success': False,
+                'message': '没有找到足够消息的群组进行分析',
+                'analyzed_groups': []
+            })
+        
+        analysis_results = []
+        
+        for group_id, message_count in all_groups:
+            logger.info(f"开始分析群组 {group_id} (消息数: {message_count})")
+            
+            try:
+                # 1. 获取原始消息
+                recent_messages = await db_manager.get_recent_raw_messages(group_id, limit=200)
+                
+                if not recent_messages or len(recent_messages) < 5:
+                    logger.warning(f"群组 {group_id} 消息数量不足，跳过分析")
+                    continue
+                
+                # 2. 过滤和格式化消息
+                formatted_messages = []
+                for msg in recent_messages:
+                    message_content = msg.get('message', '')
+                    sender_id = msg.get('sender_id', '')
+                    
+                    # 基础过滤
+                    if len(message_content.strip()) < 5 or len(message_content) > 500:
+                        continue
+                    if sender_id == "bot":
+                        continue
+                    if message_content.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
+                        continue
+                    
+                    # @符号处理
+                    import re
+                    processed_message = message_content
+                    if '@' in message_content:
+                        at_pattern = r'@[^\s]+\s+'
+                        processed_message = re.sub(at_pattern, '', message_content).strip()
+                        if len(processed_message.strip()) < 5:
+                            continue
+                    
+                    formatted_msg = {
+                        'id': msg.get('id'),
+                        'sender_id': sender_id,
+                        'sender_name': msg.get('sender_name', ''),
+                        'message': processed_message,
+                        'group_id': msg.get('group_id'),
+                        'timestamp': msg.get('timestamp'),
+                        'platform': msg.get('platform', 'default')
+                    }
+                    formatted_messages.append(formatted_msg)
+                
+                logger.info(f"群组 {group_id} 过滤后可用消息数: {len(formatted_messages)}")
+                
+                if len(formatted_messages) < 3:
+                    logger.warning(f"群组 {group_id} 过滤后消息数量不足，跳过分析")
+                    continue
+                
+                # 3. 进行关系分析
+                logger.info(f"开始分析群组 {group_id} 的消息关系...")
+                relationships = await relationship_analyzer.analyze_message_relationships(formatted_messages, group_id)
+                
+                # 4. 提取对话对
+                conversation_pairs = await relationship_analyzer.get_conversation_pairs(relationships)
+                
+                # 5. 转换为MessageData格式进行表达模式学习
+                from .core.interfaces import MessageData
+                message_data_list = []
+                for msg in formatted_messages:
+                    message_data = MessageData(
+                        sender_id=msg['sender_id'],
+                        sender_name=msg['sender_name'],
+                        message=msg['message'],
+                        group_id=msg['group_id'],
+                        timestamp=msg['timestamp'],
+                        platform=msg['platform'],
+                        message_id=msg['id'],
+                        reply_to=None
+                    )
+                    message_data_list.append(message_data)
+                
+                # 6. 启动表达模式学习器并触发学习
+                if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+                    await expression_learner.start()
+                
+                # 强制学习（重置时间限制）
+                if hasattr(expression_learner, 'last_learning_times'):
+                    expression_learner.last_learning_times[group_id] = 0
+                
+                learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
+                
+                # 7. 获取学习结果
+                patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
+                patterns_count = len(patterns) if patterns else 0
+                
+                analysis_result = {
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'processed_messages': len(formatted_messages),
+                    'conversation_pairs': len(conversation_pairs) if conversation_pairs else 0,
+                    'expression_patterns': patterns_count,
+                    'learning_success': learning_success,
+                    'analysis_completed': True
+                }
+                
+                analysis_results.append(analysis_result)
+                logger.info(f"群组 {group_id} 分析完成: 对话对 {analysis_result['conversation_pairs']}, 表达模式 {patterns_count}")
+                
+            except Exception as e:
+                logger.error(f"分析群组 {group_id} 失败: {e}")
+                analysis_results.append({
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'processed_messages': 0,
+                    'conversation_pairs': 0,
+                    'expression_patterns': 0,
+                    'learning_success': False,
+                    'analysis_completed': False,
+                    'error': str(e)
+                })
+        
+        # 统计总结果
+        successful_groups = [r for r in analysis_results if r.get('analysis_completed', False)]
+        total_conversation_pairs = sum(r.get('conversation_pairs', 0) for r in analysis_results)
+        total_expression_patterns = sum(r.get('expression_patterns', 0) for r in analysis_results)
+        
+        return jsonify({
+            'success': True,
+            'message': f'所有群组分析完成',
+            'summary': {
+                'total_groups': len(all_groups),
+                'successful_groups': len(successful_groups),
+                'total_conversation_pairs': total_conversation_pairs,
+                'total_expression_patterns': total_expression_patterns
+            },
+            'analyzed_groups': analysis_results
+        })
+        
+    except Exception as e:
+        logger.error(f"分析所有群组失败: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': f'分析失败: {str(e)}',
+            'analyzed_groups': []
+        }), 500
+
+@api_bp.route("/groups/style_learning_all", methods=["POST"])
+@require_auth
+async def style_learning_all_groups():
+    """对所有群组进行风格学习并提交审查"""
+    logger.info("开始对所有群组进行风格学习...")
+    try:
+        from .core.factory import FactoryManager
+        import time
+        
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        component_factory = factory_manager.get_component_factory()
+        
+        # 获取必要服务
+        relationship_analyzer = service_factory.create_message_relationship_analyzer()
+        expression_learner = component_factory.create_expression_pattern_learner()
+        db_manager = service_factory.create_database_manager()
+        
+        # 获取所有群组
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+        
+        await cursor.execute('''
+            SELECT DISTINCT group_id, COUNT(*) as message_count 
+            FROM raw_messages 
+            WHERE group_id IS NOT NULL AND group_id != ''
+            GROUP BY group_id 
+            HAVING message_count >= 10
+            ORDER BY message_count DESC
+        ''')
+        all_groups = await cursor.fetchall()
+        await cursor.close()
+        await conn.close()
+        
+        if not all_groups:
+            return jsonify({
+                'success': False,
+                'message': '没有找到足够消息的群组进行风格学习',
+                'style_learning_results': []
+            })
+        
+        style_learning_results = []
+        
+        for group_id, message_count in all_groups:
+            logger.info(f"开始为群组 {group_id} 进行风格学习 (消息数: {message_count})")
+            
+            try:
+                # 1. 获取并处理消息（与analyze_all相同的逻辑）
+                recent_raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=100)
+                
+                if not recent_raw_messages:
+                    logger.warning(f"群组 {group_id} 没有原始消息，跳过风格学习")
+                    continue
+                
+                # 2. 过滤消息
+                formatted_messages = []
+                for msg in recent_raw_messages:
+                    message_content = msg.get('message', '')
+                    sender_id = msg.get('sender_id', '')
+                    
+                    # 使用相同的过滤逻辑
+                    if len(message_content.strip()) < 5 or len(message_content) > 500:
+                        continue
+                    if sender_id == "bot":
+                        continue
+                    if message_content.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
+                        continue
+                    
+                    # @符号处理
+                    import re
+                    processed_message = message_content
+                    if '@' in message_content:
+                        at_pattern = r'@[^\s]+\s+'
+                        processed_message = re.sub(at_pattern, '', message_content).strip()
+                        if len(processed_message.strip()) < 5:
+                            continue
+                    
+                    formatted_msg = {
+                        'id': msg.get('id'),
+                        'sender_id': sender_id,
+                        'sender_name': msg.get('sender_name', ''),
+                        'message': processed_message,
+                        'group_id': msg.get('group_id'),
+                        'timestamp': msg.get('timestamp'),
+                        'platform': msg.get('platform', 'default')
+                    }
+                    formatted_messages.append(formatted_msg)
+                
+                if len(formatted_messages) < 3:
+                    logger.warning(f"群组 {group_id} 过滤后消息数量不足，跳过风格学习")
+                    continue
+                
+                # 3. 进行关系分析获取对话对
+                relationships = await relationship_analyzer.analyze_message_relationships(formatted_messages, group_id)
+                conversation_pairs = await relationship_analyzer.get_conversation_pairs(relationships)
+                
+                if not conversation_pairs:
+                    logger.warning(f"群组 {group_id} 未找到有效对话关系，跳过风格学习")
+                    continue
+                
+                # 4. 生成对话内容（few shots格式）
+                dialogue_lines = [f"*Here are examples of real conversations between users in group {group_id}:"]
+                for sender_content, reply_content in conversation_pairs[:6]:  # 取前6个对话对
+                    dialogue_lines.append(f"A:{sender_content}")
+                    dialogue_lines.append(f"B:{reply_content}")
+                
+                dialogue_content = "\n".join(dialogue_lines)
+                
+                # 5. 进行表达模式学习
+                patterns_learned = 0
+                analysis_content = "*Communication style patterns observed in group conversations:\n1. 保持自然流畅的对话风格\n2. 根据语境调整回复的正式程度"
+                features_content = "提炼的风格特征:\n1. 自然对话风格\n2. 适度的情感表达"
+                
+                try:
+                    # 转换为MessageData格式
+                    from .core.interfaces import MessageData
+                    message_data_list = []
+                    for msg in formatted_messages:
+                        message_data = MessageData(
+                            sender_id=msg['sender_id'],
+                            sender_name=msg['sender_name'],
+                            message=msg['message'],
+                            group_id=msg['group_id'],
+                            timestamp=msg['timestamp'],
+                            platform=msg['platform'],
+                            message_id=msg['id'],
+                            reply_to=None
+                        )
+                        message_data_list.append(message_data)
+                    
+                    # 启动并触发学习
+                    if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
+                        await expression_learner.start()
+                    
+                    if hasattr(expression_learner, 'last_learning_times'):
+                        expression_learner.last_learning_times[group_id] = 0
+                    
+                    learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
+                    
+                    if learning_success:
+                        patterns = await expression_learner.get_expression_patterns(group_id, limit=10)
+                        if patterns:
+                            patterns_learned = len(patterns)
+                            
+                            # 生成更详细的分析内容
+                            analysis_lines = [f"*Communication style patterns observed from all user interactions in {group_id}:"]
+                            for i, pattern in enumerate(patterns[:4], 1):
+                                situation = getattr(pattern, 'situation', '未知情境')
+                                expression = getattr(pattern, 'expression', '未知表达')
+                                analysis_lines.append(f"{i}. 当{situation}时，群组用户使用\"{expression}\"这样的表达")
+                            analysis_content = "\n".join(analysis_lines)
+                            
+                            # 生成特征内容
+                            features_lines = [f"群组 {group_id} 对话风格特征:"]
+                            for i, pattern in enumerate(patterns[:6], 1):
+                                situation = getattr(pattern, 'situation', '未知情境')
+                                expression = getattr(pattern, 'expression', '未知表达')
+                                features_lines.append(f"{i}. {situation}: {expression}")
+                            features_content = "\n".join(features_lines)
+                
+                except Exception as e:
+                    logger.warning(f"群组 {group_id} 表达模式学习失败: {e}")
+                
+                # 6. 生成完整的风格学习内容
+                full_style_content = f"""## 真实对话示例 - 群组 {group_id}
+{dialogue_content}
+
+## 群组风格分析
+{analysis_content}
+
+## {features_content}
+
+## 学习来源
+全群组风格学习 - 基于{len(conversation_pairs)}个真实用户对话对的深度分析
+
+## 数据说明
+- 分析了群组 {group_id} 中任意用户之间的真实对话
+- 提取了用户间的对话关系和表达模式 ({patterns_learned} 个表达模式)
+- 学习内容反映群组整体的对话风格特征
+- 处理原始消息: {len(recent_raw_messages)} 条，过滤后: {len(formatted_messages)} 条"""
+                
+                # 7. 提交到人格审查系统
+                review_submitted = False
+                try:
+                    # 检查是否有人格学习审查方法
+                    if hasattr(db_manager, 'add_persona_learning_review'):
+                        await db_manager.add_persona_learning_review(
+                            group_id=group_id,
+                            proposed_content=full_style_content,
+                            learning_source=f"全群组风格学习-{group_id}",
+                            confidence_score=0.85,
+                            raw_analysis=f"基于{len(conversation_pairs)}个对话对和{patterns_learned}个表达模式",
+                            metadata={
+                                "all_groups_learning": True,
+                                "conversation_pairs": len(conversation_pairs),
+                                "patterns_count": patterns_learned,
+                                "messages_analyzed": len(formatted_messages),
+                                "original_messages": len(recent_raw_messages)
+                            }
+                        )
+                        review_submitted = True
+                        logger.info(f"群组 {group_id} 风格学习审查已提交")
+                    else:
+                        # 回退方法：保存到通用审查记录
+                        await db_manager.save_persona_update_record({
+                            'timestamp': time.time(),
+                            'group_id': group_id,
+                            'update_type': 'all_groups_style_learning',
+                            'original_content': '群组风格特征',
+                            'new_content': full_style_content,
+                            'reason': f'全群组风格学习-基于{len(conversation_pairs)}个对话对的关系分析',
+                            'status': 'pending'
+                        })
+                        review_submitted = True
+                        logger.info(f"群组 {group_id} 风格学习审查已保存")
+                
+                except Exception as e:
+                    logger.error(f"群组 {group_id} 提交风格学习审查失败: {e}")
+                
+                learning_result = {
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'processed_messages': len(formatted_messages),
+                    'conversation_pairs': len(conversation_pairs),
+                    'expression_patterns': patterns_learned,
+                    'review_submitted': review_submitted,
+                    'learning_completed': True
+                }
+                
+                style_learning_results.append(learning_result)
+                logger.info(f"群组 {group_id} 风格学习完成: 对话对 {len(conversation_pairs)}, 模式 {patterns_learned}")
+                
+            except Exception as e:
+                logger.error(f"群组 {group_id} 风格学习失败: {e}")
+                style_learning_results.append({
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'processed_messages': 0,
+                    'conversation_pairs': 0,
+                    'expression_patterns': 0,
+                    'review_submitted': False,
+                    'learning_completed': False,
+                    'error': str(e)
+                })
+        
+        # 统计总结果
+        successful_learning = [r for r in style_learning_results if r.get('learning_completed', False)]
+        total_reviews_submitted = sum(1 for r in style_learning_results if r.get('review_submitted', False))
+        total_conversation_pairs = sum(r.get('conversation_pairs', 0) for r in style_learning_results)
+        total_expression_patterns = sum(r.get('expression_patterns', 0) for r in style_learning_results)
+        
+        return jsonify({
+            'success': True,
+            'message': f'所有群组风格学习完成',
+            'summary': {
+                'total_groups': len(all_groups),
+                'successful_learning': len(successful_learning),
+                'reviews_submitted': total_reviews_submitted,
+                'total_conversation_pairs': total_conversation_pairs,
+                'total_expression_patterns': total_expression_patterns
+            },
+            'style_learning_results': style_learning_results
+        })
+        
+    except Exception as e:
+        logger.error(f"所有群组风格学习失败: {e}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': f'风格学习失败: {str(e)}',
+            'style_learning_results': []
+        }), 500
+
 @api_bp.route("/relearn", methods=["POST"])
 @require_auth
 async def relearn_all():
     """重新学习按钮 - 包括风格重新学习"""
     try:
-        data = await request.get_json()
-        group_id = data.get('group_id', 'default')
+        # 处理空请求体的情况
+        data = {}
+        try:
+            if request.is_json and await request.get_data():
+                data = await request.get_json()
+        except Exception:
+            # 如果JSON解析失败，使用默认空字典
+            data = {}
+        
+        # 获取实际的群组ID，如果没有指定则尝试从数据库中获取第一个有消息的群组
+        group_id = data.get('group_id')
         include_style_learning = data.get('include_style_learning', True)
         
         from .core.factory import FactoryManager
@@ -2493,16 +3005,79 @@ async def relearn_all():
         factory_manager = FactoryManager()
         service_factory = factory_manager.get_service_factory()
         component_factory = factory_manager.get_component_factory()
+        db_manager = service_factory.create_database_manager()
+        
+        # 如果没有指定群组ID，自动检测有消息记录的群组
+        if not group_id or group_id == 'default':
+            # 获取所有有消息记录的群组，包括所有群组
+            async with db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                # 检查数据库中是否有任何消息记录
+                logger.info("正在检查数据库中的所有消息记录...")
+                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
+                total_count = (await cursor.fetchone())[0]
+                logger.info(f"raw_messages表中总共有 {total_count} 条记录")
+                
+                if total_count > 0:
+                    # 首先检查所有群组的消息统计
+                    await cursor.execute('''
+                        SELECT DISTINCT group_id, COUNT(*) as message_count 
+                        FROM raw_messages 
+                        WHERE group_id IS NOT NULL AND group_id != ''
+                        GROUP BY group_id 
+                        ORDER BY message_count DESC
+                    ''')
+                    all_results = await cursor.fetchall()
+                    
+                    logger.info(f"数据库中发现的所有群组: {[(r[0], r[1]) for r in all_results] if all_results else '无'}")
+                    
+                    # 选择消息数最多的群组
+                    if all_results:
+                        group_id = all_results[0][0]
+                        message_count = all_results[0][1] 
+                        logger.info(f"自动选择群组ID: {group_id} (共有{message_count}条原始消息)")
+                    else:
+                        logger.warning("虽然有消息记录，但没有有效的群组ID")
+                        group_id = 'default'  # 兜底使用default
+                else:
+                    # 没有任何消息，检查系统状态
+                    logger.warning("数据库中没有任何原始消息记录")
+                    
+                    # 检查是否有其他相关表的数据
+                    await cursor.execute('SELECT name FROM sqlite_master WHERE type="table" AND name LIKE "%message%"')
+                    tables = await cursor.fetchall()
+                    logger.info(f"数据库中的消息相关表: {[t[0] for t in tables] if tables else '无'}")
+                    
+                    # 检查filtered_messages表
+                    try:
+                        await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
+                        filtered_count = (await cursor.fetchone())[0]
+                        logger.info(f"filtered_messages表中有 {filtered_count} 条记录")
+                    except:
+                        logger.info("filtered_messages表不存在或无法访问")
+                    
+                    # 提供解决建议
+                    logger.warning("建议解决方案:")
+                    logger.warning("1. 检查消息收集功能是否正常工作")
+                    logger.warning("2. 确认群聊中有足够的消息")
+                    logger.warning("3. 检查插件的消息捕获配置")
+                    
+                    group_id = 'default'  # 兜底使用default
+                
+                await cursor.close()
         
         results = {
             'success': True,
             'message': '',
+            'group_id': group_id,  # 返回实际使用的群组ID
             'progressive_learning': False,
             'style_learning': False,
             'processed_messages': 0,
             'new_patterns': 0,
             'persona_update_submitted': False,
-            'errors': []
+            'errors': [],
+            'total_messages': 0
         }
         
         try:
@@ -2512,9 +3087,36 @@ async def relearn_all():
             
             logger.info(f"开始重新学习群组 {group_id}...")
             
-            # 检查消息数量（但不强制要求）
-            stats = await db_manager.get_message_statistics(group_id)
-            total_messages = stats.get('total_messages', 0)
+            # 检查消息数量（但不强制要求） - 添加连接重试逻辑
+            logger.debug(f"开始获取群组 {group_id} 的消息统计...")
+            try:
+                stats = await db_manager.get_message_statistics(group_id)
+                total_messages = stats.get('total_messages', 0)
+                results['total_messages'] = total_messages
+                logger.info(f"群组 {group_id} 消息统计: {total_messages} 条总消息")
+            except Exception as stats_error:
+                logger.warning(f"获取群组 {group_id} 消息统计失败: {stats_error}")
+                # 如果是连接问题，尝试重新创建数据库连接
+                if "no active connection" in str(stats_error).lower():
+                    logger.info("检测到数据库连接问题，尝试重新初始化连接...")
+                    try:
+                        # 使用新的重置方法
+                        await db_manager.reset_messages_db_connection()
+                        
+                        # 重新获取统计数据
+                        stats = await db_manager.get_message_statistics(group_id)
+                        total_messages = stats.get('total_messages', 0)
+                        results['total_messages'] = total_messages
+                        logger.info(f"重新连接成功，群组 {group_id} 消息统计: {total_messages} 条总消息")
+                    except Exception as retry_error:
+                        logger.error(f"重试获取消息统计也失败: {retry_error}")
+                        total_messages = 0
+                        results['total_messages'] = 0
+                        results['errors'].append(f"无法获取消息统计: {str(retry_error)}")
+                else:
+                    total_messages = 0
+                    results['total_messages'] = 0
+                    results['errors'].append(f"获取消息统计失败: {str(stats_error)}")
             
             # 执行渐进式学习批次
             try:
@@ -2527,99 +3129,15 @@ async def relearn_all():
                 results['errors'].append(error_msg)
                 logger.error(error_msg)
             
-            # 2. 风格重新学习（无消息门槛限制）
+            # 2. 风格重新学习（遵循原有逻辑：关系分析->A,B对话提取->按格式加入人格审查）
             if include_style_learning:
                 try:
-                    expression_learner = component_factory.create_expression_pattern_learner()
+                    import time
+                    logger.info(f"开始为群组 {group_id} 进行风格重新学习...")
                     
-                    # 获取所有可用的原始消息用于风格学习
-                    recent_messages = await db_manager.get_recent_raw_messages(group_id, limit=100)
+                    # 获取消息关系分析器
+                    relationship_analyzer = service_factory.create_message_relationship_analyzer()
                     
-<<<<<<< Updated upstream
-                    if recent_messages:
-                        # 转换为 MessageData 格式
-                        from .core.interfaces import MessageData
-                        import time
-                        
-                        message_data_list = []
-                        for msg in recent_messages:
-                            if msg.get('sender_id') != "bot":  # 不学习机器人的消息
-                                message_data = MessageData(
-                                    sender_id=msg.get('sender_id', ''),
-                                    sender_name=msg.get('sender_name', ''),
-                                    message=msg.get('message', ''),
-                                    group_id=group_id,
-                                    timestamp=msg.get('timestamp', time.time()),
-                                    platform=msg.get('platform', 'default'),
-                                    message_id=msg.get('message_id'),
-                                    reply_to=msg.get('reply_to')
-                                )
-                                message_data_list.append(message_data)
-                        
-                        # 即使只有1条消息也进行学习（重新学习模式无门槛）
-                        if message_data_list:
-                            # 清理旧的学习结果
-                            if hasattr(expression_learner, 'clear_patterns_for_group'):
-                                await expression_learner.clear_patterns_for_group(group_id)
-                            
-                            # 启动表达模式学习器
-                            if hasattr(expression_learner, '_status') and expression_learner._status.value != 'running':
-                                await expression_learner.start()
-                            
-                            # 强制重新学习（无时间限制）
-                            if hasattr(expression_learner, 'last_learning_times'):
-                                expression_learner.last_learning_times[group_id] = 0  # 重置时间
-                            
-                            learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
-                            
-                            if learning_success:
-                                # 获取新学习的模式数量
-                                patterns = await expression_learner.get_expression_patterns(group_id, limit=30)
-                                results['new_patterns'] = len(patterns) if patterns else 0
-                                results['style_learning'] = True
-                                
-                                # 执行人格学习和申请流程
-                                try:
-                                    persona_updater = service_factory.create_persona_updater()
-                                    
-                                    # 基于学习到的风格生成人格更新内容
-                                    if patterns:
-                                        # 生成风格学习内容用于人格申请
-                                        style_content = await self._generate_persona_update_from_patterns(patterns, group_id)
-                                        
-                                        if style_content:
-                                            # 提交人格学习审查申请
-                                            await db_manager.add_persona_learning_review(
-                                                group_id=group_id,
-                                                proposed_content=style_content,
-                                                learning_source="重新学习-风格分析",
-                                                confidence_score=0.8,  # 重新学习给高置信度
-                                                raw_analysis=f"基于{len(patterns)}个风格模式生成",
-                                                metadata={
-                                                    "relearn_triggered": True,
-                                                    "patterns_count": len(patterns),
-                                                    "messages_processed": len(message_data_list)
-                                                }
-                                            )
-                                            
-                                            results['persona_update_submitted'] = True
-                                            logger.info(f"群组 {group_id} 已提交基于风格学习的人格更新申请")
-                                        
-                                except Exception as e:
-                                    error_msg = f"人格申请流程失败: {str(e)}"
-                                    results['errors'].append(error_msg)
-                                    logger.error(error_msg)
-                                
-                                logger.info(f"群组 {group_id} 风格重新学习完成，学到 {results['new_patterns']} 个新模式")
-                            else:
-                                error_msg = "风格重新学习未产生有效结果"
-                                results['errors'].append(error_msg)
-                                logger.warning(error_msg)
-                        else:
-                            error_msg = f"没有有效的用户消息，跳过风格学习"
-                            results['errors'].append(error_msg)
-                            logger.warning(error_msg)
-=======
                     # 获取最近的原始消息用于风格分析（不需要筛选）
                     logger.info(f"正在为群组 {group_id} 获取原始消息进行风格分析...")
                     recent_raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=100)
@@ -2878,16 +3396,39 @@ async def relearn_all():
                                 error_msg = f"群组 {group_id} 消息数不足（{len(formatted_messages)}条），需要至少5条消息才能学习"
                                 results['errors'].append(error_msg)
                                 logger.warning(error_msg)
->>>>>>> Stashed changes
                     else:
-                        error_msg = f"群组 {group_id} 没有找到任何消息，跳过风格学习"
+                        # 当没有找到原始消息时，提供更详细的调试信息
+                        total_stats = await db_manager.get_messages_statistics()
+                        group_stats = await db_manager.get_message_statistics(group_id)
+                        
+                        # 检查原始消息表的情况
+                        async with db_manager.get_db_connection() as conn:
+                            cursor = await conn.cursor()
+                        
+                        # 检查所有群组的原始消息
+                        await cursor.execute('''
+                            SELECT DISTINCT group_id, COUNT(*) as raw_count 
+                            FROM raw_messages 
+                            WHERE group_id IS NOT NULL AND group_id != ''
+                            GROUP BY group_id 
+                            ORDER BY raw_count DESC
+                        ''')
+                        raw_results = await cursor.fetchall()
+                        
+                        await cursor.close()
+                        await conn.close()
+                        
+                        error_msg = f"群组 {group_id} 没有找到原始消息，跳过风格学习。\n" \
+                                  f"全局统计: {total_stats}\n" \
+                                  f"当前群组统计: {group_stats}\n" \
+                                  f"所有群组原始消息: {[(r[0], r[1]) for r in raw_results] if raw_results else '无'}"
                         results['errors'].append(error_msg)
                         logger.warning(error_msg)
                         
                 except Exception as e:
                     error_msg = f"风格重新学习失败: {str(e)}"
                     results['errors'].append(error_msg)
-                    logger.error(error_msg)
+                    logger.error(error_msg, exc_info=True)
             
             # 3. 构建结果消息
             success_parts = []
@@ -2915,7 +3456,7 @@ async def relearn_all():
         return jsonify(results)
         
     except Exception as e:
-        logger.error(f"重新学习API失败: {e}")
+        logger.error(f"重新学习API失败: {e}", exc_info=True)
         return jsonify({
             "success": False,
             "error": f"重新学习请求失败: {str(e)}",
@@ -2923,7 +3464,8 @@ async def relearn_all():
             "style_learning": False,
             "processed_messages": 0,
             "new_patterns": 0,
-            "persona_update_submitted": False
+            "persona_update_submitted": False,
+            "total_messages": 0
         }), 500
 
 async def _generate_persona_update_from_patterns(patterns, group_id: str) -> str:
