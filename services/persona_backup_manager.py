@@ -73,10 +73,24 @@ class PersonaBackupManager:
                     'created_time': datetime.now().isoformat()
                 }
             else:
-                # 如果无法获取，使用配置中的默认值
+                # 如果无法获取provider，尝试从context.persona_manager获取
+                if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                    try:
+                        default_persona = await self.context.persona_manager.get_default_persona_v3()
+                        if default_persona:
+                            return {
+                                'name': default_persona.get('name', '默认人格'),
+                                'prompt': default_persona.get('prompt', ''),
+                                'settings': {},
+                                'created_time': datetime.now().isoformat()
+                            }
+                    except Exception as e:
+                        logger.warning(f"从persona_manager获取默认人格失败: {e}")
+
+                # 如果都失败，返回默认值
                 return {
-                    'name': self.config.current_persona or '默认人格',
-                    'prompt': self.config.current_persona or '',
+                    'name': '默认人格',
+                    'prompt': '',
                     'settings': {},
                     'created_time': datetime.now().isoformat()
                 }
@@ -141,24 +155,45 @@ class PersonaBackupManager:
     async def _restore_persona_data(self, persona_data: Dict[str, Any]) -> bool:
         """恢复人格数据"""
         try:
-            # 这里需要调用AstrBot框架的API来设置人格
-            # TODO: 实现具体的人格设置逻辑
+            # 使用新版框架API恢复人格数据
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                try:
+                    persona_name = persona_data.get('name', '恢复的人格')
+                    persona_prompt = persona_data.get('prompt', '')
 
-            # 目前使用简化实现
+                    # 通过PersonaManager更新当前人格
+                    await self.context.persona_manager.update_persona(
+                        persona_id=persona_name,
+                        system_prompt=persona_prompt,
+                        begin_dialogs=persona_data.get('begin_dialogs', []),
+                        tools=persona_data.get('tools')
+                    )
+
+                    logger.info(f"人格数据恢复成功: {persona_name}")
+                    return True
+                except Exception as e:
+                    logger.warning(f"使用PersonaManager恢复失败: {e}, 尝试旧方法")
+
+            # 回退到旧方法（兼容性）
             provider = self.context.get_using_provider()
             if provider and hasattr(provider, 'curr_personality'):
-                # 设置人格名称和提示词
-                if hasattr(provider.curr_personality, 'name'):
-                    provider.curr_personality.name = persona_data.get('name', '恢复的人格')
-                if hasattr(provider.curr_personality, 'prompt'):
-                    provider.curr_personality.prompt = persona_data.get('prompt', '')
-                
-                logger.info("人格数据恢复成功")
+                # Personality是TypedDict，使用字典方式
+                if isinstance(provider.curr_personality, dict):
+                    provider.curr_personality['name'] = persona_data.get('name', '恢复的人格')
+                    provider.curr_personality['prompt'] = persona_data.get('prompt', '')
+                else:
+                    # 如果是对象，尝试属性设置
+                    if hasattr(provider.curr_personality, 'name'):
+                        provider.curr_personality.name = persona_data.get('name', '恢复的人格')
+                    if hasattr(provider.curr_personality, 'prompt'):
+                        provider.curr_personality.prompt = persona_data.get('prompt', '')
+
+                logger.info("人格数据恢复成功（使用旧方法）")
                 return True
             else:
                 logger.warning("无法访问人格设置接口")
                 return False
-                
+
         except Exception as e:
             logger.error(f"恢复人格数据失败: {e}")
             return False

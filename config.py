@@ -234,15 +234,24 @@ class PluginConfig:
             
         if not 0 <= self.style_update_threshold <= 1:
             errors.append("风格更新阈值必须在0-1之间")
-            
+        
+        # 提示性警告而非错误
+        provider_warnings = []
         if not self.filter_provider_id:
-            errors.append("筛选模型提供商ID不能为空")
+            provider_warnings.append("未配置筛选模型提供商ID，将尝试自动配置或使用备选模型")
             
         if not self.refine_provider_id:
-            errors.append("提炼模型提供商ID不能为空")
+            provider_warnings.append("未配置提炼模型提供商ID，将尝试自动配置或使用备选模型")
         
         if not self.reinforce_provider_id:
-            errors.append("强化模型提供商ID不能为空")
+            provider_warnings.append("未配置强化模型提供商ID，将尝试自动配置或使用备选模型")
+            
+        # 只有当没有配置任何Provider时才作为错误
+        if not self.filter_provider_id and not self.refine_provider_id and not self.reinforce_provider_id:
+            errors.append("至少需要配置一个模型提供商ID，建议在AstrBot中配置Provider并在插件配置中指定")
+        elif provider_warnings:
+            # 将警告添加到错误列表用于信息展示（但不会阻止插件运行）
+            errors.extend([f"⚠️ {warning}" for warning in provider_warnings])
             
         return errors
     

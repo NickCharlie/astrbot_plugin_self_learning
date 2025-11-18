@@ -1301,6 +1301,11 @@ function renderConfigPage() {
 function renderPersonaUpdates(updates) {
     const reviewList = document.getElementById('review-list');
     
+    if (!reviewList) {
+        console.error('找不到 review-list 元素');
+        return;
+    }
+    
     if (!updates || updates.length === 0) {
         reviewList.innerHTML = '<div class="no-updates">暂无待审查的人格更新</div>';
         return;
@@ -3068,7 +3073,7 @@ function renderPersonasGrid(personas) {
         return `
         <div class="persona-card" data-persona-id="${personaId}">
             <div class="persona-card-header">
-                <h3>${personaId}</h3>
+                <h3 class="persona-card-name" title="${personaId}">${personaId}</h3>
                 <div class="persona-card-actions">
                     <button class="btn-icon" onclick="editPersona('${personaId}')" title="编辑">
                         <i class="material-icons">edit</i>

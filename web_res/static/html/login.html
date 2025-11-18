@@ -1,145 +1,299 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="modern-ui pc">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>登录 - 自学习插件管理后台</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <title>登录 - 自主学习控制台</title>
+    <link rel="stylesheet" href="https://at.alicdn.com/t/c/font_4700424_4h2ezfk91jk.css">
     <style>
-        body {
+        /* 引入现代化设计系统 - 深蓝色主题 */
+        :root {
+            --color-brand1-6: #1e3a8a;
+            --color-brand1-1: #dbeafe;
+            --color-brand1-9: #1e40af;
+            --color-brand1-8: #1d4ed8;
+            --color-brand1-5: #3b82f6;
+            --color-white: #fff;
+            --color-text1-5: #181818;
+            --color-text1-4: #3d3d3d;
+            --color-text1-3: #575757;
+            --color-text1-2: #717171;
+            --color-text1-1: #999;
+            --color-line1-2: #d8d8d8;
+            --color-line1-1: #e9e9e9;
+            --color-line1-4: #b3b3b3;
+            --color-fill1-1: #fafafa;
+            --color-fill1-2: #f4f4f4;
+            --color-fill1-3: rgba(17,0,0,0.1);
+            --color-error-4: #d6260b;
+            --color-error-3: #fa6b55;
+            --color-error-1: #ffe9e5;
+            --color-success-3: #35b056;
+            --color-success-1: #d8f3e0;
+            --font-family-base: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
+            --font-size-body-2: 14px;
+            --font-size-body-1: 12px;
+            --font-size-subhead: 18px;
+            --font-size-title: 20px;
+            --font-size-caption: 12px;
+            --form-element-large-height: 40px;
+            --form-element-large-font-size: 14px;
+            --input-l-padding: 16px;
+            --input-placeholder-color: var(--color-text1-1);
+            --input-bg-color: var(--color-white);
+            --input-border-color: var(--color-line1-2);
+            --input-hover-border-color: var(--color-line1-4);
+            --input-focus-border-color: var(--color-brand1-6);
+            --btn-size-l-height: 40px;
+            --btn-pure-primary-bg: var(--color-brand1-6);
+            --btn-pure-primary-bg-hover: var(--color-brand1-8);
+            --shadow-2-down: 0px 4px 16px 0px rgba(0,0,0,0.1);
+            --shadow-1-down: 0px 2px 4px 0px rgba(0,0,0,0.1);
+            --corner-1: 0px;
+            --s-4: 16px;
+            --s-3: 12px;
+            --s-2: 8px;
+            --s-5: 20px;
+            --s-6: 24px;
+            --s-10: 40px;
+            --s-13: 52px;
+            --s-16: 64px;
+        }
+
+        * {
             margin: 0;
             padding: 0;
-            font-family: 'Inter', sans-serif;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: var(--font-family-base);
             background: #ffffff;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            position: relative;
+            -webkit-font-smoothing: antialiased;
+            margin: 0;
+            padding: 20px;
         }
 
         .login-container {
             width: 100%;
-            max-width: 400px;
-            padding: 0 20px;
+            max-width: 800px;
+            padding: 0 var(--s-6);
+            position: relative;
         }
 
-        .login-form {
-            background: white;
-            border-radius: 16px;
-            border: 2px solid #e0e0e0;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-            padding: 40px;
+        .login-card {
+            background: var(--color-white);
+            border-radius: 8px;
+            border: 1px solid var(--color-line1-1);
+            box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.15), 0 2px 4px 0 rgba(0, 0, 0, 0.12);
+            padding: var(--s-6) var(--s-10);
+            text-align: left;
+            position: relative;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: grid;
+            grid-template-columns: 320px 350px;
+            gap: var(--s-6);
+            justify-content: center;
+            align-items: center;
+            min-height: 400px;
+        }
+
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 100%);
+            border-radius: 8px 8px 0 0;
+        }
+
+        .logo-section {
+            margin-bottom: 0;
             text-align: center;
         }
 
-        .login-header {
-            margin-bottom: 32px;
+        .logo-icon {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto var(--s-4);
+            box-shadow: 0 8px 24px rgba(30, 58, 138, 0.3), 0 4px 12px rgba(30, 58, 138, 0.2);
+            position: relative;
         }
 
-        .login-header h1 {
-            font-size: 28px;
+        .logo-icon::after {
+            content: '';
+            position: absolute;
+            top: 6px;
+            left: 6px;
+            right: 6px;
+            bottom: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .logo-icon .iconfont {
+            font-size: 32px;
+            color: var(--color-white);
+            position: relative;
+            z-index: 1;
+        }
+
+        .login-title {
+            font-size: 24px;
             font-weight: 600;
-            color: #1a1a1a;
-            margin: 0 0 8px 0;
+            color: var(--color-text1-5);
+            margin-bottom: var(--s-2);
+            line-height: 1.3;
         }
 
-        .login-header p {
-            font-size: 16px;
-            color: #666;
-            margin: 0;
+        .login-subtitle {
+            font-size: var(--font-size-body-2);
+            color: var(--color-text1-3);
+            margin-bottom: var(--s-6);
+        }
+
+        .brand-info {
+            font-size: var(--font-size-caption);
+            color: var(--color-text1-2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            margin-bottom: var(--s-4);
+            padding: 8px 16px;
+            background: #dbeafe;
+            border-radius: 20px;
+            border: 1px solid rgba(30, 58, 138, 0.2);
+        }
+
+        .brand-info .iconfont {
+            font-size: 14px;
+            color: #1e3a8a;
+        }
+
+        .form-section {
+            margin-bottom: var(--s-4);
         }
 
         .input-group {
             position: relative;
-            margin-bottom: 24px;
+            margin-bottom: var(--s-5);
             text-align: left;
         }
 
         .input-group label {
             display: block;
-            font-size: 14px;
+            font-size: var(--font-size-body-2);
             font-weight: 500;
-            color: #374151;
-            margin-bottom: 8px;
+            color: var(--color-text1-5);
+            margin-bottom: var(--s-2);
+        }
+
+        .input-wrapper {
+            position: relative;
         }
 
         .input-group input {
             width: 100%;
-            height: 48px;
-            padding: 0 16px;
-            border: 2px solid #e5e7eb;
+            height: var(--form-element-large-height);
+            padding: 0 var(--input-l-padding) 0 48px;
+            border: 1px solid var(--input-border-color);
             border-radius: 8px;
-            font-size: 16px;
-            background: #f9fafb;
-            transition: all 0.3s ease;
-            box-sizing: border-box;
+            font-size: var(--form-element-large-font-size);
+            background: var(--input-bg-color);
+            transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
+            color: var(--color-text1-4);
+            font-family: var(--font-family-base);
+        }
+
+        .input-group input::placeholder {
+            color: var(--input-placeholder-color);
+            font-family: var(--font-family-base);
+        }
+
+        .input-group input:hover {
+            border-color: var(--input-hover-border-color);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
         }
 
         .input-group input:focus {
             outline: none;
-            border-color: #8b5cf6;
-            background: white;
-            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+            border-color: var(--input-focus-border-color);
+            background: var(--input-bg-color);
+            box-shadow: 0 0 0 3px rgba(19, 102, 236, 0.12);
         }
 
-        .submit-btn {
-            width: 100%;
-            height: 48px;
-            background: #8b5cf6;
-            color: white;
-            border: none;
-            border-radius: 8px;
+        .input-icon {
+            position: absolute;
+            left: var(--input-l-padding);
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--color-text1-2);
             font-size: 16px;
+            transition: color 0.3s ease;
+        }
+
+        .input-group input:focus + .input-icon {
+            color: var(--color-brand1-6);
+        }
+
+        .login-btn {
+            width: 100%;
+            height: var(--btn-size-l-height);
+            background: var(--btn-pure-primary-bg);
+            color: var(--color-white);
+            border: none;
+            border-radius: var(--corner-1);
+            font-size: var(--font-size-body-2);
             font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            margin-top: 8px;
+            font-family: var(--font-family-base);
         }
 
-        .submit-btn:hover {
-            background: #7c3aed;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+        .login-btn:hover {
+            background: var(--btn-pure-primary-bg-hover);
         }
 
-        .submit-btn:disabled {
-            background: #d1d5db;
+        .login-btn:active {
+            background: var(--color-brand1-9);
+        }
+
+        .login-btn:disabled {
+            background: var(--color-fill1-2);
+            color: var(--color-text1-1);
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
         }
 
-        .error-message {
-            background: #fef2f2;
-            color: #dc2626;
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 20px;
-            border: 1px solid #fecaca;
-            display: none;
-        }
-
-        .success-message {
-            background: #f0fdf4;
-            color: #16a34a;
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 14px;
-            margin-bottom: 20px;
-            border: 1px solid #bbf7d0;
-            display: none;
+        .btn-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         .loading-spinner {
             display: none;
-            width: 20px;
-            height: 20px;
-            border: 2px solid transparent;
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-top: 2px solid white;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-right: 8px;
         }
 
         @keyframes spin {
@@ -147,46 +301,182 @@
             100% { transform: rotate(360deg); }
         }
 
-        .btn-content {
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .message-container {
+            margin-bottom: var(--s-6);
         }
 
+        .error-message {
+            background: var(--color-error-1);
+            border: 1px solid var(--color-error-3);
+            color: var(--color-error-4);
+            padding: var(--s-3) var(--input-l-padding);
+            border-radius: var(--corner-1);
+            font-size: var(--font-size-caption);
+            display: none;
+            position: relative;
+            font-family: var(--font-family-base);
+        }
+
+        .error-message::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--color-error-4);
+            border-radius: 3px 0 0 3px;
+        }
+
+        .success-message {
+            background: var(--color-success-1);
+            border: 1px solid var(--color-success-3);
+            color: var(--color-success-3);
+            padding: var(--s-3) var(--input-l-padding);
+            border-radius: var(--corner-1);
+            font-size: var(--font-size-caption);
+            display: none;
+            position: relative;
+            font-family: var(--font-family-base);
+        }
+
+        .success-message::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--color-success-3);
+            border-radius: 3px 0 0 3px;
+        }
+
+        .footer-section {
+            margin-top: var(--s-4);
+            padding-top: var(--s-4);
+            border-top: 1px solid var(--color-line1-1);
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: var(--s-6);
+            margin-bottom: var(--input-l-padding);
+        }
+
+        .footer-link {
+            font-size: var(--font-size-caption);
+            color: var(--color-text1-3);
+            text-decoration: none;
+            transition: color 0.3s ease;
+            font-family: var(--font-family-base);
+        }
+
+        .footer-link:hover {
+            color: var(--color-brand1-6);
+        }
+
+        .copyright {
+            font-size: 11px;
+            color: var(--color-text1-2);
+            text-align: center;
+            font-family: var(--font-family-base);
+        }
+
+        /* 安全提示 */
+        .security-tip {
+            background: var(--color-brand1-1);
+            border: 1px solid var(--color-brand1-6);
+            border-radius: var(--corner-1);
+            padding: var(--s-3) var(--input-l-padding);
+            margin-top: var(--s-5);
+            font-size: var(--font-size-caption);
+            color: var(--color-brand1-6);
+            display: flex;
+            align-items: center;
+            gap: var(--s-2);
+            font-family: var(--font-family-base);
+        }
+
+        .security-tip .iconfont {
+            font-size: 16px;
+        }
+
+        /* 响应式设计 */
         @media (max-width: 480px) {
-            .login-form {
-                padding: 32px 24px;
+            .login-container {
+                padding: 0 var(--input-l-padding);
             }
-            
-            .login-header h1 {
-                font-size: 24px;
+
+            .login-card {
+                padding: var(--s-10) var(--s-6);
+            }
+
+            .footer-links {
+                flex-direction: column;
+                gap: var(--s-3);
             }
         }
     </style>
 </head>
 <body>
     <div class="login-container" id="login-container">
-        <form class="login-form" id="loginForm">
-            <div class="login-header">
-                <h1>登录</h1>
-                <p>自学习插件管理后台</p>
-            </div>
-            
-            <div id="errorMessage" class="error-message"></div>
-            <div id="successMessage" class="success-message"></div>
-            
-            <div class="input-group">
-                <label for="password">密码</label>
-                <input type="password" id="password" name="password" required autocomplete="current-password">
-            </div>
-            
-            <button type="submit" class="submit-btn" id="submitBtn">
-                <div class="btn-content">
-                    <div class="loading-spinner" id="loadingSpinner"></div>
-                    <span id="btnText">登录</span>
+        <div class="login-card">
+            <!-- Logo 部分 -->
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <i class="iconfont">&#xe611;</i>
                 </div>
-            </button>
-        </form>
+                <h1 class="login-title">控制台登录</h1>
+                <p class="login-subtitle">自学习插件管理系统</p>
+            </div>
+            
+            <!-- 消息提示 -->
+            <div class="message-container">
+                <div id="errorMessage" class="error-message"></div>
+                <div id="successMessage" class="success-message"></div>
+            </div>
+            
+            <!-- 表单部分 -->
+            <form class="form-section" id="loginForm">
+                <div class="input-group">
+                    <label for="password">登录密码</label>
+                    <div class="input-wrapper">
+                        <input type="password" 
+                               id="password" 
+                               name="password" 
+                               placeholder="请输入登录密码" 
+                               required 
+                               autocomplete="current-password">
+                        <i class="iconfont input-icon">&#xe617;</i>
+                    </div>
+                </div>
+                
+                <button type="submit" class="login-btn" id="submitBtn">
+                    <div class="btn-content">
+                        <div class="loading-spinner" id="loadingSpinner"></div>
+                        <span id="btnText">登录</span>
+                    </div>
+                </button>
+                
+                <!-- 安全提示 -->
+                <div class="security-tip">
+                    <i class="iconfont">&#xe61c;</i>
+                    <span>请确保在安全环境中使用</span>
+                </div>
+            </form>
+            
+            <!-- 页脚 -->
+            <div class="footer-section">
+                <div class="footer-links">
+                    <a href="#" class="footer-link">帮助文档</a>
+                    <a href="#" class="footer-link">技术支持</a>
+                    <a href="#" class="footer-link">安全中心</a>
+                </div>
+                <div class="copyright">
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -203,14 +493,22 @@
             passwordInput.focus();
 
             function showError(message) {
-                loginMessage.textContent = message;
-                loginMessage.style.display = 'block';
+                loginMessage.innerHTML = `<i class="iconfont" style="font-size: 14px; margin-right: 6px;">&#xe60d;</i>${message}`;
+                loginMessage.style.display = 'flex';
+                loginMessage.style.alignItems = 'center';
                 successMessage.style.display = 'none';
+                
+                // 添加震动效果
+                loginMessage.style.animation = 'shake 0.5s ease-in-out';
+                setTimeout(() => {
+                    loginMessage.style.animation = '';
+                }, 500);
             }
 
             function showSuccess(message) {
-                successMessage.textContent = message;
-                successMessage.style.display = 'block';
+                successMessage.innerHTML = `<i class="iconfont" style="font-size: 14px; margin-right: 6px;">&#xe60a;</i>${message}`;
+                successMessage.style.display = 'flex';
+                successMessage.style.alignItems = 'center';
                 loginMessage.style.display = 'none';
             }
 
@@ -236,8 +534,16 @@
             // 显示登录页面
             loginContainer.style.display = 'flex';
 
-            loginButton.addEventListener('click', async () => {
-                const password = passwordInput.value;
+            loginButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const password = passwordInput.value.trim();
+                
+                if (!password) {
+                    showError('请输入登录密码');
+                    passwordInput.focus();
+                    return;
+                }
+                
                 setLoading(true);
                 
                 try {
@@ -253,22 +559,24 @@
 
                     if (response.ok) {
                         if (data.must_change) {
-                            showSuccess('登录成功，请更改默认密码。');
+                            showSuccess('登录成功，需要更改默认密码');
                             setTimeout(() => {
                                 window.location.href = '/api/plugin_change_password';
                             }, 1500);
                         } else {
-                            showSuccess('登录成功！');
+                            showSuccess('登录成功，正在跳转...');
                             setTimeout(() => {
                                 window.location.href = data.redirect || '/api/index';
                             }, 1000);
                         }
                     } else {
-                        showError(data.error || '登录失败。');
+                        showError(data.error || '登录失败，请检查密码');
+                        passwordInput.value = '';
+                        passwordInput.focus();
                     }
                 } catch (error) {
-                    console.error('Error:', error);
-                    showError('请求失败，请稍后再试。');
+                    console.error('Login error:', error);
+                    showError('网络连接失败，请检查网络后重试');
                 } finally {
                     setLoading(false);
                 }
@@ -280,6 +588,17 @@
                     loginButton.click();
                 }
             });
+
+            // 添加震动动画
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes shake {
+                    0%, 100% { transform: translateX(0); }
+                    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+                    20%, 40%, 60%, 80% { transform: translateX(5px); }
+                }
+            `;
+            document.head.appendChild(style);
         });
     </script>
 </body>

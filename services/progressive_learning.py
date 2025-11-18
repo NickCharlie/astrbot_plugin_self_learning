@@ -507,31 +507,33 @@ class ProgressiveLearningService:
             end_time = time.time()
             
             # 连接到全局消息数据库记录学习批次
-            conn = await self.db_manager._get_messages_db_connection()
-            cursor = await conn.cursor()
-            
-            try:
-                await cursor.execute('''
-                    INSERT INTO learning_batches 
-                    (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
-                     message_count, filtered_count, success, error_message)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    group_id,
-                    batch_name, 
-                    start_time,
-                    end_time,
-                    quality_metrics.consistency_score,
-                    len(unprocessed_messages),
-                    len(unprocessed_messages),
-                    len(filtered_messages),
-                    success,
-                    None if success else f"质量得分不达标: {quality_metrics.consistency_score:.3f}"
-                ))
-                await conn.commit()
-                logger.debug(f"学习批次记录已保存: {batch_name}")
-            except Exception as e:
-                logger.error(f"保存学习批次记录失败: {e}")
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+                
+                try:
+                    await cursor.execute('''
+                        INSERT INTO learning_batches 
+                        (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
+                         message_count, filtered_count, success, error_message)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        group_id,
+                        batch_name, 
+                        start_time,
+                        end_time,
+                        quality_metrics.consistency_score,
+                        len(unprocessed_messages),
+                        len(unprocessed_messages),
+                        len(filtered_messages),
+                        success,
+                        None if success else f"质量得分不达标: {quality_metrics.consistency_score:.3f}"
+                    ))
+                    await conn.commit()
+                    logger.debug(f"学习批次记录已保存: {batch_name}")
+                except Exception as e:
+                    logger.error(f"保存学习批次记录失败: {e}")
+                finally:
+                    await cursor.close()
             
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
@@ -576,11 +578,20 @@ class ProgressiveLearningService:
     async def _generate_updated_persona_with_refinement(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Any) -> Dict[str, Any]:
         """使用提炼模型生成更新后的人格"""
         try:
-            # 如果style_analysis是AnalysisResult对象，提取其data属性
-            if hasattr(style_analysis, 'data') and style_analysis.data:
-                analysis_data = style_analysis.data
+            # 正确处理AnalysisResult对象和字典类型
+            from ..core.interfaces import AnalysisResult
+            
+            if isinstance(style_analysis, AnalysisResult):
+                # 如果是AnalysisResult对象，提取data属性
+                analysis_data = style_analysis.data if style_analysis.data else {}
+                logger.debug(f"从AnalysisResult提取data: success={style_analysis.success}, confidence={style_analysis.confidence}")
             elif isinstance(style_analysis, dict):
                 analysis_data = style_analysis
+                logger.debug("使用字典形式的style_analysis")
+            elif hasattr(style_analysis, 'data'):
+                # 兼容其他具有data属性的对象
+                analysis_data = style_analysis.data if style_analysis.data else {}
+                logger.debug(f"从对象提取data属性: {type(style_analysis)}")
             else:
                 analysis_data = {}
                 logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
@@ -797,55 +808,84 @@ class ProgressiveLearningService:
             persona = await self.persona_manager.get_current_persona(group_id)
             if persona:
                 return persona
-            # 如果没有特定群组的人格，则返回默认结构
+
+            # 如果没有特定群组的人格，尝试从框架获取默认人格
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                try:
+                    default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+                    if default_persona:
+                        return {
+                            'prompt': default_persona.get('prompt', '默认人格'),
+                            'name': default_persona.get('name', 'default'),
+                            'style_parameters': {},
+                            'last_updated': datetime.now().isoformat()
+                        }
+                except Exception as e:
+                    logger.warning(f"从框架获取默认人格失败: {e}")
+
+            # 如果都失败，返回默认结构
             return {
-                'prompt': self.config.current_persona or "默认人格",
+                'prompt': "默认人格",
+                'name': 'default',
                 'style_parameters': {},
                 'last_updated': datetime.now().isoformat()
             }
         except Exception as e:
             logger.error(f"获取当前人格失败 for group {group_id}: {e}")
-            return {'prompt': '默认人格', 'style_parameters': {}}
+            return {'prompt': '默认人格', 'name': 'default', 'style_parameters': {}}
 
     async def _generate_updated_persona(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
         """生成更新后的人格 - 直接在原有文本后面追加增量学习内容"""
         try:
-            # 直接从框架获取当前人格
-            provider = self.context.get_using_provider()
-            if not provider or not provider.curr_personality:
+            # 使用新版框架API获取当前人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                logger.warning(f"无法获取PersonaManager for group {group_id}")
+                return current_persona
+
+            default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not default_persona:
                 logger.warning(f"无法获取当前人格 for group {group_id}")
                 return current_persona
-            
+
             # 获取原有人格文本
-            original_prompt = provider.curr_personality.get('prompt', '')
-            
+            original_prompt = default_persona.get('prompt', '')
+
             # 构建增量学习内容
             learning_content = []
-            
-            # 如果style_analysis是AnalysisResult对象，提取其data属性
-            if hasattr(style_analysis, 'data') and style_analysis.data:
-                analysis_data = style_analysis.data
+
+            # 正确处理AnalysisResult对象和字典类型
+            from ..core.interfaces import AnalysisResult
+
+            if isinstance(style_analysis, AnalysisResult):
+                # 如果是AnalysisResult对象，提取data属性
+                analysis_data = style_analysis.data if style_analysis.data else {}
+                logger.debug(f"从AnalysisResult提取data: success={style_analysis.success}, confidence={style_analysis.confidence}")
             elif isinstance(style_analysis, dict):
                 analysis_data = style_analysis
+                logger.debug("使用字典形式的style_analysis")
+            elif hasattr(style_analysis, 'data'):
+                # 兼容其他具有data属性的对象
+                analysis_data = style_analysis.data if style_analysis.data else {}
+                logger.debug(f"从对象提取data属性: {type(style_analysis)}")
             else:
                 analysis_data = {}
                 logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
-            
+
             if 'enhanced_prompt' in analysis_data:
                 learning_content.append(analysis_data['enhanced_prompt'])
-            
+
             if 'learning_insights' in analysis_data:
                 insights = analysis_data['learning_insights']
                 if insights:
                     learning_content.append(insights)
-            
+
             # 直接在原有文本后面追加新内容
             if learning_content:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
                 new_content = f"\n\n【学习更新 - {timestamp}】\n" + "\n".join(learning_content)
-                
-                # 创建更新后的人格
-                updated_persona = dict(provider.curr_personality)
+
+                # 创建更新后的人格 (Personality是TypedDict)
+                updated_persona = dict(default_persona)
                 updated_persona['prompt'] = original_prompt + new_content
                 updated_persona['last_updated'] = timestamp
                 
@@ -1005,46 +1045,60 @@ class ProgressiveLearningService:
             
             # 直接保存到数据库 - 不依赖persona_updater
             try:
-                conn = await self.db_manager._get_messages_db_connection()
-                cursor = await conn.cursor()
-                
-                # 确保审查表存在
-                await cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS persona_update_reviews (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp REAL NOT NULL,
-                        group_id TEXT NOT NULL,
-                        update_type TEXT NOT NULL,
-                        original_content TEXT,
-                        new_content TEXT,
-                        reason TEXT,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        reviewer_comment TEXT,
-                        review_time REAL
-                    )
-                ''')
-                
-                # 插入审查记录
-                await cursor.execute('''
-                    INSERT INTO persona_update_reviews 
-                    (timestamp, group_id, update_type, original_content, new_content, confidence_score, reason, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    review_record.timestamp,
-                    review_record.group_id,
-                    review_record.update_type,
-                    review_record.original_content,
-                    review_record.new_content,
-                    review_record.confidence_score,  # 添加置信度
-                    review_record.reason,
-                    review_record.status
-                ))
-                
-                await conn.commit()
-                record_id = cursor.lastrowid
-                logger.info(f"质量不达标的人格学习审查记录已创建，ID: {record_id}")
-                return True
-                
+                async with self.db_manager.get_db_connection() as conn:
+                    cursor = await conn.cursor()
+                    
+                    # 确保审查表存在
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp REAL NOT NULL,
+                            group_id TEXT NOT NULL,
+                            update_type TEXT NOT NULL,
+                            original_content TEXT,
+                            new_content TEXT,
+                            proposed_content TEXT,
+                            confidence_score REAL,
+                            reason TEXT,
+                            status TEXT NOT NULL DEFAULT 'pending',
+                            reviewer_comment TEXT,
+                            review_time REAL
+                        )
+                    ''')
+                    
+                    # 为旧表添加缺失的列（如果不存在）
+                    try:
+                        await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN proposed_content TEXT')
+                    except:
+                        pass  # 列已存在
+                    try:
+                        await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN confidence_score REAL')
+                    except:
+                        pass  # 列已存在
+                    
+                    # 插入审查记录
+                    await cursor.execute('''
+                        INSERT INTO persona_update_reviews 
+                        (timestamp, group_id, update_type, original_content, new_content, proposed_content, confidence_score, reason, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        review_record.timestamp,
+                        review_record.group_id,
+                        review_record.update_type,
+                        review_record.original_content,
+                        review_record.new_content,
+                        review_record.new_content,  # proposed_content使用相同内容
+                        review_record.confidence_score,
+                        review_record.reason,
+                        review_record.status
+                    ))
+                    
+                    await conn.commit()
+                    record_id = cursor.lastrowid
+                    await cursor.close()
+                    logger.info(f"质量不达标的人格学习审查记录已创建，ID: {record_id}")
+                    return True
+                    
             except Exception as db_error:
                 logger.error(f"保存审查记录到数据库失败: {db_error}")
                 return False
