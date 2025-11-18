@@ -39,6 +39,7 @@ async function logout() {
 let currentConfig = {};
 let currentMetrics = {};
 let chartInstances = {};
+let socialRelationsRefreshInterval = null; // 社交关系页面自动刷新定时器
 
 /**
  * 智能文本差异高亮函数
@@ -247,7 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeDashboard();
     
     // 设置定时刷新
-    setInterval(refreshDashboard, 30000); // 每30秒刷新一次
+    setInterval(refreshDashboard, 5000); // 每5秒刷新一次
     
     console.log('管理后台初始化完成');
 });
@@ -2154,6 +2155,10 @@ async function loadPageData(page) {
             break;
         case 'social-relations':
             await loadGroupList();
+            startSocialRelationsAutoRefresh(); // 启动自动刷新
+            break;
+        default:
+            stopSocialRelationsAutoRefresh(); // 离开社交关系页面时停止刷新
             break;
     }
 }
@@ -3649,11 +3654,11 @@ let allLearningContent = {
 async function loadStyleLearningData() {
     updateRefreshIndicator('加载中...');
     try {
-        // 并行加载学习成果、模式数据和文本内容
+        // 并行加载学习成果、模式数据和文本内容（文本内容使用缓存）
         const [resultsResponse, patternsResponse, contentResponse] = await Promise.all([
             fetch('/api/style_learning/results'),
             fetch('/api/style_learning/patterns'),
-            fetch('/api/style_learning/content_text')
+            fetch('/api/style_learning/content_text')  // 不加force_refresh，使用缓存
         ]);
         
         if (resultsResponse.ok && patternsResponse.ok) {
@@ -3704,22 +3709,27 @@ async function loadStyleLearningData() {
     }
 }
 
-// 加载所有学习内容文本
-async function loadAllLearningContent() {
+// 加载所有学习内容文本（支持强制刷新参数）
+async function loadAllLearningContent(forceRefresh = true) {
     try {
         updateRefreshIndicator('加载学习内容中...');
-        
-        const response = await fetch('/api/style_learning/content_text');
+
+        // 添加force_refresh参数以强制刷新缓存
+        const url = forceRefresh
+            ? '/api/style_learning/content_text?force_refresh=true'
+            : '/api/style_learning/content_text';
+
+        const response = await fetch(url);
         if (response.ok) {
             const contentData = await response.json();
             allLearningContent = contentData || allLearningContent;
             renderAllLearningContent();
-            showSuccess('学习内容已刷新');
+            showSuccess(forceRefresh ? '学习内容已强制刷新' : '学习内容已加载');
         } else {
             console.warn('无法从API加载内容，使用备用数据');
             loadFallbackLearningContent();
         }
-        
+
         updateRefreshIndicator('刚刚更新');
     } catch (error) {
         console.error('加载学习内容失败:', error);

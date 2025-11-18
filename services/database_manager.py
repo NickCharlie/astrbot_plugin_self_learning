@@ -300,7 +300,28 @@ class DatabaseManager(AsyncServiceBase):
             ''')
             self._logger.info("raw_messages 表创建/检查完成。")
             await conn.commit() # 强制提交，确保表结构写入磁盘
-            
+
+            # 创建Bot消息表 (用于存储Bot发送的消息，供多样性管理器使用)
+            self._logger.info("尝试创建 bot_messages 表...")
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS bot_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    user_id TEXT,
+                    message TEXT NOT NULL,
+                    response_to_message_id INTEGER,
+                    context_type TEXT,
+                    temperature REAL,
+                    language_style TEXT,
+                    response_pattern TEXT,
+                    timestamp REAL NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (response_to_message_id) REFERENCES raw_messages (id)
+                )
+            ''')
+            self._logger.info("bot_messages 表创建/检查完成。")
+            await conn.commit()
+
             # 创建筛选后消息表
             self._logger.info("尝试创建 filtered_messages 表...")
             await cursor.execute('''
@@ -490,7 +511,27 @@ class DatabaseManager(AsyncServiceBase):
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_style_learning_time ON style_learning_records(learning_time)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_group ON language_style_patterns(group_id)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_language_style_frequency ON language_style_patterns(usage_frequency)')
-            
+
+            # 创建话题总结表
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS topic_summaries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    group_id TEXT NOT NULL,
+                    topic TEXT NOT NULL,
+                    summary TEXT,
+                    participants TEXT,  -- JSON格式存储参与者列表
+                    message_count INTEGER DEFAULT 0,
+                    start_timestamp REAL,
+                    end_timestamp REAL,
+                    generated_at REAL NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # 为话题总结表创建索引
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_topic_summaries_group ON topic_summaries(group_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_topic_summaries_time ON topic_summaries(generated_at)')
+
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
             
@@ -904,10 +945,10 @@ class DatabaseManager(AsyncServiceBase):
         """保存社交关系到数据库"""
         conn = await self.get_group_connection(group_id)
         cursor = await conn.cursor()
-        
+
         try:
-            await cursor.execute(''' 
-                INSERT OR REPLACE INTO social_relations 
+            await cursor.execute('''
+                INSERT OR REPLACE INTO social_relations
                 (from_user, to_user, relation_type, strength, frequency, last_interaction, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (
@@ -919,12 +960,126 @@ class DatabaseManager(AsyncServiceBase):
                 relation_data['last_interaction'],
                 datetime.now().isoformat()
             ))
-            
+
             await conn.commit()
-            
+
         except aiosqlite.Error as e:
             logger.error(f"保存社交关系失败: {e}", exc_info=True)
             raise DataStorageError(f"保存社交关系失败: {str(e)}")
+
+    async def get_social_relations_by_group(self, group_id: str) -> List[Dict[str, Any]]:
+        """获取指定群组的社交关系"""
+        conn = await self.get_group_connection(group_id)
+        cursor = await conn.cursor()
+
+        try:
+            await cursor.execute('''
+                SELECT from_user, to_user, relation_type, strength, frequency, last_interaction
+                FROM social_relations
+                ORDER BY frequency DESC, strength DESC
+            ''')
+
+            rows = await cursor.fetchall()
+            relations = []
+
+            for row in rows:
+                relations.append({
+                    'from_user': row[0],
+                    'to_user': row[1],
+                    'relation_type': row[2],
+                    'strength': row[3],
+                    'frequency': row[4],
+                    'last_interaction': row[5]
+                })
+
+            return relations
+
+        except aiosqlite.Error as e:
+            logger.error(f"获取社交关系失败: {e}", exc_info=True)
+            return []
+
+    async def get_user_social_relations(self, group_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        获取指定用户在群组中的社交关系
+
+        Args:
+            group_id: 群组ID
+            user_id: 用户ID
+
+        Returns:
+            包含用户社交关系的字典，包括：
+            - outgoing: 该用户发起的关系列表
+            - incoming: 指向该用户的关系列表
+            - total_relations: 总关系数
+        """
+        conn = await self.get_group_connection(group_id)
+        cursor = await conn.cursor()
+
+        try:
+            user_key = f"{group_id}:{user_id}"
+
+            # 获取该用户发起的关系（outgoing）
+            await cursor.execute('''
+                SELECT from_user, to_user, relation_type, strength, frequency, last_interaction
+                FROM social_relations
+                WHERE from_user = ? OR from_user = ?
+                ORDER BY frequency DESC, strength DESC
+                LIMIT 10
+            ''', (user_key, user_id))
+
+            outgoing_rows = await cursor.fetchall()
+            outgoing_relations = []
+
+            for row in outgoing_rows:
+                outgoing_relations.append({
+                    'from_user': row[0],
+                    'to_user': row[1],
+                    'relation_type': row[2],
+                    'strength': row[3],
+                    'frequency': row[4],
+                    'last_interaction': row[5]
+                })
+
+            # 获取指向该用户的关系（incoming）
+            await cursor.execute('''
+                SELECT from_user, to_user, relation_type, strength, frequency, last_interaction
+                FROM social_relations
+                WHERE to_user = ? OR to_user = ?
+                ORDER BY frequency DESC, strength DESC
+                LIMIT 10
+            ''', (user_key, user_id))
+
+            incoming_rows = await cursor.fetchall()
+            incoming_relations = []
+
+            for row in incoming_rows:
+                incoming_relations.append({
+                    'from_user': row[0],
+                    'to_user': row[1],
+                    'relation_type': row[2],
+                    'strength': row[3],
+                    'frequency': row[4],
+                    'last_interaction': row[5]
+                })
+
+            return {
+                'user_id': user_id,
+                'group_id': group_id,
+                'outgoing': outgoing_relations,
+                'incoming': incoming_relations,
+                'total_relations': len(outgoing_relations) + len(incoming_relations)
+            }
+
+        except aiosqlite.Error as e:
+            logger.error(f"获取用户社交关系失败: {e}", exc_info=True)
+            return {
+                'user_id': user_id,
+                'group_id': group_id,
+                'outgoing': [],
+                'incoming': [],
+                'total_relations': 0
+            }
+
 
     async def save_raw_message(self, message_data) -> int:
         """
@@ -964,7 +1119,7 @@ class DatabaseManager(AsyncServiceBase):
                 
                 message_id = cursor.lastrowid
                 await conn.commit()
-                logger.debug(f"原始消息已保存，ID: {message_id}")
+                logger.info(f"💾 数据库写入成功: ID={message_id}, timestamp={message_data.timestamp if hasattr(message_data, 'timestamp') else message_data.get('timestamp')}")
                 return message_id
                 
             except aiosqlite.Error as e:
@@ -1679,15 +1834,16 @@ class DatabaseManager(AsyncServiceBase):
 
     async def load_social_graph(self, group_id: str) -> List[Dict[str, Any]]:
         """加载完整社交图谱"""
+        self._logger.debug(f"[数据库] 开始加载群组 {group_id} 的社交图谱")
         conn = await self.get_group_connection(group_id)
         cursor = await conn.cursor()
-        
+
         try:
             await cursor.execute('''
                 SELECT from_user, to_user, relation_type, strength, frequency, last_interaction
                 FROM social_relations ORDER BY strength DESC
             ''')
-            
+
             relations = []
             for row in await cursor.fetchall():
                 relations.append({
@@ -1698,11 +1854,18 @@ class DatabaseManager(AsyncServiceBase):
                     'frequency': row[4],
                     'last_interaction': row[5]
                 })
-            
+
+            self._logger.info(f"[数据库] 成功加载群组 {group_id} 的社交图谱: {len(relations)} 条关系记录")
+            if len(relations) == 0:
+                self._logger.warning(f"[数据库] 警告: 群组 {group_id} 的social_relations表中没有数据!")
+            else:
+                # 输出前3条示例
+                self._logger.debug(f"[数据库] 社交关系示例: {relations[:3]}")
+
             return relations
-            
+
         except aiosqlite.Error as e:
-            self._logger.error(f"加载社交图谱失败: {e}", exc_info=True)
+            self._logger.error(f"[数据库] 加载社交图谱失败 (群组: {group_id}): {e}", exc_info=True)
             return []
 
     async def get_messages_for_replay(self, group_id: str, days: int, limit: int) -> List[Dict[str, Any]]:
@@ -4362,3 +4525,574 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"添加人格学习审查记录失败: {e}")
             raise
+
+    async def get_messages_by_group_and_timerange(
+        self,
+        group_id: str,
+        start_time: float = None,
+        end_time: float = None,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        获取指定群组在指定时间范围内的聊天记录
+
+        Args:
+            group_id: 群组ID
+            start_time: 开始时间戳（秒），None表示不限制
+            end_time: 结束时间戳（秒），None表示不限制
+            limit: 返回消息数量限制
+
+        Returns:
+            消息记录列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                query = '''
+                    SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, processed
+                    FROM raw_messages
+                    WHERE group_id = ?
+                '''
+                params = [group_id]
+
+                if start_time is not None:
+                    query += ' AND timestamp >= ?'
+                    params.append(start_time)
+
+                if end_time is not None:
+                    query += ' AND timestamp <= ?'
+                    params.append(end_time)
+
+                query += ' ORDER BY timestamp DESC LIMIT ?'
+                params.append(limit)
+
+                await cursor.execute(query, params)
+
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'sender_name': row[2],
+                        'message': row[3],
+                        'group_id': row[4],
+                        'platform': row[5],
+                        'timestamp': row[6],
+                        'processed': row[7]
+                    })
+
+                self._logger.info(f"📖 API查询结果: group={group_id}, 返回{len(messages)}条消息, 最新timestamp={messages[0]['timestamp'] if messages else 'N/A'}")
+                return messages
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取时间范围消息失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_new_messages_since(
+        self,
+        group_id: str,
+        last_message_id: int = None,
+        last_timestamp: float = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取指定群组的增量消息（自上次获取后的新消息）
+
+        Args:
+            group_id: 群组ID
+            last_message_id: 上次获取的最后一条消息ID
+            last_timestamp: 上次获取的最后一条消息时间戳
+
+        Returns:
+            新消息列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 优先使用message_id，如果没有则使用timestamp
+                if last_message_id is not None:
+                    query = '''
+                        SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, processed
+                        FROM raw_messages
+                        WHERE group_id = ? AND id > ?
+                        ORDER BY timestamp ASC
+                    '''
+                    params = (group_id, last_message_id)
+                elif last_timestamp is not None:
+                    query = '''
+                        SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, processed
+                        FROM raw_messages
+                        WHERE group_id = ? AND timestamp > ?
+                        ORDER BY timestamp ASC
+                    '''
+                    params = (group_id, last_timestamp)
+                else:
+                    # 如果两个参数都没有，返回最近的消息
+                    query = '''
+                        SELECT id, sender_id, sender_name, message, group_id, platform, timestamp, processed
+                        FROM raw_messages
+                        WHERE group_id = ?
+                        ORDER BY timestamp DESC
+                        LIMIT 20
+                    '''
+                    params = (group_id,)
+
+                await cursor.execute(query, params)
+
+                messages = []
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'id': row[0],
+                        'sender_id': row[1],
+                        'sender_name': row[2],
+                        'message': row[3],
+                        'group_id': row[4],
+                        'platform': row[5],
+                        'timestamp': row[6],
+                        'processed': row[7]
+                    })
+
+                return messages
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取增量消息失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_current_topic_summary(self, group_id: str, recent_messages_count: int = 20) -> Dict[str, Any]:
+        """
+        获取指定群组当前的聊天话题总结
+
+        优先从数据库中读取最近的话题总结,如果没有或过期(超过30分钟),则分析最近消息生成新的总结
+
+        Args:
+            group_id: 群组ID
+            recent_messages_count: 分析的最近消息数量
+
+        Returns:
+            话题总结信息
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 首先尝试从数据库获取最近30分钟内的话题总结
+                thirty_minutes_ago = time.time() - 1800
+                await cursor.execute('''
+                    SELECT topic, summary, participants, message_count,
+                           start_timestamp, end_timestamp, generated_at
+                    FROM topic_summaries
+                    WHERE group_id = ? AND generated_at > ?
+                    ORDER BY generated_at DESC
+                    LIMIT 1
+                ''', (group_id, thirty_minutes_ago))
+
+                cached_summary = await cursor.fetchone()
+
+                if cached_summary:
+                    # 返回缓存的话题总结
+                    import json
+                    participants = json.loads(cached_summary[2]) if cached_summary[2] else []
+
+                    return {
+                        'group_id': group_id,
+                        'topic': cached_summary[0],
+                        'summary': cached_summary[1],
+                        'participants': participants,
+                        'message_count': cached_summary[3],
+                        'start_timestamp': cached_summary[4],
+                        'latest_timestamp': cached_summary[5],
+                        'generated_at': cached_summary[6],
+                        'from_cache': True
+                    }
+
+                # 如果没有缓存,获取最近的消息生成新总结
+                await cursor.execute('''
+                    SELECT message, sender_name, timestamp
+                    FROM raw_messages
+                    WHERE group_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (group_id, recent_messages_count))
+
+                messages = []
+                latest_timestamp = None
+                earliest_timestamp = None
+                for row in await cursor.fetchall():
+                    messages.append({
+                        'message': row[0],
+                        'sender_name': row[1],
+                        'timestamp': row[2]
+                    })
+                    if latest_timestamp is None or row[2] > latest_timestamp:
+                        latest_timestamp = row[2]
+                    if earliest_timestamp is None or row[2] < earliest_timestamp:
+                        earliest_timestamp = row[2]
+
+                if not messages:
+                    return {
+                        'group_id': group_id,
+                        'topic': '暂无聊天记录',
+                        'participants': [],
+                        'message_count': 0,
+                        'latest_timestamp': 0,
+                        'summary': '群组暂无聊天活动',
+                        'from_cache': False
+                    }
+
+                # 统计参与者
+                participants = list(set([msg['sender_name'] for msg in messages]))
+
+                # 使用已有的话题分析方法
+                messages_text = [msg['message'] for msg in messages]
+                topic_analysis = self._analyze_topic_from_messages(messages_text)
+
+                topic_result = {
+                    'group_id': group_id,
+                    'topic': topic_analysis['topic'],
+                    'summary': f"最近{len(messages)}条消息讨论了{topic_analysis['topic']},对话风格为{topic_analysis['style']}",
+                    'participants': participants,
+                    'message_count': len(messages),
+                    'start_timestamp': earliest_timestamp,
+                    'latest_timestamp': latest_timestamp,
+                    'generated_at': time.time(),
+                    'recent_messages': messages[:5],  # 返回最近5条消息内容供参考
+                    'from_cache': False
+                }
+
+                # 保存到数据库以供后续查询
+                # 不等待保存完成,避免阻塞API响应
+                asyncio.create_task(self._save_topic_summary(group_id, topic_result))
+
+                return topic_result
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取话题总结失败: {e}", exc_info=True)
+                return {
+                    'group_id': group_id,
+                    'topic': '获取失败',
+                    'participants': [],
+                    'message_count': 0,
+                    'latest_timestamp': 0,
+                    'summary': f'获取话题失败: {str(e)}',
+                    'from_cache': False
+                }
+            finally:
+                await cursor.close()
+
+    async def _save_topic_summary(self, group_id: str, topic_data: Dict[str, Any]):
+        """
+        保存话题总结到数据库
+
+        Args:
+            group_id: 群组ID
+            topic_data: 话题数据
+        """
+        try:
+            import json
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+                await cursor.execute('''
+                    INSERT INTO topic_summaries
+                    (group_id, topic, summary, participants, message_count,
+                     start_timestamp, end_timestamp, generated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    group_id,
+                    topic_data.get('topic', ''),
+                    topic_data.get('summary', ''),
+                    json.dumps(topic_data.get('participants', []), ensure_ascii=False),
+                    topic_data.get('message_count', 0),
+                    topic_data.get('start_timestamp'),
+                    topic_data.get('latest_timestamp'),
+                    topic_data.get('generated_at', time.time())
+                ))
+
+                await conn.commit()
+                await cursor.close()
+
+                self._logger.debug(f"已保存群组 {group_id} 的话题总结")
+
+        except Exception as e:
+            self._logger.error(f"保存话题总结失败: {e}", exc_info=True)
+
+    def _extract_simple_keywords(self, messages: List[str], max_keywords: int = 10) -> List[str]:
+        """
+        简单的关键词提取（后续可以用LLM优化）
+
+        Args:
+            messages: 消息列表
+            max_keywords: 最大关键词数量
+
+        Returns:
+            关键词列表
+        """
+        # 合并所有消息
+        text = ' '.join(messages)
+
+        # 简单的词频统计（这里可以用jieba等工具优化）
+        import re
+        # 移除特殊字符，保留中文、英文、数字
+        words = re.findall(r'[\u4e00-\u9fa5]+|[a-zA-Z]+', text)
+
+        # 统计词频
+        word_freq = {}
+        for word in words:
+            if len(word) >= 2:  # 只统计长度>=2的词
+                word_freq[word] = word_freq.get(word, 0) + 1
+
+        # 按频率排序
+        sorted_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)
+
+        return [word for word, freq in sorted_words[:max_keywords]]
+
+    async def get_all_expression_patterns(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        获取指定群组的所有表达模式
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            表达模式列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT context, expression, quality_score, last_used_timestamp
+                    FROM expression_patterns
+                    WHERE group_id = ?
+                    ORDER BY quality_score DESC, last_used_timestamp DESC
+                ''', (group_id,))
+
+                patterns = []
+                for row in await cursor.fetchall():
+                    patterns.append({
+                        'context': row[0],
+                        'expression': row[1],
+                        'quality_score': row[2],
+                        'last_used_timestamp': row[3]
+                    })
+
+                return patterns
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取表达模式失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_recent_week_expression_patterns(self, group_id: str, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
+        """
+        获取最近指定小时内学习到的表达模式（按质量分数和时间排序）
+
+        Args:
+            group_id: 群组ID
+            limit: 获取数量限制
+            hours: 时间范围(小时)，默认168小时(一周)
+
+        Returns:
+            表达模式列表，包含场景(situation)和表达(expression)
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 计算时间阈值
+                time_threshold = time.time() - (hours * 3600)
+
+                await cursor.execute('''
+                    SELECT situation, expression, weight, last_active_time, create_time
+                    FROM expression_patterns
+                    WHERE group_id = ? AND last_active_time > ?
+                    ORDER BY weight DESC, last_active_time DESC
+                    LIMIT ?
+                ''', (group_id, time_threshold, limit))
+
+                patterns = []
+                for row in await cursor.fetchall():
+                    patterns.append({
+                        'situation': row[0],  # 场景描述
+                        'expression': row[1],  # 表达方式
+                        'weight': row[2],  # 权重
+                        'last_active_time': row[3],  # 最后活跃时间
+                        'create_time': row[4]  # 创建时间
+                    })
+
+                return patterns
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取最近一周表达模式失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_recent_bot_responses(self, group_id: str, limit: int = 10) -> List[str]:
+        """
+        获取Bot最近的回复内容（用于同质化分析）- 从bot_messages表读取
+
+        Args:
+            group_id: 群组ID
+            limit: 获取数量
+
+        Returns:
+            回复内容列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 从bot_messages表读取Bot的回复
+                await cursor.execute('''
+                    SELECT message
+                    FROM bot_messages
+                    WHERE group_id = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (group_id, limit))
+
+                responses = []
+                for row in await cursor.fetchall():
+                    responses.append(row[0])
+
+                return responses
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取Bot最近回复失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def save_bot_message(
+        self,
+        group_id: str,
+        user_id: str,
+        message: str,
+        response_to_message_id: Optional[int] = None,
+        context_type: str = "normal",
+        temperature: float = 0.7,
+        language_style: Optional[str] = None,
+        response_pattern: Optional[str] = None
+    ) -> bool:
+        """
+        保存Bot发送的消息到数据库
+
+        Args:
+            group_id: 群组ID
+            user_id: 回复的用户ID
+            message: Bot的回复内容
+            response_to_message_id: 回复的消息ID (来自raw_messages表)
+            context_type: 上下文类型 (normal/creative/precise等)
+            temperature: 使用的temperature参数
+            language_style: 使用的语言风格
+            response_pattern: 使用的回复模式
+
+        Returns:
+            bool: 是否成功保存
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    INSERT INTO bot_messages
+                    (group_id, user_id, message, response_to_message_id, context_type,
+                     temperature, language_style, response_pattern, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    group_id,
+                    user_id,
+                    message,
+                    response_to_message_id,
+                    context_type,
+                    temperature,
+                    language_style,
+                    response_pattern,
+                    time.time()
+                ))
+
+                await conn.commit()
+                self._logger.debug(f"✅ Bot消息已保存: group={group_id}, msg_preview={message[:50]}...")
+                return True
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"保存Bot消息失败: {e}", exc_info=True)
+                return False
+            finally:
+                await cursor.close()
+
+    async def get_bot_message_statistics(self, group_id: str, time_range_hours: int = 24) -> Dict[str, Any]:
+        """
+        获取Bot消息统计信息 (用于多样性分析)
+
+        Args:
+            group_id: 群组ID
+            time_range_hours: 统计时间范围(小时)
+
+        Returns:
+            统计信息字典
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                cutoff_time = time.time() - (time_range_hours * 3600)
+
+                # 统计消息总数
+                await cursor.execute('''
+                    SELECT COUNT(*) as total,
+                           AVG(temperature) as avg_temp,
+                           COUNT(DISTINCT language_style) as unique_styles,
+                           COUNT(DISTINCT response_pattern) as unique_patterns
+                    FROM bot_messages
+                    WHERE group_id = ? AND timestamp > ?
+                ''', (group_id, cutoff_time))
+
+                row = await cursor.fetchone()
+
+                # 获取最常用的风格和模式
+                await cursor.execute('''
+                    SELECT language_style, COUNT(*) as count
+                    FROM bot_messages
+                    WHERE group_id = ? AND timestamp > ? AND language_style IS NOT NULL
+                    GROUP BY language_style
+                    ORDER BY count DESC
+                    LIMIT 5
+                ''', (group_id, cutoff_time))
+
+                top_styles = [{'style': row[0], 'count': row[1]} for row in await cursor.fetchall()]
+
+                await cursor.execute('''
+                    SELECT response_pattern, COUNT(*) as count
+                    FROM bot_messages
+                    WHERE group_id = ? AND timestamp > ? AND response_pattern IS NOT NULL
+                    GROUP BY response_pattern
+                    ORDER BY count DESC
+                    LIMIT 5
+                ''', (group_id, cutoff_time))
+
+                top_patterns = [{'pattern': row[0], 'count': row[1]} for row in await cursor.fetchall()]
+
+                return {
+                    'total_messages': row[0] if row else 0,
+                    'average_temperature': round(row[1], 2) if row and row[1] else 0.7,
+                    'unique_styles_count': row[2] if row else 0,
+                    'unique_patterns_count': row[3] if row else 0,
+                    'top_styles': top_styles,
+                    'top_patterns': top_patterns,
+                    'time_range_hours': time_range_hours
+                }
+
+            except aiosqlite.Error as e:
+                self._logger.error(f"获取Bot消息统计失败: {e}", exc_info=True)
+                return {}
+            finally:
+                await cursor.close()
+

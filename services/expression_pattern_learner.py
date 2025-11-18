@@ -141,31 +141,20 @@ class ExpressionPatternLearner:
     
     def should_trigger_learning(self, group_id: str, recent_messages: List[MessageData]) -> bool:
         """
-        检查是否应该触发学习 - 完全参考MaiBot的逻辑
-        
+        检查是否应该触发学习 - 只检查消息数量（已移除时间间隔限制）
+
         Args:
             group_id: 群组ID
             recent_messages: 最近的消息列表
-            
+
         Returns:
             bool: 是否应该触发学习
         """
-        current_time = time.time()
-        
-        # 获取上次学习时间
-        last_learning_time = self.last_learning_times.get(group_id, 0)
-        
-        # 检查时间间隔
-        time_diff = current_time - last_learning_time
-        if time_diff < self.MIN_LEARNING_INTERVAL:
-            logger.debug(f"群组 {group_id} 学习间隔不足: {time_diff}s < {self.MIN_LEARNING_INTERVAL}s")
+        # 检查消息数量（至少5条消息）
+        if len(recent_messages) < 5:
+            logger.debug(f"群组 {group_id} 消息数量不足: {len(recent_messages)} < 5")
             return False
-        
-        # 检查消息数量
-        if len(recent_messages) < self.MIN_MESSAGES_FOR_LEARNING:
-            logger.debug(f"群组 {group_id} 消息数量不足: {len(recent_messages)} < {self.MIN_MESSAGES_FOR_LEARNING}")
-            return False
-        
+
         return True
     
     async def trigger_learning_for_group(self, group_id: str, recent_messages: List[MessageData]) -> bool:
@@ -470,85 +459,89 @@ class ExpressionPatternLearner:
         return patterns
     
     async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):
-        """保存表达模式到数据库"""
+        """保存表达模式到数据库（异步版本）"""
         try:
-            with self.db_manager.get_connection() as conn:
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
                 for pattern in patterns:
                     # 查找是否已存在相似模式
-                    cursor = conn.execute(
+                    await cursor.execute(
                         'SELECT id, weight FROM expression_patterns WHERE situation = ? AND expression = ? AND group_id = ?',
                         (pattern.situation, pattern.expression, group_id)
                     )
-                    existing = cursor.fetchone()
-                    
+                    existing = await cursor.fetchone()
+
                     if existing:
                         # 更新现有模式，权重增加，50%概率替换内容（参考MaiBot）
                         new_weight = existing[1] + 1.0
                         if random.random() < 0.5:
-                            conn.execute(
+                            await cursor.execute(
                                 'UPDATE expression_patterns SET weight = ?, last_active_time = ?, situation = ?, expression = ? WHERE id = ?',
                                 (new_weight, pattern.last_active_time, pattern.situation, pattern.expression, existing[0])
                             )
                         else:
-                            conn.execute(
+                            await cursor.execute(
                                 'UPDATE expression_patterns SET weight = ?, last_active_time = ? WHERE id = ?',
                                 (new_weight, pattern.last_active_time, existing[0])
                             )
                     else:
                         # 插入新模式
-                        conn.execute(
+                        await cursor.execute(
                             'INSERT INTO expression_patterns (situation, expression, weight, last_active_time, create_time, group_id) VALUES (?, ?, ?, ?, ?, ?)',
                             (pattern.situation, pattern.expression, pattern.weight, pattern.last_active_time, pattern.create_time, pattern.group_id)
                         )
-                
-                conn.commit()
-                logger.debug(f"保存了 {len(patterns)} 个表达模式到数据库")
-                
+
+                await conn.commit()
+                logger.info(f"✅ 保存了 {len(patterns)} 个表达模式到数据库（群组: {group_id}）")
+
         except Exception as e:
-            logger.error(f"保存表达模式失败: {e}")
+            logger.error(f"保存表达模式失败: {e}", exc_info=True)
             raise ExpressionLearningError(f"保存表达模式失败: {e}")
     
     async def _apply_time_decay(self, group_id: str):
         """
-        应用时间衰减 - 完全参考MaiBot的衰减机制
+        应用时间衰减 - 完全参考MaiBot的衰减机制（异步版本）
         """
         try:
             current_time = time.time()
             updated_count = 0
             deleted_count = 0
-            
-            with self.db_manager.get_connection() as conn:
+
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
                 # 获取所有该群组的表达模式
-                cursor = conn.execute(
+                await cursor.execute(
                     'SELECT id, weight, last_active_time FROM expression_patterns WHERE group_id = ?',
                     (group_id,)
                 )
-                patterns = cursor.fetchall()
-                
+                patterns = await cursor.fetchall()
+
                 for pattern_id, weight, last_active_time in patterns:
                     # 计算时间差（天）
                     time_diff_days = (current_time - last_active_time) / (24 * 3600)
-                    
+
                     # 计算衰减值
                     decay_value = self._calculate_decay_factor(time_diff_days)
                     new_weight = max(self.DECAY_MIN, weight - decay_value)
-                    
+
                     if new_weight <= self.DECAY_MIN:
                         # 删除权重过低的模式
-                        conn.execute('DELETE FROM expression_patterns WHERE id = ?', (pattern_id,))
+                        await cursor.execute('DELETE FROM expression_patterns WHERE id = ?', (pattern_id,))
                         deleted_count += 1
                     else:
                         # 更新权重
-                        conn.execute('UPDATE expression_patterns SET weight = ? WHERE id = ?', (new_weight, pattern_id))
+                        await cursor.execute('UPDATE expression_patterns SET weight = ? WHERE id = ?', (new_weight, pattern_id))
                         updated_count += 1
-                
-                conn.commit()
-                
+
+                await conn.commit()
+
                 if updated_count > 0 or deleted_count > 0:
                     logger.info(f"群组 {group_id} 时间衰减完成：更新了 {updated_count} 个，删除了 {deleted_count} 个表达模式")
-                    
+
         except Exception as e:
-            logger.error(f"应用时间衰减失败: {e}")
+            logger.error(f"应用时间衰减失败: {e}", exc_info=True)
     
     def _calculate_decay_factor(self, time_diff_days: float) -> float:
         """
@@ -570,37 +563,43 @@ class ExpressionPatternLearner:
         return min(0.01, decay)
     
     async def _limit_max_expressions(self, group_id: str):
-        """限制最大表达模式数量"""
+        """限制最大表达模式数量（异步版本）"""
         try:
-            with self.db_manager.get_connection() as conn:
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
                 # 统计当前数量
-                cursor = conn.execute('SELECT COUNT(*) FROM expression_patterns WHERE group_id = ?', (group_id,))
-                count = cursor.fetchone()[0]
-                
+                await cursor.execute('SELECT COUNT(*) FROM expression_patterns WHERE group_id = ?', (group_id,))
+                row = await cursor.fetchone()
+                count = row[0] if row else 0
+
                 if count > self.MAX_EXPRESSION_COUNT:
                     # 删除权重最小的多余模式
                     excess_count = count - self.MAX_EXPRESSION_COUNT
-                    conn.execute(
+                    await cursor.execute(
                         'DELETE FROM expression_patterns WHERE id IN (SELECT id FROM expression_patterns WHERE group_id = ? ORDER BY weight ASC LIMIT ?)',
                         (group_id, excess_count)
                     )
-                    conn.commit()
+                    await conn.commit()
                     logger.info(f"群组 {group_id} 删除了 {excess_count} 个权重最小的表达模式")
-                    
+
         except Exception as e:
-            logger.error(f"限制表达模式数量失败: {e}")
+            logger.error(f"限制表达模式数量失败: {e}", exc_info=True)
     
     async def get_expression_patterns(self, group_id: str, limit: int = 10) -> List[ExpressionPattern]:
-        """获取群组的表达模式"""
+        """获取群组的表达模式（异步版本）"""
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.execute(
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+                await cursor.execute(
                     'SELECT situation, expression, weight, last_active_time, create_time, group_id FROM expression_patterns WHERE group_id = ? ORDER BY weight DESC LIMIT ?',
                     (group_id, limit)
                 )
-                
+
+                rows = await cursor.fetchall()
                 patterns = []
-                for row in cursor.fetchall():
+                for row in rows:
                     pattern = ExpressionPattern(
                         situation=row[0],
                         expression=row[1],
@@ -610,11 +609,11 @@ class ExpressionPatternLearner:
                         group_id=row[5]
                     )
                     patterns.append(pattern)
-                
+
                 return patterns
-                
+
         except Exception as e:
-            logger.error(f"获取表达模式失败: {e}")
+            logger.error(f"获取表达模式失败: {e}", exc_info=True)
             return []
     
     async def format_expression_patterns_for_prompt(self, group_id: str, limit: int = 5) -> str:

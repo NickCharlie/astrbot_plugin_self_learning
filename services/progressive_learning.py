@@ -288,19 +288,16 @@ class ProgressiveLearningService:
                 logger.warning("updated_persona为None，使用current_persona的副本")
                 
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
-                current_persona, 
-                updated_persona, 
+                current_persona,
+                updated_persona,
                 filtered_messages
             )
-            
-            # 9. 根据质量评估决定是否应用更新
-            if quality_metrics.consistency_score >= self.quality_threshold:
-                await self._apply_learning_updates(group_id, style_analysis, filtered_messages)
-                logger.info(f"学习更新已应用，质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
-                success = True
-            else:
-                logger.warning(f"学习质量不达标，跳过更新，得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
-                success = False
+
+            # 9. 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
+            # 注意：对话风格（表达模式）学习总是成功，人格学习在_apply_learning_updates中会加入审查
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages)
+            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+            success = True  # 对话风格学习总是成功
             
             # 10. 【新增】保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
@@ -309,8 +306,8 @@ class ProgressiveLearningService:
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
                 'success': success,
-                'successful_pattern': json.dumps(style_analysis, default=self._json_serializer) if success else '',
-                'failed_pattern': json.dumps({'reason': 'quality_threshold_not_met', 'score': quality_metrics.consistency_score}) if not success else ''
+                'successful_pattern': json.dumps(style_analysis, default=self._json_serializer),
+                'failed_pattern': ''  # 对话风格学习总是成功，不记录失败
             })
             
             # 11. 标记消息为已处理
@@ -485,21 +482,11 @@ class ProgressiveLearningService:
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, updated_persona, filtered_messages
             )
-            
-            # 根据质量评估决定是否直接应用更新 还是 创建审查记录
-            success = False
-            if quality_metrics.consistency_score >= self.quality_threshold:
-                await self._apply_learning_updates(group_id, {}, filtered_messages)  # style_analysis may be empty
-                logger.info(f"学习更新已应用，质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
-                success = True
-            else:
-                logger.warning(f"学习质量不达标，创建审查记录，得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
-                # 【新增】即使质量不达标，也要创建审查记录让用户手动决定
-                await self._create_persona_review_for_low_quality(
-                    group_id, current_persona, updated_persona, quality_metrics, filtered_messages
-                )
-                logger.info(f"质量不达标的学习结果已添加到审查列表，用户可手动审查")
-                success = False  # 标记为未直接应用，需要审查
+
+            # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
+            await self._apply_learning_updates(group_id, {}, filtered_messages)  # style_analysis may be empty
+            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+            success = True  # 对话风格学习总是成功
             
             # 【新增】记录学习批次到数据库，供webui查询使用
             batch_name = f"batch_{group_id}_{int(time.time())}"
@@ -512,13 +499,13 @@ class ProgressiveLearningService:
                 
                 try:
                     await cursor.execute('''
-                        INSERT INTO learning_batches 
+                        INSERT INTO learning_batches
                         (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
                          message_count, filtered_count, success, error_message)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ''', (
                         group_id,
-                        batch_name, 
+                        batch_name,
                         start_time,
                         end_time,
                         quality_metrics.consistency_score,
@@ -526,7 +513,7 @@ class ProgressiveLearningService:
                         len(unprocessed_messages),
                         len(filtered_messages),
                         success,
-                        None if success else f"质量得分不达标: {quality_metrics.consistency_score:.3f}"
+                        None  # 对话风格学习总是成功，不记录错误
                     ))
                     await conn.commit()
                     logger.debug(f"学习批次记录已保存: {batch_name}")
@@ -542,8 +529,8 @@ class ProgressiveLearningService:
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': end_time - start_time,
                 'success': success,
-                'successful_pattern': json.dumps({}) if success else '',
-                'failed_pattern': json.dumps({'reason': 'quality_threshold_not_met', 'score': quality_metrics.consistency_score}) if not success else ''
+                'successful_pattern': json.dumps({}),
+                'failed_pattern': ''  # 对话风格学习总是成功，不记录失败
             })
             
             # 标记消息为已处理
