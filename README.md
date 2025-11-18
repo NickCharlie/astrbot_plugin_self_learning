@@ -104,7 +104,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 快速了解插件整体运行状态，监控学习效果
 
-![image-20251118174552993](.\image\数据统计页面.png)
+![image-20251118174552993](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E6%95%B0%E6%8D%AE%E7%BB%9F%E8%AE%A1%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 ---
 
@@ -122,7 +122,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 日常人格维护、测试不同人格效果、回滚人格变更
 
-![image-20251118174321706](.\image\人格管理页面.png)
+![image-20251118174321706](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E7%AE%A1%E7%90%86%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 ---
 
@@ -139,7 +139,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 人工把关AI学习成果，确保人格更新质量
 
-![image-20251118174332541](.\image\人格审查页面.png)
+![image-20251118174332541](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E5%AE%A1%E6%9F%A5%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 ---
 
@@ -155,7 +155,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 监控风格学习效果，管理学习数据质量
 
-![image-20251118174349158](.\image\对话风格学习页面.png)
+![image-20251118174349158](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E5%AF%B9%E8%AF%9D%E9%A3%8E%E6%A0%BC%E5%AD%A6%E4%B9%A0%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 ---
 
@@ -176,7 +176,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 了解群聊社交网络，分析用户互动模式
 
-![image-20251118174435169](.\image\社交关系页面.png)
+![image-20251118174435169](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E7%A4%BE%E4%BA%A4%E5%85%B3%E7%B3%BB%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 
 
@@ -195,7 +195,7 @@ AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 
 
 **使用场景**: 自定义插件行为，优化性能和效果
 
-![image-20251118174454386](.\image\配置页面.png)
+![image-20251118174454386](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E9%85%8D%E7%BD%AE%E9%A1%B5%E9%9D%A2.png?raw=true)
 
 
 
