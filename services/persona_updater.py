@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 
 from astrbot.api.star import Context
-from astrbot.core.provider.provider import Personality
+from astrbot.core.db.po import Personality
 from ..config import PluginConfig
 
 from ..core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord
@@ -60,21 +60,18 @@ class PersonaUpdater(IPersonaUpdater):
     async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
         """根据风格分析和筛选过的消息更新人格"""
         try:
-            # 获取当前提供商
-            provider = self.context.get_using_provider()
-            if not provider:
-                self._logger.error("无法获取当前LLM提供商")
+            # 使用新版框架的PersonaManager获取默认人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.error("无法获取PersonaManager")
                 return False
-            
-            # 检查是否有当前人格
-            # 这里需要考虑如何根据 group_id 获取特定会话的人格
-            # 暂时仍然使用 curr_personality，但如果 astrbot 核心支持会话人格，这里需要修改
-            if not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                self._logger.error("当前提供商没有设置人格")
+
+            # 获取当前人格
+            current_persona = await self.context.persona_manager.get_default_persona_v3()
+            if not current_persona:
+                self._logger.error("无法获取当前人格")
                 return False
-            
-            current_persona = provider.curr_personality
-            persona_name = getattr(current_persona, 'name', 'unknown') if hasattr(current_persona, 'name') else 'unknown'
+
+            persona_name = current_persona.get('name', 'unknown') if isinstance(current_persona, dict) else current_persona['name']
             self._logger.info(f"当前人格: {persona_name} for group {group_id}")
             
             # ===== 创建备份（如果启用） =====
@@ -114,7 +111,8 @@ class PersonaUpdater(IPersonaUpdater):
             
             # 更新人格prompt
             if 'enhanced_prompt' in style_analysis:
-                original_prompt = getattr(current_persona, 'prompt', '') if hasattr(current_persona, 'prompt') else ''
+                # Personality是TypedDict,直接使用字典访问
+                original_prompt = current_persona.get('prompt', '')
                 enhanced_prompt = self._merge_prompts(original_prompt, style_analysis['enhanced_prompt'])
                 
                 # 记录人格更新以便人工审查
@@ -126,11 +124,10 @@ class PersonaUpdater(IPersonaUpdater):
                     new_content=enhanced_prompt,
                     reason="风格分析建议更新prompt"
                 ))
-                
-                if hasattr(current_persona, 'prompt'):
-                    current_persona.prompt = enhanced_prompt
-                elif isinstance(current_persona, dict):
-                    current_persona['prompt'] = enhanced_prompt
+
+                # Personality是TypedDict,需要通过PersonaManager更新
+                # 注意: 在这个阶段我们只是在内存中修改，真正的持久化由PersonaManager处理
+                current_persona['prompt'] = enhanced_prompt
                 self._logger.info(f"人格prompt已更新，长度: {len(enhanced_prompt)} for group {group_id}")
             
             # 3. 更新对话风格特征（使用MaiBot的表达模式学习而不是直接保存对话）
@@ -206,8 +203,6 @@ class PersonaUpdater(IPersonaUpdater):
     async def review_persona_update(self, update_id: int, status: str, reviewer_comment: Optional[str] = None) -> bool:
         """审查人格更新"""
         try:
-<<<<<<< Updated upstream
-=======
             # 如果是批准操作,先创建备份和已批准人格
             if status == "approved":
                 backup_success = await self._create_approved_persona_backup(update_id)
@@ -215,7 +210,6 @@ class PersonaUpdater(IPersonaUpdater):
                     self._logger.error(f"创建批准人格失败，取消审查操作")
                     raise PersonaUpdateError("创建批准人格失败，请检查日志")
 
->>>>>>> Stashed changes
             result = await self.db_manager.update_persona_update_record_status(update_id, status, reviewer_comment)
             if result:
                 self._logger.info(f"人格更新 {update_id} 已审查为 {status}")
@@ -224,8 +218,6 @@ class PersonaUpdater(IPersonaUpdater):
             self._logger.error(f"审查人格更新失败: {e}")
             raise PersonaUpdateError(f"审查人格更新失败: {str(e)}")
 
-<<<<<<< Updated upstream
-=======
     async def _create_approved_persona_backup(self, update_id: int) -> bool:
         """在批准人格更新时,创建备份人格和已批准人格"""
         try:
@@ -335,7 +327,6 @@ class PersonaUpdater(IPersonaUpdater):
             self._logger.error(f"创建批准后人格备份失败: {e}")
             return False
 
->>>>>>> Stashed changes
     async def get_reviewed_persona_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的传统人格更新记录"""
         try:
@@ -401,13 +392,14 @@ class PersonaUpdater(IPersonaUpdater):
     async def get_current_persona_description(self, group_id: str) -> Optional[str]:
         """获取当前人格的描述"""
         try:
-            # 这里需要考虑如何根据 group_id 获取特定会话的人格
-            provider = self.context.get_using_provider()
-            if provider and provider.curr_personality:
-                persona = provider.curr_personality
-                if hasattr(persona, 'prompt'):
-                    return persona.prompt
-                elif isinstance(persona, dict):
+            # 使用PersonaManager获取当前人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.error("无法获取PersonaManager")
+                return None
+
+            persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if persona:
+                if isinstance(persona, dict):
                     return persona.get('prompt', '')
             return None
         except Exception as e:
@@ -417,12 +409,16 @@ class PersonaUpdater(IPersonaUpdater):
     async def get_current_persona(self, group_id: str) -> Optional[Dict[str, Any]]:
         """获取当前人格信息"""
         try:
-            # 这里需要考虑如何根据 group_id 获取特定会话的人格
-            provider = self.context.get_using_provider()
-            if provider and provider.curr_personality:
-                return dict(provider.curr_personality)
+            # 使用PersonaManager获取当前人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.error("无法获取PersonaManager")
+                return None
+
+            persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if persona and isinstance(persona, dict):
+                return dict(persona)
             return None
-            
+
         except Exception as e:
             self._logger.error(f"获取当前人格失败 for group {group_id}: {e}")
             return None
@@ -557,11 +553,12 @@ class PersonaUpdater(IPersonaUpdater):
             # 1. 使用表达模式学习器分析消息
             if hasattr(self, 'expression_learner') and self.expression_learner:
                 patterns = await self.expression_learner.learn_expression_patterns(filtered_messages, current_persona.get('group_id', 'default'))
-                
+
                 # 将学习到的模式添加到人格中
-                if patterns and hasattr(current_persona, 'expression_patterns'):
-                    current_persona.expression_patterns = patterns
-                    self._logger.info(f"更新了 {len(patterns)} 个表达模式")
+                # 注意: Personality是TypedDict,不支持动态添加字段
+                # 表达模式需要通过其他方式存储
+                if patterns:
+                    self._logger.info(f"学习到 {len(patterns)} 个表达模式")
             
             # 2. 更新记忆图谱
             if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
@@ -812,22 +809,21 @@ class PersonaUpdater(IPersonaUpdater):
     async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
         """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""
         try:
-            # 获取当前人格信息
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+            # 使用PersonaManager获取当前人格信息
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.warning("无法获取PersonaManager，跳过备份")
+                return False
+
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not current_persona:
                 self._logger.warning("无法获取当前人格信息，跳过备份")
                 return False
-            
-            current_persona = provider.curr_personality
-            
-            # 提取原人格信息
-            if hasattr(current_persona, 'prompt'):
-                original_prompt = current_persona.prompt
-                original_name = getattr(current_persona, 'name', '默认人格')
-            elif isinstance(current_persona, dict):
-                original_prompt = current_persona.get('prompt', '')
-                original_name = current_persona.get('name', '默认人格')
-            else:
+
+            # 提取原人格信息 (Personality是TypedDict)
+            original_prompt = current_persona.get('prompt', '')
+            original_name = current_persona.get('name', '默认人格')
+
+            if not original_prompt:
                 self._logger.warning("无法解析当前人格数据")
                 return False
             
@@ -841,8 +837,8 @@ class PersonaUpdater(IPersonaUpdater):
                 backup_persona = await persona_manager.create_persona(
                     persona_id=backup_persona_id,
                     system_prompt=original_prompt,
-                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
-                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                    begin_dialogs=current_persona.get('begin_dialogs', []),
+                    tools=current_persona.get('tools')
                 )
                 
                 if backup_persona:
@@ -1177,22 +1173,21 @@ class PersonaAnalyzer:
     async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
         """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""
         try:
-            # 获取当前人格信息
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+            # 使用PersonaManager获取当前人格信息
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.warning("无法获取PersonaManager，跳过备份")
+                return False
+
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not current_persona:
                 self._logger.warning("无法获取当前人格信息，跳过备份")
                 return False
-            
-            current_persona = provider.curr_personality
-            
-            # 提取原人格信息
-            if hasattr(current_persona, 'prompt'):
-                original_prompt = current_persona.prompt
-                original_name = getattr(current_persona, 'name', '默认人格')
-            elif isinstance(current_persona, dict):
-                original_prompt = current_persona.get('prompt', '')
-                original_name = current_persona.get('name', '默认人格')
-            else:
+
+            # 提取原人格信息 (Personality是TypedDict)
+            original_prompt = current_persona.get('prompt', '')
+            original_name = current_persona.get('name', '默认人格')
+
+            if not original_prompt:
                 self._logger.warning("无法解析当前人格数据")
                 return False
             
@@ -1206,8 +1201,8 @@ class PersonaAnalyzer:
                 backup_persona = await persona_manager.create_persona(
                     persona_id=backup_persona_id,
                     system_prompt=original_prompt,
-                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
-                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                    begin_dialogs=current_persona.get('begin_dialogs', []),
+                    tools=current_persona.get('tools')
                 )
                 
                 if backup_persona:
@@ -1408,52 +1403,44 @@ class PersonaAnalyzer:
     async def _apply_traditional_persona_update(self, group_id: str, update_content: str) -> bool:
         """传统方式应用人格更新（直接修改当前人格）"""
         try:
-            # 获取当前提供商
-            provider = self.context.get_using_provider()
-            if not provider:
-                self._logger.error("无法获取当前LLM提供商")
+            # 使用PersonaManager获取当前人格
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.error("无法获取PersonaManager")
                 return False
-                
-            # 获取当前人格
-            if not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                self._logger.error("当前提供商没有设置人格")
+
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not current_persona:
+                self._logger.error("无法获取当前人格")
                 return False
-            
-            current_persona = provider.curr_personality
-            
+
+            # 获取persona_id用于更新
+            persona_id = current_persona.get('name', 'default')
+
+            # 获取当前prompt
+            current_prompt = current_persona.get('prompt', '')
+
             # 根据合并策略处理更新
             if self.config.persona_merge_strategy == "append":
-                # 追加模式
-                if hasattr(current_persona, 'prompt'):
-                    current_persona.prompt = current_persona.prompt + "\n\n" + update_content
-                elif isinstance(current_persona, dict):
-                    current_persona['prompt'] = current_persona.get('prompt', '') + "\n\n" + update_content
-                    
+                new_prompt = current_prompt + "\n\n" + update_content
             elif self.config.persona_merge_strategy == "prepend":
-                # 前置模式
-                if hasattr(current_persona, 'prompt'):
-                    current_persona.prompt = update_content + "\n\n" + current_persona.prompt
-                elif isinstance(current_persona, dict):
-                    current_persona['prompt'] = update_content + "\n\n" + current_persona.get('prompt', '')
-                    
+                new_prompt = update_content + "\n\n" + current_prompt
             elif self.config.persona_merge_strategy == "replace":
-                # 替换模式
-                if hasattr(current_persona, 'prompt'):
-                    current_persona.prompt = update_content
-                elif isinstance(current_persona, dict):
-                    current_persona['prompt'] = update_content
-                    
+                new_prompt = update_content
             else:
                 # 默认智能合并模式
-                if hasattr(current_persona, 'prompt'):
-                    current_persona.prompt = self._merge_prompts(current_persona.prompt, update_content)
-                elif isinstance(current_persona, dict):
-                    current_prompt = current_persona.get('prompt', '')
-                    current_persona['prompt'] = self._merge_prompts(current_prompt, update_content)
-            
+                new_prompt = self._merge_prompts(current_prompt, update_content)
+
+            # 使用PersonaManager更新人格
+            await self.context.persona_manager.update_persona(
+                persona_id=persona_id,
+                system_prompt=new_prompt,
+                begin_dialogs=current_persona.get('begin_dialogs'),
+                tools=current_persona.get('tools')
+            )
+
             self._logger.info(f"群组 {group_id} 传统方式人格更新完成")
             return True
-            
+
         except Exception as e:
             self._logger.error(f"传统方式应用人格更新失败: {e}")
             return False
@@ -1492,22 +1479,21 @@ class PersonaAnalyzer:
     async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
         """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""
         try:
-            # 获取当前人格信息
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+            # 使用PersonaManager获取当前人格信息
+            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
+                self._logger.warning("无法获取PersonaManager，跳过备份")
+                return False
+
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            if not current_persona:
                 self._logger.warning("无法获取当前人格信息，跳过备份")
                 return False
-            
-            current_persona = provider.curr_personality
-            
-            # 提取原人格信息
-            if hasattr(current_persona, 'prompt'):
-                original_prompt = current_persona.prompt
-                original_name = getattr(current_persona, 'name', '默认人格')
-            elif isinstance(current_persona, dict):
-                original_prompt = current_persona.get('prompt', '')
-                original_name = current_persona.get('name', '默认人格')
-            else:
+
+            # 提取原人格信息 (Personality是TypedDict)
+            original_prompt = current_persona.get('prompt', '')
+            original_name = current_persona.get('name', '默认人格')
+
+            if not original_prompt:
                 self._logger.warning("无法解析当前人格数据")
                 return False
             
@@ -1521,8 +1507,8 @@ class PersonaAnalyzer:
                 backup_persona = await persona_manager.create_persona(
                     persona_id=backup_persona_id,
                     system_prompt=original_prompt,
-                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
-                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                    begin_dialogs=current_persona.get('begin_dialogs', []),
+                    tools=current_persona.get('tools')
                 )
                 
                 if backup_persona:
