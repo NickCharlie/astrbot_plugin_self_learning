@@ -205,7 +205,10 @@ class PersonaUpdater(IPersonaUpdater):
         try:
             # 如果是批准操作,先创建备份和已批准人格
             if status == "approved":
-                await self._create_approved_persona_backup(update_id)
+                backup_success = await self._create_approved_persona_backup(update_id)
+                if not backup_success:
+                    self._logger.error(f"创建批准人格失败，取消审查操作")
+                    raise PersonaUpdateError("创建批准人格失败，请检查日志")
 
             result = await self.db_manager.update_persona_update_record_status(update_id, status, reviewer_comment)
             if result:
@@ -244,6 +247,7 @@ class PersonaUpdater(IPersonaUpdater):
             persona_manager = self.persona_manager_updater.persona_manager if hasattr(self, 'persona_manager_updater') else self.context.persona_manager
 
             if persona_manager:
+                self._logger.info(f"开始创建备份人格: {backup_persona_id}")
                 backup_persona = await persona_manager.create_persona(
                     persona_id=backup_persona_id,
                     system_prompt=original_prompt,
@@ -252,33 +256,68 @@ class PersonaUpdater(IPersonaUpdater):
                 )
 
                 if backup_persona:
-                    self._logger.info(f"成功创建备份persona: {backup_persona_id}")
+                    self._logger.info(f"✓ 成功创建备份人格: {backup_persona_id}")
                 else:
-                    self._logger.error("创建备份persona失败")
+                    self._logger.error(f"✗ 创建备份人格失败: {backup_persona_id}")
                     return False
 
                 # 2. 获取审查记录中的新内容
+                self._logger.info(f"正在获取更新记录 ID={update_id}...")
                 update_record = await self.db_manager.get_persona_update_record_by_id(update_id)
                 if not update_record:
-                    self._logger.error(f"无法获取更新记录 {update_id}")
+                    self._logger.error(f"✗ 无法获取更新记录 {update_id}")
                     return False
 
-                # 3. 创建已批准人格（格式：原人格名_时间_已批准）
-                approved_persona_id = f"{original_name}_{timestamp}_已批准"
-                approved_prompt = update_record.get('new_content', original_prompt)
+                self._logger.info(f"✓ 成功获取更新记录: type={update_record.get('update_type')}, status={update_record.get('status')}")
 
+                # 3. 创建批准更新人格（格式：原人格名_时间_批准更新）
+                approved_persona_id = f"{original_name}_{timestamp}_批准更新"
+                approved_prompt = update_record.get('new_content', '')
+
+                if not approved_prompt:
+                    self._logger.error(f"✗ 更新记录 {update_id} 中没有新内容(new_content)")
+                    self._logger.error(f"   update_record keys: {list(update_record.keys())}")
+                    return False
+
+                self._logger.info(f"开始创建批准更新人格: {approved_persona_id}")
+                self._logger.info(f"  原人格prompt长度: {len(original_prompt)} 字符")
+                self._logger.info(f"  新人格prompt长度: {len(approved_prompt)} 字符")
+                self._logger.debug(f"  新人格prompt前100字: {approved_prompt[:100]}...")
+
+                self._logger.info(f"调用 PersonaManager.create_persona()...")
                 approved_persona = await persona_manager.create_persona(
                     persona_id=approved_persona_id,
                     system_prompt=approved_prompt,
                     begin_dialogs=current_persona.get('begin_dialogs', []),
                     tools=current_persona.get('tools')
                 )
+                self._logger.info(f"PersonaManager.create_persona() 返回值: {approved_persona is not None}")
 
                 if approved_persona:
-                    self._logger.info(f"成功创建已批准persona: {approved_persona_id}")
-                    return True
+                    self._logger.info(f"✓ 成功创建批准更新人格: {approved_persona_id}")
+
+                    # 验证人格是否真的创建成功
+                    self._logger.info(f"验证人格是否存在...")
+                    verify_persona = await persona_manager.get_persona(approved_persona_id)
+                    self._logger.info(f"PersonaManager.get_persona() 返回值: {verify_persona is not None}")
+
+                    if verify_persona:
+                        self._logger.info(f"✓ 验证成功: 批准更新人格已存在于PersonaManager中")
+                        self._logger.info(f"✓✓✓ 完整流程成功: 备份人格和批准更新人格都已创建")
+                        return True
+                    else:
+                        self._logger.error(f"✗ 验证失败: 批准更新人格创建后无法找到")
+                        self._logger.error(f"   尝试列出所有人格...")
+                        try:
+                            all_personas = await persona_manager.get_all_personas()
+                            self._logger.error(f"   当前所有人格: {[p.get('name', 'unknown') for p in all_personas] if all_personas else '无法获取'}")
+                        except Exception as list_error:
+                            self._logger.error(f"   列出人格失败: {list_error}")
+                        return False
                 else:
-                    self._logger.error("创建已批准persona失败")
+                    self._logger.error(f"✗ 创建批准更新人格失败: {approved_persona_id}")
+                    self._logger.error(f"   PersonaManager.create_persona() 返回了 None 或 False")
+                    self._logger.error(f"   参数检查: persona_id='{approved_persona_id}', system_prompt长度={len(approved_prompt)}")
                     return False
             else:
                 self._logger.error("PersonaManager不可用，无法创建备份")

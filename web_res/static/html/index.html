@@ -48,6 +48,10 @@
                     <i class="material-icons">chat</i>
                     <span>对话风格学习</span>
                 </li>
+                <li class="menu-item" data-page="social-relations">
+                    <i class="material-icons">group</i>
+                    <span>社交关系分析</span>
+                </li>
             </ul>
             <div class="sidebar-actions">
                 <button class="relearn-btn" id="relearnBtn" title="重新学习所有历史消息">
@@ -946,7 +950,8 @@
                                 </div>
                                 <div class="stat-content">
                                     <h3 id="total-samples">0</h3>
-                                    <p>总样本数量</p>
+                                    <p>原始消息总数</p>
+                                    <small class="stat-description">学习使用的未筛选消息数量</small>
                                 </div>
                             </div>
                             <div class="stat-card">
@@ -1064,6 +1069,106 @@
                                     <div id="topic-patterns-list" class="patterns-list">
                                         <!-- 动态加载主题偏好模式 -->
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 社交关系分析页面 -->
+                <div id="social-relations-page" class="page">
+                    <div class="social-relations-section">
+                        <h2>社交关系分析</h2>
+
+                        <!-- 群组列表 -->
+                        <div class="group-list-section">
+                            <div class="section-header">
+                                <h3><i class="material-icons">groups</i> 群组列表</h3>
+                                <button class="btn btn-secondary" id="refreshGroupsBtn" onclick="loadGroupList()">
+                                    <i class="material-icons">refresh</i>
+                                    刷新群组
+                                </button>
+                            </div>
+                            <div id="group-list-container" class="group-list">
+                                <div class="loading-message">正在加载群组列表...</div>
+                            </div>
+                        </div>
+
+                        <!-- 关系可视化 -->
+                        <div class="relationship-viz-section" id="relationship-detail" style="display:none;">
+                            <div class="section-header">
+                                <h3><i class="material-icons">hub</i>
+                                    <span id="current-group-name">群组成员关系图谱</span>
+                                </h3>
+                                <button class="btn btn-secondary" onclick="backToGroupList()">
+                                    <i class="material-icons">arrow_back</i>
+                                    返回列表
+                                </button>
+                            </div>
+
+                            <!-- 关系统计概览 -->
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="material-icons">people</i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h3 id="total-members-count">0</h3>
+                                        <p>群组成员数</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="material-icons">link</i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h3 id="total-relations-count">0</h3>
+                                        <p>关系连接数</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="material-icons">star</i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h3 id="most-active-member">--</h3>
+                                        <p>最活跃成员</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">
+                                        <i class="material-icons">trending_up</i>
+                                    </div>
+                                    <div class="stat-content">
+                                        <h3 id="avg-relation-strength">0.0</h3>
+                                        <p>平均关系强度</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 关系图谱 -->
+                            <div class="chart-container">
+                                <div class="chart-header">
+                                    <h3>关系网络图谱</h3>
+                                    <div class="chart-controls">
+                                        <select id="relation-layout-type" onchange="updateRelationshipChart()">
+                                            <option value="force">力导向布局</option>
+                                            <option value="circular">环形布局</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="relationship-graph-chart" class="chart" style="height: 600px;"></div>
+                            </div>
+
+                            <!-- 成员详细列表 -->
+                            <div class="members-list-container">
+                                <h3><i class="material-icons">list</i> 成员详细信息</h3>
+                                <div class="search-box">
+                                    <input type="text" id="memberSearchInput" placeholder="搜索成员..." onkeyup="filterMembersList()">
+                                    <i class="material-icons">search</i>
+                                </div>
+                                <div id="members-list" class="members-list">
+                                    <!-- 成员列表将在这里动态加载 -->
                                 </div>
                             </div>
                         </div>

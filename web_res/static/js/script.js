@@ -40,6 +40,137 @@ let currentConfig = {};
 let currentMetrics = {};
 let chartInstances = {};
 
+/**
+ * 智能文本差异高亮函数
+ * 比较原文本和新文本,只高亮关键修改的词汇和短语
+ * @param {string} originalText - 原始文本
+ * @param {string} proposedText - 建议更新的文本
+ * @returns {string} 带有HTML标记的高亮文本
+ */
+function highlightTextDifferences(originalText, proposedText) {
+    if (!originalText || !proposedText) {
+        return escapeHtml(proposedText || '');
+    }
+
+    // 按行处理
+    const originalLines = originalText.split('\n');
+    const proposedLines = proposedText.split('\n');
+
+    const highlightedLines = proposedLines.map((proposedLine, lineIndex) => {
+        const trimmedProposed = proposedLine.trim();
+
+        // 跳过空行
+        if (!trimmedProposed) {
+            return '';
+        }
+
+        // 找到最相似的原始行
+        let mostSimilarOriginalLine = '';
+        let maxSimilarity = 0;
+
+        for (const originalLine of originalLines) {
+            const similarity = calculateSimilarity(originalLine.trim(), trimmedProposed);
+            if (similarity > maxSimilarity) {
+                maxSimilarity = similarity;
+                mostSimilarOriginalLine = originalLine.trim();
+            }
+        }
+
+        // 如果相似度很低(< 0.3),说明是全新内容,高亮整行
+        if (maxSimilarity < 0.3) {
+            return `<span class="text-diff-new">${escapeHtml(proposedLine)}</span>`;
+        }
+
+        // 如果完全相同,不高亮
+        if (maxSimilarity > 0.95) {
+            return escapeHtml(proposedLine);
+        }
+
+        // 否则,进行词级别的差异高亮
+        return highlightWordDifferences(mostSimilarOriginalLine, proposedLine);
+    });
+
+    return highlightedLines.join('\n');
+}
+
+/**
+ * 计算两个字符串的相似度(0-1之间)
+ */
+function calculateSimilarity(str1, str2) {
+    if (str1 === str2) return 1.0;
+    if (!str1 || !str2) return 0.0;
+
+    // 使用简单的词集合相似度
+    const words1 = new Set(str1.split(/\s+/));
+    const words2 = new Set(str2.split(/\s+/));
+
+    const intersection = new Set([...words1].filter(x => words2.has(x)));
+    const union = new Set([...words1, ...words2]);
+
+    return intersection.size / union.size;
+}
+
+/**
+ * 词级别差异高亮
+ */
+function highlightWordDifferences(originalLine, proposedLine) {
+    // 将原始行的词汇转为集合
+    const originalWords = new Set(originalLine.split(/\s+/).filter(w => w.length > 0));
+
+    // 分词并处理建议行
+    const proposedTokens = proposedLine.split(/(\s+)/); // 保留空格
+
+    let result = '';
+    let consecutiveNewWords = [];
+
+    for (let i = 0; i < proposedTokens.length; i++) {
+        const token = proposedTokens[i];
+
+        // 如果是空白字符,直接添加
+        if (/^\s+$/.test(token)) {
+            // 如果有积累的新词,先输出
+            if (consecutiveNewWords.length > 0) {
+                result += `<span class="text-diff-new">${escapeHtml(consecutiveNewWords.join(''))}</span>`;
+                consecutiveNewWords = [];
+            }
+            result += token;
+            continue;
+        }
+
+        // 检查这个词是否在原始文本中
+        if (!originalWords.has(token)) {
+            // 新词或修改的词,累积起来
+            consecutiveNewWords.push(token);
+        } else {
+            // 如果有积累的新词,先输出
+            if (consecutiveNewWords.length > 0) {
+                result += `<span class="text-diff-new">${escapeHtml(consecutiveNewWords.join(''))}</span>`;
+                consecutiveNewWords = [];
+            }
+            // 输出原有的词
+            result += escapeHtml(token);
+        }
+    }
+
+    // 处理末尾可能剩余的新词
+    if (consecutiveNewWords.length > 0) {
+        result += `<span class="text-diff-new">${escapeHtml(consecutiveNewWords.join(''))}</span>`;
+    }
+
+    return result;
+}
+
+
+/**
+ * 转义HTML特殊字符
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+
 // ECharts Google Material Design 主题
 const materialTheme = {
     color: ['#1976d2', '#4caf50', '#ff9800', '#f44336', '#9c27b0', '#00bcd4', '#795548', '#607d8b'],
@@ -1203,18 +1334,18 @@ function renderPersonaUpdates(updates) {
             typeBadge = '<span class="type-badge general-badge">常规更新</span>';
             typeText = '常规更新';
         }
-        
+
         updateElement.innerHTML = `
-            ${typeBadge}
+            <div class="update-badges-row">
+                ${typeBadge}
+                <span class="id-badge">${update.id}</span>
+            </div>
             <div class="update-header">
                 <div class="update-checkbox">
                     <input type="checkbox" class="review-checkbox" value="${update.id}" id="review-${update.id}">
                     <label for="review-${update.id}"></label>
                 </div>
                 <div class="update-info">
-                    <div class="update-id-badge">
-                        <span class="id-badge">${update.id}</span>
-                    </div>
                 </div>
             </div>
             <div class="update-content">
@@ -1225,10 +1356,10 @@ function renderPersonaUpdates(updates) {
                     <p><strong>原始内容:</strong> <button class="toggle-content-btn" data-target="original-${update.id}">展开完整内容</button></p>
                     <div class="content-preview" id="original-${update.id}" data-collapsed="true">${truncateText(update.original_content || '', 200)}</div>
                     <div class="content-preview full-content" id="original-full-${update.id}" style="display: none;">${update.original_content || ''}</div>
-                    
+
                     <p><strong>建议更新:</strong> <button class="toggle-content-btn" data-target="proposed-${update.id}">展开完整内容</button></p>
-                    <div class="content-preview" id="proposed-${update.id}" data-collapsed="true">${truncateText(update.proposed_content || '', 200)}</div>
-                    <div class="content-preview full-content" id="proposed-full-${update.id}" style="display: none;">${update.proposed_content || ''}</div>
+                    <div class="content-preview highlighted-diff" id="proposed-${update.id}" data-collapsed="true"></div>
+                    <div class="content-preview full-content highlighted-diff" id="proposed-full-${update.id}" style="display: none;"></div>
                 </div>
             </div>
             <div class="update-actions">
@@ -1273,7 +1404,29 @@ function renderPersonaUpdates(updates) {
         toggleBtns.forEach(btn => {
             btn.addEventListener('click', (e) => toggleContentView(e.target));
         });
-        
+
+        // 应用差异高亮到建议更新内容
+        const proposedShortDiv = updateElement.querySelector(`#proposed-${update.id}`);
+        const proposedFullDiv = updateElement.querySelector(`#proposed-full-${update.id}`);
+
+        if (proposedShortDiv && proposedFullDiv) {
+            // 生成高亮的完整内容
+            const highlightedFullContent = highlightTextDifferences(
+                update.original_content || '',
+                update.proposed_content || ''
+            );
+
+            // 生成高亮的截断内容
+            const highlightedShortContent = highlightTextDifferences(
+                update.original_content || '',
+                truncateText(update.proposed_content || '', 200)
+            );
+
+            // 设置内容(使用innerHTML因为包含HTML标记)
+            proposedShortDiv.innerHTML = highlightedShortContent;
+            proposedFullDiv.innerHTML = highlightedFullContent;
+        }
+
         reviewList.appendChild(updateElement);
     });
 }
@@ -1582,14 +1735,25 @@ function showPersonaEditDialog(update) {
                         <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
                         <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
                         <p><strong>时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
+                        ${update.total_raw_messages ? `<p><strong>样本总数:</strong> ${update.total_raw_messages} 条原始消息</p>` : ''}
+                        ${update.messages_analyzed ? `<p><strong>分析样本:</strong> ${update.messages_analyzed} 条筛选消息</p>` : ''}
                     </div>
-                    
+
+                    ${update.features_content ? `
+                    <div class="content-editor">
+                        <div class="editor-section">
+                            <h4><i class="material-icons">analytics</i> 提炼的风格特征</h4>
+                            <textarea id="featuresContent" readonly rows="8" style="resize: vertical; min-height: 150px; background-color: #f5f7fa; font-family: 'Courier New', monospace;">${update.features_content}</textarea>
+                        </div>
+                    </div>
+                    ` : ''}
+
                     <div class="content-editor">
                         <div class="editor-section">
                             <h4>原始人格内容</h4>
                             <textarea id="originalContent" readonly rows="15" style="resize: vertical; min-height: 200px;">${update.original_content || ''}</textarea>
                         </div>
-                        
+
                         <div class="editor-section">
                             <h4>建议更新内容</h4>
                             <textarea id="proposedContent" rows="15" style="resize: vertical; min-height: 200px;">${update.proposed_content || ''}</textarea>
@@ -1987,6 +2151,9 @@ async function loadPageData(page) {
         case 'metrics':
             await loadMetrics();
             renderDetailedMetrics();
+            break;
+        case 'social-relations':
+            await loadGroupList();
             break;
     }
 }
@@ -4114,20 +4281,29 @@ function viewReviewDetail(update) {
                             <p><strong>置信度:</strong> ${(update.confidence_score * 100).toFixed(1)}%</p>
                             <p><strong>原因:</strong> ${update.reason || '未提供'}</p>
                             <p><strong>创建时间:</strong> ${new Date(update.timestamp * 1000).toLocaleString()}</p>
+                            ${update.total_raw_messages ? `<p><strong>样本总数:</strong> ${update.total_raw_messages} 条原始消息</p>` : ''}
+                            ${update.messages_analyzed ? `<p><strong>分析样本:</strong> ${update.messages_analyzed} 条筛选消息</p>` : ''}
                         </div>
-                        
+
                         <div class="info-section">
                             <h4>审查信息</h4>
                             <p><strong>审查状态:</strong> <span class="status-badge ${update.status === 'approved' ? 'status-approved' : 'status-rejected'}">${update.status === 'approved' ? '已批准' : '已拒绝'}</span></p>
                             <p><strong>审查时间:</strong> ${update.review_time ? new Date(update.review_time * 1000).toLocaleString() : '未知'}</p>
                             ${update.reviewer_comment ? `<p><strong>审查备注:</strong> ${update.reviewer_comment}</p>` : '<p><strong>审查备注:</strong> 无</p>'}
                         </div>
-                        
+
+                        ${update.features_content ? `
+                        <div class="content-section">
+                            <h4><i class="material-icons">analytics</i> 提炼的风格特征</h4>
+                            <div class="content-display" style="background-color: #f5f7fa; font-family: 'Courier New', monospace; white-space: pre-wrap;">${update.features_content}</div>
+                        </div>
+                        ` : ''}
+
                         <div class="content-section">
                             <h4>原始人格内容</h4>
                             <div class="content-display">${update.original_content || '无内容'}</div>
                         </div>
-                        
+
                         <div class="content-section">
                             <h4>建议更新内容</h4>
                             <div class="content-display">${update.proposed_content || '无内容'}</div>
@@ -4281,12 +4457,411 @@ async function triggerRelearn() {
     }
 }
 
+// ==================== 社交关系分析相关函数 ====================
+
+// 全局变量存储当前选中的群组数据
+let currentGroupRelations = null;
+let currentGroupId = null;
+
+/**
+ * 加载群组列表
+ */
+async function loadGroupList() {
+    const container = document.getElementById('group-list-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading-message">正在加载群组列表...</div>';
+
+    try {
+        const response = await fetch('/api/social_relations/groups');
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || '加载群组列表失败');
+        }
+
+        if (!data.groups || data.groups.length === 0) {
+            container.innerHTML = '<div class="empty-message"><i class="material-icons">info</i><p>暂无群组数据</p></div>';
+            return;
+        }
+
+        // 渲染群组列表
+        let html = '<div class="group-cards">';
+        data.groups.forEach(group => {
+            html += `
+                <div class="group-card" onclick="loadGroupRelations('${group.group_id}', '${escapeHtml(group.group_name || group.group_id)}')">
+                    <div class="group-card-header">
+                        <i class="material-icons">groups</i>
+                        <h4>${escapeHtml(group.group_name || group.group_id)}</h4>
+                    </div>
+                    <div class="group-card-body">
+                        <div class="group-stat">
+                            <span class="stat-label">群组ID:</span>
+                            <span class="stat-value">${group.group_id}</span>
+                        </div>
+                        <div class="group-stat">
+                            <span class="stat-label">成员数:</span>
+                            <span class="stat-value">${group.member_count || 0}</span>
+                        </div>
+                        <div class="group-stat">
+                            <span class="stat-label">关系数:</span>
+                            <span class="stat-value">${group.relation_count || 0}</span>
+                        </div>
+                        <div class="group-stat">
+                            <span class="stat-label">消息数:</span>
+                            <span class="stat-value">${group.message_count || 0}</span>
+                        </div>
+                    </div>
+                    <div class="group-card-footer">
+                        <button class="btn btn-primary btn-sm">
+                            <i class="material-icons">visibility</i>
+                            查看关系
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+        html += '</div>';
+
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('加载群组列表失败:', error);
+        container.innerHTML = `<div class="error-message"><i class="material-icons">error</i><p>加载失败: ${error.message}</p></div>`;
+    }
+}
+
+/**
+ * 加载指定群组的关系数据
+ */
+async function loadGroupRelations(groupId, groupName) {
+    currentGroupId = groupId;
+
+    // 显示关系详情区域，隐藏群组列表
+    document.querySelector('.group-list-section').style.display = 'none';
+    document.getElementById('relationship-detail').style.display = 'block';
+    document.getElementById('current-group-name').textContent = `${groupName} 的成员关系`;
+
+    // 显示加载状态
+    const chartContainer = document.getElementById('relationship-graph-chart');
+    if (chartContainer) {
+        chartContainer.innerHTML = '<div class="loading-message">正在加载关系数据...</div>';
+    }
+
+    try {
+        const response = await fetch(`/api/social_relations/${groupId}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || '加载关系数据失败');
+        }
+
+        currentGroupRelations = data;
+
+        // 更新统计数据
+        updateRelationshipStats(data);
+
+        // 渲染关系图谱
+        renderRelationshipChart(data);
+
+        // 渲染成员列表
+        renderMembersList(data);
+
+    } catch (error) {
+        console.error('加载群组关系失败:', error);
+        if (chartContainer) {
+            chartContainer.innerHTML = `<div class="error-message"><i class="material-icons">error</i><p>加载失败: ${error.message}</p></div>`;
+        }
+        showNotification(`加载失败: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * 更新关系统计数据
+ */
+function updateRelationshipStats(data) {
+    const members = data.members || [];
+    const relations = data.relations || [];
+
+    // 总成员数
+    document.getElementById('total-members-count').textContent = members.length;
+
+    // 总关系数
+    document.getElementById('total-relations-count').textContent = relations.length;
+
+    // 最活跃成员（基于关系数量）
+    let mostActive = '--';
+    if (members.length > 0) {
+        const relationCounts = {};
+        relations.forEach(rel => {
+            relationCounts[rel.source] = (relationCounts[rel.source] || 0) + 1;
+            relationCounts[rel.target] = (relationCounts[rel.target] || 0) + 1;
+        });
+
+        let maxCount = 0;
+        let maxUserId = null;
+        for (const [userId, count] of Object.entries(relationCounts)) {
+            if (count > maxCount) {
+                maxCount = count;
+                maxUserId = userId;
+            }
+        }
+
+        if (maxUserId) {
+            const member = members.find(m => m.user_id === maxUserId);
+            mostActive = member ? (member.nickname || member.user_id) : maxUserId;
+        }
+    }
+    document.getElementById('most-active-member').textContent = mostActive;
+
+    // 平均关系强度
+    let avgStrength = 0;
+    if (relations.length > 0) {
+        const totalStrength = relations.reduce((sum, rel) => sum + (rel.strength || 0), 0);
+        avgStrength = (totalStrength / relations.length).toFixed(2);
+    }
+    document.getElementById('avg-relation-strength').textContent = avgStrength;
+}
+
+/**
+ * 渲染关系图谱
+ */
+function renderRelationshipChart(data) {
+    const chartDom = document.getElementById('relationship-graph-chart');
+    if (!chartDom) return;
+
+    const myChart = echarts.init(chartDom);
+
+    const members = data.members || [];
+    const relations = data.relations || [];
+
+    // 构建节点数据
+    const nodes = members.map(member => ({
+        id: member.user_id,
+        name: member.nickname || member.user_id,
+        symbolSize: 30 + (member.message_count || 0) * 0.1, // 根据消息数量调整节点大小
+        label: {
+            show: true
+        },
+        itemStyle: {
+            color: getNodeColor(member.message_count || 0)
+        }
+    }));
+
+    // 构建边数据
+    const links = relations.map(rel => ({
+        source: rel.source,
+        target: rel.target,
+        value: rel.strength || 1,
+        lineStyle: {
+            width: Math.max(1, (rel.strength || 0) * 2),
+            opacity: 0.3 + (rel.strength || 0) * 0.3
+        }
+    }));
+
+    // 获取布局类型
+    const layoutType = document.getElementById('relation-layout-type')?.value || 'force';
+
+    const option = {
+        title: {
+            text: `${members.length} 个成员，${relations.length} 个关系连接`,
+            left: 'center',
+            top: 10
+        },
+        tooltip: {
+            formatter: function(params) {
+                if (params.dataType === 'node') {
+                    return `${params.data.name}<br/>消息数: ${members.find(m => m.user_id === params.data.id)?.message_count || 0}`;
+                } else if (params.dataType === 'edge') {
+                    return `${params.data.source} → ${params.data.target}<br/>关系强度: ${params.data.value.toFixed(2)}`;
+                }
+            }
+        },
+        series: [{
+            type: 'graph',
+            layout: layoutType,
+            data: nodes,
+            links: links,
+            roam: true,
+            label: {
+                show: true,
+                position: 'right',
+                formatter: '{b}'
+            },
+            labelLayout: {
+                hideOverlap: true
+            },
+            scaleLimit: {
+                min: 0.4,
+                max: 2
+            },
+            lineStyle: {
+                color: 'source',
+                curveness: 0.3
+            },
+            force: layoutType === 'force' ? {
+                repulsion: 200,
+                edgeLength: [50, 150],
+                gravity: 0.1
+            } : undefined,
+            circular: layoutType === 'circular' ? {
+                rotateLabel: true
+            } : undefined
+        }]
+    };
+
+    myChart.setOption(option);
+
+    // 响应窗口大小变化
+    window.addEventListener('resize', () => myChart.resize());
+}
+
+/**
+ * 根据消息数量获取节点颜色
+ */
+function getNodeColor(messageCount) {
+    if (messageCount > 100) return '#ff4757';
+    if (messageCount > 50) return '#ff6348';
+    if (messageCount > 20) return '#ffa502';
+    if (messageCount > 10) return '#1e90ff';
+    return '#70a1ff';
+}
+
+/**
+ * 渲染成员列表
+ */
+function renderMembersList(data) {
+    const container = document.getElementById('members-list');
+    if (!container) return;
+
+    const members = data.members || [];
+    const relations = data.relations || [];
+
+    if (members.length === 0) {
+        container.innerHTML = '<div class="empty-message">暂无成员数据</div>';
+        return;
+    }
+
+    // 计算每个成员的关系数
+    const relationCounts = {};
+    relations.forEach(rel => {
+        relationCounts[rel.source] = (relationCounts[rel.source] || 0) + 1;
+        relationCounts[rel.target] = (relationCounts[rel.target] || 0) + 1;
+    });
+
+    // 按消息数量排序
+    const sortedMembers = [...members].sort((a, b) =>
+        (b.message_count || 0) - (a.message_count || 0)
+    );
+
+    let html = '<div class="members-table">';
+    html += `
+        <div class="member-row member-header">
+            <div class="member-col">昵称</div>
+            <div class="member-col">用户ID</div>
+            <div class="member-col">消息数</div>
+            <div class="member-col">关系数</div>
+            <div class="member-col">活跃度</div>
+        </div>
+    `;
+
+    sortedMembers.forEach(member => {
+        const relationCount = relationCounts[member.user_id] || 0;
+        const messageCount = member.message_count || 0;
+        const activityLevel = getActivityLevel(messageCount);
+
+        html += `
+            <div class="member-row" data-user-id="${member.user_id}" data-nickname="${escapeHtml(member.nickname || '')}">
+                <div class="member-col">
+                    <div class="member-avatar">
+                        <i class="material-icons">person</i>
+                    </div>
+                    <span>${escapeHtml(member.nickname || member.user_id)}</span>
+                </div>
+                <div class="member-col">${member.user_id}</div>
+                <div class="member-col">${messageCount}</div>
+                <div class="member-col">${relationCount}</div>
+                <div class="member-col">
+                    <span class="activity-badge activity-${activityLevel}">${activityLevel}</span>
+                </div>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+/**
+ * 获取活跃度等级
+ */
+function getActivityLevel(messageCount) {
+    if (messageCount > 100) return 'high';
+    if (messageCount > 20) return 'medium';
+    return 'low';
+}
+
+/**
+ * 筛选成员列表
+ */
+function filterMembersList() {
+    const searchInput = document.getElementById('memberSearchInput');
+    if (!searchInput) return;
+
+    const searchTerm = searchInput.value.toLowerCase();
+    const memberRows = document.querySelectorAll('.member-row:not(.member-header)');
+
+    memberRows.forEach(row => {
+        const nickname = row.getAttribute('data-nickname')?.toLowerCase() || '';
+        const userId = row.getAttribute('data-user-id')?.toLowerCase() || '';
+
+        if (nickname.includes(searchTerm) || userId.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+
+/**
+ * 更新关系图谱（切换布局时调用）
+ */
+function updateRelationshipChart() {
+    if (currentGroupRelations) {
+        renderRelationshipChart(currentGroupRelations);
+    }
+}
+
+/**
+ * 返回群组列表
+ */
+function backToGroupList() {
+    document.querySelector('.group-list-section').style.display = 'block';
+    document.getElementById('relationship-detail').style.display = 'none';
+    currentGroupRelations = null;
+    currentGroupId = null;
+}
+
+/**
+ * HTML转义函数
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // 页面加载完成后初始化选项卡
 document.addEventListener('DOMContentLoaded', function() {
     // 等待DOM完全加载后再初始化
     setTimeout(() => {
         if (document.querySelector('.tab-btn')) {
             initializeReviewTabs();
+        }
+
+        // 检查是否在社交关系页面，如果是则加载群组列表
+        const socialRelationsPage = document.getElementById('social-relations-page');
+        if (socialRelationsPage && socialRelationsPage.classList.contains('active')) {
+            loadGroupList();
         }
     }, 100);
 });

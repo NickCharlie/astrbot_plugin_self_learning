@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.2", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -56,9 +56,24 @@ class SelfLearningPlugin(star.Star):
                 # 回退到当前目录下的 data 目录
                 astrbot_data_path = os.path.join(os.path.dirname(__file__), "data")
                 logger.warning("无法获取 AstrBot 数据路径，使用插件目录下的 data 目录")
-            plugin_data_dir = os.path.join(astrbot_data_path, "plugins", "astrbot_plugin_self_learning")
-            
-            logger.info(f"插件数据目录: {plugin_data_dir}")
+
+            # 检查用户是否在配置中自定义了数据存储路径
+            user_data_dir = self.config.get('data_dir') if self.config else None
+
+            if user_data_dir:
+                # 用户自定义了数据路径，使用用户指定的路径
+                logger.info(f"使用用户自定义数据路径: {user_data_dir}")
+                plugin_data_dir = user_data_dir
+                # 确保路径是绝对路径
+                if not os.path.isabs(plugin_data_dir):
+                    plugin_data_dir = os.path.abspath(plugin_data_dir)
+            else:
+                # 使用 plugin_data 目录而不是 plugins 目录，这样数据不会在插件卸载时被删除
+                # 根据 AstrBot 框架规范，插件持久化数据应存储在 data/plugin_data/{plugin_name}/
+                plugin_data_dir = os.path.join(astrbot_data_path, "plugin_data", "astrbot_plugin_self_learning")
+                logger.info(f"使用默认数据路径: {plugin_data_dir}")
+
+            logger.info(f"最终插件数据目录: {plugin_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
             
         except Exception as e:
@@ -92,16 +107,29 @@ class SelfLearningPlugin(star.Star):
         if self.plugin_config.enable_web_interface:
             logger.info(f"Debug: 准备创建Server实例，端口: {self.plugin_config.web_interface_port}")
             try:
-                server_instance = Server(port=self.plugin_config.web_interface_port)
-                if server_instance:
-                    logger.info(StatusMessages.WEB_INTERFACE_ENABLED.format(host=server_instance.host, port=server_instance.port))
-                    logger.info("Web服务器实例已创建，将在on_load中启动")
+                # 检查是否已经有服务器实例在运行（处理插件重载场景）
+                if server_instance is not None:
+                    logger.warning("检测到已存在的Web服务器实例，可能是插件重载")
+                    # 检查服务器是否仍在运行
+                    if server_instance.server_task and not server_instance.server_task.done():
+                        logger.warning("旧的Web服务器仍在运行，将复用该实例")
+                        logger.info(f"Web服务器地址: http://{server_instance.host}:{server_instance.port}")
+                    else:
+                        logger.info("旧的Web服务器已停止，创建新实例")
+                        server_instance = None  # 清除旧实例引用
 
-                    # 立即尝试启动Web服务器而不等待on_load
-                    logger.info("Debug: 尝试立即启动Web服务器")
-                    asyncio.create_task(self._immediate_start_web_server())
-                else:
-                    logger.error(StatusMessages.WEB_INTERFACE_INIT_FAILED)
+                # 只有在没有运行中的服务器时才创建新实例
+                if server_instance is None:
+                    server_instance = Server(port=self.plugin_config.web_interface_port)
+                    if server_instance:
+                        logger.info(StatusMessages.WEB_INTERFACE_ENABLED.format(host=server_instance.host, port=server_instance.port))
+                        logger.info("Web服务器实例已创建，将在on_load中启动")
+
+                        # 立即尝试启动Web服务器而不等待on_load
+                        logger.info("Debug: 尝试立即启动Web服务器")
+                        asyncio.create_task(self._immediate_start_web_server())
+                    else:
+                        logger.error(StatusMessages.WEB_INTERFACE_INIT_FAILED)
             except Exception as e:
                 logger.error(f"创建Web服务器实例失败: {e}", exc_info=True)
         else:

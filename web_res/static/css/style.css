@@ -1708,14 +1708,9 @@ input[type="checkbox"]:checked::after {
 
 .update-info {
     background: #f0f9ff;
-    padding: 16px;
-    border-radius: 8px;
-    margin-bottom: 24px;
-    border-left: 4px solid #1890ff;
 }
 
 .update-info p {
-    margin: 4px 0;
     font-size: 12px;
     color: var(--color-text1-3);
 }
@@ -2930,12 +2925,6 @@ input[type="checkbox"]:checked::after {
 
 /* 更新信息样式 */
 .update-info {
-    background: #e6f7ff;
-    border: 1px solid #91d5ff;
-    border-left: 4px solid #1890ff;
-    border-radius: 6px;
-    padding: 16px;
-    margin: 16px 0;
     font-size: 13px;
     line-height: 1.6;
 }
@@ -2961,6 +2950,23 @@ input[type="checkbox"]:checked::after {
     margin-bottom: 12px;
 }
 
+/* 徽章行容器 - 将类型徽章和ID徽章放在同一行 */
+.update-badges-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;  /* 徽章之间的间隔 */
+    margin-bottom: 12px;
+}
+
+/* 人格审查项目间隔 */
+.persona-update-item {
+    margin-bottom: 20px;  /* 审查项之间的间隔 */
+}
+
+.persona-update-item:last-child {
+    margin-bottom: 0;  /* 最后一项不需要底部间隔 */
+}
+
 .id-badge {
     display: inline-flex;
     align-items: center;
@@ -2981,6 +2987,21 @@ input[type="checkbox"]:checked::after {
     content: 'ID: ';
     opacity: 0.8;
     margin-right: 2px;
+}
+
+/* 文本差异高亮样式 */
+.text-diff-new {
+    color: #d32f2f;  /* Material Design Red 700 */
+    font-weight: 500;
+    background-color: rgba(255, 205, 210, 0.3);  /* Light red background */
+    padding: 1px 2px;
+    border-radius: 2px;
+}
+
+/* 确保高亮内容保持换行 */
+.content-preview.highlighted-diff {
+    white-space: pre-wrap;
+    word-wrap: break-word;
 }
 
 /* 审查项目内容区域样式增强 */
@@ -3070,4 +3091,401 @@ input[type="checkbox"]:checked::after {
     font-style: italic;
     text-align: center;
     padding: 20px;
+}
+
+/* ========== 人格审查页面UI优化 ========== */
+
+/* 1. 减小update-id-badge尺寸 */
+.update-id-badge .id-badge {
+    padding: 3px 8px !important;
+    font-size: 10px !important;
+    font-weight: 500 !important;
+}
+
+/* 2. type-badge样式（风格学习、人格学习等类型标签） */
+.type-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;  /* 与 id-badge 保持一致 */
+    border-radius: 20px;  /* 与 id-badge 保持一致 */
+    font-size: 11px;
+    font-weight: 600;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    letter-spacing: 0.5px;  /* 与 id-badge 保持一致 */
+    text-transform: uppercase;  /* 与 id-badge 保持一致 */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);  /* 增强阴影效果 */
+    white-space: nowrap;  /* 与 id-badge 保持一致 */
+}
+
+/* 人格学习标签 */
+.type-badge.persona-badge {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+/* 风格学习标签 */
+.type-badge.style-badge {
+    background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+    color: white;
+}
+
+/* 常规更新标签 */
+.type-badge.general-badge {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+}
+
+/* 3. review-checkbox样式（多选框） */
+.review-checkbox,
+.reviewed-checkbox {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    border: 2px solid #d0d7de;
+    border-radius: 4px;
+    background-color: white;
+    transition: all 0.2s ease;
+}
+
+.review-checkbox:hover,
+.reviewed-checkbox:hover {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.review-checkbox:checked,
+.reviewed-checkbox:checked {
+    background-color: #667eea;
+    border-color: #667eea;
+}
+
+.review-checkbox:checked::after,
+.reviewed-checkbox:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* 复选框容器样式 */
+.update-checkbox {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px;
+}
+
+/* ==================== 社交关系分析页面样式 ==================== */
+
+/* 社交关系分析主容器 */
+.social-relations-section {
+    padding: 20px;
+}
+
+.social-relations-section h2 {
+    margin-bottom: 30px;
+    color: var(--text-primary);
+}
+
+/* 群组列表区域 */
+.group-list-section {
+    margin-bottom: 30px;
+}
+
+.group-list-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.group-list-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+}
+
+/* 群组卡片网格 */
+.group-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+/* 群组卡片样式 */
+.group-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.group-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.group-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.group-card-header .material-icons {
+    color: var(--primary-color);
+    font-size: 32px;
+}
+
+.group-card-header h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.group-card-body {
+    margin-bottom: 16px;
+}
+
+.group-stat {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.group-stat:last-child {
+    border-bottom: none;
+}
+
+.group-stat .stat-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.group-stat .stat-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.group-card-footer {
+    display: flex;
+    justify-content: center;
+}
+
+.btn-sm {
+    padding: 8px 16px;
+    font-size: 14px;
+}
+
+/* 关系可视化区域 */
+.relationship-viz-section {
+    margin-top: 30px;
+}
+
+.relationship-viz-section .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.relationship-viz-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+}
+
+/* 成员列表容器 */
+.members-list-container {
+    margin-top: 30px;
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+.members-list-container h3 {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-primary);
+    margin-bottom: 20px;
+}
+
+/* 成员表格样式 */
+.members-table {
+    width: 100%;
+}
+
+.member-row {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+    align-items: center;
+}
+
+.member-row.member-header {
+    background: var(--primary-color);
+    color: white;
+    font-weight: 600;
+    border-radius: 8px 8px 0 0;
+    border-bottom: none;
+}
+
+.member-row:not(.member-header):hover {
+    background: rgba(128, 128, 128, 0.05);
+}
+
+.member-col {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.member-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--primary-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.member-avatar .material-icons {
+    font-size: 24px;
+}
+
+/* 活跃度标签 */
+.activity-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.activity-badge.activity-high {
+    background: rgba(255, 71, 87, 0.2);
+    color: #ff4757;
+}
+
+.activity-badge.activity-medium {
+    background: rgba(255, 165, 2, 0.2);
+    color: #ffa502;
+}
+
+.activity-badge.activity-low {
+    background: rgba(112, 161, 255, 0.2);
+    color: #70a1ff;
+}
+
+/* 空消息和错误消息 */
+.empty-message,
+.error-message,
+.loading-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+    font-size: 16px;
+}
+
+.empty-message i,
+.error-message i,
+.loading-message i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    display: block;
+}
+
+.error-message {
+    color: #ff4757;
+}
+
+.error-message i {
+    color: #ff4757;
+}
+
+/* 搜索框样式 */
+.search-box {
+    position: relative;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.search-box input {
+    width: 100%;
+    padding: 12px 40px 12px 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.search-box input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.search-box .material-icons {
+    position: absolute;
+    right: 12px;
+    color: var(--text-secondary);
+    pointer-events: none;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+    .group-cards {
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    .group-cards {
+        grid-template-columns: 1fr;
+    }
+
+    .member-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .member-row.member-header {
+        display: none;
+    }
+
+    .member-col::before {
+        content: attr(data-label);
+        font-weight: 600;
+        margin-right: 8px;
+    }
+}
+
+.update-checkbox label {
+    display: none; /* 隐藏label，只显示checkbox */
 }
