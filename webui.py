@@ -17,6 +17,7 @@ from hypercorn.config import Config as HypercornConfig
 from .config import PluginConfig
 from .core.factory import FactoryManager
 from .persona_web_manager import PersonaWebManager, set_persona_web_manager, get_persona_web_manager
+from .services.intelligence_metrics import IntelligenceMetricsService
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
@@ -45,6 +46,7 @@ database_manager: Optional[Any] = None
 db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
 progressive_learning: Optional[Any] = None  # 添加progressive_learning全局变量
+intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智能指标计算服务
 
 # 新增的变量
 pending_updates: List[Any] = []
@@ -99,7 +101,7 @@ async def set_plugin_services(
     astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates, intelligence_metrics_service
     plugin_config = config
 
     # 将配置存储到app中,供API认证使用
@@ -186,7 +188,16 @@ async def set_plugin_services(
             logger.info(f"成功获取progressive_learning服务: {type(progressive_learning)}")
         else:
             logger.warning("progressive_learning服务为None")
-            
+
+        # 初始化智能指标计算服务
+        logger.info("正在初始化智能指标计算服务...")
+        intelligence_metrics_service = IntelligenceMetricsService(
+            config=config,
+            db_manager=database_manager
+        )
+        globals()['intelligence_metrics_service'] = intelligence_metrics_service
+        logger.info("智能指标计算服务初始化成功")
+
     except Exception as e:
         logger.error(f"获取服务实例失败: {e}", exc_info=True)
         globals()['persona_updater'] = None
@@ -996,7 +1007,7 @@ async def get_metrics():
             },
             "total_messages_collected": total_messages,
             "filtered_messages": filtered_messages,
-            "learning_efficiency": (filtered_messages / total_messages * 100) if total_messages > 0 else 0,
+            "learning_efficiency": 0,  # 将被智能计算覆盖
             "system_metrics": {
                 "cpu_percent": cpu_percent,
                 "memory_percent": memory.percent,
@@ -1077,7 +1088,87 @@ async def get_metrics():
             "success_rate": round(success_rate, 2)
         }
         metrics["last_updated"] = time.time()
-        
+
+        # 使用智能指标计算服务计算学习效率
+        if intelligence_metrics_service:
+            try:
+                # 统计额外的学习成果指标
+                refined_content_count = 0
+                style_patterns_learned = 0
+                persona_updates_count = 0
+                active_strategies = []
+
+                # 从数据库获取提炼内容数量
+                if database_manager:
+                    try:
+                        async with database_manager.get_db_connection() as conn:
+                            cursor = await conn.cursor()
+
+                            # 统计提炼内容数量
+                            await cursor.execute("SELECT COUNT(*) FROM filtered_messages WHERE refined = 1")
+                            result = await cursor.fetchone()
+                            if result:
+                                refined_content_count = result[0]
+
+                            # 统计风格学习成果
+                            await cursor.execute("SELECT COUNT(*) FROM style_learning")
+                            result = await cursor.fetchone()
+                            if result:
+                                style_patterns_learned = result[0]
+
+                            # 统计待审查的人格更新
+                            await cursor.execute("SELECT COUNT(*) FROM persona_update_reviews WHERE status = 'pending'")
+                            result = await cursor.fetchone()
+                            if result:
+                                persona_updates_count = result[0]
+
+                            await cursor.close()
+                    except Exception as db_error:
+                        logger.warning(f"从数据库获取学习统计失败: {db_error}")
+
+                # 统计激活的学习策略
+                if plugin_config:
+                    if plugin_config.enable_message_capture:
+                        active_strategies.append("message_filtering")
+                    if plugin_config.enable_auto_learning:
+                        active_strategies.append("content_refinement")
+                        active_strategies.append("persona_evolution")
+                    if plugin_config.enable_expression_patterns:
+                        active_strategies.append("style_learning")
+                    if plugin_config.enable_knowledge_graph:
+                        active_strategies.append("context_awareness")
+
+                # 计算智能化学习效率
+                efficiency_metrics = await intelligence_metrics_service.calculate_learning_efficiency(
+                    total_messages=total_messages,
+                    filtered_messages=filtered_messages,
+                    refined_content_count=refined_content_count,
+                    style_patterns_learned=style_patterns_learned,
+                    persona_updates_count=persona_updates_count,
+                    active_strategies=active_strategies
+                )
+
+                # 更新metrics中的学习效率
+                metrics["learning_efficiency"] = efficiency_metrics.overall_efficiency
+                metrics["learning_efficiency_details"] = {
+                    "message_filter_rate": efficiency_metrics.message_filter_rate,
+                    "content_refine_quality": efficiency_metrics.content_refine_quality,
+                    "style_learning_progress": efficiency_metrics.style_learning_progress,
+                    "persona_update_quality": efficiency_metrics.persona_update_quality,
+                    "active_strategies_count": efficiency_metrics.active_strategies_count,
+                    "active_strategies": active_strategies
+                }
+
+                logger.info(f"智能学习效率计算完成: {efficiency_metrics.overall_efficiency:.2f}%")
+
+            except Exception as metrics_error:
+                logger.warning(f"智能学习效率计算失败,使用简单算法: {metrics_error}")
+                # 回退到简单计算
+                metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+        else:
+            # 如果服务未初始化,使用简单算法
+            metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+
         return jsonify(metrics)
         
     except Exception as e:
@@ -2946,13 +3037,40 @@ async def style_learning_all_groups():
                 # 7. 提交到人格审查系统
                 review_submitted = False
                 try:
+                    # 使用智能置信度计算
+                    confidence_score = 0.85  # 默认值
+                    if intelligence_metrics_service:
+                        try:
+                            # 获取当前人格内容
+                            current_persona_content = ""
+                            try:
+                                persona_web_mgr = get_persona_web_manager()
+                                if persona_web_mgr:
+                                    current_persona = await persona_web_mgr.get_default_persona()
+                                    current_persona_content = current_persona.get('prompt', '')
+                            except:
+                                pass
+
+                            # 计算智能置信度
+                            confidence_metrics = await intelligence_metrics_service.calculate_persona_confidence(
+                                proposed_content=full_style_content,
+                                original_content=current_persona_content,
+                                learning_source=f"全群组风格学习-{group_id}",
+                                message_count=len(formatted_messages),
+                                llm_adapter=llm_client if llm_client else None
+                            )
+                            confidence_score = confidence_metrics.overall_confidence
+                            logger.info(f"智能置信度计算: {confidence_score:.3f} (详情: {confidence_metrics.evaluation_basis.get('method', 'unknown')})")
+                        except Exception as conf_error:
+                            logger.warning(f"智能置信度计算失败,使用默认值: {conf_error}")
+
                     # 检查是否有人格学习审查方法
                     if hasattr(db_manager, 'add_persona_learning_review'):
                         await db_manager.add_persona_learning_review(
                             group_id=group_id,
                             proposed_content=full_style_content,
                             learning_source=f"全群组风格学习-{group_id}",
-                            confidence_score=0.85,
+                            confidence_score=confidence_score,
                             raw_analysis=f"基于{len(conversation_pairs)}个对话对和{patterns_learned}个表达模式",
                             metadata={
                                 "all_groups_learning": True,
@@ -3353,13 +3471,40 @@ async def relearn_all():
                                 # 获取原始消息总数（未筛选的）
                                 total_raw_messages = len(recent_raw_messages)
 
+                                # 使用智能置信度计算
+                                confidence_score = 0.85  # 默认值
+                                if intelligence_metrics_service:
+                                    try:
+                                        # 获取当前人格内容
+                                        current_persona_content = ""
+                                        try:
+                                            persona_web_mgr = get_persona_web_manager()
+                                            if persona_web_mgr:
+                                                current_persona = await persona_web_mgr.get_default_persona()
+                                                current_persona_content = current_persona.get('prompt', '')
+                                        except:
+                                            pass
+
+                                        # 计算智能置信度
+                                        confidence_metrics = await intelligence_metrics_service.calculate_persona_confidence(
+                                            proposed_content=full_style_content,
+                                            original_content=current_persona_content,
+                                            learning_source="重新学习-关系分析",
+                                            message_count=len(formatted_messages),
+                                            llm_adapter=llm_client if llm_client else None
+                                        )
+                                        confidence_score = confidence_metrics.overall_confidence
+                                        logger.info(f"重新学习智能置信度: {confidence_score:.3f}")
+                                    except Exception as conf_error:
+                                        logger.warning(f"智能置信度计算失败,使用默认值: {conf_error}")
+
                                 # 检查是否有add_persona_learning_review方法
                                 if hasattr(db_manager, 'add_persona_learning_review'):
                                     await db_manager.add_persona_learning_review(
                                         group_id=group_id,
                                         proposed_content=full_style_content,
                                         learning_source="重新学习-关系分析",
-                                        confidence_score=0.85,  # 基于关系分析的高置信度
+                                        confidence_score=confidence_score,
                                         raw_analysis=llm_raw_response if llm_raw_response else f"基于{len(conversation_pairs)}个对话对和{results.get('new_patterns', 0)}个表达模式",
                                         metadata={
                                             "relearn_triggered": True,

@@ -4,5 +4,5 @@
 /.claude
 /__pycache__
 /.VSCodeCounter
-nul
 API_USAGE.md
+.DS_Store

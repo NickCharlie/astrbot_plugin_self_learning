@@ -42,15 +42,22 @@ let chartInstances = {};
 let socialRelationsRefreshInterval = null; // 社交关系页面自动刷新定时器
 
 /**
- * 智能文本差异高亮函数
- * 比较原文本和新文本,只高亮关键修改的词汇和短语
+ * 智能文本差异高亮函数 - 改进版
+ * 只高亮当前key_change的内容，而不是整个人格文本
  * @param {string} originalText - 原始文本
- * @param {string} proposedText - 建议更新的文本
+ * @param {string} proposedText - 建议更新的文本 (key_change)
+ * @param {boolean} isKeyChangeOnly - 是否只是key_change片段
  * @returns {string} 带有HTML标记的高亮文本
  */
-function highlightTextDifferences(originalText, proposedText) {
+function highlightTextDifferences(originalText, proposedText, isKeyChangeOnly = false) {
     if (!originalText || !proposedText) {
-        return escapeHtml(proposedText || '');
+        // 转换换行符为<br>以便正确显示
+        return formatNewlines(escapeHtml(proposedText || ''));
+    }
+
+    // 如果是key_change片段，直接高亮整个新内容
+    if (isKeyChangeOnly) {
+        return `<span class="text-diff-new">${formatNewlines(escapeHtml(proposedText))}</span>`;
     }
 
     // 按行处理
@@ -91,7 +98,18 @@ function highlightTextDifferences(originalText, proposedText) {
         return highlightWordDifferences(mostSimilarOriginalLine, proposedLine);
     });
 
-    return highlightedLines.join('\n');
+    return highlightedLines.join('<br>');  // 使用<br>而不是\n
+}
+
+/**
+ * 格式化换行符为HTML换行
+ * @param {string} text - 原始文本
+ * @returns {string} 格式化后的HTML文本
+ */
+function formatNewlines(text) {
+    if (!text) return '';
+    // 将\n转换为<br>
+    return text.replace(/\n/g, '<br>');
 }
 
 /**
@@ -364,18 +382,37 @@ function initializeDashboard() {
 // 渲染概览统计
 function renderOverviewStats() {
     const stats = currentMetrics;
-    
+
     // 更新统计数字
     document.getElementById('total-messages').textContent = formatNumber(stats.total_messages_collected || 0);
     document.getElementById('filtered-messages').textContent = formatNumber(stats.filtered_messages || 0);
-    
+
     // 计算总LLM调用次数
     const totalLLMCalls = Object.values(stats.llm_calls || {}).reduce((sum, model) => sum + (model.total_calls || 0), 0);
     document.getElementById('total-llm-calls').textContent = formatNumber(totalLLMCalls);
-    
+
     // 使用学习会话统计的真实数据
     const learningSessionsCount = stats.learning_sessions?.active_sessions || 0;
     document.getElementById('learning-sessions').textContent = formatNumber(learningSessionsCount);
+
+    // 更新学习效率显示 - 使用智能计算结果
+    const learningEfficiencyElement = document.getElementById('learning-efficiency');
+    if (learningEfficiencyElement && stats.learning_efficiency !== undefined) {
+        learningEfficiencyElement.textContent = `效率: ${Math.round(stats.learning_efficiency)}%`;
+
+        // 如果有详细数据，添加tooltip
+        if (stats.learning_efficiency_details) {
+            const details = stats.learning_efficiency_details;
+            const tooltip = `
+筛选率: ${Math.round(details.message_filter_rate)}%
+提炼质量: ${Math.round(details.content_refine_quality)}%
+风格进度: ${Math.round(details.style_learning_progress)}%
+人格质量: ${Math.round(details.persona_update_quality)}%
+激活策略: ${details.active_strategies_count}个
+            `.trim();
+            learningEfficiencyElement.title = tooltip;
+        }
+    }
 
     // 加载并显示真实的趋势百分比
     fetch('/api/metrics/trends')
@@ -653,11 +690,23 @@ function initializeLearningProgressGauge() {
     const chartDom = document.getElementById('learning-progress-gauge');
     const chart = echarts.init(chartDom, 'material');
     chartInstances['learning-progress-gauge'] = chart;
-    
-    // 计算学习效率
+
+    // 计算学习效率 - 优先使用智能计算结果
     const totalMessages = currentMetrics.total_messages_collected || 0;
     const filteredMessages = currentMetrics.filtered_messages || 0;
-    const efficiency = totalMessages > 0 ? (filteredMessages / totalMessages * 100) : 0;
+
+    // 使用智能计算的学习效率，如果不存在则回退到简单计算
+    let efficiency = 0;
+    if (currentMetrics.learning_efficiency !== undefined) {
+        efficiency = currentMetrics.learning_efficiency;
+    } else {
+        efficiency = totalMessages > 0 ? (filteredMessages / totalMessages * 100) : 0;
+    }
+
+    // 如果有详细的学习效率数据，在控制台输出
+    if (currentMetrics.learning_efficiency_details) {
+        console.log('学习效率详情:', currentMetrics.learning_efficiency_details);
+    }
     
     const option = {
         series: [
@@ -1411,21 +1460,37 @@ function renderPersonaUpdates(updates) {
         const proposedFullDiv = updateElement.querySelector(`#proposed-full-${update.id}`);
 
         if (proposedShortDiv && proposedFullDiv) {
-            // 生成高亮的完整内容
+            // 检查是否只是key_change更新
+            const isKeyChangeOnly = update.proposed_content && update.proposed_content.length < 500;
+
+            // 生成高亮的完整内容 - 使用formatNewlines处理换行
             const highlightedFullContent = highlightTextDifferences(
                 update.original_content || '',
-                update.proposed_content || ''
+                update.proposed_content || '',
+                isKeyChangeOnly  // 如果是短内容,认为是key_change
             );
 
             // 生成高亮的截断内容
+            const truncatedProposed = truncateText(update.proposed_content || '', 200);
             const highlightedShortContent = highlightTextDifferences(
                 update.original_content || '',
-                truncateText(update.proposed_content || '', 200)
+                truncatedProposed,
+                isKeyChangeOnly
             );
 
             // 设置内容(使用innerHTML因为包含HTML标记)
             proposedShortDiv.innerHTML = highlightedShortContent;
             proposedFullDiv.innerHTML = highlightedFullContent;
+        }
+
+        // 同样处理原始内容的换行符显示
+        const originalShortDiv = updateElement.querySelector(`#original-${update.id}`);
+        const originalFullDiv = updateElement.querySelector(`#original-full-${update.id}`);
+
+        if (originalShortDiv && originalFullDiv) {
+            // 格式化原始内容的换行符
+            originalShortDiv.innerHTML = formatNewlines(truncateText(update.original_content || '', 200));
+            originalFullDiv.innerHTML = formatNewlines(update.original_content || '');
         }
 
         reviewList.appendChild(updateElement);
@@ -4168,12 +4233,12 @@ function renderReviewedPersonaUpdates(updates) {
                 </div>
                 <div class="update-preview">
                     <p><strong>原始内容:</strong> <button class="toggle-content-btn" data-target="reviewed-original-${update.id}">展开完整内容</button></p>
-                    <div class="content-preview" id="reviewed-original-${update.id}" data-collapsed="true">${truncateText(update.original_content || '', 200)}</div>
-                    <div class="content-preview full-content" id="reviewed-original-full-${update.id}" style="display: none;">${update.original_content || ''}</div>
-                    
+                    <div class="content-preview" id="reviewed-original-${update.id}" data-collapsed="true"></div>
+                    <div class="content-preview full-content" id="reviewed-original-full-${update.id}" style="display: none;"></div>
+
                     <p><strong>建议更新:</strong> <button class="toggle-content-btn" data-target="reviewed-proposed-${update.id}">展开完整内容</button></p>
-                    <div class="content-preview" id="reviewed-proposed-${update.id}" data-collapsed="true">${truncateText(update.proposed_content || '', 200)}</div>
-                    <div class="content-preview full-content" id="reviewed-proposed-full-${update.id}" style="display: none;">${update.proposed_content || ''}</div>
+                    <div class="content-preview highlighted-diff" id="reviewed-proposed-${update.id}" data-collapsed="true"></div>
+                    <div class="content-preview full-content highlighted-diff" id="reviewed-proposed-full-${update.id}" style="display: none;"></div>
                 </div>
             </div>
             <div class="update-actions">
@@ -4212,7 +4277,41 @@ function renderReviewedPersonaUpdates(updates) {
         toggleBtns.forEach(btn => {
             btn.addEventListener('click', (e) => toggleContentView(e.target));
         });
-        
+
+        // 应用高亮和格式化到已审查的内容
+        const reviewedProposedShortDiv = updateElement.querySelector(`#reviewed-proposed-${update.id}`);
+        const reviewedProposedFullDiv = updateElement.querySelector(`#reviewed-proposed-full-${update.id}`);
+        const reviewedOriginalShortDiv = updateElement.querySelector(`#reviewed-original-${update.id}`);
+        const reviewedOriginalFullDiv = updateElement.querySelector(`#reviewed-original-full-${update.id}`);
+
+        if (reviewedProposedShortDiv && reviewedProposedFullDiv) {
+            // 检查是否只是key_change更新
+            const isKeyChangeOnly = update.proposed_content && update.proposed_content.length < 500;
+
+            // 生成高亮的内容
+            const highlightedFullContent = highlightTextDifferences(
+                update.original_content || '',
+                update.proposed_content || '',
+                isKeyChangeOnly
+            );
+
+            const truncatedProposed = truncateText(update.proposed_content || '', 200);
+            const highlightedShortContent = highlightTextDifferences(
+                update.original_content || '',
+                truncatedProposed,
+                isKeyChangeOnly
+            );
+
+            reviewedProposedShortDiv.innerHTML = highlightedShortContent;
+            reviewedProposedFullDiv.innerHTML = highlightedFullContent;
+        }
+
+        if (reviewedOriginalShortDiv && reviewedOriginalFullDiv) {
+            // 格式化原始内容的换行符
+            reviewedOriginalShortDiv.innerHTML = formatNewlines(truncateText(update.original_content || '', 200));
+            reviewedOriginalFullDiv.innerHTML = formatNewlines(update.original_content || '');
+        }
+
         reviewedList.appendChild(updateElement);
     });
 }
