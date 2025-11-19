@@ -4005,6 +4005,57 @@ async def trigger_social_relation_analysis(group_id: str):
         }), 500
 
 
+@api_bp.route("/social_relations/<group_id>/clear", methods=["DELETE"])
+@require_auth
+async def clear_group_social_relations(group_id: str):
+    """清空群组社交关系数据"""
+    try:
+        from .core.factory import FactoryManager
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        logger.info(f"开始清空群组 {group_id} 的社交关系数据")
+
+        # 统计要删除的记录数
+        deleted_count = 0
+
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            # 先统计数量
+            await cursor.execute('''
+                SELECT COUNT(*) FROM social_relations WHERE group_id = ?
+            ''', (group_id,))
+            result = await cursor.fetchone()
+            if result:
+                deleted_count = result[0]
+
+            # 执行删除
+            await cursor.execute('''
+                DELETE FROM social_relations WHERE group_id = ?
+            ''', (group_id,))
+
+            await conn.commit()
+            await cursor.close()
+
+        logger.info(f"成功清空群组 {group_id} 的 {deleted_count} 条社交关系数据")
+
+        return jsonify({
+            "success": True,
+            "message": f"成功清空 {deleted_count} 条社交关系数据",
+            "deleted_count": deleted_count
+        })
+
+    except Exception as e:
+        logger.error(f"清空社交关系数据失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @api_bp.route("/social_relations/<group_id>/user/<user_id>", methods=["GET"])
 @require_auth
 async def get_user_social_relations(group_id: str, user_id: str):

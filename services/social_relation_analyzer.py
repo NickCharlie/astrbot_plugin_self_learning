@@ -158,13 +158,17 @@ class SocialRelationAnalyzer:
             # 构建分析prompt
             prompt = self._build_analysis_prompt(messages, users)
 
-            # 调用LLM
+            # 调用LLM - 使用generate_response方法
             self.logger.info(f"调用LLM分析社交关系 (消息数: {len(messages)}, 用户数: {len(users)})")
-            response = await self.llm_adapter.call_llm(
+            response = await self.llm_adapter.generate_response(
                 prompt=prompt,
-                context_id=f"social_relation_analysis_{group_id}",
-                max_tokens=2000
+                temperature=0.7,
+                model_type="filter"  # 使用filter模型进行分析
             )
+
+            if not response:
+                self.logger.warning("LLM返回空响应")
+                return []
 
             # 解析LLM响应
             relations = self._parse_llm_response(response, users)

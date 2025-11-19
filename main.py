@@ -255,9 +255,6 @@ class SelfLearningPlugin(star.Star):
             # ✅ 创建响应多样性管理器 - 用于防止LLM回复同质化
             self.diversity_manager = self.service_factory.create_response_diversity_manager()
 
-            # 设置渐进式学习服务的增量更新回调函数，降低耦合性
-            self.progressive_learning.set_update_system_prompt_callback(self._update_system_prompt_for_group)
-            
             # 获取组件工厂并创建新的高级服务
             component_factory = self.factory_manager.get_component_factory()
             self.data_analytics = component_factory.create_data_analytics_service()
@@ -274,9 +271,6 @@ class SelfLearningPlugin(star.Star):
             
             # 创建并保存LLM适配器实例，用于状态报告
             self.llm_adapter = self.service_factory.create_framework_llm_adapter()
-
-            # 设置主插件的增量更新回调 - 指向 _update_system_prompt_for_group 方法
-            self.update_system_prompt_callback = self._update_system_prompt_for_group
 
             # 初始化内部组件
             self._setup_internal_components()
@@ -500,18 +494,8 @@ class SelfLearningPlugin(star.Star):
                         logger.debug(f"实时风格分析完成: {style_result}")
                 except Exception as e:
                     logger.error(f"实时风格分析失败: {e}")
-            
-            # 4. 立即应用所有增量更新到system_prompt
-            try:
-                success = await self._update_system_prompt_for_group(group_id)
-                if success:
-                    logger.info(f"群组 {group_id} 增量更新优先应用到system_prompt成功")
-                else:
-                    logger.warning(f"群组 {group_id} 增量更新应用失败")
-            except Exception as e:
-                logger.error(f"增量更新应用异常 (群:{group_id}): {e}", exc_info=True)
-            
-            # 5. 如果启用实时学习，立即进行深度分析
+
+            # 4. 如果启用实时学习，立即进行深度分析
             if self.plugin_config.enable_realtime_learning:
                 try:
                     await self._process_message_realtime(group_id, message_text, sender_id)
@@ -523,130 +507,6 @@ class SelfLearningPlugin(star.Star):
             
         except Exception as e:
             logger.error(f"优先更新增量内容异常: {e}", exc_info=True)
-
-    async def _update_system_prompt_for_group(self, group_id: str):
-        """
-        为特定群组实时更新system_prompt，集成所有可用的增量更新
-        """
-        try:
-            # 防止在强制学习过程中重复调用，避免无限循环
-            if hasattr(self, '_force_learning_in_progress') and group_id in self._force_learning_in_progress:
-                logger.debug(f"群组 {group_id} 正在进行强制学习，跳过实时system_prompt更新")
-                return True
-                
-            # 收集当前群组的各种增量更新数据
-            update_data = {}
-            recent_messages = []  # 初始化变量
-            
-            # 1. 获取用户档案信息
-            try:
-                # 从多维分析器获取用户档案
-                if hasattr(self, 'multidimensional_analyzer') and self.multidimensional_analyzer:
-                    # 获取群组中最活跃的用户信息
-                    user_profiles = getattr(self.multidimensional_analyzer, 'user_profiles', {})
-                    if user_profiles:
-                        # 合并所有用户的信息作为群组特征
-                        communication_styles = []
-                        activity_patterns = []
-                        emotional_tendencies = []
-                        
-                        for user_id, profile in user_profiles.items():
-                            if hasattr(profile, 'communication_style') and profile.communication_style:
-                                # 转换沟通风格为可读描述
-                                style_desc = self._format_communication_style(profile.communication_style)
-                                if style_desc:
-                                    communication_styles.append(style_desc)
-                            if hasattr(profile, 'activity_pattern') and profile.activity_pattern:
-                                activity_patterns.append(f"用户{user_id[:6]}活跃度{profile.activity_pattern.get('frequency', '普通')}")
-                            if hasattr(profile, 'emotional_tendency') and profile.emotional_tendency:
-                                # 转换情感倾向为可读描述
-                                emotion_desc = self._format_emotional_tendency(profile.emotional_tendency)
-                                if emotion_desc:
-                                    emotional_tendencies.append(emotion_desc)
-                        
-                        if communication_styles or activity_patterns or emotional_tendencies:
-                            update_data['user_profile'] = {
-                                'preferences': '; '.join(activity_patterns[:3]) if activity_patterns else '',
-                                'communication_style': '; '.join(communication_styles[:2]) if communication_styles else '',
-                                'personality_traits': '; '.join(emotional_tendencies[:2]) if emotional_tendencies else ''
-                            }
-            except Exception as e:
-                logger.debug(f"获取用户档案信息失败: {e}")
-            
-            # 2. 获取社交关系信息
-            try:
-                # 从数据库获取最近的群组互动信息
-                recent_messages = await self.db_manager.get_recent_filtered_messages(group_id, limit=10)
-                if recent_messages and len(recent_messages) > 1:
-                    # 分析群组氛围
-                    message_count = len(recent_messages)
-                    unique_users = len(set(msg['sender_id'] for msg in recent_messages))
-                    
-                    if unique_users > 1:
-                        atmosphere = f"活跃群聊，{unique_users}人参与"
-                    else:
-                        atmosphere = "私聊对话"
-                        
-                    update_data['social_relationship'] = {
-                        'user_relationships': f"群组成员{unique_users}人",
-                        'group_atmosphere': atmosphere,
-                        'interaction_style': f"近期消息{message_count}条"
-                    }
-            except Exception as e:
-                logger.debug(f"获取社交关系信息失败: {e}")
-            
-            # 3. 获取上下文感知信息
-            try:
-                # 从最近的消息中分析对话状态
-                if recent_messages and len(recent_messages) > 0:
-                    latest_msg = recent_messages[0]['message'] if recent_messages else ''
-                    if latest_msg:
-                        # 简单的话题提取（取前20个字符作为当前话题）
-                        current_topic = latest_msg[:20] + '...' if len(latest_msg) > 20 else latest_msg
-                        
-                        update_data['context_awareness'] = {
-                            'current_topic': current_topic,
-                            'conversation_state': '进行中',
-                            'dialogue_flow': f"最近{len(recent_messages)}条消息的对话"
-                        }
-            except Exception as e:
-                logger.debug(f"获取上下文信息失败: {e}")
-            
-            # 4. 获取学习洞察信息
-            try:
-                # 从学习统计信息中获取基本洞察
-                if hasattr(self, 'learning_stats') and self.learning_stats:
-                    learning_info = {
-                        'interaction_patterns': f"已学习消息: {getattr(self.learning_stats, 'total_messages_processed', 0)}条",
-                        'improvement_suggestions': '基于历史对话的适应性调整',
-                        'effective_strategies': '持续学习和优化中',
-                        'learning_focus': '个性化交互改进'
-                    }
-                    
-                    # 如果有处理过的消息，添加学习洞察
-                    if getattr(self.learning_stats, 'total_messages_processed', 0) > 0:
-                        update_data['learning_insights'] = learning_info
-            except Exception as e:
-                logger.debug(f"获取学习洞察失败: {e}")
-            
-            # 应用所有收集到的增量更新
-            if update_data:
-                success = await self.temporary_persona_updater.apply_comprehensive_update_to_system_prompt(
-                    group_id, update_data
-                )
-                if success:
-                    logger.info(f"群组 {group_id} system_prompt实时更新成功，包含 {len(update_data)} 种类型的增量更新")
-                    return True
-                else:
-                    logger.warning(f"群组 {group_id} system_prompt更新失败")
-                    return False
-            else:
-                logger.debug(f"群组 {group_id} 暂无可用的增量更新数据")
-                return True  # 没有数据也算成功
-                
-        except Exception as e:
-            logger.error(f"群组 {group_id} 实时更新system_prompt异常: {e}", exc_info=True)
-            return False
 
     def _is_astrbot_command(self, event: AstrMessageEvent) -> bool:
         """
