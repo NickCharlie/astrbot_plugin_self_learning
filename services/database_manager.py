@@ -348,11 +348,16 @@ class DatabaseManager(AsyncServiceBase):
             if 'quality_scores' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT")
                 logger.info("已为 filtered_messages 表添加 quality_scores 列。")
-            
+
             # 检查并添加 group_id 列（如果不存在）
             if 'group_id' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN group_id TEXT")
                 logger.info("已为 filtered_messages 表添加 group_id 列。")
+
+            # 检查并添加 refined 列（如果不存在）
+            if 'refined' not in columns:
+                await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN refined BOOLEAN DEFAULT 0")
+                logger.info("已为 filtered_messages 表添加 refined 列。")
 
             # 创建学习批次表
             await cursor.execute('''
@@ -4139,24 +4144,51 @@ class DatabaseManager(AsyncServiceBase):
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
+
             await cursor.execute('''
                 UPDATE style_learning_reviews
                 SET status = ?, updated_at = ?
                 WHERE id = ?
             ''', (status, time.time(), review_id))
-            
+
             await conn.commit()
-            
+
             if cursor.rowcount > 0:
                 self._logger.info(f"更新风格学习审查状态成功: ID={review_id}, 状态={status}")
                 return True
             else:
                 self._logger.warning(f"更新风格学习审查状态失败: 未找到ID={review_id}的记录")
                 return False
-                
+
         except Exception as e:
             self._logger.error(f"更新风格学习审查状态失败: {e}")
+            return False
+
+    async def delete_style_review_by_id(self, review_id: int) -> bool:
+        """删除指定ID的风格学习审查记录"""
+        try:
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+                # 删除审查记录
+                await cursor.execute('''
+                    DELETE FROM style_learning_reviews WHERE id = ?
+                ''', (review_id,))
+
+                await conn.commit()
+                deleted_count = cursor.rowcount
+
+                await cursor.close()
+
+                if deleted_count > 0:
+                    self._logger.info(f"成功删除风格学习审查记录，ID: {review_id}")
+                    return True
+                else:
+                    self._logger.warning(f"未找到要删除的风格学习审查记录，ID: {review_id}")
+                    return False
+
+        except Exception as e:
+            self._logger.error(f"删除风格学习审查记录失败: {e}")
             return False
 
     async def get_detailed_metrics(self) -> Dict[str, Any]:
@@ -4575,7 +4607,7 @@ class DatabaseManager(AsyncServiceBase):
                         'id': row[0],
                         'sender_id': row[1],
                         'sender_name': row[2],
-                        'message': row[3],
+                        'content': row[3],  # 外部API使用 'content' 字段名
                         'group_id': row[4],
                         'platform': row[5],
                         'timestamp': row[6],
@@ -4648,7 +4680,7 @@ class DatabaseManager(AsyncServiceBase):
                         'id': row[0],
                         'sender_id': row[1],
                         'sender_name': row[2],
-                        'message': row[3],
+                        'content': row[3],  # 外部API使用 'content' 字段名
                         'group_id': row[4],
                         'platform': row[5],
                         'timestamp': row[6],

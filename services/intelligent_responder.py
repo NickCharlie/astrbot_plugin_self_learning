@@ -125,16 +125,21 @@ class IntelligentResponder:
 
             if self.diversity_manager:
                 # 注入多样性增强 (会自动保存当前风格和模式到diversity_manager的属性中)
-                enhanced_system_prompt = self.diversity_manager.build_diversity_prompt_injection(
+                logger.info(f"开始注入多样性增强到system_prompt (当前长度: {len(enhanced_system_prompt)})")
+                enhanced_system_prompt = await self.diversity_manager.build_diversity_prompt_injection(
                     enhanced_system_prompt,
+                    group_id=group_id,  # ✅ 传入group_id以获取历史消息
                     inject_style=True,
                     inject_pattern=True,
-                    inject_variation=True
+                    inject_variation=True,
+                    inject_history=True  # ✅ 注入历史Bot消息，避免重复
                 )
+                logger.info(f"多样性注入后system_prompt长度: {len(enhanced_system_prompt)}")
 
                 # 获取刚才保存的风格和模式
                 current_language_style = self.diversity_manager.get_current_style()
                 current_response_pattern = self.diversity_manager.get_current_pattern()
+                logger.debug(f"当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
 
             logger.debug(f"构建的增强系统提示词长度: {len(enhanced_system_prompt)} 字符")
 
@@ -156,9 +161,18 @@ class IntelligentResponder:
             # 使用框架适配器
             if self.llm_adapter and self.llm_adapter.has_refine_provider():
                 try:
+                    # ✅ 将enhanced_system_prompt合并到prompt参数中，而不是使用system_prompt参数
+                    # 这样可以确保所有Provider都能看到完整的增强内容
+                    combined_prompt = f"{enhanced_system_prompt}\n\n【当前用户消息】\n{message_text}"
+
+                    logger.info(f"调用LLM - combined_prompt前50字符: {combined_prompt[:50]}...")
+                    logger.info(f"调用LLM - combined_prompt后100字符: ...{combined_prompt[-100:]}")
+                    logger.info(f"调用LLM - 完整长度: {len(combined_prompt)}, temperature: {temperature}")
+                    logger.debug(f"多样性增强部分长度: {len(enhanced_system_prompt)}, 用户消息长度: {len(message_text)}")
+
                     response = await self.llm_adapter.refine_chat_completion(
-                        prompt=message_text,  # 用户消息只包含原始消息
-                        system_prompt=enhanced_system_prompt,  # 原有PROMPT + 增量更新 + 多样性增强
+                        prompt=combined_prompt,  # 包含增强系统提示词 + 用户消息
+                        system_prompt=None,  # 不使用system_prompt参数，避免Provider兼容性问题
                         temperature=temperature,  # 动态temperature
                         max_tokens=self.PROMPT_RESPONSE_WORD_LIMIT
                     )

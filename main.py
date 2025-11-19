@@ -93,14 +93,17 @@ class SelfLearningPlugin(star.Star):
             self.plugin_config.messages_db_path = os.path.join(self.plugin_config.data_dir, FileNames.MESSAGES_DB_FILE)
         if not self.plugin_config.learning_log_path:
             self.plugin_config.learning_log_path = os.path.join(self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE)
-        
+
         # 学习统计
         self.learning_stats = LearningStats()
-        
+
         # 消息去重缓存 - 防止合并消息插件导致的重复处理
         self.message_dedup_cache = {}
         self.max_cache_size = 1000
-        
+
+        # 设置增量更新回调 - 在服务初始化前设置，避免AttributeError
+        self.update_system_prompt_callback = None
+
         # 初始化服务层
         self._initialize_services()
 
@@ -248,7 +251,10 @@ class SelfLearningPlugin(star.Star):
             self.progressive_learning = self.service_factory.create_progressive_learning()
             self.ml_analyzer = self.service_factory.create_ml_analyzer()
             self.persona_manager = self.service_factory.create_persona_manager()
-            
+
+            # ✅ 创建响应多样性管理器 - 用于防止LLM回复同质化
+            self.diversity_manager = self.service_factory.create_response_diversity_manager()
+
             # 设置渐进式学习服务的增量更新回调函数，降低耦合性
             self.progressive_learning.set_update_system_prompt_callback(self._update_system_prompt_for_group)
             
@@ -268,7 +274,10 @@ class SelfLearningPlugin(star.Star):
             
             # 创建并保存LLM适配器实例，用于状态报告
             self.llm_adapter = self.service_factory.create_framework_llm_adapter()
-            
+
+            # 设置主插件的增量更新回调 - 指向 _update_system_prompt_for_group 方法
+            self.update_system_prompt_callback = self._update_system_prompt_for_group
+
             # 初始化内部组件
             self._setup_internal_components()
 
@@ -705,13 +714,20 @@ class SelfLearningPlugin(star.Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
         """监听所有消息，收集用户对话数据"""
-        
+
         try:
-            # 检查event参数
+            # 检查event参数类型 - 添加调试信息
             if event is None:
                 logger.warning("on_message调用时event参数为None，跳过处理")
                 return
-            
+
+            # ✅ 添加类型检查，防止参数传递错误
+            if not hasattr(event, 'get_message_str'):
+                logger.error(f"on_message接收到错误的event类型: {type(event)}, 预期: AstrMessageEvent")
+                logger.error(f"event对象: {event}")
+                logger.error(f"args: {args}, kwargs: {kwargs}")
+                return
+
             # 获取消息文本
             message_text = event.get_message_str()
             if not message_text or len(message_text.strip()) == 0:
@@ -2081,6 +2097,76 @@ PersonaManager模式优势：
         except Exception as e:
             logger.error(f"清理重复内容命令失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 清理重复内容失败: {str(e)}")
+
+    @filter.on_llm_request()
+    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
+        """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)"""
+        try:
+            # ✅ 无条件注入,不检查是否启用多样性管理器
+            # 即使用户没有开启自动学习,也应该注入多样性内容以防止同质化回复
+
+            # 如果diversity_manager不存在,创建一个临时的
+            if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
+                logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
+                return
+
+            group_id = event.get_group_id() or event.get_sender_id()
+
+            # 获取当前的prompt (可能在contexts中，也可能在prompt字段中)
+            current_prompt = req.prompt or ""
+
+            # 如果有context历史，获取最后一条user消息
+            if hasattr(req, 'contexts') and req.contexts:
+                # 找到最后一条user消息
+                for msg in reversed(req.contexts):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        last_user_content = msg.get('content', '')
+                        if last_user_content and not current_prompt:
+                            current_prompt = last_user_content
+                        break
+
+            if not current_prompt:
+                logger.debug("[LLM Hook] 没有找到可注入的prompt内容")
+                return
+
+            logger.info(f"✅ [LLM Hook] 开始在框架层面注入多样性增强 (group: {group_id}, prompt长度: {len(current_prompt)})")
+
+            # 注入多样性增强 (包括历史Bot消息)
+            enhanced_prompt = await self.diversity_manager.build_diversity_prompt_injection(
+                current_prompt,
+                group_id=group_id,  # ✅ 传入group_id以获取历史消息
+                inject_style=True,
+                inject_pattern=True,
+                inject_variation=True,
+                inject_history=True  # ✅ 注入历史Bot消息，避免重复
+            )
+
+            # 保存当前风格和模式
+            current_language_style = self.diversity_manager.get_current_style()
+            current_response_pattern = self.diversity_manager.get_current_pattern()
+
+            logger.info(f"✅ [LLM Hook] 多样性注入完成 - 原长度: {len(current_prompt)}, 新长度: {len(enhanced_prompt)}")
+            logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
+            logger.debug(f"✅ [LLM Hook] 注入的prompt前100字符: {enhanced_prompt[:100]}...")
+            logger.debug(f"✅ [LLM Hook] 注入的prompt后100字符: ...{enhanced_prompt[-100:]}")
+
+            # 更新request对象中的prompt
+            req.prompt = enhanced_prompt
+
+            # 如果contexts中有user消息，也需要更新
+            if hasattr(req, 'contexts') and req.contexts:
+                for i in range(len(req.contexts) - 1, -1, -1):
+                    msg = req.contexts[i]
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        # 只更新最后一条user消息
+                        req.contexts[i]['content'] = enhanced_prompt
+                        logger.debug(f"✅ [LLM Hook] 已更新contexts中的最后一条user消息")
+                        break
+
+            logger.info(f"✅ [LLM Hook] 框架层面多样性注入完成")
+
+        except Exception as e:
+            logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
 
     async def terminate(self):
         """插件卸载时的清理工作 - 增强后台任务管理"""

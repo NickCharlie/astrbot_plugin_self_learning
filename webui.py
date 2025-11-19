@@ -45,6 +45,7 @@ persona_updater: Optional[Any] = None
 database_manager: Optional[Any] = None
 db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
+llm_adapter_instance = None  # LLM适配器实例，用于社交关系分析等服务
 progressive_learning: Optional[Any] = None  # 添加progressive_learning全局变量
 intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智能指标计算服务
 
@@ -101,7 +102,7 @@ async def set_plugin_services(
     astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates, intelligence_metrics_service
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service
     plugin_config = config
 
     # 将配置存储到app中,供API认证使用
@@ -111,10 +112,12 @@ async def set_plugin_services(
     try:
         # 从ServiceFactory获取LLM适配器，而不是ComponentFactory
         llm_client = factory_manager.get_service_factory().create_framework_llm_adapter()
+        llm_adapter_instance = llm_client  # 设置llm_adapter_instance别名
         logger.info(f"从服务工厂获取LLM适配器: {type(llm_client)}")
     except Exception as e:
         logger.error(f"获取LLM适配器失败: {e}")
         llm_client = llm_c  # 回退到传入的客户端
+        llm_adapter_instance = llm_client  # 同步设置别名
 
     # 总是创建PersonaWebManager，无论是否传入AstrBot PersonaManager
     try:
@@ -769,25 +772,61 @@ async def batch_delete_persona_updates():
         
         success_count = 0
         failed_count = 0
-        
+
         for update_id in update_ids:
             try:
-                # 尝试删除人格学习审查记录
-                success = await database_manager.delete_persona_learning_review_by_id(int(update_id))
-                
-                if success:
-                    success_count += 1
-                else:
-                    # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
-                    if persona_updater:
-                        result = await persona_updater.delete_persona_update_review(int(update_id))
-                        if result:
+                # 解析update_id，处理前缀（persona_learning_、style_）
+                if isinstance(update_id, str):
+                    if update_id.startswith("persona_learning_"):
+                        numeric_id = int(update_id.replace("persona_learning_", ""))
+                        # 删除人格学习审查记录
+                        success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+                        if success:
                             success_count += 1
                         else:
                             failed_count += 1
+                            logger.warning(f"未找到人格学习审查记录: {numeric_id}")
+                    elif update_id.startswith("style_"):
+                        numeric_id = int(update_id.replace("style_", ""))
+                        # 删除风格学习审查记录
+                        success = await database_manager.delete_style_review_by_id(numeric_id)
+                        if success:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                            logger.warning(f"未找到风格学习审查记录: {numeric_id}")
                     else:
-                        failed_count += 1
-                        
+                        # 纯数字ID,尝试删除传统人格审查记录
+                        numeric_id = int(update_id)
+                        if persona_updater:
+                            result = await persona_updater.delete_persona_update_review(numeric_id)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                                logger.warning(f"未找到传统人格审查记录: {numeric_id}")
+                        else:
+                            failed_count += 1
+                            logger.warning("persona_updater不可用")
+                else:
+                    # 纯数字ID
+                    numeric_id = int(update_id)
+                    # 先尝试删除人格学习审查记录
+                    success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+
+                    if success:
+                        success_count += 1
+                    else:
+                        # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+                        if persona_updater:
+                            result = await persona_updater.delete_persona_update_review(numeric_id)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+
             except Exception as e:
                 logger.error(f"删除人格更新审查记录 {update_id} 失败: {e}")
                 failed_count += 1
@@ -1111,7 +1150,7 @@ async def get_metrics():
                                 refined_content_count = result[0]
 
                             # 统计风格学习成果
-                            await cursor.execute("SELECT COUNT(*) FROM style_learning")
+                            await cursor.execute("SELECT COUNT(*) FROM style_learning_records")
                             result = await cursor.fetchone()
                             if result:
                                 style_patterns_learned = result[0]
@@ -3728,42 +3767,64 @@ async def get_social_relations(group_id: str):
         # 获取数据库管理器
         db_manager = service_factory.create_database_manager()
 
-        # 获取群组原始消息（不经过LLM处理）
-        # 限制消息数量以提高加载速度
-        raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=200)
-
-        if not raw_messages:
-            return jsonify({
-                "success": False,
-                "error": f"群组 {group_id} 没有消息记录",
-                "relations": [],
-                "members": []
-            })
-
         # 从数据库加载已保存的社交关系
         logger.info(f"从数据库加载群组 {group_id} 的社交关系...")
         saved_relations = await db_manager.get_social_relations_by_group(group_id)
         logger.info(f"从数据库加载到 {len(saved_relations)} 条社交关系记录")
 
-        # 构建用户列表
+        # 构建用户列表和统计消息数 - 从数据库直接统计所有消息数量
         user_message_counts = {}
         user_names = {}
 
-        for msg in raw_messages:
-            sender_id = msg.get('sender_id', '')
-            sender_name = msg.get('sender_name', '')
-            if sender_id and sender_id != 'bot':
-                user_key = f"{group_id}:{sender_id}"
+        # 从数据库统计每个用户的总消息数量
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
 
-                # 统计消息数
-                if user_key not in user_message_counts:
-                    user_message_counts[user_key] = 0
-                    user_names[user_key] = sender_name
-                    # ✅ 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
-                    user_names[sender_id] = sender_name
-                user_message_counts[user_key] += 1
+            # 查询每个用户在该群组的消息总数
+            await cursor.execute('''
+                SELECT sender_id, sender_name, COUNT(*) as message_count
+                FROM raw_messages
+                WHERE group_id = ? AND sender_id != 'bot'
+                GROUP BY sender_id
+            ''', (group_id,))
 
-        logger.info(f"群组 {group_id} 识别到 {len(user_message_counts)} 个用户")
+            for row in await cursor.fetchall():
+                sender_id, sender_name, message_count = row
+                if sender_id:
+                    user_key = f"{group_id}:{sender_id}"
+                    user_message_counts[user_key] = message_count
+                    user_names[user_key] = sender_name or sender_id
+                    # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
+                    user_names[sender_id] = sender_name or sender_id
+
+            await cursor.close()
+
+        logger.info(f"群组 {group_id} 从数据库统计到 {len(user_message_counts)} 个用户")
+
+        # 初始化 raw_messages 变量
+        raw_messages = []
+
+        # 如果没有统计到用户,尝试从最近消息获取
+        if not user_message_counts:
+            raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=200)
+            if not raw_messages:
+                return jsonify({
+                    "success": False,
+                    "error": f"群组 {group_id} 没有消息记录",
+                    "relations": [],
+                    "members": []
+                })
+
+            for msg in raw_messages:
+                sender_id = msg.get('sender_id', '')
+                sender_name = msg.get('sender_name', '')
+                if sender_id and sender_id != 'bot':
+                    user_key = f"{group_id}:{sender_id}"
+                    if user_key not in user_message_counts:
+                        user_message_counts[user_key] = 0
+                        user_names[user_key] = sender_name
+                        user_names[sender_id] = sender_name
+                    user_message_counts[user_key] += 1
 
         # 构建成员列表
         group_nodes = []
@@ -3818,12 +3879,15 @@ async def get_social_relations(group_id: str):
 
         logger.info(f"群组 {group_id} 构建了 {len(group_edges)} 条社交关系")
 
+        # 计算总消息数：优先使用数据库统计，否则使用raw_messages长度
+        total_message_count = sum(user_message_counts.values()) if user_message_counts else len(raw_messages)
+
         return jsonify({
             "success": True,
             "group_id": group_id,
             "members": group_nodes,
             "relations": group_edges,
-            "message_count": len(raw_messages),
+            "message_count": total_message_count,
             "member_count": len(group_nodes),
             "relation_count": len(group_edges)
         })
@@ -3883,6 +3947,104 @@ async def get_available_groups_for_social_analysis():
             "success": False,
             "error": str(e),
             "groups": []
+        }), 500
+
+
+@api_bp.route("/social_relations/<group_id>/analyze", methods=["POST"])
+@require_auth
+async def trigger_social_relation_analysis(group_id: str):
+    """触发群组社交关系分析"""
+    try:
+        from .core.factory import FactoryManager
+        from .services.social_relation_analyzer import SocialRelationAnalyzer
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        # 获取LLM适配器
+        global llm_adapter_instance
+        if not llm_adapter_instance:
+            return jsonify({
+                "success": False,
+                "error": "LLM适配器未初始化"
+            }), 500
+
+        # 创建社交关系分析器
+        analyzer = SocialRelationAnalyzer(
+            config=current_app.plugin_config,
+            llm_adapter=llm_adapter_instance,
+            db_manager=db_manager
+        )
+
+        # 获取参数
+        data = await request.get_json() if request.is_json else {}
+        message_limit = data.get('message_limit', 200)
+        force_refresh = data.get('force_refresh', False)
+
+        logger.info(f"开始分析群组 {group_id} 的社交关系 (消息数: {message_limit}, 强制刷新: {force_refresh})")
+
+        # 执行分析
+        relations = await analyzer.analyze_group_social_relations(
+            group_id=group_id,
+            message_limit=message_limit,
+            force_refresh=force_refresh
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"成功分析 {len(relations)} 条社交关系",
+            "relation_count": len(relations)
+        })
+
+    except Exception as e:
+        logger.error(f"触发社交关系分析失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/social_relations/<group_id>/user/<user_id>", methods=["GET"])
+@require_auth
+async def get_user_social_relations(group_id: str, user_id: str):
+    """获取指定用户的社交关系"""
+    try:
+        from .core.factory import FactoryManager
+        from .services.social_relation_analyzer import SocialRelationAnalyzer
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        # 获取LLM适配器
+        global llm_adapter_instance
+        if not llm_adapter_instance:
+            return jsonify({
+                "success": False,
+                "error": "LLM适配器未初始化"
+            }), 500
+
+        # 创建社交关系分析器
+        analyzer = SocialRelationAnalyzer(
+            config=current_app.plugin_config,
+            llm_adapter=llm_adapter_instance,
+            db_manager=db_manager
+        )
+
+        # 获取用户关系
+        user_relations = await analyzer.get_user_relations(group_id, user_id)
+
+        return jsonify({
+            "success": True,
+            **user_relations
+        })
+
+    except Exception as e:
+        logger.error(f"获取用户社交关系失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
         }), 500
 
 
@@ -4124,7 +4286,18 @@ class Server:
             self.config.use_reloader = False
             self.config.workers = 1
 
-            logger.info(f"✅ Web服务器初始化完成 (端口: {port})")
+            # 关键修复：设置socket选项以允许端口复用
+            # 这对于快速重启和插件重载非常重要
+            import socket
+            self.config.bind_socket_options = [
+                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),  # 允许地址复用
+            ]
+            # 在支持SO_REUSEPORT的系统上启用端口复用
+            if hasattr(socket, 'SO_REUSEPORT'):
+                self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
+                logger.debug("已启用SO_REUSEPORT选项")
+
+            logger.info(f"✅ Web服务器初始化完成 (端口: {port}, 端口复用: 已启用)")
             logger.debug(f"Debug: 配置绑定: {self.config.bind}")
 
         except Exception as e:
@@ -4329,17 +4502,36 @@ class Server:
             self.server_task = None
 
     async def _async_check_port_available(self, port: int) -> bool:
-        """异步检查端口是否可用"""
+        """异步检查端口是否可用 - 改进版，使用bind检查而不是connect"""
         try:
             import socket
             loop = asyncio.get_event_loop()
-            
+
             def check_port():
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    sock.settimeout(1)
-                    result = sock.connect_ex(("127.0.0.1", port))
-                    return result != 0  # 连接失败表示端口可用
-            
+                try:
+                    # 尝试绑定端口而不是连接端口
+                    # 这是更准确的检查方式
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        sock.settimeout(1)
+                        try:
+                            # 尝试绑定端口
+                            sock.bind(("127.0.0.1", port))
+                            # 绑定成功,说明端口可用
+                            logger.debug(f"端口 {port} 可用(绑定测试成功)")
+                            return True
+                        except OSError as e:
+                            # 绑定失败,端口被占用
+                            if e.errno in (48, 98):  # macOS: 48, Linux: 98 (Address already in use)
+                                logger.debug(f"端口 {port} 被占用: {e}")
+                                return False
+                            # 其他错误,假设端口可用
+                            logger.debug(f"检查端口 {port} 时遇到其他错误: {e},假设可用")
+                            return True
+                except Exception as ex:
+                    logger.warning(f"检查端口 {port} 时发生异常: {ex},假设可用")
+                    return True  # 异常时假设端口可用
+
             return await loop.run_in_executor(None, check_port)
         except Exception:
             return True  # 检查失败时假设端口可用
@@ -4408,23 +4600,33 @@ class Server:
                 except Exception as e:
                     logger.debug(f"垃圾回收失败: {e}")
 
-                # 6. 验证端口是否真的释放了
+                # 6. 验证端口是否真的释放了 - 改进的验证逻辑
                 port_released = False
-                for attempt in range(5):  # 增加到5次检查
+                for attempt in range(5):  # 检查5次
                     try:
                         import socket
+                        # 使用bind测试而不是connect测试
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 添加地址复用选项
+                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                             sock.settimeout(1)
-                            result = sock.connect_ex(("127.0.0.1", self.port))
-                            if result != 0:  # 连接失败意味着端口已释放
+                            try:
+                                # 尝试绑定端口
+                                sock.bind(("127.0.0.1", self.port))
+                                # 绑定成功,说明端口已释放
                                 port_released = True
-                                logger.info(f"✅ 端口 {self.port} 已确认释放 (尝试 {attempt + 1}/5)")
+                                logger.info(f"✅ 端口 {self.port} 已确认释放 (绑定测试成功, 尝试 {attempt + 1}/5)")
                                 break
-                            else:
-                                logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5)")
-                                if attempt < 4:  # 不是最后一次尝试
-                                    await asyncio.sleep(2)  # 等待2秒后重试
+                            except OSError as e:
+                                if e.errno in (48, 98):  # Address already in use
+                                    logger.debug(f"⏳ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5): {e}")
+                                    if attempt < 4:  # 不是最后一次
+                                        await asyncio.sleep(1)
+                                    continue
+                                else:
+                                    # 其他错误,假设已释放
+                                    port_released = True
+                                    logger.debug(f"端口检查遇到其他错误,假设已释放: {e}")
+                                    break
                     except Exception as e:
                         logger.debug(f"端口检查失败 (尝试 {attempt + 1}/5): {e}")
                         # 如果检查失败，假设端口可能已经释放

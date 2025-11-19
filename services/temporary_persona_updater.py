@@ -958,11 +958,17 @@ class TemporaryPersonaUpdater:
         try:
             # 直接更新到当前使用的prompt中
             provider = self.context.get_using_provider()
-            if not provider or not provider.curr_personality:
-                logger.warning("无法获取当前人格，临时风格更新失败")
+
+            # 检查provider是否存在以及是否有curr_personality属性
+            if not provider:
+                logger.warning("无法获取当前provider，临时风格更新失败")
                 return False
-            
-            current_prompt = provider.curr_personality.get('prompt', '')
+
+            if not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+                logger.warning("Provider没有curr_personality属性或为空，临时风格更新失败")
+                return False
+
+            current_prompt = provider.curr_personality.get('prompt', '') if isinstance(provider.curr_personality, dict) else (provider.curr_personality.prompt if hasattr(provider.curr_personality, 'prompt') else '')
             
             # 检查是否已经有临时风格特征，如果有则替换
             lines = current_prompt.split('\n')
@@ -982,10 +988,16 @@ class TemporaryPersonaUpdater:
             
             # 在prompt末尾添加新的临时风格特征
             updated_prompt = '\n'.join(filtered_lines).strip() + '\n\n' + style_content
-            
-            # 应用到当前人格
-            provider.curr_personality['prompt'] = updated_prompt
-            
+
+            # 应用到当前人格（兼容dict和对象两种形式）
+            if isinstance(provider.curr_personality, dict):
+                provider.curr_personality['prompt'] = updated_prompt
+            elif hasattr(provider.curr_personality, 'prompt'):
+                provider.curr_personality.prompt = updated_prompt
+            else:
+                logger.warning("无法更新prompt，curr_personality格式不支持")
+                return False
+
             logger.info(f"群组 {group_id} 临时风格更新已应用到当前prompt")
             return True
             

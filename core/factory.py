@@ -603,6 +603,31 @@ class ServiceFactory(IServiceFactory):
         self._service_cache.clear()
         self._logger.info("服务缓存已清理")
 
+    def create_response_diversity_manager(self):
+        """创建响应多样性管理器"""
+        cache_key = "response_diversity_manager"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.response_diversity_manager import ResponseDiversityManager
+
+            service = ResponseDiversityManager(
+                config=self.config,
+                db_manager=self.create_database_manager()
+            )
+
+            self._service_cache[cache_key] = service
+            self._registry.register_service("response_diversity_manager", service)
+
+            self._logger.info("创建响应多样性管理器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入响应多样性管理器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建响应多样性管理器失败: {str(e)}")
+
 
 # 将内部类移到模块顶层
 class QQFilter:
@@ -912,31 +937,6 @@ class ComponentFactory:
         except ImportError as e:
             self._logger.error(f"导入表达模式学习器失败: {e}", exc_info=True)
             raise ServiceError(f"创建表达模式学习器失败: {str(e)}")
-
-    def create_response_diversity_manager(self):
-        """创建响应多样性管理器"""
-        cache_key = "response_diversity_manager"
-
-        if cache_key in self._service_cache:
-            return self._service_cache[cache_key]
-
-        try:
-            from ..services.response_diversity_manager import ResponseDiversityManager
-
-            service = ResponseDiversityManager(
-                config=self.config,
-                db_manager=self.create_database_manager()  # ✅ 正确：ServiceFactory中直接调用自己的方法
-            )
-
-            self._service_cache[cache_key] = service
-            self._registry.register_service("response_diversity_manager", service)
-
-            self._logger.info("创建响应多样性管理器成功")
-            return service
-
-        except ImportError as e:
-            self._logger.error(f"导入响应多样性管理器失败: {e}", exc_info=True)
-            raise ServiceError(f"创建响应多样性管理器失败: {str(e)}")
 
     def create_social_context_injector(self):
         """创建社交上下文注入器"""

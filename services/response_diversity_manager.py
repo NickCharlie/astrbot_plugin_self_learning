@@ -166,18 +166,22 @@ class ResponseDiversityManager:
                 'emphasis': '不作强调'
             }
 
-    def build_diversity_prompt_injection(self, base_prompt: str,
+    async def build_diversity_prompt_injection(self, base_prompt: str,
+                                        group_id: str = None,
                                         inject_style: bool = True,
                                         inject_pattern: bool = True,
-                                        inject_variation: bool = True) -> str:
+                                        inject_variation: bool = True,
+                                        inject_history: bool = True) -> str:
         """
         构建多样性增强的Prompt注入
 
         Args:
             base_prompt: 原始系统提示词
+            group_id: 群组ID (用于获取历史消息)
             inject_style: 是否注入语言风格
             inject_pattern: 是否注入回复模式
             inject_variation: 是否注入表达变化
+            inject_history: 是否注入历史Bot消息
 
         Returns:
             str: 增强后的系统提示词
@@ -205,6 +209,31 @@ class ResponseDiversityManager:
                 )
                 injections.append(variation_text)
 
+            # 注入历史Bot消息，避免重复
+            if inject_history and group_id:
+                try:
+                    recent_responses = await self.db_manager.get_recent_bot_responses(group_id, limit=5)
+                    if recent_responses:
+                        history_text = "\n\n【你最近的回复历史】(参考这些回复，避免使用相同的开场白、结尾、句式和表达方式)\n"
+                        for i, response in enumerate(recent_responses, 1):
+                            # 截取前100字符避免prompt过长
+                            truncated = response[:100] + "..." if len(response) > 100 else response
+                            history_text += f"{i}. {truncated}\n"
+
+                        history_text += "\n⚠️ 请特别注意：\n"
+                        history_text += "- 避免重复使用上述回复中的开场白（如\"好的\"、\"明白了\"等）\n"
+                        history_text += "- 避免重复使用上述回复中的结尾语\n"
+                        history_text += "- 尝试使用与上述回复不同的句式结构\n"
+                        history_text += "- 尝试使用不同的表达逻辑结构，允许语言中出现口语化、非标准表达\n"
+                        history_text += "- 如果观点相似，也要用不同的表达方式，建议用一定的合理的倒装句、省略句等\n"
+
+                        injections.append(history_text)
+                        logger.info(f"✅ 已注入 {len(recent_responses)} 条历史Bot消息到多样性提示")
+                    else:
+                        logger.debug(f"群组 {group_id} 暂无历史Bot消息")
+                except Exception as e:
+                    logger.warning(f"获取历史Bot消息失败，跳过历史注入: {e}")
+
             # 添加通用多样性提醒
             diversity_reminder = (
                 "\n\n⚠️ 多样性提醒：\n"
@@ -219,7 +248,8 @@ class ResponseDiversityManager:
             # 合并注入内容
             enhanced_prompt = base_prompt + ''.join(injections)
 
-            logger.debug(f"已注入多样性增强，原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}")
+            logger.info(f"✅ 多样性Prompt注入完成 - 原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}, 注入内容数: {len(injections)}")
+            logger.debug(f"注入的完整内容:\n{''.join(injections)}")
             return enhanced_prompt
 
         except Exception as e:
