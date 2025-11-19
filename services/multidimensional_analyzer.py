@@ -890,13 +890,16 @@ class MultidimensionalAnalyzer:
             # 提取@消息
             mentions = self._extract_mentions(message_text)
             social_context['mentions'] = mentions
-            
+
+            logger.debug(f"[社交关系] 群组 {group_id} 用户 {sender_id} 提及了 {len(mentions)} 个用户: {mentions}")
+
             # 更新社交关系
             for mentioned_user in mentions:
                 await self._update_social_relation(
                     sender_id, mentioned_user, 'mention', group_id
                 )
-            
+                logger.debug(f"[社交关系] 保存提及关系: {sender_id} -> {mentioned_user}")
+
             # 分析回复关系（如果框架支持）
             if hasattr(event, 'get_reply_info') and event.get_reply_info():
                 reply_info = event.get_reply_info()
@@ -906,7 +909,13 @@ class MultidimensionalAnalyzer:
                     await self._update_social_relation(
                         sender_id, replied_user, 'reply', group_id
                     )
-            
+                    logger.debug(f"[社交关系] 保存回复关系: {sender_id} -> {replied_user}")
+            else:
+                logger.debug(f"[社交关系] 消息事件不支持get_reply_info或没有回复信息")
+
+            # === 新增：基于时间窗口的对话关系分析(去除@限制) ===
+            await self._analyze_conversation_interactions(sender_id, group_id, message_text)
+
             # 计算与群内成员的交互强度
             if sender_id in self.social_graph:
                 for relation in self.social_graph[sender_id]:
@@ -1130,18 +1139,25 @@ class MultidimensionalAnalyzer:
 
     async def _update_social_relation(self, from_user: str, to_user: str, relation_type: str, group_id: str):
         """更新社交关系"""
+        logger.debug(f"[社交关系更新] 开始更新: {from_user} -> {to_user}, 类型: {relation_type}, 群组: {group_id}")
+
         # 查找现有关系
         existing_relation = None
         for relation in self.social_graph[from_user]:
             if relation.to_user == to_user and relation.relation_type == relation_type:
                 existing_relation = relation
                 break
-        
+
         if existing_relation:
             # 更新现有关系
+            old_frequency = existing_relation.frequency
+            old_strength = existing_relation.strength
             existing_relation.frequency += 1
             existing_relation.last_interaction = datetime.now().isoformat()
             existing_relation.strength = min(existing_relation.strength + 0.1, 1.0)
+            logger.info(f"[社交关系更新] 更新已存在的关系: {from_user} -> {to_user} ({relation_type}), "
+                       f"频率: {old_frequency} -> {existing_relation.frequency}, "
+                       f"强度: {old_strength:.2f} -> {existing_relation.strength:.2f}")
         else:
             # 创建新关系
             new_relation = SocialRelation(
@@ -1153,11 +1169,165 @@ class MultidimensionalAnalyzer:
                 last_interaction=datetime.now().isoformat()
             )
             self.social_graph[from_user].append(new_relation)
-        
+            logger.info(f"[社交关系更新] 创建新关系: {from_user} -> {to_user} ({relation_type}), "
+                       f"初始强度: 0.1, 频率: 1")
+
         # 持久化社交关系
         relation_data = asdict(existing_relation if existing_relation else new_relation)
         relation_data = self._debug_dict_keys(relation_data, 'social_relation')
-        await self.db_manager.save_social_relation(group_id, relation_data)
+
+        try:
+            await self.db_manager.save_social_relation(group_id, relation_data)
+            logger.debug(f"[社交关系更新] 成功保存到数据库: {from_user} -> {to_user}")
+        except Exception as e:
+            logger.error(f"[社交关系更新] 保存到数据库失败: {e}", exc_info=True)
+
+    async def _analyze_conversation_interactions(self, sender_id: str, group_id: str, message_text: str):
+        """
+        基于时间窗口分析对话互动关系(不需要@)
+
+        分析逻辑:
+        1. 获取最近一定时间内的消息
+        2. 判断用户之间的对话连续性
+        3. 建立conversation类型的社交关系
+        """
+        try:
+            # 获取最近5分钟内的消息
+            recent_messages = await self.db_manager.get_messages_by_group_and_timerange(
+                group_id=group_id,
+                start_time=time.time() - 300,  # 5分钟
+                limit=20
+            )
+
+            if len(recent_messages) < 2:
+                return
+
+            # 找到当前用户之前的最近一条其他人的消息
+            previous_sender = None
+            for msg in reversed(recent_messages):  # 按时间倒序
+                if msg['sender_id'] != sender_id and msg['sender_id'] != 'bot':
+                    previous_sender = msg['sender_id']
+                    previous_message = msg['message']
+                    time_diff = time.time() - msg['timestamp']
+                    break
+
+            if not previous_sender:
+                return
+
+            # 如果时间间隔小于60秒,认为是在对话
+            if time_diff <= 60:
+                # 使用LLM判断是否在回应
+                is_responding, reason = await self._is_likely_responding_llm(previous_message, message_text)
+
+                if is_responding:
+                    await self._update_social_relation(
+                        sender_id, previous_sender, 'conversation', group_id
+                    )
+                    logger.info(f"[社交关系-对话] 检测到对话关系: {sender_id} -> {previous_sender}, "
+                               f"时间间隔: {time_diff:.1f}秒, 判断理由: {reason}")
+
+        except Exception as e:
+            logger.debug(f"[社交关系-对话] 分析对话互动失败: {e}")
+
+    async def _is_likely_responding_llm(self, previous_message: str, current_message: str) -> tuple[bool, str]:
+        """
+        使用LLM判断是否在回应上一条消息
+
+        Returns:
+            (是否在回应, 判断理由)
+        """
+        if not self.llm_adapter:
+            logger.debug("[社交关系-LLM] LLM适配器未初始化,使用简单规则判断")
+            is_responding = self._is_likely_responding_simple(previous_message, current_message)
+            return is_responding, "规则判断"
+
+        try:
+            prompt = f"""分析以下两条消息的关系,判断"当前消息"是否在回应"上一条消息"。
+
+上一条消息: {previous_message}
+当前消息: {current_message}
+
+请根据以下标准判断:
+1. 语义相关性: 两条消息是否在讨论同一个话题
+2. 回应性: 当前消息是否包含回应、回答、评论上一条消息的内容
+3. 对话连贯性: 两条消息是否构成连贯的对话
+
+请以JSON格式返回:
+{{
+  "is_responding": true/false,
+  "reason": "判断理由",
+  "confidence": 0.0-1.0 (置信度)
+}}"""
+
+            response = await self.llm_adapter.call_llm(
+                prompt=prompt,
+                system_prompt="你是一个专业的对话分析专家,擅长判断消息之间的关系。",
+                temperature=0.3
+            )
+
+            # 解析JSON响应
+            result = safe_parse_llm_json(response)
+
+            if result and 'is_responding' in result:
+                is_responding = result.get('is_responding', False)
+                reason = result.get('reason', '未知')
+                confidence = result.get('confidence', 0.5)
+
+                logger.debug(f"[社交关系-LLM] LLM判断结果: {is_responding}, 置信度: {confidence}, 理由: {reason}")
+
+                # 只有当置信度足够高时才返回True
+                return is_responding and confidence >= 0.6, reason
+
+            else:
+                logger.warning(f"[社交关系-LLM] LLM返回格式错误,使用简单规则: {response[:100]}")
+                is_responding = self._is_likely_responding_simple(previous_message, current_message)
+                return is_responding, "LLM解析失败,使用规则判断"
+
+        except Exception as e:
+            logger.warning(f"[社交关系-LLM] LLM判断失败: {e}, 使用简单规则")
+            is_responding = self._is_likely_responding_simple(previous_message, current_message)
+            return is_responding, f"LLM异常: {str(e)}"
+
+    def _is_likely_responding_simple(self, previous_message: str, current_message: str) -> bool:
+        """
+        简单判断是否在回应上一条消息
+
+        判断规则:
+        1. 包含回应性词汇
+        2. 话题相关性(关键词重合)
+        3. 不是纯表情/符号
+        """
+        # 回应性词汇
+        response_keywords = [
+            '是的', '不是', '对', '没错', '确实', '同意', '赞同',
+            '好的', '行', '可以', '不行', '不可以',
+            '哈哈', '笑死', '？', '?', '！', '!',
+            '嗯', '哦', '额', '呃', '啊',
+            '为什么', '怎么', '什么', '哪里', '哪个'
+        ]
+
+        # 检查是否包含回应性词汇
+        for keyword in response_keywords:
+            if keyword in current_message:
+                return True
+
+        # 检查关键词重合(简单的话题相关性)
+        import re
+        prev_words = set(re.findall(r'[\u4e00-\u9fa5]+|[a-zA-Z]+', previous_message))
+        curr_words = set(re.findall(r'[\u4e00-\u9fa5]+|[a-zA-Z]+', current_message))
+
+        # 移除常见停用词
+        stopwords = {'的', '了', '是', '在', '有', '和', '就', '不', '人', '都', '一', '个'}
+        prev_words -= stopwords
+        curr_words -= stopwords
+
+        # 如果有共同关键词,认为可能在讨论同一话题
+        if prev_words and curr_words:
+            overlap = len(prev_words & curr_words)
+            if overlap > 0:
+                return True
+
+        return False
 
     async def _analyze_group_role(self, user_id: str, group_id: str) -> str:
         """分析用户在群内的角色"""

@@ -275,32 +275,40 @@ class ServiceFactory(IServiceFactory):
     def create_intelligent_responder(self) -> IIntelligentResponder:
         """创建智能回复器"""
         cache_key = "intelligent_responder"
-        
+
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
-        
+
         try:
             from ..services.intelligent_responder import IntelligentResponder
-            
+
             # 需要数据库管理器
             db_manager = self.create_database_manager()
-            
+
             # 获取好感度管理器（如果已创建）
             affection_manager = self._service_cache.get("affection_manager")
-            
+
+            # 获取多样性管理器（如果已创建）
+            diversity_manager = self._service_cache.get("response_diversity_manager")
+
+            # 获取社交上下文注入器（如果已创建）
+            social_context_injector = self._service_cache.get("social_context_injector")
+
             service = IntelligentResponder(
-                self.config, 
-                self.context, 
-                db_manager, 
+                self.config,
+                self.context,
+                db_manager,
                 llm_adapter=self.create_framework_llm_adapter(), # 传递框架适配器
                 prompts=self.get_prompts(), # 传递 prompts
-                affection_manager=affection_manager # 传递好感度管理器
+                affection_manager=affection_manager, # 传递好感度管理器
+                diversity_manager=diversity_manager, # 传递多样性管理器
+                social_context_injector=social_context_injector # 传递社交上下文注入器
             )
             self._service_cache[cache_key] = service
-            
+
             self._logger.info("创建智能回复器成功")
             return service
-            
+
         except ImportError as e:
             self._logger.error(f"导入智能回复器失败: {e}", exc_info=True)
             raise ServiceError(f"创建智能回复器失败: {str(e)}")
@@ -524,7 +532,7 @@ class ServiceFactory(IServiceFactory):
     async def initialize_all_services(self) -> bool:
         """初始化所有服务"""
         self._logger.info("开始初始化所有服务")
-        
+
         try:
             # 按依赖顺序创建服务
             self.create_database_manager()
@@ -533,19 +541,32 @@ class ServiceFactory(IServiceFactory):
             self.create_style_analyzer()
             self.create_quality_monitor()
             self.create_ml_analyzer()
+
+            # 创建响应多样性管理器（在intelligent_responder之前）- 使用工厂方法
+            try:
+                self.create_response_diversity_manager()  # 使用ServiceFactory的方法
+            except Exception as e:
+                self._logger.warning(f"创建响应多样性管理器失败（继续使用默认行为）: {e}")
+
+            # 创建社交上下文注入器（在intelligent_responder之前）
+            try:
+                self.create_social_context_injector()
+            except Exception as e:
+                self._logger.warning(f"创建社交上下文注入器失败（继续使用默认行为）: {e}")
+
             self.create_intelligent_responder()  # 重新启用智能回复器
             self.create_persona_manager()
             self.create_multidimensional_analyzer()
             self.create_progressive_learning()
-            
+
             # 启动所有注册的服务
             success = await self._registry.start_all_services()
-            
+
             if success:
                 self._logger.info("所有服务初始化成功")
             else:
                 self._logger.error("部分服务初始化失败")
-            
+
             return success
             
         except Exception as e:
@@ -581,6 +602,31 @@ class ServiceFactory(IServiceFactory):
         """清理服务缓存"""
         self._service_cache.clear()
         self._logger.info("服务缓存已清理")
+
+    def create_response_diversity_manager(self):
+        """创建响应多样性管理器"""
+        cache_key = "response_diversity_manager"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.response_diversity_manager import ResponseDiversityManager
+
+            service = ResponseDiversityManager(
+                config=self.config,
+                db_manager=self.create_database_manager()
+            )
+
+            self._service_cache[cache_key] = service
+            self._registry.register_service("response_diversity_manager", service)
+
+            self._logger.info("创建响应多样性管理器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入响应多样性管理器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建响应多样性管理器失败: {str(e)}")
 
 
 # 将内部类移到模块顶层
@@ -867,13 +913,13 @@ class ComponentFactory:
     def create_expression_pattern_learner(self):
         """创建表达模式学习器"""
         cache_key = "expression_pattern_learner"
-        
+
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
-        
+
         try:
             from ..services.expression_pattern_learner import ExpressionPatternLearner
-            
+
             # 使用单例模式获取实例
             service = ExpressionPatternLearner.get_instance(
                 config=self.config,
@@ -881,16 +927,48 @@ class ComponentFactory:
                 context=self.service_factory.context,
                 llm_adapter=self.service_factory.create_framework_llm_adapter()
             )
-            
+
             self._service_cache[cache_key] = service
             self._registry.register_service("expression_pattern_learner", service)
-            
+
             self._logger.info("创建表达模式学习器成功")
             return service
-            
+
         except ImportError as e:
             self._logger.error(f"导入表达模式学习器失败: {e}", exc_info=True)
             raise ServiceError(f"创建表达模式学习器失败: {str(e)}")
+
+    def create_social_context_injector(self):
+        """创建社交上下文注入器"""
+        cache_key = "social_context_injector"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.social_context_injector import SocialContextInjector
+
+            db_manager = self.create_database_manager()
+
+            # 获取好感度管理器（如果已创建）
+            affection_manager = self._service_cache.get("affection_manager")
+
+            service = SocialContextInjector(
+                database_manager=db_manager,
+                affection_manager=affection_manager,
+                mood_manager=affection_manager,  # AffectionManager同时也管理情绪
+                config=self.config  # ✅ 传递config以读取expression_patterns_hours配置
+            )
+
+            self._service_cache[cache_key] = service
+            self._registry.register_service("social_context_injector", service)
+
+            self._logger.info("创建社交上下文注入器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入社交上下文注入器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建社交上下文注入器失败: {str(e)}")
 
 
 # 全局工厂实例管理器

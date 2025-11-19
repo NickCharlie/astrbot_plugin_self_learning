@@ -41,7 +41,7 @@ class MessageCollectorService:
     # 移除 _init_database 方法，因为数据库初始化现在由 DatabaseManager 负责
 
     async def collect_message(self, message_data: Dict[str, Any]) -> bool:
-        """收集消息到缓存"""
+        """收集消息并立即写入数据库（实时存储，确保外部API能获取到最新数据）"""
         try:
             # 验证消息数据
             required_fields = ['sender_id', 'message', 'timestamp']
@@ -49,17 +49,24 @@ class MessageCollectorService:
                 if field not in message_data:
                     logger.warning(f"消息数据缺少必要字段: {field}")
                     return False
-            
-            # 添加到缓存
-            self._message_cache.append(message_data)
-            
-            # 检查是否需要刷新缓存
-            if (len(self._message_cache) >= self._cache_size_limit or 
-                time.time() - self._last_flush_time > self._flush_interval):
-                await self._flush_message_cache()
-            
+
+            # 立即写入数据库（移除缓存机制以确保实时性）
+            message_obj = MessageData(
+                sender_id=message_data.get('sender_id', ''),
+                sender_name=message_data.get('sender_name', ''),
+                message=message_data.get('message', ''),
+                group_id=message_data.get('group_id', ''),
+                timestamp=message_data.get('timestamp', time.time()),
+                platform=message_data.get('platform', 'unknown'),
+                message_id=message_data.get('message_id'),
+                reply_to=message_data.get('reply_to')
+            )
+
+            await self.database_manager.save_raw_message(message_obj)
+            logger.info(f"✅ 消息已保存: group={message_data.get('group_id')}, sender={message_data.get('sender_name')}, msg_preview={message_data.get('message', '')[:30]}...")
+
             return True
-            
+
         except Exception as e:
             logger.error(f"消息收集失败: {e}")
             raise MessageCollectionError(f"消息收集失败: {str(e)}")

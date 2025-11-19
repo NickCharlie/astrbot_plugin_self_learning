@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.4.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.5.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -58,11 +58,13 @@ class SelfLearningPlugin(star.Star):
                 logger.warning("无法获取 AstrBot 数据路径，使用插件目录下的 data 目录")
 
             # 检查用户是否在配置中自定义了数据存储路径
-            user_data_dir = self.config.get('data_dir') if self.config else None
+            # 从 Storage_Settings.data_dir 读取配置
+            storage_settings = self.config.get('Storage_Settings', {}) if self.config else {}
+            user_data_dir = storage_settings.get('data_dir')
 
             if user_data_dir:
                 # 用户自定义了数据路径，使用用户指定的路径
-                logger.info(f"使用用户自定义数据路径: {user_data_dir}")
+                logger.info(f"使用用户自定义数据路径 (从Storage_Settings.data_dir): {user_data_dir}")
                 plugin_data_dir = user_data_dir
                 # 确保路径是绝对路径
                 if not os.path.isabs(plugin_data_dir):
@@ -91,14 +93,17 @@ class SelfLearningPlugin(star.Star):
             self.plugin_config.messages_db_path = os.path.join(self.plugin_config.data_dir, FileNames.MESSAGES_DB_FILE)
         if not self.plugin_config.learning_log_path:
             self.plugin_config.learning_log_path = os.path.join(self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE)
-        
+
         # 学习统计
         self.learning_stats = LearningStats()
-        
+
         # 消息去重缓存 - 防止合并消息插件导致的重复处理
         self.message_dedup_cache = {}
         self.max_cache_size = 1000
-        
+
+        # 设置增量更新回调 - 在服务初始化前设置，避免AttributeError
+        self.update_system_prompt_callback = None
+
         # 初始化服务层
         self._initialize_services()
 
@@ -246,10 +251,10 @@ class SelfLearningPlugin(star.Star):
             self.progressive_learning = self.service_factory.create_progressive_learning()
             self.ml_analyzer = self.service_factory.create_ml_analyzer()
             self.persona_manager = self.service_factory.create_persona_manager()
-            
-            # 设置渐进式学习服务的增量更新回调函数，降低耦合性
-            self.progressive_learning.set_update_system_prompt_callback(self._update_system_prompt_for_group)
-            
+
+            # ✅ 创建响应多样性管理器 - 用于防止LLM回复同质化
+            self.diversity_manager = self.service_factory.create_response_diversity_manager()
+
             # 获取组件工厂并创建新的高级服务
             component_factory = self.factory_manager.get_component_factory()
             self.data_analytics = component_factory.create_data_analytics_service()
@@ -266,7 +271,7 @@ class SelfLearningPlugin(star.Star):
             
             # 创建并保存LLM适配器实例，用于状态报告
             self.llm_adapter = self.service_factory.create_framework_llm_adapter()
-            
+
             # 初始化内部组件
             self._setup_internal_components()
 
@@ -489,18 +494,8 @@ class SelfLearningPlugin(star.Star):
                         logger.debug(f"实时风格分析完成: {style_result}")
                 except Exception as e:
                     logger.error(f"实时风格分析失败: {e}")
-            
-            # 4. 立即应用所有增量更新到system_prompt
-            try:
-                success = await self._update_system_prompt_for_group(group_id)
-                if success:
-                    logger.info(f"群组 {group_id} 增量更新优先应用到system_prompt成功")
-                else:
-                    logger.warning(f"群组 {group_id} 增量更新应用失败")
-            except Exception as e:
-                logger.error(f"增量更新应用异常 (群:{group_id}): {e}", exc_info=True)
-            
-            # 5. 如果启用实时学习，立即进行深度分析
+
+            # 4. 如果启用实时学习，立即进行深度分析
             if self.plugin_config.enable_realtime_learning:
                 try:
                     await self._process_message_realtime(group_id, message_text, sender_id)
@@ -512,130 +507,6 @@ class SelfLearningPlugin(star.Star):
             
         except Exception as e:
             logger.error(f"优先更新增量内容异常: {e}", exc_info=True)
-
-    async def _update_system_prompt_for_group(self, group_id: str):
-        """
-        为特定群组实时更新system_prompt，集成所有可用的增量更新
-        """
-        try:
-            # 防止在强制学习过程中重复调用，避免无限循环
-            if hasattr(self, '_force_learning_in_progress') and group_id in self._force_learning_in_progress:
-                logger.debug(f"群组 {group_id} 正在进行强制学习，跳过实时system_prompt更新")
-                return True
-                
-            # 收集当前群组的各种增量更新数据
-            update_data = {}
-            recent_messages = []  # 初始化变量
-            
-            # 1. 获取用户档案信息
-            try:
-                # 从多维分析器获取用户档案
-                if hasattr(self, 'multidimensional_analyzer') and self.multidimensional_analyzer:
-                    # 获取群组中最活跃的用户信息
-                    user_profiles = getattr(self.multidimensional_analyzer, 'user_profiles', {})
-                    if user_profiles:
-                        # 合并所有用户的信息作为群组特征
-                        communication_styles = []
-                        activity_patterns = []
-                        emotional_tendencies = []
-                        
-                        for user_id, profile in user_profiles.items():
-                            if hasattr(profile, 'communication_style') and profile.communication_style:
-                                # 转换沟通风格为可读描述
-                                style_desc = self._format_communication_style(profile.communication_style)
-                                if style_desc:
-                                    communication_styles.append(style_desc)
-                            if hasattr(profile, 'activity_pattern') and profile.activity_pattern:
-                                activity_patterns.append(f"用户{user_id[:6]}活跃度{profile.activity_pattern.get('frequency', '普通')}")
-                            if hasattr(profile, 'emotional_tendency') and profile.emotional_tendency:
-                                # 转换情感倾向为可读描述
-                                emotion_desc = self._format_emotional_tendency(profile.emotional_tendency)
-                                if emotion_desc:
-                                    emotional_tendencies.append(emotion_desc)
-                        
-                        if communication_styles or activity_patterns or emotional_tendencies:
-                            update_data['user_profile'] = {
-                                'preferences': '; '.join(activity_patterns[:3]) if activity_patterns else '',
-                                'communication_style': '; '.join(communication_styles[:2]) if communication_styles else '',
-                                'personality_traits': '; '.join(emotional_tendencies[:2]) if emotional_tendencies else ''
-                            }
-            except Exception as e:
-                logger.debug(f"获取用户档案信息失败: {e}")
-            
-            # 2. 获取社交关系信息
-            try:
-                # 从数据库获取最近的群组互动信息
-                recent_messages = await self.db_manager.get_recent_filtered_messages(group_id, limit=10)
-                if recent_messages and len(recent_messages) > 1:
-                    # 分析群组氛围
-                    message_count = len(recent_messages)
-                    unique_users = len(set(msg['sender_id'] for msg in recent_messages))
-                    
-                    if unique_users > 1:
-                        atmosphere = f"活跃群聊，{unique_users}人参与"
-                    else:
-                        atmosphere = "私聊对话"
-                        
-                    update_data['social_relationship'] = {
-                        'user_relationships': f"群组成员{unique_users}人",
-                        'group_atmosphere': atmosphere,
-                        'interaction_style': f"近期消息{message_count}条"
-                    }
-            except Exception as e:
-                logger.debug(f"获取社交关系信息失败: {e}")
-            
-            # 3. 获取上下文感知信息
-            try:
-                # 从最近的消息中分析对话状态
-                if recent_messages and len(recent_messages) > 0:
-                    latest_msg = recent_messages[0]['message'] if recent_messages else ''
-                    if latest_msg:
-                        # 简单的话题提取（取前20个字符作为当前话题）
-                        current_topic = latest_msg[:20] + '...' if len(latest_msg) > 20 else latest_msg
-                        
-                        update_data['context_awareness'] = {
-                            'current_topic': current_topic,
-                            'conversation_state': '进行中',
-                            'dialogue_flow': f"最近{len(recent_messages)}条消息的对话"
-                        }
-            except Exception as e:
-                logger.debug(f"获取上下文信息失败: {e}")
-            
-            # 4. 获取学习洞察信息
-            try:
-                # 从学习统计信息中获取基本洞察
-                if hasattr(self, 'learning_stats') and self.learning_stats:
-                    learning_info = {
-                        'interaction_patterns': f"已学习消息: {getattr(self.learning_stats, 'total_messages_processed', 0)}条",
-                        'improvement_suggestions': '基于历史对话的适应性调整',
-                        'effective_strategies': '持续学习和优化中',
-                        'learning_focus': '个性化交互改进'
-                    }
-                    
-                    # 如果有处理过的消息，添加学习洞察
-                    if getattr(self.learning_stats, 'total_messages_processed', 0) > 0:
-                        update_data['learning_insights'] = learning_info
-            except Exception as e:
-                logger.debug(f"获取学习洞察失败: {e}")
-            
-            # 应用所有收集到的增量更新
-            if update_data:
-                success = await self.temporary_persona_updater.apply_comprehensive_update_to_system_prompt(
-                    group_id, update_data
-                )
-                if success:
-                    logger.info(f"群组 {group_id} system_prompt实时更新成功，包含 {len(update_data)} 种类型的增量更新")
-                    return True
-                else:
-                    logger.warning(f"群组 {group_id} system_prompt更新失败")
-                    return False
-            else:
-                logger.debug(f"群组 {group_id} 暂无可用的增量更新数据")
-                return True  # 没有数据也算成功
-                
-        except Exception as e:
-            logger.error(f"群组 {group_id} 实时更新system_prompt异常: {e}", exc_info=True)
-            return False
 
     def _is_astrbot_command(self, event: AstrMessageEvent) -> bool:
         """
@@ -703,13 +574,20 @@ class SelfLearningPlugin(star.Star):
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
         """监听所有消息，收集用户对话数据"""
-        
+
         try:
-            # 检查event参数
+            # 检查event参数类型 - 添加调试信息
             if event is None:
                 logger.warning("on_message调用时event参数为None，跳过处理")
                 return
-            
+
+            # ✅ 添加类型检查，防止参数传递错误
+            if not hasattr(event, 'get_message_str'):
+                logger.error(f"on_message接收到错误的event类型: {type(event)}, 预期: AstrMessageEvent")
+                logger.error(f"event对象: {event}")
+                logger.error(f"args: {args}, kwargs: {kwargs}")
+                return
+
             # 获取消息文本
             message_text = event.get_message_str()
             if not message_text or len(message_text.strip()) == 0:
@@ -1036,25 +914,15 @@ class SelfLearningPlugin(star.Star):
     async def _process_expression_style_learning(self, group_id: str, message_text: str, sender_id: str):
         """处理表达风格学习 - 直接学习，无需消息筛选"""
         try:
-            # 添加频率控制，避免过度学习
-            current_time = time.time()
-            last_learning_key = f"last_expression_learning_{group_id}"
-            last_learning_time = getattr(self, last_learning_key, 0)
-            
-            # 表达风格学习间隔：每2分钟最多学习一次（减少间隔）
-            if current_time - last_learning_time < 120:  # 2分钟间隔
-                logger.debug(f"群组 {group_id} 表达风格学习间隔未到，剩余时间: {120 - (current_time - last_learning_time):.1f}秒")
-                return
-            
-            # 检查是否有足够的消息进行学习（降低阈值）
+            # 检查是否有足够的消息进行学习
             stats = await self.message_collector.get_statistics(group_id)
             raw_message_count = stats.get('raw_messages', 0)
-            
-            # 需要至少5条消息才开始表达风格学习（降低阈值）
+
+            # 需要至少5条消息才开始表达风格学习
             if raw_message_count < 5:
                 logger.debug(f"群组 {group_id} 原始消息数量不足，当前：{raw_message_count}，需要至少5条")
                 return
-            
+
             logger.info(f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}")
             
             # 获取最近的原始消息用于学习（不使用筛选后的消息）
@@ -1142,10 +1010,7 @@ class SelfLearningPlugin(star.Star):
                                 logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt")
                     except Exception as e:
                         logger.error(f"处理表达风格学习结果失败: {e}")
-                    
-                    # 更新学习时间
-                    setattr(self, last_learning_key, current_time)
-                    
+
                     # 统计更新
                     self.learning_stats.style_updates += 1
                     
@@ -1198,60 +1063,147 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"临时应用风格到prompt失败: {e}")
 
     async def _generate_few_shots_dialog(self, group_id: str, message_data_list: List[Any]) -> str:
-        """生成Few Shots对话格式的内容"""
+        """生成Few Shots对话格式的内容 - 需要至少10条消息才调用LLM处理"""
         try:
+            # 要求至少10条消息才进行Few Shots生成
+            if len(message_data_list) < 10:
+                logger.debug(f"群组 {group_id} 消息数量不足10条（当前{len(message_data_list)}条），跳过Few Shots生成")
+                return ""
+
             # 筛选出有效的对话片段
             dialog_pairs = []
-            
+
             # 将消息按时间排序
             sorted_messages = sorted(message_data_list, key=lambda x: x.timestamp)
-            
-            # 查找连续的对话
+
+            # 使用LLM智能识别真实的对话关系
             for i in range(len(sorted_messages) - 1):
                 current_msg = sorted_messages[i]
                 next_msg = sorted_messages[i + 1]
-                
-                # 确保是不同用户的对话
-                if current_msg.sender_id != next_msg.sender_id:
-                    # 清理消息内容
-                    user_msg = current_msg.message.strip()
-                    bot_response = next_msg.message.strip()
-                    
-                    # 过滤掉太短或无意义的消息
-                    if (len(user_msg) >= 5 and len(bot_response) >= 5 and
-                        user_msg not in ['？', '？？', '...', '。。。'] and
-                        bot_response not in ['？', '？？', '...', '。。。']):
-                        
-                        dialog_pairs.append({
-                            'user': user_msg,
-                            'assistant': bot_response
-                        })
-            
+
+                # 1. 确保是不同用户的消息（排除同一人连续发送）
+                if current_msg.sender_id == next_msg.sender_id:
+                    continue
+
+                # 2. 基础过滤：长度检查
+                user_msg = current_msg.message.strip()
+                bot_response = next_msg.message.strip()
+
+                if (len(user_msg) < 5 or len(bot_response) < 5 or
+                    user_msg in ['？', '？？', '...', '。。。'] or
+                    bot_response in ['？', '？？', '...', '。。。']):
+                    continue
+
+                # 3. 过滤重复内容（A重复B的话不算对话）
+                if user_msg == bot_response or user_msg in bot_response or bot_response in user_msg:
+                    logger.debug(f"过滤重复内容: A='{user_msg[:30]}...' B='{bot_response[:30]}...'")
+                    continue
+
+                # 4. 调用专业的消息关系分析器判断两条消息是否构成真实对话关系
+                if await self._is_valid_dialog_pair(current_msg, next_msg, group_id):
+                    dialog_pairs.append({
+                        'user': user_msg,
+                        'assistant': bot_response
+                    })
+
             # 选择最佳的对话片段（取前5个）
             if len(dialog_pairs) >= 3:
                 selected_pairs = dialog_pairs[:5]
-                
+
                 # 生成Few Shots格式
                 few_shots_lines = [
                     "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"
                 ]
-                
+
                 for pair in selected_pairs:
                     few_shots_lines.append(f"A: {pair['user']}")
                     few_shots_lines.append(f"B: {pair['assistant']}")
-                
+
+                logger.info(f"群组 {group_id} 生成了 {len(selected_pairs)} 组Few Shots对话")
                 return '\n'.join(few_shots_lines)
-            
+
+            logger.debug(f"群组 {group_id} 未找到足够的有效对话片段（需要至少3组，当前{len(dialog_pairs)}组）")
             return ""
-            
+
         except Exception as e:
             logger.error(f"生成Few Shots对话失败: {e}")
             return ""
 
-    async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
-        """创建对话风格学习结果的审查请求"""
+    async def _is_valid_dialog_pair(self, msg1: Any, msg2: Any, group_id: str) -> bool:
+        """
+        使用专业的消息关系分析器判断两条消息是否构成真实的对话关系
+
+        Args:
+            msg1: 第一条消息（MessageData对象）
+            msg2: 第二条消息（MessageData对象）
+            group_id: 群组ID
+
+        Returns:
+            bool: True表示构成对话关系，False表示不构成
+        """
         try:
-            # 构建审查内容
+            # 获取消息关系分析器
+            relationship_analyzer = self.factory_manager.get_service_factory().create_message_relationship_analyzer()
+
+            if not relationship_analyzer:
+                logger.warning("消息关系分析器未初始化，使用简单规则")
+                # 降级方案：简单规则
+                return msg1.message != msg2.message
+
+            # 构造分析器需要的消息格式
+            msg1_dict = {
+                'message_id': msg1.message_id or str(hash(f"{msg1.timestamp}{msg1.sender_id}")),
+                'sender_id': msg1.sender_id,
+                'message': msg1.message,
+                'timestamp': msg1.timestamp
+            }
+
+            msg2_dict = {
+                'message_id': msg2.message_id or str(hash(f"{msg2.timestamp}{msg2.sender_id}")),
+                'sender_id': msg2.sender_id,
+                'message': msg2.message,
+                'timestamp': msg2.timestamp
+            }
+
+            # 调用专业分析器
+            relationship = await relationship_analyzer._analyze_message_pair(msg1_dict, msg2_dict, group_id)
+
+            # 判断结果
+            if relationship:
+                # 关系类型为direct_reply或topic_continuation，且置信度>0.5，则认为是有效对话
+                is_valid = (
+                    relationship.relationship_type in ['direct_reply', 'topic_continuation'] and
+                    relationship.confidence > 0.5
+                )
+
+                if is_valid:
+                    logger.debug(f"识别对话关系: {relationship.relationship_type} (置信度: {relationship.confidence:.2f})")
+
+                return is_valid
+
+            return False
+
+        except Exception as e:
+            logger.error(f"消息关系判断失败: {e}", exc_info=True)
+            # 出错时保守判断，返回False
+            return False
+
+    async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
+        """创建对话风格学习结果的审查请求 - 包含去重逻辑"""
+        try:
+            # 1. 检查是否有重复的待审查记录（避免重复提交）
+            existing_reviews = await self._get_pending_style_reviews(group_id)
+
+            if existing_reviews:
+                # 检查内容是否相似
+                for existing in existing_reviews:
+                    existing_content = existing.get('few_shots_content', '')
+                    # 如果Few Shots内容完全相同，跳过创建
+                    if existing_content == few_shots_content:
+                        logger.info(f"群组 {group_id} 已存在相同的待审查风格学习记录，跳过重复创建")
+                        return
+
+            # 2. 构建审查内容
             review_data = {
                 'type': 'style_learning',
                 'group_id': group_id,
@@ -1261,14 +1213,46 @@ class SelfLearningPlugin(star.Star):
                 'status': 'pending',  # pending, approved, rejected
                 'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）'
             }
-            
-            # 保存到数据库的审查表
+
+            # 3. 保存到数据库的审查表
             await self.db_manager.create_style_learning_review(review_data)
-            
+
             logger.info(f"对话风格学习审查请求已创建: {group_id}")
-            
+
         except Exception as e:
             logger.error(f"创建对话风格学习审查请求失败: {e}")
+
+    async def _get_pending_style_reviews(self, group_id: str) -> List[Dict[str, Any]]:
+        """获取指定群组的待审查风格学习记录"""
+        try:
+            async with self.db_manager.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+                # 查询该群组的pending状态的风格学习审查记录
+                await cursor.execute('''
+                    SELECT id, group_id, few_shots_content, timestamp
+                    FROM style_learning_reviews
+                    WHERE group_id = ? AND status = 'pending' AND type = 'style_learning'
+                    ORDER BY timestamp DESC
+                    LIMIT 10
+                ''', (group_id,))
+
+                rows = await cursor.fetchall()
+
+                reviews = []
+                for row in rows:
+                    reviews.append({
+                        'id': row[0],
+                        'group_id': row[1],
+                        'few_shots_content': row[2],
+                        'timestamp': row[3]
+                    })
+
+                return reviews
+
+        except Exception as e:
+            logger.error(f"获取待审查风格学习记录失败: {e}")
+            return []
 
     @filter.command("learning_status")
     @filter.permission_type(PermissionType.ADMIN)
@@ -1973,6 +1957,76 @@ PersonaManager模式优势：
         except Exception as e:
             logger.error(f"清理重复内容命令失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 清理重复内容失败: {str(e)}")
+
+    @filter.on_llm_request()
+    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
+        """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)"""
+        try:
+            # ✅ 无条件注入,不检查是否启用多样性管理器
+            # 即使用户没有开启自动学习,也应该注入多样性内容以防止同质化回复
+
+            # 如果diversity_manager不存在,创建一个临时的
+            if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
+                logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
+                return
+
+            group_id = event.get_group_id() or event.get_sender_id()
+
+            # 获取当前的prompt (可能在contexts中，也可能在prompt字段中)
+            current_prompt = req.prompt or ""
+
+            # 如果有context历史，获取最后一条user消息
+            if hasattr(req, 'contexts') and req.contexts:
+                # 找到最后一条user消息
+                for msg in reversed(req.contexts):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        last_user_content = msg.get('content', '')
+                        if last_user_content and not current_prompt:
+                            current_prompt = last_user_content
+                        break
+
+            if not current_prompt:
+                logger.debug("[LLM Hook] 没有找到可注入的prompt内容")
+                return
+
+            logger.info(f"✅ [LLM Hook] 开始在框架层面注入多样性增强 (group: {group_id}, prompt长度: {len(current_prompt)})")
+
+            # 注入多样性增强 (包括历史Bot消息)
+            enhanced_prompt = await self.diversity_manager.build_diversity_prompt_injection(
+                current_prompt,
+                group_id=group_id,  # ✅ 传入group_id以获取历史消息
+                inject_style=True,
+                inject_pattern=True,
+                inject_variation=True,
+                inject_history=True  # ✅ 注入历史Bot消息，避免重复
+            )
+
+            # 保存当前风格和模式
+            current_language_style = self.diversity_manager.get_current_style()
+            current_response_pattern = self.diversity_manager.get_current_pattern()
+
+            logger.info(f"✅ [LLM Hook] 多样性注入完成 - 原长度: {len(current_prompt)}, 新长度: {len(enhanced_prompt)}")
+            logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
+            logger.debug(f"✅ [LLM Hook] 注入的prompt前100字符: {enhanced_prompt[:100]}...")
+            logger.debug(f"✅ [LLM Hook] 注入的prompt后100字符: ...{enhanced_prompt[-100:]}")
+
+            # 更新request对象中的prompt
+            req.prompt = enhanced_prompt
+
+            # 如果contexts中有user消息，也需要更新
+            if hasattr(req, 'contexts') and req.contexts:
+                for i in range(len(req.contexts) - 1, -1, -1):
+                    msg = req.contexts[i]
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        # 只更新最后一条user消息
+                        req.contexts[i]['content'] = enhanced_prompt
+                        logger.debug(f"✅ [LLM Hook] 已更新contexts中的最后一条user消息")
+                        break
+
+            logger.info(f"✅ [LLM Hook] 框架层面多样性注入完成")
+
+        except Exception as e:
+            logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
 
     async def terminate(self):
         """插件卸载时的清理工作 - 增强后台任务管理"""

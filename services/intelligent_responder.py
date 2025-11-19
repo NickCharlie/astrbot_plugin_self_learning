@@ -32,23 +32,26 @@ class IntelligentResponder:
     DAILY_RESPONSE_STATS_PERIOD_SECONDS = 86400  # 24小时
     GROUP_ATMOSPHERE_PERIOD_SECONDS = 3600  # 1小时
     GROUP_ACTIVITY_HIGH_THRESHOLD = 10
-    
-    def __init__(self, config: PluginConfig, context: Context, db_manager, 
+
+    def __init__(self, config: PluginConfig, context: Context, db_manager,
                  llm_adapter: Optional[FrameworkLLMAdapter] = None,
-                 prompts: Any = None, affection_manager = None):
+                 prompts: Any = None, affection_manager = None,
+                 diversity_manager = None, social_context_injector = None):
         self.config = config
         self.context = context
         self.db_manager = db_manager
         self.prompts = prompts
         self.affection_manager = affection_manager  # 添加好感度管理器
-        
+        self.diversity_manager = diversity_manager  # 添加多样性管理器
+        self.social_context_injector = social_context_injector  # 添加社交上下文注入器
+
         # 使用框架适配器
         self.llm_adapter = llm_adapter
-        
+
         # 设置默认回复策略 - 不依赖配置文件
         self.enable_intelligent_reply = True  # 默认启用智能回复
         self.context_window_size = 5  # 默认上下文窗口大小
-        
+
         logger.info("智能回复器初始化完成 - 使用默认配置")
 
     async def should_respond(self, event: AstrMessageEvent) -> bool:
@@ -109,34 +112,90 @@ class IntelligentResponder:
             sender_id = event.get_sender_id()
             group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
             message_text = event.get_message_str()
-            
+
             # 收集上下文信息
             context_info = await self._collect_context_info(group_id, sender_id, message_text)
-            
+
             # 获取基础系统提示词并增强
             enhanced_system_prompt = await self._build_enhanced_system_prompt(context_info)
-            
+
+            # 如果启用了多样性管理器，进一步增强提示词
+            current_language_style = None
+            current_response_pattern = None
+
+            if self.diversity_manager:
+                # 注入多样性增强 (会自动保存当前风格和模式到diversity_manager的属性中)
+                logger.info(f"开始注入多样性增强到system_prompt (当前长度: {len(enhanced_system_prompt)})")
+                enhanced_system_prompt = await self.diversity_manager.build_diversity_prompt_injection(
+                    enhanced_system_prompt,
+                    group_id=group_id,  # ✅ 传入group_id以获取历史消息
+                    inject_style=True,
+                    inject_pattern=True,
+                    inject_variation=True,
+                    inject_history=True  # ✅ 注入历史Bot消息，避免重复
+                )
+                logger.info(f"多样性注入后system_prompt长度: {len(enhanced_system_prompt)}")
+
+                # 获取刚才保存的风格和模式
+                current_language_style = self.diversity_manager.get_current_style()
+                current_response_pattern = self.diversity_manager.get_current_pattern()
+                logger.debug(f"当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
+
             logger.debug(f"构建的增强系统提示词长度: {len(enhanced_system_prompt)} 字符")
-            
+
+            # 获取动态temperature（如果有多样性管理器）
+            if self.diversity_manager:
+                temperature = self.diversity_manager.get_dynamic_temperature(
+                    context_type='normal',
+                    randomize=True
+                )
+            else:
+                temperature = 0.7  # 默认值
+
             # 调用框架的默认LLM
             provider = self.context.get_using_provider()
             if not provider:
                 logger.warning("未找到可用的LLM提供商")
                 return None
-            
+
             # 使用框架适配器
             if self.llm_adapter and self.llm_adapter.has_refine_provider():
                 try:
+                    # ✅ 将enhanced_system_prompt合并到prompt参数中，而不是使用system_prompt参数
+                    # 这样可以确保所有Provider都能看到完整的增强内容
+                    combined_prompt = f"{enhanced_system_prompt}\n\n【当前用户消息】\n{message_text}"
+
+                    logger.info(f"调用LLM - combined_prompt前50字符: {combined_prompt[:50]}...")
+                    logger.info(f"调用LLM - combined_prompt后100字符: ...{combined_prompt[-100:]}")
+                    logger.info(f"调用LLM - 完整长度: {len(combined_prompt)}, temperature: {temperature}")
+                    logger.debug(f"多样性增强部分长度: {len(enhanced_system_prompt)}, 用户消息长度: {len(message_text)}")
+
                     response = await self.llm_adapter.refine_chat_completion(
-                        prompt=message_text,  # 用户消息只包含原始消息
-                        system_prompt=enhanced_system_prompt,  # 原有PROMPT + 增量更新
-                        temperature=0.7,
+                        prompt=combined_prompt,  # 包含增强系统提示词 + 用户消息
+                        system_prompt=None,  # 不使用system_prompt参数，避免Provider兼容性问题
+                        temperature=temperature,  # 动态temperature
                         max_tokens=self.PROMPT_RESPONSE_WORD_LIMIT
                     )
-                    
+
                     if response:
                         response_text = response.strip()
-                        # 记录回复
+
+                        # ✅ 保存Bot消息到数据库 (用于多样性分析和避免同质化)
+                        try:
+                            await self.db_manager.save_bot_message(
+                                group_id=group_id,
+                                user_id=sender_id,
+                                message=response_text,
+                                response_to_message_id=None,  # TODO: 可以关联原始消息ID
+                                context_type='normal',
+                                temperature=temperature,
+                                language_style=current_language_style,
+                                response_pattern=current_response_pattern
+                            )
+                        except Exception as save_error:
+                            logger.warning(f"保存Bot消息失败(不影响回复): {save_error}")
+
+                        # 记录回复 (原有的记录逻辑,记录到filtered_messages)
                         await self._record_response(group_id, sender_id, message_text, response_text)
                         return response_text
                     else:
@@ -148,7 +207,7 @@ class IntelligentResponder:
             else:
                 logger.warning("没有可用的LLM服务")
                 return None
-            
+
         except Exception as e:
             logger.error(f"生成智能回复文本失败: {e}")
             raise ResponseError(f"生成智能回复文本失败: {str(e)}")
@@ -270,15 +329,36 @@ class IntelligentResponder:
             
             # 5. 组合最终的系统提示词: 心情增强PROMPT + 增量更新 + 上下文增强
             enhanced_prompt = mood_enhanced_prompt
-            
+
             if incremental_updates:
                 enhanced_prompt += f"\n\n{incremental_updates}"
-            
+
             if context_enhancement:
                 enhanced_prompt += f"\n\n{context_enhancement}"
-            
+
+            # 6. 注入社交上下文（如果启用）
+            if self.social_context_injector and self.config.enable_social_context_injection:
+                try:
+                    group_id = context_info.get('group_id')
+                    sender_id = context_info.get('sender_id')
+
+                    if group_id and sender_id:
+                        enhanced_prompt = await self.social_context_injector.inject_context_to_prompt(
+                            original_prompt=enhanced_prompt,
+                            group_id=group_id,
+                            user_id=sender_id,
+                            injection_position=getattr(self.config, 'context_injection_position', 'end'),
+                            include_social_relations=getattr(self.config, 'include_social_relations', True),
+                            include_affection=getattr(self.config, 'include_affection_info', True),
+                            include_mood=getattr(self.config, 'include_mood_info', True),
+                            include_expression_patterns=True  # ✅ 启用表达模式注入
+                        )
+                        logger.debug("✅ 社交上下文(含表达模式)已成功注入到系统提示词")
+                except Exception as e:
+                    logger.warning(f"社交上下文注入失败: {e}", exc_info=True)
+
             logger.debug(f"增强后系统提示词长度: {len(enhanced_prompt)} 字符")
-            
+
             return enhanced_prompt
             
         except Exception as e:

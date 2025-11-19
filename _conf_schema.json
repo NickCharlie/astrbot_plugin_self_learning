@@ -312,6 +312,49 @@
       }
     }
   },
+  "Social_Context_Settings": {
+    "description": "社交上下文注入设置",
+    "type": "object",
+    "hint": "控制向LLM prompt注入社交关系、好感度和情绪信息",
+    "items": {
+      "enable_social_context_injection": {
+        "description": "启用社交上下文注入",
+        "type": "bool",
+        "hint": "是否向LLM prompt中注入用户社交关系、好感度和情绪信息",
+        "default": true
+      },
+      "include_social_relations": {
+        "description": "注入用户社交关系",
+        "type": "bool",
+        "hint": "是否在prompt中包含用户的社交关系网络信息",
+        "default": true
+      },
+      "include_affection_info": {
+        "description": "注入好感度信息",
+        "type": "bool",
+        "hint": "是否在prompt中包含对该用户的好感度信息",
+        "default": true
+      },
+      "include_mood_info": {
+        "description": "注入Bot情绪信息",
+        "type": "bool",
+        "hint": "是否在prompt中包含Bot当前的情绪状态信息",
+        "default": true
+      },
+      "expression_patterns_hours": {
+        "description": "风格特征提取时间范围(小时)",
+        "type": "int",
+        "hint": "从多少小时内提取学到的表达风格特征注入到prompt中，默认24小时，可设置为7*24=168小时(一周)",
+        "default": 24
+      },
+      "context_injection_position": {
+        "description": "上下文注入位置",
+        "type": "string",
+        "hint": "社交上下文注入到prompt的位置，可选值：start(开头)、end(结尾)",
+        "default": "start"
+      }
+    }
+  },
   "Storage_Settings": {
     "description": "存储路径设置",
     "type": "object",
@@ -322,6 +365,25 @@
         "type": "string",
         "hint": "插件数据存储的根目录路径。可以是相对路径或绝对路径",
         "default": "./data/self_learning_data"
+      }
+    }
+  },
+  "API_Settings": {
+    "description": "外部API设置",
+    "type": "object",
+    "hint": "外部API接口的安全配置",
+    "items": {
+      "api_key": {
+        "description": "API访问密钥",
+        "type": "string",
+        "hint": "外部API接口的访问密钥。留空则不需要密钥认证。建议设置一个强密码保护API安全",
+        "default": ""
+      },
+      "enable_api_auth": {
+        "description": "启用API认证",
+        "type": "bool",
+        "hint": "是否启用API密钥认证。关闭后任何人都可以访问外部API接口",
+        "default": false
       }
     }
   }

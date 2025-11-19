@@ -1100,10 +1100,20 @@
                                 <h3><i class="material-icons">hub</i>
                                     <span id="current-group-name">群组成员关系图谱</span>
                                 </h3>
-                                <button class="btn btn-secondary" onclick="backToGroupList()">
-                                    <i class="material-icons">arrow_back</i>
-                                    返回列表
-                                </button>
+                                <div>
+                                    <button class="btn btn-primary" onclick="analyzeGroupRelations(event)" style="margin-right: 10px;">
+                                        <i class="material-icons">psychology</i>
+                                        智能分析关系
+                                    </button>
+                                    <button class="btn btn-danger" onclick="clearGroupRelations(event)" style="margin-right: 10px;">
+                                        <i class="material-icons">delete_forever</i>
+                                        清空关系数据
+                                    </button>
+                                    <button class="btn btn-secondary" onclick="backToGroupList()">
+                                        <i class="material-icons">arrow_back</i>
+                                        返回列表
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- 关系统计概览 -->
@@ -1151,6 +1161,9 @@
                                 <div class="chart-header">
                                     <h3>关系网络图谱</h3>
                                     <div class="chart-controls">
+                                        <select id="user-filter-select" onchange="filterRelationsByUser()" style="margin-right: 10px;">
+                                            <option value="">显示所有用户关系</option>
+                                        </select>
                                         <select id="relation-layout-type" onchange="updateRelationshipChart()">
                                             <option value="force">力导向布局</option>
                                             <option value="circular">环形布局</option>

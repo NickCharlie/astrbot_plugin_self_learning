@@ -39,17 +39,72 @@ async function logout() {
 let currentConfig = {};
 let currentMetrics = {};
 let chartInstances = {};
+let socialRelationsRefreshInterval = null; // 社交关系页面自动刷新定时器
 
 /**
- * 智能文本差异高亮函数
- * 比较原文本和新文本,只高亮关键修改的词汇和短语
+ * 启动社交关系自动刷新
+ * 注意：此函数需要在文件顶部定义，确保在loadPageData调用之前可用
+ */
+function startSocialRelationsAutoRefresh() {
+    if (!socialRelationsRefreshInterval) {
+        socialRelationsRefreshInterval = setInterval(() => {
+            // 使用延迟检查确保变量已初始化
+            if (typeof currentGroupId !== 'undefined' && currentGroupId &&
+                document.getElementById('social-relations-page')?.classList.contains('active')) {
+                const groupNameElement = document.getElementById('current-group-name');
+                const groupName = groupNameElement?.textContent.replace(' 的成员关系', '') || '';
+                if (groupName && typeof loadGroupRelations === 'function') {
+                    loadGroupRelations(currentGroupId, groupName);
+                }
+            }
+        }, 30000); // 每30秒刷新一次
+        console.log('社交关系自动刷新已启动');
+    }
+}
+
+/**
+ * 停止社交关系自动刷新
+ */
+function stopSocialRelationsAutoRefresh() {
+    if (socialRelationsRefreshInterval) {
+        clearInterval(socialRelationsRefreshInterval);
+        socialRelationsRefreshInterval = null;
+        console.log('社交关系自动刷新已停止');
+    }
+}
+
+/**
+ * 智能文本差异高亮函数 - 改进版
+ * 高亮key_change的内容(通常是拼接在原文本后的新内容)
  * @param {string} originalText - 原始文本
- * @param {string} proposedText - 建议更新的文本
+ * @param {string} proposedText - 建议更新的文本 (原文 + key_change)
+ * @param {boolean} isKeyChangeOnly - 是否只是key_change片段
  * @returns {string} 带有HTML标记的高亮文本
  */
-function highlightTextDifferences(originalText, proposedText) {
+function highlightTextDifferences(originalText, proposedText, isKeyChangeOnly = false) {
     if (!originalText || !proposedText) {
-        return escapeHtml(proposedText || '');
+        // 转换换行符为<br>以便正确显示
+        return formatNewlines(escapeHtml(proposedText || ''));
+    }
+
+    // 如果是key_change片段，直接高亮整个新内容
+    if (isKeyChangeOnly) {
+        return `<span class="text-diff-new">${formatNewlines(escapeHtml(proposedText))}</span>`;
+    }
+
+    // 检测proposedText是否包含originalText作为前缀
+    // 这种情况下，proposedText = originalText + keyChange
+    if (proposedText.startsWith(originalText)) {
+        // 提取keyChange部分
+        const keyChange = proposedText.substring(originalText.length);
+
+        if (keyChange.trim()) {
+            // 高亮keyChange部分，保持原文不变
+            return formatNewlines(escapeHtml(originalText)) +
+                   `<span class="text-diff-new">${formatNewlines(escapeHtml(keyChange))}</span>`;
+        }
+        // 如果keyChange为空，说明内容完全相同
+        return formatNewlines(escapeHtml(proposedText));
     }
 
     // 按行处理
@@ -90,7 +145,18 @@ function highlightTextDifferences(originalText, proposedText) {
         return highlightWordDifferences(mostSimilarOriginalLine, proposedLine);
     });
 
-    return highlightedLines.join('\n');
+    return highlightedLines.join('<br>');  // 使用<br>而不是\n
+}
+
+/**
+ * 格式化换行符为HTML换行
+ * @param {string} text - 原始文本
+ * @returns {string} 格式化后的HTML文本
+ */
+function formatNewlines(text) {
+    if (!text) return '';
+    // 将\n转换为<br>
+    return text.replace(/\n/g, '<br>');
 }
 
 /**
@@ -247,7 +313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initializeDashboard();
     
     // 设置定时刷新
-    setInterval(refreshDashboard, 30000); // 每30秒刷新一次
+    setInterval(refreshDashboard, 5000); // 每5秒刷新一次
     
     console.log('管理后台初始化完成');
 });
@@ -363,18 +429,37 @@ function initializeDashboard() {
 // 渲染概览统计
 function renderOverviewStats() {
     const stats = currentMetrics;
-    
+
     // 更新统计数字
     document.getElementById('total-messages').textContent = formatNumber(stats.total_messages_collected || 0);
     document.getElementById('filtered-messages').textContent = formatNumber(stats.filtered_messages || 0);
-    
+
     // 计算总LLM调用次数
     const totalLLMCalls = Object.values(stats.llm_calls || {}).reduce((sum, model) => sum + (model.total_calls || 0), 0);
     document.getElementById('total-llm-calls').textContent = formatNumber(totalLLMCalls);
-    
+
     // 使用学习会话统计的真实数据
     const learningSessionsCount = stats.learning_sessions?.active_sessions || 0;
     document.getElementById('learning-sessions').textContent = formatNumber(learningSessionsCount);
+
+    // 更新学习效率显示 - 使用智能计算结果
+    const learningEfficiencyElement = document.getElementById('learning-efficiency');
+    if (learningEfficiencyElement && stats.learning_efficiency !== undefined) {
+        learningEfficiencyElement.textContent = `效率: ${Math.round(stats.learning_efficiency)}%`;
+
+        // 如果有详细数据，添加tooltip
+        if (stats.learning_efficiency_details) {
+            const details = stats.learning_efficiency_details;
+            const tooltip = `
+筛选率: ${Math.round(details.message_filter_rate)}%
+提炼质量: ${Math.round(details.content_refine_quality)}%
+风格进度: ${Math.round(details.style_learning_progress)}%
+人格质量: ${Math.round(details.persona_update_quality)}%
+激活策略: ${details.active_strategies_count}个
+            `.trim();
+            learningEfficiencyElement.title = tooltip;
+        }
+    }
 
     // 加载并显示真实的趋势百分比
     fetch('/api/metrics/trends')
@@ -652,11 +737,23 @@ function initializeLearningProgressGauge() {
     const chartDom = document.getElementById('learning-progress-gauge');
     const chart = echarts.init(chartDom, 'material');
     chartInstances['learning-progress-gauge'] = chart;
-    
-    // 计算学习效率
+
+    // 计算学习效率 - 优先使用智能计算结果
     const totalMessages = currentMetrics.total_messages_collected || 0;
     const filteredMessages = currentMetrics.filtered_messages || 0;
-    const efficiency = totalMessages > 0 ? (filteredMessages / totalMessages * 100) : 0;
+
+    // 使用智能计算的学习效率，如果不存在则回退到简单计算
+    let efficiency = 0;
+    if (currentMetrics.learning_efficiency !== undefined) {
+        efficiency = currentMetrics.learning_efficiency;
+    } else {
+        efficiency = totalMessages > 0 ? (filteredMessages / totalMessages * 100) : 0;
+    }
+
+    // 如果有详细的学习效率数据，在控制台输出
+    if (currentMetrics.learning_efficiency_details) {
+        console.log('学习效率详情:', currentMetrics.learning_efficiency_details);
+    }
     
     const option = {
         series: [
@@ -848,9 +945,24 @@ function initializeStyleLearningDashboard() {
                 return;
             }
             
-            const styles = styleProgress.map(item => item.style_type);
-            const confidenceData = styleProgress.map(item => item.avg_confidence);
-            const sampleData = styleProgress.map(item => item.total_samples);
+            const styles = styleProgress.map(item => {
+                // 使用 group_id 或者时间戳作为标签
+                if (item.group_id) {
+                    return `群组${item.group_id}`;
+                } else if (item.timestamp) {
+                    const date = new Date(item.timestamp * 1000);
+                    return date.toLocaleDateString();
+                }
+                return '未知';
+            });
+            const confidenceData = styleProgress.map(item => {
+                // quality_score 通常是 0-1 之间的值，转换为百分比
+                return (item.quality_score || 0) * 100;
+            });
+            const sampleData = styleProgress.map(item => {
+                // 使用 filtered_count 或 message_count 作为样本数量
+                return item.filtered_count || item.message_count || item.total_samples || 0;
+            });
             
             const option = {
                 tooltip: {
@@ -1410,21 +1522,37 @@ function renderPersonaUpdates(updates) {
         const proposedFullDiv = updateElement.querySelector(`#proposed-full-${update.id}`);
 
         if (proposedShortDiv && proposedFullDiv) {
-            // 生成高亮的完整内容
+            // 检查是否只是key_change更新
+            const isKeyChangeOnly = update.proposed_content && update.proposed_content.length < 500;
+
+            // 生成高亮的完整内容 - 使用formatNewlines处理换行
             const highlightedFullContent = highlightTextDifferences(
                 update.original_content || '',
-                update.proposed_content || ''
+                update.proposed_content || '',
+                isKeyChangeOnly  // 如果是短内容,认为是key_change
             );
 
             // 生成高亮的截断内容
+            const truncatedProposed = truncateText(update.proposed_content || '', 200);
             const highlightedShortContent = highlightTextDifferences(
                 update.original_content || '',
-                truncateText(update.proposed_content || '', 200)
+                truncatedProposed,
+                isKeyChangeOnly
             );
 
             // 设置内容(使用innerHTML因为包含HTML标记)
             proposedShortDiv.innerHTML = highlightedShortContent;
             proposedFullDiv.innerHTML = highlightedFullContent;
+        }
+
+        // 同样处理原始内容的换行符显示
+        const originalShortDiv = updateElement.querySelector(`#original-${update.id}`);
+        const originalFullDiv = updateElement.querySelector(`#original-full-${update.id}`);
+
+        if (originalShortDiv && originalFullDiv) {
+            // 格式化原始内容的换行符
+            originalShortDiv.innerHTML = formatNewlines(truncateText(update.original_content || '', 200));
+            originalFullDiv.innerHTML = formatNewlines(update.original_content || '');
         }
 
         reviewList.appendChild(updateElement);
@@ -2154,6 +2282,10 @@ async function loadPageData(page) {
             break;
         case 'social-relations':
             await loadGroupList();
+            startSocialRelationsAutoRefresh(); // 启动自动刷新
+            break;
+        default:
+            stopSocialRelationsAutoRefresh(); // 离开社交关系页面时停止刷新
             break;
     }
 }
@@ -2264,9 +2396,24 @@ function initializeStyleProgressChart(progressData) {
         return;
     }
     
-    const styles = progressData.map(item => item.style_type || '未知');
-    const confidenceData = progressData.map(item => item.avg_confidence || 0);
-    const sampleData = progressData.map(item => item.total_samples || 0);
+    const styles = progressData.map(item => {
+        // 使用 group_id 或者时间戳作为标签
+        if (item.group_id) {
+            return `群组${item.group_id}`;
+        } else if (item.timestamp) {
+            const date = new Date(item.timestamp * 1000);
+            return date.toLocaleDateString();
+        }
+        return '未知';
+    });
+    const confidenceData = progressData.map(item => {
+        // quality_score 通常是 0-1 之间的值，转换为百分比
+        return (item.quality_score || 0) * 100;
+    });
+    const sampleData = progressData.map(item => {
+        // 使用 filtered_count 或 message_count 作为样本数量
+        return item.filtered_count || item.message_count || item.total_samples || 0;
+    });
     
     const option = {
         tooltip: {
@@ -2870,11 +3017,14 @@ function showNotification(message, type) {
     const notification = document.createElement('div');
     notification.className = `notification ${type}`;
     notification.textContent = message;
-    
+
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
-        document.body.removeChild(notification);
+        // 检查元素是否还在DOM中，避免removeChild错误
+        if (notification.parentNode) {
+            notification.parentNode.removeChild(notification);
+        }
     }, 3000);
 }
 
@@ -3649,11 +3799,11 @@ let allLearningContent = {
 async function loadStyleLearningData() {
     updateRefreshIndicator('加载中...');
     try {
-        // 并行加载学习成果、模式数据和文本内容
+        // 并行加载学习成果、模式数据和文本内容（文本内容使用缓存）
         const [resultsResponse, patternsResponse, contentResponse] = await Promise.all([
             fetch('/api/style_learning/results'),
             fetch('/api/style_learning/patterns'),
-            fetch('/api/style_learning/content_text')
+            fetch('/api/style_learning/content_text')  // 不加force_refresh，使用缓存
         ]);
         
         if (resultsResponse.ok && patternsResponse.ok) {
@@ -3704,22 +3854,27 @@ async function loadStyleLearningData() {
     }
 }
 
-// 加载所有学习内容文本
-async function loadAllLearningContent() {
+// 加载所有学习内容文本（支持强制刷新参数）
+async function loadAllLearningContent(forceRefresh = true) {
     try {
         updateRefreshIndicator('加载学习内容中...');
-        
-        const response = await fetch('/api/style_learning/content_text');
+
+        // 添加force_refresh参数以强制刷新缓存
+        const url = forceRefresh
+            ? '/api/style_learning/content_text?force_refresh=true'
+            : '/api/style_learning/content_text';
+
+        const response = await fetch(url);
         if (response.ok) {
             const contentData = await response.json();
             allLearningContent = contentData || allLearningContent;
             renderAllLearningContent();
-            showSuccess('学习内容已刷新');
+            showSuccess(forceRefresh ? '学习内容已强制刷新' : '学习内容已加载');
         } else {
             console.warn('无法从API加载内容，使用备用数据');
             loadFallbackLearningContent();
         }
-        
+
         updateRefreshIndicator('刚刚更新');
     } catch (error) {
         console.error('加载学习内容失败:', error);
@@ -4158,12 +4313,12 @@ function renderReviewedPersonaUpdates(updates) {
                 </div>
                 <div class="update-preview">
                     <p><strong>原始内容:</strong> <button class="toggle-content-btn" data-target="reviewed-original-${update.id}">展开完整内容</button></p>
-                    <div class="content-preview" id="reviewed-original-${update.id}" data-collapsed="true">${truncateText(update.original_content || '', 200)}</div>
-                    <div class="content-preview full-content" id="reviewed-original-full-${update.id}" style="display: none;">${update.original_content || ''}</div>
-                    
+                    <div class="content-preview" id="reviewed-original-${update.id}" data-collapsed="true"></div>
+                    <div class="content-preview full-content" id="reviewed-original-full-${update.id}" style="display: none;"></div>
+
                     <p><strong>建议更新:</strong> <button class="toggle-content-btn" data-target="reviewed-proposed-${update.id}">展开完整内容</button></p>
-                    <div class="content-preview" id="reviewed-proposed-${update.id}" data-collapsed="true">${truncateText(update.proposed_content || '', 200)}</div>
-                    <div class="content-preview full-content" id="reviewed-proposed-full-${update.id}" style="display: none;">${update.proposed_content || ''}</div>
+                    <div class="content-preview highlighted-diff" id="reviewed-proposed-${update.id}" data-collapsed="true"></div>
+                    <div class="content-preview full-content highlighted-diff" id="reviewed-proposed-full-${update.id}" style="display: none;"></div>
                 </div>
             </div>
             <div class="update-actions">
@@ -4202,7 +4357,41 @@ function renderReviewedPersonaUpdates(updates) {
         toggleBtns.forEach(btn => {
             btn.addEventListener('click', (e) => toggleContentView(e.target));
         });
-        
+
+        // 应用高亮和格式化到已审查的内容
+        const reviewedProposedShortDiv = updateElement.querySelector(`#reviewed-proposed-${update.id}`);
+        const reviewedProposedFullDiv = updateElement.querySelector(`#reviewed-proposed-full-${update.id}`);
+        const reviewedOriginalShortDiv = updateElement.querySelector(`#reviewed-original-${update.id}`);
+        const reviewedOriginalFullDiv = updateElement.querySelector(`#reviewed-original-full-${update.id}`);
+
+        if (reviewedProposedShortDiv && reviewedProposedFullDiv) {
+            // 检查是否只是key_change更新
+            const isKeyChangeOnly = update.proposed_content && update.proposed_content.length < 500;
+
+            // 生成高亮的内容
+            const highlightedFullContent = highlightTextDifferences(
+                update.original_content || '',
+                update.proposed_content || '',
+                isKeyChangeOnly
+            );
+
+            const truncatedProposed = truncateText(update.proposed_content || '', 200);
+            const highlightedShortContent = highlightTextDifferences(
+                update.original_content || '',
+                truncatedProposed,
+                isKeyChangeOnly
+            );
+
+            reviewedProposedShortDiv.innerHTML = highlightedShortContent;
+            reviewedProposedFullDiv.innerHTML = highlightedFullContent;
+        }
+
+        if (reviewedOriginalShortDiv && reviewedOriginalFullDiv) {
+            // 格式化原始内容的换行符
+            reviewedOriginalShortDiv.innerHTML = formatNewlines(truncateText(update.original_content || '', 200));
+            reviewedOriginalFullDiv.innerHTML = formatNewlines(update.original_content || '');
+        }
+
         reviewedList.appendChild(updateElement);
     });
 }
@@ -4462,6 +4651,151 @@ async function triggerRelearn() {
 // 全局变量存储当前选中的群组数据
 let currentGroupRelations = null;
 let currentGroupId = null;
+let relationshipChartInstance = null;  // 存储关系图表实例
+let relationshipChartResizeHandler = null;  // 存储resize处理函数
+let filteredUserId = null;  // 当前筛选的用户ID
+let loadGroupRelationsController = null;  // AbortController用于取消请求
+
+/**
+ * 触发智能社交关系分析
+ */
+async function analyzeGroupRelations(event) {
+    if (!currentGroupId) {
+        showNotification('请先选择一个群组', 'warning');
+        return;
+    }
+
+    // 获取按钮元素 - 如果event不存在,通过document查找
+    const btn = event ? event.target.closest('button') : document.querySelector('button[onclick*="analyzeGroupRelations"]');
+    if (!btn) {
+        console.error('无法找到分析按钮元素');
+        return;
+    }
+
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="material-icons rotating">psychology</i> 分析中...';
+
+    try {
+        showNotification('正在使用LLM智能分析群组社交关系，请稍候...', 'info');
+
+        const response = await fetch(`/api/social_relations/${currentGroupId}/analyze`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message_limit: 200,
+                force_refresh: true
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || '分析失败');
+        }
+
+        showNotification(`成功分析 ${data.relation_count} 条社交关系！`, 'success');
+
+        // 重新加载关系数据 - 添加null检查
+        const groupNameElement = document.getElementById('current-group-name');
+        const groupName = groupNameElement?.textContent.replace(' 的成员关系', '') || '';
+        await loadGroupRelations(currentGroupId, groupName);
+
+    } catch (error) {
+        console.error('分析社交关系失败:', error);
+        showNotification(`分析失败: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+/**
+ * 清空群组关系数据（带二次确认）
+ */
+async function clearGroupRelations(event) {
+    if (!currentGroupId) {
+        showNotification('请先选择一个群组', 'warning');
+        return;
+    }
+
+    // 第一次确认
+    const groupNameElement = document.getElementById('current-group-name');
+    const groupName = groupNameElement?.textContent.replace(' 的成员关系', '') || currentGroupId;
+
+    const firstConfirm = confirm(`确定要清空群组 "${groupName}" 的所有人际关系数据吗？\n\n此操作不可恢复！`);
+    if (!firstConfirm) {
+        return;
+    }
+
+    // 第二次确认
+    const secondConfirm = confirm(`⚠️ 最后确认 ⚠️\n\n您即将永久删除群组 "${groupName}" 的所有人际关系数据。\n\n请输入"确认删除"后点击确定，或点击取消放弃操作。`);
+    if (!secondConfirm) {
+        showNotification('已取消清空操作', 'info');
+        return;
+    }
+
+    // 获取按钮元素
+    const btn = event ? event.target.closest('button') : document.querySelector('button[onclick*="clearGroupRelations"]');
+    if (!btn) {
+        console.error('无法找到清空按钮元素');
+        return;
+    }
+
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="material-icons rotating">delete_forever</i> 清空中...';
+
+    try {
+        const response = await fetch(`/api/social_relations/${currentGroupId}/clear`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || '清空失败');
+        }
+
+        showNotification(`成功清空 ${data.deleted_count || 0} 条关系数据！`, 'success');
+
+        // 重新加载关系数据（此时应该为空）
+        const groupNameForReload = groupNameElement?.textContent.replace(' 的成员关系', '') || '';
+        await loadGroupRelations(currentGroupId, groupNameForReload);
+
+    } catch (error) {
+        console.error('清空社交关系失败:', error);
+        showNotification(`清空失败: ${error.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+/**
+ * 筛选指定用户的关系
+ */
+async function filterRelationsByUser() {
+    const select = document.getElementById('user-filter-select');
+    if (!select) {
+        console.warn('用户筛选下拉框不存在');
+        return;
+    }
+
+    filteredUserId = select.value;
+
+    if (!currentGroupRelations) {
+        return;
+    }
+
+    // 重新渲染关系图谱（会根据filteredUserId自动筛选）
+    renderRelationshipChart(currentGroupRelations);
+}
 
 /**
  * 加载群组列表
@@ -4536,26 +4870,62 @@ async function loadGroupList() {
 async function loadGroupRelations(groupId, groupName) {
     currentGroupId = groupId;
 
-    // 显示关系详情区域，隐藏群组列表
-    document.querySelector('.group-list-section').style.display = 'none';
-    document.getElementById('relationship-detail').style.display = 'block';
-    document.getElementById('current-group-name').textContent = `${groupName} 的成员关系`;
+    // 取消之前的请求
+    if (loadGroupRelationsController) {
+        loadGroupRelationsController.abort();
+    }
+    loadGroupRelationsController = new AbortController();
 
-    // 显示加载状态
+    // 验证DOM元素存在
+    const relationshipDetail = document.getElementById('relationship-detail');
+    const groupListSection = document.querySelector('.group-list-section');
+
+    if (!relationshipDetail || !groupListSection) {
+        console.warn('社交关系页面元素不存在，可能用户已离开该页面');
+        return;
+    }
+
+    // 显示关系详情区域，隐藏群组列表
+    groupListSection.style.display = 'none';
+    relationshipDetail.style.display = 'block';
+
+    const groupNameElement = document.getElementById('current-group-name');
+    if (groupNameElement) {
+        groupNameElement.textContent = `${groupName} 的成员关系`;
+    }
+
+    // 显示加载状态 - 先销毁可能存在的ECharts实例
     const chartContainer = document.getElementById('relationship-graph-chart');
     if (chartContainer) {
+        // 销毁已存在的ECharts实例，避免内存泄漏
+        const existingChart = echarts.getInstanceByDom(chartContainer);
+        if (existingChart) {
+            existingChart.dispose();
+        }
         chartContainer.innerHTML = '<div class="loading-message">正在加载关系数据...</div>';
     }
 
     try {
-        const response = await fetch(`/api/social_relations/${groupId}`);
+        const response = await fetch(`/api/social_relations/${groupId}`, {
+            signal: loadGroupRelationsController.signal
+        });
         const data = await response.json();
 
         if (!response.ok) {
             throw new Error(data.error || '加载关系数据失败');
         }
 
+        // 异步操作完成后，再次验证元素是否仍然存在
+        const stillOnPage = document.getElementById('relationship-detail');
+        if (!stillOnPage || stillOnPage.style.display === 'none') {
+            console.log('用户已离开社交关系页面，取消数据渲染');
+            return;
+        }
+
         currentGroupRelations = data;
+
+        // 更新用户筛选下拉列表
+        updateUserFilterSelect(data.members || []);
 
         // 更新统计数据
         updateRelationshipStats(data);
@@ -4567,6 +4937,11 @@ async function loadGroupRelations(groupId, groupName) {
         renderMembersList(data);
 
     } catch (error) {
+        if (error.name === 'AbortError') {
+            console.log('加载关系数据被取消');
+            return;
+        }
+
         console.error('加载群组关系失败:', error);
         if (chartContainer) {
             chartContainer.innerHTML = `<div class="error-message"><i class="material-icons">error</i><p>加载失败: ${error.message}</p></div>`;
@@ -4576,17 +4951,41 @@ async function loadGroupRelations(groupId, groupName) {
 }
 
 /**
+ * 更新用户筛选下拉列表
+ */
+function updateUserFilterSelect(members) {
+    const select = document.getElementById('user-filter-select');
+    if (!select) return;
+
+    // 清空旧选项
+    select.innerHTML = '<option value="">显示所有用户关系</option>';
+
+    // 添加用户选项
+    members.forEach(member => {
+        const option = document.createElement('option');
+        option.value = member.user_id;
+        option.textContent = `${member.nickname || member.user_id} (${member.message_count} 条消息)`;
+        select.appendChild(option);
+    });
+
+    // 重置筛选状态
+    filteredUserId = null;
+}
+
+/**
  * 更新关系统计数据
  */
 function updateRelationshipStats(data) {
     const members = data.members || [];
     const relations = data.relations || [];
 
-    // 总成员数
-    document.getElementById('total-members-count').textContent = members.length;
+    // 总成员数 - 添加null检查
+    const totalMembersEl = document.getElementById('total-members-count');
+    if (totalMembersEl) totalMembersEl.textContent = members.length;
 
-    // 总关系数
-    document.getElementById('total-relations-count').textContent = relations.length;
+    // 总关系数 - 添加null检查
+    const totalRelationsEl = document.getElementById('total-relations-count');
+    if (totalRelationsEl) totalRelationsEl.textContent = relations.length;
 
     // 最活跃成员（基于关系数量）
     let mostActive = '--';
@@ -4611,7 +5010,8 @@ function updateRelationshipStats(data) {
             mostActive = member ? (member.nickname || member.user_id) : maxUserId;
         }
     }
-    document.getElementById('most-active-member').textContent = mostActive;
+    const mostActiveEl = document.getElementById('most-active-member');
+    if (mostActiveEl) mostActiveEl.textContent = mostActive;
 
     // 平均关系强度
     let avgStrength = 0;
@@ -4619,7 +5019,8 @@ function updateRelationshipStats(data) {
         const totalStrength = relations.reduce((sum, rel) => sum + (rel.strength || 0), 0);
         avgStrength = (totalStrength / relations.length).toFixed(2);
     }
-    document.getElementById('avg-relation-strength').textContent = avgStrength;
+    const avgStrengthEl = document.getElementById('avg-relation-strength');
+    if (avgStrengthEl) avgStrengthEl.textContent = avgStrength;
 }
 
 /**
@@ -4629,50 +5030,143 @@ function renderRelationshipChart(data) {
     const chartDom = document.getElementById('relationship-graph-chart');
     if (!chartDom) return;
 
-    const myChart = echarts.init(chartDom);
+    // 安全销毁已存在的实例，避免内存泄漏和渲染冲突
+    try {
+        let existingChart = echarts.getInstanceByDom(chartDom);
+        if (existingChart) {
+            // 检查DOM元素是否仍然有效
+            if (chartDom.parentNode) {
+                existingChart.dispose();
+            } else {
+                // 如果DOM已被移除，只需清除引用
+                console.warn('图表DOM已被移除，跳过dispose');
+            }
+        }
+    } catch (e) {
+        console.warn('销毁图表实例时出错:', e);
+    }
+
+    // 再次检查DOM是否仍然存在
+    if (!document.getElementById('relationship-graph-chart')) {
+        console.warn('图表DOM元素不存在，跳过渲染');
+        return;
+    }
+
+    // 重新初始化
+    let myChart = echarts.init(chartDom);
 
     const members = data.members || [];
-    const relations = data.relations || [];
+    let relations = data.relations || [];
 
-    // 构建节点数据
-    const nodes = members.map(member => ({
-        id: member.user_id,
-        name: member.nickname || member.user_id,
-        symbolSize: 30 + (member.message_count || 0) * 0.1, // 根据消息数量调整节点大小
-        label: {
-            show: true
-        },
-        itemStyle: {
-            color: getNodeColor(member.message_count || 0)
-        }
-    }));
+    // 如果有筛选用户，只显示该用户相关的关系
+    if (filteredUserId) {
+        relations = relations.filter(rel =>
+            rel.source === filteredUserId || rel.target === filteredUserId
+        );
 
-    // 构建边数据
-    const links = relations.map(rel => ({
-        source: rel.source,
-        target: rel.target,
-        value: rel.strength || 1,
-        lineStyle: {
-            width: Math.max(1, (rel.strength || 0) * 2),
-            opacity: 0.3 + (rel.strength || 0) * 0.3
-        }
-    }));
+        // 也只显示相关的节点
+        const relatedUserIds = new Set();
+        relatedUserIds.add(filteredUserId);
+        relations.forEach(rel => {
+            relatedUserIds.add(rel.source);
+            relatedUserIds.add(rel.target);
+        });
+
+        // 筛选节点
+        const filteredMembers = members.filter(m => relatedUserIds.has(m.user_id));
+
+        // 构建节点数据（使用筛选后的成员）
+        const nodes = filteredMembers.map(member => ({
+            id: member.user_id,
+            name: member.nickname || member.user_id,
+            symbolSize: member.user_id === filteredUserId ? 50 : (30 + (member.message_count || 0) * 0.1),
+            label: {
+                show: true,
+                fontWeight: member.user_id === filteredUserId ? 'bold' : 'normal'
+            },
+            itemStyle: {
+                color: member.user_id === filteredUserId ? '#ff4757' : getNodeColor(member.message_count || 0)
+            }
+        }));
+
+        // 构建边数据
+        const links = relations.map(rel => ({
+            source: rel.source,
+            target: rel.target,
+            value: rel.strength || 1,
+            label: {
+                show: true,
+                formatter: rel.type_text || ''
+            },
+            lineStyle: {
+                width: Math.max(1, (rel.strength || 0) * 2),
+                opacity: 0.5 + (rel.strength || 0) * 0.3
+            }
+        }));
+
+        renderFilteredChart(nodes, links, `${filteredMembers.find(m => m.user_id === filteredUserId)?.nickname || filteredUserId} 的社交关系`);
+    } else {
+        // 显示所有关系
+        // 构建节点数据
+        const nodes = members.map(member => ({
+            id: member.user_id,
+            name: member.nickname || member.user_id,
+            symbolSize: 30 + (member.message_count || 0) * 0.1, // 根据消息数量调整节点大小
+            label: {
+                show: true
+            },
+            itemStyle: {
+                color: getNodeColor(member.message_count || 0)
+            }
+        }));
+
+        // 构建边数据
+        const links = relations.map(rel => ({
+            source: rel.source,
+            target: rel.target,
+            value: rel.strength || 1,
+            lineStyle: {
+                width: Math.max(1, (rel.strength || 0) * 2),
+                opacity: 0.3 + (rel.strength || 0) * 0.3
+            }
+        }));
+
+        renderFilteredChart(nodes, links, `${members.length} 个成员，${relations.length} 个关系连接`);
+    }
+}
+
+/**
+ * 渲染筛选后的图表
+ */
+function renderFilteredChart(nodes, links, title) {
+    const chartDom = document.getElementById('relationship-graph-chart');
+    if (!chartDom) return;
+
+    // 销毁已存在的实例
+    let myChart = echarts.getInstanceByDom(chartDom);
+    if (myChart) {
+        myChart.dispose();
+    }
+
+    // 重新初始化
+    myChart = echarts.init(chartDom);
 
     // 获取布局类型
     const layoutType = document.getElementById('relation-layout-type')?.value || 'force';
 
     const option = {
         title: {
-            text: `${members.length} 个成员，${relations.length} 个关系连接`,
+            text: title,
             left: 'center',
             top: 10
         },
         tooltip: {
             formatter: function(params) {
                 if (params.dataType === 'node') {
-                    return `${params.data.name}<br/>消息数: ${members.find(m => m.user_id === params.data.id)?.message_count || 0}`;
+                    return `${params.data.name}<br/>节点ID: ${params.data.id}`;
                 } else if (params.dataType === 'edge') {
-                    return `${params.data.source} → ${params.data.target}<br/>关系强度: ${params.data.value.toFixed(2)}`;
+                    const edgeLabel = params.data.label?.formatter || '';
+                    return `${params.data.source} → ${params.data.target}<br/>关系类型: ${edgeLabel}<br/>关系强度: ${params.data.value.toFixed(2)}`;
                 }
             }
         },
@@ -4690,6 +5184,10 @@ function renderRelationshipChart(data) {
             labelLayout: {
                 hideOverlap: true
             },
+            edgeLabel: {
+                show: filteredUserId ? true : false,  // 筛选模式下显示边标签
+                fontSize: 10
+            },
             scaleLimit: {
                 min: 0.4,
                 max: 2
@@ -4699,8 +5197,8 @@ function renderRelationshipChart(data) {
                 curveness: 0.3
             },
             force: layoutType === 'force' ? {
-                repulsion: 200,
-                edgeLength: [50, 150],
+                repulsion: filteredUserId ? 150 : 200,
+                edgeLength: filteredUserId ? [80, 200] : [50, 150],
                 gravity: 0.1
             } : undefined,
             circular: layoutType === 'circular' ? {
@@ -4711,8 +5209,17 @@ function renderRelationshipChart(data) {
 
     myChart.setOption(option);
 
-    // 响应窗口大小变化
-    window.addEventListener('resize', () => myChart.resize());
+    // 移除旧的resize监听器
+    if (relationshipChartResizeHandler) {
+        window.removeEventListener('resize', relationshipChartResizeHandler);
+    }
+
+    // 创建新的resize监听器
+    relationshipChartResizeHandler = () => myChart.resize();
+    window.addEventListener('resize', relationshipChartResizeHandler);
+
+    // 存储实例引用
+    relationshipChartInstance = myChart;
 }
 
 /**
@@ -4835,10 +5342,40 @@ function updateRelationshipChart() {
  * 返回群组列表
  */
 function backToGroupList() {
-    document.querySelector('.group-list-section').style.display = 'block';
-    document.getElementById('relationship-detail').style.display = 'none';
+    // 取消任何正在进行的请求
+    if (loadGroupRelationsController) {
+        loadGroupRelationsController.abort();
+        loadGroupRelationsController = null;
+    }
+
+    // 销毁ECharts实例，避免内存泄漏
+    const chartContainer = document.getElementById('relationship-graph-chart');
+    if (chartContainer) {
+        const existingChart = echarts.getInstanceByDom(chartContainer);
+        if (existingChart) {
+            existingChart.dispose();
+        }
+    }
+
+    // 移除resize监听器
+    if (relationshipChartResizeHandler) {
+        window.removeEventListener('resize', relationshipChartResizeHandler);
+        relationshipChartResizeHandler = null;
+    }
+
+    // 清除图表实例引用
+    relationshipChartInstance = null;
+
+    // 切换显示 - 添加null检查
+    const groupListSection = document.querySelector('.group-list-section');
+    const relationshipDetail = document.getElementById('relationship-detail');
+
+    if (groupListSection) groupListSection.style.display = 'block';
+    if (relationshipDetail) relationshipDetail.style.display = 'none';
+
     currentGroupRelations = null;
     currentGroupId = null;
+    filteredUserId = null;  // 清除筛选状态
 }
 
 /**

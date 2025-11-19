@@ -103,7 +103,18 @@ class PluginConfig:
     
     # 用户可配置的存储路径（放在最后，用户可以自定义）
     data_dir: str = "./data/self_learning_data"  # 插件数据存储目录
-    
+
+    # API设置
+    api_key: str = ""  # 外部API访问密钥
+    enable_api_auth: bool = False  # 是否启用API密钥认证
+
+    # 社交关系注入设置（与_conf_schema.json一致）
+    enable_social_context_injection: bool = True  # 启用社交关系上下文注入到prompt
+    include_social_relations: bool = True  # 注入用户社交关系网络信息
+    include_affection_info: bool = True  # 注入好感度信息
+    include_mood_info: bool = True  # 注入Bot情绪信息
+    context_injection_position: str = "start"  # 上下文注入位置: "start" 或 "end"
+
     def __post_init__(self):
         """初始化后处理"""
         # 这些路径的默认值和目录创建应在外部（如主插件类）处理
@@ -134,7 +145,9 @@ class PluginConfig:
         affection_settings = config.get('Affection_System_Settings', {})
         mood_settings = config.get('Mood_System_Settings', {})
         storage_settings = config.get('Storage_Settings', {})
-        
+        api_settings = config.get('API_Settings', {})
+        social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
+
         return cls(
             enable_message_capture=basic_settings.get('enable_message_capture', True),
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
@@ -194,11 +207,22 @@ class PluginConfig:
             mood_persistence_hours=mood_settings.get('mood_persistence_hours', 24),
             
             # PersonaUpdater配置 (这些可能不是直接从 _conf_schema.json 的顶层获取，而是从其他地方或默认值)
-            persona_merge_strategy=config.get('persona_merge_strategy', 'smart'), 
+            persona_merge_strategy=config.get('persona_merge_strategy', 'smart'),
             max_mood_imitation_dialogs=config.get('max_mood_imitation_dialogs', 20),
             enable_persona_evolution=config.get('enable_persona_evolution', True),
             persona_compatibility_threshold=config.get('persona_compatibility_threshold', 0.6),
-            
+
+            # API设置
+            api_key=api_settings.get('api_key', ''),
+            enable_api_auth=api_settings.get('enable_api_auth', False),
+
+            # 社交上下文注入设置
+            enable_social_context_injection=social_context_settings.get('enable_social_context_injection', True),
+            include_social_relations=social_context_settings.get('include_social_relations', True),
+            include_affection_info=social_context_settings.get('include_affection_info', True),
+            include_mood_info=social_context_settings.get('include_mood_info', True),
+            context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
         )

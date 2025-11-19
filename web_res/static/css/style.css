@@ -3342,11 +3342,12 @@ input[type="checkbox"]:checked::after {
     padding: 16px;
     border-bottom: 1px solid var(--border-color);
     align-items: center;
+    color: #000000;
 }
 
 .member-row.member-header {
-    background: var(--primary-color);
-    color: white;
+    background: var(--color-fill1-2);
+    color: #000000;
     font-weight: 600;
     border-radius: 8px 8px 0 0;
     border-bottom: none;

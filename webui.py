@@ -17,12 +17,21 @@ from hypercorn.config import Config as HypercornConfig
 from .config import PluginConfig
 from .core.factory import FactoryManager
 from .persona_web_manager import PersonaWebManager, set_persona_web_manager, get_persona_web_manager
+from .services.intelligence_metrics import IntelligenceMetricsService
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
 WEB_STATIC_DIR = os.path.join(PLUGIN_ROOT_DIR, "web_res", "static")
 WEB_HTML_DIR = os.path.join(WEB_STATIC_DIR, "html")
-PASSWORD_FILE_PATH = os.path.join(PLUGIN_ROOT_DIR, "config", "password.json") # 定义密码文件路径
+
+def get_password_file_path() -> str:
+    """动态获取密码文件路径，优先使用config.data_dir"""
+    if plugin_config and hasattr(plugin_config, 'data_dir'):
+        # 使用配置的data_dir路径
+        return os.path.join(plugin_config.data_dir, "password.json")
+    else:
+        # 后备路径：使用插件根目录下的config文件夹
+        return os.path.join(PLUGIN_ROOT_DIR, "config", "password.json")
 
 # 初始化 Quart 应用
 app = Quart(__name__, static_folder=WEB_STATIC_DIR, static_url_path="/static", template_folder=WEB_HTML_DIR)
@@ -36,11 +45,18 @@ persona_updater: Optional[Any] = None
 database_manager: Optional[Any] = None
 db_manager: Optional[Any] = None  # 添加db_manager别名
 llm_client = None
+llm_adapter_instance = None  # LLM适配器实例，用于社交关系分析等服务
 progressive_learning: Optional[Any] = None  # 添加progressive_learning全局变量
+intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智能指标计算服务
 
 # 新增的变量
 pending_updates: List[Any] = []
 password_config: Dict[str, Any] = {} # 用于存储密码配置
+
+# 学习内容缓存
+_style_learning_content_cache: Optional[Dict[str, Any]] = None
+_style_learning_content_cache_time: Optional[float] = None
+_style_learning_content_cache_ttl: int = 300  # 缓存有效期5分钟
 
 # 设置日志
 # logger = logging.getLogger(__name__)
@@ -50,14 +66,18 @@ llm_call_metrics: Dict[str, Dict[str, Any]] = {}
 
 def load_password_config() -> Dict[str, Any]:
     """加载密码配置文件"""
-    if os.path.exists(PASSWORD_FILE_PATH):
-        with open(PASSWORD_FILE_PATH, 'r', encoding='utf-8') as f:
+    password_file_path = get_password_file_path()
+    if os.path.exists(password_file_path):
+        with open(password_file_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {"password": "self_learning_pwd", "must_change": True}
 
 def save_password_config(config: Dict[str, Any]):
     """保存密码配置文件"""
-    with open(PASSWORD_FILE_PATH, 'w', encoding='utf-8') as f:
+    password_file_path = get_password_file_path()
+    # 确保目录存在
+    os.makedirs(os.path.dirname(password_file_path), exist_ok=True)
+    with open(password_file_path, 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=2)
 
 def require_auth(f):
@@ -82,17 +102,22 @@ async def set_plugin_services(
     astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, pending_updates
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service
     plugin_config = config
-    
+
+    # 将配置存储到app中,供API认证使用
+    app.plugin_config = config
+
     # 使用工厂管理器获取LLM适配器
     try:
         # 从ServiceFactory获取LLM适配器，而不是ComponentFactory
         llm_client = factory_manager.get_service_factory().create_framework_llm_adapter()
+        llm_adapter_instance = llm_client  # 设置llm_adapter_instance别名
         logger.info(f"从服务工厂获取LLM适配器: {type(llm_client)}")
     except Exception as e:
         logger.error(f"获取LLM适配器失败: {e}")
         llm_client = llm_c  # 回退到传入的客户端
+        llm_adapter_instance = llm_client  # 同步设置别名
 
     # 总是创建PersonaWebManager，无论是否传入AstrBot PersonaManager
     try:
@@ -166,7 +191,16 @@ async def set_plugin_services(
             logger.info(f"成功获取progressive_learning服务: {type(progressive_learning)}")
         else:
             logger.warning("progressive_learning服务为None")
-            
+
+        # 初始化智能指标计算服务
+        logger.info("正在初始化智能指标计算服务...")
+        intelligence_metrics_service = IntelligenceMetricsService(
+            config=config,
+            db_manager=database_manager
+        )
+        globals()['intelligence_metrics_service'] = intelligence_metrics_service
+        logger.info("智能指标计算服务初始化成功")
+
     except Exception as e:
         logger.error(f"获取服务实例失败: {e}", exc_info=True)
         globals()['persona_updater'] = None
@@ -738,25 +772,61 @@ async def batch_delete_persona_updates():
         
         success_count = 0
         failed_count = 0
-        
+
         for update_id in update_ids:
             try:
-                # 尝试删除人格学习审查记录
-                success = await database_manager.delete_persona_learning_review_by_id(int(update_id))
-                
-                if success:
-                    success_count += 1
-                else:
-                    # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
-                    if persona_updater:
-                        result = await persona_updater.delete_persona_update_review(int(update_id))
-                        if result:
+                # 解析update_id，处理前缀（persona_learning_、style_）
+                if isinstance(update_id, str):
+                    if update_id.startswith("persona_learning_"):
+                        numeric_id = int(update_id.replace("persona_learning_", ""))
+                        # 删除人格学习审查记录
+                        success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+                        if success:
                             success_count += 1
                         else:
                             failed_count += 1
+                            logger.warning(f"未找到人格学习审查记录: {numeric_id}")
+                    elif update_id.startswith("style_"):
+                        numeric_id = int(update_id.replace("style_", ""))
+                        # 删除风格学习审查记录
+                        success = await database_manager.delete_style_review_by_id(numeric_id)
+                        if success:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                            logger.warning(f"未找到风格学习审查记录: {numeric_id}")
                     else:
-                        failed_count += 1
-                        
+                        # 纯数字ID,尝试删除传统人格审查记录
+                        numeric_id = int(update_id)
+                        if persona_updater:
+                            result = await persona_updater.delete_persona_update_review(numeric_id)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                                logger.warning(f"未找到传统人格审查记录: {numeric_id}")
+                        else:
+                            failed_count += 1
+                            logger.warning("persona_updater不可用")
+                else:
+                    # 纯数字ID
+                    numeric_id = int(update_id)
+                    # 先尝试删除人格学习审查记录
+                    success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+
+                    if success:
+                        success_count += 1
+                    else:
+                        # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
+                        if persona_updater:
+                            result = await persona_updater.delete_persona_update_review(numeric_id)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+
             except Exception as e:
                 logger.error(f"删除人格更新审查记录 {update_id} 失败: {e}")
                 failed_count += 1
@@ -955,14 +1025,14 @@ async def get_metrics():
         # 获取系统性能指标
         import psutil
         import time
-        
-        # CPU和内存使用率
-        cpu_percent = psutil.cpu_percent(interval=1)
+
+        # CPU和内存使用率（使用非阻塞方式获取CPU使用率）
+        cpu_percent = psutil.cpu_percent(interval=0)  # interval=0 返回上次调用后的平均值，不阻塞
         memory = psutil.virtual_memory()
-        
+
         # 网络统计
         net_io = psutil.net_io_counters()
-        
+
         # 磁盘使用率
         disk_usage = psutil.disk_usage('/')
         
@@ -976,7 +1046,7 @@ async def get_metrics():
             },
             "total_messages_collected": total_messages,
             "filtered_messages": filtered_messages,
-            "learning_efficiency": (filtered_messages / total_messages * 100) if total_messages > 0 else 0,
+            "learning_efficiency": 0,  # 将被智能计算覆盖
             "system_metrics": {
                 "cpu_percent": cpu_percent,
                 "memory_percent": memory.percent,
@@ -1057,7 +1127,87 @@ async def get_metrics():
             "success_rate": round(success_rate, 2)
         }
         metrics["last_updated"] = time.time()
-        
+
+        # 使用智能指标计算服务计算学习效率
+        if intelligence_metrics_service:
+            try:
+                # 统计额外的学习成果指标
+                refined_content_count = 0
+                style_patterns_learned = 0
+                persona_updates_count = 0
+                active_strategies = []
+
+                # 从数据库获取提炼内容数量
+                if database_manager:
+                    try:
+                        async with database_manager.get_db_connection() as conn:
+                            cursor = await conn.cursor()
+
+                            # 统计提炼内容数量
+                            await cursor.execute("SELECT COUNT(*) FROM filtered_messages WHERE refined = 1")
+                            result = await cursor.fetchone()
+                            if result:
+                                refined_content_count = result[0]
+
+                            # 统计风格学习成果
+                            await cursor.execute("SELECT COUNT(*) FROM style_learning_records")
+                            result = await cursor.fetchone()
+                            if result:
+                                style_patterns_learned = result[0]
+
+                            # 统计待审查的人格更新
+                            await cursor.execute("SELECT COUNT(*) FROM persona_update_reviews WHERE status = 'pending'")
+                            result = await cursor.fetchone()
+                            if result:
+                                persona_updates_count = result[0]
+
+                            await cursor.close()
+                    except Exception as db_error:
+                        logger.warning(f"从数据库获取学习统计失败: {db_error}")
+
+                # 统计激活的学习策略
+                if plugin_config:
+                    if plugin_config.enable_message_capture:
+                        active_strategies.append("message_filtering")
+                    if plugin_config.enable_auto_learning:
+                        active_strategies.append("content_refinement")
+                        active_strategies.append("persona_evolution")
+                    if plugin_config.enable_expression_patterns:
+                        active_strategies.append("style_learning")
+                    if plugin_config.enable_knowledge_graph:
+                        active_strategies.append("context_awareness")
+
+                # 计算智能化学习效率
+                efficiency_metrics = await intelligence_metrics_service.calculate_learning_efficiency(
+                    total_messages=total_messages,
+                    filtered_messages=filtered_messages,
+                    refined_content_count=refined_content_count,
+                    style_patterns_learned=style_patterns_learned,
+                    persona_updates_count=persona_updates_count,
+                    active_strategies=active_strategies
+                )
+
+                # 更新metrics中的学习效率
+                metrics["learning_efficiency"] = efficiency_metrics.overall_efficiency
+                metrics["learning_efficiency_details"] = {
+                    "message_filter_rate": efficiency_metrics.message_filter_rate,
+                    "content_refine_quality": efficiency_metrics.content_refine_quality,
+                    "style_learning_progress": efficiency_metrics.style_learning_progress,
+                    "persona_update_quality": efficiency_metrics.persona_update_quality,
+                    "active_strategies_count": efficiency_metrics.active_strategies_count,
+                    "active_strategies": active_strategies
+                }
+
+                logger.info(f"智能学习效率计算完成: {efficiency_metrics.overall_efficiency:.2f}%")
+
+            except Exception as metrics_error:
+                logger.warning(f"智能学习效率计算失败,使用简单算法: {metrics_error}")
+                # 回退到简单计算
+                metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+        else:
+            # 如果服务未初始化,使用简单算法
+            metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+
         return jsonify(metrics)
         
     except Exception as e:
@@ -1693,8 +1843,21 @@ async def get_metrics_trends():
 @api_bp.route("/style_learning/content_text", methods=["GET"])
 @require_auth
 async def get_style_learning_content_text():
-    """获取对话风格学习的所有内容文本"""
-    logger.info("开始执行get_style_learning_content_text API请求")
+    """获取对话风格学习的所有内容文本（带缓存）"""
+    global _style_learning_content_cache, _style_learning_content_cache_time
+
+    # 检查是否强制刷新
+    force_refresh = request.args.get('force_refresh', 'false').lower() == 'true'
+
+    # 检查缓存是否有效
+    current_time = time.time()
+    if not force_refresh and _style_learning_content_cache is not None and _style_learning_content_cache_time is not None:
+        cache_age = current_time - _style_learning_content_cache_time
+        if cache_age < _style_learning_content_cache_ttl:
+            logger.info(f"使用缓存的学习内容数据（缓存年龄: {cache_age:.1f}秒）")
+            return jsonify(_style_learning_content_cache)
+
+    logger.info(f"开始执行get_style_learning_content_text API请求（强制刷新: {force_refresh}）")
     try:
         # 从数据库获取学习相关的文本内容
         content_data = {
@@ -1920,13 +2083,32 @@ async def get_style_learning_content_text():
             logger.warning("所有主要数据源都为空，可能系统尚未进行学习或数据库存在问题")
         else:
             logger.info("成功获取学习内容数据，数据完整性良好")
-        
+
+        # 更新缓存
+        _style_learning_content_cache = content_data
+        _style_learning_content_cache_time = current_time
+        logger.info(f"已更新学习内容缓存（TTL: {_style_learning_content_cache_ttl}秒）")
+
         logger.info("get_style_learning_content_text API请求处理完成")
         return jsonify(content_data)
     
     except Exception as e:
         logger.error(f"get_style_learning_content_text API处理失败: {e}", exc_info=True)
         return jsonify({'error': str(e)}), 500
+
+@api_bp.route("/style_learning/clear_cache", methods=["POST"])
+@require_auth
+async def clear_style_learning_cache():
+    """清除学习内容缓存"""
+    global _style_learning_content_cache, _style_learning_content_cache_time
+    try:
+        _style_learning_content_cache = None
+        _style_learning_content_cache_time = None
+        logger.info("已清除学习内容缓存")
+        return jsonify({'success': True, 'message': '缓存已清除'})
+    except Exception as e:
+        logger.error(f"清除缓存失败: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # 新增的高级功能API端点
 
@@ -2894,13 +3076,40 @@ async def style_learning_all_groups():
                 # 7. 提交到人格审查系统
                 review_submitted = False
                 try:
+                    # 使用智能置信度计算
+                    confidence_score = 0.85  # 默认值
+                    if intelligence_metrics_service:
+                        try:
+                            # 获取当前人格内容
+                            current_persona_content = ""
+                            try:
+                                persona_web_mgr = get_persona_web_manager()
+                                if persona_web_mgr:
+                                    current_persona = await persona_web_mgr.get_default_persona()
+                                    current_persona_content = current_persona.get('prompt', '')
+                            except:
+                                pass
+
+                            # 计算智能置信度
+                            confidence_metrics = await intelligence_metrics_service.calculate_persona_confidence(
+                                proposed_content=full_style_content,
+                                original_content=current_persona_content,
+                                learning_source=f"全群组风格学习-{group_id}",
+                                message_count=len(formatted_messages),
+                                llm_adapter=llm_client if llm_client else None
+                            )
+                            confidence_score = confidence_metrics.overall_confidence
+                            logger.info(f"智能置信度计算: {confidence_score:.3f} (详情: {confidence_metrics.evaluation_basis.get('method', 'unknown')})")
+                        except Exception as conf_error:
+                            logger.warning(f"智能置信度计算失败,使用默认值: {conf_error}")
+
                     # 检查是否有人格学习审查方法
                     if hasattr(db_manager, 'add_persona_learning_review'):
                         await db_manager.add_persona_learning_review(
                             group_id=group_id,
                             proposed_content=full_style_content,
                             learning_source=f"全群组风格学习-{group_id}",
-                            confidence_score=0.85,
+                            confidence_score=confidence_score,
                             raw_analysis=f"基于{len(conversation_pairs)}个对话对和{patterns_learned}个表达模式",
                             metadata={
                                 "all_groups_learning": True,
@@ -3301,13 +3510,40 @@ async def relearn_all():
                                 # 获取原始消息总数（未筛选的）
                                 total_raw_messages = len(recent_raw_messages)
 
+                                # 使用智能置信度计算
+                                confidence_score = 0.85  # 默认值
+                                if intelligence_metrics_service:
+                                    try:
+                                        # 获取当前人格内容
+                                        current_persona_content = ""
+                                        try:
+                                            persona_web_mgr = get_persona_web_manager()
+                                            if persona_web_mgr:
+                                                current_persona = await persona_web_mgr.get_default_persona()
+                                                current_persona_content = current_persona.get('prompt', '')
+                                        except:
+                                            pass
+
+                                        # 计算智能置信度
+                                        confidence_metrics = await intelligence_metrics_service.calculate_persona_confidence(
+                                            proposed_content=full_style_content,
+                                            original_content=current_persona_content,
+                                            learning_source="重新学习-关系分析",
+                                            message_count=len(formatted_messages),
+                                            llm_adapter=llm_client if llm_client else None
+                                        )
+                                        confidence_score = confidence_metrics.overall_confidence
+                                        logger.info(f"重新学习智能置信度: {confidence_score:.3f}")
+                                    except Exception as conf_error:
+                                        logger.warning(f"智能置信度计算失败,使用默认值: {conf_error}")
+
                                 # 检查是否有add_persona_learning_review方法
                                 if hasattr(db_manager, 'add_persona_learning_review'):
                                     await db_manager.add_persona_learning_review(
                                         group_id=group_id,
                                         proposed_content=full_style_content,
                                         learning_source="重新学习-关系分析",
-                                        confidence_score=0.85,  # 基于关系分析的高置信度
+                                        confidence_score=confidence_score,
                                         raw_analysis=llm_raw_response if llm_raw_response else f"基于{len(conversation_pairs)}个对话对和{results.get('new_patterns', 0)}个表达模式",
                                         metadata={
                                             "relearn_triggered": True,
@@ -3528,96 +3764,131 @@ async def get_social_relations(group_id: str):
         factory_manager = FactoryManager()
         service_factory = factory_manager.get_service_factory()
 
-        # 获取多维度分析器
-        multidimensional_analyzer = service_factory.create_multidimensional_analyzer()
+        # 获取数据库管理器
         db_manager = service_factory.create_database_manager()
 
-        # 获取群组原始消息（不经过LLM处理）
-        # 限制消息数量以提高加载速度
-        raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=200)
+        # 从数据库加载已保存的社交关系
+        logger.info(f"从数据库加载群组 {group_id} 的社交关系...")
+        saved_relations = await db_manager.get_social_relations_by_group(group_id)
+        logger.info(f"从数据库加载到 {len(saved_relations)} 条社交关系记录")
 
-        if not raw_messages:
-            return jsonify({
-                "success": False,
-                "error": f"群组 {group_id} 没有消息记录",
-                "relations": [],
-                "users": []
+        # 构建用户列表和统计消息数 - 从数据库直接统计所有消息数量
+        user_message_counts = {}
+        user_names = {}
+
+        # 从数据库统计每个用户的总消息数量
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            # 查询每个用户在该群组的消息总数
+            await cursor.execute('''
+                SELECT sender_id, sender_name, COUNT(*) as message_count
+                FROM raw_messages
+                WHERE group_id = ? AND sender_id != 'bot'
+                GROUP BY sender_id
+            ''', (group_id,))
+
+            for row in await cursor.fetchall():
+                sender_id, sender_name, message_count = row
+                if sender_id:
+                    user_key = f"{group_id}:{sender_id}"
+                    user_message_counts[user_key] = message_count
+                    user_names[user_key] = sender_name or sender_id
+                    # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
+                    user_names[sender_id] = sender_name or sender_id
+
+            await cursor.close()
+
+        logger.info(f"群组 {group_id} 从数据库统计到 {len(user_message_counts)} 个用户")
+
+        # 初始化 raw_messages 变量
+        raw_messages = []
+
+        # 如果没有统计到用户,尝试从最近消息获取
+        if not user_message_counts:
+            raw_messages = await db_manager.get_recent_raw_messages(group_id, limit=200)
+            if not raw_messages:
+                return jsonify({
+                    "success": False,
+                    "error": f"群组 {group_id} 没有消息记录",
+                    "relations": [],
+                    "members": []
+                })
+
+            for msg in raw_messages:
+                sender_id = msg.get('sender_id', '')
+                sender_name = msg.get('sender_name', '')
+                if sender_id and sender_id != 'bot':
+                    user_key = f"{group_id}:{sender_id}"
+                    if user_key not in user_message_counts:
+                        user_message_counts[user_key] = 0
+                        user_names[user_key] = sender_name
+                        user_names[sender_id] = sender_name
+                    user_message_counts[user_key] += 1
+
+        # 构建成员列表
+        group_nodes = []
+        for user_key, message_count in user_message_counts.items():
+            user_id = user_key.split(':')[-1] if ':' in user_key else user_key
+            group_nodes.append({
+                'user_id': user_id,
+                'nickname': user_names.get(user_key, user_id),
+                'message_count': message_count,
+                'nicknames': [user_names.get(user_key, user_id)],
+                'id': user_key
             })
 
-        # 分析社交关系 - 快速构建用户画像，不使用LLM分析
-        logger.info(f"开始分析群组 {group_id} 的社交关系，共 {len(raw_messages)} 条消息")
-
-        # 使用简化的用户画像构建，避免LLM调用
-        user_message_counts = {}
-        for msg in raw_messages:
-            sender_id = msg.get('sender_id', '')
-            sender_name = msg.get('sender_name', '')
-            if sender_id and sender_id != 'bot':
-                user_key = f"{group_id}:{sender_id}"
-
-                # 直接更新内存中的用户画像（不调用analyze_message_batch避免LLM调用）
-                if user_key not in multidimensional_analyzer.user_profiles:
-                    from .services.multidimensional_analyzer import UserProfile
-                    multidimensional_analyzer.user_profiles[user_key] = UserProfile(
-                        qq_id=sender_id,
-                        qq_name=sender_name,
-                        nicknames=[sender_name] if sender_name else []
-                        # 注意: user_key 已经包含了 group_id 信息 (格式: "group_id:sender_id")
-                    )
-
-                # 统计消息数
-                if user_key not in user_message_counts:
-                    user_message_counts[user_key] = 0
-                user_message_counts[user_key] += 1
-
-        logger.info(f"群组 {group_id} 社交关系快速分析完成，识别到 {len(user_message_counts)} 个用户")
-
-        # 导出社交关系图谱
-        graph_data = await multidimensional_analyzer.export_social_graph()
-
-        # 过滤当前群组的数据
-        group_nodes = []
+        # 构建关系列表
         group_edges = []
+        for relation in saved_relations:
+            from_key = relation['from_user']
+            to_key = relation['to_user']
 
-        # 构建用户列表 - 使用前端期望的字段名
-        for node in graph_data['nodes']:
-            user_key = node.get('user_key', '')
-            if user_key.startswith(f"{group_id}:"):
-                user_id = user_key.split(':')[-1] if ':' in user_key else node['id']
-                group_nodes.append({
-                    'user_id': user_id,  # 前端期望的字段名
-                    'nickname': node['name'],  # 前端期望的字段名
-                    'message_count': node.get('activity_level', 0),  # 前端期望的字段名
-                    # 保留额外信息供将来使用
-                    'nicknames': node.get('nicknames', []),
-                    'id': node['id']
-                })
+            # 提取用户ID（from_key格式可能是 "group_id:user_id"）
+            from_id = from_key.split(':')[-1] if ':' in from_key else from_key
+            to_id = to_key.split(':')[-1] if ':' in to_key else to_key
 
-        # 构建关系列表 - 使用前端期望的字段名
-        for edge in graph_data['edges']:
-            from_key = edge['from']
-            to_key = edge['to']
+            # 获取用户名 - 现在user_names字典同时包含两种格式的key
+            from_name = user_names.get(from_key, user_names.get(from_id, from_id))
+            to_name = user_names.get(to_key, user_names.get(to_id, to_id))
 
-            if from_key.startswith(f"{group_id}:") and to_key.startswith(f"{group_id}:"):
-                from_id = from_key.split(':')[-1] if ':' in from_key else edge['from']
-                to_id = to_key.split(':')[-1] if ':' in to_key else edge['to']
+            logger.debug(f"社交关系映射: {from_key} ({from_id}) -> {to_key} ({to_id}), "
+                        f"名称: {from_name} -> {to_name}")
 
-                group_edges.append({
-                    'source': from_id,  # 前端期望的字段名
-                    'target': to_id,  # 前端期望的字段名
-                    'strength': edge['strength'],  # 前端期望的字段名
-                    # 保留额外信息供将来使用
-                    'type': edge['type'],
-                    'frequency': edge['frequency']
-                })
+            # 关系类型映射
+            relation_type_map = {
+                'mention': '提及(@)',
+                'reply': '回复',
+                'conversation': '对话',
+                'frequent_interaction': '频繁互动',
+                'topic_discussion': '话题讨论'
+            }
+            relation_type_text = relation_type_map.get(relation.get('relation_type', 'interaction'), '互动')
+
+            group_edges.append({
+                'source': from_id,
+                'target': to_id,
+                'source_name': from_name,
+                'target_name': to_name,
+                'strength': relation.get('strength', 0.5),
+                'type': relation.get('relation_type', 'interaction'),
+                'type_text': relation_type_text,
+                'frequency': relation.get('frequency', 1),
+                'last_interaction': relation.get('last_interaction', '')
+            })
+
+        logger.info(f"群组 {group_id} 构建了 {len(group_edges)} 条社交关系")
+
+        # 计算总消息数：优先使用数据库统计，否则使用raw_messages长度
+        total_message_count = sum(user_message_counts.values()) if user_message_counts else len(raw_messages)
 
         return jsonify({
             "success": True,
             "group_id": group_id,
-            "members": group_nodes,  # 前端期望的字段名
+            "members": group_nodes,
             "relations": group_edges,
-            "message_count": len(raw_messages),
-            "member_count": len(group_nodes),  # 前端期望的字段名
+            "message_count": total_message_count,
+            "member_count": len(group_nodes),
             "relation_count": len(group_edges)
         })
 
@@ -3627,7 +3898,7 @@ async def get_social_relations(group_id: str):
             "success": False,
             "error": str(e),
             "relations": [],
-            "users": []
+            "members": []
         }), 500
 
 @api_bp.route("/social_relations/groups", methods=["GET"])
@@ -3679,6 +3950,359 @@ async def get_available_groups_for_social_analysis():
         }), 500
 
 
+@api_bp.route("/social_relations/<group_id>/analyze", methods=["POST"])
+@require_auth
+async def trigger_social_relation_analysis(group_id: str):
+    """触发群组社交关系分析"""
+    try:
+        from .core.factory import FactoryManager
+        from .services.social_relation_analyzer import SocialRelationAnalyzer
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        # 获取LLM适配器
+        global llm_adapter_instance
+        if not llm_adapter_instance:
+            return jsonify({
+                "success": False,
+                "error": "LLM适配器未初始化"
+            }), 500
+
+        # 创建社交关系分析器
+        analyzer = SocialRelationAnalyzer(
+            config=current_app.plugin_config,
+            llm_adapter=llm_adapter_instance,
+            db_manager=db_manager
+        )
+
+        # 获取参数
+        data = await request.get_json() if request.is_json else {}
+        message_limit = data.get('message_limit', 200)
+        force_refresh = data.get('force_refresh', False)
+
+        logger.info(f"开始分析群组 {group_id} 的社交关系 (消息数: {message_limit}, 强制刷新: {force_refresh})")
+
+        # 执行分析
+        relations = await analyzer.analyze_group_social_relations(
+            group_id=group_id,
+            message_limit=message_limit,
+            force_refresh=force_refresh
+        )
+
+        return jsonify({
+            "success": True,
+            "message": f"成功分析 {len(relations)} 条社交关系",
+            "relation_count": len(relations)
+        })
+
+    except Exception as e:
+        logger.error(f"触发社交关系分析失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/social_relations/<group_id>/clear", methods=["DELETE"])
+@require_auth
+async def clear_group_social_relations(group_id: str):
+    """清空群组社交关系数据"""
+    try:
+        from .core.factory import FactoryManager
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        logger.info(f"开始清空群组 {group_id} 的社交关系数据")
+
+        # 统计要删除的记录数
+        deleted_count = 0
+
+        async with db_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            # 先统计数量
+            await cursor.execute('''
+                SELECT COUNT(*) FROM social_relations WHERE group_id = ?
+            ''', (group_id,))
+            result = await cursor.fetchone()
+            if result:
+                deleted_count = result[0]
+
+            # 执行删除
+            await cursor.execute('''
+                DELETE FROM social_relations WHERE group_id = ?
+            ''', (group_id,))
+
+            await conn.commit()
+            await cursor.close()
+
+        logger.info(f"成功清空群组 {group_id} 的 {deleted_count} 条社交关系数据")
+
+        return jsonify({
+            "success": True,
+            "message": f"成功清空 {deleted_count} 条社交关系数据",
+            "deleted_count": deleted_count
+        })
+
+    except Exception as e:
+        logger.error(f"清空社交关系数据失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/social_relations/<group_id>/user/<user_id>", methods=["GET"])
+@require_auth
+async def get_user_social_relations(group_id: str, user_id: str):
+    """获取指定用户的社交关系"""
+    try:
+        from .core.factory import FactoryManager
+        from .services.social_relation_analyzer import SocialRelationAnalyzer
+
+        factory_manager = FactoryManager()
+        service_factory = factory_manager.get_service_factory()
+        db_manager = service_factory.create_database_manager()
+
+        # 获取LLM适配器
+        global llm_adapter_instance
+        if not llm_adapter_instance:
+            return jsonify({
+                "success": False,
+                "error": "LLM适配器未初始化"
+            }), 500
+
+        # 创建社交关系分析器
+        analyzer = SocialRelationAnalyzer(
+            config=current_app.plugin_config,
+            llm_adapter=llm_adapter_instance,
+            db_manager=db_manager
+        )
+
+        # 获取用户关系
+        user_relations = await analyzer.get_user_relations(group_id, user_id)
+
+        return jsonify({
+            "success": True,
+            **user_relations
+        })
+
+    except Exception as e:
+        logger.error(f"获取用户社交关系失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+# ========== 外部API接口 (供其他程序调用) ==========
+
+def require_api_key(f):
+    """API密钥认证装饰器"""
+    @wraps(f)
+    async def decorated_function(*args, **kwargs):
+        # 获取配置
+        config = getattr(current_app, 'plugin_config', None)
+
+        # 如果未启用API认证,直接通过
+        if not config or not config.enable_api_auth:
+            return await f(*args, **kwargs)
+
+        # 检查API密钥
+        api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+
+        if not api_key:
+            return jsonify({
+                "success": False,
+                "error": "缺少API密钥。请在请求头中添加 X-API-Key 或在查询参数中添加 api_key"
+            }), 401
+
+        if api_key != config.api_key:
+            return jsonify({
+                "success": False,
+                "error": "API密钥无效"
+            }), 403
+
+        return await f(*args, **kwargs)
+    return decorated_function
+
+
+@api_bp.route("/external/current_topic", methods=["GET"])
+@require_api_key
+async def get_current_topic_api():
+    """
+    获取指定群组当前的聊天话题
+
+    查询参数:
+        group_id: 群组ID (必需)
+        recent_count: 分析的最近消息数量 (可选，默认20)
+
+    返回:
+        JSON格式的话题信息
+    """
+    try:
+        group_id = request.args.get('group_id')
+        if not group_id:
+            return jsonify({
+                "success": False,
+                "error": "缺少必需参数: group_id"
+            }), 400
+
+        recent_count = request.args.get('recent_count', 20, type=int)
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 获取话题总结
+        topic_data = await database_manager.get_current_topic_summary(group_id, recent_count)
+
+        return jsonify({
+            "success": True,
+            **topic_data
+        })
+
+    except Exception as e:
+        logger.error(f"获取当前话题失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/external/chat_history", methods=["GET"])
+@require_api_key
+async def get_chat_history_api():
+    """
+    获取指定群组的聊天记录（支持时间段筛选）
+
+    查询参数:
+        group_id: 群组ID (必需)
+        start_time: 开始时间戳（秒） (可选)
+        end_time: 结束时间戳（秒） (可选)
+        limit: 返回消息数量限制 (可选，默认100)
+
+    返回:
+        JSON格式的聊天记录列表
+    """
+    try:
+        group_id = request.args.get('group_id')
+        if not group_id:
+            return jsonify({
+                "success": False,
+                "error": "缺少必需参数: group_id"
+            }), 400
+
+        start_time = request.args.get('start_time', type=float)
+        end_time = request.args.get('end_time', type=float)
+        limit = request.args.get('limit', 100, type=int)
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 获取聊天记录
+        messages = await database_manager.get_messages_by_group_and_timerange(
+            group_id=group_id,
+            start_time=start_time,
+            end_time=end_time,
+            limit=limit
+        )
+
+        return jsonify({
+            "success": True,
+            "group_id": group_id,
+            "message_count": len(messages),
+            "messages": messages,
+            "filter": {
+                "start_time": start_time,
+                "end_time": end_time,
+                "limit": limit
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"获取聊天记录失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/external/new_messages", methods=["GET"])
+@require_api_key
+async def get_new_messages_api():
+    """
+    获取增量消息更新（只返回之前未获取过的新消息）
+
+    查询参数:
+        group_id: 群组ID (必需)
+        last_message_id: 上次获取的最后一条消息ID (可选，优先使用)
+        last_timestamp: 上次获取的最后一条消息时间戳 (可选)
+
+    注意: last_message_id 和 last_timestamp 至少需要提供一个，优先使用 last_message_id
+
+    返回:
+        JSON格式的新消息列表
+    """
+    try:
+        group_id = request.args.get('group_id')
+        if not group_id:
+            return jsonify({
+                "success": False,
+                "error": "缺少必需参数: group_id"
+            }), 400
+
+        last_message_id = request.args.get('last_message_id', type=int)
+        last_timestamp = request.args.get('last_timestamp', type=float)
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 获取新消息
+        new_messages = await database_manager.get_new_messages_since(
+            group_id=group_id,
+            last_message_id=last_message_id,
+            last_timestamp=last_timestamp
+        )
+
+        # 提取新消息的最大ID和最新时间戳，供下次调用使用
+        max_id = None
+        latest_timestamp = None
+        if new_messages:
+            max_id = max(msg['id'] for msg in new_messages)
+            latest_timestamp = max(msg['timestamp'] for msg in new_messages)
+
+        return jsonify({
+            "success": True,
+            "group_id": group_id,
+            "new_message_count": len(new_messages),
+            "messages": new_messages,
+            "next_query": {
+                "last_message_id": max_id,
+                "last_timestamp": latest_timestamp
+            } if new_messages else None
+        })
+
+    except Exception as e:
+        logger.error(f"获取增量消息失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 app.register_blueprint(api_bp)
 
 # 添加根路由重定向
@@ -3713,7 +4337,18 @@ class Server:
             self.config.use_reloader = False
             self.config.workers = 1
 
-            logger.info(f"✅ Web服务器初始化完成 (端口: {port})")
+            # 关键修复：设置socket选项以允许端口复用
+            # 这对于快速重启和插件重载非常重要
+            import socket
+            self.config.bind_socket_options = [
+                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),  # 允许地址复用
+            ]
+            # 在支持SO_REUSEPORT的系统上启用端口复用
+            if hasattr(socket, 'SO_REUSEPORT'):
+                self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
+                logger.debug("已启用SO_REUSEPORT选项")
+
+            logger.info(f"✅ Web服务器初始化完成 (端口: {port}, 端口复用: 已启用)")
             logger.debug(f"Debug: 配置绑定: {self.config.bind}")
 
         except Exception as e:
@@ -3918,17 +4553,36 @@ class Server:
             self.server_task = None
 
     async def _async_check_port_available(self, port: int) -> bool:
-        """异步检查端口是否可用"""
+        """异步检查端口是否可用 - 改进版，使用bind检查而不是connect"""
         try:
             import socket
             loop = asyncio.get_event_loop()
-            
+
             def check_port():
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    sock.settimeout(1)
-                    result = sock.connect_ex(("127.0.0.1", port))
-                    return result != 0  # 连接失败表示端口可用
-            
+                try:
+                    # 尝试绑定端口而不是连接端口
+                    # 这是更准确的检查方式
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                        sock.settimeout(1)
+                        try:
+                            # 尝试绑定端口
+                            sock.bind(("127.0.0.1", port))
+                            # 绑定成功,说明端口可用
+                            logger.debug(f"端口 {port} 可用(绑定测试成功)")
+                            return True
+                        except OSError as e:
+                            # 绑定失败,端口被占用
+                            if e.errno in (48, 98):  # macOS: 48, Linux: 98 (Address already in use)
+                                logger.debug(f"端口 {port} 被占用: {e}")
+                                return False
+                            # 其他错误,假设端口可用
+                            logger.debug(f"检查端口 {port} 时遇到其他错误: {e},假设可用")
+                            return True
+                except Exception as ex:
+                    logger.warning(f"检查端口 {port} 时发生异常: {ex},假设可用")
+                    return True  # 异常时假设端口可用
+
             return await loop.run_in_executor(None, check_port)
         except Exception:
             return True  # 检查失败时假设端口可用
@@ -3997,23 +4651,33 @@ class Server:
                 except Exception as e:
                     logger.debug(f"垃圾回收失败: {e}")
 
-                # 6. 验证端口是否真的释放了
+                # 6. 验证端口是否真的释放了 - 改进的验证逻辑
                 port_released = False
-                for attempt in range(5):  # 增加到5次检查
+                for attempt in range(5):  # 检查5次
                     try:
                         import socket
+                        # 使用bind测试而不是connect测试
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # 添加地址复用选项
+                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                             sock.settimeout(1)
-                            result = sock.connect_ex(("127.0.0.1", self.port))
-                            if result != 0:  # 连接失败意味着端口已释放
+                            try:
+                                # 尝试绑定端口
+                                sock.bind(("127.0.0.1", self.port))
+                                # 绑定成功,说明端口已释放
                                 port_released = True
-                                logger.info(f"✅ 端口 {self.port} 已确认释放 (尝试 {attempt + 1}/5)")
+                                logger.info(f"✅ 端口 {self.port} 已确认释放 (绑定测试成功, 尝试 {attempt + 1}/5)")
                                 break
-                            else:
-                                logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5)")
-                                if attempt < 4:  # 不是最后一次尝试
-                                    await asyncio.sleep(2)  # 等待2秒后重试
+                            except OSError as e:
+                                if e.errno in (48, 98):  # Address already in use
+                                    logger.debug(f"⏳ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5): {e}")
+                                    if attempt < 4:  # 不是最后一次
+                                        await asyncio.sleep(1)
+                                    continue
+                                else:
+                                    # 其他错误,假设已释放
+                                    port_released = True
+                                    logger.debug(f"端口检查遇到其他错误,假设已释放: {e}")
+                                    break
                     except Exception as e:
                         logger.debug(f"端口检查失败 (尝试 {attempt + 1}/5): {e}")
                         # 如果检查失败，假设端口可能已经释放
