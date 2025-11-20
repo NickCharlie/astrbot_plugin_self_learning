@@ -262,8 +262,12 @@ class SelfLearningPlugin(star.Star):
             self.enhanced_interaction = component_factory.create_enhanced_interaction_service()
             self.intelligence_enhancement = component_factory.create_intelligence_enhancement_service()
             self.affection_manager = component_factory.create_affection_manager_service()
-            
-            # 在affection_manager创建后再创建智能回复器，这样可以传递affection_manager
+
+            # ✅ 创建社交上下文注入器 - 用于注入表达模式学习结果和bot历史消息
+            # 必须在intelligent_responder之前创建，这样才能被正确注入
+            self.social_context_injector = component_factory.create_social_context_injector()
+
+            # 在affection_manager和social_context_injector创建后再创建智能回复器
             self.intelligent_responder = self.service_factory.create_intelligent_responder()  # 重新启用智能回复器
             
             # 创建临时人格更新器
@@ -511,25 +515,36 @@ class SelfLearningPlugin(star.Star):
     def _is_astrbot_command(self, event: AstrMessageEvent) -> bool:
         """
         判断用户输入是否为AstrBot命令（包括插件命令和其他命令）
-        
+
         融合了AstrBot框架的命令检测机制和插件特定的命令检测
-        
+
+        注意：唤醒词消息（is_at_or_wake_command）应该被收集用于学习，
+        因为这些是最有价值的对话数据。只过滤明确的命令格式。
+
         Args:
             event: AstrBot消息事件
-            
+
         Returns:
             bool: True表示是命令，False表示是普通消息
         """
-        # 1. 首先检查AstrBot框架的命令标识
-        if event.is_at_or_wake_command:
-            return True
-            
         message_text = event.get_message_str()
         if not message_text:
             return False
-            
-        # 2. 检查是否为本插件的特定命令
-        return self._is_plugin_command(message_text)
+
+        # 1. 检查是否为本插件的特定命令
+        if self._is_plugin_command(message_text):
+            return True
+
+        # 2. 检查是否为其他AstrBot命令（以命令前缀开头）
+        # 注意：不再使用 is_at_or_wake_command 来过滤，因为唤醒词消息应该被收集
+        command_prefixes = ['/', '!', '#', '.']  # 常见命令前缀
+        stripped_text = message_text.strip()
+        if stripped_text and stripped_text[0] in command_prefixes:
+            # 检查是否像命令格式（前缀+字母开头的命令名）
+            if len(stripped_text) > 1 and stripped_text[1].isalpha():
+                return True
+
+        return False
     
     def _is_plugin_command(self, message_text: str) -> bool:
         """检查消息是否为本插件的命令"""
@@ -1960,70 +1975,85 @@ PersonaManager模式优势：
 
     @filter.on_llm_request()
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
-        """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)"""
-        try:
-            # ✅ 无条件注入,不检查是否启用多样性管理器
-            # 即使用户没有开启自动学习,也应该注入多样性内容以防止同质化回复
+        """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)
 
-            # 如果diversity_manager不存在,创建一个临时的
+        重要: 使用 += 追加方式，不会覆盖其他插件已注入的内容
+        """
+        try:
+            # 如果diversity_manager不存在,跳过注入
             if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
                 logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
                 return
 
             group_id = event.get_group_id() or event.get_sender_id()
+            user_id = event.get_sender_id()
 
-            # 获取当前的prompt (可能在contexts中，也可能在prompt字段中)
-            current_prompt = req.prompt or ""
-
-            # 如果有context历史，获取最后一条user消息
-            if hasattr(req, 'contexts') and req.contexts:
-                # 找到最后一条user消息
-                for msg in reversed(req.contexts):
-                    if isinstance(msg, dict) and msg.get('role') == 'user':
-                        last_user_content = msg.get('content', '')
-                        if last_user_content and not current_prompt:
-                            current_prompt = last_user_content
-                        break
-
-            if not current_prompt:
-                logger.debug("[LLM Hook] 没有找到可注入的prompt内容")
+            # 检查是否有内容可注入
+            if not req.prompt:
+                logger.debug("[LLM Hook] req.prompt为空,跳过多样性注入")
                 return
 
-            logger.info(f"✅ [LLM Hook] 开始在框架层面注入多样性增强 (group: {group_id}, prompt长度: {len(current_prompt)})")
+            original_prompt_length = len(req.prompt)
+            logger.info(f"✅ [LLM Hook] 开始注入多样性增强 (group: {group_id}, 原prompt长度: {original_prompt_length})")
 
-            # 注入多样性增强 (包括历史Bot消息)
-            enhanced_prompt = await self.diversity_manager.build_diversity_prompt_injection(
-                current_prompt,
-                group_id=group_id,  # ✅ 传入group_id以获取历史消息
+            # 收集所有要注入的内容
+            injections = []
+
+            # ✅ 1. 注入表达风格学习结果（如果可用）
+            if hasattr(self, 'social_context_injector') and self.social_context_injector:
+                try:
+                    # 只注入表达模式（风格特征），不注入其他社交上下文
+                    expression_context = await self.social_context_injector.format_complete_context(
+                        group_id=group_id,
+                        user_id=user_id,
+                        include_social_relations=False,  # 不注入社交关系
+                        include_affection=False,  # 不注入好感度
+                        include_mood=False,  # 不注入情绪
+                        include_expression_patterns=True  # ✅ 只注入表达模式
+                    )
+                    if expression_context:
+                        injections.append(expression_context)
+                        logger.info(f"✅ [LLM Hook] 已准备表达风格学习结果 (长度: {len(expression_context)})")
+                    else:
+                        logger.debug(f"[LLM Hook] 群组 {group_id} 暂无表达风格学习结果")
+                except Exception as e:
+                    logger.warning(f"[LLM Hook] 注入表达风格学习结果失败: {e}")
+            else:
+                logger.debug("[LLM Hook] social_context_injector未初始化，跳过表达风格注入")
+
+            # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容)
+            diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
+                "",  # 传空字符串，只生成注入内容
+                group_id=group_id,  # 传入group_id以获取历史消息
                 inject_style=True,
                 inject_pattern=True,
                 inject_variation=True,
-                inject_history=True  # ✅ 注入历史Bot消息，避免重复
+                inject_history=True  # 注入历史Bot消息，避免重复
             )
 
-            # 保存当前风格和模式
-            current_language_style = self.diversity_manager.get_current_style()
-            current_response_pattern = self.diversity_manager.get_current_pattern()
+            # 提取纯注入内容（去除空的base_prompt）
+            diversity_content = diversity_content.strip()
+            if diversity_content:
+                injections.append(diversity_content)
+                logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(diversity_content)})")
 
-            logger.info(f"✅ [LLM Hook] 多样性注入完成 - 原长度: {len(current_prompt)}, 新长度: {len(enhanced_prompt)}")
-            logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
-            logger.debug(f"✅ [LLM Hook] 注入的prompt前100字符: {enhanced_prompt[:100]}...")
-            logger.debug(f"✅ [LLM Hook] 注入的prompt后100字符: ...{enhanced_prompt[-100:]}")
+            # ✅ 3. 使用 += 追加所有注入内容到 req.prompt
+            if injections:
+                injection_text = '\n\n'.join(injections)
+                req.prompt += '\n\n' + injection_text  # ← 使用 += 追加，不覆盖
 
-            # 更新request对象中的prompt
-            req.prompt = enhanced_prompt
+                # 保存当前风格和模式（用于日志记录）
+                current_language_style = self.diversity_manager.get_current_style()
+                current_response_pattern = self.diversity_manager.get_current_pattern()
 
-            # 如果contexts中有user消息，也需要更新
-            if hasattr(req, 'contexts') and req.contexts:
-                for i in range(len(req.contexts) - 1, -1, -1):
-                    msg = req.contexts[i]
-                    if isinstance(msg, dict) and msg.get('role') == 'user':
-                        # 只更新最后一条user消息
-                        req.contexts[i]['content'] = enhanced_prompt
-                        logger.debug(f"✅ [LLM Hook] 已更新contexts中的最后一条user消息")
-                        break
+                final_prompt_length = len(req.prompt)
+                injected_length = final_prompt_length - original_prompt_length
 
-            logger.info(f"✅ [LLM Hook] 框架层面多样性注入完成")
+                logger.info(f"✅ [LLM Hook] 多样性注入完成 - 原长度: {original_prompt_length}, 新增: {injected_length}, 总长度: {final_prompt_length}")
+                logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
+                logger.debug(f"✅ [LLM Hook] 注入内容预览: {injection_text[:200]}...")
+            else:
+                logger.debug("[LLM Hook] 没有可注入的多样性内容")
 
         except Exception as e:
             logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)

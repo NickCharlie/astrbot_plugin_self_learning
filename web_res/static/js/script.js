@@ -1274,6 +1274,12 @@ async function loadMetrics() {
     }
 }
 
+// 人格审查分页和筛选状态
+let allPersonaUpdates = [];  // 存储所有数据
+let filteredPersonaUpdates = [];  // 存储筛选后的数据
+let pendingCurrentPage = 1;
+let pendingPageSize = 20;
+
 // 加载人格更新数据
 async function loadPersonaUpdates() {
     try {
@@ -1282,10 +1288,16 @@ async function loadPersonaUpdates() {
             const data = await response.json();
             // 确保 data 有正确的结构
             if (data && data.success && Array.isArray(data.updates)) {
-                renderPersonaUpdates(data.updates);
+                allPersonaUpdates = data.updates;
+                // 更新群组筛选选项
+                updateGroupFilterOptions(data.updates);
+                // 应用筛选
+                applyPersonaFilters();
                 await updateReviewStats(data.updates);
             } else {
                 console.error('人格更新数据格式不正确:', data);
+                allPersonaUpdates = [];
+                filteredPersonaUpdates = [];
                 renderPersonaUpdates([]);
                 await updateReviewStats([]);
             }
@@ -1295,8 +1307,149 @@ async function loadPersonaUpdates() {
     } catch (error) {
         console.error('加载人格更新失败:', error);
         // 确保即使出错也能正常渲染空列表
+        allPersonaUpdates = [];
+        filteredPersonaUpdates = [];
         renderPersonaUpdates([]);
         await updateReviewStats([]);
+    }
+}
+
+// 更新群组筛选选项
+function updateGroupFilterOptions(updates) {
+    const groupSelect = document.getElementById('filter-group');
+    if (!groupSelect) return;
+
+    // 获取所有唯一的群组ID
+    const groups = [...new Set(updates.map(u => u.group_id).filter(g => g))];
+
+    // 保留第一个选项，清除其他
+    groupSelect.innerHTML = '<option value="">全部群组</option>';
+
+    groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = group;
+        option.textContent = group;
+        groupSelect.appendChild(option);
+    });
+}
+
+// 应用筛选条件
+function applyPersonaFilters() {
+    const typeFilter = document.getElementById('filter-type')?.value || '';
+    const groupFilter = document.getElementById('filter-group')?.value || '';
+    const confidenceFilter = document.getElementById('filter-confidence')?.value || '';
+    const timeFilter = document.getElementById('filter-time')?.value || '';
+
+    filteredPersonaUpdates = allPersonaUpdates.filter(update => {
+        // 类型筛选 - 使用 review_source 字段进行精确匹配
+        if (typeFilter) {
+            const reviewSource = update.review_source || '';
+
+            // 精确匹配 review_source
+            if (typeFilter === 'style_learning' && reviewSource !== 'style_learning') return false;
+            if (typeFilter === 'persona_learning' && reviewSource !== 'persona_learning') return false;
+            if (typeFilter === 'traditional' && reviewSource !== 'traditional') return false;
+        }
+
+        // 群组筛选
+        if (groupFilter && update.group_id !== groupFilter) return false;
+
+        // 置信度筛选
+        if (confidenceFilter) {
+            const confidence = update.confidence_score || 0;
+            if (confidenceFilter === 'high' && confidence < 0.8) return false;
+            if (confidenceFilter === 'medium' && (confidence < 0.5 || confidence >= 0.8)) return false;
+            if (confidenceFilter === 'low' && confidence >= 0.5) return false;
+        }
+
+        // 时间筛选
+        if (timeFilter) {
+            const timestamp = update.timestamp || 0;
+            const now = Date.now() / 1000;
+            const dayInSeconds = 86400;
+
+            if (timeFilter === 'today') {
+                const todayStart = Math.floor(now / dayInSeconds) * dayInSeconds;
+                if (timestamp < todayStart) return false;
+            } else if (timeFilter === 'week' && now - timestamp > 7 * dayInSeconds) {
+                return false;
+            } else if (timeFilter === 'month' && now - timestamp > 30 * dayInSeconds) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    // 重置到第一页
+    pendingCurrentPage = 1;
+
+    // 渲染分页数据
+    renderPaginatedPersonaUpdates();
+}
+
+// 重置筛选条件
+function resetPersonaFilters() {
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-group').value = '';
+    document.getElementById('filter-confidence').value = '';
+    document.getElementById('filter-time').value = '';
+    applyPersonaFilters();
+}
+
+// 渲染分页后的数据
+function renderPaginatedPersonaUpdates() {
+    const totalCount = filteredPersonaUpdates.length;
+    const totalPages = Math.ceil(totalCount / pendingPageSize) || 1;
+
+    // 确保当前页在有效范围内
+    if (pendingCurrentPage > totalPages) pendingCurrentPage = totalPages;
+    if (pendingCurrentPage < 1) pendingCurrentPage = 1;
+
+    const startIndex = (pendingCurrentPage - 1) * pendingPageSize;
+    const endIndex = Math.min(startIndex + pendingPageSize, totalCount);
+    const pageData = filteredPersonaUpdates.slice(startIndex, endIndex);
+
+    // 渲染列表
+    renderPersonaUpdates(pageData);
+
+    // 更新分页控件
+    updatePaginationControls(startIndex, endIndex, totalCount, totalPages);
+}
+
+// 更新分页控件状态
+function updatePaginationControls(startIndex, endIndex, totalCount, totalPages) {
+    const showingStart = document.getElementById('pending-showing-start');
+    const showingEnd = document.getElementById('pending-showing-end');
+    const totalCountEl = document.getElementById('pending-total-count');
+    const currentPageEl = document.getElementById('pending-current-page');
+    const totalPagesEl = document.getElementById('pending-total-pages');
+    const prevBtn = document.getElementById('pending-prev-btn');
+    const nextBtn = document.getElementById('pending-next-btn');
+
+    if (showingStart) showingStart.textContent = totalCount > 0 ? startIndex + 1 : 0;
+    if (showingEnd) showingEnd.textContent = endIndex;
+    if (totalCountEl) totalCountEl.textContent = totalCount;
+    if (currentPageEl) currentPageEl.textContent = pendingCurrentPage;
+    if (totalPagesEl) totalPagesEl.textContent = totalPages;
+
+    if (prevBtn) prevBtn.disabled = pendingCurrentPage <= 1;
+    if (nextBtn) nextBtn.disabled = pendingCurrentPage >= totalPages;
+}
+
+// 切换页面
+function changePendingPage(delta) {
+    pendingCurrentPage += delta;
+    renderPaginatedPersonaUpdates();
+}
+
+// 改变每页显示数量
+function changePendingPageSize() {
+    const pageSizeSelect = document.getElementById('pending-page-size');
+    if (pageSizeSelect) {
+        pendingPageSize = parseInt(pageSizeSelect.value, 10);
+        pendingCurrentPage = 1;  // 重置到第一页
+        renderPaginatedPersonaUpdates();
     }
 }
 
@@ -1431,15 +1584,15 @@ function renderPersonaUpdates(updates) {
         const updateElement = document.createElement('div');
         updateElement.className = 'persona-update-item';
         
-        // 确定更新类型和对应的徽章
-        const updateType = update.update_type || 'persona_update';
+        // 确定更新类型和对应的徽章 - 使用 review_source 字段
+        const reviewSource = update.review_source || '';
         let typeBadge = '';
         let typeText = '';
-        
-        if (updateType.includes('style') || updateType === 'style_learning') {
+
+        if (reviewSource === 'style_learning') {
             typeBadge = '<span class="type-badge style-badge">风格学习</span>';
             typeText = '风格学习更新';
-        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+        } else if (reviewSource === 'persona_learning') {
             typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
             typeText = '人格学习更新';
         } else {
@@ -1985,26 +2138,18 @@ async function deletePersonaUpdate(updateId) {
     if (!confirm('确定要删除这条记录吗？此操作不可撤销。')) {
         return;
     }
-    
+
     try {
-        // 解析ID：如果是 persona_learning_20 格式，提取数字部分
-        let numericId = updateId;
-        if (typeof updateId === 'string') {
-            const match = updateId.match(/\d+$/);
-            if (match) {
-                numericId = parseInt(match[0]);
-            }
-        }
-        
-        const response = await fetch(`/api/persona_updates/${numericId}/delete`, {
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
+        const response = await fetch(`/api/persona_updates/${encodeURIComponent(updateId)}/delete`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             showSuccess(data.message);
             // 重新加载列表
@@ -2028,33 +2173,23 @@ async function batchDeletePersonaUpdates(updateIds) {
         showError('请选择要删除的记录');
         return;
     }
-    
+
     if (!confirm(`确定要删除选中的 ${updateIds.length} 条记录吗？此操作不可撤销。`)) {
         return;
     }
-    
+
     try {
-        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
-        const numericIds = updateIds.map(id => {
-            if (typeof id === 'string') {
-                const match = id.match(/\d+$/);
-                if (match) {
-                    return parseInt(match[0]);
-                }
-            }
-            return id;
-        });
-        
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
         const response = await fetch('/api/persona_updates/batch_delete', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ update_ids: numericIds })
+            body: JSON.stringify({ update_ids: updateIds })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             showSuccess(data.message);
             // 重新加载列表
@@ -2080,36 +2215,26 @@ async function batchReviewPersonaUpdates(updateIds, action, comment = '') {
         showError('请选择要操作的记录');
         return;
     }
-    
+
     const actionText = action === 'approve' ? '批准' : '拒绝';
     if (!confirm(`确定要批量${actionText}选中的 ${updateIds.length} 条记录吗？`)) {
         return;
     }
-    
+
     try {
-        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
-        const numericIds = updateIds.map(id => {
-            if (typeof id === 'string') {
-                const match = id.match(/\d+$/);
-                if (match) {
-                    return parseInt(match[0]);
-                }
-            }
-            return id;
-        });
-        
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
         const response = await fetch('/api/persona_updates/batch_review', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
-                update_ids: numericIds,
+            body: JSON.stringify({
+                update_ids: updateIds,
                 action: action,
-                comment: comment 
+                comment: comment
             })
         });
-        
+
         const data = await response.json();
         
         if (data.success) {
@@ -4271,15 +4396,15 @@ function renderReviewedPersonaUpdates(updates) {
         const statusText = update.status === 'approved' ? '已批准' : '已拒绝';
         const statusClass = update.status === 'approved' ? 'status-approved' : 'status-rejected';
         
-        // 确定更新类型和对应的徽章
-        const updateType = update.update_type || 'persona_update';
+        // 确定更新类型和对应的徽章 - 使用 review_source 字段
+        const reviewSource = update.review_source || '';
         let typeBadge = '';
         let typeText = '';
-        
-        if (updateType.includes('style') || updateType === 'style_learning') {
+
+        if (reviewSource === 'style_learning') {
             typeBadge = '<span class="type-badge style-badge">风格学习</span>';
             typeText = '风格学习更新';
-        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+        } else if (reviewSource === 'persona_learning') {
             typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
             typeText = '人格学习更新';
         } else {
@@ -5104,6 +5229,9 @@ function renderRelationshipChart(data) {
             }
         }));
 
+        // 保存当前数据供3D模式使用
+        currentRelationsData = { nodes, links };
+
         renderFilteredChart(nodes, links, `${filteredMembers.find(m => m.user_id === filteredUserId)?.nickname || filteredUserId} 的社交关系`);
     } else {
         // 显示所有关系
@@ -5131,7 +5259,15 @@ function renderRelationshipChart(data) {
             }
         }));
 
+        // 保存当前数据供3D模式使用
+        currentRelationsData = { nodes, links };
+
         renderFilteredChart(nodes, links, `${members.length} 个成员，${relations.length} 个关系连接`);
+    }
+
+    // 如果当前是3D模式，同步更新3D图谱
+    if (currentGraphMode === '3d' && socialGraph3D && currentRelationsData) {
+        load3DGraphData(currentRelationsData);
     }
 }
 
@@ -5402,3 +5538,246 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 100);
 });
+
+// ==================== Three.js 加载检查 ====================
+window.addEventListener('load', () => {
+    console.log('🔍 检查 Three.js 加载状态...');
+    console.log('THREE 存在:', typeof THREE !== 'undefined');
+    if (typeof THREE !== 'undefined') {
+        console.log('THREE 版本:', THREE.REVISION);
+        console.log('OrbitControls 存在:', typeof THREE.OrbitControls !== 'undefined');
+    }
+    console.log('SocialGraph3D 存在:', typeof window.SocialGraph3D !== 'undefined');
+});
+
+// ==================== 3D社交关系图谱集成 ====================
+
+// 全局变量
+let socialGraph3D = null;  // 3D图谱实例
+let currentGraphMode = '2d';  // 当前图谱模式：2d 或 3d
+let currentRelationsData = null;  // 当前的关系数据（用于2D/3D切换）
+
+/**
+ * 切换图谱模式 (2D/3D)
+ */
+function switchGraphMode(mode) {
+    console.log(`🔄 切换图谱模式: ${currentGraphMode} -> ${mode}`);
+
+    if (mode === currentGraphMode) {
+        console.log('⚠️ 模式相同，跳过切换');
+        return;
+    }
+
+    currentGraphMode = mode;
+
+    // 更新按钮状态
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+        if (btn.dataset.mode === mode) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // 更新body类名以控制CSS显示/隐藏
+    if (mode === '3d') {
+        document.body.classList.add('graph-3d-mode');
+    } else {
+        document.body.classList.remove('graph-3d-mode');
+    }
+
+    // 显示/隐藏相应的容器
+    const chart2D = document.getElementById('relationship-graph-chart');
+    const chart3D = document.getElementById('relationship-graph-3d');
+
+    console.log('📦 DOM元素检查:', {
+        chart2D: !!chart2D,
+        chart3D: !!chart3D
+    });
+
+    if (mode === '3d') {
+        // 切换到3D模式
+        console.log('✅ 切换到3D模式');
+        if (chart2D) chart2D.style.display = 'none';
+        if (chart3D) chart3D.style.display = 'block';
+
+        // 初始化3D图谱
+        init3DGraph();
+
+        // 如果有当前数据，加载到3D图谱
+        if (currentRelationsData) {
+            console.log('📊 加载数据到3D图谱:', currentRelationsData);
+            load3DGraphData(currentRelationsData);
+        } else {
+            console.warn('⚠️ 没有可用的关系数据');
+        }
+    } else {
+        // 切换到2D模式
+        console.log('✅ 切换到2D模式');
+        if (chart2D) chart2D.style.display = 'block';
+        if (chart3D) chart3D.style.display = 'none';
+
+        // 销毁3D图谱
+        if (socialGraph3D) {
+            socialGraph3D.destroy();
+            socialGraph3D = null;
+        }
+
+        // 如果有当前数据，重新渲染2D图谱
+        if (currentRelationsData) {
+            updateRelationshipChart();
+        }
+    }
+}
+
+/**
+ * 初始化3D图谱
+ */
+function init3DGraph() {
+    console.log('🔧 初始化3D图谱...');
+
+    if (!window.SocialGraph3D) {
+        console.error('❌ SocialGraph3D class not found. Make sure social_graph_3d.js is loaded.');
+        console.log('可用的全局对象:', Object.keys(window).filter(k => k.includes('Social') || k.includes('THREE')));
+        return;
+    }
+
+    console.log('✅ SocialGraph3D 类已找到');
+
+    // 如果已存在，先销毁
+    if (socialGraph3D) {
+        console.log('⚠️ 销毁旧的3D图谱实例');
+        socialGraph3D.destroy();
+    }
+
+    // 检查容器是否存在
+    const container = document.getElementById('relationship-graph-3d');
+    if (!container) {
+        console.error('❌ 容器 relationship-graph-3d 不存在');
+        return;
+    }
+
+    console.log('✅ 容器已找到:', container);
+
+    // 创建新实例
+    try {
+        socialGraph3D = new SocialGraph3D('relationship-graph-3d');
+        console.log('✅ SocialGraph3D 实例创建成功:', socialGraph3D);
+    } catch (error) {
+        console.error('❌ 创建 SocialGraph3D 实例失败:', error);
+        return;
+    }
+
+    // 监听节点选中事件
+    container.addEventListener('nodeSelected', (event) => {
+        const nodeData = event.detail;
+        console.log('🎯 Selected node in 3D:', nodeData);
+
+        // 可以在这里更新成员详细信息
+        // TODO: 高亮选中的成员
+    });
+
+    console.log('✅ 3D图谱初始化完成');
+}
+
+/**
+ * 加载数据到3D图谱
+ */
+function load3DGraphData(data) {
+    console.log('📥 load3DGraphData 被调用，数据:', data);
+
+    if (!socialGraph3D) {
+        console.log('⚠️ socialGraph3D 不存在，尝试初始化...');
+        init3DGraph();
+    }
+
+    if (!socialGraph3D) {
+        console.error('❌ 初始化3D图谱失败');
+        return;
+    }
+
+    if (!data || !data.nodes || !data.links) {
+        console.error('❌ 数据格式错误:', data);
+        return;
+    }
+
+    console.log(`📊 原始数据: ${data.nodes.length} 个节点, ${data.links.length} 条边`);
+
+    // 转换数据格式为3D图谱需要的格式
+    const nodes = data.nodes.map(node => ({
+        id: node.id || node.name,
+        label: node.name || node.id,
+        strength: node.symbolSize || 10
+    }));
+
+    const edges = data.links.map(link => ({
+        source: link.source,
+        target: link.target,
+        strength: link.value || 1
+    }));
+
+    console.log(`✅ 转换后数据: ${nodes.length} 个节点, ${edges.length} 条边`);
+    console.log('节点示例:', nodes[0]);
+    console.log('边示例:', edges[0]);
+
+    // 加载数据
+    try {
+        socialGraph3D.loadData(nodes, edges);
+        console.log('✅ 数据已加载到3D图谱');
+    } catch (error) {
+        console.error('❌ 加载数据到3D图谱失败:', error);
+    }
+}
+
+/**
+ * 更改3D主题
+ */
+function change3DTheme(themeName) {
+    if (socialGraph3D) {
+        socialGraph3D.setTheme(themeName);
+    }
+}
+
+/**
+ * 重置3D相机位置
+ */
+function resetGraph3DCamera() {
+    if (socialGraph3D) {
+        socialGraph3D.resetCamera();
+    }
+}
+
+/**
+ * 修改原有的loadGroupRelations函数，保存数据以支持2D/3D切换
+ * 注意：这需要修改现有的loadGroupRelations函数，在渲染图表后保存数据
+ */
+// 在现有的updateRelationshipChart函数后添加数据保存
+const originalUpdateRelationshipChart = window.updateRelationshipChart;
+if (originalUpdateRelationshipChart && typeof originalUpdateRelationshipChart === 'function') {
+    window.updateRelationshipChart = function() {
+        // 调用原函数
+        originalUpdateRelationshipChart();
+
+        // 保存当前数据（从ECharts实例中获取）
+        const chartDom = document.getElementById('relationship-graph-chart');
+        if (chartDom && window.echarts) {
+            const chartInstance = window.echarts.getInstanceByDom(chartDom);
+            if (chartInstance) {
+                const option = chartInstance.getOption();
+                if (option && option.series && option.series[0]) {
+                    currentRelationsData = {
+                        nodes: option.series[0].data || [],
+                        links: option.series[0].links || []
+                    };
+
+                    // 如果当前是3D模式，更新3D图谱
+                    if (currentGraphMode === '3d' && socialGraph3D) {
+                        load3DGraphData(currentRelationsData);
+                    }
+                }
+            }
+        }
+    };
+}
+
+console.log('✅ 3D社交关系图谱集成完成');

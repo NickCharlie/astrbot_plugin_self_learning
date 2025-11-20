@@ -497,13 +497,28 @@ async def get_persona_updates():
     if database_manager:
         try:
             logger.info("正在获取人格学习审查...")
-            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews()
+            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=200)
             logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
-            
+
             for review in persona_learning_reviews:
+                # 根据update_type判断实际的审查类型
+                update_type = review.get('update_type', '')
+
+                # 判断review_source：如果update_type包含特定关键词，则归类为对应类型
+                # 否则归类为传统类型
+                if 'style' in update_type.lower() or 'style_learning' in update_type.lower():
+                    # 这是风格相关的审查，跳过（因为风格学习审查在步骤3处理）
+                    continue
+                elif 'persona_learning' in update_type.lower() or 'expression_learning' in update_type.lower():
+                    # 这是真正的人格学习审查
+                    review_source = 'persona_learning'
+                else:
+                    # 这是常规的渐进式学习结果，归类为传统类型
+                    review_source = 'traditional'
+
                 # 转换为统一的审查格式
                 review_dict = {
-                    'id': f"persona_learning_{review['id']}",  # 添加前缀避免ID冲突
+                    'id': f"persona_learning_{review['id']}" if review_source == 'persona_learning' else review['id'],  # 只有真正的人格学习才加前缀
                     'timestamp': review['timestamp'],
                     'group_id': review['group_id'],
                     'update_type': review['update_type'],
@@ -517,7 +532,7 @@ async def get_persona_updates():
                     'confidence_score': review.get('confidence_score', 0.5),  # 使用数据库中的置信度
                     'reviewed': False,
                     'approved': False,
-                    'review_source': 'persona_learning',  # 标记来源
+                    'review_source': review_source,  # 根据update_type动态设置
                     'persona_learning_review_id': review['id'],  # 原始ID用于审批操作
                     # 添加metadata中的关键字段到顶层，方便前端访问
                     'features_content': review.get('metadata', {}).get('features_content', ''),
@@ -526,9 +541,9 @@ async def get_persona_updates():
                     'messages_analyzed': review.get('metadata', {}).get('messages_analyzed', 0),
                     'metadata': review.get('metadata', {})  # 保留完整的metadata
                 }
-                
+
                 all_updates.append(review_dict)
-                
+
         except Exception as e:
             logger.error(f"获取人格学习审查失败: {e}", exc_info=True)
     else:
@@ -538,7 +553,7 @@ async def get_persona_updates():
     if database_manager:
         try:
             logger.info("正在获取风格学习审查...")
-            style_reviews = await database_manager.get_pending_style_reviews()
+            style_reviews = await database_manager.get_pending_style_reviews(limit=200)
             logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
             
             for review in style_reviews:
@@ -831,7 +846,7 @@ async def revert_persona_update(update_id: str):
         return jsonify({"error": str(e)}), 500
 
 # 删除人格更新审查记录
-@api_bp.route("/persona_updates/<int:update_id>/delete", methods=["POST"])
+@api_bp.route("/persona_updates/<update_id>/delete", methods=["POST"])
 async def delete_persona_update(update_id):
     """删除人格更新审查记录"""
     try:
@@ -839,25 +854,56 @@ async def delete_persona_update(update_id):
         global database_manager, persona_updater
         if not database_manager:
             return jsonify({"error": "Database manager not available"}), 500
-        
+
+        # 解析update_id，处理前缀（persona_learning_、style_）
+        if isinstance(update_id, str):
+            if update_id.startswith("persona_learning_"):
+                numeric_id = int(update_id.replace("persona_learning_", ""))
+                # 删除人格学习审查记录
+                success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+                if success:
+                    message = f"人格学习审查记录 {numeric_id} 已删除"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": f"未找到人格学习审查记录: {numeric_id}"}), 404
+
+            elif update_id.startswith("style_"):
+                numeric_id = int(update_id.replace("style_", ""))
+                # 删除风格学习审查记录
+                success = await database_manager.delete_style_review_by_id(numeric_id)
+                if success:
+                    message = f"风格学习审查记录 {numeric_id} 已删除"
+                    return jsonify({"success": True, "message": message})
+                else:
+                    return jsonify({"error": f"未找到风格学习审查记录: {numeric_id}"}), 404
+
+            else:
+                # 尝试作为纯数字ID处理
+                try:
+                    numeric_id = int(update_id)
+                except ValueError:
+                    return jsonify({"error": f"无效的ID格式: {update_id}"}), 400
+        else:
+            numeric_id = int(update_id)
+
         # 尝试删除人格学习审查记录
-        success = await database_manager.delete_persona_learning_review_by_id(update_id)
-        
+        success = await database_manager.delete_persona_learning_review_by_id(numeric_id)
+
         if success:
-            message = f"人格学习审查记录 {update_id} 已删除"
+            message = f"人格学习审查记录 {numeric_id} 已删除"
             return jsonify({"success": True, "message": message})
         else:
             # 如果人格学习审查记录不存在，尝试删除传统人格审查记录
             if persona_updater:
-                result = await persona_updater.delete_persona_update_review(update_id)
+                result = await persona_updater.delete_persona_update_review(numeric_id)
                 if result:
-                    message = f"人格更新审查记录 {update_id} 已删除"
+                    message = f"人格更新审查记录 {numeric_id} 已删除"
                     return jsonify({"success": True, "message": message})
                 else:
                     return jsonify({"error": "Record not found"}), 404
             else:
                 return jsonify({"error": "Record not found"}), 404
-                
+
     except Exception as e:
         logger.error(f"删除人格更新审查记录失败: {e}")
         return jsonify({"error": str(e)}), 500
@@ -962,83 +1008,154 @@ async def batch_review_persona_updates():
         update_ids = data.get('update_ids', [])
         action = data.get('action')  # 'approve' or 'reject'
         comment = data.get('comment', '')
-        
+
         if not update_ids or not isinstance(update_ids, list):
             return jsonify({"error": "update_ids is required and must be a list"}), 400
-            
+
         if action not in ['approve', 'reject']:
             return jsonify({"error": "action must be 'approve' or 'reject'"}), 400
-        
+
         # 使用全局变量而不是 current_app.plugin_instance
         global database_manager, persona_updater
         if not database_manager:
             return jsonify({"error": "Database manager not available"}), 500
-        
+
         success_count = 0
         failed_count = 0
-        
+
         for update_id in update_ids:
             try:
-                # 获取审查记录详情
-                review_data = await database_manager.get_persona_learning_review_by_id(int(update_id))
-                
-                if review_data:
-                    # 人格学习审查记录
-                    status = 'approved' if action == 'approve' else 'rejected'
-                    success = await database_manager.update_persona_learning_review_status(
-                        int(update_id), status, comment
-                    )
-                    
-                    if success and action == 'approve':
-                        # 如果批准，还需要应用人格更新
-                        content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
-                        if persona_updater and content_to_apply:
-                            try:
-                                # 使用已经写好的完整人格更新方法
-                                style_analysis = {
-                                    'enhanced_prompt': content_to_apply,
-                                    'style_features': [],
-                                    'style_attributes': {},
-                                    'confidence': 0.8,
-                                    'source': f'批量审查{update_id}'
-                                }
-                                
-                                # 调用框架API方式的人格更新方法（包含自动备份）
-                                success_apply = await persona_updater.update_persona_with_style(
-                                    review_data.get('group_id', 'default'), 
-                                    style_analysis,
-                                    []  # 空的filtered_messages
-                                )
-                                
-                                if success_apply:
-                                    logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
-                                else:
-                                    logger.warning(f"批量审查 {update_id} 应用失败")
-                                    
-                            except Exception as apply_error:
-                                logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
-                    
-                    if success:
-                        success_count += 1
+                # 解析update_id，处理前缀（persona_learning_、style_）
+                if isinstance(update_id, str):
+                    if update_id.startswith("persona_learning_"):
+                        # 人格学习审查记录
+                        numeric_id = int(update_id.replace("persona_learning_", ""))
+                        review_data = await database_manager.get_persona_learning_review_by_id(numeric_id)
+
+                        if review_data:
+                            status = 'approved' if action == 'approve' else 'rejected'
+                            success = await database_manager.update_persona_learning_review_status(
+                                numeric_id, status, comment
+                            )
+
+                            if success and action == 'approve':
+                                # 如果批准，还需要应用人格更新
+                                content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                                if persona_updater and content_to_apply:
+                                    try:
+                                        style_analysis = {
+                                            'enhanced_prompt': content_to_apply,
+                                            'style_features': [],
+                                            'style_attributes': {},
+                                            'confidence': 0.8,
+                                            'source': f'批量审查{update_id}'
+                                        }
+
+                                        success_apply = await persona_updater.update_persona_with_style(
+                                            review_data.get('group_id', 'default'),
+                                            style_analysis,
+                                            []
+                                        )
+
+                                        if success_apply:
+                                            logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
+                                        else:
+                                            logger.warning(f"批量审查 {update_id} 应用失败")
+
+                                    except Exception as apply_error:
+                                        logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
+
+                            if success:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+                            logger.warning(f"未找到人格学习审查记录: {numeric_id}")
+
+                    elif update_id.startswith("style_"):
+                        # 风格学习审查记录
+                        numeric_id = int(update_id.replace("style_", ""))
+                        status = 'approved' if action == 'approve' else 'rejected'
+                        success = await database_manager.update_style_review_status(numeric_id, status)
+
+                        if success:
+                            success_count += 1
+                            logger.info(f"风格学习审查 {update_id} 已{status}")
+                        else:
+                            failed_count += 1
+                            logger.warning(f"未找到风格学习审查记录: {numeric_id}")
                     else:
-                        failed_count += 1
+                        # 尝试作为纯数字ID处理（传统人格审查记录）
+                        numeric_id = int(update_id)
+                        if persona_updater:
+                            status = "approved" if action == 'approve' else "rejected"
+                            result = await persona_updater.review_persona_update(numeric_id, status, comment)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
                 else:
-                    # 传统人格审查记录
-                    if persona_updater:
-                        # 将 action 转换为正确的状态字符串
-                        status = "approved" if action == 'approve' else "rejected"
-                        result = await persona_updater.review_persona_update(int(update_id), status, comment)
-                        if result:
+                    # 纯数字ID - 尝试人格学习审查记录
+                    numeric_id = int(update_id)
+                    review_data = await database_manager.get_persona_learning_review_by_id(numeric_id)
+
+                    if review_data:
+                        # 人格学习审查记录
+                        status = 'approved' if action == 'approve' else 'rejected'
+                        success = await database_manager.update_persona_learning_review_status(
+                            numeric_id, status, comment
+                        )
+
+                        if success and action == 'approve':
+                            # 如果批准，还需要应用人格更新
+                            content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                            if persona_updater and content_to_apply:
+                                try:
+                                    style_analysis = {
+                                        'enhanced_prompt': content_to_apply,
+                                        'style_features': [],
+                                        'style_attributes': {},
+                                        'confidence': 0.8,
+                                        'source': f'批量审查{update_id}'
+                                    }
+
+                                    success_apply = await persona_updater.update_persona_with_style(
+                                        review_data.get('group_id', 'default'),
+                                        style_analysis,
+                                        []
+                                    )
+
+                                    if success_apply:
+                                        logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
+                                    else:
+                                        logger.warning(f"批量审查 {update_id} 应用失败")
+
+                                except Exception as apply_error:
+                                    logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
+
+                        if success:
                             success_count += 1
                         else:
                             failed_count += 1
                     else:
-                        failed_count += 1
-                        
+                        # 传统人格审查记录
+                        if persona_updater:
+                            status = "approved" if action == 'approve' else "rejected"
+                            result = await persona_updater.review_persona_update(numeric_id, status, comment)
+                            if result:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        else:
+                            failed_count += 1
+
             except Exception as e:
                 logger.error(f"批量审查人格更新记录 {update_id} 失败: {e}")
                 failed_count += 1
-        
+
         action_text = "批准" if action == 'approve' else "拒绝"
         return jsonify({
             "success": True,
@@ -1049,7 +1166,7 @@ async def batch_review_persona_updates():
                 "total_count": len(update_ids)
             }
         })
-                
+
     except Exception as e:
         logger.error(f"批量审查人格更新记录失败: {e}")
         return jsonify({"error": str(e)}), 500
@@ -1789,11 +1906,11 @@ async def get_style_learning_reviews():
 @api_bp.route("/style_learning/reviews/<int:review_id>/approve", methods=["POST"])
 @require_auth
 async def approve_style_learning_review(review_id: int):
-    """批准对话风格学习审查"""
+    """批准对话风格学习审查 - 使用与人格学习审查相同的备份逻辑"""
     try:
         if not database_manager:
             return jsonify({'error': '数据库管理器未初始化'}), 500
-        
+
         # 获取审查详情
         pending_reviews = await database_manager.get_pending_style_reviews()
         target_review = None
@@ -1801,34 +1918,70 @@ async def approve_style_learning_review(review_id: int):
             if review['id'] == review_id:
                 target_review = review
                 break
-        
+
         if not target_review:
             return jsonify({'error': '审查记录不存在'}), 404
-        
+
         # 更新状态为approved
         success = await database_manager.update_style_review_status(review_id, 'approved', target_review['group_id'])
-        
+
         if success:
-            # 应用到人格（Few Shots格式）
+            # 应用到人格（使用与人格学习审查相同的逻辑：备份+应用）
             if target_review['few_shots_content']:
                 # 通过persona_updater应用到人格
                 persona_update_content = target_review['few_shots_content']
-                
+
                 if persona_updater:
                     try:
-                        await persona_updater._append_to_persona_updates_file(persona_update_content)
-                        logger.info(f"风格学习审查 {review_id} 已批准并应用到人格")
+                        logger.info(f"开始应用风格学习审查 {review_id}，群组: {target_review.get('group_id', 'default')}")
+                        logger.info(f"待应用内容长度: {len(persona_update_content)} 字符")
+
+                        # 使用与人格学习审查相同的方法（包含自动备份）
+                        # 首先需要将few_shots_content转换为style_analysis格式
+                        style_analysis = {
+                            'enhanced_prompt': persona_update_content,
+                            'style_features': [],
+                            'style_attributes': {},
+                            'confidence': 0.8,
+                            'source': f'风格学习审查{review_id}'
+                        }
+                        logger.info(f"构建style_analysis: {style_analysis['source']}")
+
+                        # 使用空的filtered_messages（因为我们直接有学习内容）
+                        filtered_messages = []
+
+                        # 调用框架API方式的人格更新方法（包含自动备份）
+                        logger.info("调用update_persona_with_style方法...")
+                        success_apply = await persona_updater.update_persona_with_style(
+                            target_review.get('group_id', 'default'),
+                            style_analysis,
+                            filtered_messages
+                        )
+                        logger.info(f"update_persona_with_style返回结果: {success_apply}")
+
+                        if success_apply:
+                            logger.info(f"✅ 风格学习审查 {review_id} 已成功应用到人格（使用框架API方式，包含备份）")
+                            message = f'风格学习审查 {review_id} 已批准并应用到人格'
+                        else:
+                            logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但应用失败")
+                            message = f'风格学习审查 {review_id} 已批准，但人格应用失败'
+
                     except Exception as e:
-                        logger.error(f"应用风格学习到人格失败: {e}")
-                        return jsonify({'error': '批准成功，但应用到人格失败'}), 500
-            
+                        logger.error(f"应用风格学习到人格失败: {e}", exc_info=True)
+                        return jsonify({'error': f'批准成功，但应用到人格失败: {str(e)}'}), 500
+                else:
+                    logger.warning("PersonaUpdater未初始化，无法应用风格学习")
+                    message = f'风格学习审查 {review_id} 已批准，但无法应用人格更新'
+            else:
+                message = f'风格学习审查 {review_id} 已批准（无内容需要应用）'
+
             return jsonify({
                 'success': True,
-                'message': f'风格学习审查 {review_id} 已批准并应用到人格'
+                'message': message
             })
         else:
             return jsonify({'error': '批准失败，请检查审查记录状态'}), 500
-            
+
     except Exception as e:
         logger.error(f"批准风格学习审查失败: {e}")
         return jsonify({'error': str(e)}), 500
@@ -4024,9 +4177,26 @@ async def get_available_groups_for_social_analysis():
         async with db_manager.get_db_connection() as conn:
             cursor = await conn.cursor()
 
+            # 确保social_relations表存在
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS social_relations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    from_user TEXT NOT NULL,
+                    to_user TEXT NOT NULL,
+                    relation_type TEXT NOT NULL,
+                    strength REAL NOT NULL,
+                    frequency INTEGER DEFAULT 1,
+                    last_interaction REAL,
+                    group_id TEXT,
+                    created_at REAL DEFAULT (strftime('%s', 'now')),
+                    updated_at REAL DEFAULT (strftime('%s', 'now'))
+                )
+            ''')
+
+            # 获取群组的消息数和成员数
             await cursor.execute('''
                 SELECT DISTINCT group_id, COUNT(*) as message_count,
-                       COUNT(DISTINCT sender_id) as user_count
+                       COUNT(DISTINCT sender_id) as member_count
                 FROM raw_messages
                 WHERE group_id IS NOT NULL AND group_id != ''
                 GROUP BY group_id
@@ -4034,12 +4204,27 @@ async def get_available_groups_for_social_analysis():
                 ORDER BY message_count DESC
             ''')
 
+            group_rows = await cursor.fetchall()
+
             groups = []
-            for row in await cursor.fetchall():
+            for row in group_rows:
+                group_id = row[0]
+                message_count = row[1]
+                member_count = row[2]
+
+                # 获取该群组的社交关系数量
+                await cursor.execute('''
+                    SELECT COUNT(*) FROM social_relations WHERE group_id = ?
+                ''', (group_id,))
+                relation_row = await cursor.fetchone()
+                relation_count = relation_row[0] if relation_row else 0
+
                 groups.append({
-                    'group_id': row[0],
-                    'message_count': row[1],
-                    'user_count': row[2]
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'member_count': member_count,  # 修复：使用正确的字段名
+                    'user_count': member_count,     # 保留旧字段以兼容
+                    'relation_count': relation_count  # 新增：关系数
                 })
 
             await cursor.close()

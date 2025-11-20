@@ -3490,3 +3490,243 @@ input[type="checkbox"]:checked::after {
 .update-checkbox label {
     display: none; /* 隐藏label，只显示checkbox */
 }
+
+/* 筛选面板样式 */
+.filter-panel {
+    padding: 16px 24px;
+    background: #f5f7fa;
+    border-bottom: 1px solid #e8e8e8;
+}
+
+.filter-row {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filter-group label {
+    font-size: 13px;
+    color: #666;
+    white-space: nowrap;
+}
+
+.filter-group select {
+    padding: 6px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 13px;
+    background: white;
+    color: #333;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+.filter-group select:focus {
+    outline: none;
+    border-color: var(--color-brand1-6);
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+    height: 32px;
+}
+
+.btn-small .material-icons {
+    font-size: 16px;
+}
+
+/* 分页控件样式 */
+.pagination-controls {
+    padding: 16px 24px;
+    background: #fafbfc;
+    border-top: 1px solid #f0f0f0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.pagination-info {
+    font-size: 13px;
+    color: #666;
+}
+
+.pagination-buttons {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pagination-buttons .btn {
+    padding: 4px 8px;
+    min-width: 32px;
+    height: 32px;
+}
+
+.pagination-buttons .btn .material-icons {
+    font-size: 18px;
+}
+
+.page-indicator {
+    font-size: 13px;
+    color: #333;
+    padding: 0 8px;
+}
+
+.page-size-select {
+    padding: 4px 8px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 12px;
+    background: white;
+    cursor: pointer;
+}
+
+.page-size-select:focus {
+    outline: none;
+    border-color: var(--color-brand1-6);
+}
+
+/* 响应式筛选面板 */
+@media (max-width: 768px) {
+    .filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-group {
+        width: 100%;
+    }
+
+    .filter-group select {
+        flex: 1;
+    }
+
+    .pagination-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .pagination-buttons {
+        justify-content: center;
+    }
+}
+
+/* ==================== 2D/3D切换按钮样式 ==================== */
+.toggle-group {
+    display: inline-flex;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 4px;
+    gap: 4px;
+}
+
+.toggle-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.3s ease;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.toggle-btn .material-icons {
+    font-size: 18px;
+}
+
+.toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.toggle-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.toggle-btn.active:hover {
+    background: linear-gradient(135deg, #5568d3 0%, #6a3f92 100%);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+/* 3D控制按钮容器 */
+#graph-3d-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+#graph-3d-controls .btn {
+    min-width: auto;
+    padding: 8px 12px;
+}
+
+/* 3D主题选择器 */
+#graph-3d-theme {
+    padding: 8px 12px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-block !important;  /* 确保显示 */
+}
+
+#graph-3d-theme:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+    border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+#graph-3d-theme:focus {
+    outline: none;
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+}
+
+/* 3D图谱容器 */
+#relationship-graph-3d {
+    position: relative;
+    background: radial-gradient(ellipse at center, #1a1a2e 0%, #0f0f1e 100%);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+#relationship-graph-3d canvas {
+    display: block;
+}
+
+/* 2D/3D模式切换控制 */
+.graph-2d-only {
+    display: inline-block !important;
+}
+
+.graph-3d-only {
+    display: none !important;
+}
+
+body.graph-3d-mode .graph-2d-only {
+    display: none !important;
+}
+
+body.graph-3d-mode .graph-3d-only {
+    display: inline-block !important;
+}

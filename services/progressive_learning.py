@@ -295,7 +295,7 @@ class ProgressiveLearningService:
 
             # 9. 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
             # 注意：对话风格（表达模式）学习总是成功，人格学习在_apply_learning_updates中会加入审查
-            await self._apply_learning_updates(group_id, style_analysis, filtered_messages)
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics)
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
             
@@ -484,7 +484,7 @@ class ProgressiveLearningService:
             )
 
             # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
-            await self._apply_learning_updates(group_id, {}, filtered_messages)  # style_analysis may be empty
+            await self._apply_learning_updates(group_id, {}, filtered_messages, current_persona, updated_persona, quality_metrics)  # style_analysis may be empty
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
             
@@ -861,19 +861,64 @@ class ProgressiveLearningService:
             logger.error(f"生成更新人格失败 for group {group_id}: {e}")
             return current_persona
 
-    async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]]):
-        """应用学习更新"""
+    async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
+                                     current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
+                                     quality_metrics = None):
+        """应用学习更新，并创建人格学习审查记录"""
         try:
             # 1. 更新人格prompt（通过 PersonaManagerService）
             logger.info(f"应用人格更新 for group {group_id}")
             update_success = await self.persona_manager.update_persona(group_id, style_analysis, messages)
             if not update_success:
                 logger.error(f"通过 PersonaManagerService 更新人格失败 for group {group_id}")
-            
-            # 2. 记录学习更新
+
+            # 2. 创建人格学习审查记录（新增）
+            # 只有当有updated_persona且与current_persona不同时才创建审查记录
+            if updated_persona and current_persona and updated_persona.get('prompt') != current_persona.get('prompt'):
+                try:
+                    # 提取新增的人格内容（updated_persona中新增的部分）
+                    original_prompt = current_persona.get('prompt', '')
+                    new_prompt = updated_persona.get('prompt', '')
+
+                    # 计算新增内容（简单方式：如果new_prompt更长，提取差异部分）
+                    if len(new_prompt) > len(original_prompt):
+                        proposed_content = new_prompt[len(original_prompt):].strip()
+                    else:
+                        proposed_content = new_prompt
+
+                    # 准备元数据
+                    metadata = {
+                        "progressive_learning": True,
+                        "message_count": len(messages),
+                        "style_analysis_fields": list(style_analysis.keys()) if style_analysis else [],
+                        "original_prompt_length": len(original_prompt),
+                        "new_prompt_length": len(new_prompt)
+                    }
+
+                    # 获取质量得分
+                    confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.5
+
+                    # 创建审查记录
+                    review_id = await self.db_manager.add_persona_learning_review(
+                        group_id=group_id,
+                        proposed_content=proposed_content,
+                        learning_source="渐进式学习-风格分析",
+                        confidence_score=confidence_score,
+                        raw_analysis=f"基于{len(messages)}条消息的风格分析",
+                        metadata=metadata
+                    )
+
+                    logger.info(f"✅ 已创建人格学习审查记录 (ID: {review_id})，置信度: {confidence_score:.3f}")
+
+                except Exception as review_error:
+                    logger.error(f"创建人格学习审查记录失败: {review_error}", exc_info=True)
+            else:
+                logger.debug(f"人格未变化或缺少必要参数，跳过审查记录创建")
+
+            # 3. 记录学习更新
             if self.current_session:
                 self.current_session.style_updates += 1
-            
+
         except Exception as e:
             logger.error(f"应用学习更新失败 for group {group_id}: {e}")
 
