@@ -15,7 +15,7 @@ from ..config import PluginConfig
 
 from ..exceptions import LearningError
 
-from ..utils.json_utils import safe_parse_llm_json
+from ..utils.json_utils import safe_parse_llm_json, clean_llm_json_response
 
 from .database_manager import DatabaseManager
 
@@ -602,9 +602,9 @@ class ProgressiveLearningService:
                     )
                     
                     if response:
-                        # 清理响应文本，移除markdown标识符
-                        clean_response = self._clean_llm_json_response(response)
-                        
+                        # 清理响应文本，移除markdown标识符（使用统一的json_utils工具）
+                        clean_response = clean_llm_json_response(response)
+
                         try:
                             updated_persona = safe_parse_llm_json(clean_response)
                             logger.info("使用提炼模型成功生成更新后的人格")
@@ -647,31 +647,6 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.warning(f"JSON序列化对象时出现错误: {e}, 对象类型: {type(obj)}, 转换为字符串")
             return str(obj)
-
-    def _clean_llm_json_response(self, response_text: str) -> str:
-        """清理LLM响应中的markdown标识符和其他格式化字符"""
-        import re
-        
-        # 移除markdown代码块标识符
-        response_text = re.sub(r'```json\s*', '', response_text, flags=re.IGNORECASE)
-        response_text = re.sub(r'```\s*$', '', response_text, flags=re.MULTILINE)
-        response_text = re.sub(r'^```\s*', '', response_text, flags=re.MULTILINE)
-        
-        # 移除其他常见的markdown标识符
-        response_text = re.sub(r'^\s*```\w*\s*', '', response_text, flags=re.MULTILINE)
-        
-        # 寻找JSON对象的开始和结束
-        # 找到第一个 { 和最后一个 }
-        start = response_text.find('{')
-        end = response_text.rfind('}')
-        
-        if start != -1 and end != -1 and end > start:
-            response_text = response_text[start:end+1]
-        
-        # 清理多余的空白字符
-        response_text = response_text.strip()
-        
-        return response_text
 
     # async def _execute_learning_batch(self):
     #     """执行一个学习批次"""

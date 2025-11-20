@@ -497,7 +497,7 @@
                 loginMessage.style.display = 'flex';
                 loginMessage.style.alignItems = 'center';
                 successMessage.style.display = 'none';
-                
+
                 // 添加震动效果
                 loginMessage.style.animation = 'shake 0.5s ease-in-out';
                 setTimeout(() => {
@@ -537,15 +537,15 @@
             loginButton.addEventListener('click', async (e) => {
                 e.preventDefault();
                 const password = passwordInput.value.trim();
-                
+
                 if (!password) {
                     showError('请输入登录密码');
                     passwordInput.focus();
                     return;
                 }
-                
+
                 setLoading(true);
-                
+
                 try {
                     const response = await fetch('/api/login', {
                         method: 'POST',
@@ -569,8 +569,28 @@
                                 window.location.href = data.redirect || '/api/index';
                             }, 1000);
                         }
+                    } else if (response.status === 429) {
+                        // 账户被锁定
+                        showError(data.error || '登录尝试次数过多，请稍后重试');
+                        loginButton.disabled = true;
+                        btnText.textContent = `已锁定 (${data.remaining_time}秒)`;
+
+                        // 倒计时
+                        let remaining = data.remaining_time || 300;
+                        const countdownInterval = setInterval(() => {
+                            remaining--;
+                            if (remaining <= 0) {
+                                clearInterval(countdownInterval);
+                                loginButton.disabled = false;
+                                btnText.textContent = '登录';
+                            } else {
+                                btnText.textContent = `已锁定 (${remaining}秒)`;
+                            }
+                        }, 1000);
                     } else {
-                        showError(data.error || '登录失败，请检查密码');
+                        // 显示剩余尝试次数
+                        let errorMsg = data.error || '登录失败，请检查密码';
+                        showError(errorMsg);
                         passwordInput.value = '';
                         passwordInput.focus();
                     }

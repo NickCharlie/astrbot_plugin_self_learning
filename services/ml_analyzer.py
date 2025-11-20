@@ -30,7 +30,7 @@ from ..core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适�
 
 from .database_manager import DatabaseManager # 确保 DatabaseManager 被正确导入
 
-from ..utils.json_utils import safe_parse_llm_json
+from ..utils.json_utils import safe_parse_llm_json, clean_llm_json_response
 
 
 class LightweightMLAnalyzer:
@@ -120,7 +120,7 @@ class LightweightMLAnalyzer:
 
             if response:
                 # response 是字符串，清理响应文本，移除markdown标识符
-                clean_response = self._clean_llm_json_response(response)
+                clean_response = clean_llm_json_response(response)
                 
                 try:
                     reinforcement_result = safe_parse_llm_json(clean_response)
@@ -180,7 +180,7 @@ class LightweightMLAnalyzer:
 
             if response:
                 # response 是字符串，清理响应文本，移除markdown标识符
-                clean_response = self._clean_llm_json_response(response)
+                clean_response = clean_llm_json_response(response)
                 
                 try:
                     tuning_result = safe_parse_llm_json(clean_response, fallback_result={})
@@ -263,7 +263,7 @@ class LightweightMLAnalyzer:
 
             if response:
                 # response 是字符串，清理响应文本，移除markdown标识符
-                clean_response = self._clean_llm_json_response(response)
+                clean_response = clean_llm_json_response(response)
                 
                 try:
                     optimization_result = safe_parse_llm_json(clean_response)
@@ -286,45 +286,6 @@ class LightweightMLAnalyzer:
         except Exception as e:
             logger.error(f"策略优化执行失败: {e}")
             return {}
-
-    def _clean_llm_json_response(self, response_text: str) -> str:
-        """清理LLM响应中的markdown标识符和其他格式化字符 - 兼容现有的_safe_parse_llm_json方法"""
-        import re
-        
-        # 清理响应文本
-        cleaned_text = response_text.strip()
-        
-        # 去除markdown代码块标记
-        if cleaned_text.startswith("```json"):
-            cleaned_text = cleaned_text[7:]
-        elif cleaned_text.startswith("```"):
-            cleaned_text = cleaned_text[3:]
-        
-        if cleaned_text.endswith("```"):
-            cleaned_text = cleaned_text[:-3]
-        
-        cleaned_text = cleaned_text.strip()
-        
-        # 移除其他常见的markdown标识符
-        cleaned_text = re.sub(r'^\s*```\w*\s*', '', cleaned_text, flags=re.MULTILINE)
-        cleaned_text = re.sub(r'```\s*$', '', cleaned_text, flags=re.MULTILINE)
-        
-        # 寻找JSON对象的开始和结束位置
-        json_start = cleaned_text.find('{')
-        json_end = cleaned_text.rfind('}')
-        
-        if json_start != -1 and json_end != -1 and json_end > json_start:
-            # 提取JSON部分
-            cleaned_text = cleaned_text[json_start:json_end+1]
-        else:
-            # 如果找不到JSON对象，尝试寻找数组
-            array_start = cleaned_text.find('[')
-            array_end = cleaned_text.rfind(']')
-            
-            if array_start != -1 and array_end != -1 and array_end > array_start:
-                cleaned_text = cleaned_text[array_start:array_end+1]
-        
-        return cleaned_text
 
     def _conservative_prompt_fusion(self, original_prompt: str, new_prompt: str, tuning_result: Dict[str, Any]) -> str:
         """
@@ -425,7 +386,7 @@ class LightweightMLAnalyzer:
 
             if response:
                 # response 是字符串，清理响应文本，移除markdown标识符
-                clean_response = self._clean_llm_json_response(response)
+                clean_response = clean_llm_json_response(response)
                 
                 try:
                     refined_data = safe_parse_llm_json(clean_response)

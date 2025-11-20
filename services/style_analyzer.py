@@ -187,7 +187,7 @@ class StyleAnalyzerService:
     async def _save_style_analysis_to_db(self, group_id: str, analysis_result: Dict[str, Any]) -> bool:
         """将风格分析结果保存到数据库"""
         try:
-            if not self.database_manager:
+            if not self.db_manager:
                 return False
             
             # 保存到style_learning_records表
@@ -200,7 +200,7 @@ class StyleAnalyzerService:
                 'learning_time': time.time()
             }
             
-            await self.database_manager.save_style_learning_record(record_data)
+            await self.db_manager.save_style_learning_record(record_data)
             
             # 如果有常用短语，保存到language_style_patterns表
             if 'style_analysis' in analysis_result:
@@ -214,7 +214,7 @@ class StyleAnalyzerService:
                         'group_id': group_id,
                         'last_updated': time.time()
                     }
-                    await self.database_manager.save_language_style_pattern(pattern_data)
+                    await self.db_manager.save_language_style_pattern(pattern_data)
             
             logger.info(f"风格分析结果已保存到数据库，群组: {group_id}")
             return True
@@ -338,7 +338,7 @@ class StyleAnalyzerService:
             'overall_stability': 1.0 - (sum(evo.significance for evo in recent_evolutions) / len(recent_evolutions)),
             'evolution_count': len(self.style_evolution_history),
             'analysis_period': {
-                'start': self.style_evolution_history.timestamp if self.style_evolution_history else None,
+                'start': self.style_evolution_history[0].timestamp if self.style_evolution_history else None,
                 'end': self.style_evolution_history[-1].timestamp if self.style_evolution_history else None
             }
         }

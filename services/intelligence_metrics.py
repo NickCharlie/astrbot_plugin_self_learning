@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 
 from astrbot.api import logger
 from ..config import PluginConfig
+from ..utils.json_utils import safe_parse_llm_json
 
 
 @dataclass
@@ -499,15 +500,11 @@ class IntelligenceMetricsService:
 
     def _parse_llm_confidence_response(self, response: str) -> ConfidenceMetrics:
         """解析LLM的置信度评估响应"""
-        import json
-        import re
-
         try:
-            # 尝试提取JSON
-            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
+            # 使用统一的json_utils工具解析LLM响应
+            data = safe_parse_llm_json(response)
 
+            if data:
                 return ConfidenceMetrics(
                     overall_confidence=data.get('overall', 0.7),
                     content_relevance=data.get('content_relevance', 0.7),

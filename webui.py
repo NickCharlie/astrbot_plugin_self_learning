@@ -18,6 +18,13 @@ from .config import PluginConfig
 from .core.factory import FactoryManager
 from .persona_web_manager import PersonaWebManager, set_persona_web_manager, get_persona_web_manager
 from .services.intelligence_metrics import IntelligenceMetricsService
+from .utils.security_utils import (
+    PasswordHasher,
+    login_attempt_tracker,
+    migrate_password_to_hashed,
+    verify_password_with_migration,
+    SecurityValidator
+)
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
@@ -65,12 +72,31 @@ _style_learning_content_cache_ttl: int = 300  # 缓存有效期5分钟
 llm_call_metrics: Dict[str, Dict[str, Any]] = {}
 
 def load_password_config() -> Dict[str, Any]:
-    """加载密码配置文件"""
+    """加载密码配置文件，并自动迁移旧格式"""
     password_file_path = get_password_file_path()
     if os.path.exists(password_file_path):
         with open(password_file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    return {"password": "self_learning_pwd", "must_change": True}
+            config = json.load(f)
+
+        # 检查是否需要迁移到新的哈希格式
+        if 'password_hash' not in config and 'password' in config:
+            logger.info("检测到旧格式密码配置，正在迁移到哈希格式...")
+            config = migrate_password_to_hashed(config)
+            # 保存迁移后的配置
+            save_password_config(config)
+            logger.info("密码配置迁移完成")
+
+        return config
+
+    # 创建默认配置（使用新的哈希格式）
+    default_password = "self_learning_pwd"
+    password_hash, salt = PasswordHasher.hash_password(default_password)
+    return {
+        "password_hash": password_hash,
+        "salt": salt,
+        "must_change": True,
+        "version": 2
+    }
 
 def save_password_config(config: Dict[str, Any]):
     """保存密码配置文件"""
@@ -248,22 +274,74 @@ async def login_page():
 
 @api_bp.route("/login", methods=["POST"])
 async def login():
-    """处理用户登录"""
-    data = await request.get_json()
-    password = data.get("password")
-    global password_config
-    password_config = load_password_config() # 登录时重新加载密码配置
+    """处理用户登录 - 支持MD5加密和暴力破解防护"""
+    # 获取客户端IP
+    client_ip = request.remote_addr or "unknown"
 
-    if password == password_config.get("password"):
+    # 检查IP是否被锁定
+    is_locked, remaining_time = login_attempt_tracker.is_locked(client_ip)
+    if is_locked:
+        logger.warning(f"IP {client_ip} 被锁定，剩余 {remaining_time} 秒")
+        return jsonify({
+            "error": f"登录尝试次数过多，请在 {remaining_time} 秒后重试",
+            "locked": True,
+            "remaining_time": remaining_time
+        }), 429
+
+    data = await request.get_json()
+    password = data.get("password", "")
+
+    # 清理输入
+    password = SecurityValidator.sanitize_input(password, max_length=128)
+
+    if not password:
+        return jsonify({"error": "密码不能为空"}), 400
+
+    global password_config
+    password_config = load_password_config()
+
+    # 使用支持迁移的验证函数
+    is_valid, updated_config = verify_password_with_migration(password, password_config)
+
+    if is_valid:
+        # 如果配置被更新（迁移），保存新配置
+        if updated_config != password_config:
+            save_password_config(updated_config)
+            password_config = updated_config
+
+        # 登录成功，清除失败记录
+        login_attempt_tracker.record_attempt(client_ip, success=True)
+
         # 设置会话认证状态
         session['authenticated'] = True
-        session.permanent = True  # 设置为永久会话
-        
+        session.permanent = True
+
         if password_config.get("must_change"):
-            return jsonify({"message": "Login successful, but password must be changed", "must_change": True, "redirect": "/api/plugin_change_password"}), 200
-        return jsonify({"message": "Login successful", "must_change": False, "redirect": "/api/index"}), 200
-    
-    return jsonify({"error": "Invalid password"}), 401
+            return jsonify({
+                "message": "Login successful, but password must be changed",
+                "must_change": True,
+                "redirect": "/api/plugin_change_password"
+            }), 200
+        return jsonify({
+            "message": "Login successful",
+            "must_change": False,
+            "redirect": "/api/index"
+        }), 200
+
+    # 登录失败，记录尝试
+    login_attempt_tracker.record_attempt(client_ip, success=False)
+    remaining_attempts = login_attempt_tracker.get_remaining_attempts(client_ip)
+
+    logger.warning(f"IP {client_ip} 登录失败，剩余尝试次数: {remaining_attempts}")
+
+    error_msg = "密码错误"
+    if remaining_attempts <= 2:
+        error_msg = f"密码错误，还剩 {remaining_attempts} 次尝试机会"
+
+    return jsonify({
+        "error": error_msg,
+        "remaining_attempts": remaining_attempts
+    }), 401
 
 @api_bp.route("/index")
 @require_auth
@@ -289,25 +367,55 @@ async def change_password_page():
 
 @api_bp.route("/plugin_change_password", methods=["POST"])
 async def change_password():
-    """处理修改密码请求"""
+    """处理修改密码请求 - 支持MD5加密存储"""
     # 检查是否已认证
     if not is_authenticated():
         return jsonify({"error": "Authentication required", "redirect": "/api/login"}), 401
-        
-    data = await request.get_json()
-    old_password = data.get("old_password")
-    new_password = data.get("new_password")
-    global password_config
-    password_config = load_password_config() # 修改密码时重新加载密码配置
 
-    if old_password == password_config.get("password"):
-        if new_password and new_password != old_password:
-            password_config["password"] = new_password
-            password_config["must_change"] = False
-            save_password_config(password_config)
-            return jsonify({"message": "Password changed successfully"}), 200
-        return jsonify({"error": "New password cannot be empty or same as old password"}), 400
-    return jsonify({"error": "Invalid old password"}), 401
+    data = await request.get_json()
+    old_password = data.get("old_password", "")
+    new_password = data.get("new_password", "")
+
+    # 清理输入
+    old_password = SecurityValidator.sanitize_input(old_password, max_length=128)
+    new_password = SecurityValidator.sanitize_input(new_password, max_length=128)
+
+    if not old_password or not new_password:
+        return jsonify({"error": "旧密码和新密码不能为空"}), 400
+
+    global password_config
+    password_config = load_password_config()
+
+    # 验证旧密码
+    is_valid, _ = verify_password_with_migration(old_password, password_config)
+    if not is_valid:
+        return jsonify({"error": "当前密码错误"}), 401
+
+    # 检查新密码是否与旧密码相同
+    if old_password == new_password:
+        return jsonify({"error": "新密码不能与当前密码相同"}), 400
+
+    # 验证新密码强度
+    strength_result = SecurityValidator.validate_password_strength(new_password)
+    if not strength_result['valid']:
+        issues = "、".join(strength_result['issues']) if strength_result['issues'] else "密码强度不足"
+        return jsonify({"error": issues}), 400
+
+    # 生成新的哈希密码
+    password_hash, salt = PasswordHasher.hash_password(new_password)
+
+    # 更新配置
+    password_config = {
+        "password_hash": password_hash,
+        "salt": salt,
+        "must_change": False,
+        "version": 2,
+        "last_changed": time.time()
+    }
+    save_password_config(password_config)
+
+    logger.info("密码已更新为MD5哈希格式")
+    return jsonify({"message": "密码修改成功"}), 200
 
 @api_bp.route("/logout", methods=["POST"])
 @require_auth
