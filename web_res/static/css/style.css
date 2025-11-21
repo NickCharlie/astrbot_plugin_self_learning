@@ -3677,30 +3677,6 @@ input[type="checkbox"]:checked::after {
     padding: 8px 12px;
 }
 
-/* 3D主题选择器 */
-#graph-3d-theme {
-    padding: 8px 12px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, 0.05) !important;
-    color: rgba(255, 255, 255, 0.9) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    display: inline-block !important;  /* 确保显示 */
-}
-
-#graph-3d-theme:hover {
-    background: rgba(255, 255, 255, 0.1) !important;
-    border-color: rgba(255, 255, 255, 0.2) !important;
-}
-
-#graph-3d-theme:focus {
-    outline: none;
-    border-color: #667eea !important;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-}
-
 /* 3D图谱容器 */
 #relationship-graph-3d {
     position: relative;
@@ -3719,6 +3695,7 @@ input[type="checkbox"]:checked::after {
     display: inline-block !important;
 }
 
+/* ✅ 图谱模式切换样式 */
 .graph-3d-only {
     display: none !important;
 }
@@ -3727,6 +3704,54 @@ body.graph-3d-mode .graph-2d-only {
     display: none !important;
 }
 
+/* ✅ 修复：使用更通用的显示值 */
 body.graph-3d-mode .graph-3d-only {
+    display: revert !important; /* 恢复元素的默认显示方式 */
+}
+
+/* ✅ 确保select和button在3D模式下正确显示 */
+body.graph-3d-mode select.graph-3d-only {
     display: inline-block !important;
+}
+
+body.graph-3d-mode button.graph-3d-only {
+    display: inline-flex !important;
+    align-items: center;
+}
+
+/* ✅ 3D主题选择器样式 - 与用户筛选选择器保持一致 */
+/* 注意：这个规则必须在 display 规则之后，以确保样式正确应用 */
+body.graph-3d-mode #graph-3d-theme,
+#user-filter-select {
+    display: inline-block !important;
+    padding: 4px 8px !important;
+    border: 1px solid #d9d9d9 !important;
+    border-radius: 4px !important;
+    background: white !important;
+    background-color: white !important;
+    color: #595959 !important;
+    font-size: 12px !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    min-width: 120px !important;
+    height: 32px !important;
+}
+
+body.graph-3d-mode #graph-3d-theme option,
+#user-filter-select option {
+    color: #262626 !important;
+    background: white !important;
+}
+
+body.graph-3d-mode #graph-3d-theme:hover,
+#user-filter-select:hover {
+    border-color: var(--color-brand1-6) !important;
+    color: var(--color-brand1-6) !important;
+}
+
+body.graph-3d-mode #graph-3d-theme:focus,
+#user-filter-select:focus {
+    outline: none !important;
+    border-color: var(--color-brand1-6) !important;
+    box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.1) !important;
 }

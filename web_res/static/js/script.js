@@ -5733,8 +5733,13 @@ function load3DGraphData(data) {
  * 更改3D主题
  */
 function change3DTheme(themeName) {
+    console.log(`🎨 change3DTheme 被调用: ${themeName}`);
+
     if (socialGraph3D) {
         socialGraph3D.setTheme(themeName);
+        console.log('✅ 主题已设置');
+    } else {
+        console.error('❌ socialGraph3D 不存在');
     }
 }
 

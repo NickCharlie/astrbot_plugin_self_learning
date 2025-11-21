@@ -284,6 +284,9 @@ class SocialGraph3D {
             return;
         }
 
+        console.log(`🎨 切换主题: ${this.currentTheme} -> ${themeName}`);
+        console.log(`📊 当前数据状态: ${this.nodeObjects.size} 个节点, ${this.edgeObjects.length} 条边`);
+
         this.currentTheme = themeName;
         const theme = this.themes[themeName];
 
@@ -311,8 +314,21 @@ class SocialGraph3D {
         this.setupParticles();
 
         // 更新节点和边
-        this.updateNodesTheme();
-        this.updateEdgesTheme();
+        if (this.nodeObjects.size > 0) {
+            this.updateNodesTheme();
+            console.log('✅ 已更新节点主题');
+        } else {
+            console.warn('⚠️ 没有节点数据，跳过节点主题更新');
+        }
+
+        if (this.edgeObjects.length > 0) {
+            this.updateEdgesTheme();
+            console.log('✅ 已更新边主题');
+        } else {
+            console.warn('⚠️ 没有边数据，跳过边主题更新');
+        }
+
+        console.log('✅ 主题切换完成');
     }
 
     updateNodesTheme() {
@@ -321,8 +337,15 @@ class SocialGraph3D {
         this.nodeObjects.forEach(nodeObj => {
             nodeObj.children.forEach(child => {
                 if (child instanceof THREE.Mesh) {
-                    child.material.color = new THREE.Color(theme.nodeColor);
-                    child.material.emissive = new THREE.Color(theme.nodeEmissive);
+                    // 更新球体颜色
+                    if (child.geometry instanceof THREE.SphereGeometry) {
+                        child.material.color = new THREE.Color(theme.nodeColor);
+                        child.material.emissive = new THREE.Color(theme.nodeEmissive);
+                    }
+                    // 更新光环颜色
+                    else if (child.geometry instanceof THREE.RingGeometry) {
+                        child.material.color = new THREE.Color(theme.nodeColor);
+                    }
                 }
             });
         });
@@ -338,6 +361,10 @@ class SocialGraph3D {
     }
 
     loadData(nodes, edges) {
+        console.log(`📥 loadData 被调用: ${nodes.length} 个节点, ${edges.length} 条边`);
+        console.log('📊 节点示例:', nodes[0]);
+        console.log('📊 边示例:', edges[0]);
+
         this.nodes = nodes;
         this.edges = edges;
 
@@ -346,12 +373,17 @@ class SocialGraph3D {
 
         // 创建节点
         this.createNodes();
+        console.log(`✅ 已创建 ${this.nodeObjects.size} 个节点对象`);
 
         // 创建边
         this.createEdges();
+        console.log(`✅ 已创建 ${this.edgeObjects.length} 个边对象`);
 
         // 应用力导向布局
         this.applyForceLayout();
+        console.log('✅ 力导向布局已应用');
+
+        console.log('✅ loadData 完成');
     }
 
     clearGraph() {

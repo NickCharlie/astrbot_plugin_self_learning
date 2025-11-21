@@ -25,6 +25,14 @@ from .utils.security_utils import (
     verify_password_with_migration,
     SecurityValidator
 )
+from .constants import (
+    UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
+    UPDATE_TYPE_STYLE_LEARNING,
+    UPDATE_TYPE_EXPRESSION_LEARNING,
+    UPDATE_TYPE_TRADITIONAL,
+    normalize_update_type,
+    get_review_source_from_update_type
+)
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
@@ -493,79 +501,130 @@ async def get_persona_updates():
     else:
         logger.warning("persona_updater 不可用")
     
-    # 2. 获取人格学习审查（质量不达标的学习结果）
+    # 2. 获取人格学习审查（包括渐进式学习、表达学习等）
     if database_manager:
         try:
             logger.info("正在获取人格学习审查...")
-            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=200)
+            # ✅ 移除数量限制，获取所有待审查记录
+            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=999999)
             logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
 
             for review in persona_learning_reviews:
-                # 根据update_type判断实际的审查类型
-                update_type = review.get('update_type', '')
+                # ✅ 使用新的常量进行类型标准化和分类
+                raw_update_type = review.get('update_type', '')
+                normalized_type = normalize_update_type(raw_update_type)
+                review_source = get_review_source_from_update_type(raw_update_type)
 
-                # 判断review_source：如果update_type包含特定关键词，则归类为对应类型
-                # 否则归类为传统类型
-                if 'style' in update_type.lower() or 'style_learning' in update_type.lower():
-                    # 这是风格相关的审查，跳过（因为风格学习审查在步骤3处理）
+                # ✅ 修复：只跳过真正的风格学习（精确匹配）
+                # 渐进式人格学习不再被误判为风格学习
+                if normalized_type == UPDATE_TYPE_STYLE_LEARNING:
+                    # Few-shot风格学习在步骤3单独处理，这里跳过
+                    logger.debug(f"跳过风格学习记录 ID={review['id']}，在步骤3处理")
                     continue
-                elif 'persona_learning' in update_type.lower() or 'expression_learning' in update_type.lower():
-                    # 这是真正的人格学习审查
-                    review_source = 'persona_learning'
-                else:
-                    # 这是常规的渐进式学习结果，归类为传统类型
-                    review_source = 'traditional'
+
+                # ✅ 获取原人格文本（如果数据库中为空，实时获取）
+                original_content = review['original_content']
+                group_id = review['group_id']
+
+                if not original_content or original_content.strip() == '':
+                    # 数据库中没有原人格，实时获取
+                    logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
+                    try:
+                        if persona_manager:
+                            current_persona = await persona_manager.get_default_persona_v3(group_id)
+                            if current_persona and current_persona.get('prompt'):
+                                original_content = current_persona.get('prompt', '')
+                                logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
+                            else:
+                                original_content = "[无法获取原人格文本]"
+                                logger.warning(f"无法获取群组 {group_id} 的原人格文本")
+                        else:
+                            original_content = "[PersonaManager未初始化]"
+                            logger.warning("PersonaManager未初始化，无法获取原人格")
+                    except Exception as e:
+                        logger.warning(f"获取群组 {group_id} 原人格失败: {e}")
+                        original_content = f"[获取原人格失败: {str(e)}]"
 
                 # 转换为统一的审查格式
                 review_dict = {
-                    'id': f"persona_learning_{review['id']}" if review_source == 'persona_learning' else review['id'],  # 只有真正的人格学习才加前缀
+                    # ✅ 根据review_source决定ID前缀
+                    'id': f"persona_learning_{review['id']}" if review_source == 'persona_learning' else str(review['id']),
                     'timestamp': review['timestamp'],
-                    'group_id': review['group_id'],
-                    'update_type': review['update_type'],
-                    'original_content': review['original_content'],
+                    'group_id': group_id,
+                    'update_type': raw_update_type,  # 保留原始类型用于显示
+                    'normalized_type': normalized_type,  # 添加标准化类型
+                    'original_content': original_content,  # ✅ 使用获取到的原人格文本
                     'new_content': review['new_content'],
                     'proposed_content': review.get('proposed_content', review['new_content']),
                     'reason': review['reason'],
                     'status': review['status'],
                     'reviewer_comment': review['reviewer_comment'],
                     'review_time': review['review_time'],
-                    'confidence_score': review.get('confidence_score', 0.5),  # 使用数据库中的置信度
+                    'confidence_score': review.get('confidence_score', 0.5),
                     'reviewed': False,
                     'approved': False,
-                    'review_source': review_source,  # 根据update_type动态设置
+                    'review_source': review_source,
                     'persona_learning_review_id': review['id'],  # 原始ID用于审批操作
                     # 添加metadata中的关键字段到顶层，方便前端访问
                     'features_content': review.get('metadata', {}).get('features_content', ''),
                     'llm_response': review.get('metadata', {}).get('llm_response', ''),
                     'total_raw_messages': review.get('metadata', {}).get('total_raw_messages', 0),
                     'messages_analyzed': review.get('metadata', {}).get('messages_analyzed', 0),
-                    'metadata': review.get('metadata', {})  # 保留完整的metadata
+                    'metadata': review.get('metadata', {}),  # 保留完整的metadata
+                    # ✅ 新增：从metadata提取高亮位置信息
+                    'incremental_content': review.get('metadata', {}).get('incremental_content', ''),
+                    'incremental_start_pos': review.get('metadata', {}).get('incremental_start_pos', 0)
                 }
 
                 all_updates.append(review_dict)
+                logger.debug(f"添加审查记录: ID={review_dict['id']}, type={raw_update_type}, source={review_source}")
 
         except Exception as e:
             logger.error(f"获取人格学习审查失败: {e}", exc_info=True)
     else:
         logger.warning("database_manager 不可用")
     
-    # 3. 获取风格学习审查
+    # 3. 获取风格学习审查（Few-shot样本学习）
     if database_manager:
         try:
             logger.info("正在获取风格学习审查...")
-            style_reviews = await database_manager.get_pending_style_reviews(limit=200)
+            # ✅ 移除数量限制，获取所有待审查记录
+            style_reviews = await database_manager.get_pending_style_reviews(limit=999999)
             logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
-            
+
             for review in style_reviews:
+                # ✅ 获取当前群组的原人格文本
+                group_id = review['group_id']
+                original_persona_text = ""
+
+                try:
+                    # 通过 persona_manager 获取当前人格
+                    if persona_manager:
+                        current_persona = await persona_manager.get_default_persona_v3(group_id)
+                        if current_persona and current_persona.get('prompt'):
+                            original_persona_text = current_persona.get('prompt', '')
+                        else:
+                            original_persona_text = "[无法获取原人格文本]"
+                    else:
+                        original_persona_text = "[PersonaManager未初始化]"
+                except Exception as e:
+                    logger.warning(f"获取群组 {group_id} 原人格失败: {e}")
+                    original_persona_text = f"[获取原人格失败: {str(e)}]"
+
+                # ✅ 构建完整的新内容（原人格 + Few-shot内容）
+                few_shots_content = review['few_shots_content']
+                full_new_content = original_persona_text + "\n\n" + few_shots_content if original_persona_text else few_shots_content
+
                 # 转换为统一的审查格式
                 review_dict = {
                     'id': f"style_{review['id']}",  # 添加前缀避免ID冲突
                     'timestamp': review['timestamp'],
-                    'group_id': review['group_id'],
-                    'update_type': 'style_learning',
-                    'original_content': '原始人格',  # 风格学习是增量添加
-                    'new_content': review['few_shots_content'],
-                    'proposed_content': review['few_shots_content'],
+                    'group_id': group_id,
+                    'update_type': UPDATE_TYPE_STYLE_LEARNING,  # ✅ 使用常量
+                    'normalized_type': UPDATE_TYPE_STYLE_LEARNING,
+                    'original_content': original_persona_text,  # ✅ 使用实际的原人格文本
+                    'new_content': full_new_content,  # ✅ 原人格 + Few-shot内容
+                    'proposed_content': few_shots_content,  # 保持为增量部分
                     'reason': review['description'],
                     'status': review['status'],
                     'reviewer_comment': None,
@@ -575,11 +634,13 @@ async def get_persona_updates():
                     'approved': False,
                     'review_source': 'style_learning',  # 标记来源
                     'learned_patterns': review.get('learned_patterns', []),  # 额外信息
-                    'style_review_id': review['id']  # 原始ID用于审批操作
+                    'style_review_id': review['id'],  # 原始ID用于审批操作
+                    # ✅ 新增：方便前端计算高亮位置
+                    'incremental_start_pos': len(original_persona_text) + 2 if original_persona_text else 0  # +2 是因为有 \n\n
                 }
-                
+
                 all_updates.append(review_dict)
-                
+
         except Exception as e:
             logger.error(f"获取风格学习审查失败: {e}")
     
@@ -3590,10 +3651,11 @@ async def relearn_all():
             
             # 执行渐进式学习批次
             try:
-                await progressive_learning._execute_learning_batch(group_id)
+                # ✅ 重新学习模式：传递 relearn_mode=True 以忽略"已处理"标记
+                await progressive_learning._execute_learning_batch(group_id, relearn_mode=True)
                 results['progressive_learning'] = True
                 results['processed_messages'] = total_messages
-                logger.info(f"群组 {group_id} 渐进式学习重新执行完成")
+                logger.info(f"群组 {group_id} 渐进式学习重新执行完成（重新学习模式）")
             except Exception as e:
                 error_msg = f"渐进式学习失败: {str(e)}"
                 results['errors'].append(error_msg)
@@ -3800,10 +3862,24 @@ async def relearn_all():
 
                                 # 检查是否有add_persona_learning_review方法
                                 if hasattr(db_manager, 'add_persona_learning_review'):
+                                    # ✅ 获取当前人格作为 original_content
+                                    original_persona_content = ""
+                                    try:
+                                        persona_web_mgr = get_persona_web_manager()
+                                        if persona_web_mgr:
+                                            current_persona = await persona_web_mgr.get_default_persona()
+                                            original_persona_content = current_persona.get('prompt', '')
+                                    except Exception as e:
+                                        logger.warning(f"获取原人格失败: {e}")
+                                        original_persona_content = ""
+
+                                    # ✅ 构建完整的新人格内容（原人格 + 风格学习内容）
+                                    full_new_persona = original_persona_content + "\n\n" + full_style_content if original_persona_content else full_style_content
+
                                     await db_manager.add_persona_learning_review(
                                         group_id=group_id,
-                                        proposed_content=full_style_content,
-                                        learning_source="重新学习-关系分析",
+                                        proposed_content=full_style_content,  # 增量内容
+                                        learning_source=UPDATE_TYPE_STYLE_LEARNING,  # ✅ 使用常量
                                         confidence_score=confidence_score,
                                         raw_analysis=llm_raw_response if llm_raw_response else f"基于{len(conversation_pairs)}个对话对和{results.get('new_patterns', 0)}个表达模式",
                                         metadata={
@@ -3813,8 +3889,12 @@ async def relearn_all():
                                             "total_raw_messages": total_raw_messages,  # 原始消息总数
                                             "messages_analyzed": len(formatted_messages),  # 实际分析的消息数
                                             "llm_response": llm_raw_response,  # LLM原始响应
-                                            "features_content": features_content  # 风格特征内容
-                                        }
+                                            "features_content": features_content,  # 风格特征内容
+                                            "incremental_content": full_style_content,  # ✅ 增量内容
+                                            "incremental_start_pos": len(original_persona_content) + 2 if original_persona_content else 0  # ✅ 高亮位置
+                                        },
+                                        original_content=original_persona_content,  # ✅ 传递原人格
+                                        new_content=full_new_persona  # ✅ 传递完整新人格
                                     )
                                 else:
                                     # 使用现有的人格更新记录方法

@@ -12,7 +12,7 @@ from datetime import datetime
 from astrbot.api import logger
 
 from ..config import PluginConfig
-
+from ..constants import UPDATE_TYPE_EXPRESSION_LEARNING
 from ..exceptions import DataStorageError
 
 from ..core.patterns import AsyncServiceBase
@@ -4436,20 +4436,24 @@ class DatabaseManager(AsyncServiceBase):
         self,
         group_id: str,
         proposed_content: str,
-        learning_source: str = "expression_learning",
+        learning_source: str = UPDATE_TYPE_EXPRESSION_LEARNING,  # ✅ 使用常量作为默认值
         confidence_score: float = 0.5,
         raw_analysis: str = "",
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        original_content: str = "",  # ✅ 新增：原人格完整文本
+        new_content: str = ""  # ✅ 新增：新人格完整文本（原人格+增量）
     ) -> int:
         """添加人格学习审查记录
 
         Args:
             group_id: 群组ID
-            proposed_content: 建议的人格内容
+            proposed_content: 建议的增量人格内容
             learning_source: 学习来源
             confidence_score: 置信度分数
             raw_analysis: 原始分析结果
             metadata: 元数据(包含features_content, llm_response, sample counts等)
+            original_content: 原人格完整文本（用于前端显示对比）
+            new_content: 新人格完整文本（原人格+增量，用于前端高亮显示）
 
         Returns:
             插入记录的ID
@@ -4487,6 +4491,10 @@ class DatabaseManager(AsyncServiceBase):
                 import json
                 metadata_json = json.dumps(metadata if metadata else {}, ensure_ascii=False)
 
+                # ✅ 修复：使用传入的 original_content 和 new_content
+                # 如果 new_content 为空，则使用 proposed_content（向后兼容）
+                final_new_content = new_content if new_content else proposed_content
+
                 # 插入记录
                 await cursor.execute('''
                     INSERT INTO persona_update_reviews
@@ -4497,9 +4505,9 @@ class DatabaseManager(AsyncServiceBase):
                     time.time(),
                     group_id,
                     learning_source,  # update_type就是learning_source
-                    "",  # original_content暂时为空
-                    proposed_content,  # new_content
-                    proposed_content,  # proposed_content
+                    original_content,  # ✅ 使用传入的原人格文本
+                    final_new_content,  # ✅ 使用完整的新人格文本
+                    proposed_content,  # proposed_content保持为增量部分
                     confidence_score,
                     raw_analysis,  # reason字段存储raw_analysis
                     'pending',
