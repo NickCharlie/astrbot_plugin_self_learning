@@ -2409,6 +2409,9 @@ async function loadPageData(page) {
             await loadGroupList();
             startSocialRelationsAutoRefresh(); // 启动自动刷新
             break;
+        case 'jargon-learning':
+            await refreshJargonPage();
+            break;
         default:
             stopSocialRelationsAutoRefresh(); // 离开社交关系页面时停止刷新
             break;
@@ -5786,3 +5789,559 @@ if (originalUpdateRelationshipChart && typeof originalUpdateRelationshipChart ==
 }
 
 console.log('✅ 3D社交关系图谱集成完成');
+
+// ========== 黑话学习系统 ==========
+
+/**
+ * 刷新黑话学习页面
+ */
+async function refreshJargonPage() {
+    await loadJargonGroups();
+    await loadJargonStats();
+    await loadJargonList();
+}
+
+/**
+ * 加载黑话群组列表
+ */
+async function loadJargonGroups() {
+    try {
+        const response = await fetch('/api/jargon/groups');
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const groupFilter = document.getElementById('jargon-group-filter');
+            if (groupFilter) {
+                // 保留第一个选项（全部群组）
+                groupFilter.innerHTML = '<option value="">全部群组</option>';
+
+                // 添加群组选项
+                result.data.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.group_id;
+                    option.textContent = `${group.group_id} (${group.confirmed_jargon}个黑话)`;
+                    groupFilter.appendChild(option);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('加载黑话群组列表失败:', error);
+    }
+}
+
+/**
+ * 加载黑话统计信息
+ */
+async function loadJargonStats(groupId = null) {
+    try {
+        let url = '/api/jargon/stats';
+        if (groupId) {
+            url += `?group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const stats = result.data;
+
+            // 更新统计卡片
+            const totalCandidates = document.getElementById('jargon-total-candidates');
+            if (totalCandidates) totalCandidates.textContent = stats.total_candidates || 0;
+
+            const confirmed = document.getElementById('jargon-confirmed');
+            if (confirmed) confirmed.textContent = stats.confirmed_jargon || 0;
+
+            const completed = document.getElementById('jargon-completed');
+            if (completed) completed.textContent = stats.completed_inference || 0;
+
+            const totalOccurrences = document.getElementById('jargon-total-occurrences');
+            if (totalOccurrences) totalOccurrences.textContent = stats.total_occurrences || 0;
+        }
+    } catch (error) {
+        console.error('加载黑话统计信息失败:', error);
+    }
+}
+
+/**
+ * 加载黑话列表
+ */
+async function loadJargonList() {
+    const groupFilter = document.getElementById('jargon-group-filter');
+    const statusFilter = document.getElementById('jargon-status-filter');
+
+    const groupId = groupFilter ? groupFilter.value : '';
+    const onlyConfirmed = statusFilter ? statusFilter.value : 'true';
+
+    try {
+        let url = `/api/jargon/list?only_confirmed=${onlyConfirmed}&limit=100`;
+        if (groupId) {
+            url += `&group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        const listContainer = document.getElementById('jargon-list');
+        if (!listContainer) return;
+
+        if (result.success && result.data && result.data.length > 0) {
+            listContainer.innerHTML = result.data.map(jargon => `
+                <div class="jargon-item ${jargon.is_complete ? 'complete' : ''}" data-id="${jargon.id}">
+                    <div class="jargon-content">
+                        <span class="jargon-word">${escapeHtml(jargon.content)}</span>
+                        <span class="jargon-badge ${jargon.is_jargon ? 'confirmed' : 'pending'}">
+                            ${jargon.is_jargon ? '已确认' : '待验证'}
+                        </span>
+                        ${jargon.is_complete ? '<span class="jargon-badge complete">推断完成</span>' : ''}
+                    </div>
+                    <div class="jargon-meaning">
+                        ${jargon.meaning ? escapeHtml(jargon.meaning) : '<em>暂无含义</em>'}
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count">出现 ${jargon.count} 次</span>
+                        <span class="jargon-group">群组: ${escapeHtml(jargon.chat_id || '未知')}</span>
+                        <span class="jargon-time">${jargon.updated_at ? formatDateTime(jargon.updated_at) : ''}</span>
+                    </div>
+                    <div class="jargon-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="toggleJargonGlobal(${jargon.id})" title="设为/取消全局黑话">
+                            <i class="material-icons">public</i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteJargon(${jargon.id})" title="删除">
+                            <i class="material-icons">delete</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = '<div class="empty-message">暂无黑话学习记录</div>';
+        }
+
+        // 更新统计
+        await loadJargonStats(groupId);
+    } catch (error) {
+        console.error('加载黑话列表失败:', error);
+        const listContainer = document.getElementById('jargon-list');
+        if (listContainer) {
+            listContainer.innerHTML = '<div class="error-message">加载黑话列表失败</div>';
+        }
+    }
+}
+
+/**
+ * 搜索黑话
+ */
+async function searchJargon() {
+    const searchInput = document.getElementById('jargon-search-input');
+    const groupFilter = document.getElementById('jargon-group-filter');
+
+    const keyword = searchInput ? searchInput.value.trim() : '';
+    const groupId = groupFilter ? groupFilter.value : '';
+
+    if (!keyword) {
+        await loadJargonList();
+        return;
+    }
+
+    try {
+        let url = `/api/jargon/search?keyword=${encodeURIComponent(keyword)}&limit=50`;
+        if (groupId) {
+            url += `&group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        const listContainer = document.getElementById('jargon-list');
+        if (!listContainer) return;
+
+        if (result.success && result.data && result.data.length > 0) {
+            listContainer.innerHTML = result.data.map(jargon => `
+                <div class="jargon-item ${jargon.is_complete ? 'complete' : ''}" data-id="${jargon.id}">
+                    <div class="jargon-content">
+                        <span class="jargon-word">${escapeHtml(jargon.content)}</span>
+                        <span class="jargon-badge ${jargon.is_jargon ? 'confirmed' : 'pending'}">
+                            ${jargon.is_jargon ? '已确认' : '待验证'}
+                        </span>
+                        ${jargon.is_complete ? '<span class="jargon-badge complete">推断完成</span>' : ''}
+                    </div>
+                    <div class="jargon-meaning">
+                        ${jargon.meaning ? escapeHtml(jargon.meaning) : '<em>暂无含义</em>'}
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count">出现 ${jargon.count} 次</span>
+                    </div>
+                    <div class="jargon-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="toggleJargonGlobal(${jargon.id})" title="设为/取消全局黑话">
+                            <i class="material-icons">public</i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteJargon(${jargon.id})" title="删除">
+                            <i class="material-icons">delete</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = `<div class="empty-message">未找到包含 "${escapeHtml(keyword)}" 的黑话</div>`;
+        }
+    } catch (error) {
+        console.error('搜索黑话失败:', error);
+    }
+}
+
+/**
+ * 删除黑话
+ */
+async function deleteJargon(jargonId) {
+    if (!confirm('确定要删除这条黑话记录吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('黑话记录已删除', 'success');
+            await loadJargonList();
+        } else {
+            showToast(result.error || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除黑话失败:', error);
+        showToast('删除黑话失败', 'error');
+    }
+}
+
+/**
+ * 切换黑话的全局状态
+ */
+async function toggleJargonGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/toggle_global`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message, 'success');
+            await loadJargonList();
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('切换黑话全局状态失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 切换全局黑话面板显示/隐藏
+ */
+async function toggleGlobalJargonPanel() {
+    const panel = document.getElementById('global-jargon-panel');
+    const toggleText = document.getElementById('global-panel-toggle-text');
+
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggleText.textContent = '收起';
+        await loadGlobalJargonList();
+    } else {
+        panel.style.display = 'none';
+        toggleText.textContent = '展开';
+    }
+}
+
+/**
+ * 加载全局共享黑话列表
+ */
+async function loadGlobalJargonList() {
+    try {
+        const response = await fetch('/api/jargon/global?limit=50');
+        const result = await response.json();
+
+        const listContainer = document.getElementById('global-jargon-list');
+        const countElement = document.getElementById('global-jargon-count');
+
+        if (result.success && result.data) {
+            countElement.textContent = result.total || 0;
+
+            if (result.data.length === 0) {
+                listContainer.innerHTML = '<div class="empty-message">暂无全局共享的黑话</div>';
+                return;
+            }
+
+            listContainer.innerHTML = result.data.map(item => `
+                <div class="jargon-item compact">
+                    <div class="jargon-main">
+                        <span class="jargon-content">${escapeHtml(item.content)}</span>
+                        <span class="jargon-meaning">${escapeHtml(item.meaning || '含义待推断')}</span>
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count" title="出现次数">
+                            <i class="material-icons">repeat</i> ${item.count}
+                        </span>
+                        <span class="jargon-source" title="来源群组">
+                            <i class="material-icons">group</i> ${item.chat_id}
+                        </span>
+                        <button class="btn btn-danger btn-tiny" onclick="removeFromGlobal(${item.id})" title="取消全局共享">
+                            <i class="material-icons">remove_circle</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = '<div class="error-message">加载失败</div>';
+        }
+    } catch (error) {
+        console.error('加载全局黑话列表失败:', error);
+        document.getElementById('global-jargon-list').innerHTML = '<div class="error-message">加载失败</div>';
+    }
+}
+
+/**
+ * 从全局共享中移除黑话
+ */
+async function removeFromGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/set_global`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_global: false })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('已取消全局共享', 'success');
+            await loadGlobalJargonList();
+            await loadJargonList();
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('取消全局共享失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 设置黑话为全局共享
+ */
+async function setJargonGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/set_global`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_global: true })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('已设为全局共享', 'success');
+            await loadJargonList();
+            // 如果全局面板已展开，刷新它
+            const panel = document.getElementById('global-jargon-panel');
+            if (panel.style.display !== 'none') {
+                await loadGlobalJargonList();
+            }
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('设置全局共享失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 显示同步对话框
+ */
+function showSyncDialog() {
+    // 创建模态框
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'sync-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="material-icons">sync</i> 同步全局黑话到群组</h3>
+                <button class="modal-close" onclick="closeSyncDialog()">
+                    <i class="material-icons">close</i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>选择要同步全局黑话的目标群组：</p>
+                <select id="sync-target-group" class="form-control">
+                    <option value="">-- 请选择群组 --</option>
+                </select>
+                <p class="hint">同步后，全局共享的黑话将复制到目标群组（已存在的不会重复添加）。</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSyncDialog()">取消</button>
+                <button class="btn btn-primary" onclick="executeSyncToGroup()">
+                    <i class="material-icons">sync</i>
+                    开始同步
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 加载群组列表
+    loadSyncTargetGroups();
+}
+
+/**
+ * 加载同步目标群组列表
+ */
+async function loadSyncTargetGroups() {
+    try {
+        const response = await fetch('/api/jargon/groups');
+        const result = await response.json();
+
+        const select = document.getElementById('sync-target-group');
+        if (result.success && result.data) {
+            result.data.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.group_id;
+                option.textContent = `${group.group_id} (${group.confirmed_jargon} 条黑话)`;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载群组列表失败:', error);
+    }
+}
+
+/**
+ * 执行同步到群组
+ */
+async function executeSyncToGroup() {
+    const targetGroup = document.getElementById('sync-target-group').value;
+
+    if (!targetGroup) {
+        showToast('请选择目标群组', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/jargon/sync_to_group', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_group_id: targetGroup })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message, 'success');
+            closeSyncDialog();
+            await loadJargonList();
+        } else {
+            showToast(result.error || '同步失败', 'error');
+        }
+    } catch (error) {
+        console.error('同步失败:', error);
+        showToast('同步失败', 'error');
+    }
+}
+
+/**
+ * 关闭同步对话框
+ */
+function closeSyncDialog() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+/**
+ * HTML转义函数
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * 格式化日期时间
+ */
+function formatDateTime(dateStr) {
+    if (!dateStr) return '';
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return dateStr;
+    }
+}
+
+/**
+ * 显示Toast提示
+ */
+function showToast(message, type = 'info') {
+    // 创建toast元素
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+
+    // 添加样式
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 24px;
+        border-radius: 4px;
+        color: white;
+        font-size: 14px;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        background-color: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+    `;
+
+    document.body.appendChild(toast);
+
+    // 显示动画
+    setTimeout(() => {
+        toast.style.opacity = '1';
+    }, 10);
+
+    // 自动隐藏
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 3000);
+}
+
+// 监听搜索输入框的回车事件
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('jargon-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchJargon();
+            }
+        });
+    }
+});
+
+console.log('✅ 黑话学习系统集成完成');

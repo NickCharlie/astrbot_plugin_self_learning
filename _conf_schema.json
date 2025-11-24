@@ -368,6 +368,67 @@
       }
     }
   },
+  "Database_Settings": {
+    "description": "数据库配置",
+    "type": "object",
+    "hint": "配置数据库类型和连接参数。支持SQLite（默认，无需配置）和MySQL（需要提前创建数据库）",
+    "items": {
+      "db_type": {
+        "description": "数据库类型",
+        "type": "string",
+        "hint": "填写 sqlite 或 mysql。默认使用sqlite，适合单机部署；如需分布式部署或大规模数据，填写mysql",
+        "default": "sqlite"
+      },
+      "mysql_host": {
+        "description": "MySQL服务器地址",
+        "type": "string",
+        "hint": "MySQL服务器的IP地址或域名，如：localhost 或 192.168.1.100（仅当db_type为mysql时需要填写）",
+        "default": "localhost"
+      },
+      "mysql_port": {
+        "description": "MySQL端口",
+        "type": "int",
+        "hint": "MySQL服务器的端口号，通常为3306（仅当db_type为mysql时需要填写）",
+        "default": 3306
+      },
+      "mysql_user": {
+        "description": "MySQL用户名",
+        "type": "string",
+        "hint": "MySQL数据库的用户名，如：root 或 astrbot（仅当db_type为mysql时需要填写）",
+        "default": "root"
+      },
+      "mysql_password": {
+        "description": "MySQL密码",
+        "type": "string",
+        "hint": "MySQL数据库的密码（仅当db_type为mysql时需要填写）",
+        "default": ""
+      },
+      "mysql_database": {
+        "description": "MySQL数据库名",
+        "type": "string",
+        "hint": "MySQL数据库名称。使用MySQL前需要手动创建此数据库，执行SQL: CREATE DATABASE astrbot_self_learning CHARACTER SET utf8mb4;",
+        "default": "astrbot_self_learning"
+      },
+      "auto_migrate": {
+        "description": "自动数据迁移",
+        "type": "bool",
+        "hint": "切换数据库类型时是否自动迁移历史数据。建议开启，可保留所有学习数据",
+        "default": true
+      },
+      "max_connections": {
+        "description": "最大连接数",
+        "type": "int",
+        "hint": "数据库连接池的最大连接数，高并发场景可适当增加",
+        "default": 10
+      },
+      "min_connections": {
+        "description": "最小连接数",
+        "type": "int",
+        "hint": "数据库连接池的最小连接数，保持一定预热连接提高性能",
+        "default": 2
+      }
+    }
+  },
   "API_Settings": {
     "description": "外部API设置",
     "type": "object",

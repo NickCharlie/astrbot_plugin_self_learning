@@ -52,6 +52,10 @@
                     <i class="material-icons">group</i>
                     <span>社交关系分析</span>
                 </li>
+                <li class="menu-item" data-page="jargon-learning">
+                    <i class="material-icons">translate</i>
+                    <span>黑话学习</span>
+                </li>
             </ul>
             <div class="sidebar-actions">
                 <button class="relearn-btn" id="relearnBtn" title="重新学习所有历史消息">
@@ -1283,6 +1287,127 @@
                                 <div id="members-list" class="members-list">
                                     <!-- 成员列表将在这里动态加载 -->
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 黑话学习页面 -->
+                <div id="jargon-learning-page" class="page">
+                    <div class="jargon-learning-section">
+                        <h2>黑话学习成果</h2>
+
+                        <!-- 学习统计概览 -->
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">library_books</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="jargon-total-candidates">0</h3>
+                                    <p>候选词条</p>
+                                    <small class="stat-description">发现的疑似黑话总数</small>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">check_circle</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="jargon-confirmed">0</h3>
+                                    <p>确认黑话</p>
+                                    <small class="stat-description">通过三步推断法确认的黑话</small>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">done_all</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="jargon-completed">0</h3>
+                                    <p>推断完成</p>
+                                    <small class="stat-description">完成所有推断阈值的词条</small>
+                                </div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <i class="material-icons">tag</i>
+                                </div>
+                                <div class="stat-content">
+                                    <h3 id="jargon-total-occurrences">0</h3>
+                                    <p>出现次数</p>
+                                    <small class="stat-description">所有黑话的累计出现次数</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 群组筛选和搜索 -->
+                        <div class="jargon-controls">
+                            <div class="control-group">
+                                <label for="jargon-group-filter">群组筛选:</label>
+                                <select id="jargon-group-filter" onchange="loadJargonList()">
+                                    <option value="">全部群组</option>
+                                </select>
+                            </div>
+                            <div class="control-group">
+                                <label for="jargon-status-filter">状态筛选:</label>
+                                <select id="jargon-status-filter" onchange="loadJargonList()">
+                                    <option value="true">仅已确认黑话</option>
+                                    <option value="false">全部候选词条</option>
+                                </select>
+                            </div>
+                            <div class="control-group search-group">
+                                <input type="text" id="jargon-search-input" placeholder="搜索黑话...">
+                                <button class="btn btn-primary" onclick="searchJargon()">
+                                    <i class="material-icons">search</i>
+                                    搜索
+                                </button>
+                            </div>
+                            <button class="btn btn-secondary" onclick="refreshJargonPage()">
+                                <i class="material-icons">refresh</i>
+                                刷新
+                            </button>
+                        </div>
+
+                        <!-- 全局黑话共享区域 -->
+                        <div class="global-jargon-section">
+                            <div class="section-header-row">
+                                <h3><i class="material-icons">share</i> 全局共享黑话库</h3>
+                                <div class="global-jargon-actions">
+                                    <button class="btn btn-info btn-small" onclick="toggleGlobalJargonPanel()">
+                                        <i class="material-icons">visibility</i>
+                                        <span id="global-panel-toggle-text">展开</span>
+                                    </button>
+                                    <button class="btn btn-success btn-small" onclick="showSyncDialog()">
+                                        <i class="material-icons">sync</i>
+                                        同步到群组
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="global-jargon-panel" class="global-jargon-panel" style="display: none;">
+                                <div class="global-jargon-stats">
+                                    <span>全局共享: <strong id="global-jargon-count">0</strong> 条</span>
+                                </div>
+                                <div id="global-jargon-list" class="jargon-list compact">
+                                    <div class="loading-message">点击展开查看全局黑话...</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 黑话列表 -->
+                        <div class="jargon-list-container">
+                            <h3><i class="material-icons">list</i> 学习到的黑话</h3>
+                            <div id="jargon-list" class="jargon-list">
+                                <div class="loading-message">正在加载黑话列表...</div>
+                            </div>
+                        </div>
+
+                        <!-- 推断阈值说明 -->
+                        <div class="jargon-info-section">
+                            <h3><i class="material-icons">info</i> 三步推断法说明</h3>
+                            <div class="info-content">
+                                <p><strong>推断原理：</strong>通过对比"有上下文"和"无上下文"两种情况下对词条含义的推断结果来判断是否为黑话。如果两个推断结果相似，说明词条含义明确（不是黑话）；如果不同，说明需要上下文才能理解（是黑话）。</p>
+                                <p><strong>渐进式验证：</strong>在词条出现次数达到 3, 6, 10, 20, 40, 60, 100 次时分别进行推断验证，随着上下文增多，推断结果更加准确。</p>
                             </div>
                         </div>
                     </div>

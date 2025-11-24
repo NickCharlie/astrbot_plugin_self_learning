@@ -575,13 +575,27 @@ class ExpressionPatternLearner:
 
                 if count > self.MAX_EXPRESSION_COUNT:
                     # 删除权重最小的多余模式
+                    # MySQL 不支持 DELETE ... WHERE id IN (SELECT ... LIMIT)
+                    # 改用 JOIN 方式
                     excess_count = count - self.MAX_EXPRESSION_COUNT
+
+                    # 先查询要删除的 ID
                     await cursor.execute(
-                        'DELETE FROM expression_patterns WHERE id IN (SELECT id FROM expression_patterns WHERE group_id = ? ORDER BY weight ASC LIMIT ?)',
+                        'SELECT id FROM expression_patterns WHERE group_id = ? ORDER BY weight ASC LIMIT ?',
                         (group_id, excess_count)
                     )
-                    await conn.commit()
-                    logger.info(f"群组 {group_id} 删除了 {excess_count} 个权重最小的表达模式")
+                    rows = await cursor.fetchall()
+                    ids_to_delete = [row[0] for row in rows]
+
+                    if ids_to_delete:
+                        # 批量删除
+                        placeholders = ','.join(['?' for _ in ids_to_delete])
+                        await cursor.execute(
+                            f'DELETE FROM expression_patterns WHERE id IN ({placeholders})',
+                            tuple(ids_to_delete)
+                        )
+                        await conn.commit()
+                        logger.info(f"群组 {group_id} 删除了 {len(ids_to_delete)} 个权重最小的表达模式")
 
         except Exception as e:
             logger.error(f"限制表达模式数量失败: {e}", exc_info=True)

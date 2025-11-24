@@ -108,6 +108,17 @@ class PluginConfig:
     api_key: str = ""  # 外部API访问密钥
     enable_api_auth: bool = False  # 是否启用API密钥认证
 
+    # 数据库设置
+    db_type: str = "sqlite"  # 数据库类型: sqlite 或 mysql
+    mysql_host: str = "localhost"  # MySQL主机地址
+    mysql_port: int = 3306  # MySQL端口
+    mysql_user: str = "root"  # MySQL用户名
+    mysql_password: str = ""  # MySQL密码
+    mysql_database: str = "astrbot_self_learning"  # MySQL数据库名
+    auto_migrate: bool = True  # 切换数据库类型时自动迁移数据
+    max_connections: int = 10  # 数据库连接池最大连接数
+    min_connections: int = 2  # 数据库连接池最小连接数
+
     # 社交关系注入设置（与_conf_schema.json一致）
     enable_social_context_injection: bool = True  # 启用社交关系上下文注入到prompt
     include_social_relations: bool = True  # 注入用户社交关系网络信息
@@ -146,6 +157,7 @@ class PluginConfig:
         mood_settings = config.get('Mood_System_Settings', {})
         storage_settings = config.get('Storage_Settings', {})
         api_settings = config.get('API_Settings', {})
+        database_settings = config.get('Database_Settings', {})  # 新增：数据库设置
         social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
 
         return cls(
@@ -215,6 +227,17 @@ class PluginConfig:
             # API设置
             api_key=api_settings.get('api_key', ''),
             enable_api_auth=api_settings.get('enable_api_auth', False),
+
+            # 数据库设置
+            db_type=database_settings.get('db_type', 'sqlite'),
+            mysql_host=database_settings.get('mysql_host', 'localhost'),
+            mysql_port=database_settings.get('mysql_port', 3306),
+            mysql_user=database_settings.get('mysql_user', 'root'),
+            mysql_password=database_settings.get('mysql_password', ''),
+            mysql_database=database_settings.get('mysql_database', 'astrbot_self_learning'),
+            auto_migrate=database_settings.get('auto_migrate', True),
+            max_connections=database_settings.get('max_connections', 10),
+            min_connections=database_settings.get('min_connections', 2),
 
             # 社交上下文注入设置
             enable_social_context_injection=social_context_settings.get('enable_social_context_injection', True),

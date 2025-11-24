@@ -1,7 +1,7 @@
 """
 社交上下文注入器 - 将用户社交关系、好感度、Bot情绪信息注入到LLM prompt中
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from astrbot.api import logger
 
@@ -14,6 +14,22 @@ class SocialContextInjector:
         self.affection_manager = affection_manager
         self.mood_manager = mood_manager
         self.config = config  # 添加config参数以读取配置
+
+        # 提示词保护服务（延迟加载）
+        self._prompt_protection = None
+        self._enable_protection = True
+
+    def _get_prompt_protection(self):
+        """延迟加载提示词保护服务"""
+        if self._prompt_protection is None and self._enable_protection:
+            try:
+                from .prompt_sanitizer import PromptProtectionService
+                self._prompt_protection = PromptProtectionService(wrapper_template_index=0)
+                logger.info("社交上下文注入器: 提示词保护服务已加载")
+            except Exception as e:
+                logger.warning(f"加载提示词保护服务失败: {e}")
+                self._enable_protection = False
+        return self._prompt_protection
 
     async def format_complete_context(
         self,
@@ -155,15 +171,20 @@ class SocialContextInjector:
             logger.error(f"格式化好感度上下文失败: {e}", exc_info=True)
             return None
 
-    async def _format_expression_patterns_context(self, group_id: str) -> Optional[str]:
+    async def _format_expression_patterns_context(
+        self,
+        group_id: str,
+        enable_protection: bool = True
+    ) -> Optional[str]:
         """
-        格式化最近学到的表达模式（风格特征）
+        格式化最近学到的表达模式（风格特征）- 带提示词保护
 
         Args:
             group_id: 群组ID
+            enable_protection: 是否启用提示词保护
 
         Returns:
-            格式化的表达模式文本
+            格式化的表达模式文本（已保护包装）
         """
         try:
             # 从配置中读取时间范围，默认24小时
@@ -181,22 +202,31 @@ class SocialContextInjector:
             if not patterns:
                 return None
 
-            # 格式化表达模式文本
+            # 构建原始表达模式文本
             time_desc = f"{hours}小时" if hours < 24 else f"{hours//24}天"
-            pattern_text = f"【最近{time_desc}学到的表达风格特征】\n"
-            pattern_text += f"以下是最近{time_desc}学习到的表达模式，参考这些风格进行回复：\n"
+            raw_pattern_text = f"最近{time_desc}学到的表达风格特征：\n"
+            raw_pattern_text += f"以下是最近{time_desc}学习到的表达模式，参考这些风格进行回复：\n"
 
             for i, pattern in enumerate(patterns[:10], 1):  # 最多显示10个
                 situation = pattern.get('situation', '未知场景')
                 expression = pattern.get('expression', '未知表达')
-                weight = pattern.get('weight', 1.0)
 
                 # 简化显示
-                pattern_text += f"{i}. 当{situation}时，使用类似「{expression}」的表达方式\n"
+                raw_pattern_text += f"{i}. 当{situation}时，使用类似「{expression}」的表达方式\n"
 
-            pattern_text += "\n💡 提示：这些是从真实对话中学习到的表达模式，请在适当的场景下灵活运用，保持自然流畅。"
+            raw_pattern_text += "\n提示：这些是从真实对话中学习到的表达模式，请在适当的场景下灵活运用，保持自然流畅。"
 
-            return pattern_text
+            # 应用提示词保护
+            if enable_protection and self._enable_protection:
+                protection = self._get_prompt_protection()
+                if protection:
+                    protected_text = protection.wrap_prompt(raw_pattern_text, register_for_filter=True)
+                    logger.debug("表达模式已应用提示词保护")
+                    return protected_text
+                else:
+                    logger.warning("提示词保护服务不可用，使用原始文本")
+
+            return raw_pattern_text
 
         except Exception as e:
             logger.error(f"格式化表达模式上下文失败: {e}", exc_info=True)

@@ -125,6 +125,9 @@ def require_auth(f):
         return await f(*args, **kwargs)
     return decorated_function
 
+# 创建别名以保持向后兼容
+login_required = require_auth
+
 def is_authenticated():
     """检查用户是否已认证"""
     return session.get('authenticated', False)
@@ -4123,7 +4126,7 @@ async def get_social_relations(group_id: str):
 
             # 查询每个用户在该群组的消息总数
             await cursor.execute('''
-                SELECT sender_id, sender_name, COUNT(*) as message_count
+                SELECT sender_id, MAX(sender_name) as sender_name, COUNT(*) as message_count
                 FROM raw_messages
                 WHERE group_id = ? AND sender_id != 'bot'
                 GROUP BY sender_id
@@ -4257,21 +4260,8 @@ async def get_available_groups_for_social_analysis():
         async with db_manager.get_db_connection() as conn:
             cursor = await conn.cursor()
 
-            # 确保social_relations表存在
-            await cursor.execute('''
-                CREATE TABLE IF NOT EXISTS social_relations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    from_user TEXT NOT NULL,
-                    to_user TEXT NOT NULL,
-                    relation_type TEXT NOT NULL,
-                    strength REAL NOT NULL,
-                    frequency INTEGER DEFAULT 1,
-                    last_interaction REAL,
-                    group_id TEXT,
-                    created_at REAL DEFAULT (strftime('%s', 'now')),
-                    updated_at REAL DEFAULT (strftime('%s', 'now'))
-                )
-            ''')
+            # 注意：social_relations 表应该在数据库初始化时已创建
+            # 不在这里重复创建，避免 SQLite/MySQL 语法不兼容问题
 
             # 获取群组的消息数和成员数
             await cursor.execute('''
@@ -4676,6 +4666,472 @@ async def get_new_messages_api():
         }), 500
 
 
+# ========== 黑话学习系统API ==========
+
+@api_bp.route("/jargon/stats", methods=["GET"])
+@login_required
+async def get_jargon_stats():
+    """
+    获取黑话学习统计信息
+
+    查询参数:
+        group_id: 群组ID (可选，不传则返回全局统计)
+
+    返回:
+        JSON格式的统计信息
+    """
+    try:
+        group_id = request.args.get('group_id')
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        stats = await database_manager.get_jargon_statistics(group_id)
+
+        return jsonify({
+            "success": True,
+            "data": stats,
+            "group_id": group_id
+        })
+
+    except Exception as e:
+        logger.error(f"获取黑话统计失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/list", methods=["GET"])
+@login_required
+async def get_jargon_list():
+    """
+    获取黑话学习列表
+
+    查询参数:
+        group_id: 群组ID (可选，不传则返回所有)
+        limit: 返回数量限制 (默认50)
+        only_confirmed: 是否只返回已确认的黑话 (默认true)
+        page: 页码 (默认1)
+
+    返回:
+        JSON格式的黑话列表
+    """
+    try:
+        group_id = request.args.get('group_id')
+        limit = request.args.get('limit', 50, type=int)
+        only_confirmed_str = request.args.get('only_confirmed', 'true')
+        only_confirmed = only_confirmed_str.lower() in ('true', '1', 'yes')
+        page = request.args.get('page', 1, type=int)
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 获取黑话列表
+        jargon_list = await database_manager.get_recent_jargon_list(
+            chat_id=group_id,
+            limit=limit,
+            only_confirmed=only_confirmed
+        )
+
+        return jsonify({
+            "success": True,
+            "data": jargon_list,
+            "total": len(jargon_list),
+            "group_id": group_id,
+            "page": page,
+            "limit": limit
+        })
+
+    except Exception as e:
+        logger.error(f"获取黑话列表失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/search", methods=["GET"])
+@login_required
+async def search_jargon():
+    """
+    搜索黑话
+
+    查询参数:
+        keyword: 搜索关键词 (必需)
+        group_id: 群组ID (可选，不传则搜索全局黑话)
+        limit: 返回数量限制 (默认10)
+
+    返回:
+        JSON格式的搜索结果
+    """
+    try:
+        keyword = request.args.get('keyword')
+        if not keyword:
+            return jsonify({
+                "success": False,
+                "error": "缺少必需参数: keyword"
+            }), 400
+
+        group_id = request.args.get('group_id')
+        limit = request.args.get('limit', 10, type=int)
+
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        results = await database_manager.search_jargon(
+            keyword=keyword,
+            chat_id=group_id,
+            limit=limit
+        )
+
+        return jsonify({
+            "success": True,
+            "data": results,
+            "keyword": keyword,
+            "group_id": group_id,
+            "count": len(results)
+        })
+
+    except Exception as e:
+        logger.error(f"搜索黑话失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/<int:jargon_id>", methods=["DELETE"])
+@login_required
+async def delete_jargon(jargon_id: int):
+    """
+    删除指定黑话记录
+
+    路径参数:
+        jargon_id: 黑话记录ID
+
+    返回:
+        JSON格式的删除结果
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 执行删除
+        success = await database_manager.delete_jargon_by_id(jargon_id)
+
+        if success:
+            return jsonify({
+                "success": True,
+                "message": f"黑话记录 {jargon_id} 已删除"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"未找到黑话记录 {jargon_id}"
+            }), 404
+
+    except Exception as e:
+        logger.error(f"删除黑话失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/<int:jargon_id>/toggle_global", methods=["POST"])
+@login_required
+async def toggle_jargon_global(jargon_id: int):
+    """
+    切换黑话的全局状态
+
+    路径参数:
+        jargon_id: 黑话记录ID
+
+    返回:
+        JSON格式的操作结果
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        # 先获取当前记录
+        async with database_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+            await cursor.execute('SELECT is_global FROM jargon WHERE id = ?', (jargon_id,))
+            row = await cursor.fetchone()
+
+            if not row:
+                return jsonify({
+                    "success": False,
+                    "error": f"未找到黑话记录 {jargon_id}"
+                }), 404
+
+            # 切换状态
+            new_status = not bool(row[0])
+            await cursor.execute(
+                'UPDATE jargon SET is_global = ?, updated_at = ? WHERE id = ?',
+                (new_status, datetime.now(), jargon_id)
+            )
+            await conn.commit()
+            await cursor.close()
+
+        return jsonify({
+            "success": True,
+            "jargon_id": jargon_id,
+            "is_global": new_status,
+            "message": f"黑话记录 {jargon_id} 已{'设为全局' if new_status else '取消全局'}"
+        })
+
+    except Exception as e:
+        logger.error(f"切换黑话全局状态失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/groups", methods=["GET"])
+@login_required
+async def get_jargon_groups():
+    """
+    获取所有有黑话记录的群组列表
+
+    返回:
+        JSON格式的群组列表，每个群组包含黑话统计
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        async with database_manager.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            # 获取所有有黑话记录的群组及其统计
+            await cursor.execute('''
+                SELECT
+                    chat_id,
+                    COUNT(*) as total_candidates,
+                    COUNT(CASE WHEN is_jargon = 1 THEN 1 END) as confirmed_jargon,
+                    MAX(updated_at) as last_updated
+                FROM jargon
+                GROUP BY chat_id
+                ORDER BY last_updated DESC
+            ''')
+
+            groups = []
+            for row in await cursor.fetchall():
+                groups.append({
+                    'group_id': row[0],
+                    'total_candidates': row[1],
+                    'confirmed_jargon': row[2],
+                    'last_updated': row[3]
+                })
+
+            await cursor.close()
+
+        return jsonify({
+            "success": True,
+            "data": groups,
+            "total_groups": len(groups)
+        })
+
+    except Exception as e:
+        logger.error(f"获取黑话群组列表失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/global", methods=["GET"])
+@login_required
+async def get_global_jargon_list():
+    """
+    获取全局共享的黑话列表
+
+    参数:
+        limit: 返回数量限制 (默认50)
+
+    返回:
+        JSON格式的全局黑话列表
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        limit = request.args.get('limit', 50, type=int)
+        jargon_list = await database_manager.get_global_jargon_list(limit=limit)
+
+        return jsonify({
+            "success": True,
+            "data": jargon_list,
+            "total": len(jargon_list)
+        })
+
+    except Exception as e:
+        logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/<int:jargon_id>/set_global", methods=["POST"])
+@login_required
+async def set_jargon_global_status(jargon_id: int):
+    """
+    设置黑话的全局共享状态
+
+    参数:
+        jargon_id: 黑话记录ID
+        is_global: 是否全局共享 (JSON body)
+
+    返回:
+        操作结果
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        data = await request.get_json()
+        is_global = data.get('is_global', True)
+
+        result = await database_manager.set_jargon_global(jargon_id, is_global)
+
+        if result:
+            return jsonify({
+                "success": True,
+                "message": f"黑话已{'设为全局共享' if is_global else '取消全局共享'}"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "更新失败，黑话可能不存在"
+            }), 404
+
+    except Exception as e:
+        logger.error(f"设置黑话全局状态失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/batch_set_global", methods=["POST"])
+@login_required
+async def batch_set_jargon_global():
+    """
+    批量设置黑话的全局共享状态
+
+    参数 (JSON body):
+        jargon_ids: 黑话ID列表
+        is_global: 是否全局共享
+
+    返回:
+        操作结果统计
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        data = await request.get_json()
+        jargon_ids = data.get('jargon_ids', [])
+        is_global = data.get('is_global', True)
+
+        if not jargon_ids:
+            return jsonify({
+                "success": False,
+                "error": "未提供黑话ID列表"
+            }), 400
+
+        result = await database_manager.batch_set_jargon_global(jargon_ids, is_global)
+
+        return jsonify({
+            "success": result.get('success', False),
+            "data": result,
+            "message": f"批量{'设为全局' if is_global else '取消全局'}: 成功 {result.get('success_count', 0)} 条"
+        })
+
+    except Exception as e:
+        logger.error(f"批量设置黑话全局状态失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@api_bp.route("/jargon/sync_to_group", methods=["POST"])
+@login_required
+async def sync_global_jargon_to_group():
+    """
+    将全局黑话同步到指定群组
+
+    参数 (JSON body):
+        target_group_id: 目标群组ID
+
+    返回:
+        同步结果统计
+    """
+    try:
+        if not database_manager:
+            return jsonify({
+                "success": False,
+                "error": "数据库管理器未初始化"
+            }), 500
+
+        data = await request.get_json()
+        target_group_id = data.get('target_group_id')
+
+        if not target_group_id:
+            return jsonify({
+                "success": False,
+                "error": "未提供目标群组ID"
+            }), 400
+
+        result = await database_manager.sync_global_jargon_to_group(target_group_id)
+
+        return jsonify({
+            "success": result.get('success', False),
+            "data": result,
+            "message": f"同步完成: 新增 {result.get('synced_count', 0)} 条, 跳过 {result.get('skipped_count', 0)} 条"
+        })
+
+    except Exception as e:
+        logger.error(f"同步全局黑话失败: {e}", exc_info=True)
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 app.register_blueprint(api_bp)
 
 # 添加根路由重定向
@@ -4797,7 +5253,8 @@ class Server:
             return # Server already running
 
         # 预检查：等待端口完全释放（处理插件重载场景）
-        port_wait_attempts = 3
+        # 增加等待时间和重试次数
+        port_wait_attempts = 5
         for attempt in range(port_wait_attempts):
             port_available = await self._async_check_port_available(self.port)
             if port_available:
@@ -4806,31 +5263,28 @@ class Server:
             else:
                 logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (检查 {attempt + 1}/{port_wait_attempts})")
                 if attempt < port_wait_attempts - 1:
-                    logger.info(f"⏳ 等待 5 秒后重新检查...")
-                    await asyncio.sleep(5)
+                    # 尝试强制释放端口（仅Linux）
+                    await self._try_force_release_port(self.port)
+                    wait_time = 3 if attempt < 2 else 5  # 前两次等3秒，之后等5秒
+                    logger.info(f"⏳ 等待 {wait_time} 秒后重新检查...")
+                    await asyncio.sleep(wait_time)
                 else:
-                    logger.warning(f"⚠️ 端口 {self.port} 在等待后仍被占用，将继续尝试启动（可能来自旧实例）")
-                    logger.info("💡 如果启动失败，建议：")
-                    logger.info("   1. 重启 AstrBot 完全清理资源")
-                    logger.info("   2. 修改插件配置使用其他端口")
-        
-        # 启动前再次检查端口状态
-        port_available = await self._async_check_port_available(self.port)
-        if not port_available:
-            logger.warning(f"⚠️ 端口 {self.port} 仍被占用，尝试等待后重试...")
-            # 等待3秒后重试
-            await asyncio.sleep(3)
-            port_available = await self._async_check_port_available(self.port)
-            
-            if not port_available:
-                logger.warning(f"⚠️ 端口 {self.port} 持续被占用")
-                logger.info(f"🔄 继续尝试启动，Hypercorn可能能够处理端口复用")
-        
+                    logger.warning(f"⚠️ 端口 {self.port} 在等待后仍被占用")
+                    logger.info("💡 继续尝试启动，将使用SO_REUSEADDR强制复用")
+
         try:
             logger.info(f"🔧 配置服务器绑定: {self.config.bind}")
             logger.debug(f"Debug: 准备创建Hypercorn serve任务")
             logger.debug(f"Debug: app类型: {type(app)}")
             logger.debug(f"Debug: config类型: {type(self.config)}")
+
+            # 重新配置socket选项（确保每次启动都设置）
+            import socket
+            self.config.bind_socket_options = [
+                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
+            ]
+            if hasattr(socket, 'SO_REUSEPORT'):
+                self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
 
             # 添加重试机制
             max_retries = 3
@@ -4879,22 +5333,24 @@ class Server:
                                     logger.error(f"❌ 服务器启动异常: {exception}")
                                     logger.error(f"❌ 异常类型: {type(exception)}")
                                     if "Address already in use" in str(exception):
-                                        logger.warning(f"🔧 检测到端口冲突，尝试重试...")
+                                        logger.warning(f"🔧 检测到端口冲突，尝试强制释放...")
+                                        await self._try_force_release_port(self.port)
                                         if retry_count < max_retries - 1:
-                                            await asyncio.sleep(3)  # 等待更长时间
+                                            await asyncio.sleep(3)
                                             continue
                             except Exception as ex:
                                 logger.error(f"❌ 获取异常信息时出错: {ex}")
-                        
+
                         if retry_count < max_retries - 1:
                             logger.info(f"🔄 启动失败，等待后重试 (尝试 {retry_count + 1}/{max_retries})")
                             await asyncio.sleep(5)
                         continue
-                        
+
                 except Exception as start_error:
                     logger.error(f"❌ 启动尝试 {retry_count + 1} 失败: {start_error}")
                     if "Address already in use" in str(start_error) or "port" in str(start_error).lower():
                         logger.warning(f"🔧 检测到端口 {self.port} 冲突")
+                        await self._try_force_release_port(self.port)
                         if retry_count < max_retries - 1:
                             logger.info(f"⏳ 等待端口释放后重试...")
                             await asyncio.sleep(5)
@@ -4983,6 +5439,87 @@ class Server:
                 return False
         except Exception:
             return False
+
+    async def _try_force_release_port(self, port: int):
+        """
+        尝试强制释放被占用的端口（跨平台支持）
+        主要用于处理框架重启后端口未能及时释放的情况
+        """
+        import sys
+        import subprocess
+
+        logger.info(f"🔧 尝试释放端口 {port}...")
+
+        try:
+            if sys.platform == 'darwin':  # macOS
+                # 查找占用端口的进程
+                try:
+                    result = subprocess.run(
+                        ['lsof', '-i', f':{port}', '-t'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.stdout.strip():
+                        pids = result.stdout.strip().split('\n')
+                        current_pid = str(os.getpid())
+                        for pid in pids:
+                            pid = pid.strip()
+                            if pid and pid != current_pid:
+                                logger.warning(f"⚠️ 发现占用端口 {port} 的进程: PID={pid}")
+                                # 不自动杀死进程，只是记录信息
+                                # 因为可能是同一AstrBot实例的其他部分
+                                logger.info(f"💡 如需释放，请手动执行: kill {pid}")
+                except FileNotFoundError:
+                    logger.debug("lsof命令不可用")
+                except subprocess.TimeoutExpired:
+                    logger.debug("lsof命令超时")
+
+            elif sys.platform == 'linux':
+                # Linux: 使用ss或lsof查找占用进程
+                try:
+                    result = subprocess.run(
+                        ['ss', '-tlnp', f'sport = :{port}'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.stdout:
+                        logger.info(f"端口 {port} 占用详情:\n{result.stdout}")
+                except FileNotFoundError:
+                    # 回退到lsof
+                    try:
+                        result = subprocess.run(
+                            ['lsof', '-i', f':{port}', '-t'],
+                            capture_output=True, text=True, timeout=5
+                        )
+                        if result.stdout.strip():
+                            pids = result.stdout.strip().split('\n')
+                            current_pid = str(os.getpid())
+                            for pid in pids:
+                                pid = pid.strip()
+                                if pid and pid != current_pid:
+                                    logger.warning(f"⚠️ 发现占用端口 {port} 的进程: PID={pid}")
+                    except FileNotFoundError:
+                        logger.debug("ss和lsof命令都不可用")
+                except subprocess.TimeoutExpired:
+                    logger.debug("ss命令超时")
+
+            elif sys.platform == 'win32':  # Windows
+                try:
+                    result = subprocess.run(
+                        ['netstat', '-ano'],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    if result.stdout:
+                        for line in result.stdout.split('\n'):
+                            if f':{port}' in line and 'LISTENING' in line:
+                                logger.info(f"端口 {port} 占用详情: {line.strip()}")
+                except Exception as e:
+                    logger.debug(f"Windows netstat检查失败: {e}")
+
+        except Exception as e:
+            logger.debug(f"检查端口占用时出错: {e}")
+
+        # 给系统一些时间来清理TIME_WAIT状态的连接
+        logger.info(f"⏳ 等待系统清理TIME_WAIT连接...")
+        await asyncio.sleep(1)
 
     async def stop(self):
         """停止服务器 - 增强版本，包含更严格的资源清理和端口释放检查"""

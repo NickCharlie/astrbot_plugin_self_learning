@@ -14,3 +14,4 @@ quart_cors==0.8.0
 scikit_learn==1.7.1
 seaborn==0.13.2
 wordcloud==1.9.4
+aiomysql

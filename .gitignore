@@ -8,3 +8,5 @@ API_USAGE.md
 .DS_Store
 test_api.py
 test_api_simple.py
+/core/database/__pycache__
+upload_voice.py

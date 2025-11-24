@@ -3755,3 +3755,539 @@ body.graph-3d-mode #graph-3d-theme:focus,
     border-color: var(--color-brand1-6) !important;
     box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.1) !important;
 }
+
+/* ========== 黑话学习页面样式 ========== */
+
+.jargon-learning-section {
+    padding: 20px;
+}
+
+.jargon-learning-section h2 {
+    font-size: 24px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    color: #262626;
+}
+
+/* 黑话控制栏 */
+.jargon-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    padding: 16px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-bottom: 24px;
+}
+
+.jargon-controls .control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.jargon-controls label {
+    font-size: 14px;
+    color: #595959;
+    white-space: nowrap;
+}
+
+.jargon-controls select {
+    padding: 8px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+    background: white;
+    cursor: pointer;
+    min-width: 160px;
+}
+
+.jargon-controls select:hover {
+    border-color: var(--color-brand1-6);
+}
+
+.jargon-controls .search-group {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    gap: 8px;
+}
+
+.jargon-controls .search-group input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.jargon-controls .search-group input:focus {
+    outline: none;
+    border-color: var(--color-brand1-6);
+    box-shadow: 0 0 0 2px rgba(30, 58, 138, 0.1);
+}
+
+/* 黑话列表容器 */
+.jargon-list-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin-bottom: 24px;
+}
+
+.jargon-list-container h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    margin-bottom: 16px;
+}
+
+.jargon-list-container h3 i {
+    color: var(--color-brand1-6);
+}
+
+/* 黑话列表 */
+.jargon-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 黑话项 */
+.jargon-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: #fafafa;
+    border-radius: 8px;
+    border: 1px solid #f0f0f0;
+    transition: all 0.2s ease;
+}
+
+.jargon-item:hover {
+    background: #f5f5f5;
+    border-color: #e0e0e0;
+}
+
+.jargon-item.complete {
+    background: linear-gradient(135deg, #f6ffed 0%, #fafafa 100%);
+    border-color: #b7eb8f;
+}
+
+.jargon-content {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.jargon-word {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1e3a8a;
+    background: linear-gradient(135deg, #e0e7ff 0%, #dbeafe 100%);
+    padding: 4px 12px;
+    border-radius: 4px;
+}
+
+.jargon-badge {
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.jargon-badge.confirmed {
+    background: #e6f7ff;
+    color: #1890ff;
+}
+
+.jargon-badge.pending {
+    background: #fff7e6;
+    color: #fa8c16;
+}
+
+.jargon-badge.complete {
+    background: #f6ffed;
+    color: #52c41a;
+}
+
+.jargon-meaning {
+    font-size: 14px;
+    color: #595959;
+    line-height: 1.6;
+    padding: 8px 12px;
+    background: white;
+    border-radius: 4px;
+    border-left: 3px solid var(--color-brand1-6);
+}
+
+.jargon-meaning em {
+    color: #bfbfbf;
+    font-style: italic;
+}
+
+.jargon-meta {
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+    color: #8c8c8c;
+    flex-wrap: wrap;
+}
+
+.jargon-meta span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.jargon-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.jargon-actions .btn {
+    padding: 4px 12px;
+    font-size: 12px;
+}
+
+.jargon-actions .btn i {
+    font-size: 16px;
+}
+
+/* 全局黑话共享区域 */
+.global-jargon-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin-bottom: 24px;
+    border: 1px solid #e6f4ff;
+}
+
+.global-jargon-section .section-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.global-jargon-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1890ff;
+    margin: 0;
+}
+
+.global-jargon-section h3 i {
+    color: #1890ff;
+}
+
+.global-jargon-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.global-jargon-panel {
+    background: #f6f8fa;
+    border-radius: 8px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.global-jargon-stats {
+    padding-bottom: 12px;
+    border-bottom: 1px solid #e0e0e0;
+    margin-bottom: 12px;
+    color: #595959;
+    font-size: 14px;
+}
+
+.global-jargon-stats strong {
+    color: #1890ff;
+    font-size: 16px;
+}
+
+/* 紧凑型黑话列表 */
+.jargon-list.compact {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.jargon-item.compact {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+}
+
+.jargon-item.compact .jargon-main {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex: 1;
+}
+
+.jargon-item.compact .jargon-content {
+    font-weight: 600;
+    color: #1e3a8a;
+    background: linear-gradient(135deg, #e0e7ff 0%, #dbeafe 100%);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.jargon-item.compact .jargon-meaning {
+    color: #595959;
+    font-size: 13px;
+}
+
+.jargon-item.compact .jargon-meta {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 12px;
+    color: #8c8c8c;
+}
+
+.jargon-item.compact .jargon-count,
+.jargon-item.compact .jargon-source {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.jargon-item.compact .jargon-count i,
+.jargon-item.compact .jargon-source i {
+    font-size: 14px;
+}
+
+/* 小按钮样式 */
+.btn-tiny {
+    padding: 4px 8px;
+    font-size: 12px;
+    border-radius: 4px;
+}
+
+.btn-tiny i {
+    font-size: 14px;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* 模态框样式 */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+    animation: modalSlideIn 0.2s ease-out;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.modal-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #262626;
+    margin: 0;
+}
+
+.modal-header h3 i {
+    color: #1890ff;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 4px;
+    color: #8c8c8c;
+    transition: color 0.2s;
+}
+
+.modal-close:hover {
+    color: #262626;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-body p {
+    margin: 0 0 16px 0;
+    color: #595959;
+}
+
+.modal-body p.hint {
+    font-size: 13px;
+    color: #8c8c8c;
+    margin-top: 12px;
+}
+
+.modal-body .form-control {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid #d9d9d9;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.modal-body .form-control:focus {
+    outline: none;
+    border-color: #1890ff;
+    box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.1);
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 16px 20px;
+    border-top: 1px solid #f0f0f0;
+    background: #fafafa;
+    border-radius: 0 0 12px 12px;
+}
+
+/* 黑话信息说明区域 */
+.jargon-info-section {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+}
+
+.jargon-info-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #262626;
+    margin-bottom: 16px;
+}
+
+.jargon-info-section h3 i {
+    color: #1890ff;
+}
+
+.jargon-info-section .info-content {
+    background: #f6f8fa;
+    padding: 16px;
+    border-radius: 8px;
+    border-left: 4px solid #1890ff;
+}
+
+.jargon-info-section .info-content p {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    line-height: 1.8;
+    color: #595959;
+}
+
+.jargon-info-section .info-content p:last-child {
+    margin-bottom: 0;
+}
+
+.jargon-info-section .info-content strong {
+    color: #262626;
+}
+
+/* 空状态和加载状态 */
+.jargon-list .empty-message,
+.jargon-list .loading-message,
+.jargon-list .error-message {
+    text-align: center;
+    padding: 40px 20px;
+    color: #8c8c8c;
+    font-size: 14px;
+}
+
+.jargon-list .error-message {
+    color: #ff4d4f;
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+    .jargon-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .jargon-controls .control-group {
+        width: 100%;
+    }
+
+    .jargon-controls select {
+        width: 100%;
+    }
+
+    .jargon-controls .search-group {
+        flex-direction: column;
+    }
+
+    .jargon-item {
+        padding: 12px;
+    }
+
+    .jargon-word {
+        font-size: 16px;
+    }
+
+    .jargon-meta {
+        flex-direction: column;
+        gap: 8px;
+    }
+}

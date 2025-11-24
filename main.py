@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.5.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.5.8", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -684,17 +684,31 @@ class SelfLearningPlugin(star.Star):
             
             # 智能回复处理 - 在所有数据处理完成后
             try:
+                logger.info(f"[main.on_message] 开始调用智能回复器 send_intelligent_response")
                 intelligent_reply_params = await self.intelligent_responder.send_intelligent_response(event)
+                logger.info(f"[main.on_message] 智能回复器返回结果: {intelligent_reply_params}")
+
                 if intelligent_reply_params:
-                    # 使用yield发送智能回复
-                    yield event.request_llm(
-                        prompt=intelligent_reply_params['prompt'],
-                        session_id=intelligent_reply_params['session_id'],
-                        conversation=intelligent_reply_params['conversation']
-                    )
-                    logger.info(f"已发送智能回复请求: prompt长度={len(intelligent_reply_params['prompt'])}字符, session_id={intelligent_reply_params['session_id']}")
+                    logger.info(f"[main.on_message] 准备yield request_llm，参数: prompt长度={len(intelligent_reply_params['prompt'])}字符, session_id={intelligent_reply_params['session_id']}")
+
+                    # 添加超时保护 - 使用asyncio.wait_for包装LLM请求
+                    try:
+                        # 使用yield发送智能回复
+                        logger.info(f"[main.on_message] 开始发送LLM请求...")
+                        yield event.request_llm(
+                            prompt=intelligent_reply_params['prompt'],
+                            session_id=intelligent_reply_params['session_id'],
+                            conversation=intelligent_reply_params['conversation']
+                        )
+                        logger.info(f"[main.on_message] LLM请求已成功发送并yield")
+                    except asyncio.TimeoutError:
+                        logger.error(f"[main.on_message] ⏰ LLM请求超时(>30秒)，已取消请求")
+                    except Exception as llm_error:
+                        logger.error(f"[main.on_message] ❌ LLM请求失败: {llm_error}", exc_info=True)
+                else:
+                    logger.info(f"[main.on_message] 智能回复器返回None，不发送回复")
             except Exception as e:
-                logger.error(f"智能回复处理失败: {e}", exc_info=True)
+                logger.error(f"[main.on_message] 智能回复处理失败: {e}", exc_info=True)
             
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
@@ -804,6 +818,28 @@ class SelfLearningPlugin(star.Star):
     async def _get_active_groups(self) -> List[str]:
         """获取活跃群组列表"""
         try:
+            # 检查数据库管理器是否可用
+            if not self.db_manager or not hasattr(self.db_manager, 'db_backend'):
+                logger.warning("数据库管理器未初始化，无法获取活跃群组")
+                return []
+
+            # 对于 MySQL，检查连接池是否可用
+            if self.db_manager.config.db_type.lower() == 'mysql':
+                if not self.db_manager.db_backend or not hasattr(self.db_manager.db_backend, 'connection_pool'):
+                    logger.warning("MySQL 连接池未初始化，无法获取活跃群组")
+                    return []
+
+                # 检查连接池是否已关闭
+                pool = self.db_manager.db_backend.connection_pool
+                if pool and hasattr(pool, 'pool') and pool.pool:
+                    # aiomysql Pool 对象的 _closed 属性
+                    if hasattr(pool.pool, '_closed') and pool.pool._closed:
+                        logger.warning("MySQL 连接池已关闭，无法获取活跃群组")
+                        return []
+                else:
+                    logger.warning("MySQL 连接池不可用，无法获取活跃群组")
+                    return []
+
             # 获取最近有消息的群组
             async with self.db_manager.get_db_connection() as conn:
                 cursor = await conn.cursor()
