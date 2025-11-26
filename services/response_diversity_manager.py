@@ -3,7 +3,7 @@
 """
 import random
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 
 from astrbot.api import logger
@@ -18,6 +18,7 @@ class ResponseDiversityManager:
     2. 表达模式随机选择
     3. System Prompt多样化
     4. 语言风格轮换机制
+    5. 提示词保护（防止多样性注入内容泄露）
     """
 
     def __init__(self, config, db_manager):
@@ -48,6 +49,10 @@ class ResponseDiversityManager:
         self.recent_styles = []
         self.max_recent_styles = 3
 
+        # 提示词保护服务（延迟加载）
+        self._prompt_protection = None
+        self._enable_protection = True  # 默认启用保护
+
         # 当前使用的风格和模式 (用于保存到数据库)
         self.current_language_style = None
         self.current_response_pattern = None
@@ -70,6 +75,48 @@ class ResponseDiversityManager:
         }
 
         logger.info("响应多样性管理器初始化完成")
+
+    def _get_prompt_protection(self):
+        """延迟加载提示词保护服务"""
+        if self._prompt_protection is None and self._enable_protection:
+            try:
+                from .prompt_sanitizer import PromptProtectionService
+                self._prompt_protection = PromptProtectionService(wrapper_template_index=1)
+                logger.info("多样性管理器: 提示词保护服务已加载")
+            except Exception as e:
+                logger.warning(f"加载提示词保护服务失败: {e}")
+                self._enable_protection = False
+        return self._prompt_protection
+
+    def _wrap_diversity_content(self, content: str) -> str:
+        """
+        使用元指令包装多样性注入内容
+
+        Args:
+            content: 原始多样性注入内容
+
+        Returns:
+            包装后的内容
+        """
+        protection = self._get_prompt_protection()
+        if protection:
+            return protection.wrap_prompt(content, register_for_filter=True)
+        return content
+
+    def sanitize_llm_response(self, response: str) -> Tuple[str, Dict[str, Any]]:
+        """
+        消毒LLM回复，移除泄露的多样性提示词
+
+        Args:
+            response: LLM原始回复
+
+        Returns:
+            (消毒后的回复, 处理报告)
+        """
+        protection = self._get_prompt_protection()
+        if protection:
+            return protection.sanitize_response(response)
+        return response, {'sanitized': False}
 
     def get_dynamic_temperature(self, context_type: str = 'normal', randomize: bool = True) -> float:
         """
@@ -171,9 +218,10 @@ class ResponseDiversityManager:
                                         inject_style: bool = True,
                                         inject_pattern: bool = True,
                                         inject_variation: bool = True,
-                                        inject_history: bool = True) -> str:
+                                        inject_history: bool = True,
+                                        enable_protection: bool = True) -> str:
         """
-        构建多样性增强的Prompt注入
+        构建多样性增强的Prompt注入（带提示词保护）
 
         Args:
             base_prompt: 原始系统提示词
@@ -182,52 +230,54 @@ class ResponseDiversityManager:
             inject_pattern: 是否注入回复模式
             inject_variation: 是否注入表达变化
             inject_history: 是否注入历史Bot消息
+            enable_protection: 是否启用提示词保护
 
         Returns:
             str: 增强后的系统提示词
         """
         try:
-            injections = []
+            # 收集所有要注入的原始提示词
+            raw_prompts = []
 
             if inject_style:
                 style = self.get_random_language_style()
                 self.current_language_style = style  # ✅ 保存当前风格
-                injections.append(f"\n\n【当前语言风格】\n{style}")
+                raw_prompts.append(f"当前语言风格：{style}")
 
             if inject_pattern:
                 pattern = self.get_random_response_pattern()
                 self.current_response_pattern = pattern  # ✅ 保存当前模式
-                injections.append(f"\n\n【推荐回复模式】\n{pattern}")
+                raw_prompts.append(f"推荐回复模式：{pattern}")
 
             if inject_variation:
                 variation = self.get_expression_variation()
                 variation_text = (
-                    f"\n\n【表达多样性指引】\n"
+                    f"表达多样性指引：\n"
                     f"- 句式风格：{variation['sentence_style']}\n"
                     f"- 语气选择：{variation['tone']}\n"
                     f"- 强调重点：{variation['emphasis']}"
                 )
-                injections.append(variation_text)
+                raw_prompts.append(variation_text)
 
-            # 注入历史Bot消息，避免重复
+            # 历史消息避重提示
             if inject_history and group_id:
                 try:
                     recent_responses = await self.db_manager.get_recent_bot_responses(group_id, limit=5)
                     if recent_responses:
-                        history_text = "\n\n【你最近的回复历史】(参考这些回复，避免使用相同的开场白、结尾、句式和表达方式)\n"
+                        history_text = "【你最近的回复历史】\n参考这些回复，避免使用相同的开场白、结尾、句式和表达方式：\n"
                         for i, response in enumerate(recent_responses, 1):
                             # 截取前100字符避免prompt过长
                             truncated = response[:100] + "..." if len(response) > 100 else response
                             history_text += f"{i}. {truncated}\n"
 
-                        history_text += "\n⚠️ 请特别注意：\n"
+                        history_text += "\n特别注意：\n"
                         history_text += "- 避免重复使用上述回复中的开场白（如\"好的\"、\"明白了\"等）\n"
                         history_text += "- 避免重复使用上述回复中的结尾语\n"
                         history_text += "- 尝试使用与上述回复不同的句式结构\n"
                         history_text += "- 尝试使用不同的表达逻辑结构，允许语言中出现口语化、非标准表达\n"
-                        history_text += "- 如果观点相似，也要用不同的表达方式，建议用一定的合理的倒装句、省略句等\n"
+                        history_text += "- 如果观点相似，也要用不同的表达方式，建议用一定的合理的倒装句、省略句等"
 
-                        injections.append(history_text)
+                        raw_prompts.append(history_text)
                         logger.info(f"✅ 已注入 {len(recent_responses)} 条历史Bot消息到多样性提示")
                     else:
                         logger.debug(f"群组 {group_id} 暂无历史Bot消息")
@@ -236,20 +286,33 @@ class ResponseDiversityManager:
 
             # 添加通用多样性提醒
             diversity_reminder = (
-                "\n\n⚠️ 多样性提醒：\n"
+                "多样性提醒：\n"
                 "1. 避免使用固定的开场白和结尾语\n"
                 "2. 尝试不同的表达方式和句式结构\n"
                 "3. 根据对话内容灵活调整语气和风格\n"
                 "4. 不要总是遵循相同的逻辑结构\n"
                 "5. 允许语言中出现口语化、非标准表达"
             )
-            injections.append(diversity_reminder)
+            raw_prompts.append(diversity_reminder)
 
-            # 合并注入内容
-            enhanced_prompt = base_prompt + ''.join(injections)
+            # 应用提示词保护
+            if enable_protection and self._enable_protection:
+                protection = self._get_prompt_protection()
+                if protection:
+                    # 使用元指令包装器包装所有多样性提示词
+                    wrapped = protection.wrap_prompts(raw_prompts)
+                    enhanced_prompt = base_prompt + "\n\n" + wrapped
+                    logger.info(f"✅ 多样性Prompt已保护包装 - 原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}")
+                else:
+                    # 保护服务不可用，使用原始拼接
+                    enhanced_prompt = base_prompt + "\n\n" + "\n\n".join([f"【{i+1}】\n{p}" for i, p in enumerate(raw_prompts)])
+                    logger.warning("提示词保护服务不可用，使用原始注入方式")
+            else:
+                # 未启用保护，直接拼接
+                enhanced_prompt = base_prompt + "\n\n" + "\n\n".join([f"【{i+1}】\n{p}" for i, p in enumerate(raw_prompts)])
+                logger.debug("未启用提示词保护")
 
-            logger.info(f"✅ 多样性Prompt注入完成 - 原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}, 注入内容数: {len(injections)}")
-            logger.debug(f"注入的完整内容:\n{''.join(injections)}")
+            logger.debug(f"注入的完整内容:\n{enhanced_prompt[len(base_prompt):]}")
             return enhanced_prompt
 
         except Exception as e:

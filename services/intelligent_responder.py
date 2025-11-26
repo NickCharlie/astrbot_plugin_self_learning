@@ -56,27 +56,33 @@ class IntelligentResponder:
 
     async def should_respond(self, event: AstrMessageEvent) -> bool:
         """判断是否应该回复此消息"""
+        logger.info(f"[智能回复] should_respond 检查开始: enable_intelligent_reply={self.enable_intelligent_reply}")
+
         if not self.enable_intelligent_reply:
+            logger.warning(f"[智能回复] 智能回复功能已禁用")
             return False
-        
+
         try:
             # 获取消息类型 (私聊或群聊)
             group_id = event.get_group_id()
             is_group_chat = True if event.get_message_type() == MessageType.GROUP_MESSAGE else False
             is_private_chat = not is_group_chat
             message_text = event.get_message_str()
-            
+
+            logger.info(f"[智能回复] 消息类型: {'群聊' if is_group_chat else '私聊'}, 消息: {message_text[:50]}")
+            logger.info(f"[智能回复] event.is_at_or_wake_command = {getattr(event, 'is_at_or_wake_command', None)}")
+
             if is_private_chat:
                 # 私聊消息一定回复
-                logger.debug(f"私聊消息，将回复: {message_text[:50]}")
+                logger.info(f"[智能回复] 私聊消息，将回复: {message_text[:50]}")
                 return True
             elif is_group_chat:
                 # 群聊消息只有被 @ 或唤醒时才回复
                 if hasattr(event, 'is_at_or_wake_command') and event.is_at_or_wake_command:
-                    logger.debug(f"群聊消息被@或唤醒，将回复: {message_text[:50]}")
+                    logger.info(f"[智能回复] 群聊消息被@或唤醒，将回复: {message_text[:50]}")
                     return True
                 else:
-                    logger.debug(f"群聊消息未被@或唤醒，不回复: {message_text[:50]}")
+                    logger.info(f"[智能回复] 群聊消息未被@或唤醒，不回复: {message_text[:50]}")
                     return False
             
             return False # 默认不回复
@@ -180,6 +186,17 @@ class IntelligentResponder:
                     if response:
                         response_text = response.strip()
 
+                        # ✅ 提示词保护：消毒LLM回复，移除泄露的提示词
+                        if self.diversity_manager:
+                            try:
+                                sanitized_response, sanitize_report = self.diversity_manager.sanitize_llm_response(response_text)
+                                if sanitize_report.get('leaks_removed'):
+                                    logger.warning(f"检测到并移除了 {len(sanitize_report['leaks_removed'])} 处提示词泄露")
+                                    logger.debug(f"泄露详情: {sanitize_report['leaks_removed']}")
+                                    response_text = sanitized_response
+                            except Exception as sanitize_error:
+                                logger.warning(f"回复消毒失败(不影响回复): {sanitize_error}")
+
                         # ✅ 保存Bot消息到数据库 (用于多样性分析和避免同质化)
                         try:
                             await self.db_manager.save_bot_message(
@@ -218,28 +235,48 @@ class IntelligentResponder:
             sender_id = event.get_sender_id()
             group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
             message_text = event.get_message_str()
-            
+
+            logger.info(f"[生成智能回复] 开始处理: group_id={group_id}, sender_id={sender_id}, message_len={len(message_text)}")
+
             # 收集上下文信息
+            logger.debug(f"[生成智能回复] 开始收集上下文信息...")
             context_info = await self._collect_context_info(group_id, sender_id, message_text)
-            
+            logger.debug(f"[生成智能回复] 上下文信息收集完成")
+
             # 构建增强提示词，包含所有人格增量更新和社交关系信息
+            logger.debug(f"[生成智能回复] 开始构建增强提示词...")
             enhanced_prompt = await self._build_enhanced_prompt(context_info, message_text)
-            
+            logger.debug(f"[生成智能回复] 增强提示词构建完成: 长度={len(enhanced_prompt)}字符")
+
             # 获取当前会话信息
+            logger.debug(f"[生成智能回复] 开始获取对话上下文...")
             conversation = await self._get_conversation_context(group_id, sender_id)
-            
+            logger.info(f"[生成智能回复] 对话上下文获取完成: 包含{len(conversation)}条消息")
+
             # 获取当前会话ID
             curr_cid = f"{group_id}_{sender_id}" if group_id else sender_id
-            
+
+            # 参数验证
+            if not enhanced_prompt or len(enhanced_prompt) == 0:
+                logger.error(f"[生成智能回复] ❌ 增强提示词为空！")
+                return None
+
+            if not curr_cid:
+                logger.error(f"[生成智能回复] ❌ 会话ID为空！")
+                return None
+
             # 返回request_llm所需的参数
-            return {
+            result = {
                 'prompt': enhanced_prompt,
                 'session_id': curr_cid,
                 'conversation': conversation
             }
-            
+
+            logger.info(f"[生成智能回复] ✅ 智能回复参数生成成功: prompt_len={len(enhanced_prompt)}, conversation_len={len(conversation)}, session_id={curr_cid}")
+            return result
+
         except Exception as e:
-            logger.error(f"生成智能回复参数失败: {e}")
+            logger.error(f"生成智能回复参数失败: {e}", exc_info=True)
             raise ResponseError(f"生成智能回复参数失败: {str(e)}")
 
     async def _collect_context_info(self, group_id: str, sender_id: str, message: str) -> Dict[str, Any]:
@@ -593,7 +630,9 @@ class IntelligentResponder:
         try:
             # 获取最近的消息作为对话上下文
             recent_messages = await self.db_manager.get_recent_filtered_messages(group_id, self.context_window_size)
-            
+
+            logger.debug(f"[对话上下文] 从群组 {group_id} 获取到 {len(recent_messages)} 条历史消息")
+
             conversation = []
             for msg in recent_messages:
                 # 将消息转换为对话格式
@@ -601,9 +640,15 @@ class IntelligentResponder:
                     "role": "user" if msg['sender_id'] != "bot" else "assistant",
                     "content": msg['message']
                 })
-            
+
+            logger.debug(f"[对话上下文] 构建了 {len(conversation)} 条对话记录")
+
+            # 如果没有历史对话，添加一个默认的用户消息占位
+            if not conversation:
+                logger.warning(f"[对话上下文] 群组 {group_id} 没有历史对话，将使用空对话列表")
+
             return conversation
-            
+
         except Exception as e:
             logger.error(f"获取对话上下文失败: {e}")
             return []
@@ -639,19 +684,47 @@ class IntelligentResponder:
     async def send_intelligent_response(self, event: AstrMessageEvent):
         """发送智能回复 - 返回request_llm参数供main.py使用yield发送"""
         try:
-            if not await self.should_respond(event):
+            logger.info(f"[智能回复] send_intelligent_response 开始处理")
+
+            should_respond_result = await self.should_respond(event)
+            logger.info(f"[智能回复] should_respond 结果: {should_respond_result}")
+
+            if not should_respond_result:
+                logger.info(f"[智能回复] should_respond返回False，不生成回复")
                 return None
-            
-            response_params = await self.generate_intelligent_response(event)
-            
+
+            logger.info(f"[智能回复] 开始调用 generate_intelligent_response")
+
+            try:
+                response_params = await self.generate_intelligent_response(event)
+            except ResponseError as re:
+                logger.error(f"[智能回复] ❌ 生成回复参数时发生ResponseError: {re}")
+                return None
+            except Exception as gen_error:
+                logger.error(f"[智能回复] ❌ 生成回复参数时发生未知错误: {gen_error}", exc_info=True)
+                return None
+
             if response_params:
-                logger.info(f"生成智能回复参数: prompt长度={len(response_params['prompt'])}字符, session_id={response_params['session_id']}")
+                logger.info(f"[智能回复] 生成智能回复参数成功: prompt长度={len(response_params['prompt'])}字符, session_id={response_params['session_id']}")
+                logger.debug(f"[智能回复] 回复参数详情: session_id={response_params['session_id']}, conversation_items={len(response_params.get('conversation', []))}")
+
+                # 验证关键参数
+                if not response_params.get('prompt'):
+                    logger.error(f"[智能回复] ❌ prompt参数为空，无法发送回复")
+                    return None
+
+                if not response_params.get('session_id'):
+                    logger.error(f"[智能回复] ❌ session_id参数为空，无法发送回复")
+                    return None
+
+                logger.info(f"[智能回复] ✅ 参数验证通过，准备返回给main.py")
                 return response_params  # 返回request_llm参数
             else:
+                logger.warning(f"[智能回复] generate_intelligent_response 返回None")
                 return None
-                
+
         except Exception as e:
-            logger.error(f"生成智能回复参数失败: {e}")
+            logger.error(f"[智能回复] 生成智能回复参数失败: {e}", exc_info=True)
             return None
 
     async def get_response_statistics(self, group_id: str) -> Dict[str, Any]:

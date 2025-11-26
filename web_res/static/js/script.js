@@ -40,6 +40,15 @@ let currentConfig = {};
 let currentMetrics = {};
 let chartInstances = {};
 let socialRelationsRefreshInterval = null; // 社交关系页面自动刷新定时器
+const BUG_DEFAULT_MAX_IMAGES = 6;
+const BUG_DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+let bugAssistantState = {
+    config: null,
+    uploadedFiles: [],
+    pastedFiles: [],
+    submitting: false,
+    formInitialized: false
+};
 
 /**
  * 启动社交关系自动刷新
@@ -1274,18 +1283,48 @@ async function loadMetrics() {
     }
 }
 
+// 人格审查分页和筛选状态
+let allPersonaUpdates = [];  // 存储所有数据
+let filteredPersonaUpdates = [];  // 存储筛选后的数据
+let pendingCurrentPage = 1;
+let pendingPageSize = 20;
+
 // 加载人格更新数据
 async function loadPersonaUpdates() {
     try {
+        console.log('[DEBUG] 开始加载人格更新数据...');
+
+        // 显示加载指示器
+        const reviewList = document.getElementById('review-list');
+        if (reviewList) {
+            reviewList.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 40px;"><i class="material-icons rotating" style="font-size: 48px; color: #4CAF50;">refresh</i><p>正在加载人格审查记录...</p></div>';
+        }
+
         const response = await fetch('/api/persona_updates');
+        console.log('[DEBUG] API响应状态:', response.status);
+
         if (response.ok) {
             const data = await response.json();
+            console.log('[DEBUG] 接收到的数据:', data);
+
             // 确保 data 有正确的结构
             if (data && data.success && Array.isArray(data.updates)) {
-                renderPersonaUpdates(data.updates);
+                console.log('[DEBUG] 数据格式正确, 记录数量:', data.updates.length);
+                allPersonaUpdates = data.updates;
+
+                // 更新群组筛选选项
+                updateGroupFilterOptions(data.updates);
+
+                // 应用筛选
+                console.log('[DEBUG] 应用筛选前, allPersonaUpdates:', allPersonaUpdates.length);
+                applyPersonaFilters();
+                console.log('[DEBUG] 应用筛选后, filteredPersonaUpdates:', filteredPersonaUpdates.length);
+
                 await updateReviewStats(data.updates);
             } else {
-                console.error('人格更新数据格式不正确:', data);
+                console.error('[DEBUG] 人格更新数据格式不正确:', data);
+                allPersonaUpdates = [];
+                filteredPersonaUpdates = [];
                 renderPersonaUpdates([]);
                 await updateReviewStats([]);
             }
@@ -1293,10 +1332,168 @@ async function loadPersonaUpdates() {
             throw new Error('加载人格更新失败');
         }
     } catch (error) {
-        console.error('加载人格更新失败:', error);
+        console.error('[DEBUG] 加载人格更新失败:', error);
         // 确保即使出错也能正常渲染空列表
-        renderPersonaUpdates([]);
+        allPersonaUpdates = [];
+        filteredPersonaUpdates = [];
+
+        // 显示错误信息
+        const reviewList = document.getElementById('review-list');
+        if (reviewList) {
+            reviewList.innerHTML = '<div class="no-updates" style="color: #f44336;">加载失败，请刷新页面重试</div>';
+        }
+
         await updateReviewStats([]);
+    }
+}
+
+// 更新群组筛选选项
+function updateGroupFilterOptions(updates) {
+    const groupSelect = document.getElementById('filter-group');
+    if (!groupSelect) return;
+
+    // 获取所有唯一的群组ID
+    const groups = [...new Set(updates.map(u => u.group_id).filter(g => g))];
+
+    // 保留第一个选项，清除其他
+    groupSelect.innerHTML = '<option value="">全部群组</option>';
+
+    groups.forEach(group => {
+        const option = document.createElement('option');
+        option.value = group;
+        option.textContent = group;
+        groupSelect.appendChild(option);
+    });
+}
+
+// 应用筛选条件
+function applyPersonaFilters() {
+    const typeFilter = document.getElementById('filter-type')?.value || '';
+    const groupFilter = document.getElementById('filter-group')?.value || '';
+    const confidenceFilter = document.getElementById('filter-confidence')?.value || '';
+    const timeFilter = document.getElementById('filter-time')?.value || '';
+
+    filteredPersonaUpdates = allPersonaUpdates.filter(update => {
+        // 类型筛选 - 使用 review_source 字段进行精确匹配
+        if (typeFilter) {
+            const reviewSource = update.review_source || '';
+
+            // 精确匹配 review_source
+            if (typeFilter === 'style_learning' && reviewSource !== 'style_learning') return false;
+            if (typeFilter === 'persona_learning' && reviewSource !== 'persona_learning') return false;
+            if (typeFilter === 'traditional' && reviewSource !== 'traditional') return false;
+        }
+
+        // 群组筛选
+        if (groupFilter && update.group_id !== groupFilter) return false;
+
+        // 置信度筛选
+        if (confidenceFilter) {
+            const confidence = update.confidence_score || 0;
+            if (confidenceFilter === 'high' && confidence < 0.8) return false;
+            if (confidenceFilter === 'medium' && (confidence < 0.5 || confidence >= 0.8)) return false;
+            if (confidenceFilter === 'low' && confidence >= 0.5) return false;
+        }
+
+        // 时间筛选
+        if (timeFilter) {
+            const timestamp = update.timestamp || 0;
+            const now = Date.now() / 1000;
+            const dayInSeconds = 86400;
+
+            if (timeFilter === 'today') {
+                const todayStart = Math.floor(now / dayInSeconds) * dayInSeconds;
+                if (timestamp < todayStart) return false;
+            } else if (timeFilter === 'week' && now - timestamp > 7 * dayInSeconds) {
+                return false;
+            } else if (timeFilter === 'month' && now - timestamp > 30 * dayInSeconds) {
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    // 重置到第一页
+    pendingCurrentPage = 1;
+
+    // 渲染分页数据
+    renderPaginatedPersonaUpdates();
+}
+
+// 重置筛选条件
+function resetPersonaFilters() {
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-group').value = '';
+    document.getElementById('filter-confidence').value = '';
+    document.getElementById('filter-time').value = '';
+    applyPersonaFilters();
+}
+
+// 渲染分页后的数据
+function renderPaginatedPersonaUpdates() {
+    console.log('[DEBUG] renderPaginatedPersonaUpdates 被调用');
+    const totalCount = filteredPersonaUpdates.length;
+    console.log('[DEBUG] filteredPersonaUpdates总数:', totalCount);
+
+    const totalPages = Math.ceil(totalCount / pendingPageSize) || 1;
+
+    // 确保当前页在有效范围内
+    if (pendingCurrentPage > totalPages) pendingCurrentPage = totalPages;
+    if (pendingCurrentPage < 1) pendingCurrentPage = 1;
+
+    const startIndex = (pendingCurrentPage - 1) * pendingPageSize;
+    const endIndex = Math.min(startIndex + pendingPageSize, totalCount);
+    const pageData = filteredPersonaUpdates.slice(startIndex, endIndex);
+
+    console.log('[DEBUG] 分页数据:', {
+        startIndex,
+        endIndex,
+        pageDataLength: pageData.length,
+        currentPage: pendingCurrentPage,
+        totalPages
+    });
+
+    // 渲染列表
+    renderPersonaUpdates(pageData);
+
+    // 更新分页控件
+    updatePaginationControls(startIndex, endIndex, totalCount, totalPages);
+}
+
+// 更新分页控件状态
+function updatePaginationControls(startIndex, endIndex, totalCount, totalPages) {
+    const showingStart = document.getElementById('pending-showing-start');
+    const showingEnd = document.getElementById('pending-showing-end');
+    const totalCountEl = document.getElementById('pending-total-count');
+    const currentPageEl = document.getElementById('pending-current-page');
+    const totalPagesEl = document.getElementById('pending-total-pages');
+    const prevBtn = document.getElementById('pending-prev-btn');
+    const nextBtn = document.getElementById('pending-next-btn');
+
+    if (showingStart) showingStart.textContent = totalCount > 0 ? startIndex + 1 : 0;
+    if (showingEnd) showingEnd.textContent = endIndex;
+    if (totalCountEl) totalCountEl.textContent = totalCount;
+    if (currentPageEl) currentPageEl.textContent = pendingCurrentPage;
+    if (totalPagesEl) totalPagesEl.textContent = totalPages;
+
+    if (prevBtn) prevBtn.disabled = pendingCurrentPage <= 1;
+    if (nextBtn) nextBtn.disabled = pendingCurrentPage >= totalPages;
+}
+
+// 切换页面
+function changePendingPage(delta) {
+    pendingCurrentPage += delta;
+    renderPaginatedPersonaUpdates();
+}
+
+// 改变每页显示数量
+function changePendingPageSize() {
+    const pageSizeSelect = document.getElementById('pending-page-size');
+    if (pageSizeSelect) {
+        pendingPageSize = parseInt(pageSizeSelect.value, 10);
+        pendingCurrentPage = 1;  // 重置到第一页
+        renderPaginatedPersonaUpdates();
     }
 }
 
@@ -1411,35 +1608,43 @@ function renderConfigPage() {
 
 // 渲染人格更新列表
 function renderPersonaUpdates(updates) {
+    console.log('[DEBUG] renderPersonaUpdates 被调用, updates数量:', updates.length);
+
     const reviewList = document.getElementById('review-list');
-    
+
     if (!reviewList) {
-        console.error('找不到 review-list 元素');
+        console.error('[DEBUG] 找不到 review-list 元素!');
         return;
     }
-    
+
+    console.log('[DEBUG] 找到 review-list 元素');
+
     if (!updates || updates.length === 0) {
+        console.log('[DEBUG] updates为空,显示"暂无"提示');
         reviewList.innerHTML = '<div class="no-updates">暂无待审查的人格更新</div>';
         return;
     }
-    
+
     // 清空列表
     reviewList.innerHTML = '';
-    
+    console.log('[DEBUG] 开始渲染', updates.length, '条记录');
+
     // 为每个更新创建元素并绑定事件
-    updates.forEach(update => {
+    updates.forEach((update, index) => {
+        console.log('[DEBUG] 渲染第', index+1, '条记录, ID:', update.id);
+
         const updateElement = document.createElement('div');
         updateElement.className = 'persona-update-item';
         
-        // 确定更新类型和对应的徽章
-        const updateType = update.update_type || 'persona_update';
+        // 确定更新类型和对应的徽章 - 使用 review_source 字段
+        const reviewSource = update.review_source || '';
         let typeBadge = '';
         let typeText = '';
-        
-        if (updateType.includes('style') || updateType === 'style_learning') {
+
+        if (reviewSource === 'style_learning') {
             typeBadge = '<span class="type-badge style-badge">风格学习</span>';
             typeText = '风格学习更新';
-        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+        } else if (reviewSource === 'persona_learning') {
             typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
             typeText = '人格学习更新';
         } else {
@@ -1985,26 +2190,18 @@ async function deletePersonaUpdate(updateId) {
     if (!confirm('确定要删除这条记录吗？此操作不可撤销。')) {
         return;
     }
-    
+
     try {
-        // 解析ID：如果是 persona_learning_20 格式，提取数字部分
-        let numericId = updateId;
-        if (typeof updateId === 'string') {
-            const match = updateId.match(/\d+$/);
-            if (match) {
-                numericId = parseInt(match[0]);
-            }
-        }
-        
-        const response = await fetch(`/api/persona_updates/${numericId}/delete`, {
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
+        const response = await fetch(`/api/persona_updates/${encodeURIComponent(updateId)}/delete`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             }
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             showSuccess(data.message);
             // 重新加载列表
@@ -2028,33 +2225,23 @@ async function batchDeletePersonaUpdates(updateIds) {
         showError('请选择要删除的记录');
         return;
     }
-    
+
     if (!confirm(`确定要删除选中的 ${updateIds.length} 条记录吗？此操作不可撤销。`)) {
         return;
     }
-    
+
     try {
-        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
-        const numericIds = updateIds.map(id => {
-            if (typeof id === 'string') {
-                const match = id.match(/\d+$/);
-                if (match) {
-                    return parseInt(match[0]);
-                }
-            }
-            return id;
-        });
-        
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
         const response = await fetch('/api/persona_updates/batch_delete', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ update_ids: numericIds })
+            body: JSON.stringify({ update_ids: updateIds })
         });
-        
+
         const data = await response.json();
-        
+
         if (data.success) {
             showSuccess(data.message);
             // 重新加载列表
@@ -2080,36 +2267,26 @@ async function batchReviewPersonaUpdates(updateIds, action, comment = '') {
         showError('请选择要操作的记录');
         return;
     }
-    
+
     const actionText = action === 'approve' ? '批准' : '拒绝';
     if (!confirm(`确定要批量${actionText}选中的 ${updateIds.length} 条记录吗？`)) {
         return;
     }
-    
+
     try {
-        // 解析所有ID：如果是 persona_learning_20 格式，提取数字部分
-        const numericIds = updateIds.map(id => {
-            if (typeof id === 'string') {
-                const match = id.match(/\d+$/);
-                if (match) {
-                    return parseInt(match[0]);
-                }
-            }
-            return id;
-        });
-        
+        // 保留完整ID（包含前缀如 style_、persona_learning_），后端根据前缀区分类型
         const response = await fetch('/api/persona_updates/batch_review', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
-                update_ids: numericIds,
+            body: JSON.stringify({
+                update_ids: updateIds,
                 action: action,
-                comment: comment 
+                comment: comment
             })
         });
-        
+
         const data = await response.json();
         
         if (data.success) {
@@ -2283,6 +2460,9 @@ async function loadPageData(page) {
         case 'social-relations':
             await loadGroupList();
             startSocialRelationsAutoRefresh(); // 启动自动刷新
+            break;
+        case 'jargon-learning':
+            await refreshJargonPage();
             break;
         default:
             stopSocialRelationsAutoRefresh(); // 离开社交关系页面时停止刷新
@@ -4271,15 +4451,15 @@ function renderReviewedPersonaUpdates(updates) {
         const statusText = update.status === 'approved' ? '已批准' : '已拒绝';
         const statusClass = update.status === 'approved' ? 'status-approved' : 'status-rejected';
         
-        // 确定更新类型和对应的徽章
-        const updateType = update.update_type || 'persona_update';
+        // 确定更新类型和对应的徽章 - 使用 review_source 字段
+        const reviewSource = update.review_source || '';
         let typeBadge = '';
         let typeText = '';
-        
-        if (updateType.includes('style') || updateType === 'style_learning') {
+
+        if (reviewSource === 'style_learning') {
             typeBadge = '<span class="type-badge style-badge">风格学习</span>';
             typeText = '风格学习更新';
-        } else if (updateType.includes('persona') || updateType === 'persona_learning_review') {
+        } else if (reviewSource === 'persona_learning') {
             typeBadge = '<span class="type-badge persona-badge">人格学习</span>';
             typeText = '人格学习更新';
         } else {
@@ -5104,6 +5284,9 @@ function renderRelationshipChart(data) {
             }
         }));
 
+        // 保存当前数据供3D模式使用
+        currentRelationsData = { nodes, links };
+
         renderFilteredChart(nodes, links, `${filteredMembers.find(m => m.user_id === filteredUserId)?.nickname || filteredUserId} 的社交关系`);
     } else {
         // 显示所有关系
@@ -5131,7 +5314,15 @@ function renderRelationshipChart(data) {
             }
         }));
 
+        // 保存当前数据供3D模式使用
+        currentRelationsData = { nodes, links };
+
         renderFilteredChart(nodes, links, `${members.length} 个成员，${relations.length} 个关系连接`);
+    }
+
+    // 如果当前是3D模式，同步更新3D图谱
+    if (currentGraphMode === '3d' && socialGraph3D && currentRelationsData) {
+        load3DGraphData(currentRelationsData);
     }
 }
 
@@ -5402,3 +5593,1343 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 100);
 });
+
+// ==================== Three.js 加载检查 ====================
+window.addEventListener('load', () => {
+    console.log('🔍 检查 Three.js 加载状态...');
+    console.log('THREE 存在:', typeof THREE !== 'undefined');
+    if (typeof THREE !== 'undefined') {
+        console.log('THREE 版本:', THREE.REVISION);
+        console.log('OrbitControls 存在:', typeof THREE.OrbitControls !== 'undefined');
+    }
+    console.log('SocialGraph3D 存在:', typeof window.SocialGraph3D !== 'undefined');
+});
+
+// ==================== 3D社交关系图谱集成 ====================
+
+// 全局变量
+let socialGraph3D = null;  // 3D图谱实例
+let currentGraphMode = '2d';  // 当前图谱模式：2d 或 3d
+let currentRelationsData = null;  // 当前的关系数据（用于2D/3D切换）
+
+/**
+ * 切换图谱模式 (2D/3D)
+ */
+function switchGraphMode(mode) {
+    console.log(`🔄 切换图谱模式: ${currentGraphMode} -> ${mode}`);
+
+    if (mode === currentGraphMode) {
+        console.log('⚠️ 模式相同，跳过切换');
+        return;
+    }
+
+    currentGraphMode = mode;
+
+    // 更新按钮状态
+    document.querySelectorAll('.toggle-btn').forEach(btn => {
+        if (btn.dataset.mode === mode) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+
+    // 更新body类名以控制CSS显示/隐藏
+    if (mode === '3d') {
+        document.body.classList.add('graph-3d-mode');
+    } else {
+        document.body.classList.remove('graph-3d-mode');
+    }
+
+    // 显示/隐藏相应的容器
+    const chart2D = document.getElementById('relationship-graph-chart');
+    const chart3D = document.getElementById('relationship-graph-3d');
+
+    console.log('📦 DOM元素检查:', {
+        chart2D: !!chart2D,
+        chart3D: !!chart3D
+    });
+
+    if (mode === '3d') {
+        // 切换到3D模式
+        console.log('✅ 切换到3D模式');
+        if (chart2D) chart2D.style.display = 'none';
+        if (chart3D) chart3D.style.display = 'block';
+
+        // 初始化3D图谱
+        init3DGraph();
+
+        // 如果有当前数据，加载到3D图谱
+        if (currentRelationsData) {
+            console.log('📊 加载数据到3D图谱:', currentRelationsData);
+            load3DGraphData(currentRelationsData);
+        } else {
+            console.warn('⚠️ 没有可用的关系数据');
+        }
+    } else {
+        // 切换到2D模式
+        console.log('✅ 切换到2D模式');
+        if (chart2D) chart2D.style.display = 'block';
+        if (chart3D) chart3D.style.display = 'none';
+
+        // 销毁3D图谱
+        if (socialGraph3D) {
+            socialGraph3D.destroy();
+            socialGraph3D = null;
+        }
+
+        // 如果有当前数据，重新渲染2D图谱
+        if (currentRelationsData) {
+            updateRelationshipChart();
+        }
+    }
+}
+
+/**
+ * 初始化3D图谱
+ */
+function init3DGraph() {
+    console.log('🔧 初始化3D图谱...');
+
+    if (!window.SocialGraph3D) {
+        console.error('❌ SocialGraph3D class not found. Make sure social_graph_3d.js is loaded.');
+        console.log('可用的全局对象:', Object.keys(window).filter(k => k.includes('Social') || k.includes('THREE')));
+        return;
+    }
+
+    console.log('✅ SocialGraph3D 类已找到');
+
+    // 如果已存在，先销毁
+    if (socialGraph3D) {
+        console.log('⚠️ 销毁旧的3D图谱实例');
+        socialGraph3D.destroy();
+    }
+
+    // 检查容器是否存在
+    const container = document.getElementById('relationship-graph-3d');
+    if (!container) {
+        console.error('❌ 容器 relationship-graph-3d 不存在');
+        return;
+    }
+
+    console.log('✅ 容器已找到:', container);
+
+    // 创建新实例
+    try {
+        socialGraph3D = new SocialGraph3D('relationship-graph-3d');
+        console.log('✅ SocialGraph3D 实例创建成功:', socialGraph3D);
+    } catch (error) {
+        console.error('❌ 创建 SocialGraph3D 实例失败:', error);
+        return;
+    }
+
+    // 监听节点选中事件
+    container.addEventListener('nodeSelected', (event) => {
+        const nodeData = event.detail;
+        console.log('🎯 Selected node in 3D:', nodeData);
+
+        // 可以在这里更新成员详细信息
+        // TODO: 高亮选中的成员
+    });
+
+    console.log('✅ 3D图谱初始化完成');
+}
+
+/**
+ * 加载数据到3D图谱
+ */
+function load3DGraphData(data) {
+    console.log('📥 load3DGraphData 被调用，数据:', data);
+
+    if (!socialGraph3D) {
+        console.log('⚠️ socialGraph3D 不存在，尝试初始化...');
+        init3DGraph();
+    }
+
+    if (!socialGraph3D) {
+        console.error('❌ 初始化3D图谱失败');
+        return;
+    }
+
+    if (!data || !data.nodes || !data.links) {
+        console.error('❌ 数据格式错误:', data);
+        return;
+    }
+
+    console.log(`📊 原始数据: ${data.nodes.length} 个节点, ${data.links.length} 条边`);
+
+    // 转换数据格式为3D图谱需要的格式
+    const nodes = data.nodes.map(node => ({
+        id: node.id || node.name,
+        label: node.name || node.id,
+        strength: node.symbolSize || 10
+    }));
+
+    const edges = data.links.map(link => ({
+        source: link.source,
+        target: link.target,
+        strength: link.value || 1
+    }));
+
+    console.log(`✅ 转换后数据: ${nodes.length} 个节点, ${edges.length} 条边`);
+    console.log('节点示例:', nodes[0]);
+    console.log('边示例:', edges[0]);
+
+    // 加载数据
+    try {
+        socialGraph3D.loadData(nodes, edges);
+        console.log('✅ 数据已加载到3D图谱');
+    } catch (error) {
+        console.error('❌ 加载数据到3D图谱失败:', error);
+    }
+}
+
+/**
+ * 更改3D主题
+ */
+function change3DTheme(themeName) {
+    console.log(`🎨 change3DTheme 被调用: ${themeName}`);
+
+    if (socialGraph3D) {
+        socialGraph3D.setTheme(themeName);
+        console.log('✅ 主题已设置');
+    } else {
+        console.error('❌ socialGraph3D 不存在');
+    }
+}
+
+/**
+ * 重置3D相机位置
+ */
+function resetGraph3DCamera() {
+    if (socialGraph3D) {
+        socialGraph3D.resetCamera();
+    }
+}
+
+/**
+ * 修改原有的loadGroupRelations函数，保存数据以支持2D/3D切换
+ * 注意：这需要修改现有的loadGroupRelations函数，在渲染图表后保存数据
+ */
+// 在现有的updateRelationshipChart函数后添加数据保存
+const originalUpdateRelationshipChart = window.updateRelationshipChart;
+if (originalUpdateRelationshipChart && typeof originalUpdateRelationshipChart === 'function') {
+    window.updateRelationshipChart = function() {
+        // 调用原函数
+        originalUpdateRelationshipChart();
+
+        // 保存当前数据（从ECharts实例中获取）
+        const chartDom = document.getElementById('relationship-graph-chart');
+        if (chartDom && window.echarts) {
+            const chartInstance = window.echarts.getInstanceByDom(chartDom);
+            if (chartInstance) {
+                const option = chartInstance.getOption();
+                if (option && option.series && option.series[0]) {
+                    currentRelationsData = {
+                        nodes: option.series[0].data || [],
+                        links: option.series[0].links || []
+                    };
+
+                    // 如果当前是3D模式，更新3D图谱
+                    if (currentGraphMode === '3d' && socialGraph3D) {
+                        load3DGraphData(currentRelationsData);
+                    }
+                }
+            }
+        }
+    };
+}
+
+console.log('✅ 3D社交关系图谱集成完成');
+
+// ========== 黑话学习系统 ==========
+
+/**
+ * 刷新黑话学习页面
+ */
+async function refreshJargonPage() {
+    await loadJargonGroups();
+    await loadJargonStats();
+    await loadJargonList();
+}
+
+/**
+ * 加载黑话群组列表
+ */
+async function loadJargonGroups() {
+    try {
+        const response = await fetch('/api/jargon/groups');
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const groupFilter = document.getElementById('jargon-group-filter');
+            if (groupFilter) {
+                // 保留第一个选项（全部群组）
+                groupFilter.innerHTML = '<option value="">全部群组</option>';
+
+                // 添加群组选项
+                result.data.forEach(group => {
+                    const option = document.createElement('option');
+                    option.value = group.group_id;
+                    option.textContent = `${group.group_id} (${group.confirmed_jargon}个黑话)`;
+                    groupFilter.appendChild(option);
+                });
+            }
+        }
+    } catch (error) {
+        console.error('加载黑话群组列表失败:', error);
+    }
+}
+
+/**
+ * 加载黑话统计信息
+ */
+async function loadJargonStats(groupId = null) {
+    try {
+        let url = '/api/jargon/stats';
+        if (groupId) {
+            url += `?group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const stats = result.data;
+
+            // 更新统计卡片
+            const totalCandidates = document.getElementById('jargon-total-candidates');
+            if (totalCandidates) totalCandidates.textContent = stats.total_candidates || 0;
+
+            const confirmed = document.getElementById('jargon-confirmed');
+            if (confirmed) confirmed.textContent = stats.confirmed_jargon || 0;
+
+            const completed = document.getElementById('jargon-completed');
+            if (completed) completed.textContent = stats.completed_inference || 0;
+
+            const totalOccurrences = document.getElementById('jargon-total-occurrences');
+            if (totalOccurrences) totalOccurrences.textContent = stats.total_occurrences || 0;
+        }
+    } catch (error) {
+        console.error('加载黑话统计信息失败:', error);
+    }
+}
+
+/**
+ * 加载黑话列表
+ */
+async function loadJargonList() {
+    const groupFilter = document.getElementById('jargon-group-filter');
+    const statusFilter = document.getElementById('jargon-status-filter');
+
+    const groupId = groupFilter ? groupFilter.value : '';
+    const onlyConfirmed = statusFilter ? statusFilter.value : 'true';
+
+    try {
+        let url = `/api/jargon/list?only_confirmed=${onlyConfirmed}&limit=100`;
+        if (groupId) {
+            url += `&group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        const listContainer = document.getElementById('jargon-list');
+        if (!listContainer) return;
+
+        if (result.success && result.data && result.data.length > 0) {
+            listContainer.innerHTML = result.data.map(jargon => `
+                <div class="jargon-item ${jargon.is_complete ? 'complete' : ''}" data-id="${jargon.id}">
+                    <div class="jargon-content">
+                        <span class="jargon-word">${escapeHtml(jargon.content)}</span>
+                        <span class="jargon-badge ${jargon.is_jargon ? 'confirmed' : 'pending'}">
+                            ${jargon.is_jargon ? '已确认' : '待验证'}
+                        </span>
+                        ${jargon.is_complete ? '<span class="jargon-badge complete">推断完成</span>' : ''}
+                    </div>
+                    <div class="jargon-meaning">
+                        ${jargon.meaning ? escapeHtml(jargon.meaning) : '<em>暂无含义</em>'}
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count">出现 ${jargon.count} 次</span>
+                        <span class="jargon-group">群组: ${escapeHtml(jargon.chat_id || '未知')}</span>
+                        <span class="jargon-time">${jargon.updated_at ? formatDateTime(jargon.updated_at) : ''}</span>
+                    </div>
+                    <div class="jargon-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="toggleJargonGlobal(${jargon.id})" title="设为/取消全局黑话">
+                            <i class="material-icons">public</i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteJargon(${jargon.id})" title="删除">
+                            <i class="material-icons">delete</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = '<div class="empty-message">暂无黑话学习记录</div>';
+        }
+
+        // 更新统计
+        await loadJargonStats(groupId);
+    } catch (error) {
+        console.error('加载黑话列表失败:', error);
+        const listContainer = document.getElementById('jargon-list');
+        if (listContainer) {
+            listContainer.innerHTML = '<div class="error-message">加载黑话列表失败</div>';
+        }
+    }
+}
+
+/**
+ * 搜索黑话
+ */
+async function searchJargon() {
+    const searchInput = document.getElementById('jargon-search-input');
+    const groupFilter = document.getElementById('jargon-group-filter');
+
+    const keyword = searchInput ? searchInput.value.trim() : '';
+    const groupId = groupFilter ? groupFilter.value : '';
+
+    if (!keyword) {
+        await loadJargonList();
+        return;
+    }
+
+    try {
+        let url = `/api/jargon/search?keyword=${encodeURIComponent(keyword)}&limit=50`;
+        if (groupId) {
+            url += `&group_id=${encodeURIComponent(groupId)}`;
+        }
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        const listContainer = document.getElementById('jargon-list');
+        if (!listContainer) return;
+
+        if (result.success && result.data && result.data.length > 0) {
+            listContainer.innerHTML = result.data.map(jargon => `
+                <div class="jargon-item ${jargon.is_complete ? 'complete' : ''}" data-id="${jargon.id}">
+                    <div class="jargon-content">
+                        <span class="jargon-word">${escapeHtml(jargon.content)}</span>
+                        <span class="jargon-badge ${jargon.is_jargon ? 'confirmed' : 'pending'}">
+                            ${jargon.is_jargon ? '已确认' : '待验证'}
+                        </span>
+                        ${jargon.is_complete ? '<span class="jargon-badge complete">推断完成</span>' : ''}
+                    </div>
+                    <div class="jargon-meaning">
+                        ${jargon.meaning ? escapeHtml(jargon.meaning) : '<em>暂无含义</em>'}
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count">出现 ${jargon.count} 次</span>
+                    </div>
+                    <div class="jargon-actions">
+                        <button class="btn btn-sm btn-secondary" onclick="toggleJargonGlobal(${jargon.id})" title="设为/取消全局黑话">
+                            <i class="material-icons">public</i>
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteJargon(${jargon.id})" title="删除">
+                            <i class="material-icons">delete</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = `<div class="empty-message">未找到包含 "${escapeHtml(keyword)}" 的黑话</div>`;
+        }
+    } catch (error) {
+        console.error('搜索黑话失败:', error);
+    }
+}
+
+/**
+ * 删除黑话
+ */
+async function deleteJargon(jargonId) {
+    if (!confirm('确定要删除这条黑话记录吗？')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('黑话记录已删除', 'success');
+            await loadJargonList();
+        } else {
+            showToast(result.error || '删除失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除黑话失败:', error);
+        showToast('删除黑话失败', 'error');
+    }
+}
+
+/**
+ * 切换黑话的全局状态
+ */
+async function toggleJargonGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/toggle_global`, {
+            method: 'POST'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message, 'success');
+            await loadJargonList();
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('切换黑话全局状态失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 切换全局黑话面板显示/隐藏
+ */
+async function toggleGlobalJargonPanel() {
+    const panel = document.getElementById('global-jargon-panel');
+    const toggleText = document.getElementById('global-panel-toggle-text');
+
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        toggleText.textContent = '收起';
+        await loadGlobalJargonList();
+    } else {
+        panel.style.display = 'none';
+        toggleText.textContent = '展开';
+    }
+}
+
+/**
+ * 加载全局共享黑话列表
+ */
+async function loadGlobalJargonList() {
+    try {
+        const response = await fetch('/api/jargon/global?limit=50');
+        const result = await response.json();
+
+        const listContainer = document.getElementById('global-jargon-list');
+        const countElement = document.getElementById('global-jargon-count');
+
+        if (result.success && result.data) {
+            countElement.textContent = result.total || 0;
+
+            if (result.data.length === 0) {
+                listContainer.innerHTML = '<div class="empty-message">暂无全局共享的黑话</div>';
+                return;
+            }
+
+            listContainer.innerHTML = result.data.map(item => `
+                <div class="jargon-item compact">
+                    <div class="jargon-main">
+                        <span class="jargon-content">${escapeHtml(item.content)}</span>
+                        <span class="jargon-meaning">${escapeHtml(item.meaning || '含义待推断')}</span>
+                    </div>
+                    <div class="jargon-meta">
+                        <span class="jargon-count" title="出现次数">
+                            <i class="material-icons">repeat</i> ${item.count}
+                        </span>
+                        <span class="jargon-source" title="来源群组">
+                            <i class="material-icons">group</i> ${item.chat_id}
+                        </span>
+                        <button class="btn btn-danger btn-tiny" onclick="removeFromGlobal(${item.id})" title="取消全局共享">
+                            <i class="material-icons">remove_circle</i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            listContainer.innerHTML = '<div class="error-message">加载失败</div>';
+        }
+    } catch (error) {
+        console.error('加载全局黑话列表失败:', error);
+        document.getElementById('global-jargon-list').innerHTML = '<div class="error-message">加载失败</div>';
+    }
+}
+
+/**
+ * 从全局共享中移除黑话
+ */
+async function removeFromGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/set_global`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_global: false })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('已取消全局共享', 'success');
+            await loadGlobalJargonList();
+            await loadJargonList();
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('取消全局共享失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 设置黑话为全局共享
+ */
+async function setJargonGlobal(jargonId) {
+    try {
+        const response = await fetch(`/api/jargon/${jargonId}/set_global`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_global: true })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('已设为全局共享', 'success');
+            await loadJargonList();
+            // 如果全局面板已展开，刷新它
+            const panel = document.getElementById('global-jargon-panel');
+            if (panel.style.display !== 'none') {
+                await loadGlobalJargonList();
+            }
+        } else {
+            showToast(result.error || '操作失败', 'error');
+        }
+    } catch (error) {
+        console.error('设置全局共享失败:', error);
+        showToast('操作失败', 'error');
+    }
+}
+
+/**
+ * 显示同步对话框
+ */
+function showSyncDialog() {
+    // 创建模态框
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.id = 'sync-modal';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="material-icons">sync</i> 同步全局黑话到群组</h3>
+                <button class="modal-close" onclick="closeSyncDialog()">
+                    <i class="material-icons">close</i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>选择要同步全局黑话的目标群组：</p>
+                <select id="sync-target-group" class="form-control">
+                    <option value="">-- 请选择群组 --</option>
+                </select>
+                <p class="hint">同步后，全局共享的黑话将复制到目标群组（已存在的不会重复添加）。</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSyncDialog()">取消</button>
+                <button class="btn btn-primary" onclick="executeSyncToGroup()">
+                    <i class="material-icons">sync</i>
+                    开始同步
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // 加载群组列表
+    loadSyncTargetGroups();
+}
+
+/**
+ * 加载同步目标群组列表
+ */
+async function loadSyncTargetGroups() {
+    try {
+        const response = await fetch('/api/jargon/groups');
+        const result = await response.json();
+
+        const select = document.getElementById('sync-target-group');
+        if (result.success && result.data) {
+            result.data.forEach(group => {
+                const option = document.createElement('option');
+                option.value = group.group_id;
+                option.textContent = `${group.group_id} (${group.confirmed_jargon} 条黑话)`;
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('加载群组列表失败:', error);
+    }
+}
+
+/**
+ * 执行同步到群组
+ */
+async function executeSyncToGroup() {
+    const targetGroup = document.getElementById('sync-target-group').value;
+
+    if (!targetGroup) {
+        showToast('请选择目标群组', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/jargon/sync_to_group', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target_group_id: targetGroup })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message, 'success');
+            closeSyncDialog();
+            await loadJargonList();
+        } else {
+            showToast(result.error || '同步失败', 'error');
+        }
+    } catch (error) {
+        console.error('同步失败:', error);
+        showToast('同步失败', 'error');
+    }
+}
+
+/**
+ * 关闭同步对话框
+ */
+function closeSyncDialog() {
+    const modal = document.getElementById('sync-modal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+/**
+ * HTML转义函数
+ */
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+/**
+ * 格式化日期时间
+ */
+function formatDateTime(dateStr) {
+    if (!dateStr) return '';
+    try {
+        const date = new Date(dateStr);
+        return date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return dateStr;
+    }
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+    const formatted = value >= 10 || unitIndex === 0 ? Math.round(value) : value.toFixed(1);
+    return `${formatted}${units[unitIndex]}`;
+}
+
+/**
+ * 显示Toast提示
+ */
+function showToast(message, type = 'info') {
+    // 创建toast元素
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+
+    // 添加样式
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 24px;
+        border-radius: 4px;
+        color: white;
+        font-size: 14px;
+        z-index: 10000;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        background-color: ${type === 'success' ? '#4caf50' : type === 'error' ? '#f44336' : '#2196f3'};
+    `;
+
+    document.body.appendChild(toast);
+
+    // 显示动画
+    setTimeout(() => {
+        toast.style.opacity = '1';
+    }, 10);
+
+    // 自动隐藏
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 3000);
+}
+
+/**
+ * 初始化 Bug 自助提交悬浮窗
+ */
+function initBugAssistantWidget() {
+    const wrapper = document.querySelector('.bug-assistant-wrapper');
+    const panel = document.getElementById('bugAssistantPanel');
+    const fab = document.getElementById('bugAssistantFab');
+    const closeBtn = document.getElementById('bugAssistantClose');
+    const form = document.getElementById('bugAssistantForm');
+    const attachmentInput = document.getElementById('bugAttachmentInput');
+    const clearAttachmentsBtn = document.getElementById('bugClearAttachments');
+    const resetFormBtn = document.getElementById('bugResetForm');
+
+    if (!wrapper || !panel || !fab) {
+        return;
+    }
+
+    const dragState = {
+        isDragging: false,
+        moved: false,
+        pointerId: null
+    };
+
+    const positionPanel = () => {
+        if (!panel.classList.contains('open')) {
+            return;
+        }
+
+        const fabRect = fab.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const padding = 16;
+
+        const preferLeft = fabRect.left + fabRect.width / 2 > viewportWidth / 2;
+        const preferTop = fabRect.top + fabRect.height / 2 > viewportHeight / 2;
+
+        let left = preferLeft ? fabRect.right - panelRect.width : fabRect.left;
+        let top = preferTop ? fabRect.top - panelRect.height - padding : fabRect.bottom + padding;
+
+        left = clamp(left, padding, viewportWidth - panelRect.width - padding);
+        top = clamp(top, padding, viewportHeight - panelRect.height - padding);
+
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    };
+
+    const togglePanel = (shouldOpen) => {
+        if (shouldOpen) {
+            panel.classList.add('open');
+            panel.setAttribute('aria-hidden', 'false');
+            fab.setAttribute('aria-expanded', 'true');
+            positionPanel();
+            if (!bugAssistantState.config) {
+                loadBugAssistantConfig();
+            }
+        } else {
+            panel.classList.remove('open');
+            panel.setAttribute('aria-hidden', 'true');
+            fab.setAttribute('aria-expanded', 'false');
+        }
+    };
+
+    initBugAssistantDrag({
+        wrapper,
+        fab,
+        panel,
+        dragState,
+        onPositionChange: positionPanel
+    });
+
+    fab.addEventListener('click', (event) => {
+        if (dragState.moved) {
+            dragState.moved = false;
+            return;
+        }
+        event.stopPropagation();
+        togglePanel(!panel.classList.contains('open'));
+    });
+
+    closeBtn?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePanel(false);
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!panel.contains(event.target) && event.target !== fab && panel.classList.contains('open')) {
+            togglePanel(false);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && panel.classList.contains('open')) {
+            togglePanel(false);
+            fab.focus();
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        positionPanel();
+    });
+
+    panel.addEventListener('paste', (event) => {
+        handleBugAttachmentPaste(event, panel);
+    });
+
+    form?.addEventListener('submit', submitBugAssistantForm);
+    attachmentInput?.addEventListener('change', handleBugAttachmentInput);
+    clearAttachmentsBtn?.addEventListener('click', clearBugAttachments);
+    resetFormBtn?.addEventListener('click', () => clearBugAssistantForm());
+
+    loadBugAssistantConfig();
+}
+
+async function loadBugAssistantConfig() {
+    const statusCard = document.getElementById('bugAssistantStatusCard');
+    if (statusCard) {
+        statusCard.querySelector('.status-title').textContent = '初始化Bug助手';
+        statusCard.querySelector('.status-desc').textContent = '正在连接服务器...';
+        statusCard.querySelector('.status-hint').textContent = '请稍候';
+    }
+
+    try {
+        const response = await fetch('/api/bug_report/config');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        bugAssistantState.config = await response.json();
+        bugAssistantState.formInitialized = false;
+        updateBugAssistantUI();
+    } catch (error) {
+        console.error('获取Bug助手配置失败:', error);
+        bugAssistantState.config = {
+            enabled: false,
+            message: '无法连接到Bug接口，请稍后再试'
+        };
+        updateBugAssistantUI(true);
+    }
+}
+
+function updateBugAssistantUI(hasError = false) {
+    const statusCard = document.getElementById('bugAssistantStatusCard');
+    const form = document.getElementById('bugAssistantForm');
+    const submitBtn = document.getElementById('bugAssistantSubmit');
+    const attachmentInput = document.getElementById('bugAttachmentInput');
+    const clearBtn = document.getElementById('bugClearAttachments');
+    const resetBtn = document.getElementById('bugResetForm');
+    const includeLogs = document.getElementById('bugIncludeLogs');
+
+    if (!statusCard || !form) {
+        return;
+    }
+
+    const enabled = bugAssistantState.config?.enabled && !hasError;
+
+    if (enabled) {
+        statusCard.querySelector('.status-title').textContent = '服务器已连接';
+        statusCard.querySelector('.status-desc').textContent = bugAssistantState.config.message || '可直接上传截图并附带日志';
+        statusCard.querySelector('.status-hint').textContent = `Bug自助提交助手运行中，最多支持 ${bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES} 张附件`;
+    } else {
+        statusCard.querySelector('.status-title').textContent = 'Bug助手不可用';
+        statusCard.querySelector('.status-desc').textContent = bugAssistantState.config?.message || '请联系管理员检查接口配置';
+        statusCard.querySelector('.status-hint').textContent = '仍可通过其他渠道反馈问题';
+    }
+
+    form.classList.toggle('disabled', !enabled || bugAssistantState.submitting);
+    const controllableElements = form.querySelectorAll('input, textarea, select, button');
+    controllableElements.forEach((element) => {
+        element.disabled = !enabled || bugAssistantState.submitting;
+    });
+
+    if (!enabled) {
+        return;
+    }
+
+    populateBugAssistantSelect('bugSeverity', bugAssistantState.config.severityOptions);
+    populateBugAssistantSelect('bugPriority', bugAssistantState.config.priorityOptions);
+    populateBugAssistantSelect('bugType', bugAssistantState.config.typeOptions);
+
+    if (!bugAssistantState.formInitialized) {
+        document.getElementById('bugAssistantTitle').value = '';
+        document.getElementById('bugSteps').value = '';
+        document.getElementById('bugDescription').value = '';
+        document.getElementById('bugEnvironment').value = '';
+        document.getElementById('bugBuild').value = bugAssistantState.config.defaultBuild || '';
+        includeLogs.checked = true;
+        bugAssistantState.uploadedFiles = [];
+        bugAssistantState.pastedFiles = [];
+        bugAssistantState.formInitialized = true;
+    }
+
+    renderBugAttachmentList();
+    renderBugLogPreview(bugAssistantState.config.logPreview);
+    submitBtn.textContent = bugAssistantState.submitting ? '提交中...' : '提交到服务器';
+    if (attachmentInput) attachmentInput.value = '';
+    if (clearBtn) clearBtn.disabled = bugAssistantState.submitting;
+    if (resetBtn) resetBtn.disabled = bugAssistantState.submitting;
+}
+
+function populateBugAssistantSelect(selectId, options = []) {
+    const select = document.getElementById(selectId);
+    if (!select || !options.length) {
+        return;
+    }
+    select.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+}
+
+function renderBugLogPreview(previewList = []) {
+    const container = document.getElementById('bugLogPreview');
+    if (!container) {
+        return;
+    }
+
+    if (!previewList || !previewList.length) {
+        container.innerHTML = '<p class="muted-text">未找到可附带的日志。可以在运行目录下创建 astrbot.log。</p>';
+        return;
+    }
+
+    const cards = previewList.map((log) => {
+        const safePreview = escapeHtml(log.preview || '').slice(-1200);
+        return `
+            <div class="log-card">
+                <h5>${log.path}（${formatBytes(log.size)}）</h5>
+                <pre>${safePreview}</pre>
+            </div>
+        `;
+    });
+
+    container.innerHTML = cards.join('');
+}
+
+function handleBugAttachmentInput(event) {
+    if (!bugAssistantState.config?.enabled) {
+        return;
+    }
+    const files = Array.from(event.target.files || []);
+    const maxImages = bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES;
+    const maxBytes = bugAssistantState.config.maxImageBytes || BUG_DEFAULT_MAX_IMAGE_BYTES;
+    const existingCount = bugAssistantState.pastedFiles.length;
+    const availableSlots = Math.max(maxImages - existingCount, 0);
+
+    if (!availableSlots) {
+        showToast('附件数量已达上限', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    const sanitized = [];
+    for (const file of files.slice(0, availableSlots)) {
+        if (file.size > maxBytes) {
+            showToast(`附件 ${file.name} 超过大小限制`, 'error');
+            continue;
+        }
+        sanitized.push(file);
+    }
+
+    bugAssistantState.uploadedFiles = sanitized;
+    renderBugAttachmentList();
+}
+
+function handleBugAttachmentPaste(event, panel) {
+    if (!panel.classList.contains('open') || !bugAssistantState.config?.enabled) {
+        return;
+    }
+    const clipboardItems = event.clipboardData?.items || [];
+    const maxImages = bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES;
+    const maxBytes = bugAssistantState.config.maxImageBytes || BUG_DEFAULT_MAX_IMAGE_BYTES;
+    let added = false;
+
+    for (const item of clipboardItems) {
+        if (item.kind !== 'file' || !item.type.startsWith('image/')) {
+            continue;
+        }
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const totalCount = bugAssistantState.uploadedFiles.length + bugAssistantState.pastedFiles.length;
+        if (totalCount >= maxImages) {
+            showToast('附件数量已达上限', 'error');
+            break;
+        }
+        if (file.size > maxBytes) {
+            showToast('粘贴的图片超过大小限制', 'error');
+            continue;
+        }
+        bugAssistantState.pastedFiles.push(file);
+        added = true;
+    }
+
+    if (added) {
+        event.preventDefault();
+        renderBugAttachmentList();
+        showToast('已添加粘贴的截图', 'success');
+    }
+}
+
+function renderBugAttachmentList() {
+    const container = document.getElementById('bugAttachmentList');
+    if (!container) return;
+
+    const allFiles = [
+        ...bugAssistantState.uploadedFiles.map((file, index) => ({ file, index, type: 'upload' })),
+        ...bugAssistantState.pastedFiles.map((file, index) => ({ file, index, type: 'paste' }))
+    ];
+
+    if (!allFiles.length) {
+        container.innerHTML = '<p class="muted-text">当前没有附件。</p>';
+        return;
+    }
+
+    const chips = allFiles.map((item) => `
+        <div class="attachment-chip">
+            <span class="material-icons" aria-hidden="true">insert_photo</span>
+            <span>${item.file.name || (item.type === 'paste' ? '粘贴截图' : '附件')}</span>
+            <span class="muted-text">${formatBytes(item.file.size)}</span>
+            <button type="button" aria-label="移除附件" onclick="removeBugAttachment('${item.type}', ${item.index})">
+                <span class="material-icons">close</span>
+            </button>
+        </div>
+    `);
+
+    container.innerHTML = chips.join('');
+}
+
+function removeBugAttachment(type, index) {
+    if (type === 'upload') {
+        bugAssistantState.uploadedFiles.splice(index, 1);
+        const input = document.getElementById('bugAttachmentInput');
+        if (input) input.value = '';
+    } else {
+        bugAssistantState.pastedFiles.splice(index, 1);
+    }
+    renderBugAttachmentList();
+}
+
+function clearBugAttachments() {
+    bugAssistantState.uploadedFiles = [];
+    bugAssistantState.pastedFiles = [];
+    const input = document.getElementById('bugAttachmentInput');
+    if (input) input.value = '';
+    renderBugAttachmentList();
+}
+
+function clearBugAssistantForm(resetDefaults = false) {
+    const form = document.getElementById('bugAssistantForm');
+    if (!form) return;
+
+    form.reset();
+    bugAssistantState.uploadedFiles = [];
+    bugAssistantState.pastedFiles = [];
+
+    if (resetDefaults && bugAssistantState.config) {
+        document.getElementById('bugBuild').value = bugAssistantState.config.defaultBuild || '';
+        document.getElementById('bugIncludeLogs').checked = true;
+    }
+
+    renderBugAttachmentList();
+}
+
+async function submitBugAssistantForm(event) {
+    event.preventDefault();
+    if (!bugAssistantState.config?.enabled || bugAssistantState.submitting) {
+        return;
+    }
+
+    const title = document.getElementById('bugAssistantTitle').value.trim();
+    const build = document.getElementById('bugBuild').value.trim();
+    const steps = document.getElementById('bugSteps').value.trim();
+    const description = document.getElementById('bugDescription').value.trim();
+    const environment = document.getElementById('bugEnvironment').value.trim();
+    const severity = document.getElementById('bugSeverity').value;
+    const priority = document.getElementById('bugPriority').value;
+    const bugType = document.getElementById('bugType').value;
+    const includeLogs = document.getElementById('bugIncludeLogs').checked;
+
+    if (!title) {
+        showToast('请填写问题标题', 'error');
+        return;
+    }
+
+    bugAssistantState.submitting = true;
+    updateBugAssistantUI();
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('build', build || '');
+    formData.append('steps', steps);
+    formData.append('description', description);
+    formData.append('environment', environment);
+    formData.append('severity', severity);
+    formData.append('priority', priority);
+    formData.append('bugType', bugType);
+    formData.append('includeLogs', includeLogs ? 'true' : 'false');
+
+    [...bugAssistantState.uploadedFiles, ...bugAssistantState.pastedFiles].forEach((file, index) => {
+        const safeName = file.name || `attachment_${index + 1}.png`;
+        formData.append('attachments', file, safeName);
+    });
+
+    try {
+        const response = await fetch('/api/bug_report', {
+            method: 'POST',
+            body: formData
+        });
+
+        const text = await response.text();
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch {
+            result = { error: text };
+        }
+        if (response.ok && result.success) {
+            showToast(result.message || 'Bug提交成功', 'success');
+            clearBugAssistantForm(true);
+        } else {
+            showToast(result.error || 'Bug提交失败', 'error');
+        }
+    } catch (error) {
+        console.error('Bug提交失败:', error);
+        showToast('Bug提交失败，请检查网络后重试', 'error');
+    } finally {
+        bugAssistantState.submitting = false;
+        updateBugAssistantUI();
+    }
+}
+
+function initBugAssistantDrag({ wrapper, fab, panel, dragState, onPositionChange }) {
+    if (!wrapper || !fab) {
+        return;
+    }
+
+    const ensureAbsolutePosition = () => {
+        if (!wrapper.dataset.dragInitialized) {
+            const rect = wrapper.getBoundingClientRect();
+            wrapper.style.left = `${rect.left}px`;
+            wrapper.style.top = `${rect.top}px`;
+            wrapper.style.right = 'auto';
+            wrapper.style.bottom = 'auto';
+            wrapper.dataset.dragInitialized = 'true';
+        }
+    };
+
+    const handlePointerDown = (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) {
+            return;
+        }
+        ensureAbsolutePosition();
+        dragState.isDragging = true;
+        dragState.moved = false;
+        dragState.pointerId = event.pointerId;
+        dragState.startX = event.clientX;
+        dragState.startY = event.clientY;
+        const rect = wrapper.getBoundingClientRect();
+        dragState.startLeft = rect.left;
+        dragState.startTop = rect.top;
+        dragState.wrapperWidth = rect.width;
+        dragState.wrapperHeight = rect.height;
+        wrapper.classList.add('dragging');
+        fab.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+    };
+
+    const handlePointerMove = (event) => {
+        if (!dragState.isDragging || (dragState.pointerId !== null && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+
+        const dx = event.clientX - dragState.startX;
+        const dy = event.clientY - dragState.startY;
+
+        if (!dragState.moved && Math.hypot(dx, dy) > 4) {
+            dragState.moved = true;
+        }
+
+        let newLeft = dragState.startLeft + dx;
+        let newTop = dragState.startTop + dy;
+        const maxLeft = window.innerWidth - dragState.wrapperWidth - 12;
+        const maxTop = window.innerHeight - dragState.wrapperHeight - 12;
+
+        newLeft = clamp(newLeft, 12, maxLeft);
+        newTop = clamp(newTop, 12, maxTop);
+
+        wrapper.style.left = `${newLeft}px`;
+        wrapper.style.top = `${newTop}px`;
+        wrapper.style.right = 'auto';
+        wrapper.style.bottom = 'auto';
+
+        if (panel.classList.contains('open')) {
+            onPositionChange();
+        }
+
+        event.preventDefault();
+    };
+
+    const handlePointerUp = (event) => {
+        if (!dragState.isDragging || (dragState.pointerId !== null && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+        dragState.isDragging = false;
+        dragState.pointerId = null;
+        wrapper.classList.remove('dragging');
+        fab.releasePointerCapture?.(event.pointerId);
+        if (panel.classList.contains('open')) {
+            onPositionChange();
+        }
+    };
+
+    fab.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
+// 监听搜索输入框的回车事件
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('jargon-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                searchJargon();
+            }
+        });
+    }
+
+    initBugAssistantWidget();
+});
+
+console.log('✅ 黑话学习系统集成完成');

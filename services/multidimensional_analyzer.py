@@ -169,9 +169,9 @@ class MultidimensionalAnalyzer:
                 
                 # 查询最近活跃的用户
                 await cursor.execute('''
-                    SELECT DISTINCT group_id, sender_id, sender_name, COUNT(*) as msg_count
-                    FROM raw_messages 
-                    WHERE timestamp > ? 
+                    SELECT group_id, sender_id, MAX(sender_name) as sender_name, COUNT(*) as msg_count
+                    FROM raw_messages
+                    WHERE timestamp > ?
                     GROUP BY group_id, sender_id
                     HAVING msg_count >= 5
                     ORDER BY msg_count DESC

@@ -12,10 +12,18 @@ from datetime import datetime
 from astrbot.api import logger
 
 from ..config import PluginConfig
-
+from ..constants import UPDATE_TYPE_EXPRESSION_LEARNING
 from ..exceptions import DataStorageError
 
 from ..core.patterns import AsyncServiceBase
+
+# 导入数据库后端
+from ..core.database import (
+    DatabaseFactory,
+    DatabaseConfig,
+    DatabaseType,
+    IDatabaseBackend
+)
 
 
 class DatabaseConnectionPool:
@@ -136,54 +144,127 @@ class DatabaseConnectionPool:
 
 
 class DatabaseManager(AsyncServiceBase):
-    """数据库管理器 - 使用连接池管理数据库连接"""
-    
+    """数据库管理器 - 使用连接池管理数据库连接，支持SQLite和MySQL"""
+
     def __init__(self, config: PluginConfig, context=None):
         super().__init__("database_manager")
         self.config = config
         self.context = context
         self.group_db_connections: Dict[str, aiosqlite.Connection] = {}
-        
+
         # 安全地构建路径
         if not config.data_dir:
             raise ValueError("config.data_dir 不能为空")
-        
+
         self.group_data_dir = os.path.join(config.data_dir, "group_databases")
         self.messages_db_path = config.messages_db_path
-        
-        # 初始化连接池
+
+        # 新增: 数据库后端（支持SQLite和MySQL）
+        self.db_backend: Optional[IDatabaseBackend] = None
+
+        # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
         self.connection_pool = DatabaseConnectionPool(
             db_path=self.messages_db_path,
-            max_connections=15,  # 增加最大连接数
-            min_connections=3    # 增加最小连接数
+            max_connections=config.max_connections,
+            min_connections=config.min_connections
         )
-        
+
         # 确保数据目录存在
         os.makedirs(self.group_data_dir, exist_ok=True)
-        
-        self._logger.info("数据库管理器初始化完成（使用连接池）")
+
+        self._logger.info(f"数据库管理器初始化完成 (类型: {config.db_type})")
 
     async def _do_start(self) -> bool:
         """启动服务时初始化连接池和数据库"""
         try:
-            # 初始化连接池
+            # 1. 创建数据库后端
+            backend_success = await self._initialize_database_backend()
+
+            # 2. 如果数据库后端初始化失败，尝试回退到SQLite
+            if not backend_success or not self.db_backend:
+                self._logger.warning(
+                    f"数据库后端初始化失败，回退到SQLite"
+                )
+                # 强制使用SQLite配置
+                fallback_config = DatabaseConfig(
+                    db_type=DatabaseType.SQLITE,
+                    sqlite_path=self.messages_db_path,
+                    max_connections=self.config.max_connections,
+                    min_connections=self.config.min_connections
+                )
+                self.db_backend = DatabaseFactory.create_backend(fallback_config)
+                if self.db_backend:
+                    await self.db_backend.initialize()
+                    self._logger.info("已成功回退到SQLite数据库")
+
+            # 3. 初始化旧的连接池（仅用于group数据库，暂时保留）
             await self.connection_pool.initialize()
             self._logger.info("数据库连接池初始化成功")
-            
-            # 初始化数据库表结构
+
+            # 4. 初始化数据库表结构（如果表不存在则自动创建）
             await self._init_messages_database()
             self._logger.info("全局消息数据库初始化成功")
-            
+
             return True
         except Exception as e:
             self._logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
             return False
 
+    async def _initialize_database_backend(self) -> bool:
+        """初始化数据库后端"""
+        try:
+            # 构建数据库配置
+            db_type = DatabaseType(self.config.db_type.lower())
+
+            if db_type == DatabaseType.SQLITE:
+                db_config = DatabaseConfig(
+                    db_type=DatabaseType.SQLITE,
+                    sqlite_path=self.messages_db_path,
+                    max_connections=self.config.max_connections,
+                    min_connections=self.config.min_connections
+                )
+            elif db_type == DatabaseType.MYSQL:
+                db_config = DatabaseConfig(
+                    db_type=DatabaseType.MYSQL,
+                    mysql_host=self.config.mysql_host,
+                    mysql_port=self.config.mysql_port,
+                    mysql_user=self.config.mysql_user,
+                    mysql_password=self.config.mysql_password,
+                    mysql_database=self.config.mysql_database,
+                    max_connections=self.config.max_connections,
+                    min_connections=self.config.min_connections
+                )
+            else:
+                raise ValueError(f"不支持的数据库类型: {self.config.db_type}")
+
+            # 使用工厂创建后端
+            self.db_backend = DatabaseFactory.create_backend(db_config)
+            if not self.db_backend:
+                raise Exception("创建数据库后端失败")
+
+            # 初始化后端
+            success = await self.db_backend.initialize()
+            if not success:
+                raise Exception("数据库后端初始化失败")
+
+            self._logger.info(f"数据库后端初始化成功: {self.config.db_type}")
+            return True
+
+        except Exception as e:
+            self._logger.error(f"初始化数据库后端失败: {e}", exc_info=True)
+            return False
+
     async def _do_stop(self) -> bool:
         """停止服务时关闭所有数据库连接"""
         try:
+            # 关闭数据库后端
+            if self.db_backend:
+                await self.db_backend.close()
+
+            # 关闭旧的连接池
             await self.close_all_connections()
             await self.connection_pool.close_all()
+
             self._logger.info("所有数据库连接已关闭")
             return True
         except Exception as e:
@@ -191,8 +272,20 @@ class DatabaseManager(AsyncServiceBase):
             return False
 
     def get_db_connection(self):
-        """获取数据库连接的上下文管理器"""
-        class ConnectionManager:
+        """
+        获取数据库连接的上下文管理器
+        根据配置的数据库类型，自动选择SQLite或MySQL后端
+        """
+        # 如果使用MySQL且db_backend可用，使用MySQL后端
+        if self.config.db_type.lower() == 'mysql' and self.db_backend:
+            return self._get_mysql_connection_manager()
+        else:
+            # 使用旧的SQLite连接池
+            return self._get_sqlite_connection_manager()
+
+    def _get_sqlite_connection_manager(self):
+        """获取SQLite连接管理器"""
+        class SQLiteConnectionManager:
             def __init__(self, pool: DatabaseConnectionPool):
                 self.pool = pool
                 self.connection = None
@@ -205,8 +298,211 @@ class DatabaseManager(AsyncServiceBase):
                 if self.connection:
                     await self.pool.return_connection(self.connection)
 
-        return ConnectionManager(self.connection_pool)
-    
+        return SQLiteConnectionManager(self.connection_pool)
+
+    def _get_mysql_connection_manager(self):
+        """获取MySQL连接管理器 - 适配aiosqlite接口"""
+        db_backend = self.db_backend
+
+        class MySQLConnectionAdapter:
+            """MySQL连接适配器 - 模拟aiosqlite接口"""
+            def __init__(self, backend):
+                self.backend = backend
+                self._cursor = None
+
+            async def cursor(self):
+                """返回游标适配器"""
+                return MySQLCursorAdapter(self.backend)
+
+            async def commit(self):
+                """提交事务 - MySQL后端在execute中已自动提交"""
+                pass
+
+            async def rollback(self):
+                """回滚事务"""
+                await self.backend.rollback()
+
+            async def execute(self, sql, params=None):
+                """执行SQL"""
+                return await self.backend.execute(sql, params)
+
+            async def executemany(self, sql, params_list):
+                """批量执行SQL"""
+                return await self.backend.execute_many(sql, params_list)
+
+            async def fetchone(self):
+                """获取单行"""
+                return await self._cursor.fetchone() if self._cursor else None
+
+            async def fetchall(self):
+                """获取所有行"""
+                return await self._cursor.fetchall() if self._cursor else []
+
+        class MySQLCursorAdapter:
+            """MySQL游标适配器"""
+            def __init__(self, backend):
+                self.backend = backend
+                self._last_result = None
+                self.lastrowid = None
+                self.rowcount = 0
+
+            async def execute(self, sql, params=None):
+                """执行SQL并存储结果"""
+                import re
+
+                # 检测是SELECT查询还是其他操作
+                sql_upper = sql.strip().upper()
+
+                # 对于 CREATE TABLE 和 ALTER TABLE，需要特殊处理（避免与 strftime('%s') 冲突）
+                if sql_upper.startswith('CREATE TABLE') or sql_upper.startswith('ALTER TABLE'):
+                    # 转换 SQLite 特有语法为 MySQL
+                    converted_sql = sql
+                    # INTEGER PRIMARY KEY AUTOINCREMENT -> INT PRIMARY KEY AUTO_INCREMENT
+                    converted_sql = re.sub(r'\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b',
+                                          'INT PRIMARY KEY AUTO_INCREMENT',
+                                          converted_sql, flags=re.IGNORECASE)
+                    # REAL -> DOUBLE
+                    converted_sql = re.sub(r'\bREAL\b', 'DOUBLE', converted_sql, flags=re.IGNORECASE)
+                    # strftime('%s', 'now') -> UNIX_TIMESTAMP()
+                    converted_sql = re.sub(r"strftime\s*\(\s*'%s'\s*,\s*'now'\s*\)",
+                                          'UNIX_TIMESTAMP()',
+                                          converted_sql, flags=re.IGNORECASE)
+                    # 执行 DDL（不需要参数）
+                    await self.backend.execute(converted_sql, None)
+                    self._last_result = []
+                    self.rowcount = 0
+                    return self
+
+                # 转换参数占位符 ? -> %s（仅对非 DDL 语句）
+                converted_sql = sql.replace('?', '%s')
+
+                # 确保 params 是 tuple 类型（MySQL 需要 tuple）
+                if params is not None:
+                    if isinstance(params, list):
+                        params = tuple(params)
+                    elif not isinstance(params, tuple):
+                        params = (params,)
+
+                # 处理 sqlite_master 查询 - 转换为 MySQL 的 INFORMATION_SCHEMA
+                if 'SQLITE_MASTER' in sql_upper:
+                    # 提取表名（支持多种格式）
+                    # 格式1: name='table_name'
+                    # 格式2: name="table_name"
+                    table_match = re.search(r"NAME\s*=\s*['\"]?(\w+)['\"]?", sql_upper)
+                    if table_match:
+                        table_name = table_match.group(1).lower()
+                        # 查询 MySQL 的 INFORMATION_SCHEMA 来检查表是否存在
+                        check_sql = """
+                            SELECT TABLE_NAME as name
+                            FROM INFORMATION_SCHEMA.TABLES
+                            WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = %s
+                        """
+                        self._last_result = await self.backend.fetch_all(check_sql, (table_name,))
+                        self.rowcount = len(self._last_result) if self._last_result else 0
+                        return self
+                    else:
+                        # 无法解析，返回空结果
+                        self._last_result = []
+                        self.rowcount = 0
+                        return self
+
+                # 处理 PRAGMA table_info 查询 - 转换为 MySQL 的 DESCRIBE
+                if sql_upper.startswith('PRAGMA'):
+                    pragma_match = re.search(r'PRAGMA\s+TABLE_INFO\s*\(\s*(\w+)\s*\)', sql_upper)
+                    if pragma_match:
+                        table_name = pragma_match.group(1)
+                        # MySQL DESCRIBE 返回: Field, Type, Null, Key, Default, Extra
+                        # SQLite PRAGMA table_info 返回: cid, name, type, notnull, dflt_value, pk
+                        # 转换格式以兼容
+                        describe_sql = f"DESCRIBE {table_name}"
+                        try:
+                            mysql_result = await self.backend.fetch_all(describe_sql, None)
+                            # 转换为 SQLite PRAGMA table_info 格式
+                            # (cid, name, type, notnull, dflt_value, pk)
+                            self._last_result = []
+                            for idx, row in enumerate(mysql_result or []):
+                                field_name = row[0]  # Field
+                                field_type = row[1]  # Type
+                                is_nullable = 0 if row[2] == 'NO' else 1  # Null
+                                default_value = row[4]  # Default
+                                is_pk = 1 if row[3] == 'PRI' else 0  # Key
+                                self._last_result.append((idx, field_name, field_type, 1 - is_nullable, default_value, is_pk))
+                            self.rowcount = len(self._last_result)
+                        except Exception:
+                            self._last_result = []
+                            self.rowcount = 0
+                        return self
+                    else:
+                        # 其他PRAGMA命令，返回空结果
+                        self._last_result = []
+                        self.rowcount = 0
+                        return self
+
+                if sql_upper.startswith('SELECT'):
+                    self._last_result = await self.backend.fetch_all(converted_sql, params)
+                    self.rowcount = len(self._last_result) if self._last_result else 0
+                else:
+                    # INSERT/UPDATE/DELETE
+                    self.rowcount = await self.backend.execute(converted_sql, params)
+                    # 尝试获取lastrowid（对于INSERT操作）
+                    if sql_upper.startswith('INSERT'):
+                        try:
+                            result = await self.backend.fetch_one("SELECT LAST_INSERT_ID()")
+                            self.lastrowid = result[0] if result else None
+                        except Exception:
+                            self.lastrowid = None
+                return self
+
+            async def executemany(self, sql, params_list):
+                """批量执行SQL"""
+                converted_sql = sql.replace('?', '%s')
+                self.rowcount = await self.backend.execute_many(converted_sql, params_list)
+                return self
+
+            async def fetchone(self):
+                """获取单行结果"""
+                if self._last_result and len(self._last_result) > 0:
+                    return self._last_result[0]
+                return None
+
+            async def fetchall(self):
+                """获取所有结果"""
+                return self._last_result if self._last_result else []
+
+            def __aiter__(self):
+                """支持异步迭代"""
+                self._iter_index = 0
+                return self
+
+            async def __anext__(self):
+                """异步迭代"""
+                if not self._last_result or self._iter_index >= len(self._last_result):
+                    raise StopAsyncIteration
+                result = self._last_result[self._iter_index]
+                self._iter_index += 1
+                return result
+
+            async def close(self):
+                """关闭游标（MySQL后端使用连接池，无需实际关闭）"""
+                self._last_result = None
+                self.lastrowid = None
+                self.rowcount = 0
+
+        class MySQLConnectionManager:
+            def __init__(self, backend):
+                self.backend = backend
+                self.adapter = None
+
+            async def __aenter__(self):
+                self.adapter = MySQLConnectionAdapter(self.backend)
+                return self.adapter
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                # MySQL后端使用连接池，无需手动关闭
+                pass
+
+        return MySQLConnectionManager(db_backend)
+
     def get_connection(self):
         """
         获取数据库连接的同步接口，用于兼容旧代码
@@ -266,11 +562,363 @@ class DatabaseManager(AsyncServiceBase):
 
     async def _init_messages_database(self):
         """
-        初始化全局消息数据库（使用连接池）
+        初始化全局消息数据库（根据数据库类型选择后端）
         """
-        async with self.get_db_connection() as conn:
-            await self._init_messages_database_tables(conn)
-            self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
+        # 如果使用MySQL后端，使用db_backend初始化表
+        if self.db_backend and self.config.db_type.lower() == 'mysql':
+            await self._init_messages_database_mysql()
+            self._logger.info("MySQL数据库表初始化完成。")
+        else:
+            # 使用旧的SQLite连接池
+            async with self.get_db_connection() as conn:
+                await self._init_messages_database_tables(conn)
+                self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
+
+    async def _init_messages_database_mysql(self):
+        """使用MySQL后端初始化数据库表"""
+        try:
+            # 创建原始消息表
+            self._logger.info("尝试创建 raw_messages 表 (MySQL)...")
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS raw_messages (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    sender_id VARCHAR(255) NOT NULL,
+                    sender_name VARCHAR(255),
+                    message TEXT NOT NULL,
+                    group_id VARCHAR(255),
+                    platform VARCHAR(50),
+                    timestamp DOUBLE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    processed TINYINT(1) DEFAULT 0,
+                    INDEX idx_timestamp (timestamp),
+                    INDEX idx_sender (sender_id),
+                    INDEX idx_processed (processed),
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+            self._logger.info("raw_messages 表创建/检查完成。")
+
+            # 创建Bot消息表
+            self._logger.info("尝试创建 bot_messages 表 (MySQL)...")
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS bot_messages (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    user_id VARCHAR(255),
+                    message TEXT NOT NULL,
+                    response_to_message_id INT,
+                    context_type VARCHAR(100),
+                    temperature DOUBLE,
+                    language_style VARCHAR(100),
+                    response_pattern VARCHAR(255),
+                    timestamp DOUBLE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+            self._logger.info("bot_messages 表创建/检查完成。")
+
+            # 创建筛选后消息表
+            self._logger.info("尝试创建 filtered_messages 表 (MySQL)...")
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS filtered_messages (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    raw_message_id INT,
+                    message TEXT NOT NULL,
+                    sender_id VARCHAR(255),
+                    group_id VARCHAR(255),
+                    confidence DOUBLE,
+                    filter_reason TEXT,
+                    timestamp DOUBLE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    used_for_learning TINYINT(1) DEFAULT 0,
+                    quality_scores TEXT,
+                    refined TINYINT(1) DEFAULT 0,
+                    INDEX idx_confidence (confidence),
+                    INDEX idx_used (used_for_learning),
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+            self._logger.info("filtered_messages 表创建/检查完成。")
+
+            # 创建学习批次表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS learning_batches (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    start_time DOUBLE NOT NULL,
+                    end_time DOUBLE,
+                    quality_score DOUBLE DEFAULT 0.5,
+                    processed_messages INT DEFAULT 0,
+                    batch_name VARCHAR(255) UNIQUE,
+                    message_count INT,
+                    filtered_count INT,
+                    success TINYINT(1),
+                    error_message TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建人格更新记录表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS persona_update_records (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    timestamp DOUBLE NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    update_type VARCHAR(100) NOT NULL,
+                    original_content TEXT,
+                    new_content TEXT NOT NULL,
+                    reason TEXT,
+                    status VARCHAR(50) DEFAULT 'pending',
+                    reviewer_comment TEXT,
+                    review_time DOUBLE,
+                    INDEX idx_status (status),
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建强化学习结果表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS reinforcement_learning_results (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    replay_analysis TEXT,
+                    optimization_strategy TEXT,
+                    reinforcement_feedback TEXT,
+                    next_action TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建策略优化结果表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS strategy_optimization_results (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    exploration_type VARCHAR(100),
+                    effectiveness_score DOUBLE,
+                    new_strategy TEXT,
+                    rollback_reason TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建学习性能历史表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS learning_performance_history (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    session_id VARCHAR(255),
+                    timestamp DOUBLE NOT NULL,
+                    quality_score DOUBLE,
+                    learning_time DOUBLE,
+                    success TINYINT(1),
+                    successful_pattern TEXT,
+                    failed_pattern TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id),
+                    INDEX idx_session (session_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建LLM调用统计表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS llm_call_statistics (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    call_type VARCHAR(100) NOT NULL,
+                    provider VARCHAR(100),
+                    model VARCHAR(100),
+                    input_tokens INT DEFAULT 0,
+                    output_tokens INT DEFAULT 0,
+                    total_tokens INT DEFAULT 0,
+                    latency_ms DOUBLE,
+                    success TINYINT(1) DEFAULT 1,
+                    error_message TEXT,
+                    group_id VARCHAR(255),
+                    timestamp DOUBLE NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_call_type (call_type),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建黑话表（与 SQLite 版本结构一致）
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS jargon (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    content TEXT NOT NULL,
+                    raw_content TEXT,
+                    meaning TEXT,
+                    is_jargon TINYINT(1),
+                    count INT DEFAULT 1,
+                    last_inference_count INT DEFAULT 0,
+                    is_complete TINYINT(1) DEFAULT 0,
+                    is_global TINYINT(1) DEFAULT 0,
+                    chat_id VARCHAR(255) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_chat_content (chat_id, content(255)),
+                    INDEX idx_content (content(255)),
+                    INDEX idx_chat_id (chat_id),
+                    INDEX idx_is_jargon (is_jargon)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建社交关系表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS social_relations (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    user_id VARCHAR(255) NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    relation_type VARCHAR(100),
+                    affection_score DOUBLE DEFAULT 0,
+                    interaction_count INT DEFAULT 0,
+                    last_interaction DOUBLE,
+                    metadata TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_user_group (user_id, group_id),
+                    INDEX idx_group (group_id),
+                    INDEX idx_affection (affection_score)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建表达模式表（与 expression_pattern_learner.py 中的 SQLite 结构一致）
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS expression_patterns (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    situation TEXT NOT NULL,
+                    expression TEXT NOT NULL,
+                    weight DOUBLE NOT NULL DEFAULT 1.0,
+                    last_active_time DOUBLE NOT NULL,
+                    create_time DOUBLE NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    UNIQUE KEY uk_situation_expression_group (situation(255), expression(255), group_id),
+                    INDEX idx_group (group_id),
+                    INDEX idx_weight (weight)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建语言风格模式表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS language_style_patterns (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    style_name VARCHAR(100) NOT NULL,
+                    style_description TEXT,
+                    examples TEXT,
+                    frequency INT DEFAULT 1,
+                    source_group VARCHAR(255),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_style (style_name)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建话题摘要表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS topic_summaries (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    topic VARCHAR(255) NOT NULL,
+                    summary TEXT,
+                    message_count INT DEFAULT 0,
+                    start_time DOUBLE,
+                    end_time DOUBLE,
+                    keywords TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id),
+                    INDEX idx_topic (topic)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建风格学习记录表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS style_learning_records (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    style_type VARCHAR(100),
+                    learned_content TEXT,
+                    confidence DOUBLE DEFAULT 0.5,
+                    source_messages TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group (group_id),
+                    INDEX idx_style (style_type)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建风格学习审核表（与 SQLite 版本的 _ensure_style_review_table_exists 结构一致）
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS style_learning_reviews (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    type VARCHAR(100) NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    learned_patterns TEXT,
+                    few_shots_content TEXT,
+                    status VARCHAR(50) DEFAULT 'pending',
+                    description TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_status (status),
+                    INDEX idx_group (group_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建人格融合历史表
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS persona_fusion_history (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    base_persona_hash BIGINT,
+                    incremental_hash BIGINT,
+                    fusion_result TEXT,
+                    compatibility_score DOUBLE,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_group_id (group_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            # 创建人格更新审核表（与 SQLite 版本结构一致）
+            await self.db_backend.execute('''
+                CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    timestamp DOUBLE NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    update_type VARCHAR(100) NOT NULL,
+                    original_content TEXT,
+                    new_content TEXT,
+                    proposed_content TEXT,
+                    confidence_score DOUBLE,
+                    reason TEXT,
+                    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                    reviewer_comment TEXT,
+                    review_time DOUBLE,
+                    metadata TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_status (status),
+                    INDEX idx_group (group_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+
+            self._logger.info("所有MySQL表创建完成")
+
+        except Exception as e:
+            self._logger.error(f"MySQL表初始化失败: {e}", exc_info=True)
+            raise
 
     async def _init_messages_database_tables(self, conn: aiosqlite.Connection):
         """初始化全局消息SQLite数据库的表结构"""
@@ -536,6 +1184,32 @@ class DatabaseManager(AsyncServiceBase):
             # 为话题总结表创建索引
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_topic_summaries_group ON topic_summaries(group_id)')
             await cursor.execute('CREATE INDEX IF NOT EXISTS idx_topic_summaries_time ON topic_summaries(generated_at)')
+
+            # 创建黑话学习表
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS jargon (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    content TEXT NOT NULL,
+                    raw_content TEXT DEFAULT '[]',
+                    meaning TEXT,
+                    is_jargon BOOLEAN,
+                    count INTEGER DEFAULT 1,
+                    last_inference_count INTEGER DEFAULT 0,
+                    is_complete BOOLEAN DEFAULT 0,
+                    is_global BOOLEAN DEFAULT 0,
+                    chat_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(chat_id, content)
+                )
+            ''')
+
+            # 为黑话表创建索引
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_jargon_content ON jargon(content)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_jargon_chat_id ON jargon(chat_id)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_jargon_is_jargon ON jargon(is_jargon)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_jargon_count ON jargon(count)')
+            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_jargon_updated_at ON jargon(updated_at)')
 
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
@@ -3607,170 +4281,148 @@ class DatabaseManager(AsyncServiceBase):
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
-            # 确保审查表存在
-            await self._ensure_style_review_table_exists(cursor)
-            
-            # 插入审查记录
-            await cursor.execute('''
-                INSERT INTO style_learning_reviews 
-                (type, group_id, timestamp, learned_patterns, few_shots_content, status, description)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                review_data['type'],
-                review_data['group_id'],
-                review_data['timestamp'],
-                json.dumps(review_data['learned_patterns'], ensure_ascii=False),
-                review_data['few_shots_content'],
-                review_data['status'],
-                review_data['description']
-            ))
-            
-            review_id = cursor.lastrowid
-            await conn.commit()
-            
-            self._logger.info(f"创建风格学习审查记录成功，ID: {review_id}")
-            return review_id
-            
+
+                # 确保审查表存在
+                await self._ensure_style_review_table_exists(cursor)
+
+                # 插入审查记录
+                await cursor.execute('''
+                    INSERT INTO style_learning_reviews
+                    (type, group_id, timestamp, learned_patterns, few_shots_content, status, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    review_data['type'],
+                    review_data['group_id'],
+                    review_data['timestamp'],
+                    json.dumps(review_data['learned_patterns'], ensure_ascii=False),
+                    review_data['few_shots_content'],
+                    review_data['status'],
+                    review_data['description']
+                ))
+
+                review_id = cursor.lastrowid
+                await conn.commit()
+
+                self._logger.info(f"创建风格学习审查记录成功，ID: {review_id}")
+                return review_id
+
         except Exception as e:
             self._logger.error(f"创建风格学习审查记录失败: {e}")
             raise DataStorageError(f"创建风格学习审查记录失败: {str(e)}")
 
     async def _ensure_style_review_table_exists(self, cursor):
         """确保风格学习审查表存在"""
-        await cursor.execute('''
-            CREATE TABLE IF NOT EXISTS style_learning_reviews (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                group_id TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                learned_patterns TEXT,  -- JSON格式存储学习到的模式
-                few_shots_content TEXT,  -- Few shots对话内容
-                status TEXT DEFAULT 'pending',  -- pending, approved, rejected
-                description TEXT,
-                created_at REAL DEFAULT (strftime('%s', 'now')),
-                updated_at REAL DEFAULT (strftime('%s', 'now'))
-            )
-        ''')
-
-    async def get_pending_style_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """获取待审查的风格学习记录"""
-        try:
-            async with self.get_db_connection() as conn:
-                cursor = await conn.cursor()
-            
-            # 确保表存在
-            await self._ensure_style_review_table_exists(cursor)
-            
+        # 根据数据库类型选择不同的 DDL
+        if self.config.db_type.lower() == 'mysql':
             await cursor.execute('''
-                SELECT id, type, group_id, timestamp, learned_patterns, few_shots_content, 
-                       status, description, created_at
-                FROM style_learning_reviews
-                WHERE status = 'pending'
-                ORDER BY timestamp DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            reviews = []
-            for row in await cursor.fetchall():
-                learned_patterns = []
-                try:
-                    if row[4]:  # learned_patterns
-                        learned_patterns = json.loads(row[4])
-                except json.JSONDecodeError:
-                    pass
-                    
-                reviews.append({
-                    'id': row[0],
-                    'type': row[1],
-                    'group_id': row[2],
-                    'timestamp': row[3],
-                    'learned_patterns': learned_patterns,
-                    'few_shots_content': row[5],
-                    'status': row[6],
-                    'description': row[7],
-                    'created_at': row[8]
-                })
-            
-            return reviews
-            
-        except Exception as e:
-            self._logger.error(f"获取待审查风格学习记录失败: {e}")
-            return []
+                CREATE TABLE IF NOT EXISTS style_learning_reviews (
+                    id INT PRIMARY KEY AUTO_INCREMENT,
+                    type VARCHAR(100) NOT NULL,
+                    group_id VARCHAR(255) NOT NULL,
+                    timestamp DOUBLE NOT NULL,
+                    learned_patterns TEXT,
+                    few_shots_content TEXT,
+                    status VARCHAR(50) DEFAULT 'pending',
+                    description TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    INDEX idx_status (status),
+                    INDEX idx_group (group_id),
+                    INDEX idx_timestamp (timestamp)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            ''')
+        else:
+            await cursor.execute('''
+                CREATE TABLE IF NOT EXISTS style_learning_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    type TEXT NOT NULL,
+                    group_id TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    learned_patterns TEXT,
+                    few_shots_content TEXT,
+                    status TEXT DEFAULT 'pending',
+                    description TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+    # 注意：get_pending_style_reviews 方法已在上面定义（约1456行），这里删除重复定义
+    # 第一个版本是正确的，第二个版本有async with缩进bug
 
     async def get_pending_persona_learning_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取待审查的人格学习记录（质量不达标的学习结果）"""
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
-            # 确保表存在（使用统一的结构）
-            await cursor.execute('''
-                CREATE TABLE IF NOT EXISTS persona_update_reviews (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    group_id TEXT NOT NULL,
-                    update_type TEXT NOT NULL,
-                    original_content TEXT,
-                    new_content TEXT,
-                    proposed_content TEXT, -- 建议的新内容（兼容字段）
-                    confidence_score REAL, -- 置信度得分
-                    reason TEXT,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    reviewer_comment TEXT,
-                    review_time REAL
-                )
-            ''')
-            
-            # 尝试添加metadata列（如果表已存在但没有此列）
-            try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
-            except:
-                pass  # 列已存在
 
-            await cursor.execute('''
-                SELECT id, timestamp, group_id, update_type, original_content,
-                       new_content, proposed_content, confidence_score, reason, status,
-                       reviewer_comment, review_time, metadata
-                FROM persona_update_reviews
-                WHERE status = 'pending'
-                ORDER BY timestamp DESC
-                LIMIT ?
-            ''', (limit,))
+                # 确保表存在（使用统一的结构）
+                await cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        group_id TEXT NOT NULL,
+                        update_type TEXT NOT NULL,
+                        original_content TEXT,
+                        new_content TEXT,
+                        proposed_content TEXT, -- 建议的新内容（兼容字段）
+                        confidence_score REAL, -- 置信度得分
+                        reason TEXT,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        reviewer_comment TEXT,
+                        review_time REAL
+                    )
+                ''')
 
-            reviews = []
-            import json
-            for row in await cursor.fetchall():
-                # 确保有proposed_content字段，如果为空则使用new_content
-                proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
-                confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
+                # 尝试添加metadata列（如果表已存在但没有此列）
+                try:
+                    await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
+                except:
+                    pass  # 列已存在
 
-                # 解析metadata JSON
-                metadata = {}
-                if row[12]:  # metadata字段
-                    try:
-                        metadata = json.loads(row[12])
-                    except:
-                        metadata = {}
+                await cursor.execute('''
+                    SELECT id, timestamp, group_id, update_type, original_content,
+                           new_content, proposed_content, confidence_score, reason, status,
+                           reviewer_comment, review_time, metadata
+                    FROM persona_update_reviews
+                    WHERE status = 'pending'
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                ''', (limit,))
 
-                reviews.append({
-                    'id': row[0],
-                    'timestamp': row[1],
-                    'group_id': row[2],
-                    'update_type': row[3],
-                    'original_content': row[4],
-                    'new_content': row[5],
-                    'proposed_content': proposed_content,
-                    'confidence_score': confidence_score,
-                    'reason': row[8],
-                    'status': row[9],
-                    'reviewer_comment': row[10],
-                    'review_time': row[11],
-                    'metadata': metadata  # 添加metadata字段
-                })
-            
-            return reviews
-            
+                reviews = []
+                import json
+                for row in await cursor.fetchall():
+                    # 确保有proposed_content字段，如果为空则使用new_content
+                    proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
+                    confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
+
+                    # 解析metadata JSON
+                    metadata = {}
+                    if row[12]:  # metadata字段
+                        try:
+                            metadata = json.loads(row[12])
+                        except:
+                            metadata = {}
+
+                    reviews.append({
+                        'id': row[0],
+                        'timestamp': row[1],
+                        'group_id': row[2],
+                        'update_type': row[3],
+                        'original_content': row[4],
+                        'new_content': row[5],
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': row[8],
+                        'status': row[9],
+                        'reviewer_comment': row[10],
+                        'review_time': row[11],
+                        'metadata': metadata  # 添加metadata字段
+                    })
+
+                return reviews
+
         except Exception as e:
             self._logger.error(f"获取待审查人格学习记录失败: {e}")
             return []
@@ -3780,49 +4432,49 @@ class DatabaseManager(AsyncServiceBase):
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
-            # 如果有修改后的内容，也要更新proposed_content字段
-            if modified_content:
-                await cursor.execute('''
-                    UPDATE persona_update_reviews
-                    SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
-                    WHERE id = ?
-                ''', (status, comment, time.time(), modified_content, modified_content, review_id))
-            else:
-                await cursor.execute('''
-                    UPDATE persona_update_reviews
-                    SET status = ?, reviewer_comment = ?, review_time = ?
-                    WHERE id = ?
-                ''', (status, comment, time.time(), review_id))
-            
-            await conn.commit()
-            return cursor.rowcount > 0
-            
+
+                # 如果有修改后的内容，也要更新proposed_content字段
+                if modified_content:
+                    await cursor.execute('''
+                        UPDATE persona_update_reviews
+                        SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
+                        WHERE id = ?
+                    ''', (status, comment, time.time(), modified_content, modified_content, review_id))
+                else:
+                    await cursor.execute('''
+                        UPDATE persona_update_reviews
+                        SET status = ?, reviewer_comment = ?, review_time = ?
+                        WHERE id = ?
+                    ''', (status, comment, time.time(), review_id))
+
+                await conn.commit()
+                return cursor.rowcount > 0
+
         except Exception as e:
             self._logger.error(f"更新人格学习审查状态失败: {e}")
             return False
-    
+
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         """删除指定ID的人格学习审查记录"""
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
-            # 删除审查记录
-            await cursor.execute('''
-                DELETE FROM persona_update_reviews WHERE id = ?
-            ''', (review_id,))
-            
-            await conn.commit()
-            deleted_count = cursor.rowcount
-            
-            if deleted_count > 0:
-                self._logger.info(f"成功删除人格学习审查记录，ID: {review_id}")
-                return True
-            else:
-                self._logger.warning(f"未找到要删除的人格学习审查记录，ID: {review_id}")
-                return False
-            
+
+                # 删除审查记录
+                await cursor.execute('''
+                    DELETE FROM persona_update_reviews WHERE id = ?
+                ''', (review_id,))
+
+                await conn.commit()
+                deleted_count = cursor.rowcount
+
+                if deleted_count > 0:
+                    self._logger.info(f"成功删除人格学习审查记录，ID: {review_id}")
+                    return True
+                else:
+                    self._logger.warning(f"未找到要删除的人格学习审查记录，ID: {review_id}")
+                    return False
+
         except Exception as e:
             self._logger.error(f"删除人格学习审查记录失败: {e}")
             return False
@@ -4145,20 +4797,20 @@ class DatabaseManager(AsyncServiceBase):
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-            await cursor.execute('''
-                UPDATE style_learning_reviews
-                SET status = ?, updated_at = ?
-                WHERE id = ?
-            ''', (status, time.time(), review_id))
+                await cursor.execute('''
+                    UPDATE style_learning_reviews
+                    SET status = ?, updated_at = ?
+                    WHERE id = ?
+                ''', (status, time.time(), review_id))
 
-            await conn.commit()
+                await conn.commit()
 
-            if cursor.rowcount > 0:
-                self._logger.info(f"更新风格学习审查状态成功: ID={review_id}, 状态={status}")
-                return True
-            else:
-                self._logger.warning(f"更新风格学习审查状态失败: 未找到ID={review_id}的记录")
-                return False
+                if cursor.rowcount > 0:
+                    self._logger.info(f"更新风格学习审查状态成功: ID={review_id}, 状态={status}")
+                    return True
+                else:
+                    self._logger.warning(f"更新风格学习审查状态失败: 未找到ID={review_id}的记录")
+                    return False
 
         except Exception as e:
             self._logger.error(f"更新风格学习审查状态失败: {e}")
@@ -4478,20 +5130,24 @@ class DatabaseManager(AsyncServiceBase):
         self,
         group_id: str,
         proposed_content: str,
-        learning_source: str = "expression_learning",
+        learning_source: str = UPDATE_TYPE_EXPRESSION_LEARNING,  # ✅ 使用常量作为默认值
         confidence_score: float = 0.5,
         raw_analysis: str = "",
-        metadata: Dict[str, Any] = None
+        metadata: Dict[str, Any] = None,
+        original_content: str = "",  # ✅ 新增：原人格完整文本
+        new_content: str = ""  # ✅ 新增：新人格完整文本（原人格+增量）
     ) -> int:
         """添加人格学习审查记录
 
         Args:
             group_id: 群组ID
-            proposed_content: 建议的人格内容
+            proposed_content: 建议的增量人格内容
             learning_source: 学习来源
             confidence_score: 置信度分数
             raw_analysis: 原始分析结果
             metadata: 元数据(包含features_content, llm_response, sample counts等)
+            original_content: 原人格完整文本（用于前端显示对比）
+            new_content: 新人格完整文本（原人格+增量，用于前端高亮显示）
 
         Returns:
             插入记录的ID
@@ -4500,59 +5156,86 @@ class DatabaseManager(AsyncServiceBase):
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-            # 确保表存在并添加metadata列
-            await cursor.execute('''
-                CREATE TABLE IF NOT EXISTS persona_update_reviews (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp REAL NOT NULL,
-                    group_id TEXT NOT NULL,
-                    update_type TEXT NOT NULL,
-                    original_content TEXT,
-                    new_content TEXT,
-                    proposed_content TEXT,
-                    confidence_score REAL,
-                    reason TEXT,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    reviewer_comment TEXT,
-                    review_time REAL,
-                    metadata TEXT
-                )
-            ''')
+                # 确保表存在并添加metadata列
+                # 根据数据库类型使用不同的DDL
+                if self.config.db_type.lower() == 'mysql':
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                            id INT PRIMARY KEY AUTO_INCREMENT,
+                            timestamp DOUBLE NOT NULL,
+                            group_id VARCHAR(255) NOT NULL,
+                            update_type VARCHAR(100) NOT NULL,
+                            original_content TEXT,
+                            new_content TEXT,
+                            proposed_content TEXT,
+                            confidence_score DOUBLE,
+                            reason TEXT,
+                            status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                            reviewer_comment TEXT,
+                            review_time DOUBLE,
+                            metadata JSON,
+                            INDEX idx_group_id (group_id),
+                            INDEX idx_status (status),
+                            INDEX idx_timestamp (timestamp)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    ''')
+                else:
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp REAL NOT NULL,
+                            group_id TEXT NOT NULL,
+                            update_type TEXT NOT NULL,
+                            original_content TEXT,
+                            new_content TEXT,
+                            proposed_content TEXT,
+                            confidence_score REAL,
+                            reason TEXT,
+                            status TEXT NOT NULL DEFAULT 'pending',
+                            reviewer_comment TEXT,
+                            review_time REAL,
+                            metadata TEXT
+                        )
+                    ''')
 
-            # 尝试添加metadata列（如果表已存在但没有此列）
-            try:
-                await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
-            except:
-                pass  # 列已存在
+                # 尝试添加metadata列（如果表已存在但没有此列）
+                try:
+                    await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
+                except:
+                    pass  # 列已存在
 
-            # 准备元数据JSON
-            import json
-            metadata_json = json.dumps(metadata if metadata else {}, ensure_ascii=False)
+                # 准备元数据JSON
+                import json
+                metadata_json = json.dumps(metadata if metadata else {}, ensure_ascii=False)
 
-            # 插入记录
-            await cursor.execute('''
-                INSERT INTO persona_update_reviews
-                (timestamp, group_id, update_type, original_content, new_content,
-                 proposed_content, confidence_score, reason, status, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                time.time(),
-                group_id,
-                learning_source,  # update_type就是learning_source
-                "",  # original_content暂时为空
-                proposed_content,  # new_content
-                proposed_content,  # proposed_content
-                confidence_score,
-                raw_analysis,  # reason字段存储raw_analysis
-                'pending',
-                metadata_json
-            ))
+                # ✅ 修复：使用传入的 original_content 和 new_content
+                # 如果 new_content 为空，则使用 proposed_content（向后兼容）
+                final_new_content = new_content if new_content else proposed_content
 
-            await conn.commit()
-            record_id = cursor.lastrowid
+                # 插入记录
+                await cursor.execute('''
+                    INSERT INTO persona_update_reviews
+                    (timestamp, group_id, update_type, original_content, new_content,
+                     proposed_content, confidence_score, reason, status, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    time.time(),
+                    group_id,
+                    learning_source,  # update_type就是learning_source
+                    original_content,  # ✅ 使用传入的原人格文本
+                    final_new_content,  # ✅ 使用完整的新人格文本
+                    proposed_content,  # proposed_content保持为增量部分
+                    confidence_score,
+                    raw_analysis,  # reason字段存储raw_analysis
+                    'pending',
+                    metadata_json
+                ))
 
-            self._logger.info(f"添加人格学习审查记录成功，ID: {record_id}, 群组: {group_id}")
-            return record_id
+                await conn.commit()
+                record_id = cursor.lastrowid
+
+                self._logger.info(f"添加人格学习审查记录成功，ID: {record_id}, 群组: {group_id}")
+                return record_id
 
         except Exception as e:
             self._logger.error(f"添加人格学习审查记录失败: {e}")
@@ -4921,12 +5604,12 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
-    async def get_recent_week_expression_patterns(self, group_id: str, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
+    async def get_recent_week_expression_patterns(self, group_id: str = None, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
         """
         获取最近指定小时内学习到的表达模式（按质量分数和时间排序）
 
         Args:
-            group_id: 群组ID
+            group_id: 群组ID，如果为None则获取全局所有群组的表达模式
             limit: 获取数量限制
             hours: 时间范围(小时)，默认168小时(一周)
 
@@ -4940,13 +5623,25 @@ class DatabaseManager(AsyncServiceBase):
                 # 计算时间阈值
                 time_threshold = time.time() - (hours * 3600)
 
-                await cursor.execute('''
-                    SELECT situation, expression, weight, last_active_time, create_time
-                    FROM expression_patterns
-                    WHERE group_id = ? AND last_active_time > ?
-                    ORDER BY weight DESC, last_active_time DESC
-                    LIMIT ?
-                ''', (group_id, time_threshold, limit))
+                # 根据group_id是否为None决定查询条件
+                if group_id is None:
+                    # 全局查询：从所有群组获取表达模式
+                    await cursor.execute('''
+                        SELECT situation, expression, weight, last_active_time, create_time, group_id
+                        FROM expression_patterns
+                        WHERE last_active_time > ?
+                        ORDER BY weight DESC, last_active_time DESC
+                        LIMIT ?
+                    ''', (time_threshold, limit))
+                else:
+                    # 单群组查询：只获取指定群组的表达模式
+                    await cursor.execute('''
+                        SELECT situation, expression, weight, last_active_time, create_time, group_id
+                        FROM expression_patterns
+                        WHERE group_id = ? AND last_active_time > ?
+                        ORDER BY weight DESC, last_active_time DESC
+                        LIMIT ?
+                    ''', (group_id, time_threshold, limit))
 
                 patterns = []
                 for row in await cursor.fetchall():
@@ -4955,7 +5650,8 @@ class DatabaseManager(AsyncServiceBase):
                         'expression': row[1],  # 表达方式
                         'weight': row[2],  # 权重
                         'last_active_time': row[3],  # 最后活跃时间
-                        'create_time': row[4]  # 创建时间
+                        'create_time': row[4],  # 创建时间
+                        'group_id': row[5] if len(row) > 5 else group_id  # 群组ID（全局查询时有用）
                     })
 
                 return patterns
@@ -5125,6 +5821,576 @@ class DatabaseManager(AsyncServiceBase):
             except aiosqlite.Error as e:
                 self._logger.error(f"获取Bot消息统计失败: {e}", exc_info=True)
                 return {}
+            finally:
+                await cursor.close()
+
+    # ========== 黑话学习系统数据库操作方法 ==========
+
+    async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
+        """
+        查询指定黑话
+
+        Args:
+            chat_id: 群组ID
+            content: 黑话词条
+
+        Returns:
+            黑话记录字典或None
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT id, content, raw_content, meaning, is_jargon, count,
+                           last_inference_count, is_complete, is_global, chat_id,
+                           created_at, updated_at
+                    FROM jargon
+                    WHERE chat_id = ? AND content = ?
+                ''', (chat_id, content))
+
+                row = await cursor.fetchone()
+                if not row:
+                    return None
+
+                return {
+                    'id': row[0],
+                    'content': row[1],
+                    'raw_content': row[2],
+                    'meaning': row[3],
+                    'is_jargon': bool(row[4]) if row[4] is not None else None,
+                    'count': row[5],
+                    'last_inference_count': row[6],
+                    'is_complete': bool(row[7]),
+                    'is_global': bool(row[8]),
+                    'chat_id': row[9],
+                    'created_at': row[10],
+                    'updated_at': row[11]
+                }
+
+            except aiosqlite.Error as e:
+                logger.error(f"查询黑话失败: {e}", exc_info=True)
+                return None
+            finally:
+                await cursor.close()
+
+    async def insert_jargon(self, jargon: Dict[str, Any]) -> int:
+        """
+        插入新的黑话记录
+
+        Args:
+            jargon: 黑话数据字典
+
+        Returns:
+            插入记录的ID
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    INSERT INTO jargon
+                    (content, raw_content, meaning, is_jargon, count, last_inference_count,
+                     is_complete, is_global, chat_id, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    jargon.get('content'),
+                    jargon.get('raw_content', '[]'),
+                    jargon.get('meaning'),
+                    jargon.get('is_jargon'),
+                    jargon.get('count', 1),
+                    jargon.get('last_inference_count', 0),
+                    jargon.get('is_complete', False),
+                    jargon.get('is_global', False),
+                    jargon.get('chat_id'),
+                    jargon.get('created_at'),
+                    jargon.get('updated_at')
+                ))
+
+                jargon_id = cursor.lastrowid
+                await conn.commit()
+                logger.debug(f"插入黑话记录成功, ID: {jargon_id}")
+                return jargon_id
+
+            except aiosqlite.Error as e:
+                logger.error(f"插入黑话失败: {e}", exc_info=True)
+                raise
+            finally:
+                await cursor.close()
+
+    async def update_jargon(self, jargon: Dict[str, Any]) -> bool:
+        """
+        更新现有黑话记录
+
+        Args:
+            jargon: 黑话数据字典(必须包含id)
+
+        Returns:
+            是否成功更新
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    UPDATE jargon
+                    SET content = ?, raw_content = ?, meaning = ?, is_jargon = ?,
+                        count = ?, last_inference_count = ?, is_complete = ?,
+                        is_global = ?, updated_at = ?
+                    WHERE id = ?
+                ''', (
+                    jargon.get('content'),
+                    jargon.get('raw_content'),
+                    jargon.get('meaning'),
+                    jargon.get('is_jargon'),
+                    jargon.get('count'),
+                    jargon.get('last_inference_count'),
+                    jargon.get('is_complete'),
+                    jargon.get('is_global'),
+                    jargon.get('updated_at'),
+                    jargon.get('id')
+                ))
+
+                await conn.commit()
+                logger.debug(f"更新黑话记录成功, ID: {jargon.get('id')}")
+                return cursor.rowcount > 0
+
+            except aiosqlite.Error as e:
+                logger.error(f"更新黑话失败: {e}", exc_info=True)
+                return False
+            finally:
+                await cursor.close()
+
+    async def search_jargon(
+        self,
+        keyword: str,
+        chat_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """
+        搜索黑话(用于LLM工具调用)
+
+        Args:
+            keyword: 搜索关键词
+            chat_id: 群组ID (None表示搜索全局黑话)
+            limit: 返回结果数量限制
+
+        Returns:
+            黑话记录列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 根据数据库类型选择占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                if chat_id:
+                    # 搜索指定群组的黑话
+                    query = f'''
+                        SELECT id, content, meaning, is_jargon, count, is_complete
+                        FROM jargon
+                        WHERE chat_id = {placeholder} AND content LIKE {placeholder} AND is_jargon = 1
+                        ORDER BY count DESC, updated_at DESC
+                        LIMIT {placeholder}
+                    '''
+                    await cursor.execute(query, (chat_id, f'%{keyword}%', limit))
+                else:
+                    # 搜索全局黑话
+                    query = f'''
+                        SELECT id, content, meaning, is_jargon, count, is_complete
+                        FROM jargon
+                        WHERE content LIKE {placeholder} AND is_jargon = 1 AND is_global = 1
+                        ORDER BY count DESC, updated_at DESC
+                        LIMIT {placeholder}
+                    '''
+                    await cursor.execute(query, (f'%{keyword}%', limit))
+
+                results = []
+                for row in await cursor.fetchall():
+                    results.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'meaning': row[2],
+                        'is_jargon': bool(row[3]),
+                        'count': row[4],
+                        'is_complete': bool(row[5])
+                    })
+
+                return results
+
+            except Exception as e:
+                logger.error(f"搜索黑话失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def get_jargon_statistics(self, chat_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        获取黑话学习统计信息
+
+        Args:
+            chat_id: 群组ID (None表示获取全局统计)
+
+        Returns:
+            统计信息字典
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 根据数据库类型选择占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                if chat_id:
+                    # 群组统计
+                    query = f'''
+                        SELECT
+                            COUNT(*) as total,
+                            COUNT(CASE WHEN is_jargon = 1 THEN 1 END) as confirmed_jargon,
+                            COUNT(CASE WHEN is_complete = 1 THEN 1 END) as completed,
+                            SUM(count) as total_occurrences,
+                            AVG(count) as avg_count
+                        FROM jargon
+                        WHERE chat_id = {placeholder}
+                    '''
+                    await cursor.execute(query, (chat_id,))
+                else:
+                    # 全局统计
+                    await cursor.execute('''
+                        SELECT
+                            COUNT(*) as total,
+                            COUNT(CASE WHEN is_jargon = 1 THEN 1 END) as confirmed_jargon,
+                            COUNT(CASE WHEN is_complete = 1 THEN 1 END) as completed,
+                            SUM(count) as total_occurrences,
+                            AVG(count) as avg_count,
+                            COUNT(DISTINCT chat_id) as active_groups
+                        FROM jargon
+                    ''')
+
+                row = await cursor.fetchone()
+
+                stats = {
+                    'total_candidates': row[0] or 0,
+                    'confirmed_jargon': row[1] or 0,
+                    'completed_inference': row[2] or 0,
+                    'total_occurrences': row[3] or 0,
+                    'average_count': round(row[4], 1) if row[4] else 0
+                }
+
+                if not chat_id and len(row) > 5:
+                    stats['active_groups'] = row[5] or 0
+
+                return stats
+
+            except Exception as e:
+                logger.error(f"获取黑话统计失败: {e}", exc_info=True)
+                return {
+                    'total_candidates': 0,
+                    'confirmed_jargon': 0,
+                    'completed_inference': 0,
+                    'total_occurrences': 0,
+                    'average_count': 0
+                }
+            finally:
+                await cursor.close()
+
+    async def get_recent_jargon_list(
+        self,
+        chat_id: Optional[str] = None,
+        limit: int = 20,
+        only_confirmed: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        获取最近学习到的黑话列表
+
+        Args:
+            chat_id: 群组ID (None表示获取所有)
+            limit: 返回数量限制
+            only_confirmed: 是否只返回已确认的黑话
+
+        Returns:
+            黑话列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 根据数据库类型选择占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                query = '''
+                    SELECT id, content, meaning, is_jargon, count,
+                           last_inference_count, is_complete, chat_id, updated_at
+                    FROM jargon
+                    WHERE 1=1
+                '''
+                params = []
+
+                if chat_id:
+                    query += f' AND chat_id = {placeholder}'
+                    params.append(chat_id)
+
+                if only_confirmed:
+                    query += ' AND is_jargon = 1'
+
+                query += f' ORDER BY updated_at DESC LIMIT {placeholder}'
+                params.append(limit)
+
+                await cursor.execute(query, tuple(params))
+
+                jargon_list = []
+                for row in await cursor.fetchall():
+                    jargon_list.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'meaning': row[2],
+                        'is_jargon': bool(row[3]) if row[3] is not None else None,
+                        'count': row[4],
+                        'last_inference_count': row[5],
+                        'is_complete': bool(row[6]),
+                        'chat_id': row[7],
+                        'updated_at': row[8]
+                    })
+
+                return jargon_list
+
+            except Exception as e:
+                logger.error(f"获取黑话列表失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def delete_jargon_by_id(self, jargon_id: int) -> bool:
+        """
+        根据ID删除黑话记录
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            是否成功删除
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 根据数据库类型选择占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                query = f'DELETE FROM jargon WHERE id = {placeholder}'
+                await cursor.execute(query, (jargon_id,))
+                await conn.commit()
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.debug(f"删除黑话记录成功, ID: {jargon_id}")
+                return deleted
+
+            except Exception as e:
+                logger.error(f"删除黑话失败: {e}", exc_info=True)
+                return False
+            finally:
+                await cursor.close()
+
+    async def get_global_jargon_list(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        获取全局共享的黑话列表
+
+        Args:
+            limit: 返回数量限制
+
+        Returns:
+            全局黑话列表
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT id, content, meaning, is_jargon, count,
+                           last_inference_count, is_complete, is_global, chat_id, updated_at
+                    FROM jargon
+                    WHERE is_jargon = 1 AND is_global = 1
+                    ORDER BY count DESC, updated_at DESC
+                    LIMIT ?
+                ''', (limit,))
+
+                jargon_list = []
+                for row in await cursor.fetchall():
+                    jargon_list.append({
+                        'id': row[0],
+                        'content': row[1],
+                        'meaning': row[2],
+                        'is_jargon': bool(row[3]),
+                        'count': row[4],
+                        'last_inference_count': row[5],
+                        'is_complete': bool(row[6]),
+                        'is_global': bool(row[7]),
+                        'chat_id': row[8],
+                        'updated_at': row[9]
+                    })
+
+                return jargon_list
+
+            except aiosqlite.Error as e:
+                logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
+                return []
+            finally:
+                await cursor.close()
+
+    async def set_jargon_global(self, jargon_id: int, is_global: bool) -> bool:
+        """
+        设置黑话的全局共享状态
+
+        Args:
+            jargon_id: 黑话记录ID
+            is_global: 是否全局共享
+
+        Returns:
+            是否成功更新
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    UPDATE jargon
+                    SET is_global = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                ''', (is_global, jargon_id))
+
+                await conn.commit()
+                updated = cursor.rowcount > 0
+                if updated:
+                    logger.info(f"黑话全局状态已更新: ID={jargon_id}, is_global={is_global}")
+                return updated
+
+            except aiosqlite.Error as e:
+                logger.error(f"更新黑话全局状态失败: {e}", exc_info=True)
+                return False
+            finally:
+                await cursor.close()
+
+    async def sync_global_jargon_to_group(self, target_chat_id: str) -> Dict[str, Any]:
+        """
+        将全局黑话同步到指定群组
+
+        Args:
+            target_chat_id: 目标群组ID
+
+        Returns:
+            同步结果统计
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 获取全局黑话列表
+                await cursor.execute('''
+                    SELECT content, meaning, count
+                    FROM jargon
+                    WHERE is_jargon = 1 AND is_global = 1 AND chat_id != ?
+                ''', (target_chat_id,))
+
+                global_jargon = await cursor.fetchall()
+
+                synced_count = 0
+                skipped_count = 0
+
+                for content, meaning, count in global_jargon:
+                    # 检查目标群组是否已存在该黑话
+                    await cursor.execute('''
+                        SELECT id FROM jargon
+                        WHERE chat_id = ? AND content = ?
+                    ''', (target_chat_id, content))
+
+                    existing = await cursor.fetchone()
+
+                    if existing:
+                        # 已存在，跳过
+                        skipped_count += 1
+                    else:
+                        # 不存在，同步到目标群组
+                        await cursor.execute('''
+                            INSERT INTO jargon
+                            (content, raw_content, meaning, is_jargon, count, last_inference_count,
+                             is_complete, is_global, chat_id, created_at, updated_at)
+                            VALUES (?, '[]', ?, 1, 1, 0, 0, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ''', (content, meaning, target_chat_id))
+                        synced_count += 1
+
+                await conn.commit()
+
+                logger.info(f"同步全局黑话到群组 {target_chat_id}: 同步 {synced_count} 条, 跳过 {skipped_count} 条")
+
+                return {
+                    'success': True,
+                    'synced_count': synced_count,
+                    'skipped_count': skipped_count,
+                    'total_global': len(global_jargon)
+                }
+
+            except aiosqlite.Error as e:
+                logger.error(f"同步全局黑话失败: {e}", exc_info=True)
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'synced_count': 0,
+                    'skipped_count': 0
+                }
+            finally:
+                await cursor.close()
+
+    async def batch_set_jargon_global(self, jargon_ids: List[int], is_global: bool) -> Dict[str, Any]:
+        """
+        批量设置黑话的全局共享状态
+
+        Args:
+            jargon_ids: 黑话记录ID列表
+            is_global: 是否全局共享
+
+        Returns:
+            操作结果统计
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                success_count = 0
+                failed_count = 0
+
+                for jid in jargon_ids:
+                    try:
+                        await cursor.execute('''
+                            UPDATE jargon
+                            SET is_global = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ? AND is_jargon = 1
+                        ''', (is_global, jid))
+                        if cursor.rowcount > 0:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+                    except Exception:
+                        failed_count += 1
+
+                await conn.commit()
+
+                logger.info(f"批量更新黑话全局状态: 成功 {success_count}, 失败 {failed_count}")
+
+                return {
+                    'success': True,
+                    'success_count': success_count,
+                    'failed_count': failed_count
+                }
+
+            except aiosqlite.Error as e:
+                logger.error(f"批量更新黑话全局状态失败: {e}", exc_info=True)
+                return {
+                    'success': False,
+                    'error': str(e),
+                    'success_count': 0,
+                    'failed_count': len(jargon_ids)
+                }
             finally:
                 await cursor.close()
 

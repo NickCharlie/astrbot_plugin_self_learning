@@ -948,7 +948,7 @@ class ComponentFactory:
         try:
             from ..services.social_context_injector import SocialContextInjector
 
-            db_manager = self.create_database_manager()
+            db_manager = self.service_factory.create_database_manager()
 
             # 获取好感度管理器（如果已创建）
             affection_manager = self._service_cache.get("affection_manager")
