@@ -1415,6 +1415,85 @@
             </div>
         </div>
     </div>
+    <!-- Bug 自助提交浮动入口 -->
+    <div class="bug-assistant-wrapper" aria-live="polite">
+        <button class="bug-assistant-fab" id="bugAssistantFab" aria-label="Bug 自助提交助手" aria-expanded="false">
+            <span class="material-icons">bug_report</span>
+        </button>
+        <section class="bug-assistant-panel" id="bugAssistantPanel" aria-hidden="true" role="dialog" aria-label="Bug 自助提交助手">
+            <header class="bug-panel-header">
+                <div>
+                    <h4>Bug 自助提交 (Beta)</h4>
+                    <p>内置提炼模型 · 智能排查助手</p>
+                </div>
+                <button class="bug-panel-close" id="bugAssistantClose" aria-label="关闭Bug助手">
+                    <span class="material-icons">close</span>
+                </button>
+            </header>
+            <div class="bug-panel-body">
+                <div class="assistant-status-card" id="bugAssistantStatusCard">
+                    <div class="status-icon">
+                        <span class="material-icons">engineering</span>
+                    </div>
+                    <div class="status-text">
+                        <p class="status-title">初始化中...</p>
+                        <p class="status-desc">正在读取Bug接口配置</p>
+                        <p class="status-hint">自动附带日志</p>
+                    </div>
+                </div>
+                <form class="bug-form disabled" id="bugAssistantForm">
+                    <div class="form-group">
+                        <label class="form-label" for="bugAssistantTitle">问题标题</label>
+                        <input type="text" id="bugAssistantTitle" placeholder="示例：登录按钮点击无响应" disabled>
+                    </div>
+                    <div class="bug-form-grid">
+                        <div class="form-group">
+                            <label class="form-label" for="bugSeverity">严重程度</label>
+                            <select id="bugSeverity" disabled></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="bugPriority">优先级</label>
+                            <select id="bugPriority" disabled></select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="bugType">问题类型</label>
+                            <select id="bugType" disabled></select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="bugBuild">所属版本 / 构建</label>
+                        <input type="text" id="bugBuild" placeholder="例如：v2.0" disabled>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="bugSteps">复现步骤</label>
+                        <textarea id="bugSteps" placeholder="1. 打开页面；2. 点击...；3. 观察结果..." disabled></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="bugDescription">实际表现 / 预期</label>
+                        <textarea id="bugDescription" placeholder="描述实际表现以及期望行为" disabled></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="bugEnvironment">运行环境补充</label>
+                        <textarea id="bugEnvironment" placeholder="系统/浏览器、插件版本、其他有助排查的信息" disabled></textarea>
+                    </div>
+                    <label class="checkbox-row">
+                        <input type="checkbox" id="bugIncludeLogs" checked disabled>
+                        <span>自动附带 AstrBot 近期日志</span>
+                    </label>
+                    <div class="bug-form-actions">
+                        <button type="button" class="ghost-btn" id="bugResetForm" disabled>清空表单</button>
+                        <button class="primary-btn" id="bugAssistantSubmit" type="submit" disabled>提交到服务器</button>
+                    </div>
+                </form>
+                <div class="bug-log-preview" id="bugLogPreview">
+                    <p class="muted-text">正在收集日志预览...</p>
+                </div>
+            </div>
+            <footer class="bug-panel-footer">
+                <small>智能提炼描述 · 自动附带日志。</small>
+            </footer>
+        </section>
+    </div>
     <!-- Three.js库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <!-- OrbitControls -->

@@ -124,6 +124,7 @@ class PluginConfig:
     include_affection_info: bool = True  # 注入好感度信息
     include_mood_info: bool = True  # 注入Bot情绪信息
     context_injection_position: str = "start"  # 上下文注入位置: "start" 或 "end"
+    
 
     def __post_init__(self):
         """初始化后处理"""

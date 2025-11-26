@@ -3,6 +3,9 @@ import asyncio
 import json # 导入 json 模块
 import secrets
 import time
+import base64
+import urllib.request
+import urllib.error
 from datetime import datetime, timedelta
 from astrbot.api import logger
 from typing import Optional, List, Dict, Any
@@ -13,6 +16,10 @@ from quart import Quart, Blueprint, render_template, request, jsonify, current_a
 from quart_cors import cors # 导入 cors
 import hypercorn.asyncio
 from hypercorn.config import Config as HypercornConfig
+import aiohttp
+from werkzeug.utils import secure_filename
+
+from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
 from .config import PluginConfig
 from .core.factory import FactoryManager
@@ -67,6 +74,409 @@ intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智
 # 新增的变量
 pending_updates: List[Any] = []
 password_config: Dict[str, Any] = {} # 用于存储密码配置
+
+BUG_REPORT_ENABLED = True
+# 暂时禁用附件上传功能
+BUG_REPORT_ATTACHMENT_ENABLED = False  # TODO: 附件功能待修复后启用
+BUG_CLOUD_FUNCTION_URL = os.getenv(
+    "ASTRBOT_BUG_CLOUD_URL",
+    "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
+)  # 保持完整URL，不要rstrip
+BUG_CLOUD_VERIFY_CODE = os.getenv("ASTRBOT_BUG_CLOUD_VERIFY_CODE", "zentao123")
+BUG_REPORT_TIMEOUT_SECONDS = int(os.getenv("ASTRBOT_BUG_REPORT_TIMEOUT", "30"))
+BUG_REPORT_DEFAULT_BUILDS = [build.strip() for build in os.getenv("ASTRBOT_BUG_DEFAULT_BUILDS", "v2.0").split(",") if build.strip()]
+BUG_REPORT_DEFAULT_SEVERITY = 3
+BUG_REPORT_DEFAULT_PRIORITY = 3
+BUG_REPORT_DEFAULT_TYPE = "codeerror"
+BUG_REPORT_MAX_IMAGES = 1  # 云函数只支持单个附件，如需多个文件请打包为压缩包
+BUG_REPORT_MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB per image
+BUG_REPORT_MAX_LOG_BYTES = 20_000
+# 安全白名单：允许所有图片、压缩包和文档文件
+BUG_REPORT_ALLOWED_EXTENSIONS = {
+    # 所有常见图片格式
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.svg', '.ico', '.tiff', '.tif',
+    # 日志和文本
+    '.txt', '.log', '.md', '.json', '.xml', '.yaml', '.yml', '.csv',
+    # 文档格式
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.odt', '.ods', '.odp',
+    # 压缩包（用于多文件场景）
+    '.zip', '.7z', '.rar', '.tar', '.gz', '.tar.gz', '.tgz', '.bz2', '.xz'
+}
+BUG_REPORT_ALLOWED_MIMETYPES = {
+    # 所有图片MIME类型
+    'image/png', 'image/jpeg', 'image/gif', 'image/bmp', 'image/webp', 'image/svg+xml',
+    'image/x-icon', 'image/vnd.microsoft.icon', 'image/tiff',
+    # 文本
+    'text/plain', 'text/markdown', 'text/csv',
+    'application/json', 'application/xml', 'text/xml',
+    'application/x-yaml', 'text/yaml',
+    # 文档
+    'application/pdf',
+    'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.oasis.opendocument.text',
+    'application/vnd.oasis.opendocument.spreadsheet',
+    'application/vnd.oasis.opendocument.presentation',
+    # 压缩包
+    'application/zip', 'application/x-zip-compressed',
+    'application/x-7z-compressed', 'application/x-rar-compressed', 'application/vnd.rar',
+    'application/x-tar', 'application/gzip', 'application/x-gzip',
+    'application/x-bzip2', 'application/x-xz'
+}
+BUG_REPORT_SEVERITY_OPTIONS = [
+    {"value": 1, "label": "S1 - 阻断故障"},
+    {"value": 2, "label": "S2 - 重大问题"},
+    {"value": 3, "label": "S3 - 普通问题"},
+    {"value": 4, "label": "S4 - 建议优化"}
+]
+BUG_REPORT_PRIORITY_OPTIONS = [
+    {"value": 1, "label": "P1 - 紧急"},
+    {"value": 2, "label": "P2 - 高"},
+    {"value": 3, "label": "P3 - 中"},
+    {"value": 4, "label": "P4 - 低"}
+]
+BUG_REPORT_TYPE_OPTIONS = [
+    {"value": "codeerror", "label": "代码缺陷"},
+    {"value": "config", "label": "配置问题"},
+    {"value": "performance", "label": "性能问题"},
+    {"value": "security", "label": "安全问题"},
+    {"value": "others", "label": "其他"}
+]
+BUG_REPORT_LOG_CANDIDATES = [
+    "astrbot.log",
+    "astrbot_debug.log",
+    "astrbot_plugin.log",
+    "self_learning.log"
+]
+
+
+def _bug_report_available() -> bool:
+    return BUG_REPORT_ENABLED and bool(BUG_CLOUD_FUNCTION_URL and BUG_CLOUD_VERIFY_CODE)
+
+
+def _is_safe_attachment(filename: str, mimetype: str) -> tuple[bool, str]:
+    """
+    检查附件是否安全（文件类型白名单验证）
+
+    Args:
+        filename: 文件名
+        mimetype: MIME类型
+
+    Returns:
+        (is_safe, error_message): 是否安全及错误信息
+    """
+    if not filename:
+        return False, "文件名为空"
+
+    filename_lower = filename.lower()
+
+    # 处理双扩展名（如 .tar.gz）
+    ext = None
+    if filename_lower.endswith('.tar.gz'):
+        ext = '.tar.gz'
+    else:
+        _, ext = os.path.splitext(filename_lower)
+
+    # 检查扩展名
+    if ext not in BUG_REPORT_ALLOWED_EXTENSIONS:
+        allowed_exts = ', '.join(sorted(BUG_REPORT_ALLOWED_EXTENSIONS))
+        return False, f"不允许的文件类型 '{ext}'。允许的类型：{allowed_exts}"
+
+    # 检查MIME类型（如果提供）
+    if mimetype and mimetype not in BUG_REPORT_ALLOWED_MIMETYPES:
+        # 某些MIME类型可能会有变体，只要扩展名在白名单中也可以接受
+        logger.warning(f"MIME类型 '{mimetype}' 不在白名单中，但扩展名 '{ext}' 有效")
+
+    # 检查文件名中是否包含路径遍历字符
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return False, "文件名包含非法字符（路径遍历）"
+
+    return True, ""
+
+
+def _load_dashboard_http_config() -> Dict[str, Any]:
+    try:
+        data_path = get_astrbot_data_path()
+        if not data_path:
+            return {}
+        config_path = os.path.join(data_path, "cmd_config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_data = json.load(f)
+            return config_data.get("dashboard", {})
+    except Exception as exc:
+        logger.debug(f"读取dashboard配置失败: {exc}")
+    return {}
+
+
+def _fetch_dashboard_log_snapshot() -> Optional[str]:
+    try:
+        dashboard_cfg = _load_dashboard_http_config()
+        if dashboard_cfg and not dashboard_cfg.get("enable", True):
+            return None
+
+        host = dashboard_cfg.get("host", "127.0.0.1")
+        port = dashboard_cfg.get("port", 6185)
+        base_url = f"http://{host}:{port}"
+        url = f"{base_url}/api/log-history"
+
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            logs = payload.get("data", {}).get("logs") or payload.get("logs")
+            if not logs:
+                return None
+
+        target_dir = None
+        if plugin_config and getattr(plugin_config, "data_dir", None):
+            target_dir = os.path.join(plugin_config.data_dir, "bug_log_snapshots")
+        if not target_dir:
+            target_dir = os.path.join(PLUGIN_ROOT_DIR, "bug_log_snapshots")
+        os.makedirs(target_dir, exist_ok=True)
+        snapshot_path = os.path.join(target_dir, "dashboard_log_history.txt")
+
+        with open(snapshot_path, "w", encoding="utf-8") as f:
+            for entry in logs[-200:]:
+                timestamp = entry.get("time", "")
+                level = entry.get("level", "")
+                message = entry.get("data", "")
+                f.write(f"[{timestamp}] {level}: {message}\n")
+
+        return snapshot_path
+    except urllib.error.URLError as exc:
+        logger.debug(f"访问dashboard日志接口失败: {exc}")
+    except Exception as exc:
+        logger.debug(f"生成dashboard日志快照失败: {exc}")
+    return None
+
+
+def _find_log_files() -> List[str]:
+    log_paths: List[str] = []
+
+    dashboard_snapshot = _fetch_dashboard_log_snapshot()
+    if dashboard_snapshot:
+        log_paths.append(dashboard_snapshot)
+
+    candidate_dirs = []
+    if plugin_config and getattr(plugin_config, "data_dir", None):
+        candidate_dirs.append(plugin_config.data_dir)
+        candidate_dirs.append(os.path.join(plugin_config.data_dir, "logs"))
+
+    astrbot_path = get_astrbot_data_path()
+    if astrbot_path:
+        candidate_dirs.append(os.path.join(astrbot_path, "logs"))
+        candidate_dirs.append(astrbot_path)
+
+    candidate_dirs.append(os.path.join(PLUGIN_ROOT_DIR, "logs"))
+    candidate_dirs.append(PLUGIN_ROOT_DIR)
+
+    seen = set()
+    for base in candidate_dirs:
+        if not base or not os.path.exists(base):
+            continue
+        for log_name in BUG_REPORT_LOG_CANDIDATES:
+            path = os.path.abspath(os.path.join(base, log_name))
+            if os.path.exists(path) and path not in seen:
+                seen.add(path)
+                log_paths.append(path)
+    return log_paths
+
+
+def _read_log_snippet(path: str, max_bytes: int = BUG_REPORT_MAX_LOG_BYTES) -> Dict[str, Any]:
+    try:
+        size = os.path.getsize(path)
+        read_bytes = min(size, max_bytes)
+        with open(path, "rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            data = f.read(read_bytes)
+        text = data.decode("utf-8", errors="ignore")
+        preview_len = min(len(text), 800)
+        return {
+            "path": path,
+            "size": size,
+            "preview": text[-preview_len:],
+            "content": text
+        }
+    except Exception as exc:
+        logger.debug(f"读取日志失败 {path}: {exc}")
+        return {"path": path, "size": 0, "preview": "", "content": ""}
+
+
+def _collect_log_previews(limit: int = 3, include_content: bool = False) -> List[Dict[str, Any]]:
+    previews = []
+    for path in _find_log_files():
+        info = _read_log_snippet(path)
+        if not info["preview"]:
+            continue
+        if not include_content and "content" in info:
+            info.pop("content", None)
+        previews.append(info)
+        if len(previews) >= limit:
+            break
+    return previews
+
+
+def _collect_recent_logs_text() -> Optional[str]:
+    cutoff = time.time() - 86400  # 24 hours
+    log_entries = []
+    for path in _find_log_files():
+        try:
+            if os.path.getmtime(path) < cutoff:
+                continue
+            snippet = _read_log_snippet(path, BUG_REPORT_MAX_LOG_BYTES)
+            preview = snippet.get("content") or snippet.get("preview")
+            if not preview:
+                continue
+            log_entries.append(
+                f"===== {path} (last {len(preview)} chars) =====\n{preview}\n"
+            )
+        except Exception as exc:
+            logger.debug(f"收集日志文本失败 {path}: {exc}")
+            continue
+
+    if not log_entries:
+        return None
+    return "\n".join(log_entries)
+
+
+def _encode_attachment_from_bytes(filename: str, file_bytes: bytes, content_type: str) -> Dict[str, Any]:
+    """
+    从字节数据编码附件（参考测试脚本的 _encode_attachment）
+
+    Args:
+        filename: 文件名
+        file_bytes: 文件字节数据
+        content_type: MIME类型
+
+    Returns:
+        编码后的附件字典
+    """
+    # 如果无法确定MIME类型，根据扩展名手动设置（参考测试脚本）
+    mime_type = content_type
+    if not mime_type:
+        filename_lower = filename.lower()
+        # 处理 .tar.gz 双扩展名
+        if filename_lower.endswith('.tar.gz'):
+            mime_type = 'application/gzip'
+        else:
+            ext = os.path.splitext(filename_lower)[1]
+            mime_type_map = {
+                # 图片
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.bmp': 'image/bmp',
+                '.webp': 'image/webp',
+                '.svg': 'image/svg+xml',
+                '.ico': 'image/x-icon',
+                '.tiff': 'image/tiff',
+                '.tif': 'image/tiff',
+                # 文本
+                '.txt': 'text/plain',
+                '.log': 'text/plain',
+                '.md': 'text/markdown',
+                '.json': 'application/json',
+                '.xml': 'application/xml',
+                '.yaml': 'application/x-yaml',
+                '.yml': 'application/x-yaml',
+                '.csv': 'text/csv',
+                # 文档
+                '.pdf': 'application/pdf',
+                '.doc': 'application/msword',
+                '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                '.xls': 'application/vnd.ms-excel',
+                '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                '.ppt': 'application/vnd.ms-powerpoint',
+                '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                # 压缩包
+                '.zip': 'application/zip',
+                '.rar': 'application/x-rar-compressed',
+                '.7z': 'application/x-7z-compressed',
+                '.tar': 'application/x-tar',
+                '.gz': 'application/gzip',
+                '.tgz': 'application/gzip',
+                '.bz2': 'application/x-bzip2',
+                '.xz': 'application/x-xz',
+            }
+            mime_type = mime_type_map.get(ext, "application/octet-stream")
+
+    # Base64 编码
+    encoded = base64.b64encode(file_bytes).decode("ascii")
+
+    # 返回格式：与测试脚本完全一致
+    return {
+        "name": filename,
+        "type": mime_type,
+        "data": f"data:{mime_type};base64,{encoded}",
+    }
+
+
+async def _send_bug_report(
+    bug_fields: Dict[str, Any],
+    attachment_dict: Optional[Dict[str, Any]]
+) -> Dict[str, Any]:
+    """
+    发送Bug报告到服务器（完全参考测试脚本的 send_bug 函数）
+
+    Args:
+        bug_fields: Bug字段字典
+        attachment_dict: 单个附件字典（可选）
+
+    Returns:
+        结果字典 {"success": bool, "message": str, "data": dict}
+    """
+    if not BUG_CLOUD_FUNCTION_URL:
+        return {"success": False, "message": "服务器地址未配置"}
+
+    # 构建payload - 与测试脚本完全一致
+    payload: Dict[str, Any] = {
+        "verifyCode": BUG_CLOUD_VERIFY_CODE,
+        "bugData": bug_fields,
+    }
+
+    # 单个附件 - 使用 "attachment" 字段（单数）
+    if attachment_dict:
+        payload["attachment"] = attachment_dict
+        logger.info(f"Payload包含附件: name={attachment_dict.get('name')}, type={attachment_dict.get('type')}")
+
+    logger.info(f"发送Bug到服务器: {BUG_CLOUD_FUNCTION_URL}")
+    logger.debug(f"Payload keys: {list(payload.keys())}, bugData keys: {list(bug_fields.keys())}")
+
+    timeout = aiohttp.ClientTimeout(total=BUG_REPORT_TIMEOUT_SECONDS)
+
+    try:
+        # 参考测试脚本：显式设置 Content-Type 并手动序列化 JSON
+        headers = {"Content-Type": "application/json"}
+        payload_json = json.dumps(payload, ensure_ascii=False)
+
+        logger.debug(f"发送的JSON长度: {len(payload_json)} 字节")
+
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(BUG_CLOUD_FUNCTION_URL, data=payload_json, headers=headers) as resp:
+                text = await resp.text()
+                logger.info(f"服务器响应: status={resp.status}, text_length={len(text)}")
+
+                if resp.status in (200, 201):
+                    try:
+                        data = await resp.json()
+                        logger.info(f"Bug提交成功: {data}")
+                        return {"success": True, "data": data}
+                    except Exception as e:
+                        logger.warning(f"解析响应JSON失败: {e}, 使用原始文本")
+                        return {"success": True, "data": {"raw": text}}
+                else:
+                    logger.error(f"Bug提交失败: status={resp.status}, response={text[:500]}")
+                    return {
+                        "success": False,
+                        "status": resp.status,
+                        "message": text[:2000]
+                    }
+    except Exception as e:
+        logger.error(f"发送Bug请求异常: {e}", exc_info=True)
+        return {"success": False, "message": f"请求异常: {str(e)}"}
 
 # 学习内容缓存
 _style_learning_content_cache: Optional[Dict[str, Any]] = None
@@ -468,6 +878,167 @@ async def update_plugin_config():
         # TODO: 保存配置到文件
         return jsonify({"message": "Config updated successfully", "new_config": asdict(plugin_config)})
     return jsonify({"error": "Plugin config not initialized"}), 500
+
+
+@api_bp.route("/bug_report/config", methods=["GET"])
+@require_auth
+async def get_bug_report_config():
+    """获取Bug自助提交配置与日志预览"""
+    enabled = _bug_report_available()
+    log_preview = _collect_log_previews()
+    return jsonify({
+        "enabled": enabled,
+        "cloudFunctionUrl": BUG_CLOUD_FUNCTION_URL,
+        "severityOptions": BUG_REPORT_SEVERITY_OPTIONS,
+        "priorityOptions": BUG_REPORT_PRIORITY_OPTIONS,
+        "typeOptions": BUG_REPORT_TYPE_OPTIONS,
+        "defaultBuild": BUG_REPORT_DEFAULT_BUILDS[0] if BUG_REPORT_DEFAULT_BUILDS else "",
+        "maxImages": 0 if not BUG_REPORT_ATTACHMENT_ENABLED else BUG_REPORT_MAX_IMAGES,  # 禁用附件时为0
+        "maxImageBytes": BUG_REPORT_MAX_IMAGE_BYTES,
+        "allowedExtensions": sorted(list(BUG_REPORT_ALLOWED_EXTENSIONS)) if BUG_REPORT_ATTACHMENT_ENABLED else [],
+        "attachmentEnabled": BUG_REPORT_ATTACHMENT_ENABLED,  # 新增：告诉前端是否启用附件
+        "logPreview": log_preview,
+        "message": "Bug自助提交通过云函数转发（暂不支持附件上传）" if enabled else "Bug自助提交功能暂不可用，请联系管理员"
+    })
+
+
+@api_bp.route("/bug_report", methods=["POST"])
+@require_auth
+async def submit_bug_report():
+    """提交Bug到禅道接口"""
+    if not _bug_report_available():
+        return jsonify({"error": "Bug提交未配置或已禁用"}), 400
+
+    try:
+        form = await request.form
+        files = await request.files
+    except Exception as exc:
+        logger.error(f"解析Bug提交数据失败: {exc}")
+        return jsonify({"error": "提交内容解析失败"}), 400
+
+    title = (form.get("title") or "").strip() or "未命名问题"
+    severity = int(form.get("severity") or BUG_REPORT_DEFAULT_SEVERITY)
+    priority = int(form.get("priority") or BUG_REPORT_DEFAULT_PRIORITY)
+    bug_type = (form.get("bugType") or BUG_REPORT_DEFAULT_TYPE).strip()
+    build = (form.get("build") or (BUG_REPORT_DEFAULT_BUILDS[0] if BUG_REPORT_DEFAULT_BUILDS else "unknown")).strip()
+    steps = (form.get("steps") or "").strip()
+    description = (form.get("description") or "").strip()
+    environment = (form.get("environment") or "").strip()
+    include_logs = (form.get("includeLogs") or "true").lower() in ("1", "true", "yes", "on")
+
+    request_meta = f"IP: {request.remote_addr or 'unknown'}\nUser-Agent: {request.headers.get('User-Agent', 'unknown')}"
+    full_description = description or "（未提供描述）"
+    if environment:
+        full_description += f"\n\n【运行环境】\n{environment}"
+    full_description += f"\n\n【请求元信息】\n{request_meta}"
+
+    bug_fields = {
+        "title": title,
+        "severity": severity,
+        "pri": priority,
+        "type": bug_type,
+        "openedBuild": [build],
+        "steps": steps or "暂无明确的复现步骤",
+        "description": full_description,
+        "openedBy": "astrbot_plugin_self_learning"
+    }
+
+    raw_attachments: List[Dict[str, Any]] = []
+
+    # 处理上传的文件
+    # 检查附件功能是否启用
+    if files and files.getlist("attachments") and not BUG_REPORT_ATTACHMENT_ENABLED:
+        return jsonify({"error": "附件上传功能暂时不可用，请稍后再试"}), 400
+
+    upload_list = files.getlist("attachments") if files else []
+    for file_storage in upload_list:
+        if not file_storage:
+            continue
+
+        original_filename = file_storage.filename or f"screenshot_{int(time.time())}.png"
+        filename = secure_filename(original_filename)
+        mimetype = file_storage.mimetype or ""
+
+        # 安全检查：验证文件类型
+        is_safe, error_msg = _is_safe_attachment(filename, mimetype)
+        if not is_safe:
+            logger.warning(f"拒绝不安全的附件上传: {filename}, 原因: {error_msg}")
+            return jsonify({"error": f"附件安全检查失败: {error_msg}"}), 400
+
+        file_bytes = await file_storage.read()
+        if not file_bytes:
+            continue
+        if len(file_bytes) > BUG_REPORT_MAX_IMAGE_BYTES:
+            return jsonify({"error": f"单个附件不能超过 {BUG_REPORT_MAX_IMAGE_BYTES // (1024 * 1024)}MB"}), 400
+        raw_attachments.append({
+            "filename": filename or "screenshot.png",
+            "content_type": file_storage.mimetype or "image/png",
+            "data": file_bytes
+        })
+        if len(raw_attachments) >= BUG_REPORT_MAX_IMAGES:
+            break
+
+    try:
+        # 自动附带日志摘要到描述中
+        if include_logs:
+            log_previews = _collect_log_previews(limit=2, include_content=True)
+            if log_previews:
+                log_text_sections = ["\n\n【自动附带日志摘要】"]
+                for log in log_previews:
+                    content = log.get("content", "")
+                    if not content:
+                        continue
+                    tail = content[-BUG_REPORT_MAX_LOG_BYTES:]
+                    log_text_sections.append(f"--- {log['path']} | 最近 {len(tail)} 字节 ---\n{tail}")
+                if len(log_text_sections) > 1:
+                    full_description += "\n".join(log_text_sections)
+
+        bug_fields["description"] = full_description
+
+        # 使用新的编码函数处理附件（参考测试脚本）
+        attachment_dict = None
+        if raw_attachments:
+            # 只取第一个附件
+            first_attachment = raw_attachments[0]
+            logger.info(f"准备编码附件: filename={first_attachment['filename']}, size={len(first_attachment['data'])} bytes, type={first_attachment['content_type']}")
+
+            try:
+                attachment_dict = _encode_attachment_from_bytes(
+                    filename=first_attachment["filename"],
+                    file_bytes=first_attachment["data"],
+                    content_type=first_attachment["content_type"]
+                )
+                logger.info(f"附件编码成功: name={attachment_dict['name']}, type={attachment_dict['type']}, data_length={len(attachment_dict['data'])}")
+            except Exception as e:
+                logger.error(f"附件编码失败: {e}", exc_info=True)
+                return jsonify({"error": f"附件编码失败: {str(e)}"}), 500
+
+            # 如果有多个附件，添加警告
+            if len(raw_attachments) > 1:
+                warning_msg = f"\n\n⚠️ 注意：检测到 {len(raw_attachments)} 个附件，但服务器支持单个附件。仅第一个附件 '{first_attachment['filename']}' 将被提交。如需提交多个文件，建议打包为压缩包后上传。"
+                bug_fields["description"] += warning_msg
+                logger.warning(f"Bug提交包含多个附件({len(raw_attachments)}个)，只会提交第一个: {first_attachment['filename']}")
+
+        # 调用发送函数（完全参考测试脚本）
+        logger.info(f"准备发送Bug报告: has_attachment={attachment_dict is not None}")
+        result = await _send_bug_report(bug_fields, attachment_dict)
+        logger.info(f"Bug提交结果: success={result.get('success')}, status={result.get('status')}, message={result.get('message', '')[:200]}")
+        if result.get("success"):
+            data = result.get("data", {})
+            bug_id = data.get("id")
+            return jsonify({
+                "success": True,
+                "bugId": bug_id,
+                "message": f"Bug提交成功 (ID: {bug_id})" if bug_id else "Bug提交成功",
+                "response": data
+            })
+        return jsonify({
+            "error": result.get("message", "Bug提交失败"),
+            "status": result.get("status")
+        }), 502
+    except Exception as exc:
+        logger.error(f"Bug提交异常: {exc}", exc_info=True)
+        return jsonify({"error": f"Bug提交异常: {exc}"}), 500
 
 @api_bp.route("/persona_updates")
 @require_auth

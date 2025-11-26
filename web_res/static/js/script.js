@@ -40,6 +40,15 @@ let currentConfig = {};
 let currentMetrics = {};
 let chartInstances = {};
 let socialRelationsRefreshInterval = null; // 社交关系页面自动刷新定时器
+const BUG_DEFAULT_MAX_IMAGES = 6;
+const BUG_DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+let bugAssistantState = {
+    config: null,
+    uploadedFiles: [],
+    pastedFiles: [],
+    submitting: false,
+    formInitialized: false
+};
 
 /**
  * 启动社交关系自动刷新
@@ -6335,6 +6344,19 @@ function formatDateTime(dateStr) {
     }
 }
 
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes)) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+    const formatted = value >= 10 || unitIndex === 0 ? Math.round(value) : value.toFixed(1);
+    return `${formatted}${units[unitIndex]}`;
+}
+
 /**
  * 显示Toast提示
  */
@@ -6375,6 +6397,527 @@ function showToast(message, type = 'info') {
     }, 3000);
 }
 
+/**
+ * 初始化 Bug 自助提交悬浮窗
+ */
+function initBugAssistantWidget() {
+    const wrapper = document.querySelector('.bug-assistant-wrapper');
+    const panel = document.getElementById('bugAssistantPanel');
+    const fab = document.getElementById('bugAssistantFab');
+    const closeBtn = document.getElementById('bugAssistantClose');
+    const form = document.getElementById('bugAssistantForm');
+    const attachmentInput = document.getElementById('bugAttachmentInput');
+    const clearAttachmentsBtn = document.getElementById('bugClearAttachments');
+    const resetFormBtn = document.getElementById('bugResetForm');
+
+    if (!wrapper || !panel || !fab) {
+        return;
+    }
+
+    const dragState = {
+        isDragging: false,
+        moved: false,
+        pointerId: null
+    };
+
+    const positionPanel = () => {
+        if (!panel.classList.contains('open')) {
+            return;
+        }
+
+        const fabRect = fab.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const padding = 16;
+
+        const preferLeft = fabRect.left + fabRect.width / 2 > viewportWidth / 2;
+        const preferTop = fabRect.top + fabRect.height / 2 > viewportHeight / 2;
+
+        let left = preferLeft ? fabRect.right - panelRect.width : fabRect.left;
+        let top = preferTop ? fabRect.top - panelRect.height - padding : fabRect.bottom + padding;
+
+        left = clamp(left, padding, viewportWidth - panelRect.width - padding);
+        top = clamp(top, padding, viewportHeight - panelRect.height - padding);
+
+        panel.style.left = `${left}px`;
+        panel.style.top = `${top}px`;
+        panel.style.right = 'auto';
+        panel.style.bottom = 'auto';
+    };
+
+    const togglePanel = (shouldOpen) => {
+        if (shouldOpen) {
+            panel.classList.add('open');
+            panel.setAttribute('aria-hidden', 'false');
+            fab.setAttribute('aria-expanded', 'true');
+            positionPanel();
+            if (!bugAssistantState.config) {
+                loadBugAssistantConfig();
+            }
+        } else {
+            panel.classList.remove('open');
+            panel.setAttribute('aria-hidden', 'true');
+            fab.setAttribute('aria-expanded', 'false');
+        }
+    };
+
+    initBugAssistantDrag({
+        wrapper,
+        fab,
+        panel,
+        dragState,
+        onPositionChange: positionPanel
+    });
+
+    fab.addEventListener('click', (event) => {
+        if (dragState.moved) {
+            dragState.moved = false;
+            return;
+        }
+        event.stopPropagation();
+        togglePanel(!panel.classList.contains('open'));
+    });
+
+    closeBtn?.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePanel(false);
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!panel.contains(event.target) && event.target !== fab && panel.classList.contains('open')) {
+            togglePanel(false);
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && panel.classList.contains('open')) {
+            togglePanel(false);
+            fab.focus();
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        positionPanel();
+    });
+
+    panel.addEventListener('paste', (event) => {
+        handleBugAttachmentPaste(event, panel);
+    });
+
+    form?.addEventListener('submit', submitBugAssistantForm);
+    attachmentInput?.addEventListener('change', handleBugAttachmentInput);
+    clearAttachmentsBtn?.addEventListener('click', clearBugAttachments);
+    resetFormBtn?.addEventListener('click', () => clearBugAssistantForm());
+
+    loadBugAssistantConfig();
+}
+
+async function loadBugAssistantConfig() {
+    const statusCard = document.getElementById('bugAssistantStatusCard');
+    if (statusCard) {
+        statusCard.querySelector('.status-title').textContent = '初始化Bug助手';
+        statusCard.querySelector('.status-desc').textContent = '正在连接服务器...';
+        statusCard.querySelector('.status-hint').textContent = '请稍候';
+    }
+
+    try {
+        const response = await fetch('/api/bug_report/config');
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+        bugAssistantState.config = await response.json();
+        bugAssistantState.formInitialized = false;
+        updateBugAssistantUI();
+    } catch (error) {
+        console.error('获取Bug助手配置失败:', error);
+        bugAssistantState.config = {
+            enabled: false,
+            message: '无法连接到Bug接口，请稍后再试'
+        };
+        updateBugAssistantUI(true);
+    }
+}
+
+function updateBugAssistantUI(hasError = false) {
+    const statusCard = document.getElementById('bugAssistantStatusCard');
+    const form = document.getElementById('bugAssistantForm');
+    const submitBtn = document.getElementById('bugAssistantSubmit');
+    const attachmentInput = document.getElementById('bugAttachmentInput');
+    const clearBtn = document.getElementById('bugClearAttachments');
+    const resetBtn = document.getElementById('bugResetForm');
+    const includeLogs = document.getElementById('bugIncludeLogs');
+
+    if (!statusCard || !form) {
+        return;
+    }
+
+    const enabled = bugAssistantState.config?.enabled && !hasError;
+
+    if (enabled) {
+        statusCard.querySelector('.status-title').textContent = '服务器已连接';
+        statusCard.querySelector('.status-desc').textContent = bugAssistantState.config.message || '可直接上传截图并附带日志';
+        statusCard.querySelector('.status-hint').textContent = `Bug自助提交助手运行中，最多支持 ${bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES} 张附件`;
+    } else {
+        statusCard.querySelector('.status-title').textContent = 'Bug助手不可用';
+        statusCard.querySelector('.status-desc').textContent = bugAssistantState.config?.message || '请联系管理员检查接口配置';
+        statusCard.querySelector('.status-hint').textContent = '仍可通过其他渠道反馈问题';
+    }
+
+    form.classList.toggle('disabled', !enabled || bugAssistantState.submitting);
+    const controllableElements = form.querySelectorAll('input, textarea, select, button');
+    controllableElements.forEach((element) => {
+        element.disabled = !enabled || bugAssistantState.submitting;
+    });
+
+    if (!enabled) {
+        return;
+    }
+
+    populateBugAssistantSelect('bugSeverity', bugAssistantState.config.severityOptions);
+    populateBugAssistantSelect('bugPriority', bugAssistantState.config.priorityOptions);
+    populateBugAssistantSelect('bugType', bugAssistantState.config.typeOptions);
+
+    if (!bugAssistantState.formInitialized) {
+        document.getElementById('bugAssistantTitle').value = '';
+        document.getElementById('bugSteps').value = '';
+        document.getElementById('bugDescription').value = '';
+        document.getElementById('bugEnvironment').value = '';
+        document.getElementById('bugBuild').value = bugAssistantState.config.defaultBuild || '';
+        includeLogs.checked = true;
+        bugAssistantState.uploadedFiles = [];
+        bugAssistantState.pastedFiles = [];
+        bugAssistantState.formInitialized = true;
+    }
+
+    renderBugAttachmentList();
+    renderBugLogPreview(bugAssistantState.config.logPreview);
+    submitBtn.textContent = bugAssistantState.submitting ? '提交中...' : '提交到服务器';
+    if (attachmentInput) attachmentInput.value = '';
+    if (clearBtn) clearBtn.disabled = bugAssistantState.submitting;
+    if (resetBtn) resetBtn.disabled = bugAssistantState.submitting;
+}
+
+function populateBugAssistantSelect(selectId, options = []) {
+    const select = document.getElementById(selectId);
+    if (!select || !options.length) {
+        return;
+    }
+    select.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+}
+
+function renderBugLogPreview(previewList = []) {
+    const container = document.getElementById('bugLogPreview');
+    if (!container) {
+        return;
+    }
+
+    if (!previewList || !previewList.length) {
+        container.innerHTML = '<p class="muted-text">未找到可附带的日志。可以在运行目录下创建 astrbot.log。</p>';
+        return;
+    }
+
+    const cards = previewList.map((log) => {
+        const safePreview = escapeHtml(log.preview || '').slice(-1200);
+        return `
+            <div class="log-card">
+                <h5>${log.path}（${formatBytes(log.size)}）</h5>
+                <pre>${safePreview}</pre>
+            </div>
+        `;
+    });
+
+    container.innerHTML = cards.join('');
+}
+
+function handleBugAttachmentInput(event) {
+    if (!bugAssistantState.config?.enabled) {
+        return;
+    }
+    const files = Array.from(event.target.files || []);
+    const maxImages = bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES;
+    const maxBytes = bugAssistantState.config.maxImageBytes || BUG_DEFAULT_MAX_IMAGE_BYTES;
+    const existingCount = bugAssistantState.pastedFiles.length;
+    const availableSlots = Math.max(maxImages - existingCount, 0);
+
+    if (!availableSlots) {
+        showToast('附件数量已达上限', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    const sanitized = [];
+    for (const file of files.slice(0, availableSlots)) {
+        if (file.size > maxBytes) {
+            showToast(`附件 ${file.name} 超过大小限制`, 'error');
+            continue;
+        }
+        sanitized.push(file);
+    }
+
+    bugAssistantState.uploadedFiles = sanitized;
+    renderBugAttachmentList();
+}
+
+function handleBugAttachmentPaste(event, panel) {
+    if (!panel.classList.contains('open') || !bugAssistantState.config?.enabled) {
+        return;
+    }
+    const clipboardItems = event.clipboardData?.items || [];
+    const maxImages = bugAssistantState.config.maxImages || BUG_DEFAULT_MAX_IMAGES;
+    const maxBytes = bugAssistantState.config.maxImageBytes || BUG_DEFAULT_MAX_IMAGE_BYTES;
+    let added = false;
+
+    for (const item of clipboardItems) {
+        if (item.kind !== 'file' || !item.type.startsWith('image/')) {
+            continue;
+        }
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const totalCount = bugAssistantState.uploadedFiles.length + bugAssistantState.pastedFiles.length;
+        if (totalCount >= maxImages) {
+            showToast('附件数量已达上限', 'error');
+            break;
+        }
+        if (file.size > maxBytes) {
+            showToast('粘贴的图片超过大小限制', 'error');
+            continue;
+        }
+        bugAssistantState.pastedFiles.push(file);
+        added = true;
+    }
+
+    if (added) {
+        event.preventDefault();
+        renderBugAttachmentList();
+        showToast('已添加粘贴的截图', 'success');
+    }
+}
+
+function renderBugAttachmentList() {
+    const container = document.getElementById('bugAttachmentList');
+    if (!container) return;
+
+    const allFiles = [
+        ...bugAssistantState.uploadedFiles.map((file, index) => ({ file, index, type: 'upload' })),
+        ...bugAssistantState.pastedFiles.map((file, index) => ({ file, index, type: 'paste' }))
+    ];
+
+    if (!allFiles.length) {
+        container.innerHTML = '<p class="muted-text">当前没有附件。</p>';
+        return;
+    }
+
+    const chips = allFiles.map((item) => `
+        <div class="attachment-chip">
+            <span class="material-icons" aria-hidden="true">insert_photo</span>
+            <span>${item.file.name || (item.type === 'paste' ? '粘贴截图' : '附件')}</span>
+            <span class="muted-text">${formatBytes(item.file.size)}</span>
+            <button type="button" aria-label="移除附件" onclick="removeBugAttachment('${item.type}', ${item.index})">
+                <span class="material-icons">close</span>
+            </button>
+        </div>
+    `);
+
+    container.innerHTML = chips.join('');
+}
+
+function removeBugAttachment(type, index) {
+    if (type === 'upload') {
+        bugAssistantState.uploadedFiles.splice(index, 1);
+        const input = document.getElementById('bugAttachmentInput');
+        if (input) input.value = '';
+    } else {
+        bugAssistantState.pastedFiles.splice(index, 1);
+    }
+    renderBugAttachmentList();
+}
+
+function clearBugAttachments() {
+    bugAssistantState.uploadedFiles = [];
+    bugAssistantState.pastedFiles = [];
+    const input = document.getElementById('bugAttachmentInput');
+    if (input) input.value = '';
+    renderBugAttachmentList();
+}
+
+function clearBugAssistantForm(resetDefaults = false) {
+    const form = document.getElementById('bugAssistantForm');
+    if (!form) return;
+
+    form.reset();
+    bugAssistantState.uploadedFiles = [];
+    bugAssistantState.pastedFiles = [];
+
+    if (resetDefaults && bugAssistantState.config) {
+        document.getElementById('bugBuild').value = bugAssistantState.config.defaultBuild || '';
+        document.getElementById('bugIncludeLogs').checked = true;
+    }
+
+    renderBugAttachmentList();
+}
+
+async function submitBugAssistantForm(event) {
+    event.preventDefault();
+    if (!bugAssistantState.config?.enabled || bugAssistantState.submitting) {
+        return;
+    }
+
+    const title = document.getElementById('bugAssistantTitle').value.trim();
+    const build = document.getElementById('bugBuild').value.trim();
+    const steps = document.getElementById('bugSteps').value.trim();
+    const description = document.getElementById('bugDescription').value.trim();
+    const environment = document.getElementById('bugEnvironment').value.trim();
+    const severity = document.getElementById('bugSeverity').value;
+    const priority = document.getElementById('bugPriority').value;
+    const bugType = document.getElementById('bugType').value;
+    const includeLogs = document.getElementById('bugIncludeLogs').checked;
+
+    if (!title) {
+        showToast('请填写问题标题', 'error');
+        return;
+    }
+
+    bugAssistantState.submitting = true;
+    updateBugAssistantUI();
+
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('build', build || '');
+    formData.append('steps', steps);
+    formData.append('description', description);
+    formData.append('environment', environment);
+    formData.append('severity', severity);
+    formData.append('priority', priority);
+    formData.append('bugType', bugType);
+    formData.append('includeLogs', includeLogs ? 'true' : 'false');
+
+    [...bugAssistantState.uploadedFiles, ...bugAssistantState.pastedFiles].forEach((file, index) => {
+        const safeName = file.name || `attachment_${index + 1}.png`;
+        formData.append('attachments', file, safeName);
+    });
+
+    try {
+        const response = await fetch('/api/bug_report', {
+            method: 'POST',
+            body: formData
+        });
+
+        const text = await response.text();
+        let result;
+        try {
+            result = JSON.parse(text);
+        } catch {
+            result = { error: text };
+        }
+        if (response.ok && result.success) {
+            showToast(result.message || 'Bug提交成功', 'success');
+            clearBugAssistantForm(true);
+        } else {
+            showToast(result.error || 'Bug提交失败', 'error');
+        }
+    } catch (error) {
+        console.error('Bug提交失败:', error);
+        showToast('Bug提交失败，请检查网络后重试', 'error');
+    } finally {
+        bugAssistantState.submitting = false;
+        updateBugAssistantUI();
+    }
+}
+
+function initBugAssistantDrag({ wrapper, fab, panel, dragState, onPositionChange }) {
+    if (!wrapper || !fab) {
+        return;
+    }
+
+    const ensureAbsolutePosition = () => {
+        if (!wrapper.dataset.dragInitialized) {
+            const rect = wrapper.getBoundingClientRect();
+            wrapper.style.left = `${rect.left}px`;
+            wrapper.style.top = `${rect.top}px`;
+            wrapper.style.right = 'auto';
+            wrapper.style.bottom = 'auto';
+            wrapper.dataset.dragInitialized = 'true';
+        }
+    };
+
+    const handlePointerDown = (event) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) {
+            return;
+        }
+        ensureAbsolutePosition();
+        dragState.isDragging = true;
+        dragState.moved = false;
+        dragState.pointerId = event.pointerId;
+        dragState.startX = event.clientX;
+        dragState.startY = event.clientY;
+        const rect = wrapper.getBoundingClientRect();
+        dragState.startLeft = rect.left;
+        dragState.startTop = rect.top;
+        dragState.wrapperWidth = rect.width;
+        dragState.wrapperHeight = rect.height;
+        wrapper.classList.add('dragging');
+        fab.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+    };
+
+    const handlePointerMove = (event) => {
+        if (!dragState.isDragging || (dragState.pointerId !== null && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+
+        const dx = event.clientX - dragState.startX;
+        const dy = event.clientY - dragState.startY;
+
+        if (!dragState.moved && Math.hypot(dx, dy) > 4) {
+            dragState.moved = true;
+        }
+
+        let newLeft = dragState.startLeft + dx;
+        let newTop = dragState.startTop + dy;
+        const maxLeft = window.innerWidth - dragState.wrapperWidth - 12;
+        const maxTop = window.innerHeight - dragState.wrapperHeight - 12;
+
+        newLeft = clamp(newLeft, 12, maxLeft);
+        newTop = clamp(newTop, 12, maxTop);
+
+        wrapper.style.left = `${newLeft}px`;
+        wrapper.style.top = `${newTop}px`;
+        wrapper.style.right = 'auto';
+        wrapper.style.bottom = 'auto';
+
+        if (panel.classList.contains('open')) {
+            onPositionChange();
+        }
+
+        event.preventDefault();
+    };
+
+    const handlePointerUp = (event) => {
+        if (!dragState.isDragging || (dragState.pointerId !== null && event.pointerId !== dragState.pointerId)) {
+            return;
+        }
+        dragState.isDragging = false;
+        dragState.pointerId = null;
+        wrapper.classList.remove('dragging');
+        fab.releasePointerCapture?.(event.pointerId);
+        if (panel.classList.contains('open')) {
+            onPositionChange();
+        }
+    };
+
+    fab.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+}
+
+function clamp(value, min, max) {
+    return Math.min(Math.max(value, min), max);
+}
+
 // 监听搜索输入框的回车事件
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('jargon-search-input');
@@ -6385,6 +6928,8 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    initBugAssistantWidget();
 });
 
 console.log('✅ 黑话学习系统集成完成');

@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.6.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.6.1", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -2021,6 +2021,14 @@ PersonaManager模式优势：
             # 收集所有要注入的内容
             injections = []
 
+            # ✅ 0. 注入会话绑定的人格信息
+            session_persona_prompt = await self._get_active_persona_prompt(event)
+            if session_persona_prompt:
+                injections.append(f"【当前人格设定】\n{session_persona_prompt}")
+                logger.info(f"✅ [LLM Hook] 已注入会话人格，长度 {len(session_persona_prompt)}")
+            else:
+                logger.debug("[LLM Hook] 未获取到会话人格，使用默认提示")
+
             # ✅ 1. 注入社交上下文（根据配置决定）
             if hasattr(self, 'social_context_injector') and self.social_context_injector:
                 try:
@@ -2216,6 +2224,59 @@ PersonaManager模式优势：
             
         except Exception as e:
             logger.error(LogMessages.PLUGIN_UNLOAD_CLEANUP_FAILED.format(error=e), exc_info=True)
+
+    async def _get_active_persona_prompt(self, event: AstrMessageEvent) -> Optional[str]:
+        """
+        获取当前会话配置的人格提示词
+
+        优先读取 AstrBot 框架中的会话 -> 人格映射，回退到默认人格
+        """
+        try:
+            if not event or not hasattr(self, "context"):
+                return None
+
+            conv_manager = getattr(self.context, "conversation_manager", None)
+            astr_persona_manager = getattr(self.context, "persona_manager", None)
+            if not conv_manager or not astr_persona_manager:
+                return None
+
+            unified_origin = getattr(event, "unified_msg_origin", None)
+            if not unified_origin:
+                return None
+
+            conv_id = await conv_manager.get_curr_conversation_id(unified_origin)
+            if not conv_id:
+                conv_id = await conv_manager.new_conversation(unified_origin)
+
+            conv = await conv_manager.get_conversation(
+                unified_msg_origin=unified_origin,
+                conversation_id=conv_id,
+                create_if_not_exists=True,
+            )
+
+            persona_id = None
+            if conv:
+                conv_persona_id = getattr(conv, "persona_id", None)
+                if conv_persona_id and conv_persona_id != "[%None]":
+                    persona_id = conv_persona_id
+
+            persona_data = None
+            if persona_id:
+                persona_data = await astr_persona_manager.get_persona(persona_id)
+            else:
+                persona_data = await astr_persona_manager.get_default_persona_v3(umo=unified_origin)
+
+            if not persona_data:
+                return None
+
+            if isinstance(persona_data, dict):
+                return persona_data.get("system_prompt") or persona_data.get("prompt")
+
+            return getattr(persona_data, "system_prompt", None)
+
+        except Exception as exc:
+            logger.warning(f"获取会话人格失败: {exc}")
+            return None
     
     def _format_communication_style(self, communication_style: dict) -> str:
         """
