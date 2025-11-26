@@ -3,21 +3,41 @@
 
 提供给LLM使用的黑话查询工具,用于在生成回复时理解群组黑话
 """
-from typing import Optional, List, Dict, Any
+import time
+from typing import Optional, List, Dict, Any, Tuple
 from astrbot.api import logger
 
 
 class JargonQueryService:
     """黑话查询服务 - 供LLM工具调用"""
 
-    def __init__(self, db_manager):
+    def __init__(self, db_manager, cache_ttl: int = 60):
         """
         初始化黑话查询服务
 
         Args:
             db_manager: 数据库管理器实例
+            cache_ttl: 缓存有效期（秒），默认60秒
         """
         self.db = db_manager
+
+        # ⚡ 缓存机制 - 避免频繁查询数据库
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._cache_ttl = cache_ttl
+
+    def _get_from_cache(self, key: str) -> Optional[Any]:
+        """从缓存获取数据"""
+        if key in self._cache:
+            timestamp, data = self._cache[key]
+            if time.time() - timestamp < self._cache_ttl:
+                return data
+            else:
+                del self._cache[key]
+        return None
+
+    def _set_to_cache(self, key: str, data: Any):
+        """设置缓存"""
+        self._cache[key] = (time.time(), data)
 
     async def query_jargon(
         self,
@@ -88,7 +108,7 @@ class JargonQueryService:
         limit: int = 10
     ) -> str:
         """
-        获取群组的黑话上下文 - 用于增强LLM对群组文化的理解
+        获取群组的黑话上下文 - 用于增强LLM对群组文化的理解（带缓存）
 
         Args:
             chat_id: 群组ID
@@ -97,6 +117,12 @@ class JargonQueryService:
         Returns:
             格式化的黑话列表文本
         """
+        # ⚡ 先检查缓存
+        cache_key = f"jargon_context_{chat_id}_{limit}"
+        cached = self._get_from_cache(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             jargon_list = await self.db.get_recent_jargon_list(
                 chat_id=chat_id,
@@ -105,14 +131,20 @@ class JargonQueryService:
             )
 
             if not jargon_list:
-                return "该群组暂无已确认的黑话记录"
+                result = "该群组暂无已确认的黑话记录"
+                self._set_to_cache(cache_key, result)
+                return result
 
             lines = [f"群组常用黑话 ({len(jargon_list)}个):"]
             for j in jargon_list:
                 meaning = j['meaning'] if j['meaning'] else '含义待推断'
                 lines.append(f"- 「{j['content']}」: {meaning}")
 
-            return "\n".join(lines)
+            result = "\n".join(lines)
+
+            # ⚡ 缓存结果
+            self._set_to_cache(cache_key, result)
+            return result
 
         except Exception as e:
             logger.error(f"获取黑话上下文失败: {e}")
@@ -124,7 +156,7 @@ class JargonQueryService:
         chat_id: str
     ) -> Optional[str]:
         """
-        检查文本中是否包含已知黑话并提供解释
+        检查文本中是否包含已知黑话并提供解释（带缓存）
 
         Args:
             text: 要检查的文本
@@ -134,12 +166,19 @@ class JargonQueryService:
             如果找到黑话则返回解释文本,否则返回None
         """
         try:
-            # 获取该群组的所有已确认黑话
-            jargon_list = await self.db.get_recent_jargon_list(
-                chat_id=chat_id,
-                limit=100,
-                only_confirmed=True
-            )
+            # ⚡ 先从缓存获取该群组的黑话列表
+            cache_key = f"jargon_list_{chat_id}"
+            jargon_list = self._get_from_cache(cache_key)
+
+            if jargon_list is None:
+                # 缓存未命中，从数据库获取
+                jargon_list = await self.db.get_recent_jargon_list(
+                    chat_id=chat_id,
+                    limit=100,
+                    only_confirmed=True
+                )
+                # ⚡ 缓存黑话列表
+                self._set_to_cache(cache_key, jargon_list)
 
             if not jargon_list:
                 return None

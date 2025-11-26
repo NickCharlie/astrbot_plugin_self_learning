@@ -4291,3 +4291,33 @@ body.graph-3d-mode #graph-3d-theme:focus,
         gap: 8px;
     }
 }
+
+
+/* 加载指示器旋转动画 */
+@keyframes rotate {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.rotating {
+    animation: rotate 2s linear infinite;
+}
+
+.loading-indicator {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+.loading-indicator p {
+    color: #666;
+    font-size: 14px;
+    margin: 0;
+}
+

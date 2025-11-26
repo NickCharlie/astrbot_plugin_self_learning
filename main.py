@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.5.8", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.6.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -266,6 +266,14 @@ class SelfLearningPlugin(star.Star):
             # ✅ 创建社交上下文注入器 - 用于注入表达模式学习结果和bot历史消息
             # 必须在intelligent_responder之前创建，这样才能被正确注入
             self.social_context_injector = component_factory.create_social_context_injector()
+
+            # ✅ 创建黑话查询服务 - 用于在LLM请求时注入黑话理解
+            from .services.jargon_query import JargonQueryService
+            self.jargon_query_service = JargonQueryService(
+                db_manager=self.db_manager,
+                cache_ttl=60  # 60秒缓存TTL
+            )
+            logger.info("黑话查询服务已初始化（带60秒缓存）")
 
             # 在affection_manager和social_context_injector创建后再创建智能回复器
             self.intelligent_responder = self.service_factory.create_intelligent_responder()  # 重新启用智能回复器
@@ -588,7 +596,7 @@ class SelfLearningPlugin(star.Star):
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
-        """监听所有消息，收集用户对话数据"""
+        """监听所有消息，收集用户对话数据（非阻塞优化版）"""
 
         try:
             # 检查event参数类型 - 添加调试信息
@@ -607,43 +615,55 @@ class SelfLearningPlugin(star.Star):
             message_text = event.get_message_str()
             if not message_text or len(message_text.strip()) == 0:
                 return
-                
+
             group_id = event.get_group_id() or event.get_sender_id() # 使用群组ID或发送者ID作为会话ID
             sender_id = event.get_sender_id()
-            
+
+            # ⚡ 优化1: 好感度处理改为后台任务，不阻塞消息回复
             # 只对at消息和唤醒消息处理好感度（不包括插件命令）
             if event.is_at_or_wake_command and self.plugin_config.enable_affection_system:
-                try:
-                    affection_result = await self.affection_manager.process_message_interaction(
-                        group_id, sender_id, message_text
-                    )
-                    if affection_result.get('success'):
-                        logger.debug(LogMessages.AFFECTION_PROCESSING_SUCCESS.format(result=affection_result))
-                except Exception as e:
-                    logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
-            
+                asyncio.create_task(self._process_affection_background(group_id, sender_id, message_text))
+
             # 检查是否启用消息抓取 - 用于学习数据收集
             if not self.plugin_config.enable_message_capture:
                 return
-            
+
             # 使用融合的命令检测机制 - 过滤所有AstrBot命令（仅用于学习数据收集，不影响好感度）
             if self._is_astrbot_command(event):
                 logger.debug(f"检测到AstrBot命令，跳过学习数据收集: {message_text}")
                 return
-            
+
             # QQ号过滤（仅用于学习数据收集）
             if not self.qq_filter.should_collect_message(sender_id, group_id):
                 return
-            
-            # 优先更新增量内容 - 每收到消息都立即执行
-            # 注释掉实时分析以提升回复速度，改为按配置定时分析
-            # try:
-            #     await self._priority_update_incremental_content(group_id, sender_id, message_text, event)
-            #     logger.debug(f"优先增量内容更新完成: {group_id}")
-            # except Exception as e:
-            #     logger.error(f"优先增量内容更新失败: {e}")
-                
-            # 收集消息（用于学习）
+
+            # ⚡ 优化2: 所有学习相关操作改为后台任务，完全不阻塞消息回复
+            asyncio.create_task(self._process_learning_background(
+                group_id, sender_id, message_text, event
+            ))
+
+            # ⚡ 统计更新可以同步进行（非常快）
+            self.learning_stats.total_messages_collected += 1
+            self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
+
+        except Exception as e:
+            logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
+
+    async def _process_affection_background(self, group_id: str, sender_id: str, message_text: str):
+        """后台处理好感度更新（非阻塞）"""
+        try:
+            affection_result = await self.affection_manager.process_message_interaction(
+                group_id, sender_id, message_text
+            )
+            if affection_result.get('success'):
+                logger.debug(LogMessages.AFFECTION_PROCESSING_SUCCESS.format(result=affection_result))
+        except Exception as e:
+            logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
+
+    async def _process_learning_background(self, group_id: str, sender_id: str, message_text: str, event: AstrMessageEvent):
+        """后台处理学习相关操作（非阻塞）"""
+        try:
+            # 1. 收集消息（用于学习）
             await self.message_collector.collect_message({
                 'sender_id': sender_id,
                 'sender_name': event.get_sender_name(),
@@ -652,66 +672,25 @@ class SelfLearningPlugin(star.Star):
                 'timestamp': time.time(),
                 'platform': event.get_platform_name()
             })
-            
-            self.learning_stats.total_messages_collected += 1
-            
-            # 确保配置中的统计也得到更新，用于WebUI显示
-            self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
-            
-            # 处理增强交互（多轮对话管理）
+
+            # 2. 处理增强交互（多轮对话管理）
             try:
                 await self.enhanced_interaction.update_conversation_context(
                     group_id, sender_id, message_text
                 )
             except Exception as e:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
-            
-            # 如果启用实时学习，立即进行筛选（添加频率限制）
+
+            # 3. 如果启用实时学习，每条消息都学习（完全后台执行，不阻塞）
             if self.plugin_config.enable_realtime_learning:
-                # 添加频率限制：每分钟最多处理一次实时学习
-                current_time = time.time()
-                last_realtime_key = f"last_realtime_{group_id}"
-                last_realtime = getattr(self, last_realtime_key, 0)
-                
-                if current_time - last_realtime >= 60:  # 60秒间隔
-                    await self._process_message_realtime(group_id, message_text, sender_id)
-                    setattr(self, last_realtime_key, current_time)
-                else:
-                    logger.debug(f"跳过实时学习，距离上次处理不足60秒: {group_id}")
-            
-            # 智能启动学习任务（基于消息活动，添加频率限制）
+                # ⚡ 使用 asyncio.create_task 确保完全后台执行
+                asyncio.create_task(self._process_message_realtime_background(group_id, message_text, sender_id))
+
+            # 4. 智能启动学习任务（基于消息活动，添加频率限制）
             await self._smart_start_learning_for_group(group_id)
-            
-            # 智能回复处理 - 在所有数据处理完成后
-            try:
-                logger.info(f"[main.on_message] 开始调用智能回复器 send_intelligent_response")
-                intelligent_reply_params = await self.intelligent_responder.send_intelligent_response(event)
-                logger.info(f"[main.on_message] 智能回复器返回结果: {intelligent_reply_params}")
 
-                if intelligent_reply_params:
-                    logger.info(f"[main.on_message] 准备yield request_llm，参数: prompt长度={len(intelligent_reply_params['prompt'])}字符, session_id={intelligent_reply_params['session_id']}")
-
-                    # 添加超时保护 - 使用asyncio.wait_for包装LLM请求
-                    try:
-                        # 使用yield发送智能回复
-                        logger.info(f"[main.on_message] 开始发送LLM请求...")
-                        yield event.request_llm(
-                            prompt=intelligent_reply_params['prompt'],
-                            session_id=intelligent_reply_params['session_id'],
-                            conversation=intelligent_reply_params['conversation']
-                        )
-                        logger.info(f"[main.on_message] LLM请求已成功发送并yield")
-                    except asyncio.TimeoutError:
-                        logger.error(f"[main.on_message] ⏰ LLM请求超时(>30秒)，已取消请求")
-                    except Exception as llm_error:
-                        logger.error(f"[main.on_message] ❌ LLM请求失败: {llm_error}", exc_info=True)
-                else:
-                    logger.info(f"[main.on_message] 智能回复器返回None，不发送回复")
-            except Exception as e:
-                logger.error(f"[main.on_message] 智能回复处理失败: {e}", exc_info=True)
-            
         except Exception as e:
-            logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
+            logger.error(f"后台学习处理失败: {e}", exc_info=True)
 
     async def _smart_start_learning_for_group(self, group_id: str):
         """智能启动群组学习任务 - 不阻塞主线程，添加频率限制"""
@@ -903,6 +882,13 @@ class SelfLearningPlugin(star.Star):
         except Exception as e:
             logger.error(f"获取活跃群组失败: {e}")
             return []
+
+    async def _process_message_realtime_background(self, group_id: str, message_text: str, sender_id: str):
+        """实时处理消息的后台包装方法 - 完全异步，不阻塞主流程"""
+        try:
+            await self._process_message_realtime(group_id, message_text, sender_id)
+        except Exception as e:
+            logger.error(f"实时学习后台处理失败 (group={group_id}): {e}", exc_info=True)
 
     async def _process_message_realtime(self, group_id: str, message_text: str, sender_id: str):
         """实时处理消息 - 优化LLM调用频率，表达风格学习不经过消息筛选"""
@@ -2035,27 +2021,27 @@ PersonaManager模式优势：
             # 收集所有要注入的内容
             injections = []
 
-            # ✅ 1. 注入表达风格学习结果（如果可用）
+            # ✅ 1. 注入社交上下文（根据配置决定）
             if hasattr(self, 'social_context_injector') and self.social_context_injector:
                 try:
-                    # 只注入表达模式（风格特征），不注入其他社交上下文
-                    expression_context = await self.social_context_injector.format_complete_context(
+                    # 根据配置决定是否注入各类社交上下文
+                    social_context = await self.social_context_injector.format_complete_context(
                         group_id=group_id,
                         user_id=user_id,
-                        include_social_relations=False,  # 不注入社交关系
-                        include_affection=False,  # 不注入好感度
-                        include_mood=False,  # 不注入情绪
-                        include_expression_patterns=True  # ✅ 只注入表达模式
+                        include_social_relations=self.plugin_config.include_social_relations,  # 根据配置
+                        include_affection=self.plugin_config.include_affection_info,  # 根据配置
+                        include_mood=self.plugin_config.include_mood_info,  # 根据配置
+                        include_expression_patterns=True  # ✅ 始终注入表达模式
                     )
-                    if expression_context:
-                        injections.append(expression_context)
-                        logger.info(f"✅ [LLM Hook] 已准备表达风格学习结果 (长度: {len(expression_context)})")
+                    if social_context:
+                        injections.append(social_context)
+                        logger.info(f"✅ [LLM Hook] 已准备社交上下文 (长度: {len(social_context)})")
                     else:
-                        logger.debug(f"[LLM Hook] 群组 {group_id} 暂无表达风格学习结果")
+                        logger.info(f"⚠️ [LLM Hook] 群组 {group_id} 暂无社交上下文（表达模式/社交关系/好感度/情绪均为空）")
                 except Exception as e:
-                    logger.warning(f"[LLM Hook] 注入表达风格学习结果失败: {e}")
+                    logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
             else:
-                logger.debug("[LLM Hook] social_context_injector未初始化，跳过表达风格注入")
+                logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
 
             # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容)
             diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
@@ -2073,7 +2059,29 @@ PersonaManager模式优势：
                 injections.append(diversity_content)
                 logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(diversity_content)})")
 
-            # ✅ 3. 使用 += 追加所有注入内容到 req.prompt
+            # ✅ 3. 注入黑话理解（如果用户消息中包含黑话）
+            if hasattr(self, 'jargon_query_service') and self.jargon_query_service:
+                try:
+                    # 获取用户消息文本
+                    user_message = event.message_str if hasattr(event, 'message_str') else str(event.get_message())
+
+                    # 检查消息中是否包含黑话，并获取解释
+                    jargon_explanation = await self.jargon_query_service.check_and_explain_jargon(
+                        text=user_message,
+                        chat_id=group_id
+                    )
+
+                    if jargon_explanation:
+                        injections.append(jargon_explanation)
+                        logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(jargon_explanation)})")
+                    else:
+                        logger.debug(f"[LLM Hook] 用户消息中未检测到已知黑话")
+                except Exception as e:
+                    logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
+            else:
+                logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
+
+            # ✅ 4. 使用 += 追加所有注入内容到 req.prompt
             if injections:
                 injection_text = '\n\n'.join(injections)
                 req.prompt += '\n\n' + injection_text  # ← 使用 += 追加，不覆盖

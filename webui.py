@@ -187,47 +187,60 @@ async def set_plugin_services(
     # 从工厂管理器获取其他服务实例
     try:
         logger.info("开始初始化WebUI服务...")
-        
+
         # 使用更直接的方法获取服务
         service_factory = factory_manager.get_service_factory()
         logger.info("成功获取服务工厂")
-        
+
         # 获取人格更新器
         logger.info("正在获取人格更新器...")
-        persona_updater = service_factory.get_persona_updater()
-        
+        try:
+            persona_updater = service_factory.get_persona_updater()
+            logger.info(f"✅ 成功获取persona_updater: {type(persona_updater)}")
+        except Exception as e:
+            logger.error(f"❌ 获取persona_updater失败: {e}", exc_info=True)
+            persona_updater = None
+
         # 确保数据库管理器已创建
         logger.info("正在获取数据库管理器...")
-        service_factory.create_database_manager()
-        database_manager = factory_manager.get_service("database_manager")
-        db_manager = database_manager  # 设置别名
-        
+        try:
+            # 先尝试直接从factory_manager获取
+            database_manager = factory_manager.get_service("database_manager")
+            if not database_manager:
+                logger.warning("从factory_manager.get_service获取database_manager为None，尝试创建")
+                service_factory.create_database_manager()
+                database_manager = factory_manager.get_service("database_manager")
+
+            db_manager = database_manager  # 设置别名
+            logger.info(f"✅ 成功获取database_manager: {type(database_manager)}")
+        except Exception as e:
+            logger.error(f"❌ 获取database_manager失败: {e}", exc_info=True)
+            database_manager = None
+            db_manager = None
+
         # 获取progressive_learning服务
         logger.info("正在获取progressive_learning服务...")
-        progressive_learning = factory_manager.get_service("progressive_learning")
-        
+        try:
+            progressive_learning = factory_manager.get_service("progressive_learning")
+            logger.info(f"✅ 成功获取progressive_learning: {type(progressive_learning)}")
+        except Exception as e:
+            logger.error(f"❌ 获取progressive_learning失败: {e}", exc_info=True)
+            progressive_learning = None
+
         # 关键修复：设置全局变量！
+        logger.info("设置全局变量...")
         globals()['persona_updater'] = persona_updater
         globals()['database_manager'] = database_manager
         globals()['db_manager'] = database_manager
         globals()['progressive_learning'] = progressive_learning
-        
-        if persona_updater:
-            logger.info(f"成功获取人格更新器: {type(persona_updater)}")
-            logger.info(f"全局persona_updater已设置: {globals().get('persona_updater') is not None}")
-        else:
-            logger.warning("人格更新器为None")
-            
-        if database_manager:
-            logger.info(f"成功获取数据库管理器: {type(database_manager)}")
-            logger.info(f"全局database_manager已设置: {globals().get('database_manager') is not None}")
-        else:
-            logger.warning("数据库管理器为None")
-            
-        if progressive_learning:
-            logger.info(f"成功获取progressive_learning服务: {type(progressive_learning)}")
-        else:
-            logger.warning("progressive_learning服务为None")
+
+        logger.info(f"全局变量设置完成:")
+        logger.info(f"  - persona_updater: {globals().get('persona_updater') is not None}")
+        logger.info(f"  - database_manager: {globals().get('database_manager') is not None}")
+        logger.info(f"  - progressive_learning: {globals().get('progressive_learning') is not None}")
+
+        if not database_manager:
+            logger.error("⚠️ 警告: database_manager为None，WebUI人格审查功能将不可用！")
 
         # 初始化智能指标计算服务
         logger.info("正在初始化智能指标计算服务...")

@@ -1283,19 +1283,37 @@ let pendingPageSize = 20;
 // 加载人格更新数据
 async function loadPersonaUpdates() {
     try {
+        console.log('[DEBUG] 开始加载人格更新数据...');
+
+        // 显示加载指示器
+        const reviewList = document.getElementById('review-list');
+        if (reviewList) {
+            reviewList.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 40px;"><i class="material-icons rotating" style="font-size: 48px; color: #4CAF50;">refresh</i><p>正在加载人格审查记录...</p></div>';
+        }
+
         const response = await fetch('/api/persona_updates');
+        console.log('[DEBUG] API响应状态:', response.status);
+
         if (response.ok) {
             const data = await response.json();
+            console.log('[DEBUG] 接收到的数据:', data);
+
             // 确保 data 有正确的结构
             if (data && data.success && Array.isArray(data.updates)) {
+                console.log('[DEBUG] 数据格式正确, 记录数量:', data.updates.length);
                 allPersonaUpdates = data.updates;
+
                 // 更新群组筛选选项
                 updateGroupFilterOptions(data.updates);
+
                 // 应用筛选
+                console.log('[DEBUG] 应用筛选前, allPersonaUpdates:', allPersonaUpdates.length);
                 applyPersonaFilters();
+                console.log('[DEBUG] 应用筛选后, filteredPersonaUpdates:', filteredPersonaUpdates.length);
+
                 await updateReviewStats(data.updates);
             } else {
-                console.error('人格更新数据格式不正确:', data);
+                console.error('[DEBUG] 人格更新数据格式不正确:', data);
                 allPersonaUpdates = [];
                 filteredPersonaUpdates = [];
                 renderPersonaUpdates([]);
@@ -1305,11 +1323,17 @@ async function loadPersonaUpdates() {
             throw new Error('加载人格更新失败');
         }
     } catch (error) {
-        console.error('加载人格更新失败:', error);
+        console.error('[DEBUG] 加载人格更新失败:', error);
         // 确保即使出错也能正常渲染空列表
         allPersonaUpdates = [];
         filteredPersonaUpdates = [];
-        renderPersonaUpdates([]);
+
+        // 显示错误信息
+        const reviewList = document.getElementById('review-list');
+        if (reviewList) {
+            reviewList.innerHTML = '<div class="no-updates" style="color: #f44336;">加载失败，请刷新页面重试</div>';
+        }
+
         await updateReviewStats([]);
     }
 }
@@ -1399,7 +1423,10 @@ function resetPersonaFilters() {
 
 // 渲染分页后的数据
 function renderPaginatedPersonaUpdates() {
+    console.log('[DEBUG] renderPaginatedPersonaUpdates 被调用');
     const totalCount = filteredPersonaUpdates.length;
+    console.log('[DEBUG] filteredPersonaUpdates总数:', totalCount);
+
     const totalPages = Math.ceil(totalCount / pendingPageSize) || 1;
 
     // 确保当前页在有效范围内
@@ -1409,6 +1436,14 @@ function renderPaginatedPersonaUpdates() {
     const startIndex = (pendingCurrentPage - 1) * pendingPageSize;
     const endIndex = Math.min(startIndex + pendingPageSize, totalCount);
     const pageData = filteredPersonaUpdates.slice(startIndex, endIndex);
+
+    console.log('[DEBUG] 分页数据:', {
+        startIndex,
+        endIndex,
+        pageDataLength: pageData.length,
+        currentPage: pendingCurrentPage,
+        totalPages
+    });
 
     // 渲染列表
     renderPersonaUpdates(pageData);
@@ -1564,23 +1599,31 @@ function renderConfigPage() {
 
 // 渲染人格更新列表
 function renderPersonaUpdates(updates) {
+    console.log('[DEBUG] renderPersonaUpdates 被调用, updates数量:', updates.length);
+
     const reviewList = document.getElementById('review-list');
-    
+
     if (!reviewList) {
-        console.error('找不到 review-list 元素');
+        console.error('[DEBUG] 找不到 review-list 元素!');
         return;
     }
-    
+
+    console.log('[DEBUG] 找到 review-list 元素');
+
     if (!updates || updates.length === 0) {
+        console.log('[DEBUG] updates为空,显示"暂无"提示');
         reviewList.innerHTML = '<div class="no-updates">暂无待审查的人格更新</div>';
         return;
     }
-    
+
     // 清空列表
     reviewList.innerHTML = '';
-    
+    console.log('[DEBUG] 开始渲染', updates.length, '条记录');
+
     // 为每个更新创建元素并绑定事件
-    updates.forEach(update => {
+    updates.forEach((update, index) => {
+        console.log('[DEBUG] 渲染第', index+1, '条记录, ID:', update.id);
+
         const updateElement = document.createElement('div');
         updateElement.className = 'persona-update-item';
         

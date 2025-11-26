@@ -115,7 +115,6 @@ class PluginConfig:
     mysql_user: str = "root"  # MySQL用户名
     mysql_password: str = ""  # MySQL密码
     mysql_database: str = "astrbot_self_learning"  # MySQL数据库名
-    auto_migrate: bool = True  # 切换数据库类型时自动迁移数据
     max_connections: int = 10  # 数据库连接池最大连接数
     min_connections: int = 2  # 数据库连接池最小连接数
 
@@ -235,7 +234,6 @@ class PluginConfig:
             mysql_user=database_settings.get('mysql_user', 'root'),
             mysql_password=database_settings.get('mysql_password', ''),
             mysql_database=database_settings.get('mysql_database', 'astrbot_self_learning'),
-            auto_migrate=database_settings.get('auto_migrate', True),
             max_connections=database_settings.get('max_connections', 10),
             min_connections=database_settings.get('min_connections', 2),
 

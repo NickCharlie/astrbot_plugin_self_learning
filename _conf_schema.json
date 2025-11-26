@@ -409,12 +409,6 @@
         "hint": "MySQL数据库名称。使用MySQL前需要手动创建此数据库，执行SQL: CREATE DATABASE astrbot_self_learning CHARACTER SET utf8mb4;",
         "default": "astrbot_self_learning"
       },
-      "auto_migrate": {
-        "description": "自动数据迁移",
-        "type": "bool",
-        "hint": "切换数据库类型时是否自动迁移历史数据。建议开启，可保留所有学习数据",
-        "default": true
-      },
       "max_connections": {
         "description": "最大连接数",
         "type": "int",

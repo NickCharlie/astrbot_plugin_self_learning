@@ -22,8 +22,7 @@ from ..core.database import (
     DatabaseFactory,
     DatabaseConfig,
     DatabaseType,
-    IDatabaseBackend,
-    DatabaseMigrator
+    IDatabaseBackend
 )
 
 
@@ -162,7 +161,6 @@ class DatabaseManager(AsyncServiceBase):
 
         # 新增: 数据库后端（支持SQLite和MySQL）
         self.db_backend: Optional[IDatabaseBackend] = None
-        self._previous_db_type: Optional[str] = None  # 用于检测数据库类型变更
 
         # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
         self.connection_pool = DatabaseConnectionPool(
@@ -182,10 +180,7 @@ class DatabaseManager(AsyncServiceBase):
             # 1. 创建数据库后端
             backend_success = await self._initialize_database_backend()
 
-            # 2. 检测数据库类型变更并执行迁移
-            await self._check_and_migrate_if_needed()
-
-            # 3. 如果数据库后端初始化失败，尝试回退到SQLite
+            # 2. 如果数据库后端初始化失败，尝试回退到SQLite
             if not backend_success or not self.db_backend:
                 self._logger.warning(
                     f"数据库后端初始化失败，回退到SQLite"
@@ -202,11 +197,11 @@ class DatabaseManager(AsyncServiceBase):
                     await self.db_backend.initialize()
                     self._logger.info("已成功回退到SQLite数据库")
 
-            # 4. 初始化旧的连接池（仅用于group数据库，暂时保留）
+            # 3. 初始化旧的连接池（仅用于group数据库，暂时保留）
             await self.connection_pool.initialize()
             self._logger.info("数据库连接池初始化成功")
 
-            # 5. 初始化数据库表结构
+            # 4. 初始化数据库表结构（如果表不存在则自动创建）
             await self._init_messages_database()
             self._logger.info("全局消息数据库初始化成功")
 
@@ -258,111 +253,6 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"初始化数据库后端失败: {e}", exc_info=True)
             return False
-
-    async def _check_and_migrate_if_needed(self):
-        """检测数据库类型变更并自动迁移数据"""
-        try:
-            # 检查是否存在数据库类型变更标记文件
-            marker_file = os.path.join(self.config.data_dir, ".db_type_marker")
-
-            if os.path.exists(marker_file):
-                with open(marker_file, 'r') as f:
-                    self._previous_db_type = f.read().strip()
-
-                # 检测类型是否变更
-                if self._previous_db_type != self.config.db_type:
-                    self._logger.warning(
-                        f"检测到数据库类型变更: {self._previous_db_type} -> {self.config.db_type}"
-                    )
-
-                    # 检查目标数据库是否成功初始化
-                    if not self.db_backend:
-                        self._logger.error(
-                            f"目标数据库 ({self.config.db_type}) 初始化失败，无法执行迁移。"
-                            f"请检查数据库配置和依赖是否正确安装。"
-                        )
-                        self._logger.warning(f"将保持使用原数据库类型: {self._previous_db_type}")
-                        # 不更新标记文件，保持原类型
-                        return
-
-                    if self.config.auto_migrate:
-                        self._logger.info("开始自动数据迁移...")
-                        await self._migrate_database()
-                    else:
-                        self._logger.warning("自动迁移已禁用，请手动迁移数据")
-            else:
-                self._logger.info(f"首次启动，记录数据库类型: {self.config.db_type}")
-
-            # 更新标记文件（仅在目标数据库初始化成功时）
-            if self.db_backend:
-                with open(marker_file, 'w') as f:
-                    f.write(self.config.db_type)
-
-        except Exception as e:
-            self._logger.error(f"检查数据库类型变更失败: {e}", exc_info=True)
-
-    async def _migrate_database(self):
-        """执行数据库迁移"""
-        try:
-            self._logger.info("正在执行数据库迁移...")
-
-            # 创建源数据库后端（旧配置）
-            if self._previous_db_type == 'sqlite':
-                source_config = DatabaseConfig(
-                    db_type=DatabaseType.SQLITE,
-                    sqlite_path=self.messages_db_path,
-                    max_connections=5,
-                    min_connections=1
-                )
-            elif self._previous_db_type == 'mysql':
-                source_config = DatabaseConfig(
-                    db_type=DatabaseType.MYSQL,
-                    mysql_host=self.config.mysql_host,
-                    mysql_port=self.config.mysql_port,
-                    mysql_user=self.config.mysql_user,
-                    mysql_password=self.config.mysql_password,
-                    mysql_database=self.config.mysql_database,
-                    max_connections=5,
-                    min_connections=1
-                )
-            else:
-                raise ValueError(f"不支持的源数据库类型: {self._previous_db_type}")
-
-            source_backend = DatabaseFactory.create_backend(source_config)
-            if not source_backend:
-                raise Exception("创建源数据库后端失败")
-
-            await source_backend.initialize()
-
-            # 创建迁移器
-            migrator = DatabaseMigrator(
-                source_backend=source_backend,
-                target_backend=self.db_backend
-            )
-
-            # 执行迁移
-            report = await migrator.migrate_all()
-
-            # 输出迁移报告
-            self._logger.info(f"数据迁移完成: {report}")
-
-            if report['success']:
-                self._logger.info(
-                    f"迁移成功! 迁移了 {report['tables_migrated']} 个表, "
-                    f"共 {report['total_rows']} 行数据, "
-                    f"耗时 {report['duration']:.2f}秒"
-                )
-            else:
-                self._logger.error(
-                    f"迁移部分失败: {report['tables_failed']} 个表失败, "
-                    f"错误: {report['errors']}"
-                )
-
-            # 关闭源数据库
-            await source_backend.close()
-
-        except Exception as e:
-            self._logger.error(f"数据库迁移失败: {e}", exc_info=True)
 
     async def _do_stop(self) -> bool:
         """停止服务时关闭所有数据库连接"""
@@ -5714,12 +5604,12 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
-    async def get_recent_week_expression_patterns(self, group_id: str, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
+    async def get_recent_week_expression_patterns(self, group_id: str = None, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
         """
         获取最近指定小时内学习到的表达模式（按质量分数和时间排序）
 
         Args:
-            group_id: 群组ID
+            group_id: 群组ID，如果为None则获取全局所有群组的表达模式
             limit: 获取数量限制
             hours: 时间范围(小时)，默认168小时(一周)
 
@@ -5733,13 +5623,25 @@ class DatabaseManager(AsyncServiceBase):
                 # 计算时间阈值
                 time_threshold = time.time() - (hours * 3600)
 
-                await cursor.execute('''
-                    SELECT situation, expression, weight, last_active_time, create_time
-                    FROM expression_patterns
-                    WHERE group_id = ? AND last_active_time > ?
-                    ORDER BY weight DESC, last_active_time DESC
-                    LIMIT ?
-                ''', (group_id, time_threshold, limit))
+                # 根据group_id是否为None决定查询条件
+                if group_id is None:
+                    # 全局查询：从所有群组获取表达模式
+                    await cursor.execute('''
+                        SELECT situation, expression, weight, last_active_time, create_time, group_id
+                        FROM expression_patterns
+                        WHERE last_active_time > ?
+                        ORDER BY weight DESC, last_active_time DESC
+                        LIMIT ?
+                    ''', (time_threshold, limit))
+                else:
+                    # 单群组查询：只获取指定群组的表达模式
+                    await cursor.execute('''
+                        SELECT situation, expression, weight, last_active_time, create_time, group_id
+                        FROM expression_patterns
+                        WHERE group_id = ? AND last_active_time > ?
+                        ORDER BY weight DESC, last_active_time DESC
+                        LIMIT ?
+                    ''', (group_id, time_threshold, limit))
 
                 patterns = []
                 for row in await cursor.fetchall():
@@ -5748,7 +5650,8 @@ class DatabaseManager(AsyncServiceBase):
                         'expression': row[1],  # 表达方式
                         'weight': row[2],  # 权重
                         'last_active_time': row[3],  # 最后活跃时间
-                        'create_time': row[4]  # 创建时间
+                        'create_time': row[4],  # 创建时间
+                        'group_id': row[5] if len(row) > 5 else group_id  # 群组ID（全局查询时有用）
                     })
 
                 return patterns

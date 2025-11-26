@@ -5,7 +5,6 @@ from .backend_interface import IDatabaseBackend, DatabaseConfig, ConnectionPool,
 from .sqlite_backend import SQLiteBackend
 from .mysql_backend import MySQLBackend
 from .factory import DatabaseFactory
-from .migrator import DatabaseMigrator
 
 __all__ = [
     'IDatabaseBackend',
@@ -14,6 +13,5 @@ __all__ = [
     'DatabaseType',
     'SQLiteBackend',
     'MySQLBackend',
-    'DatabaseFactory',
-    'DatabaseMigrator'
+    'DatabaseFactory'
 ]
