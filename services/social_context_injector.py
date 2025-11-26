@@ -179,17 +179,64 @@ class SocialContextInjector:
             if cached is not None:
                 return cached
 
-            mood_data = await self.mood_manager.get_current_mood(group_id)
-            if not mood_data or 'current_mood' not in mood_data:
+            mood_raw = await self.mood_manager.get_current_mood(group_id)
+            if not mood_raw:
                 return None
 
-            current_mood = mood_data['current_mood']
-            mood_description = mood_data.get('description', '')
+            # 兼容 BotMood 对象或字典格式的数据
+            def _normalize_mood(record: Any) -> Tuple[Optional[str], Optional[float], str]:
+                if record is None:
+                    return None, None, ""
 
-            mood_text = f"【Bot当前情绪状态】\n"
-            mood_text += f"情绪: {current_mood}"
+                # BotMood dataclass（具备属性）
+                if hasattr(record, "mood_type") or hasattr(record, "description"):
+                    mood_type = getattr(record, "mood_type", None)
+                    mood_label = None
+                    if mood_type is not None:
+                        mood_label = getattr(mood_type, "value", None) or str(mood_type)
+                    else:
+                        mood_label = getattr(record, "name", None)
+
+                    intensity = getattr(record, "intensity", None)
+                    description = getattr(record, "description", "") or ""
+                    return mood_label, intensity, description
+
+                # 字典格式
+                if isinstance(record, dict):
+                    mood_label = (
+                        record.get("type")
+                        or record.get("mood_type")
+                        or record.get("name")
+                        or record.get("current_mood")
+                    )
+                    intensity = record.get("intensity")
+                    description = record.get("description") or record.get("desc") or ""
+                    return mood_label, intensity, description
+
+                # 其他类型（字符串等）
+                return str(record), None, ""
+
+            # 如果返回的是包含 current_mood 的字典，则取内部值
+            if isinstance(mood_raw, dict) and "current_mood" in mood_raw:
+                current_record = mood_raw.get("current_mood")
+                # 兼容可能嵌套 description 在外层的结构
+                if isinstance(current_record, dict) and not current_record.get("description"):
+                    current_record = {**current_record, "description": mood_raw.get("description", "")}
+            else:
+                current_record = mood_raw
+
+            mood_label, mood_intensity, mood_description = _normalize_mood(current_record)
+            if not mood_label and not mood_description:
+                return None
+
+            mood_text = "【Bot当前情绪状态】\n"
+            if mood_label:
+                mood_text += f"情绪: {mood_label}"
+                if isinstance(mood_intensity, (int, float)):
+                    mood_text += f" (强度 {mood_intensity:.2f})"
             if mood_description:
-                mood_text += f" - {mood_description}"
+                connector = " - " if mood_label else ""
+                mood_text += f"{connector}{mood_description}"
 
             # ⚡ 缓存结果
             self._set_to_cache(cache_key, mood_text)

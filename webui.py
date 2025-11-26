@@ -5159,7 +5159,6 @@ class Server:
     def __init__(self, host: str = "0.0.0.0", port: int = 7833):
         try:
             logger.info(f"🔧 初始化Web服务器 (端口: {port})...")
-
             # 检查端口是否可用
             logger.debug(f"Debug: 开始检查端口可用性")
             self._check_port_availability(port)
@@ -5168,6 +5167,8 @@ class Server:
             self.host = host
             self.port = port
             self.server_task: Optional[asyncio.Task] = None
+            # 使用 Hypercorn 的 shutdown_trigger 进行优雅关闭
+            self._shutdown_event: Optional[asyncio.Event] = None
 
             logger.debug(f"Debug: 创建 HypercornConfig")
             self.config = HypercornConfig()
@@ -5286,6 +5287,9 @@ class Server:
                     logger.info("💡 继续尝试启动，将使用SO_REUSEADDR强制复用")
 
         try:
+            # 为本次启动创建独立的 shutdown_event，用于优雅停止
+            self._shutdown_event = asyncio.Event()
+
             logger.info(f"🔧 配置服务器绑定: {self.config.bind}")
             logger.debug(f"Debug: 准备创建Hypercorn serve任务")
             logger.debug(f"Debug: app类型: {type(app)}")
@@ -5306,7 +5310,11 @@ class Server:
                     # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
                     logger.debug(f"Debug: 调用 asyncio.create_task (尝试 {retry_count + 1}/{max_retries})")
                     self.server_task = asyncio.create_task(
-                        hypercorn.asyncio.serve(app, self.config)
+                        hypercorn.asyncio.serve(
+                            app,
+                            self.config,
+                            shutdown_trigger=self._shutdown_event.wait,  # 使用 shutdown_trigger 优雅关闭
+                        )
                     )
 
                     logger.info(f"✅ Web服务器任务已创建: {self.server_task}")
@@ -5535,30 +5543,48 @@ class Server:
         await asyncio.sleep(1)
 
     async def stop(self):
-        """停止服务器 - 增强版本，包含更严格的资源清理和端口释放检查"""
+        """停止服务器 - 使用 Hypercorn shutdown_trigger 优雅关闭并验证端口释放"""
         logger.info(f"🛑 正在停止Web服务器 (端口: {self.port})...")
 
         if self.server_task and not self.server_task.done():
             try:
-                # 1. 首先尝试发送关闭信号给Hypercorn
-                logger.info("📋 开始优雅停止Web服务器...")
+                logger.info("📋 开始优雅停止Web服务器 (使用 shutdown_trigger)...")
 
-                # 2. 强制取消任务
-                self.server_task.cancel()
+                graceful_stopped = False
 
+                # 1. 首先尝试通过 shutdown_trigger 优雅关闭 Hypercorn
                 try:
-                    # 等待任务完成，增加超时时间
-                    await asyncio.wait_for(self.server_task, timeout=5.0)
-                    logger.info("✅ Web服务器已优雅停止")
-                except asyncio.CancelledError:
-                    logger.info("✅ Web服务器任务已取消")
+                    if self._shutdown_event is not None and not self._shutdown_event.is_set():
+                        self._shutdown_event.set()
+                        # 给 Hypercorn 一定时间完成优雅关闭
+                        await asyncio.wait_for(self.server_task, timeout=10.0)
+                        logger.info("✅ Web服务器已通过 shutdown_trigger 优雅停止")
+                        graceful_stopped = True
                 except asyncio.TimeoutError:
-                    logger.warning("⚠️ Web服务器优雅停止超时，强制终止")
+                    logger.warning("⚠️ Web服务器优雅停止超时，将尝试强制取消任务")
+                except asyncio.CancelledError:
+                    logger.info("✅ Web服务器任务在优雅停止过程中被取消")
+                    graceful_stopped = True
                 except Exception as e:
-                    logger.warning(f"⚠️ 停止Web服务器时出现异常: {e}")
+                    logger.warning(f"⚠️ 使用 shutdown_trigger 停止Web服务器时出现异常: {e}")
 
-                # 3. 确保任务已经被标记为None
+                # 2. 如优雅关闭未成功，则强制取消 Hypercorn 任务
+                if not graceful_stopped:
+                    logger.info("🔧 开始强制取消 Hypercorn 任务...")
+                    self.server_task.cancel()
+                    try:
+                        await asyncio.wait_for(self.server_task, timeout=5.0)
+                        logger.info("✅ Web服务器任务已强制取消")
+                    except asyncio.CancelledError:
+                        logger.info("✅ Web服务器任务已取消")
+                    except asyncio.TimeoutError:
+                        logger.warning("⚠️ 强制取消 Hypercorn 任务超时，可能仍有残留连接")
+                    except Exception as e:
+                        logger.warning(f"⚠️ 强制终止Web服务器时出现异常: {e}")
+
+                # 3. 清理任务引用与 shutdown_event
                 self.server_task = None
+                self._shutdown_event = None
 
                 # 4. 等待更长时间让端口完全释放
                 logger.info("⏳ 等待端口资源完全释放...")
@@ -5574,37 +5600,32 @@ class Server:
                 except Exception as e:
                     logger.debug(f"垃圾回收失败: {e}")
 
-                # 6. 验证端口是否真的释放了 - 改进的验证逻辑
+                # 6. 验证端口是否真的释放了 - 使用 bind 测试
                 port_released = False
                 for attempt in range(5):  # 检查5次
                     try:
                         import socket
-                        # 使用bind测试而不是connect测试
                         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                             sock.settimeout(1)
                             try:
-                                # 尝试绑定端口
                                 sock.bind(("127.0.0.1", self.port))
-                                # 绑定成功,说明端口已释放
                                 port_released = True
                                 logger.info(f"✅ 端口 {self.port} 已确认释放 (绑定测试成功, 尝试 {attempt + 1}/5)")
                                 break
                             except OSError as e:
                                 if e.errno in (48, 98):  # Address already in use
                                     logger.debug(f"⏳ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5): {e}")
-                                    if attempt < 4:  # 不是最后一次
+                                    if attempt < 4:
                                         await asyncio.sleep(1)
                                     continue
                                 else:
-                                    # 其他错误,假设已释放
                                     port_released = True
                                     logger.debug(f"端口检查遇到其他错误,假设已释放: {e}")
                                     break
                     except Exception as e:
                         logger.debug(f"端口检查失败 (尝试 {attempt + 1}/5): {e}")
-                        # 如果检查失败，假设端口可能已经释放
-                        if attempt == 4:  # 最后一次尝试
+                        if attempt == 4:
                             port_released = True
                             logger.info("📝 端口检查失败，假定端口已释放")
 
@@ -5617,8 +5638,9 @@ class Server:
             except Exception as e:
                 logger.error(f"❌ 停止Web服务器过程中发生错误: {e}", exc_info=True)
             finally:
-                # 7. 无论如何都要重置任务引用
+                # 无论如何都要清理任务引用
                 self.server_task = None
+                self._shutdown_event = None
                 logger.info("🧹 Web服务器任务引用已清理")
         else:
             logger.info("ℹ️ Web服务器已经停止或未启动，无需停止操作")
