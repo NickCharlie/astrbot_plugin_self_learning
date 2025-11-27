@@ -15,3 +15,8 @@ scikit_learn==1.7.1
 seaborn==0.13.2
 wordcloud==1.9.4
 aiomysql
+guardrails-ai
+sqlalchemy[asyncio]>=2.0.0
+alembic>=1.13.0
+cachetools>=5.3.0
+apscheduler>=3.10.0

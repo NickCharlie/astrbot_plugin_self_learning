@@ -1,0 +1,319 @@
+"""
+Guardrails AI 管理器
+用于管理 LLM 的结构化输出,确保数据格式正确且符合约束
+"""
+from typing import Dict, List, Optional, Any, Type
+from pydantic import BaseModel, Field, field_validator
+from guardrails import Guard
+from astrbot.api import logger
+
+
+# ============================================================
+# Pydantic 模型定义 - 用于心理状态分析
+# ============================================================
+
+class PsychologicalStateTransition(BaseModel):
+    """
+    心理状态转换结果模型
+    """
+    new_state: str = Field(
+        description="新的心理状态名称(中文),例如: 愉悦、疲惫、专注等"
+    )
+    confidence: Optional[float] = Field(
+        default=0.8,
+        ge=0.0,
+        le=1.0,
+        description="置信度(0-1)",
+    )
+    reason: Optional[str] = Field(
+        default="",
+        description="状态转换的原因说明"
+    )
+
+    @field_validator('new_state')
+    @classmethod
+    def validate_state_name(cls, v: str) -> str:
+        """验证状态名称"""
+        if not v or len(v) > 20:
+            raise ValueError("状态名称必须是1-20个字符")
+        return v.strip()
+
+
+# ============================================================
+# Pydantic 模型定义 - 用于社交关系分析
+# ============================================================
+
+class RelationChange(BaseModel):
+    """
+    单个关系类型的变化
+    """
+    relation_type: str = Field(
+        description="关系类型名称,例如: 挚友、同事、陌生关系等"
+    )
+    value_delta: float = Field(
+        ge=-1.0,
+        le=1.0,
+        description="关系强度变化量,范围[-1.0, 1.0]"
+    )
+    reason: Optional[str] = Field(
+        default="",
+        description="变化原因"
+    )
+
+    @field_validator('relation_type')
+    @classmethod
+    def validate_relation_type(cls, v: str) -> str:
+        """验证关系类型名称"""
+        if not v or len(v) > 30:
+            raise ValueError("关系类型名称必须是1-30个字符")
+        return v.strip()
+
+
+class SocialRelationAnalysis(BaseModel):
+    """
+    社交关系分析结果模型
+    """
+    relations: List[RelationChange] = Field(
+        description="受影响的关系类型及变化量列表",
+        min_length=0,
+        max_length=5
+    )
+    overall_sentiment: Optional[str] = Field(
+        default="neutral",
+        description="整体情感倾向: positive/neutral/negative"
+    )
+
+    @field_validator('relations')
+    @classmethod
+    def validate_relations_count(cls, v: List[RelationChange]) -> List[RelationChange]:
+        """限制关系数量"""
+        if len(v) > 5:
+            logger.warning(f"关系数量过多({len(v)}),截取前5个")
+            return v[:5]
+        return v
+
+
+# ============================================================
+# Guardrails 管理器
+# ============================================================
+
+class GuardrailsManager:
+    """
+    Guardrails AI 管理器
+
+    功能:
+    1. 管理不同数据模型的 Guard 实例
+    2. 提供高性能的 LLM 调用接口
+    3. 自动验证和修复 LLM 输出
+    4. 支持重试和错误处理
+    """
+
+    def __init__(self, max_reasks: int = 1):
+        """
+        初始化 Guardrails 管理器
+
+        Args:
+            max_reasks: 最大重试次数(默认1次,保持高性能)
+        """
+        self.max_reasks = max_reasks
+
+        # 创建不同用途的 Guard 实例
+        self._state_guard: Optional[Guard] = None
+        self._relation_guard: Optional[Guard] = None
+
+        logger.info(f"[Guardrails] 管理器初始化完成 (max_reasks={max_reasks})")
+
+    def get_state_transition_guard(self) -> Guard:
+        """
+        获取心理状态转换的 Guard 实例
+
+        Returns:
+            Guard 实例
+        """
+        if self._state_guard is None:
+            self._state_guard = Guard.for_pydantic(
+                output_class=PsychologicalStateTransition,
+                # 不使用额外的验证器,保持高性能
+            )
+            logger.debug("[Guardrails] 心理状态转换 Guard 已创建")
+
+        return self._state_guard
+
+    def get_relation_analysis_guard(self) -> Guard:
+        """
+        获取社交关系分析的 Guard 实例
+
+        Returns:
+            Guard 实例
+        """
+        if self._relation_guard is None:
+            self._relation_guard = Guard.for_pydantic(
+                output_class=SocialRelationAnalysis,
+            )
+            logger.debug("[Guardrails] 社交关系分析 Guard 已创建")
+
+        return self._relation_guard
+
+    async def parse_state_transition(
+        self,
+        llm_callable,
+        prompt: str,
+        model: str = "gpt-4o",
+        **kwargs
+    ) -> Optional[PsychologicalStateTransition]:
+        """
+        解析心理状态转换结果
+
+        Args:
+            llm_callable: LLM 调用函数(应该返回文本)
+            prompt: 提示词
+            model: 模型名称
+            **kwargs: 其他参数
+
+        Returns:
+            PsychologicalStateTransition 对象,失败返回 None
+        """
+        try:
+            guard = self.get_state_transition_guard()
+
+            # 使用 JSON 模式获取结构化输出
+            # 为提示词添加 JSON 输出要求
+            enhanced_prompt = f"""{prompt}
+
+请以 JSON 格式返回结果,格式如下:
+{{
+    "new_state": "新状态名称",
+    "confidence": 0.8,
+    "reason": "转换原因"
+}}
+"""
+
+            # 调用 LLM(通过用户提供的 callable)
+            response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
+
+            # 使用 Guard 验证
+            result = guard.parse(response_text)
+
+            if result.validation_passed:
+                logger.debug(f"✅ [Guardrails] 心理状态解析成功: {result.validated_output.new_state}")
+                return result.validated_output
+            else:
+                logger.warning(f"⚠️ [Guardrails] 心理状态验证失败: {result.validation_summaries}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] 心理状态解析失败: {e}", exc_info=True)
+            return None
+
+    async def parse_relation_analysis(
+        self,
+        llm_callable,
+        prompt: str,
+        model: str = "gpt-4o",
+        **kwargs
+    ) -> Optional[SocialRelationAnalysis]:
+        """
+        解析社交关系分析结果
+
+        Args:
+            llm_callable: LLM 调用函数
+            prompt: 提示词
+            model: 模型名称
+            **kwargs: 其他参数
+
+        Returns:
+            SocialRelationAnalysis 对象,失败返回 None
+        """
+        try:
+            guard = self.get_relation_analysis_guard()
+
+            # 增强提示词
+            enhanced_prompt = f"""{prompt}
+
+请以 JSON 格式返回结果,格式如下:
+{{
+    "relations": [
+        {{"relation_type": "关系类型1", "value_delta": 0.05, "reason": "原因"}},
+        {{"relation_type": "关系类型2", "value_delta": 0.03, "reason": "原因"}}
+    ],
+    "overall_sentiment": "positive"
+}}
+
+注意:
+- relations 最多返回5个
+- value_delta 范围 [-1.0, 1.0]
+- overall_sentiment 可选值: positive/neutral/negative
+"""
+
+            # 调用 LLM
+            response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
+
+            # 使用 Guard 验证
+            result = guard.parse(response_text)
+
+            if result.validation_passed:
+                relation_count = len(result.validated_output.relations)
+                logger.debug(f"✅ [Guardrails] 社交关系解析成功: {relation_count}个关系")
+                return result.validated_output
+            else:
+                logger.warning(f"⚠️ [Guardrails] 社交关系验证失败: {result.validation_summaries}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] 社交关系解析失败: {e}", exc_info=True)
+            return None
+
+    def parse_json_direct(
+        self,
+        response_text: str,
+        model_class: Type[BaseModel]
+    ) -> Optional[BaseModel]:
+        """
+        直接解析 JSON 文本(不调用 LLM)
+
+        Args:
+            response_text: JSON 文本
+            model_class: Pydantic 模型类
+
+        Returns:
+            模型实例,失败返回 None
+        """
+        try:
+            guard = Guard.for_pydantic(output_class=model_class)
+            result = guard.parse(response_text)
+
+            if result.validation_passed:
+                return result.validated_output
+            else:
+                logger.warning(f"⚠️ [Guardrails] JSON 验证失败: {result.validation_summaries}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}")
+            return None
+
+
+# ============================================================
+# 全局单例
+# ============================================================
+
+# 使用 max_reasks=1 保持高性能
+_guardrails_manager: Optional[GuardrailsManager] = None
+
+
+def get_guardrails_manager(max_reasks: int = 1) -> GuardrailsManager:
+    """
+    获取全局 Guardrails 管理器单例
+
+    Args:
+        max_reasks: 最大重试次数
+
+    Returns:
+        GuardrailsManager 实例
+    """
+    global _guardrails_manager
+
+    if _guardrails_manager is None:
+        _guardrails_manager = GuardrailsManager(max_reasks=max_reasks)
+
+    return _guardrails_manager

@@ -1289,38 +1289,51 @@ let filteredPersonaUpdates = [];  // 存储筛选后的数据
 let pendingCurrentPage = 1;
 let pendingPageSize = 20;
 
-// 加载人格更新数据
+// 加载人格更新数据 - 分段加载优化版本
 async function loadPersonaUpdates() {
     try {
-        console.log('[DEBUG] 开始加载人格更新数据...');
+        console.log('[DEBUG] 开始分段加载人格更新数据...');
 
         // 显示加载指示器
         const reviewList = document.getElementById('review-list');
         if (reviewList) {
-            reviewList.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 40px;"><i class="material-icons rotating" style="font-size: 48px; color: #4CAF50;">refresh</i><p>正在加载人格审查记录...</p></div>';
+            reviewList.innerHTML = '<div class="loading-indicator" style="text-align: center; padding: 40px;"><i class="material-icons rotating" style="font-size: 48px; color: #4CAF50;">refresh</i><p>正在加载第一页数据...</p></div>';
         }
 
-        const response = await fetch('/api/persona_updates');
-        console.log('[DEBUG] API响应状态:', response.status);
+        // 第一步：先获取数据总数和第一页数据
+        const firstPageSize = pendingPageSize || 20;
+        const response = await fetch(`/api/persona_updates?limit=${firstPageSize}&offset=0`, {
+            credentials: 'include'
+        });
+        console.log('[DEBUG] 第一页API响应状态:', response.status);
 
         if (response.ok) {
             const data = await response.json();
-            console.log('[DEBUG] 接收到的数据:', data);
+            console.log('[DEBUG] 第一页数据:', data);
 
-            // 确保 data 有正确的结构
             if (data && data.success && Array.isArray(data.updates)) {
-                console.log('[DEBUG] 数据格式正确, 记录数量:', data.updates.length);
+                const totalCount = data.total || data.updates.length;
+                console.log('[DEBUG] 数据总数:', totalCount, '第一页记录数:', data.updates.length);
+
+                // 立即显示第一页数据
                 allPersonaUpdates = data.updates;
-
-                // 更新群组筛选选项
                 updateGroupFilterOptions(data.updates);
-
-                // 应用筛选
-                console.log('[DEBUG] 应用筛选前, allPersonaUpdates:', allPersonaUpdates.length);
                 applyPersonaFilters();
-                console.log('[DEBUG] 应用筛选后, filteredPersonaUpdates:', filteredPersonaUpdates.length);
-
                 await updateReviewStats(data.updates);
+
+                console.log('[DEBUG] ✅ 第一页数据已显示');
+
+                // 第二步：如果还有更多数据，在后台继续加载
+                if (totalCount > firstPageSize) {
+                    const remainingCount = totalCount - firstPageSize;
+                    console.log('[DEBUG] 后台加载剩余', remainingCount, '条记录...');
+
+                    // 显示后台加载提示
+                    showBackgroundLoadingIndicator(remainingCount);
+
+                    // 后台分批加载剩余数据
+                    loadRemainingDataInBackground(firstPageSize, totalCount);
+                }
             } else {
                 console.error('[DEBUG] 人格更新数据格式不正确:', data);
                 allPersonaUpdates = [];
@@ -1333,17 +1346,98 @@ async function loadPersonaUpdates() {
         }
     } catch (error) {
         console.error('[DEBUG] 加载人格更新失败:', error);
-        // 确保即使出错也能正常渲染空列表
         allPersonaUpdates = [];
         filteredPersonaUpdates = [];
 
-        // 显示错误信息
         const reviewList = document.getElementById('review-list');
         if (reviewList) {
             reviewList.innerHTML = '<div class="no-updates" style="color: #f44336;">加载失败，请刷新页面重试</div>';
         }
 
         await updateReviewStats([]);
+    }
+}
+
+// 显示后台加载提示
+function showBackgroundLoadingIndicator(remainingCount) {
+    const indicator = document.createElement('div');
+    indicator.id = 'background-loading-indicator';
+    indicator.style.cssText = 'position: fixed; bottom: 20px; right: 20px; background: #4CAF50; color: white; padding: 12px 20px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.2); z-index: 1000; font-size: 14px;';
+    indicator.innerHTML = `<i class="material-icons rotating" style="font-size: 16px; vertical-align: middle;">sync</i> 后台加载中 (剩余 ${remainingCount} 条)`;
+    document.body.appendChild(indicator);
+}
+
+// 移除后台加载提示
+function hideBackgroundLoadingIndicator() {
+    const indicator = document.getElementById('background-loading-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+// 后台分批加载剩余数据
+async function loadRemainingDataInBackground(startOffset, totalCount) {
+    const batchSize = 50; // 每批加载50条
+    let currentOffset = startOffset;
+    let loadedCount = startOffset;
+
+    try {
+        while (currentOffset < totalCount) {
+            // 计算本批次加载数量
+            const limit = Math.min(batchSize, totalCount - currentOffset);
+
+            console.log(`[DEBUG] 后台加载批次: offset=${currentOffset}, limit=${limit}`);
+
+            const response = await fetch(`/api/persona_updates?limit=${limit}&offset=${currentOffset}`, {
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+
+                if (data && data.success && Array.isArray(data.updates) && data.updates.length > 0) {
+                    // 追加数据到现有数组
+                    allPersonaUpdates = allPersonaUpdates.concat(data.updates);
+                    loadedCount += data.updates.length;
+
+                    console.log(`[DEBUG] 已加载 ${loadedCount}/${totalCount} 条记录`);
+
+                    // 更新后台加载提示
+                    const indicator = document.getElementById('background-loading-indicator');
+                    if (indicator) {
+                        const remaining = totalCount - loadedCount;
+                        indicator.innerHTML = `<i class="material-icons rotating" style="font-size: 16px; vertical-align: middle;">sync</i> 后台加载中 (剩余 ${remaining} 条)`;
+                    }
+
+                    // 更新群组筛选选项（增量更新）
+                    updateGroupFilterOptions(allPersonaUpdates);
+
+                    // 如果用户当前不在第一页，可能需要刷新当前页面显示
+                    // 但为了不打扰用户，这里不自动刷新
+
+                    currentOffset += limit;
+
+                    // 添加小延迟避免服务器压力过大
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } else {
+                    break; // 没有更多数据
+                }
+            } else {
+                console.error('[DEBUG] 后台加载批次失败:', response.status);
+                break;
+            }
+        }
+
+        // 全部加载完成
+        console.log('[DEBUG] ✅ 所有数据加载完成, 总计:', allPersonaUpdates.length);
+        hideBackgroundLoadingIndicator();
+
+        // 更新统计信息
+        await updateReviewStats(allPersonaUpdates);
+
+    } catch (error) {
+        console.error('[DEBUG] 后台加载失败:', error);
+        hideBackgroundLoadingIndicator();
     }
 }
 
@@ -2011,9 +2105,10 @@ async function reviewUpdate(updateId, action) {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',  // 包含session cookie
             body: JSON.stringify({ action })
         });
-        
+
         if (response.ok) {
             showSuccess(`人格更新已${action === 'approve' ? '批准' : '拒绝'}`);
             await loadPersonaUpdates(); // 重新加载列表
@@ -2029,20 +2124,22 @@ async function reviewUpdate(updateId, action) {
 // 编辑人格更新内容
 function editPersonaUpdate(updateId) {
     // 查找待审查的人格更新数据
-    fetch(`/api/persona_updates`)
+    fetch(`/api/persona_updates`, {
+        credentials: 'include'  // 包含session cookie
+    })
         .then(response => response.json())
         .then(data => {
             if (!data.success) {
                 showError('获取更新列表失败');
                 return;
             }
-            
+
             const update = data.updates.find(u => u.id === updateId);
             if (!update) {
                 showError('未找到对应的更新记录');
                 return;
             }
-            
+
             showPersonaEditDialog(update);
         })
         .catch(error => {
@@ -2158,19 +2255,20 @@ async function reviewPersonaUpdate(updateId, action) {
     try {
         const proposedContent = document.getElementById('proposedContent')?.value || '';
         const reviewComment = document.getElementById('reviewComment')?.value || '';
-        
+
         const response = await fetch(`/api/persona_updates/${updateId}/review`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
+            credentials: 'include',  // 包含session cookie
+            body: JSON.stringify({
                 action,
                 comment: reviewComment,
                 modified_content: proposedContent
             })
         });
-        
+
         if (response.ok) {
             showSuccess(`人格更新已${action === 'approve' ? '批准' : '拒绝'}`);
             closePersonaEditDialog();
@@ -2197,7 +2295,8 @@ async function deletePersonaUpdate(updateId) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            credentials: 'include'  // 包含session cookie
         });
 
         const data = await response.json();
@@ -2237,6 +2336,7 @@ async function batchDeletePersonaUpdates(updateIds) {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',  // 包含session cookie
             body: JSON.stringify({ update_ids: updateIds })
         });
 
@@ -2280,6 +2380,7 @@ async function batchReviewPersonaUpdates(updateIds, action, comment = '') {
             headers: {
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',  // 包含session cookie
             body: JSON.stringify({
                 update_ids: updateIds,
                 action: action,
@@ -2288,7 +2389,7 @@ async function batchReviewPersonaUpdates(updateIds, action, comment = '') {
         });
 
         const data = await response.json();
-        
+
         if (data.success) {
             showSuccess(data.message);
             // 重新加载列表

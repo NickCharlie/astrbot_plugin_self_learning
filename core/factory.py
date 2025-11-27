@@ -219,23 +219,25 @@ class ServiceFactory(IServiceFactory):
             raise ServiceError(f"创建质量监控器失败: {str(e)}")
     
     def create_database_manager(self):
-        """创建数据库管理器"""
+        """创建数据库管理器 - 根据配置选择实现"""
         cache_key = "database_manager"
-        
+
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
-        
+
         try:
-            # 使用try/except导入DatabaseManager
-            from ..services.database_manager import DatabaseManager as DBManager
-            
-            service = DBManager(self.config, self.context)
+            # 使用数据库工厂创建管理器（根据配置选择实现）
+            from ..services.database_factory import create_database_manager
+
+            service = create_database_manager(self.config, self.context)
             self._service_cache[cache_key] = service
             self._registry.register_service("database_manager", service)
-            
-            self._logger.info("创建数据库管理器成功")
+
+            # 记录使用的实现类型
+            impl_type = type(service).__name__
+            self._logger.info(f"创建数据库管理器成功 (实现: {impl_type})")
             return service
-            
+
         except ImportError as e:
             self._logger.error(f"导入数据库管理器失败: {e}", exc_info=True)
             raise ServiceError(f"创建数据库管理器失败: {str(e)}")
@@ -886,26 +888,33 @@ class ComponentFactory:
             raise ServiceError(f"创建智能化提升服务失败: {str(e)}")
 
     def create_affection_manager_service(self):
-        """创建好感度管理服务"""
+        """创建好感度管理服务 - 根据配置选择实现"""
         cache_key = "affection_manager"
-        
+
         if cache_key in self._service_cache:
             return self._service_cache[cache_key]
-        
+
         try:
-            from ..services.affection_manager import AffectionManager
-            
-            service = AffectionManager(
-                self.config,
-                self.service_factory.create_database_manager(),
-                llm_adapter=self.service_factory.create_framework_llm_adapter()  # 使用框架适配器
+            # 使用管理器工厂创建好感度管理器（根据配置选择实现）
+            from ..services.manager_factory import get_manager_factory
+
+            # 获取或创建管理器工厂
+            manager_factory = get_manager_factory(self.config)
+
+            # 创建好感度管理器
+            service = manager_factory.create_affection_manager(
+                database_manager=self.service_factory.create_database_manager(),
+                llm_adapter=self.service_factory.create_framework_llm_adapter()
             )
+
             self._service_cache[cache_key] = service
             self._registry.register_service("affection_manager", service)
-            
-            self._logger.info("创建好感度管理服务成功")
+
+            # 记录使用的实现类型
+            impl_type = type(service).__name__
+            self._logger.info(f"创建好感度管理服务成功 (实现: {impl_type})")
             return service
-            
+
         except ImportError as e:
             self._logger.error(f"导入好感度管理服务失败: {e}", exc_info=True)
             raise ServiceError(f"创建好感度管理服务失败: {str(e)}")

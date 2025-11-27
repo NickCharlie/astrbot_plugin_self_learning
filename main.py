@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "1.6.1", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "Next-1.0.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -329,7 +329,115 @@ class SelfLearningPlugin(star.Star):
         
         # 添加延迟重新初始化提供商配置，解决重启后配置问题
         asyncio.create_task(self._delayed_provider_reinitialization())
-    
+
+    async def _check_and_migrate_database(self):
+        """
+        自动检查并执行数据库迁移
+
+        功能：
+        1. 检查是否存在迁移标记文件
+        2. 如果不存在，执行自动数据库迁移
+        3. 迁移成功后创建标记文件，防止重复迁移
+        """
+        try:
+            # 迁移标记文件路径
+            migration_marker = os.path.join(self.plugin_config.data_dir, '.migration_completed')
+
+            # 检查是否已经迁移过
+            if not os.path.exists(migration_marker):
+                logger.info("=" * 70)
+                logger.info("🔄 检测到首次启动，开始自动数据库迁移...")
+                logger.info("=" * 70)
+
+                try:
+                    # 导入迁移工具
+                    from .utils.migration_tool_v2 import auto_migrate
+
+                    # 获取数据库URL
+                    db_url = self._get_database_url()
+
+                    # 执行迁移
+                    await auto_migrate(db_url)
+
+                    # 创建迁移标记文件
+                    with open(migration_marker, 'w', encoding='utf-8') as f:
+                        f.write(json.dumps({
+                            'migrated_at': time.time(),
+                            'migrated_date': datetime.now().isoformat(),
+                            'plugin_version': '1.6.1',
+                            'database_url': db_url.split('://')[-1].split('@')[-1] if '@' in db_url else db_url  # 隐藏密码
+                        }, ensure_ascii=False, indent=2))
+
+                    logger.info("=" * 70)
+                    logger.info("✅ 数据库迁移完成！")
+                    logger.info("=" * 70)
+
+                except Exception as migrate_error:
+                    logger.error("=" * 70)
+                    logger.error(f"❌ 数据库迁移失败: {migrate_error}")
+                    logger.error("=" * 70)
+                    logger.error("故障排查:")
+                    logger.error("  1. 检查数据库连接是否正常")
+                    logger.error("  2. 确认数据库用户有足够权限")
+                    logger.error("  3. 查看完整错误日志")
+                    logger.error("  4. 如需重新迁移，请删除 .migration_completed 文件")
+                    raise
+            else:
+                logger.info("✅ 数据库已完成迁移，跳过迁移步骤")
+
+                # 可选：显示迁移信息
+                try:
+                    with open(migration_marker, 'r', encoding='utf-8') as f:
+                        migration_info = json.load(f)
+                        logger.debug(f"迁移时间: {migration_info.get('migrated_date', '未知')}")
+                        logger.debug(f"插件版本: {migration_info.get('plugin_version', '未知')}")
+                except Exception as read_error:
+                    logger.debug(f"读取迁移信息失败: {read_error}")
+
+        except Exception as e:
+            logger.error(f"❌ 数据库迁移检查失败: {e}", exc_info=True)
+            raise
+
+    def _get_database_url(self) -> str:
+        """
+        获取数据库连接URL
+
+        Returns:
+            str: 数据库连接URL
+        """
+        try:
+            db_config = self.plugin_config
+
+            # 检查数据库类型
+            if hasattr(db_config, 'db_type') and db_config.db_type.lower() == 'mysql':
+                # MySQL数据库
+                host = getattr(db_config, 'db_host', 'localhost')
+                port = getattr(db_config, 'db_port', 3306)
+                user = getattr(db_config, 'db_user', 'root')
+                password = getattr(db_config, 'db_password', '')
+                database = getattr(db_config, 'db_name', 'astrbot_self_learning')
+
+                return f"mysql+aiomysql://{user}:{password}@{host}:{port}/{database}"
+            else:
+                # SQLite数据库（默认）
+                db_path = getattr(db_config, 'messages_db_path', None)
+
+                if not db_path:
+                    # 使用默认路径
+                    db_path = os.path.join(db_config.data_dir, 'messages.db')
+
+                # 确保路径是绝对路径
+                if not os.path.isabs(db_path):
+                    db_path = os.path.abspath(db_path)
+
+                return f"sqlite:///{db_path}"
+
+        except Exception as e:
+            logger.error(f"获取数据库URL失败: {e}")
+            # 返回默认SQLite路径
+            default_path = os.path.join(self.plugin_config.data_dir, 'messages.db')
+            return f"sqlite:///{default_path}"
+
     async def on_load(self):
         """插件加载时启动 Web 服务器和数据库管理器"""
         global server_instance
@@ -337,7 +445,10 @@ class SelfLearningPlugin(star.Star):
         logger.info(f"Debug: enable_web_interface = {self.plugin_config.enable_web_interface}")
         logger.info(f"Debug: server_instance = {server_instance}")
         logger.info(f"Debug: web_interface_port = {self.plugin_config.web_interface_port}")
-        
+
+        # ✅ 检查并执行数据库迁移（首次启动时）
+        await self._check_and_migrate_database()
+
         # 启动数据库管理器，确保数据库表被创建
         try:
             await self.db_manager.start()

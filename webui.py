@@ -1043,17 +1043,21 @@ async def submit_bug_report():
 @api_bp.route("/persona_updates")
 @require_auth
 async def get_persona_updates():
-    """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）"""
-    logger.info("开始获取persona_updates数据...")
+    """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）- 支持分页"""
+    # 获取分页参数
+    limit = request.args.get('limit', type=int)
+    offset = request.args.get('offset', default=0, type=int)
+
+    logger.info(f"开始获取persona_updates数据... limit={limit}, offset={offset}")
     all_updates = []
-    
+
     # 1. 获取传统的人格更新审查
     if persona_updater:
         try:
             logger.info("正在获取传统人格更新...")
             traditional_updates = await persona_updater.get_pending_persona_updates()
             logger.info(f"获取到 {len(traditional_updates)} 个传统人格更新")
-            
+
             # 将PersonaUpdateRecord对象转换为字典格式，确保数据完整
             for record in traditional_updates:
                 # 使用dataclass的asdict或手动转换
@@ -1073,26 +1077,26 @@ async def get_persona_updates():
                         'reviewer_comment': getattr(record, 'reviewer_comment', None),
                         'review_time': getattr(record, 'review_time', None)
                     }
-                
+
                 # 添加一些前端需要的字段
                 record_dict['proposed_content'] = record_dict.get('new_content', '')
                 record_dict['confidence_score'] = 0.8  # 默认置信度
                 record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
                 record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
                 record_dict['review_source'] = 'traditional'  # 标记来源
-                
+
                 all_updates.append(record_dict)
-                
+
         except Exception as e:
             logger.error(f"获取传统人格更新失败: {e}")
     else:
         logger.warning("persona_updater 不可用")
-    
+
     # 2. 获取人格学习审查（包括渐进式学习、表达学习等）
     if database_manager:
         try:
             logger.info("正在获取人格学习审查...")
-            # ✅ 移除数量限制，获取所有待审查记录
+            # 获取所有待审查记录（后面会统一分页）
             persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=999999)
             logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
 
@@ -1170,12 +1174,12 @@ async def get_persona_updates():
             logger.error(f"获取人格学习审查失败: {e}", exc_info=True)
     else:
         logger.warning("database_manager 不可用")
-    
+
     # 3. 获取风格学习审查（Few-shot样本学习）
     if database_manager:
         try:
             logger.info("正在获取风格学习审查...")
-            # ✅ 移除数量限制，获取所有待审查记录
+            # 获取所有待审查记录（后面会统一分页）
             style_reviews = await database_manager.get_pending_style_reviews(limit=999999)
             logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
 
@@ -1230,16 +1234,29 @@ async def get_persona_updates():
 
         except Exception as e:
             logger.error(f"获取风格学习审查失败: {e}")
-    
+
     # 按时间倒序排列
     all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
-    
-    logger.info(f"返回 {len(all_updates)} 条人格更新记录给WebUI (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, 人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, 风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
-    
+
+    total_count = len(all_updates)
+
+    # 应用分页
+    if limit is not None:
+        end_index = offset + limit
+        paginated_updates = all_updates[offset:end_index]
+        logger.info(f"分页返回 {len(paginated_updates)}/{total_count} 条记录 (offset={offset}, limit={limit})")
+    else:
+        paginated_updates = all_updates
+        logger.info(f"返回全部 {total_count} 条记录（未分页）")
+
+    logger.info(f"返回数据统计 - 传统: {len([u for u in paginated_updates if u['review_source'] == 'traditional'])}, 人格学习: {len([u for u in paginated_updates if u['review_source'] == 'persona_learning'])}, 风格学习: {len([u for u in paginated_updates if u['review_source'] == 'style_learning'])})")
+
     return jsonify({
         "success": True,
-        "updates": all_updates,
-        "total": len(all_updates)
+        "updates": paginated_updates,
+        "total": total_count,
+        "offset": offset,
+        "limit": limit if limit is not None else total_count
     })
 
 @api_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
@@ -1495,6 +1512,7 @@ async def revert_persona_update(update_id: str):
 
 # 删除人格更新审查记录
 @api_bp.route("/persona_updates/<update_id>/delete", methods=["POST"])
+@require_auth
 async def delete_persona_update(update_id):
     """删除人格更新审查记录"""
     try:
@@ -1558,6 +1576,7 @@ async def delete_persona_update(update_id):
 
 # 批量删除人格更新审查记录
 @api_bp.route("/persona_updates/batch_delete", methods=["POST"])
+@require_auth
 async def batch_delete_persona_updates():
     """批量删除人格更新审查记录"""
     try:
@@ -1649,6 +1668,7 @@ async def batch_delete_persona_updates():
 
 # 批量操作人格更新审查记录（批准、拒绝）
 @api_bp.route("/persona_updates/batch_review", methods=["POST"])
+@require_auth
 async def batch_review_persona_updates():
     """批量审查人格更新记录"""
     try:
@@ -2857,26 +2877,29 @@ async def get_style_learning_content_text():
                 # 获取提炼的风格特征 - 使用工厂模式的方法
                 logger.info("开始获取风格特征数据...")
                 
-                # 1. 从表达模式数据获取 - 使用工厂模式
+                # 1. 从表达模式数据获取 - 优先使用 SQLAlchemy 数据库管理器
                 try:
-                    logger.debug("尝试获取表达模式学习器...")
-                    from .core.factory import FactoryManager
-                    
-                    factory_manager = FactoryManager()
-                    component_factory = factory_manager.get_component_factory()
-                    expression_learner = component_factory.create_expression_pattern_learner()
-                    
-                    # 获取所有群组的表达模式
-                    logger.debug("获取表达模式数据...")
-                    if hasattr(expression_learner, 'get_all_group_patterns'):
-                        group_patterns = await expression_learner.get_all_group_patterns()
-                        logger.info(f"从表达模式学习器获取到 {len(group_patterns)} 个群组的模式")
-                        
+                    logger.debug("尝试从 SQLAlchemy 数据库管理器获取表达模式...")
+                    group_patterns = await db_manager.get_all_expression_patterns()
+
+                    if group_patterns:
+                        logger.info(f"[WebUI] 从 SQLAlchemy 获取到 {len(group_patterns)} 个群组的模式")
+
                         pattern_count = 0
                         for group_id, patterns in group_patterns.items():
                             logger.debug(f"处理群组 {group_id} 的 {len(patterns)} 个表达模式")
                             for pattern in patterns[:5]:  # 每个群组取前5个
-                                if hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
+                                # 处理字典格式（SQLAlchemy 返回）
+                                if isinstance(pattern, dict):
+                                    if 'situation' in pattern and 'expression' in pattern:
+                                        content_data['features'].append({
+                                            'timestamp': datetime.fromtimestamp(pattern.get('last_active_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                                            'text': f"场景: {pattern['situation']}\n表达: {pattern['expression']}",
+                                            'metadata': f"权重: {pattern.get('weight', 0.5):.2f}, 群组: {group_id}"
+                                        })
+                                        pattern_count += 1
+                                # 处理对象格式（传统方法返回）
+                                elif hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
                                     content_data['features'].append({
                                         'timestamp': datetime.fromtimestamp(getattr(pattern, 'last_active_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
                                         'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
@@ -2885,28 +2908,60 @@ async def get_style_learning_content_text():
                                     pattern_count += 1
                         logger.info(f"成功添加 {pattern_count} 个表达模式特征")
                     else:
-                        # 回退到传统方法
-                        logger.debug("表达模式学习器不支持get_all_group_patterns方法，使用传统SQL查询")
-                        async with db_manager.get_db_connection() as conn:
-                            cursor = await conn.cursor()
-                            
-                            await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
-                            expression_patterns = await cursor.fetchall()
-                            
-                            if expression_patterns:
-                                logger.info(f"从数据库直接查询到 {len(expression_patterns)} 个表达模式")
-                                for pattern in expression_patterns:
-                                    content_data['features'].append({
-                                        'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
-                                        'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
-                                        'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
-                                    })
-                            else:
-                                logger.warning("数据库中未找到表达模式记录")
-                        
+                        logger.warning("[WebUI] SQLAlchemy 返回空数据，降级到表达模式学习器")
+                        raise ValueError("SQLAlchemy 返回空数据")
+
                 except Exception as e:
-                    logger.warning(f"获取表达模式失败，将尝试其他数据源: {e}")
-                
+                    # 降级到表达模式学习器方法
+                    logger.warning(f"[WebUI] SQLAlchemy 获取表达模式失败: {e}，降级到表达模式学习器")
+                    try:
+                        from .core.factory import FactoryManager
+
+                        factory_manager = FactoryManager()
+                        component_factory = factory_manager.get_component_factory()
+                        expression_learner = component_factory.create_expression_pattern_learner()
+
+                        # 获取所有群组的表达模式
+                        logger.debug("获取表达模式数据...")
+                        if hasattr(expression_learner, 'get_all_group_patterns'):
+                            group_patterns = await expression_learner.get_all_group_patterns()
+                            logger.info(f"从表达模式学习器获取到 {len(group_patterns)} 个群组的模式")
+
+                            pattern_count = 0
+                            for group_id, patterns in group_patterns.items():
+                                logger.debug(f"处理群组 {group_id} 的 {len(patterns)} 个表达模式")
+                                for pattern in patterns[:5]:  # 每个群组取前5个
+                                    if hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
+                                        content_data['features'].append({
+                                            'timestamp': datetime.fromtimestamp(getattr(pattern, 'last_active_time', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                                            'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
+                                            'metadata': f"权重: {getattr(pattern, 'weight', 0.5):.2f}, 群组: {group_id}"
+                                        })
+                                        pattern_count += 1
+                            logger.info(f"成功添加 {pattern_count} 个表达模式特征")
+                        else:
+                            # 回退到传统方法
+                            logger.debug("表达模式学习器不支持get_all_group_patterns方法，使用传统SQL查询")
+                            async with db_manager.get_db_connection() as conn:
+                                cursor = await conn.cursor()
+
+                                await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
+                                expression_patterns = await cursor.fetchall()
+
+                                if expression_patterns:
+                                    logger.info(f"从数据库直接查询到 {len(expression_patterns)} 个表达模式")
+                                    for pattern in expression_patterns:
+                                        content_data['features'].append({
+                                            'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
+                                            'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
+                                            'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
+                                        })
+                                else:
+                                    logger.warning("数据库中未找到表达模式记录")
+
+                    except Exception as e:
+                        logger.warning(f"获取表达模式失败，将尝试其他数据源: {e}")
+
                 # 2. 从风格学习审查中获取特征 - 使用工厂方法
                 try:
                     logger.debug("获取风格学习审查数据...")
@@ -3224,19 +3279,31 @@ async def get_style_learning_stats():
                 await cursor.close()
 
             # 获取所有群组的表达模式(用于其他统计)
+            # 优先使用 SQLAlchemy 数据库管理器，失败时自动降级到传统实现
             group_patterns = {}
-            if hasattr(expression_learner, 'get_all_group_patterns'):
-                group_patterns = await expression_learner.get_all_group_patterns()
-            
+            try:
+                group_patterns = await db_manager.get_all_expression_patterns()
+                logger.debug(f"[WebUI] 使用 SQLAlchemy 获取表达模式: {len(group_patterns)} 个群组")
+            except Exception as e:
+                logger.warning(f"[WebUI] 获取表达模式失败，尝试使用表达模式学习器: {e}")
+                # 降级到表达模式学习器方法
+                if hasattr(expression_learner, 'get_all_group_patterns'):
+                    group_patterns = await expression_learner.get_all_group_patterns()
+
             if group_patterns:
                 total_confidence = 0
                 pattern_count = 0
                 style_types = set()
-                
+
                 for group_id, patterns in group_patterns.items():
                     for pattern in patterns:
-                        style_types.add(getattr(pattern, 'style_type', 'general'))
-                        total_confidence += getattr(pattern, 'weight', 0.5)
+                        # 处理字典和对象两种格式
+                        if isinstance(pattern, dict):
+                            style_types.add(pattern.get('style_type', 'general'))
+                            total_confidence += pattern.get('weight', 0.5)
+                        else:
+                            style_types.add(getattr(pattern, 'style_type', 'general'))
+                            total_confidence += getattr(pattern, 'weight', 0.5)
                         pattern_count += 1
 
                 stats['style_types_count'] = len(style_types)

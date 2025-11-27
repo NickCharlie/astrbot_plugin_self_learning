@@ -441,5 +441,72 @@
         "default": false
       }
     }
+  },
+  "Repository_Settings": {
+    "description": "数据访问层配置",
+    "type": "object",
+    "hint": "配置SQLAlchemy Repository数据访问的默认参数和限制",
+    "items": {
+      "default_review_limit": {
+        "description": "默认审查记录查询数量",
+        "type": "int",
+        "hint": "获取待审查的人格学习/风格学习记录时的默认数量限制",
+        "default": 50
+      },
+      "default_pattern_limit": {
+        "description": "默认表达模式查询数量",
+        "type": "int",
+        "hint": "获取表达模式时的默认数量限制",
+        "default": 10
+      },
+      "default_memory_limit": {
+        "description": "默认记忆查询数量",
+        "type": "int",
+        "hint": "获取记忆记录时的默认数量限制",
+        "default": 50
+      },
+      "default_affection_limit": {
+        "description": "默认好感度记录查询数量",
+        "type": "int",
+        "hint": "获取好感度交互记录时的默认数量限制",
+        "default": 50
+      },
+      "default_social_limit": {
+        "description": "默认社交记录查询数量",
+        "type": "int",
+        "hint": "获取社交关系记录时的默认数量限制",
+        "default": 50
+      },
+      "default_psychological_limit": {
+        "description": "默认心理状态记录查询数量",
+        "type": "int",
+        "hint": "获取心理状态记录时的默认数量限制",
+        "default": 20
+      },
+      "max_interaction_batch_size": {
+        "description": "最大交互批处理数量",
+        "type": "int",
+        "hint": "批量处理交互记录时的最大数量限制，避免单次处理过多数据",
+        "default": 100
+      },
+      "top_patterns_limit": {
+        "description": "顶级模式查询数量",
+        "type": "int",
+        "hint": "获取权重最高的表达模式时的默认数量限制",
+        "default": 10
+      },
+      "recent_interactions_limit": {
+        "description": "近期交互查询数量",
+        "type": "int",
+        "hint": "获取近期交互记录时的默认数量限制",
+        "default": 20
+      },
+      "trend_analysis_days": {
+        "description": "趋势分析天数",
+        "type": "int",
+        "hint": "进行趋势分析时默认查询的天数范围",
+        "default": 7
+      }
+    }
   }
 }

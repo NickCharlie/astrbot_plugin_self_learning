@@ -1,0 +1,30 @@
+# Testing Dependencies for Astrbot Self-Learning Plugin
+
+# Core testing framework
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+
+# HTTP testing
+pytest-aiohttp>=1.0.5
+httpx>=0.24.1
+
+# Async utilities
+aioresponses>=0.7.4
+
+# Code quality
+pytest-xdist>=3.3.1  # Parallel test execution
+pytest-timeout>=2.1.0  # Test timeout
+pytest-randomly>=3.13.0  # Randomize test order
+
+# Coverage reporting
+coverage[toml]>=7.3.0
+
+# Mocking and fixtures
+faker>=19.3.0  # Generate fake data
+freezegun>=1.2.2  # Mock datetime
+responses>=0.23.1  # Mock requests
+
+# Performance testing
+pytest-benchmark>=4.0.0

@@ -124,7 +124,26 @@ class PluginConfig:
     include_affection_info: bool = True  # 注入好感度信息
     include_mood_info: bool = True  # 注入Bot情绪信息
     context_injection_position: str = "start"  # 上下文注入位置: "start" 或 "end"
-    
+
+    # 重构功能配置（新增）
+    use_sqlalchemy: bool = False  # 使用SQLAlchemy数据库管理器（False=使用传统实现）
+    use_enhanced_managers: bool = False  # 使用增强型管理器（False=使用原始实现）
+    enable_memory_cleanup: bool = True  # 启用记忆自动清理（每天凌晨3点）
+    memory_cleanup_days: int = 30  # 记忆保留天数（低于阈值的旧记忆会被清理）
+    memory_importance_threshold: float = 0.3  # 记忆重要性阈值（低于此值的会被清理）
+
+    # Repository数据访问层配置（新增）
+    default_review_limit: int = 50  # 默认审查记录查询数量
+    default_pattern_limit: int = 10  # 默认表达模式查询数量
+    default_memory_limit: int = 50  # 默认记忆查询数量
+    default_affection_limit: int = 50  # 默认好感度记录查询数量
+    default_social_limit: int = 50  # 默认社交记录查询数量
+    default_psychological_limit: int = 20  # 默认心理状态记录查询数量
+    max_interaction_batch_size: int = 100  # 最大交互批处理数量
+    top_patterns_limit: int = 10  # 顶级模式查询数量
+    recent_interactions_limit: int = 20  # 近期交互查询数量
+    trend_analysis_days: int = 7  # 趋势分析天数
+
 
     def __post_init__(self):
         """初始化后处理"""
@@ -159,6 +178,7 @@ class PluginConfig:
         api_settings = config.get('API_Settings', {})
         database_settings = config.get('Database_Settings', {})  # 新增：数据库设置
         social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
+        repository_settings = config.get('Repository_Settings', {})  # 新增：Repository配置
 
         return cls(
             enable_message_capture=basic_settings.get('enable_message_capture', True),
@@ -238,12 +258,31 @@ class PluginConfig:
             max_connections=database_settings.get('max_connections', 10),
             min_connections=database_settings.get('min_connections', 2),
 
+            # 重构功能配置
+            use_sqlalchemy=database_settings.get('use_sqlalchemy', False),
+            use_enhanced_managers=advanced_settings.get('use_enhanced_managers', False),
+            enable_memory_cleanup=advanced_settings.get('enable_memory_cleanup', True),
+            memory_cleanup_days=advanced_settings.get('memory_cleanup_days', 30),
+            memory_importance_threshold=advanced_settings.get('memory_importance_threshold', 0.3),
+
             # 社交上下文注入设置
             enable_social_context_injection=social_context_settings.get('enable_social_context_injection', True),
             include_social_relations=social_context_settings.get('include_social_relations', True),
             include_affection_info=social_context_settings.get('include_affection_info', True),
             include_mood_info=social_context_settings.get('include_mood_info', True),
             context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+
+            # Repository数据访问层配置
+            default_review_limit=repository_settings.get('default_review_limit', 50),
+            default_pattern_limit=repository_settings.get('default_pattern_limit', 10),
+            default_memory_limit=repository_settings.get('default_memory_limit', 50),
+            default_affection_limit=repository_settings.get('default_affection_limit', 50),
+            default_social_limit=repository_settings.get('default_social_limit', 50),
+            default_psychological_limit=repository_settings.get('default_psychological_limit', 20),
+            max_interaction_batch_size=repository_settings.get('max_interaction_batch_size', 100),
+            top_patterns_limit=repository_settings.get('top_patterns_limit', 10),
+            recent_interactions_limit=repository_settings.get('recent_interactions_limit', 20),
+            trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")

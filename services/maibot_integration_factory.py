@@ -10,7 +10,6 @@ from ..config import PluginConfig
 from .database_manager import DatabaseManager
 from .maibot_enhanced_learning_manager import MaiBotEnhancedLearningManager
 from .expression_pattern_learner import ExpressionPatternLearner
-from .memory_graph_manager import MemoryGraphManager
 from .knowledge_graph_manager import KnowledgeGraphManager
 from .time_decay_manager import TimeDecayManager
 
@@ -21,42 +20,59 @@ class MaiBotIntegrationFactory:
     提供简化的API接口，隐藏内部复杂性
     采用单例模式确保全局一致性
     """
-    
+
     _instance = None
     _initialized = False
-    
+
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
-    
+
     def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None):
         if self._initialized:
             return
-            
+
         self.config = config
         self.db_manager = db_manager
-        
+
         # 获取主管理器实例
         self.enhanced_manager = MaiBotEnhancedLearningManager.get_instance()
-        
+
         # 初始化子管理器（如果还没有初始化）
         if config and db_manager:
             self.enhanced_manager.__init__(config, db_manager)
-            
+
             # 确保子管理器也被正确初始化，传递所有必要参数
             ExpressionPatternLearner.get_instance(
-                config=config, 
-                db_manager=db_manager, 
-                context=context, 
+                config=config,
+                db_manager=db_manager,
+                context=context,
                 llm_adapter=llm_adapter
             )
-            MemoryGraphManager.get_instance().__init__(config, db_manager, 
-                                                      self.enhanced_manager.llm_adapter, 
-                                                      self.enhanced_manager.time_decay_manager)
-            KnowledgeGraphManager.get_instance().__init__(config, db_manager, 
+
+            # 使用管理器工厂创建记忆管理器（根据配置选择实现）
+            use_enhanced = getattr(config, 'use_enhanced_managers', False)
+            if use_enhanced:
+                logger.info("📦 [MaiBot工厂] 使用增强型记忆管理器")
+                from .manager_factory import get_manager_factory
+                manager_factory = get_manager_factory(config)
+                self.memory_manager = manager_factory.create_memory_manager(
+                    db_manager,
+                    llm_adapter,
+                    self.enhanced_manager.time_decay_manager
+                )
+            else:
+                logger.info("📦 [MaiBot工厂] 使用原始记忆管理器")
+                from .memory_graph_manager import MemoryGraphManager
+                self.memory_manager = MemoryGraphManager.get_instance()
+                self.memory_manager.__init__(config, db_manager,
+                                           self.enhanced_manager.llm_adapter,
+                                           self.enhanced_manager.time_decay_manager)
+
+            KnowledgeGraphManager.get_instance().__init__(config, db_manager,
                                                          self.enhanced_manager.llm_adapter)
-        
+
         self._initialized = True
     
     @classmethod
@@ -189,18 +205,24 @@ class MaiBotIntegrationFactory:
     async def get_related_memories(self, query: str, group_id: str, limit: int = 5) -> List[str]:
         """
         获取相关记忆
-        
+
         Args:
             query: 查询内容
             group_id: 群组ID
             limit: 返回数量限制
-            
+
         Returns:
             相关记忆列表
         """
         try:
-            memory_manager = MemoryGraphManager.get_instance()
-            return await memory_manager.get_related_memories(query, group_id, limit)
+            # 使用实例属性而非单例
+            if hasattr(self, 'memory_manager'):
+                return await self.memory_manager.get_related_memories(query, group_id, limit)
+            else:
+                # 降级方案
+                from .memory_graph_manager import MemoryGraphManager
+                memory_manager = MemoryGraphManager.get_instance()
+                return await memory_manager.get_related_memories(query, group_id, limit)
         except Exception as e:
             logger.error(f"获取相关记忆失败: {e}")
             return []
@@ -254,8 +276,13 @@ class MaiBotIntegrationFactory:
             }
             
             # 记忆图统计
-            memory_manager = MemoryGraphManager.get_instance()
-            stats['memory_graph'] = await memory_manager.get_memory_graph_statistics(group_id)
+            if hasattr(self, 'memory_manager'):
+                stats['memory_graph'] = await self.memory_manager.get_memory_graph_statistics(group_id)
+            else:
+                # 降级方案
+                from .memory_graph_manager import MemoryGraphManager
+                memory_manager = MemoryGraphManager.get_instance()
+                stats['memory_graph'] = await memory_manager.get_memory_graph_statistics(group_id)
             
             # 知识图谱统计
             kg_manager = KnowledgeGraphManager.get_instance()

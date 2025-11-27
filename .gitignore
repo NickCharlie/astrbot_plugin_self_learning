@@ -12,3 +12,12 @@ test_api_simple.py
 upload_voice.py
 x x x x - 让聊天机器人像真人一样思考和对话.md
 数字生命 - 构建能思考、会学习、有情感的虚拟人格.md
+DATABASE_AUTO_CREATION.md
+SOCIAL_GRAPH_IMPROVEMENTS.md
+EDGE_WIDTH_LIMIT.md
+SOCIAL_GRAPH_NODE_LIMIT.md
+MESSAGE_LIMIT_CUSTOMIZATION.md
+/docs
+ENABLED.md
+QUICK_START.md
+tests/README.md

@@ -86,11 +86,10 @@ class ExpressionPatternLearner:
         
         # 维护每个群组的上次学习时间
         self.last_learning_times: Dict[str, float] = {}
-        
-        # 初始化数据库表
-        if self.db_manager:
-            self._init_expression_patterns_table()
-            
+
+        # 数据库表初始化标志（将在 start() 中异步初始化）
+        self._table_initialized = False
+
         self._initialized = True
     
     @classmethod
@@ -105,30 +104,65 @@ class ExpressionPatternLearner:
             cls._instance.__init__(config, db_manager, context, llm_adapter)
         return cls._instance
     
-    def _init_expression_patterns_table(self):
-        """初始化表达模式数据库表"""
+    async def _init_expression_patterns_table(self):
+        """初始化表达模式数据库表（异步）"""
+        if self._table_initialized:
+            return
+
         try:
-            with self.db_manager.get_connection() as conn:
-                conn.execute('''
-                    CREATE TABLE IF NOT EXISTS expression_patterns (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        situation TEXT NOT NULL,
-                        expression TEXT NOT NULL,
-                        weight REAL NOT NULL DEFAULT 1.0,
-                        last_active_time REAL NOT NULL,
-                        create_time REAL NOT NULL,
-                        group_id TEXT NOT NULL,
-                        UNIQUE(situation, expression, group_id)
-                    )
-                ''')
-                conn.commit()
-                logger.info("表达模式数据库表初始化完成")
+            # 检查是否是 SQLAlchemy 版本
+            if hasattr(self.db_manager, 'get_session'):
+                # SQLAlchemy 版本 - 使用 async session
+                async with self.db_manager.get_session() as session:
+                    # 使用 SQLAlchemy 原生 SQL
+                    from sqlalchemy import text
+                    await session.execute(text('''
+                        CREATE TABLE IF NOT EXISTS expression_patterns (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            situation TEXT NOT NULL,
+                            expression TEXT NOT NULL,
+                            weight REAL NOT NULL DEFAULT 1.0,
+                            last_active_time REAL NOT NULL,
+                            create_time REAL NOT NULL,
+                            group_id TEXT NOT NULL,
+                            UNIQUE(situation, expression, group_id)
+                        )
+                    '''))
+                    await session.commit()
+                logger.info("表达模式数据库表初始化完成 (SQLAlchemy)")
+            elif hasattr(self.db_manager, 'get_db_connection'):
+                # 传统 DatabaseManager - 使用 get_db_connection 上下文管理器
+                async with self.db_manager.get_db_connection() as conn:
+                    cursor = await conn.cursor()
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS expression_patterns (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            situation TEXT NOT NULL,
+                            expression TEXT NOT NULL,
+                            weight REAL NOT NULL DEFAULT 1.0,
+                            last_active_time REAL NOT NULL,
+                            create_time REAL NOT NULL,
+                            group_id TEXT NOT NULL,
+                            UNIQUE(situation, expression, group_id)
+                        )
+                    ''')
+                    await conn.commit()
+                    await cursor.close()
+                    logger.info("表达模式数据库表初始化完成 (传统)")
+            else:
+                raise ExpressionLearningError("不支持的数据库管理器类型")
+
+            self._table_initialized = True
         except Exception as e:
             logger.error(f"初始化表达模式数据库表失败: {e}")
             raise ExpressionLearningError(f"数据库初始化失败: {e}")
     
     async def start(self) -> bool:
         """启动服务"""
+        # 初始化数据库表
+        if self.db_manager and not self._table_initialized:
+            await self._init_expression_patterns_table()
+
         self._status = ServiceLifecycle.RUNNING
         logger.info("ExpressionPatternLearner服务已启动")
         return True
