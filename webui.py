@@ -4866,12 +4866,22 @@ async def get_available_groups_for_social_analysis():
                 message_count = row[1]
                 member_count = row[2]
 
-                # 获取该群组的社交关系数量
-                await cursor.execute('''
-                    SELECT COUNT(*) FROM social_relations WHERE group_id = ?
-                ''', (group_id,))
-                relation_row = await cursor.fetchone()
-                relation_count = relation_row[0] if relation_row else 0
+                # 获取该群组的社交关系数量（从group数据库）
+                try:
+                    group_conn = await db_manager.get_group_connection(group_id)
+                    group_cursor = await group_conn.cursor()
+
+                    # 确保social_relations表存在
+                    from .services.group_table_helper import ensure_group_table_exists
+                    await ensure_group_table_exists(group_conn, 'social_relations')
+
+                    await group_cursor.execute('SELECT COUNT(*) FROM social_relations')
+                    relation_row = await group_cursor.fetchone()
+                    relation_count = relation_row[0] if relation_row else 0
+                    await group_cursor.close()
+                except Exception as e:
+                    logger.warning(f"获取群组 {group_id} 的关系数失败: {e}")
+                    relation_count = 0
 
                 groups.append({
                     'group_id': group_id,
@@ -4926,10 +4936,10 @@ async def trigger_social_relation_analysis(group_id: str):
 
         # 获取参数
         data = await request.get_json() if request.is_json else {}
-        message_limit = data.get('message_limit', 200)
+        message_limit = data.get('message_limit', 2000)  # 默认分析最近2000条消息
         force_refresh = data.get('force_refresh', False)
 
-        logger.info(f"开始分析群组 {group_id} 的社交关系 (消息数: {message_limit}, 强制刷新: {force_refresh})")
+        logger.info(f"开始分析群组 {group_id} 的社交关系（消息数：{message_limit}，强制刷新：{force_refresh}）")
 
         # 执行分析
         relations = await analyzer.analyze_group_social_relations(

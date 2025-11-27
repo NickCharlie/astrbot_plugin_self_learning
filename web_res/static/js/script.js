@@ -4852,12 +4852,26 @@ async function analyzeGroupRelations(event) {
         return;
     }
 
+    // 获取用户设置的消息数量
+    const messageLimitInput = document.getElementById('message-limit-input');
+    let messageLimit = 2000;  // 默认值
+    if (messageLimitInput) {
+        const inputValue = parseInt(messageLimitInput.value);
+        // 验证输入值在合理范围内
+        if (!isNaN(inputValue) && inputValue >= 100 && inputValue <= 10000) {
+            messageLimit = inputValue;
+        } else {
+            showNotification('消息数量必须在100-10000之间，使用默认值2000', 'warning');
+            messageLimitInput.value = 2000;
+        }
+    }
+
     const originalText = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<i class="material-icons rotating">psychology</i> 分析中...';
 
     try {
-        showNotification('正在使用LLM智能分析群组社交关系，请稍候...', 'info');
+        showNotification(`正在使用LLM智能分析群组社交关系（最近${messageLimit}条消息），请稍候...`, 'info');
 
         const response = await fetch(`/api/social_relations/${currentGroupId}/analyze`, {
             method: 'POST',
@@ -4865,7 +4879,7 @@ async function analyzeGroupRelations(event) {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                message_limit: 200,
+                message_limit: messageLimit,  // 使用用户设置的值
                 force_refresh: true
             })
         });
@@ -5256,33 +5270,67 @@ function renderRelationshipChart(data) {
         const filteredMembers = members.filter(m => relatedUserIds.has(m.user_id));
 
         // 构建节点数据（使用筛选后的成员）
-        const nodes = filteredMembers.map(member => ({
-            id: member.user_id,
-            name: member.nickname || member.user_id,
-            symbolSize: member.user_id === filteredUserId ? 50 : (30 + (member.message_count || 0) * 0.1),
-            label: {
-                show: true,
-                fontWeight: member.user_id === filteredUserId ? 'bold' : 'normal'
-            },
-            itemStyle: {
-                color: member.user_id === filteredUserId ? '#ff4757' : getNodeColor(member.message_count || 0)
-            }
-        }));
+        const nodes = filteredMembers.map(member => {
+            // 计算节点大小，设置最大限制
+            const baseSize = 30;
+            const maxSize = 80;  // 2D图表最大节点大小
+            const rawSize = baseSize + (member.message_count || 0) * 0.1;
+            const size = member.user_id === filteredUserId ? 50 : Math.min(rawSize, maxSize);
+            const isOversized = rawSize > maxSize;
 
-        // 构建边数据
-        const links = relations.map(rel => ({
-            source: rel.source,
-            target: rel.target,
-            value: rel.strength || 1,
-            label: {
-                show: true,
-                formatter: rel.type_text || ''
-            },
-            lineStyle: {
-                width: Math.max(1, (rel.strength || 0) * 2),
-                opacity: 0.5 + (rel.strength || 0) * 0.3
+            return {
+                id: member.user_id,
+                name: member.nickname || member.user_id,
+                symbolSize: size,
+                label: {
+                    show: true,
+                    fontWeight: member.user_id === filteredUserId ? 'bold' : 'normal',
+                    color: isOversized ? '#ff6b6b' : undefined  // 超限节点使用红色标签
+                },
+                itemStyle: {
+                    color: member.user_id === filteredUserId ? '#ff4757' :
+                           (isOversized ? blendColorHex(getNodeColor(member.message_count || 0), '#ff0000', 0.4) :
+                            getNodeColor(member.message_count || 0)),
+                    borderColor: isOversized ? '#ff0000' : undefined,  // 超限节点添加红色边框
+                    borderWidth: isOversized ? 2 : 0
+                }
+            };
+        });
+
+        // 构建边数据 - 添加线宽限制和颜色渐变
+        const links = relations.map(rel => {
+            const strength = rel.strength || 1;
+            const maxLineWidth = 8;  // 最大线宽限制
+            const rawWidth = strength * 2;
+            const lineWidth = Math.min(Math.max(1, rawWidth), maxLineWidth);
+            const isOverWidth = rawWidth > maxLineWidth;
+
+            // 根据是否超限选择颜色
+            let lineColor;
+            if (isOverWidth) {
+                // 超限：使用红色渐变 (强度越高越红)
+                const redIntensity = Math.min((rawWidth - maxLineWidth) / maxLineWidth, 1);
+                lineColor = blendColorHex('#4fc3f7', '#ff0000', redIntensity * 0.6);
+            } else {
+                // 正常：使用默认蓝色
+                lineColor = '#4fc3f7';
             }
-        }));
+
+            return {
+                source: rel.source,
+                target: rel.target,
+                value: strength,
+                label: {
+                    show: true,
+                    formatter: rel.type_text || ''
+                },
+                lineStyle: {
+                    width: lineWidth,
+                    opacity: 0.5 + strength * 0.3,
+                    color: lineColor
+                }
+            };
+        });
 
         // 保存当前数据供3D模式使用
         currentRelationsData = { nodes, links };
@@ -5291,28 +5339,61 @@ function renderRelationshipChart(data) {
     } else {
         // 显示所有关系
         // 构建节点数据
-        const nodes = members.map(member => ({
-            id: member.user_id,
-            name: member.nickname || member.user_id,
-            symbolSize: 30 + (member.message_count || 0) * 0.1, // 根据消息数量调整节点大小
-            label: {
-                show: true
-            },
-            itemStyle: {
-                color: getNodeColor(member.message_count || 0)
-            }
-        }));
+        const nodes = members.map(member => {
+            // 计算节点大小，设置最大限制
+            const baseSize = 30;
+            const maxSize = 80;  // 2D图表最大节点大小
+            const rawSize = baseSize + (member.message_count || 0) * 0.1;
+            const size = Math.min(rawSize, maxSize);
+            const isOversized = rawSize > maxSize;
 
-        // 构建边数据
-        const links = relations.map(rel => ({
-            source: rel.source,
-            target: rel.target,
-            value: rel.strength || 1,
-            lineStyle: {
-                width: Math.max(1, (rel.strength || 0) * 2),
-                opacity: 0.3 + (rel.strength || 0) * 0.3
+            return {
+                id: member.user_id,
+                name: member.nickname || member.user_id,
+                symbolSize: size,
+                label: {
+                    show: true,
+                    color: isOversized ? '#ff6b6b' : undefined  // 超限节点使用红色标签
+                },
+                itemStyle: {
+                    color: isOversized ? blendColorHex(getNodeColor(member.message_count || 0), '#ff0000', 0.4) :
+                           getNodeColor(member.message_count || 0),
+                    borderColor: isOversized ? '#ff0000' : undefined,  // 超限节点添加红色边框
+                    borderWidth: isOversized ? 2 : 0
+                }
+            };
+        });
+
+        // 构建边数据 - 添加线宽限制和颜色渐变
+        const links = relations.map(rel => {
+            const strength = rel.strength || 1;
+            const maxLineWidth = 8;  // 最大线宽限制
+            const rawWidth = strength * 2;
+            const lineWidth = Math.min(Math.max(1, rawWidth), maxLineWidth);
+            const isOverWidth = rawWidth > maxLineWidth;
+
+            // 根据是否超限选择颜色
+            let lineColor;
+            if (isOverWidth) {
+                // 超限：使用红色渐变 (强度越高越红)
+                const redIntensity = Math.min((rawWidth - maxLineWidth) / maxLineWidth, 1);
+                lineColor = blendColorHex('#4fc3f7', '#ff0000', redIntensity * 0.6);
+            } else {
+                // 正常：使用默认蓝色
+                lineColor = '#4fc3f7';
             }
-        }));
+
+            return {
+                source: rel.source,
+                target: rel.target,
+                value: strength,
+                lineStyle: {
+                    width: lineWidth,
+                    opacity: 0.3 + strength * 0.3,
+                    color: lineColor
+                }
+            };
+        });
 
         // 保存当前数据供3D模式使用
         currentRelationsData = { nodes, links };
@@ -5422,6 +5503,36 @@ function getNodeColor(messageCount) {
     if (messageCount > 20) return '#ffa502';
     if (messageCount > 10) return '#1e90ff';
     return '#70a1ff';
+}
+
+/**
+ * 混合两个十六进制颜色
+ * @param {string} color1 - 第一个颜色 (hex)
+ * @param {string} color2 - 第二个颜色 (hex)
+ * @param {number} ratio - 混合比例 (0-1)，0=完全color1，1=完全color2
+ * @returns {string} 混合后的颜色 (hex)
+ */
+function blendColorHex(color1, color2, ratio) {
+    // 移除#前缀
+    color1 = color1.replace('#', '');
+    color2 = color2.replace('#', '');
+
+    // 提取RGB分量
+    const r1 = parseInt(color1.substring(0, 2), 16);
+    const g1 = parseInt(color1.substring(2, 4), 16);
+    const b1 = parseInt(color1.substring(4, 6), 16);
+
+    const r2 = parseInt(color2.substring(0, 2), 16);
+    const g2 = parseInt(color2.substring(2, 4), 16);
+    const b2 = parseInt(color2.substring(4, 6), 16);
+
+    // 混合
+    const r = Math.round(r1 + (r2 - r1) * ratio);
+    const g = Math.round(g1 + (g2 - g1) * ratio);
+    const b = Math.round(b1 + (b2 - b1) * ratio);
+
+    // 转换回hex
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
 }
 
 /**

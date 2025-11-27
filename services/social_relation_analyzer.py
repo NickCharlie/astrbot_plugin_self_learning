@@ -54,7 +54,7 @@ class SocialRelationAnalyzer:
     async def analyze_group_social_relations(
         self,
         group_id: str,
-        message_limit: int = 200,
+        message_limit: int = 2000,
         force_refresh: bool = False
     ) -> List[SocialRelation]:
         """

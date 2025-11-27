@@ -337,14 +337,31 @@ class SocialGraph3D {
         this.nodeObjects.forEach(nodeObj => {
             nodeObj.children.forEach(child => {
                 if (child instanceof THREE.Mesh) {
+                    const isOversized = child.userData.isOversized;
+
                     // 更新球体颜色
                     if (child.geometry instanceof THREE.SphereGeometry) {
-                        child.material.color = new THREE.Color(theme.nodeColor);
-                        child.material.emissive = new THREE.Color(theme.nodeEmissive);
+                        if (isOversized) {
+                            // 超限节点使用混合颜色
+                            child.material.color = new THREE.Color(this.blendColors(theme.nodeColor, 0xff0000, 0.4));
+                            child.material.emissive = new THREE.Color(this.blendColors(theme.nodeEmissive, 0xff3333, 0.5));
+                            child.material.emissiveIntensity = 0.7;
+                        } else {
+                            // 正常节点使用主题颜色
+                            child.material.color = new THREE.Color(theme.nodeColor);
+                            child.material.emissive = new THREE.Color(theme.nodeEmissive);
+                            child.material.emissiveIntensity = 0.5;
+                        }
                     }
                     // 更新光环颜色
                     else if (child.geometry instanceof THREE.RingGeometry) {
-                        child.material.color = new THREE.Color(theme.nodeColor);
+                        if (isOversized) {
+                            child.material.color = new THREE.Color(this.blendColors(theme.nodeColor, 0xff0000, 0.4));
+                            child.material.opacity = 0.6;
+                        } else {
+                            child.material.color = new THREE.Color(theme.nodeColor);
+                            child.material.opacity = 0.4;
+                        }
                     }
                 }
             });
@@ -353,9 +370,24 @@ class SocialGraph3D {
 
     updateEdgesTheme() {
         const theme = this.themes[this.currentTheme];
+        const maxLineWidth = 5;  // 最大线宽限制（需与createEdges保持一致）
 
         this.edgeObjects.forEach(edge => {
-            edge.material.color = new THREE.Color(theme.edgeColor);
+            const isOverWidth = edge.userData.isOverWidth;
+            const rawLineWidth = edge.userData.rawLineWidth;
+
+            // 根据是否超过线宽限制重新计算颜色
+            let edgeColor;
+            if (isOverWidth) {
+                // 超过线宽限制的边使用渐变色（混入红色）
+                const redIntensity = Math.min((rawLineWidth - maxLineWidth) / maxLineWidth, 1);
+                edgeColor = this.blendColors(theme.edgeColor, 0xff0000, redIntensity * 0.6);
+            } else {
+                // 正常边使用主题颜色
+                edgeColor = theme.edgeColor;
+            }
+
+            edge.material.color = new THREE.Color(edgeColor);
             edge.material.opacity = theme.edgeOpacity;
         });
     }
@@ -413,44 +445,64 @@ class SocialGraph3D {
             const group = new THREE.Group();
             group.userData = { ...node, type: 'node' };
 
-            // 计算节点大小（基于强度）- 增大基础大小
-            const baseSize = 3;  // 从2增加到3
-            const size = baseSize + (node.strength || 0) * 0.05;  // 降低strength的影响
+            // 计算节点大小（基于强度）- 增加最大大小限制
+            const baseSize = 3;  // 基础大小
+            const maxSize = 8;   // 最大大小限制
+            const rawSize = baseSize + (node.strength || 0) * 0.05;
+            const size = Math.min(rawSize, maxSize);  // 限制最大大小
+
+            // 判断是否超过大小限制，用于颜色区分
+            const isOversized = rawSize > maxSize;
+
+            // 根据是否超限选择颜色
+            let nodeColor, nodeEmissive;
+            if (isOversized) {
+                // 超过大小限制的节点使用不同颜色（更亮、更醒目）
+                nodeColor = this.blendColors(theme.nodeColor, 0xff0000, 0.4);  // 混入红色
+                nodeEmissive = this.blendColors(theme.nodeEmissive, 0xff3333, 0.5);
+            } else {
+                // 正常大小的节点使用主题颜色
+                nodeColor = theme.nodeColor;
+                nodeEmissive = theme.nodeEmissive;
+            }
 
             // 创建球体
             const geometry = new THREE.SphereGeometry(size, 32, 32);
             const material = new THREE.MeshPhongMaterial({
-                color: theme.nodeColor,
-                emissive: theme.nodeEmissive,
-                emissiveIntensity: 0.5,  // 增加发光强度
+                color: nodeColor,
+                emissive: nodeEmissive,
+                emissiveIntensity: isOversized ? 0.7 : 0.5,  // 超限节点发光更强
                 shininess: 100,
                 transparent: true,
-                opacity: 0.95  // 增加不透明度
+                opacity: 0.95
             });
             const sphere = new THREE.Mesh(geometry, material);
+            sphere.userData.isOversized = isOversized;  // 标记是否超限
             group.add(sphere);
 
-            // 添加光环效果
+            // 添加光环效果 - 超限节点使用特殊颜色
             const ringGeometry = new THREE.RingGeometry(size * 1.5, size * 1.8, 32);
             const ringMaterial = new THREE.MeshBasicMaterial({
-                color: theme.nodeColor,
+                color: nodeColor,  // 使用与球体相同的颜色
                 transparent: true,
-                opacity: 0.4,  // 增加光环不透明度
+                opacity: isOversized ? 0.6 : 0.4,  // 超限节点光环更明显
                 side: THREE.DoubleSide
             });
             const ring = new THREE.Mesh(ringGeometry, ringMaterial);
             ring.rotation.x = Math.PI / 2;
+            ring.userData.isOversized = isOversized;
             group.add(ring);
 
-            // 添加文本标签（使用Sprite）
+            // 添加文本标签（使用Sprite）- 超限节点添加标记
             const canvas = document.createElement('canvas');
             const context = canvas.getContext('2d');
             canvas.width = 256;
             canvas.height = 64;
-            context.fillStyle = 'rgba(255, 255, 255, 0.95)';  // 增加文字不透明度
+            context.fillStyle = isOversized ? 'rgba(255, 100, 100, 0.95)' : 'rgba(255, 255, 255, 0.95)';
             context.font = 'Bold 28px Arial';  // 增大字体
             context.textAlign = 'center';
-            context.fillText(node.label || node.id, 128, 36);
+            const labelText = (node.label || node.id) + (isOversized ? ' ⚡' : '');  // 超限节点添加闪电图标
+            context.fillText(labelText, 128, 36);
 
             const texture = new THREE.CanvasTexture(canvas);
             const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
@@ -473,6 +525,7 @@ class SocialGraph3D {
 
     createEdges() {
         const theme = this.themes[this.currentTheme];
+        const maxLineWidth = 5;  // 最大线宽限制
 
         this.edges.forEach(edge => {
             const sourceNode = this.nodeObjects.get(edge.source);
@@ -485,16 +538,39 @@ class SocialGraph3D {
                 targetNode.position.clone()
             ];
 
+            // 计算线宽（基于关系强度）
+            const strength = edge.strength || 1;
+            const rawLineWidth = strength * 0.5;  // 原始线宽
+            const lineWidth = Math.min(Math.max(1, rawLineWidth), maxLineWidth);  // 限制线宽
+            const isOverWidth = rawLineWidth > maxLineWidth;  // 是否超过限制
+
+            // 根据是否超过线宽限制选择颜色
+            let edgeColor;
+            if (isOverWidth) {
+                // 超过线宽限制的边使用渐变色（混入红色）
+                const redIntensity = Math.min((rawLineWidth - maxLineWidth) / maxLineWidth, 1);
+                edgeColor = this.blendColors(theme.edgeColor, 0xff0000, redIntensity * 0.6);
+            } else {
+                // 正常边使用主题颜色
+                edgeColor = theme.edgeColor;
+            }
+
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
             const material = new THREE.LineBasicMaterial({
-                color: theme.edgeColor,
+                color: edgeColor,
                 transparent: true,
                 opacity: theme.edgeOpacity,
-                linewidth: 1
+                linewidth: lineWidth
             });
 
             const line = new THREE.Line(geometry, material);
-            line.userData = { source: edge.source, target: edge.target, strength: edge.strength };
+            line.userData = {
+                source: edge.source,
+                target: edge.target,
+                strength: edge.strength,
+                isOverWidth: isOverWidth,
+                rawLineWidth: rawLineWidth
+            };
             this.scene.add(line);
             this.edgeObjects.push(line);
         });
@@ -787,6 +863,13 @@ class SocialGraph3D {
 
     easeInOutCubic(t) {
         return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    }
+
+    // 颜色混合函数 - 将两个颜色按比例混合
+    blendColors(color1, color2, ratio) {
+        const c1 = new THREE.Color(color1);
+        const c2 = new THREE.Color(color2);
+        return c1.lerp(c2, ratio).getHex();
     }
 
     // 重置相机位置
