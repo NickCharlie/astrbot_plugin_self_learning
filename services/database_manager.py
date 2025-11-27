@@ -25,6 +25,9 @@ from ..core.database import (
     IDatabaseBackend
 )
 
+# 导入表管理器
+from .table_manager import TableManager
+
 
 class DatabaseConnectionPool:
     """数据库连接池"""
@@ -162,6 +165,9 @@ class DatabaseManager(AsyncServiceBase):
         # 新增: 数据库后端（支持SQLite和MySQL）
         self.db_backend: Optional[IDatabaseBackend] = None
 
+        # 新增: 表管理器（用于自动创建表）
+        self.table_manager: Optional[TableManager] = None
+
         # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
         self.connection_pool = DatabaseConnectionPool(
             db_path=self.messages_db_path,
@@ -200,6 +206,17 @@ class DatabaseManager(AsyncServiceBase):
             # 3. 初始化旧的连接池（仅用于group数据库，暂时保留）
             await self.connection_pool.initialize()
             self._logger.info("数据库连接池初始化成功")
+
+            # 3.5. 初始化表管理器
+            if self.db_backend:
+                self.table_manager = TableManager(self.db_backend)
+                self._logger.info("表管理器初始化成功")
+
+                # 自动创建所有表
+                await self.table_manager.initialize_all_tables()
+                self._logger.info("所有表初始化完成")
+            else:
+                self._logger.warning("数据库后端未初始化，跳过表管理器初始化")
 
             # 4. 初始化数据库表结构（如果表不存在则自动创建）
             await self._init_messages_database()
@@ -1623,6 +1640,11 @@ class DatabaseManager(AsyncServiceBase):
     async def save_social_relation(self, group_id: str, relation_data: Dict[str, Any]):
         """保存社交关系到数据库"""
         conn = await self.get_group_connection(group_id)
+
+        # 确保social_relations表存在
+        from .group_table_helper import ensure_group_table_exists
+        await ensure_group_table_exists(conn, 'social_relations')
+
         cursor = await conn.cursor()
 
         try:
@@ -1649,6 +1671,11 @@ class DatabaseManager(AsyncServiceBase):
     async def get_social_relations_by_group(self, group_id: str) -> List[Dict[str, Any]]:
         """获取指定群组的社交关系"""
         conn = await self.get_group_connection(group_id)
+
+        # 确保social_relations表存在
+        from .group_table_helper import ensure_group_table_exists
+        await ensure_group_table_exists(conn, 'social_relations')
+
         cursor = await conn.cursor()
 
         try:
@@ -1692,6 +1719,11 @@ class DatabaseManager(AsyncServiceBase):
             - total_relations: 总关系数
         """
         conn = await self.get_group_connection(group_id)
+
+        # 确保social_relations表存在
+        from .group_table_helper import ensure_group_table_exists
+        await ensure_group_table_exists(conn, 'social_relations')
+
         cursor = await conn.cursor()
 
         try:
@@ -2515,6 +2547,11 @@ class DatabaseManager(AsyncServiceBase):
         """加载完整社交图谱"""
         self._logger.debug(f"[数据库] 开始加载群组 {group_id} 的社交图谱")
         conn = await self.get_group_connection(group_id)
+
+        # 确保social_relations表存在
+        from .group_table_helper import ensure_group_table_exists
+        await ensure_group_table_exists(conn, 'social_relations')
+
         cursor = await conn.cursor()
 
         try:
