@@ -109,12 +109,24 @@ class PluginConfig:
     enable_api_auth: bool = False  # 是否启用API密钥认证
 
     # 数据库设置
-    db_type: str = "sqlite"  # 数据库类型: sqlite 或 mysql
+    db_type: str = "sqlite"  # 数据库类型: sqlite、mysql 或 postgresql
+
+    # MySQL 配置
     mysql_host: str = "localhost"  # MySQL主机地址
     mysql_port: int = 3306  # MySQL端口
     mysql_user: str = "root"  # MySQL用户名
     mysql_password: str = ""  # MySQL密码
     mysql_database: str = "astrbot_self_learning"  # MySQL数据库名
+
+    # PostgreSQL 配置
+    postgresql_host: str = "localhost"  # PostgreSQL主机地址
+    postgresql_port: int = 5432  # PostgreSQL端口
+    postgresql_user: str = "postgres"  # PostgreSQL用户名
+    postgresql_password: str = ""  # PostgreSQL密码
+    postgresql_database: str = "astrbot_self_learning"  # PostgreSQL数据库名
+    postgresql_schema: str = "public"  # PostgreSQL Schema
+
+    # 连接池配置
     max_connections: int = 10  # 数据库连接池最大连接数
     min_connections: int = 2  # 数据库连接池最小连接数
 
@@ -255,6 +267,12 @@ class PluginConfig:
             mysql_user=database_settings.get('mysql_user', 'root'),
             mysql_password=database_settings.get('mysql_password', ''),
             mysql_database=database_settings.get('mysql_database', 'astrbot_self_learning'),
+            postgresql_host=database_settings.get('postgresql_host', 'localhost'),
+            postgresql_port=database_settings.get('postgresql_port', 5432),
+            postgresql_user=database_settings.get('postgresql_user', 'postgres'),
+            postgresql_password=database_settings.get('postgresql_password', ''),
+            postgresql_database=database_settings.get('postgresql_database', 'astrbot_self_learning'),
+            postgresql_schema=database_settings.get('postgresql_schema', 'public'),
             max_connections=database_settings.get('max_connections', 10),
             min_connections=database_settings.get('min_connections', 2),
 

@@ -1,8 +1,7 @@
 """
 黑话挖掘器 - 核心黑话学习服务
 
-基于 MaiBot 的三步推断法，智能识别和学习群组黑话
-参考: MaiBot/src/jargon/jargon_miner.py
+智能识别和学习群组黑话
 """
 import json
 import time
@@ -13,16 +12,16 @@ from datetime import datetime
 from astrbot.api import logger
 
 from ..models.jargon import Jargon
-from ..core.interfaces import LLMClientInterface
+from ..core.framework_llm_adapter import FrameworkLLMAdapter
 from ..core.patterns import AsyncServiceBase
-from ..utils.json_utils import safe_json_loads, safe_json_dumps
+from ..utils.json_utils import safe_parse_llm_json
 
 
 class JargonInferenceEngine:
     """黑话推断引擎 - 实现三步推断法"""
 
-    def __init__(self, llm_client: LLMClientInterface):
-        self.llm = llm_client
+    def __init__(self, llm_adapter: FrameworkLLMAdapter):
+        self.llm = llm_adapter
         self._init_prompts()
 
     def _init_prompts(self):
@@ -107,7 +106,7 @@ class JargonInferenceEngine:
                 return None
 
             # 解析推断1
-            inference1 = safe_json_loads(response1.strip())
+            inference1 = safe_parse_llm_json(response1.strip())
             if not isinstance(inference1, dict):
                 logger.warning(f"黑话 {content} 推断1解析失败")
                 return None
@@ -129,7 +128,7 @@ class JargonInferenceEngine:
                 logger.warning(f"黑话 {content} 推断2失败：无响应")
                 return None
 
-            inference2 = safe_json_loads(response2.strip())
+            inference2 = safe_parse_llm_json(response2.strip())
             if not isinstance(inference2, dict):
                 logger.warning(f"黑话 {content} 推断2解析失败")
                 return None
@@ -145,7 +144,7 @@ class JargonInferenceEngine:
                 logger.warning(f"黑话 {content} 对比失败：无响应")
                 return None
 
-            comparison = safe_json_loads(response3.strip())
+            comparison = safe_parse_llm_json(response3.strip())
             if not isinstance(comparison, dict):
                 logger.warning(f"黑话 {content} 对比解析失败")
                 return None
@@ -176,18 +175,18 @@ class JargonMiner(AsyncServiceBase):
     def __init__(
         self,
         chat_id: str,
-        llm_client: LLMClientInterface,
+        llm_adapter: FrameworkLLMAdapter,
         db_manager,
         config
     ):
         super().__init__(f"jargon_miner_{chat_id}")
         self.chat_id = chat_id
-        self.llm = llm_client
+        self.llm = llm_adapter
         self.db = db_manager
         self.config = config
 
         # 推断引擎
-        self.inference_engine = JargonInferenceEngine(llm_client)
+        self.inference_engine = JargonInferenceEngine(llm_adapter)
 
         # 频率控制
         self.min_messages = getattr(config, 'jargon_min_messages', 10)
@@ -278,7 +277,7 @@ class JargonMiner(AsyncServiceBase):
                 return []
 
             # 解析JSON
-            parsed = safe_json_loads(response.strip())
+            parsed = safe_parse_llm_json(response.strip())
 
             if isinstance(parsed, dict):
                 parsed = [parsed]
@@ -350,12 +349,12 @@ class JargonMiner(AsyncServiceBase):
                 existing.count = (existing.count or 0) + 1
 
                 # 合并 raw_content
-                existing_list = safe_json_loads(existing.raw_content) or []
+                existing_list = safe_parse_llm_json(existing.raw_content) or []
                 if not isinstance(existing_list, list):
                     existing_list = [existing_list] if existing_list else []
 
                 merged_list = list(dict.fromkeys(existing_list + raw_content_list))
-                existing.raw_content = safe_json_dumps(merged_list)
+                existing.raw_content = json.dumps(merged_list)
                 existing.updated_at = datetime.now()
 
                 # 转换为字典进行更新
@@ -365,7 +364,7 @@ class JargonMiner(AsyncServiceBase):
                 # 创建新记录
                 jargon = Jargon(
                     content=content,
-                    raw_content=safe_json_dumps(raw_content_list),
+                    raw_content=json.dumps(raw_content_list),
                     chat_id=self.chat_id,
                     count=1,
                     created_at=datetime.now(),
@@ -401,7 +400,7 @@ class JargonMiner(AsyncServiceBase):
         """推断黑话含义并更新"""
 
         try:
-            raw_content_list = safe_json_loads(jargon.raw_content) or []
+            raw_content_list = safe_parse_llm_json(jargon.raw_content) or []
             if not isinstance(raw_content_list, list):
                 raw_content_list = [raw_content_list] if raw_content_list else []
 
@@ -500,8 +499,8 @@ class JargonMiner(AsyncServiceBase):
 class JargonMinerManager:
     """黑话挖掘器管理器"""
 
-    def __init__(self, llm_client: LLMClientInterface, db_manager, config):
-        self.llm = llm_client
+    def __init__(self, llm_adapter: FrameworkLLMAdapter, db_manager, config):
+        self.llm = llm_adapter
         self.db = db_manager
         self.config = config
         self._miners: Dict[str, JargonMiner] = {}
@@ -516,6 +515,10 @@ class JargonMinerManager:
                 self.config
             )
         return self._miners[chat_id]
+
+    def get_or_create_miner(self, chat_id: str) -> JargonMiner:
+        """获取或创建指定群组的黑话挖掘器 (别名方法)"""
+        return self.get_miner(chat_id)
 
     async def learn_from_chat(
         self,

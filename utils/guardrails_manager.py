@@ -292,6 +292,144 @@ class GuardrailsManager:
             logger.error(f"❌ [Guardrails] JSON 解析失败: {e}")
             return None
 
+    def validate_and_clean_json(
+        self,
+        response_text: str,
+        expected_type: str = "auto"
+    ) -> Optional[Any]:
+        """
+        通用 JSON 验证和清洗 - 适用于所有 LLM 返回
+
+        Args:
+            response_text: LLM 返回的文本（可能包含 Markdown、代码块等）
+            expected_type: 期望的类型 ("object", "array", "auto")
+
+        Returns:
+            清洗后的 JSON 对象/数组，失败返回 None
+        """
+        import json
+        import re
+
+        try:
+            # 1. 移除 Markdown 代码块标记
+            cleaned_text = response_text.strip()
+
+            # 移除 ```json 和 ``` 标记
+            if cleaned_text.startswith("```json"):
+                cleaned_text = cleaned_text[7:]
+            elif cleaned_text.startswith("```"):
+                cleaned_text = cleaned_text[3:]
+
+            if cleaned_text.endswith("```"):
+                cleaned_text = cleaned_text[:-3]
+
+            cleaned_text = cleaned_text.strip()
+
+            # 2. 尝试提取 JSON 部分（处理 LLM 可能在 JSON 前后加说明的情况）
+            # 匹配最外层的 { } 或 [ ]
+            json_pattern = r'(\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\})'
+            array_pattern = r'(\[(?:[^\[\]]|(?:\[(?:[^\[\]]|(?:\[[^\[\]]*\]))*\]))*\])'
+
+            json_match = re.search(json_pattern, cleaned_text, re.DOTALL)
+            array_match = re.search(array_pattern, cleaned_text, re.DOTALL)
+
+            if expected_type == "object" or (expected_type == "auto" and json_match):
+                if json_match:
+                    cleaned_text = json_match.group(1)
+            elif expected_type == "array" or (expected_type == "auto" and array_match):
+                if array_match:
+                    cleaned_text = array_match.group(1)
+
+            # 3. 尝试解析 JSON
+            parsed = json.loads(cleaned_text)
+
+            logger.debug(f"✅ [Guardrails] JSON 验证成功，类型: {type(parsed).__name__}")
+            return parsed
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"⚠️ [Guardrails] JSON 解析失败: {e}，尝试修复...")
+
+            # 尝试修复常见的 JSON 错误
+            try:
+                # 替换单引号为双引号（Python dict 风格）
+                fixed_text = cleaned_text.replace("'", '"')
+
+                # 移除尾随逗号
+                fixed_text = re.sub(r',\s*}', '}', fixed_text)
+                fixed_text = re.sub(r',\s*]', ']', fixed_text)
+
+                parsed = json.loads(fixed_text)
+                logger.info(f"✅ [Guardrails] JSON 修复成功")
+                return parsed
+
+            except Exception as fix_error:
+                logger.error(f"❌ [Guardrails] JSON 修复失败: {fix_error}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] JSON 验证异常: {e}")
+            return None
+
+    async def validate_llm_response(
+        self,
+        llm_callable,
+        prompt: str,
+        expected_format: str = "json",
+        model: str = "gpt-4o",
+        **kwargs
+    ) -> Optional[Any]:
+        """
+        通用 LLM 响应验证器 - 包装所有 LLM 调用
+
+        Args:
+            llm_callable: LLM 调用函数
+            prompt: 提示词
+            expected_format: 期望的格式 ("json", "text", "list", "object")
+            model: 模型名称
+            **kwargs: 其他参数
+
+        Returns:
+            验证后的响应内容，失败返回 None
+        """
+        try:
+            # 增强提示词 - 明确要求输出格式
+            if expected_format == "json":
+                enhanced_prompt = f"""{prompt}
+
+请以 JSON 格式返回结果，不要包含任何额外说明。"""
+            elif expected_format in ["list", "array"]:
+                enhanced_prompt = f"""{prompt}
+
+请以 JSON 数组格式返回结果，例如: ["item1", "item2"]"""
+            elif expected_format == "object":
+                enhanced_prompt = f"""{prompt}
+
+请以 JSON 对象格式返回结果，例如: {{"key": "value"}}"""
+            else:
+                enhanced_prompt = prompt
+
+            # 调用 LLM
+            response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
+
+            if not response_text:
+                logger.warning("⚠️ [Guardrails] LLM 返回为空")
+                return None
+
+            # 根据期望格式验证
+            if expected_format in ["json", "list", "array", "object"]:
+                result = self.validate_and_clean_json(
+                    response_text,
+                    expected_type="array" if expected_format in ["list", "array"] else "object"
+                )
+                return result
+            else:
+                # 纯文本，直接返回
+                return response_text.strip()
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] LLM 响应验证失败: {e}", exc_info=True)
+            return None
+
 
 # ============================================================
 # 全局单例

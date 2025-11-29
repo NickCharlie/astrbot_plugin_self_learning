@@ -65,10 +65,10 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.error("无法获取PersonaManager")
                 return False
 
-            # 获取当前人格
-            current_persona = await self.context.persona_manager.get_default_persona_v3()
+            # 获取当前人格（传递group_id以支持多会话多人格）
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
             if not current_persona:
-                self._logger.error("无法获取当前人格")
+                self._logger.error(f"无法获取群组 {group_id} 的当前人格")
                 return False
 
             persona_name = current_persona.get('name', 'unknown') if isinstance(current_persona, dict) else current_persona['name']
@@ -197,12 +197,12 @@ class PersonaUpdater(IPersonaUpdater):
             self._logger.error(f"获取待审查人格更新失败: {e}")
             return []
 
-    async def review_persona_update(self, update_id: int, status: str, reviewer_comment: Optional[str] = None) -> bool:
+    async def review_persona_update(self, update_id: int, status: str, reviewer_comment: Optional[str] = None, modified_content: Optional[str] = None) -> bool:
         """审查人格更新"""
         try:
             # 如果是批准操作,先创建备份和已批准人格
             if status == "approved":
-                backup_success = await self._create_approved_persona_backup(update_id)
+                backup_success = await self._create_approved_persona_backup(update_id, modified_content)
                 if not backup_success:
                     self._logger.error(f"创建批准人格失败，取消审查操作")
                     raise PersonaUpdateError("创建批准人格失败，请检查日志")
@@ -215,17 +215,32 @@ class PersonaUpdater(IPersonaUpdater):
             self._logger.error(f"审查人格更新失败: {e}")
             raise PersonaUpdateError(f"审查人格更新失败: {str(e)}")
 
-    async def _create_approved_persona_backup(self, update_id: int) -> bool:
-        """在批准人格更新时,创建备份人格和已批准人格"""
+    async def _create_approved_persona_backup(self, update_id: int, modified_content: Optional[str] = None) -> bool:
+        """在批准人格更新时,创建备份人格和已批准人格
+
+        Args:
+            update_id: 更新记录ID
+            modified_content: 用户在审查时修改的内容（如果有），将优先使用此内容而非原始new_content
+        """
         try:
-            # 获取当前人格信息
+            # 先获取更新记录以获取group_id
+            self._logger.info(f"正在获取更新记录 ID={update_id}...")
+            update_record = await self.db_manager.get_persona_update_record_by_id(update_id)
+            if not update_record:
+                self._logger.error(f"✗ 无法获取更新记录 {update_id}")
+                return False
+
+            group_id = update_record.get('group_id', 'default')
+            self._logger.info(f"✓ 成功获取更新记录: type={update_record.get('update_type')}, group_id={group_id}")
+
+            # 获取当前人格信息（使用正确的group_id）
             if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
                 self._logger.warning("无法获取PersonaManager，跳过备份")
                 return False
 
-            current_persona = await self.context.persona_manager.get_default_persona_v3()
+            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
             if not current_persona:
-                self._logger.warning("无法获取当前人格信息，跳过备份")
+                self._logger.warning(f"无法获取群组 {group_id} 的当前人格信息，跳过备份")
                 return False
 
             # 提取原人格信息
@@ -258,21 +273,19 @@ class PersonaUpdater(IPersonaUpdater):
                     self._logger.error(f"✗ 创建备份人格失败: {backup_persona_id}")
                     return False
 
-                # 2. 获取审查记录中的新内容
-                self._logger.info(f"正在获取更新记录 ID={update_id}...")
-                update_record = await self.db_manager.get_persona_update_record_by_id(update_id)
-                if not update_record:
-                    self._logger.error(f"✗ 无法获取更新记录 {update_id}")
-                    return False
-
-                self._logger.info(f"✓ 成功获取更新记录: type={update_record.get('update_type')}, status={update_record.get('status')}")
-
-                # 3. 创建批准更新人格（格式：原人格名_时间_批准更新）
+                # 2. 创建批准更新人格（格式：原人格名_时间_批准更新）
                 approved_persona_id = f"{original_name}_{timestamp}_批准更新"
-                approved_prompt = update_record.get('new_content', '')
+
+                # 优先使用用户修改的内容，否则使用记录中的new_content
+                if modified_content:
+                    approved_prompt = modified_content
+                    self._logger.info(f"使用用户修改的内容（长度: {len(modified_content)} 字符）")
+                else:
+                    approved_prompt = update_record.get('new_content', '')
+                    self._logger.info(f"使用原始new_content（长度: {len(approved_prompt)} 字符）")
 
                 if not approved_prompt:
-                    self._logger.error(f"✗ 更新记录 {update_id} 中没有新内容(new_content)")
+                    self._logger.error(f"✗ 更新记录 {update_id} 中没有新内容(new_content)，且未提供modified_content")
                     self._logger.error(f"   update_record keys: {list(update_record.keys())}")
                     return False
 

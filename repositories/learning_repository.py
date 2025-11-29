@@ -211,43 +211,52 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
         获取风格学习统计
 
         Returns:
-            Dict[str, Any]: 统计数据
+            Dict[str, Any]: 统计数据，字段名与前端API期望一致
         """
         try:
-            # 总模式数
+            # 1. 统计不同学习类型数量 (unique_styles)
+            unique_types_stmt = select(func.count(func.distinct(StyleLearningReview.type)))
+            unique_types_result = await self.session.execute(unique_types_stmt)
+            unique_styles = unique_types_result.scalar() or 0
+
+            # 2. 计算平均置信度 (avg_confidence) - 暂时返回批准率
             total_stmt = select(func.count()).select_from(StyleLearningReview)
             total_result = await self.session.execute(total_stmt)
             total_patterns = total_result.scalar() or 0
 
-            # 已批准模式数
-            active_stmt = select(func.count()).select_from(StyleLearningReview).where(
+            approved_stmt = select(func.count()).select_from(StyleLearningReview).where(
                 StyleLearningReview.status == 'approved'
             )
-            active_result = await self.session.execute(active_stmt)
-            active_patterns = active_result.scalar() or 0
+            approved_result = await self.session.execute(approved_stmt)
+            approved_patterns = approved_result.scalar() or 0
 
-            # 学习率（批准率）
-            learning_rate = (active_patterns / total_patterns * 100) if total_patterns > 0 else 0.0
+            # 平均置信度 = 批准率
+            avg_confidence = round((approved_patterns / total_patterns * 100), 1) if total_patterns > 0 else 0.0
 
-            # 最后更新时间
+            # 3. 获取原始消息总数 (total_samples)
+            # 从 style_learning_reviews 表获取累计的消息数量
+            # 注意：这个字段可能不存在，需要根据实际情况调整
+            total_samples = total_patterns  # 暂时用总模式数代替
+
+            # 4. 最后更新时间 (latest_update)
             last_update_stmt = select(func.max(StyleLearningReview.updated_at))
             last_update_result = await self.session.execute(last_update_stmt)
-            last_update = last_update_result.scalar()
+            latest_update = last_update_result.scalar()
 
             return {
-                "total_patterns": total_patterns,
-                "active_patterns": active_patterns,
-                "learning_rate": round(learning_rate, 2),
-                "last_update": last_update
+                "unique_styles": unique_styles,
+                "avg_confidence": avg_confidence,
+                "total_samples": total_samples,
+                "latest_update": latest_update
             }
 
         except Exception as e:
             logger.error(f"[StyleLearningReviewRepository] 获取统计数据失败: {e}")
             return {
-                "total_patterns": 0,
-                "active_patterns": 0,
-                "learning_rate": 0.0,
-                "last_update": None
+                "unique_styles": 0,
+                "avg_confidence": 0.0,
+                "total_samples": 0,
+                "latest_update": None
             }
 
 

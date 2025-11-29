@@ -10,7 +10,7 @@ tags:
   - "AI学习"
   - "智能分析"
 homepage: ""
-license: "MIT"
+license: "GPLv3"
 compatibility:
   min_astrbot_version: "4.0.0"
 platforms:

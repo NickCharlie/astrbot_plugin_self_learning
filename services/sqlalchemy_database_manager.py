@@ -158,11 +158,11 @@ class SQLAlchemyDatabaseManager:
         # 检查数据库类型
         if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
             # MySQL 数据库
-            host = getattr(self.config, 'db_host', 'localhost')
-            port = getattr(self.config, 'db_port', 3306)
-            user = getattr(self.config, 'db_user', 'root')
-            password = getattr(self.config, 'db_password', '')
-            database = getattr(self.config, 'db_name', 'astrbot_self_learning')
+            host = getattr(self.config, 'mysql_host', 'localhost')
+            port = getattr(self.config, 'mysql_port', 3306)
+            user = getattr(self.config, 'mysql_user', 'root')
+            password = getattr(self.config, 'mysql_password', '')
+            database = getattr(self.config, 'mysql_database', 'astrbot_self_learning')
 
             return f"mysql+aiomysql://{user}:{password}@{host}:{port}/{database}"
         else:
@@ -522,7 +522,7 @@ class SQLAlchemyDatabaseManager:
                         'original_content': review.original_content,
                         'new_content': review.new_content,
                         'reason': review.reason,
-                        'confidence': review.confidence,
+                        'confidence': review.confidence_score,
                         'status': review.status,
                         'reviewer_comment': review.reviewer_comment,
                         'review_time': review.review_time
@@ -547,23 +547,34 @@ class SQLAlchemyDatabaseManager:
         try:
             # 尝试使用 Repository 计算趋势
             async with self.get_session() as session:
-                from sqlalchemy import select, func
+                from sqlalchemy import select, func, cast, Date
                 from ..models.orm import UserAffection, InteractionRecord
                 from datetime import datetime, timedelta
 
                 # 计算趋势的天数范围（使用配置中的 trend_analysis_days）
                 days_ago = int((datetime.now() - timedelta(days=self.config.trend_analysis_days)).timestamp())
 
+                # 根据数据库类型选择日期转换函数
+                is_mysql = self.config.db_type.lower() == 'mysql'
+
+                if is_mysql:
+                    # MySQL: 使用 FROM_UNIXTIME 和 DATE
+                    date_func_affection = func.date(func.from_unixtime(UserAffection.updated_at))
+                    date_func_interaction = func.date(func.from_unixtime(InteractionRecord.timestamp))
+                else:
+                    # SQLite: 使用 datetime(timestamp, 'unixepoch') 和 date()
+                    date_func_affection = func.date(UserAffection.updated_at, 'unixepoch')
+                    date_func_interaction = func.date(InteractionRecord.timestamp, 'unixepoch')
+
                 # 好感度趋势（按天统计）
-                # SQLite 使用 datetime(timestamp, 'unixepoch') 而不是 from_unixtime()
                 affection_stmt = select(
-                    func.date(UserAffection.updated_at, 'unixepoch').label('date'),
+                    date_func_affection.label('date'),
                     func.avg(UserAffection.affection_level).label('avg_affection'),
                     func.count(UserAffection.id).label('count')
                 ).where(
                     UserAffection.updated_at >= days_ago
                 ).group_by(
-                    func.date(UserAffection.updated_at, 'unixepoch')
+                    date_func_affection
                 ).order_by('date')
 
                 affection_result = await session.execute(affection_stmt)
@@ -578,12 +589,12 @@ class SQLAlchemyDatabaseManager:
 
                 # 互动趋势（按天统计）
                 interaction_stmt = select(
-                    func.date(InteractionRecord.timestamp, 'unixepoch').label('date'),
+                    date_func_interaction.label('date'),
                     func.count(InteractionRecord.id).label('count')
                 ).where(
                     InteractionRecord.timestamp >= days_ago
                 ).group_by(
-                    func.date(InteractionRecord.timestamp, 'unixepoch')
+                    date_func_interaction
                 ).order_by('date')
 
                 interaction_result = await session.execute(interaction_stmt)

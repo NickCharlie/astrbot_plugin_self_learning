@@ -101,6 +101,10 @@ class SelfLearningPlugin(star.Star):
         self.message_dedup_cache = {}
         self.max_cache_size = 1000
 
+        # ✅ group_id到unified_msg_origin的映射表 - 用于会话隔离
+        # key: group_id, value: unified_msg_origin
+        self.group_id_to_unified_origin: Dict[str, str] = {}
+
         # 设置增量更新回调 - 在服务初始化前设置，避免AttributeError
         self.update_system_prompt_callback = None
 
@@ -275,12 +279,26 @@ class SelfLearningPlugin(star.Star):
             )
             logger.info("黑话查询服务已初始化（带60秒缓存）")
 
+            # ✅ 创建黑话挖掘管理器 - 用于后台学习黑话
+            from .services.jargon_miner import JargonMinerManager
+            self.jargon_miner_manager = JargonMinerManager(
+                llm_adapter=self.service_factory.create_framework_llm_adapter(),
+                db_manager=self.db_manager,
+                config=self.plugin_config
+            )
+            logger.info("黑话挖掘管理器已初始化")
+
             # 在affection_manager和social_context_injector创建后再创建智能回复器
             self.intelligent_responder = self.service_factory.create_intelligent_responder()  # 重新启用智能回复器
             
             # 创建临时人格更新器
             self.temporary_persona_updater = self.service_factory.create_temporary_persona_updater()
-            
+
+            # ✅ 传递group_id到unified_origin映射表的引用
+            if hasattr(self, 'group_id_to_unified_origin'):
+                self.temporary_persona_updater.group_id_to_unified_origin = self.group_id_to_unified_origin
+                logger.info("已将group_id映射表传递给temporary_persona_updater")
+
             # 创建并保存LLM适配器实例，用于状态报告
             self.llm_adapter = self.service_factory.create_framework_llm_adapter()
 
@@ -336,36 +354,98 @@ class SelfLearningPlugin(star.Star):
 
         功能：
         1. 检查是否存在迁移标记文件
-        2. 如果不存在，执行自动数据库迁移
-        3. 迁移成功后创建标记文件，防止重复迁移
+        2. 检查数据库类型是否发生变化
+        3. 如果不存在标记或数据库类型变化，执行自动数据库迁移
+        4. 迁移成功后创建/更新标记文件，防止重复迁移
         """
         try:
             # 迁移标记文件路径
             migration_marker = os.path.join(self.plugin_config.data_dir, '.migration_completed')
 
-            # 检查是否已经迁移过
+            # 获取当前数据库URL和类型
+            current_db_url = self._get_database_url()
+            current_db_type = 'mysql' if 'mysql' in current_db_url else 'sqlite'
+
+            # 检查是否需要迁移
+            need_migration = False
+            migration_reason = ""
+
             if not os.path.exists(migration_marker):
+                need_migration = True
+                migration_reason = "首次启动"
+            else:
+                # 读取迁移标记，检查数据库类型是否变化
+                try:
+                    with open(migration_marker, 'r', encoding='utf-8') as f:
+                        marker_data = json.loads(f.read())
+                        previous_db_type = marker_data.get('database_type', 'unknown')
+
+                        if previous_db_type != current_db_type:
+                            need_migration = True
+                            migration_reason = f"数据库类型变化 ({previous_db_type} → {current_db_type})"
+                            logger.warning(f"⚠️ 检测到数据库类型变化: {previous_db_type} → {current_db_type}")
+                except Exception as e:
+                    logger.warning(f"读取迁移标记失败: {e}，将重新迁移")
+                    need_migration = True
+                    migration_reason = "标记文件损坏"
+
+            if need_migration:
                 logger.info("=" * 70)
-                logger.info("🔄 检测到首次启动，开始自动数据库迁移...")
+                logger.info(f"🔄 开始自动数据库迁移（原因: {migration_reason}）...")
                 logger.info("=" * 70)
 
                 try:
                     # 导入迁移工具
                     from .utils.migration_tool_v2 import auto_migrate
 
-                    # 获取数据库URL
-                    db_url = self._get_database_url()
+                    # 确定源数据库和目标数据库
+                    source_db_url = None
+                    target_db_url = current_db_url
+
+                    # 如果是数据库类型变化，需要找到旧数据库
+                    if "数据库类型变化" in migration_reason:
+                        # 读取旧的数据库类型
+                        try:
+                            with open(migration_marker, 'r', encoding='utf-8') as f:
+                                marker_data = json.loads(f.read())
+                                previous_db_type = marker_data.get('database_type', 'unknown')
+
+                            # 根据旧类型构建源数据库URL
+                            if previous_db_type == 'sqlite':
+                                # 旧数据库是SQLite
+                                old_db_path = getattr(self.plugin_config, 'messages_db_path', None)
+                                if not old_db_path:
+                                    old_db_path = os.path.join(self.plugin_config.data_dir, 'messages.db')
+                                if not os.path.isabs(old_db_path):
+                                    old_db_path = os.path.abspath(old_db_path)
+                                source_db_url = f"sqlite:///{old_db_path}"
+                                logger.info(f"📂 源数据库 (SQLite): {old_db_path}")
+                            elif previous_db_type == 'mysql':
+                                # 旧数据库是MySQL（理论上不应该出现，但保留处理）
+                                source_db_url = target_db_url
+                                logger.warning("⚠️ 从MySQL迁移到MySQL，使用相同数据库")
+                        except Exception as e:
+                            logger.warning(f"读取旧数据库信息失败: {e}，将尝试从默认SQLite迁移")
+                            # 默认从 SQLite 迁移
+                            old_db_path = os.path.join(self.plugin_config.data_dir, 'messages.db')
+                            source_db_url = f"sqlite:///{old_db_path}"
+
+                        logger.info(f"🎯 目标数据库 ({current_db_type.upper()}): {self._mask_url(target_db_url)}")
+                    else:
+                        # 首次启动或其他情况，in-place 迁移
+                        source_db_url = current_db_url
 
                     # 执行迁移
-                    await auto_migrate(db_url)
+                    await auto_migrate(source_db_url, target_db_url if source_db_url != target_db_url else None)
 
-                    # 创建迁移标记文件
+                    # 创建/更新迁移标记文件
                     with open(migration_marker, 'w', encoding='utf-8') as f:
                         f.write(json.dumps({
                             'migrated_at': time.time(),
                             'migrated_date': datetime.now().isoformat(),
                             'plugin_version': '1.6.1',
-                            'database_url': db_url.split('://')[-1].split('@')[-1] if '@' in db_url else db_url  # 隐藏密码
+                            'database_type': current_db_type,  # ✅ 记录数据库类型
+                            'database_url': current_db_url.split('://')[-1].split('@')[-1] if '@' in current_db_url else current_db_url  # 隐藏密码
                         }, ensure_ascii=False, indent=2))
 
                     logger.info("=" * 70)
@@ -411,11 +491,11 @@ class SelfLearningPlugin(star.Star):
             # 检查数据库类型
             if hasattr(db_config, 'db_type') and db_config.db_type.lower() == 'mysql':
                 # MySQL数据库
-                host = getattr(db_config, 'db_host', 'localhost')
-                port = getattr(db_config, 'db_port', 3306)
-                user = getattr(db_config, 'db_user', 'root')
-                password = getattr(db_config, 'db_password', '')
-                database = getattr(db_config, 'db_name', 'astrbot_self_learning')
+                host = getattr(db_config, 'mysql_host', 'localhost')
+                port = getattr(db_config, 'mysql_port', 3306)
+                user = getattr(db_config, 'mysql_user', 'root')
+                password = getattr(db_config, 'mysql_password', '')
+                database = getattr(db_config, 'mysql_database', 'astrbot_self_learning')
 
                 return f"mysql+aiomysql://{user}:{password}@{host}:{port}/{database}"
             else:
@@ -437,6 +517,16 @@ class SelfLearningPlugin(star.Star):
             # 返回默认SQLite路径
             default_path = os.path.join(self.plugin_config.data_dir, 'messages.db')
             return f"sqlite:///{default_path}"
+
+    def _mask_url(self, url: str) -> str:
+        """隐藏数据库 URL 中的密码"""
+        if '@' in url:
+            # mysql+aiomysql://user:password@host:port/db
+            parts = url.split('@')
+            if ':' in parts[0]:
+                prefix = parts[0].rsplit(':', 1)[0]
+                return f"{prefix}:****@{parts[1]}"
+        return url
 
     async def on_load(self):
         """插件加载时启动 Web 服务器和数据库管理器"""
@@ -760,6 +850,58 @@ class SelfLearningPlugin(star.Star):
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
 
+    async def _mine_jargon_background(self, group_id: str):
+        """
+        后台黑话挖掘 - 完全异步,不阻塞主流程
+
+        工作流程:
+        1. 检查是否应该触发挖掘（频率控制）
+        2. 获取最近的消息
+        3. 使用JargonMiner进行黑话提取和推断
+        4. 保存到数据库
+        """
+        try:
+            if not hasattr(self, 'jargon_miner_manager'):
+                logger.debug("[黑话挖掘] JargonMinerManager未初始化，跳过")
+                return
+
+            # 获取或创建该群组的黑话挖掘器
+            jargon_miner = self.jargon_miner_manager.get_or_create_miner(group_id)
+
+            # 获取最近的消息用于挖掘
+            stats = await self.message_collector.get_statistics(group_id)
+            recent_message_count = stats.get('raw_messages', 0)
+
+            # 检查是否应该触发学习（频率控制）
+            if not jargon_miner.should_trigger(recent_message_count):
+                logger.debug(f"[黑话挖掘] 群组 {group_id} 未达到触发条件")
+                return
+
+            # 获取最近20-50条消息用于黑话挖掘
+            recent_messages = await self.db_manager.get_recent_raw_messages(
+                group_id, limit=30
+            )
+
+            if len(recent_messages) < 10:
+                logger.debug(f"[黑话挖掘] 群组 {group_id} 消息数量不足（{len(recent_messages)}<10）")
+                return
+
+            logger.info(f"🔍 [黑话挖掘] 开始分析群组 {group_id} 的 {len(recent_messages)} 条消息")
+
+            # 将消息列表转换为聊天文本
+            chat_messages = "\n".join([
+                f"{msg.get('sender_id', 'unknown')}: {msg.get('message', '')}"
+                for msg in recent_messages
+            ])
+
+            # 执行黑话学习（包括候选提取、推断、保存）
+            await jargon_miner.run_once(chat_messages, len(recent_messages))
+
+            logger.debug(f"[黑话挖掘] 群组 {group_id} 学习完成")
+
+        except Exception as e:
+            logger.error(f"❌ [黑话挖掘] 后台任务失败 (group={group_id}): {e}", exc_info=True)
+
     async def _process_affection_background(self, group_id: str, sender_id: str, message_text: str):
         """后台处理好感度更新（非阻塞）"""
         try:
@@ -792,12 +934,18 @@ class SelfLearningPlugin(star.Star):
             except Exception as e:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
 
-            # 3. 如果启用实时学习，每条消息都学习（完全后台执行，不阻塞）
+            # 3. ✅ 黑话挖掘 - 每收集10条消息触发一次（完全后台执行）
+            stats = await self.message_collector.get_statistics(group_id)
+            raw_message_count = stats.get('raw_messages', 0)
+            if raw_message_count % 10 == 0 and raw_message_count >= 10:
+                asyncio.create_task(self._mine_jargon_background(group_id))
+
+            # 4. 如果启用实时学习，每条消息都学习（完全后台执行，不阻塞）
             if self.plugin_config.enable_realtime_learning:
                 # ⚡ 使用 asyncio.create_task 确保完全后台执行
                 asyncio.create_task(self._process_message_realtime_background(group_id, message_text, sender_id))
 
-            # 4. 智能启动学习任务（基于消息活动，添加频率限制）
+            # 5. 智能启动学习任务（基于消息活动，添加频率限制）
             await self._smart_start_learning_for_group(group_id)
 
         except Exception as e:
@@ -1290,11 +1438,15 @@ class SelfLearningPlugin(star.Star):
             bool: True表示构成对话关系，False表示不构成
         """
         try:
+            # 检查服务工厂是否已初始化
+            if not self.factory_manager or not hasattr(self.factory_manager, '_service_factory') or not self.factory_manager._service_factory:
+                # 服务工厂未初始化，使用简单规则
+                return msg1.message != msg2.message
+
             # 获取消息关系分析器
             relationship_analyzer = self.factory_manager.get_service_factory().create_message_relationship_analyzer()
 
             if not relationship_analyzer:
-                logger.warning("消息关系分析器未初始化，使用简单规则")
                 # 降级方案：简单规则
                 return msg1.message != msg2.message
 
@@ -2106,6 +2258,250 @@ PersonaManager模式优势：
             logger.error(f"清理重复内容命令失败: {e}", exc_info=True)
             yield event.plain_result(f"❌ 清理重复内容失败: {str(e)}")
 
+    @filter.command("migrate_database")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def migrate_database_command(self, event: AstrMessageEvent):
+        """手动触发数据库迁移（支持 SQLite ↔ MySQL 双向迁移）
+
+        用法:
+        - migrate_database sqlite      # 从当前数据库迁移到 SQLite
+        - migrate_database mysql       # 从当前数据库迁移到 MySQL
+        - migrate_database auto        # 自动检测并迁移（推荐）
+        """
+        try:
+            # 解析命令参数
+            message = event.get_message_str().strip()
+            parts = message.split(maxsplit=1)
+
+            if len(parts) < 2:
+                help_text = (
+                    "📖 数据库迁移命令使用说明：\n\n"
+                    "用法: migrate_database <target>\n\n"
+                    "参数说明:\n"
+                    "• sqlite - 迁移到 SQLite 数据库\n"
+                    "• mysql  - 迁移到 MySQL 数据库\n"
+                    "• auto   - 自动检测当前配置并迁移\n\n"
+                    "示例:\n"
+                    "migrate_database auto    # 自动迁移（推荐）\n"
+                    "migrate_database mysql   # 强制迁移到 MySQL\n"
+                    "migrate_database sqlite  # 强制迁移到 SQLite\n\n"
+                    "⚠️ 注意事项:\n"
+                    "1. 迁移会自动备份数据\n"
+                    "2. 迁移过程可能需要几分钟\n"
+                    "3. 迁移期间请勿关闭程序\n"
+                    "4. 建议在低峰期执行迁移"
+                )
+                yield event.plain_result(help_text)
+                return
+
+            target_db_type = parts[1].lower()
+
+            if target_db_type not in ['sqlite', 'mysql', 'auto']:
+                yield event.plain_result("❌ 无效的目标数据库类型，请使用: sqlite, mysql 或 auto")
+                return
+
+            # 获取当前数据库配置
+            current_db_url = self._get_database_url()
+            current_db_type = 'mysql' if 'mysql' in current_db_url else 'sqlite'
+
+            # 确定源数据库和目标数据库
+            if target_db_type == 'auto':
+                # 自动模式：使用配置中的数据库类型作为目标
+                config_db_type = getattr(self.plugin_config, 'db_type', 'sqlite').lower()
+                if config_db_type == current_db_type:
+                    yield event.plain_result(f"ℹ️ 当前已使用 {current_db_type.upper()} 数据库，无需迁移")
+                    return
+                target_db_type = config_db_type
+
+            # 检查是否需要迁移
+            if target_db_type == current_db_type:
+                yield event.plain_result(f"ℹ️ 当前已使用 {current_db_type.upper()} 数据库，无需迁移到 {target_db_type.upper()}")
+                return
+
+            # 构建目标数据库 URL
+            if target_db_type == 'mysql':
+                # 迁移到 MySQL
+                host = getattr(self.plugin_config, 'mysql_host', 'localhost')
+                port = getattr(self.plugin_config, 'mysql_port', 3306)
+                user = getattr(self.plugin_config, 'mysql_user', 'root')
+                password = getattr(self.plugin_config, 'mysql_password', '')
+                database = getattr(self.plugin_config, 'mysql_database', 'astrbot_self_learning')
+
+                if not password:
+                    yield event.plain_result("❌ MySQL 密码未配置，请先在配置文件中设置 mysql_password")
+                    return
+
+                target_db_url = f"mysql+aiomysql://{user}:{password}@{host}:{port}/{database}"
+                source_db_url = current_db_url
+
+            else:  # target_db_type == 'sqlite'
+                # 迁移到 SQLite
+                db_path = getattr(self.plugin_config, 'messages_db_path', None)
+                if not db_path:
+                    db_path = os.path.join(self.plugin_config.data_dir, 'messages.db')
+                if not os.path.isabs(db_path):
+                    db_path = os.path.abspath(db_path)
+
+                target_db_url = f"sqlite:///{db_path}"
+                source_db_url = current_db_url
+
+            # 显示迁移信息
+            migration_info = (
+                f"🔄 准备执行数据库迁移\n\n"
+                f"源数据库: {current_db_type.upper()}\n"
+                f"目标数据库: {target_db_type.upper()}\n"
+                f"源URL: {self._mask_url(source_db_url)}\n"
+                f"目标URL: {self._mask_url(target_db_url)}\n\n"
+                f"⏳ 开始迁移，请稍候..."
+            )
+            yield event.plain_result(migration_info)
+
+            # 执行迁移
+            try:
+                from .utils.migration_tool_v2 import auto_migrate
+
+                logger.info(f"=" * 70)
+                logger.info(f"[手动迁移] 开始从 {current_db_type.upper()} 迁移到 {target_db_type.upper()}")
+                logger.info(f"[手动迁移] 源数据库: {self._mask_url(source_db_url)}")
+                logger.info(f"[手动迁移] 目标数据库: {self._mask_url(target_db_url)}")
+                logger.info(f"=" * 70)
+
+                # 执行迁移
+                await auto_migrate(source_db_url, target_db_url)
+
+                # 更新迁移标记文件
+                migration_marker = os.path.join(self.plugin_config.data_dir, '.migration_completed')
+                with open(migration_marker, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps({
+                        'migrated_at': time.time(),
+                        'migrated_date': datetime.now().isoformat(),
+                        'plugin_version': '1.6.1',
+                        'database_type': target_db_type,
+                        'database_url': target_db_url.split('://')[-1].split('@')[-1] if '@' in target_db_url else target_db_url,
+                        'migration_method': 'manual_command'
+                    }, ensure_ascii=False, indent=2))
+
+                success_message = (
+                    f"✅ 数据库迁移成功完成！\n\n"
+                    f"📊 迁移详情:\n"
+                    f"• 源数据库: {current_db_type.upper()}\n"
+                    f"• 目标数据库: {target_db_type.upper()}\n"
+                    f"• 迁移时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                    f"⚠️ 重要提示:\n"
+                    f"1. 数据已成功迁移到 {target_db_type.upper()}\n"
+                    f"2. 请在配置文件中将 db_type 改为 '{target_db_type}'\n"
+                    f"3. 重启插件后将使用新数据库\n"
+                    f"4. 建议验证数据完整性后再删除旧数据库"
+                )
+
+                logger.info(f"=" * 70)
+                logger.info(f"✅ [手动迁移] 数据库迁移成功完成")
+                logger.info(f"=" * 70)
+
+                yield event.plain_result(success_message)
+
+            except Exception as migrate_error:
+                error_message = (
+                    f"❌ 数据库迁移失败\n\n"
+                    f"错误信息: {str(migrate_error)}\n\n"
+                    f"故障排查:\n"
+                    f"1. 检查目标数据库连接是否正常\n"
+                    f"2. 确认数据库用户有足够权限\n"
+                    f"3. 查看完整错误日志\n"
+                    f"4. 如果是 MySQL，检查密码和主机配置"
+                )
+
+                logger.error(f"=" * 70)
+                logger.error(f"❌ [手动迁移] 数据库迁移失败: {migrate_error}")
+                logger.error(f"=" * 70)
+                logger.error("故障排查提示:", exc_info=True)
+
+                yield event.plain_result(error_message)
+
+        except Exception as e:
+            logger.error(f"数据库迁移命令执行失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 数据库迁移命令执行失败: {str(e)}")
+
+    @filter.command("db_status")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def db_status_command(self, event: AstrMessageEvent):
+        """查看当前数据库状态和统计信息"""
+        try:
+            # 获取当前数据库配置
+            current_db_url = self._get_database_url()
+            current_db_type = 'mysql' if 'mysql' in current_db_url else 'sqlite'
+
+            # 构建状态信息
+            status_info = "📊 数据库状态报告\n\n"
+            status_info += f"🔗 当前数据库类型: {current_db_type.upper()}\n"
+            status_info += f"📍 数据库URL: {self._mask_url(current_db_url)}\n\n"
+
+            # 读取迁移标记
+            migration_marker = os.path.join(self.plugin_config.data_dir, '.migration_completed')
+            if os.path.exists(migration_marker):
+                try:
+                    with open(migration_marker, 'r', encoding='utf-8') as f:
+                        migration_info = json.load(f)
+                        migrated_date = migration_info.get('migrated_date', '未知')
+                        migration_method = migration_info.get('migration_method', 'auto')
+                        status_info += f"✅ 迁移状态: 已完成\n"
+                        status_info += f"📅 迁移时间: {migrated_date}\n"
+                        status_info += f"🔧 迁移方式: {'手动' if migration_method == 'manual_command' else '自动'}\n\n"
+                except Exception as e:
+                    status_info += f"⚠️ 迁移标记文件读取失败: {e}\n\n"
+            else:
+                status_info += f"ℹ️ 迁移状态: 未迁移或首次启动\n\n"
+
+            # 获取数据库全局消息统计
+            try:
+                from sqlalchemy import text
+
+                async with self.db_manager.get_session() as session:
+                    # 统计所有群组的消息数据
+                    raw_msg_result = await session.execute(text("SELECT COUNT(*) FROM raw_messages"))
+                    raw_msg_count = raw_msg_result.scalar() or 0
+
+                    filtered_msg_result = await session.execute(text("SELECT COUNT(*) FROM filtered_messages"))
+                    filtered_msg_count = filtered_msg_result.scalar() or 0
+
+                    bot_msg_result = await session.execute(text("SELECT COUNT(*) FROM bot_messages"))
+                    bot_msg_count = bot_msg_result.scalar() or 0
+
+                    # 统计群组数量
+                    group_count_result = await session.execute(text("SELECT COUNT(DISTINCT group_id) FROM raw_messages"))
+                    group_count = group_count_result.scalar() or 0
+
+                status_info += "📈 消息统计 (全部数据库):\n"
+                status_info += f"• 原始消息: {raw_msg_count} 条\n"
+                status_info += f"• 筛选后消息: {filtered_msg_count} 条\n"
+                status_info += f"• Bot消息: {bot_msg_count} 条\n"
+                status_info += f"• 群组数量: {group_count} 个\n\n"
+            except Exception as e:
+                status_info += f"⚠️ 消息统计获取失败: {e}\n\n"
+
+            # 数据库配置建议
+            config_db_type = getattr(self.plugin_config, 'db_type', 'sqlite').lower()
+            if config_db_type != current_db_type:
+                status_info += f"⚠️ 配置不一致警告:\n"
+                status_info += f"• 配置文件: {config_db_type.upper()}\n"
+                status_info += f"• 实际使用: {current_db_type.upper()}\n"
+                status_info += f"💡 建议使用 'migrate_database auto' 进行迁移\n\n"
+
+            # 可用的迁移选项
+            status_info += "🔄 可用迁移选项:\n"
+            if current_db_type == 'sqlite':
+                status_info += "• migrate_database mysql - 迁移到 MySQL\n"
+            else:
+                status_info += "• migrate_database sqlite - 迁移到 SQLite\n"
+            status_info += "• migrate_database auto - 自动检测并迁移\n"
+
+            yield event.plain_result(status_info.strip())
+
+        except Exception as e:
+            logger.error(f"获取数据库状态失败: {e}", exc_info=True)
+            yield event.plain_result(f"❌ 获取数据库状态失败: {str(e)}")
+
+
     @filter.on_llm_request()
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
         """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)
@@ -2120,6 +2516,11 @@ PersonaManager模式优势：
 
             group_id = event.get_group_id() or event.get_sender_id()
             user_id = event.get_sender_id()
+
+            # ✅ 维护group_id到unified_msg_origin的映射
+            if hasattr(event, 'unified_msg_origin') and event.unified_msg_origin:
+                self.group_id_to_unified_origin[group_id] = event.unified_msg_origin
+                logger.debug(f"[LLM Hook] 更新映射: {group_id} -> {event.unified_msg_origin}")
 
             # 检查是否有内容可注入
             if not req.prompt:
@@ -2144,13 +2545,15 @@ PersonaManager模式优势：
             if hasattr(self, 'social_context_injector') and self.social_context_injector:
                 try:
                     # 根据配置决定是否注入各类社交上下文
-                    social_context = await self.social_context_injector.format_complete_context(
+                    # 修复: 使用正确的方法名 build_complete_context
+                    social_context = await self.social_context_injector.build_complete_context(
                         group_id=group_id,
                         user_id=user_id,
-                        include_social_relations=self.plugin_config.include_social_relations,  # 根据配置
+                        include_psychological=True,  # 包含心理状态
+                        include_social_relation=self.plugin_config.include_social_relations,  # 根据配置
                         include_affection=self.plugin_config.include_affection_info,  # 根据配置
-                        include_mood=self.plugin_config.include_mood_info,  # 根据配置
-                        include_expression_patterns=True  # ✅ 始终注入表达模式
+                        include_diversity=False,  # 多样性在下面单独处理
+                        enable_protection=True  # 启用提示词保护
                     )
                     if social_context:
                         injections.append(social_context)
@@ -2200,7 +2603,22 @@ PersonaManager模式优势：
             else:
                 logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
 
-            # ✅ 4. 使用 += 追加所有注入内容到 req.prompt
+            # ✅ 4. 注入会话级增量更新 (修复会话串流bug)
+            if hasattr(self, 'temporary_persona_updater') and self.temporary_persona_updater:
+                try:
+                    session_updates = self.temporary_persona_updater.session_updates.get(group_id, [])
+                    if session_updates:
+                        updates_text = '\n\n'.join(session_updates)
+                        injections.append(updates_text)
+                        logger.info(f"✅ [LLM Hook] 已准备会话级更新 (会话: {group_id}, 更新数: {len(session_updates)}, 长度: {len(updates_text)})")
+                    else:
+                        logger.debug(f"[LLM Hook] 会话 {group_id} 暂无增量更新")
+                except Exception as e:
+                    logger.warning(f"[LLM Hook] 注入会话级更新失败: {e}")
+            else:
+                logger.debug("[LLM Hook] temporary_persona_updater未初始化，跳过会话级更新注入")
+
+            # ✅ 5. 使用 += 追加所有注入内容到 req.prompt
             if injections:
                 injection_text = '\n\n'.join(injections)
                 req.prompt += '\n\n' + injection_text  # ← 使用 += 追加，不覆盖

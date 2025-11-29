@@ -1476,6 +1476,13 @@
                         <label class="form-label" for="bugEnvironment">运行环境补充</label>
                         <textarea id="bugEnvironment" placeholder="系统/浏览器、插件版本、其他有助排查的信息" disabled></textarea>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label" for="bugEmail">
+                            联系邮箱 <span class="optional-tag">(选填)</span>
+                        </label>
+                        <input type="email" id="bugEmail" placeholder="用于回访和修复通知" disabled>
+                        <small class="form-hint">💡 提供邮箱可以及时收到Bug修复通知</small>
+                    </div>
                     <label class="checkbox-row">
                         <input type="checkbox" id="bugIncludeLogs" checked disabled>
                         <span>自动附带 AstrBot 近期日志</span>

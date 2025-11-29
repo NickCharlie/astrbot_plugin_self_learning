@@ -979,6 +979,73 @@ class ComponentFactory:
             self._logger.error(f"导入社交上下文注入器失败: {e}", exc_info=True)
             raise ServiceError(f"创建社交上下文注入器失败: {str(e)}")
 
+    def create_psychological_social_context_injector(self):
+        """
+        创建心理社交上下文注入器
+
+        该注入器整合了心理状态、社交关系、好感度等多维度信息,
+        并使用LLM动态生成行为指导prompt
+        """
+        cache_key = "psychological_social_context_injector"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.psychological_social_context_injector import PsychologicalSocialContextInjector
+            from ..services.manager_factory import ManagerFactory
+
+            # 获取必要的依赖
+            db_manager = self.service_factory.create_database_manager()
+            llm_adapter = self.service_factory.create_framework_llm_adapter()
+
+            # 使用ManagerFactory创建心理状态和社交关系管理器
+            manager_factory = ManagerFactory(self.config)
+
+            # 创建心理状态管理器(传递affection_manager=None避免循环依赖)
+            psychological_state_manager = manager_factory.create_psychological_manager(
+                db_manager=db_manager,
+                llm_adapter=llm_adapter,
+                affection_manager=None
+            )
+
+            # 创建社交关系管理器
+            social_relation_manager = manager_factory.create_social_relation_manager(
+                db_manager=db_manager,
+                llm_adapter=llm_adapter
+            )
+
+            # 获取好感度管理器(如果已创建)
+            affection_manager = self._service_cache.get("affection_manager")
+
+            # 获取响应多样性管理器(如果已创建)
+            diversity_manager = self._service_cache.get("response_diversity_manager")
+
+            # 创建注入器实例
+            service = PsychologicalSocialContextInjector(
+                database_manager=db_manager,
+                psychological_state_manager=psychological_state_manager,
+                social_relation_manager=social_relation_manager,
+                affection_manager=affection_manager,
+                diversity_manager=diversity_manager,
+                llm_adapter=llm_adapter,
+                config=self.config
+            )
+
+            # 缓存和注册
+            self._service_cache[cache_key] = service
+            self._registry.register_service("psychological_social_context_injector", service)
+
+            self._logger.info("✅ 创建心理社交上下文注入器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"❌ 导入心理社交上下文注入器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建心理社交上下文注入器失败: {str(e)}")
+        except Exception as e:
+            self._logger.error(f"❌ 创建心理社交上下文注入器异常: {e}", exc_info=True)
+            raise ServiceError(f"创建心理社交上下文注入器失败: {str(e)}")
+
 
 # 全局工厂实例管理器
 class FactoryManager:

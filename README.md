@@ -1,942 +1,905 @@
-# AstrBot 智能自学习插件 🧠✨
+# AstrBot 自主学习插件 Next-Gen 🧠✨
 
-#  (使用前一定要先手动备份人格到本地 以防出现BUG导致人格混乱)
+> **⚠️ 使用前必读：请务必先手动备份人格到本地，以防出现BUG导致人格混乱**
 
-## 🚀 项目概述
+<div align="center">
 
-AstrBot 智能自学习插件是一个为 AstrBot 框架设计的**全功能 AI 自主学习解决方案**。以用户设置的学习对象的聊天消息为样本，让bot不断学习，实现更自然，更真实的消息对话。
+[![Version](https://img.shields.io/badge/version-Next--1.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
+[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.0.0-orange.svg)](https://github.com/Soulter/AstrBot)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 
-## 目前插件正在测试阶段 有许多Bug还没有修好
+**让你的 AI 聊天机器人像真人一样学习、思考和对话**
 
-## ChatPlus插件用户 和本插件用户 欢迎加入QQ群聊 1021544792 反馈你所遇到的Bug
+[功能特性](#-核心特性) • [快速开始](#-快速开始) • [架构设计](#-技术架构) • [文档](#-文档导航) • [贡献指南](#-贡献指南)
 
----
-
-## 🤝 推荐搭配：群聊增强插件 (Group Chat Plus)
-
-**项目地址**: [群聊增强插件 (Group Chat Plus)](https://github.com/Him666233/astrbot_plugin_group_chat_plus)
-
-### 为什么推荐同时使用？
-
-本项目专注于**AI学习与人格优化**，而群聊增强插件专注于**智能回复与群聊互动**。两者完美互补：
-
-1. **AI读空气能力** - 聊增强插件让Bot像真人一样"读懂气氛"，避免过度活跃或完全沉默
-2. **动态回复概率** - 智能调节回复频率，营造自然的群聊互动节奏
-3. **注意力机制** - 像真人一样专注对话，避免频繁切换话题
-4. **真实性增强** - 打字错误生成、情绪系统、延迟模拟等功能让回复更像真人
-5. **社交节奏增强** - 主动聊天、时段概率调整，让Bot保持存在感而不刷屏
-
-**本插件负责学习与优化人格**，**聊增强插件负责智能决策何时回复**，两者配合使用可以让您的Bot既有学习能力，又有"读空气"的社交智能！
+</div>
 
 ---
 
-**🤖 MaiBot功能参考**：本版本参考了 [Mai-with-u/MaiBot: 麦麦bot，一款专注于 群组聊天 的赛博网友（比较专注）多平台智能体](https://github.com/Mai-with-u/MaiBot)的学习算法和功能模块，参考MaiBot的表达模式学习、记忆图系统、知识图谱管理等先进技术，实现更加智能和自然的对话学习能力。
+## 🌟 项目概述
 
-该插件通过机器学习、多维度数据分析、情感智能系统和动态人格优化，为聊天Bot提供了**完整的自主学习生态系统**。
+AstrBot 智能自主学习插件是一个全功能 AI 自主学习 聊天拟人化 解决方案。通过实时消息捕获、多维度数据分析、表达模式学习和动态人格优化，让聊天机器人能够：
 
-> - **新增**：集成MaiBot核心功能，实现智能表达模式学习
-> - **新增**：群聊社交关系分析模块，可视化用户互动关系
-> - **新增**：WebUI管理界面，提供完整的数据可视化和管理功能
+- 📖 **学习特定用户的对话风格** - 自动模仿学习对象的表达方式
+- 🎯 **智能黑话理解系统** - 自动学习群组特定用语，避免误解
+- ❤️ **管理社交关系和好感度** - 追踪用户互动，动态调整回复策略
+- 🎭 **自适应人格演化** - 根据学习成果智能更新 AI 人格设定
+- 🌐 **可视化管理界面** - 通过 WebUI 实时监控学习进度和效果
 
-## 🤖 参考MaiBot的功能集成说明
 
-本版本参考了 MaiBot 的先进实现，主要包含以下核心功能：
+### 社区交流
+- QQ 群: **1021544792**
+  (ChatPlus 插件用户 + 本插件用户)
+- 反馈 Bug 和使用问题
 
-### 🎯 参考MaiBot的核心功能模块
+### 🤝 推荐搭配
 
-#### 🗣️ 表达模式学习器 (ExpressionPatternLearner)
-- **功能来源**: 参考 MaiBot 的表达模式学习机制
+**[群聊增强插件 (Group Chat Plus)](https://github.com/Him666233/astrbot_plugin_group_chat_plus)**
 
-#### 🧠 记忆图系统 (MemoryGraphManager)
-- **功能来源**: 基于 MaiBot 的记忆管理架构
-- **核心特性**:
+两者完美互补：
+- 本插件负责 **AI学习与人格优化**
+- 群聊增强插件负责 **智能回复决策与读空气能力**
 
-#### 🔗 知识图谱管理 (KnowledgeGraphManager)
-- **功能来源**: 参考 MaiBot 的知识抽取方法
-
-#### ⏰ 时间衰减机制 (TimeDecayManager)
-- **功能来源**: 采用 MaiBot 的15天衰减算法
-
-#### 🎨 增强型Prompt工程
-- **功能来源**: 采用 MaiBot 的场景-表达模式
-
-本项目的 MaiBot 功能集成**参考了** [MaiBot 项目](https://github.com/MaiM-with-u/MaiBot) 的以下核心设计思路和实现方法：
-
-- 表达模式学习的场景-表达映射机制
-- 15天时间衰减的质量管理算法  
-- 基于NetworkX的记忆图构建方法
-- 知识图谱的实体-关系提取策略
-- 25条消息触发和300秒间隔的学习节奏控制
-
-感谢 MaiBot 项目提供的优秀开源实现，为bot智能对话学习领域做出的贡献！
-
-### 🌟 核心特性
-
-- **🔄 全自动学习循环**: 实时消息捕获、智能筛选、风格分析、人格优化
-- **🧠 情感智能系统**: 好感度管理、情绪状态、动态响应机制
-- **📊 数据可视化分析**: 学习轨迹图表、用户行为分析、社交关系可视化
-- **🤖 高级学习机制**: 人格切换、上下文感知学习、增量学习、对抗学习
-- **💬 增强交互能力**: 多轮对话管理、跨群记忆、主动话题引导
-- **🎯 智能化提升**: 知识图谱、个性化推荐、自适应学习率调整
-- **🌐 Web 管理界面**: 完整的可视化管理控制台
-
-## **<u>后台管理使用教程</u>**
-
-### **<u>重要安全提醒</u>**
-
-**<u>插件启动后请立即访问后台管理页面并修改默认密码！</u>**
-
-### 🌐 访问后台管理
-
-1. **启动插件后**，Web管理界面将在以下地址启动：
-   ```
-   http://localhost:7833 或 http://你的服务器IP:7833
-   ```
-
-2. **首次登录**：
-   - 默认密码：`self_learning_pwd`
-   - **<u>⚠️ 强烈建议：首次登录后立即修改密码！</u>**
-
-### 🛡️ 安全说明
-
-- **<u>请务必在生产环境中修改默认密码！</u>**
-
-### 📊 WebUI 管理界面功能说明
-
-插件提供了完整的Web可视化管理界面，包含以下功能模块：
-
-#### 1. 📈 数据统计页面
-**功能概述**: 展示插件运行的核心数据指标和统计信息
-
-**主要内容**:
-- 消息收集统计：原始消息数、已筛选消息数、学习会话数
-- 学习进度跟踪：学习次数、最后学习时间、平均学习质量
-- 系统运行状态：学习器状态、调度器状态、Web服务状态
-- 数据库统计：数据库大小、各表记录数、存储使用情况
-
-**使用场景**: 快速了解插件整体运行状态，监控学习效果
-
-![image-20251118174552993](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E6%95%B0%E6%8D%AE%E7%BB%9F%E8%AE%A1%E9%A1%B5%E9%9D%A2.png?raw=true)
+配合使用可以让你的 Bot 既有学习能力，又有"读空气"的社交智能！
 
 ---
 
-#### 2. 🎭 人格管理页面
-**功能概述**: 管理Bot的所有人格，支持切换、编辑、备份和恢复
+## 💡 核心特性
 
-**主要功能**:
+### 🎯 智能学习系统
 
-- **人格列表**: 显示所有可用人格，包括默认人格、学习人格、备份人格
-- **人格切换**: 一键切换Bot使用的当前人格
-- **人格编辑**: 修改人格的系统提示词、对话示例等内容
-- **人格备份**: 手动创建人格备份，防止数据丢失
-- **人格恢复**: 从备份文件中恢复历史人格版本
-- **人格删除**: 删除不需要的人格（自动保护当前使用的人格）
-
-**使用场景**: 日常人格维护、测试不同人格效果、回滚人格变更
-
-![image-20251118174321706](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E7%AE%A1%E7%90%86%E9%A1%B5%E9%9D%A2.png?raw=true)
-
----
-
-#### 3. 🔍 人格审查页面
-**功能概述**: 审查并批准/拒绝AI自动生成的人格更新建议
-
-**主要内容**:
-
-- **待审查列表**: 显示所有待审查的人格更新记录
-- **更新详情**: 展示更新类型、更新原因、建议修改内容
-- **对比显示**: 并排对比原始内容和建议更新内容，修改部分红色高亮显示
-- **审查操作**: 批准或拒绝更新，可添加审查备注
-- **学习来源**: 显示触发此次更新的学习类型（表达学习/关系学习等）
-
-**使用场景**: 人工把关AI学习成果，确保人格更新质量
-
-![image-20251118174332541](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E5%AE%A1%E6%9F%A5%E9%A1%B5%E9%9D%A2.png?raw=true)
-
----
-
-#### 4. 💬 风格学习页面
-**功能概述**: 管理对话风格学习数据，查看学习进度和成果
-
-**主要功能**:
-- **学习进度图表**: 可视化展示学习进度趋势
-- **风格模式列表**: 查看已学习的表达风格模式
-- **场景-表达映射**: 展示当...时，使用...的场景表达关系
-- **质量评分**: 显示每条学习数据的质量分数和时间衰减
-- **数据管理**: 删除低质量学习数据，优化学习效果
-
-**使用场景**: 监控风格学习效果，管理学习数据质量
-
-![image-20251118174349158](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E5%AF%B9%E8%AF%9D%E9%A3%8E%E6%A0%BC%E5%AD%A6%E4%B9%A0%E9%A1%B5%E9%9D%A2.png?raw=true)
-
----
-
-#### 5. 🌐 社交关系分析页面  
-**功能概述**: 可视化分析群聊成员之间的社交关系网络
-
-**主要功能**:
-- **群组选择**: 选择要分析的群组
-- **关系网络图**: 使用力导向图展示成员互动关系
-  - 节点：群成员（大小表示活跃度）
-  - 连线：互动关系（粗细表示互动频率）
-  - 颜色：好感度等级（绿色=高好感，红色=低好感）
-- **成员详情**: 点击节点查看成员详细信息
-  - 发言次数、好感度、昵称列表
-  - 最常互动的成员
-  - 主要话题偏好
-- **互动统计**: 展示群内互动模式和关系强度
-
-**使用场景**: 了解群聊社交网络，分析用户互动模式
-
-![image-20251118174435169](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E7%A4%BE%E4%BA%A4%E5%85%B3%E7%B3%BB%E9%A1%B5%E9%9D%A2.png?raw=true)
-
-
-
----
-
-#### 7. ⚙️ 系统设置页面
-**功能概述**: 配置插件各项参数和功能开关
-
-**主要设置项**:
-- **学习参数**: 学习间隔、消息阈值、批处理大小
-- **模型配置**: 筛选模型、提炼模型、API配置
-- **好感度系统**: 启用/禁用、上限设置、衰减率
-- **情绪系统**: 每日情绪变化、情绪持续时间
-- **数据管理**: 自动备份间隔、数据保留期限
-- **调试模式**: 启用详细日志、测试模式
-
-**使用场景**: 自定义插件行为，优化性能和效果
-
-![image-20251118174454386](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E9%85%8D%E7%BD%AE%E9%A1%B5%E9%9D%A2.png?raw=true)
-
-
-
-
-
-### 🎯 核心服务层 (`services/`)
-
-#### 📊 数据分析与可视化服务
-- **`data_analytics.py`**: 学习过程可视化、用户行为分析、社交网络图谱生成
-- **功能**: 生成学习轨迹图表、用户活跃度热力图、话题趋势分析、社交关系可视化
-
-#### 🧠 高级学习机制服务  
-- **`advanced_learning.py`**: 人格切换、上下文感知学习、增量学习、对抗学习
-- **功能**: 多场景人格自动切换、情境感知学习、知识增量更新、学习效果强化
-
-#### 💬 增强交互服务
-- **`enhanced_interaction.py`**: 多轮对话管理、跨群记忆、主动话题引导
-- **功能**: 对话上下文跟踪、历史记忆管理、智能话题推荐、互动模式分析
-
-#### 🎯 智能化提升服务
-- **`intelligence_enhancement.py`**: 情感智能、知识图谱、个性化推荐、自适应学习
-- **功能**: 情感状态识别、知识实体管理、智能推荐算法、学习率动态调整
-
-#### ❤️ 好感度管理服务
-- **`affection_manager.py`**: 用户好感度系统、bot情绪管理、动态情感响应
-- **功能**: 
-  - 用户好感度跟踪（单用户最大100分，总分250分上限）
-  - 每日随机情绪系统（10种情绪类型）
-  - 智能交互分析（称赞、鼓励、侮辱、骚扰等识别）
-  - 动态情绪响应（根据用户行为自动调节bot情绪）
-  - 好感度影响系统提示词（情绪状态融入AI回复）
-
-#### 🔧 基础核心服务
-- **`message_collector.py`**: 智能消息收集与预处理
-- **`database_manager.py`**: 统一数据管理（全局+分群数据库架构）
-- **`multidimensional_analyzer.py`**: 多维度消息分析与用户画像构建
-- **`style_analyzer.py`**: 深度对话风格分析与量化
-- **`learning_quality_monitor.py`**: 学习质量实时监控与评估
-- **`progressive_learning.py`**: 渐进式学习流程协调
-- **`ml_analyzer.py`**: 机器学习增强分析
-- **`persona_manager.py`**: 动态人格管理
-- **`persona_updater.py`**: 智能人格更新
-- **`persona_backup_manager.py`**: 人格数据备份与恢复
-
-## 📋 插件命令详细教程
-
-本插件提供了丰富的命令接口，支持完整的学习管理、好感度系统、临时人格管理等功能。以下是所有可用命令的详细说明：
-
-### 🎮 基础学习管理命令
-
-#### `/learning_status` - 查看学习状态
-**权限要求**: 管理员  
-**功能说明**: 查看当前群组/用户的详细学习状态和统计信息
-
-**显示内容**:
-- 基础配置状态（消息抓取、自动学习、实时学习、Web界面）
-- 抓取设置（目标QQ号、当前人格）
-- 模型配置（筛选模型、提炼模型）
-- 学习统计（总消息数、已筛选消息、风格更新次数、最后学习时间）
-- 存储统计（原始消息、未处理消息、已筛选消息）
-- 调度状态（学习器运行状态）
-
-**使用示例**:
+#### 1. 表达模式学习
 ```
-/learning_status
+场景 → 表达模式 映射
+"当需要表达肯定时" → "可以使用'确实如此呢'这样的表达"
+```
+- 自动识别对话中的场景-表达关系
+- 15天时间衰减机制，优先保留高质量模式
+- Few-Shot 对话示例生成，提升模仿准确度
+
+#### 2. 记忆图系统
+- 基于 NetworkX 构建知识关联网络
+- 自动提取实体和关系，形成长期记忆
+- 支持记忆检索和知识推理
+
+#### 3. 社交关系分析
+- 实时追踪用户互动关系
+- 可视化社交网络图谱
+- 好感度系统（单用户上限100分，总分250分）
+- 动态情绪管理（10种情绪类型）
+
+#### 4. 黑话挖掘与理解
+```python
+# 自动学习群组特定用语
+"发财了" → "表示惊喜或获得好处"
+"下次一定" → "委婉拒绝的表达"
+"🦌" → "xxxxx"
+```
+- 自动检测候选黑话
+- LLM 智能推断含义
+- 实时注入对话理解
+
+### 🏗️ 架构特性
+
+#### 工厂模式 (Factory Pattern)
+```python
+# 统一的服务创建和管理
+factory_manager = FactoryManager()
+factory_manager.initialize_factories(config, context)
+
+# 服务工厂
+service_factory = factory_manager.get_service_factory()
+db_manager = service_factory.create_database_manager()
+
+# 组件工厂
+component_factory = factory_manager.get_component_factory()
+expression_learner = component_factory.create_expression_pattern_learner()
 ```
 
----
-
-#### `/start_learning` - 启动学习
-**权限要求**: 管理员  
-**功能说明**: 手动启动当前群组的自动学习循环
-
-**使用场景**:
-- 插件刚启动时手动激活学习
-- 学习被停止后重新启动
-- 强制重启学习流程
-
-**使用示例**:
-```
-/start_learning
+#### 策略模式 (Strategy Pattern)
+```python
+# 灵活的学习策略
+learning_strategy = StrategyFactory.create_strategy(
+    LearningStrategyType.BATCH,  # INCREMENTAL / REINFORCEMENT
+    config={'batch_size': 100}
+)
 ```
 
-**返回信息**:
-- 成功: "群组 [群组ID] 的学习已启动"
-- 已运行: "群组 [群组ID] 的学习已在运行中"
-
----
-
-#### `/stop_learning` - 停止学习  
-**权限要求**: 管理员  
-**功能说明**: 停止当前群组的自动学习循环
-
-**使用场景**:
-- 暂时禁用自动学习
-- 维护或调试时停止学习
-- 避免过度学习
-
-**使用示例**:
-```
-/stop_learning
+#### 依赖注入 (Dependency Injection)
+```python
+# 服务间松耦合
+class MultidimensionalAnalyzer:
+    def __init__(self, config, db_manager, llm_adapter, ...):
+        self.config = config
+        self.db = db_manager
+        self.llm = llm_adapter
 ```
 
----
-
-#### `/force_learning` - 强制学习
-**权限要求**: 管理员  
-**功能说明**: 立即执行一次完整的学习周期，忽略时间间隔限制
-
-**使用场景**:
-- 测试学习效果
-- 有大量新消息需要立即学习
-- 调试学习流程
-
-**使用示例**:
-```
-/force_learning
+#### 仓储模式 (Repository Pattern)
+```python
+# 数据访问层抽象
+affection_repo = AffectionRepository(session)
+user_affection = await affection_repo.get_user_affection(group_id, user_id)
 ```
 
-**执行流程**:
-1. 筛选未处理的消息
-2. 多维度分析消息质量
-3. 提取对话风格特征
-4. 更新人格设置
-5. 质量评估和效果验证
+### 🗄️ 多数据库支持
 
----
+```yaml
+Database_Settings:
+  db_type: "mysql"  # sqlite / mysql / postgresql(该功能暂时没有开放使用)
 
-### 📊 数据管理命令
+  # MySQL 配置
+  mysql_host: "localhost"
+  mysql_port: 3306
+  mysql_user: "root"
+  mysql_password: "your_password"
+  mysql_database: "astrbot_self_learning"
 
-#### `/clear_data` - 清空学习数据
-**权限要求**: 管理员  
-**功能说明**: 清空所有学习数据，包括原始消息、筛选消息、学习统计等
-
-**⚠️ 重要警告**: 此操作不可逆，请谨慎使用！
-
-**使用示例**:
-```
-/clear_data
+  # 自动连接池管理
+  max_connections: 10
+  min_connections: 2
 ```
 
-**清空内容**:
-- 所有收集的原始消息
-- 已筛选的高质量消息
-- 学习统计数据
-- 缓存的分析结果
-
----
-
-#### `/export_data` - 导出学习数据
-**权限要求**: 管理员  
-**功能说明**: 将学习数据导出为JSON格式文件，用于备份或分析
-
-**使用示例**:
-```
-/export_data
-```
-
-**导出内容**:
-- 原始消息数据
-- 筛选结果
-- 风格分析结果
-- 学习统计信息
-- 用户行为数据
-
-**文件位置**: 插件数据目录下，文件名格式：`learning_data_export_YYYYMMDD_HHMMSS.json`
-
----
-
-### ❤️ 好感度系统命令
-
-#### `/affection_status` - 查看好感度状态  
-**权限要求**: 管理员  
-**功能说明**: 查看当前群组的好感度系统详细状态
-
-**显示内容**:
-- 当前用户好感度等级（满分100）
-- 群组总好感度状态（满分250）
-- 群组用户数量统计
-- Bot当前情绪状态（情绪类型、强度、描述）
-- 好感度排行榜（前3名用户）
-
-**使用示例**:
-```
-/affection_status
-```
-
-**情绪类型说明**:
-- **happy**: 心情很好，说话活泼开朗
-- **sad**: 心情低落，说话温和需要安慰
-- **excited**: 很兴奋，说话有活力
-- **calm**: 心情平静，说话稳重
-- **angry**: 心情不好，说话直接没耐心
-- **anxious**: 紧张不安，说话谨慎
-- **playful**: 调皮，喜欢开玩笑
-- **serious**: 严肃认真，说话简洁直接
-- **nostalgic**: 怀旧情绪，说话带回忆色彩
-- **curious**: 好奇心强，喜欢提问探索
-
----
-
-#### `/set_mood <情绪类型>` - 设置Bot情绪
-**权限要求**: 管理员  
-**功能说明**: 手动设置Bot的情绪状态，影响对话风格和回复语调
-
-**使用示例**:
-```
-/set_mood happy
-/set_mood sad  
-/set_mood excited
-/set_mood calm
-/set_mood angry
-/set_mood anxious
-/set_mood playful
-/set_mood serious
-/set_mood nostalgic
-/set_mood curious
-```
-
-**功能说明**:
-- 设置后Bot的回复将体现相应情绪特征
-- 情绪状态会持续24小时（可配置）
-- 同时更新好感度系统和人格提示词
-- 支持的情绪类型见上方情绪类型说明
-
----
-
-### 📈 数据分析命令
-
-#### `/analytics_report` - 生成数据分析报告
-**权限要求**: 管理员  
-**功能说明**: 生成当前群组的详细数据分析报告
-
-**报告内容**:
-- **学习统计**: 总消息数、学习会话数、平均质量分数
-- **用户行为分析**: 活跃用户数、主要话题、情感倾向
-- **优化建议**: 基于数据分析的学习模式建议
-
-**使用示例**:
-```
-/analytics_report
-```
-
-**分析维度**:
-- 消息质量趋势
-- 用户参与度分析  
-- 话题分布统计
-- 情感状态变化
-- 学习效果评估
-
----
-
-### 🎭 人格管理命令
-
-#### `/persona_switch <人格名称>` - 切换人格模式
-**权限要求**: 普通用户  
-**功能说明**: 切换到指定的人格模式
-
-**使用示例**:
-```
-/persona_switch default
-/persona_switch assistant
-/persona_switch friend
-```
-
-**注意事项**:
-- 人格名称需要在系统中已存在
-- 切换后Bot的对话风格会发生变化
-- 切换是永久性的，直到下次手动切换
-
----
-
-### 🔧 临时人格管理命令
-
-#### `/temp_persona` - 临时人格管理
-**权限要求**: 管理员  
-**功能说明**: 管理临时人格更新，支持多种操作
-
-**支持的操作**:
-
-##### 1. 应用临时人格
-```bash
-/temp_persona apply "特征1,特征2,特征3" "对话示例1|对话示例2|对话示例3" [持续时间分钟]
-```
-
-**参数说明**:
-- `特征1,特征2`: 用逗号分隔的人格特征列表
-- `对话示例1|对话示例2`: 用竖线分隔的对话示例
-- `持续时间分钟`: 可选，默认60分钟
-
-**使用示例**:
-```bash
-/temp_persona apply "幽默风趣,喜欢开玩笑,活泼开朗" "哈哈，你这个想法很有趣呢！|开什么玩笑，你太逗了哈哈" 120
-```
-
-##### 2. 查看临时人格状态
-```bash
-/temp_persona status
-```
-
-**显示信息**:
-- 当前临时人格名称
-- 剩余持续时间
-- 特征数量和对话数量
-- 备份文件信息
-
-##### 3. 移除临时人格
-```bash
-/temp_persona remove
-```
-立即移除当前临时人格，恢复到原始状态。
-
-##### 4. 延长临时人格时间
-```bash
-/temp_persona extend [分钟数]
-```
-延长当前临时人格的持续时间，默认延长30分钟。
-
-**使用示例**:
-```bash
-/temp_persona extend 60
-```
-
-##### 5. 查看备份文件列表
-```bash
-/temp_persona backup_list
-```
-显示所有可用的人格备份文件（前10个）。
-
-##### 6. 从备份恢复人格
-```bash
-/temp_persona restore <备份文件名>
-```
-
-**使用示例**:
-```bash
-/temp_persona restore persona_backup_20240101_120000.json
-```
-
----
-
-### 🛠️ 高级管理命令
-
-#### `/apply_persona_updates` - 应用人格更新文件
-**权限要求**: 管理员  
-**功能说明**: 读取并应用`persona_updates.txt`文件中的增量人格更新
-
-**使用场景**:
-- 批量应用预设的人格更新
-- 从外部文件导入人格调整
-- 自动化人格优化流程
-
-**使用示例**:
-```
-/apply_persona_updates
-```
-
-**文件格式**: `persona_updates.txt`中应包含要添加的人格特征和对话示例
-
----
-
-#### `/clean_duplicate_content` - 清理重复内容
-**权限要求**: 管理员  
-**功能说明**: 清理历史重复的情绪状态和增量更新内容，优化人格提示词
-
-**使用场景**:
-- 人格提示词过长时进行优化
-- 清理重复的情绪描述
-- 保持提示词整洁高效
-
-**使用示例**:
-```
-/clean_duplicate_content  
-```
-
-**清理效果**:
-- 移除重复的情绪描述
-- 清理冗余的人格特征
-- 优化提示词结构
-- 同时清空`persona_updates.txt`文件
-
----
-
-## 💡 命令使用技巧
-
-### 🎯 学习管理最佳实践
-
-1. **定期检查状态**:
-   ```bash
-   /learning_status  # 每天检查一次学习状态
-   ```
-
-2. **数据备份**:
-   ```bash
-   /export_data     # 每周导出一次数据进行备份
-   ```
-
-3. **强制学习时机**:
-   - 群聊活跃度突然增加时
-   - 添加新的目标用户后
-   - 修改学习配置后
-   ```bash
-   /force_learning
-   ```
-
-### ❤️ 好感度系统管理
-
-1. **情绪设置策略**:
-   ```bash
-   # 早晨设置积极情绪
-   /set_mood happy
-   
-   # 晚上设置平静情绪  
-   /set_mood calm
-   
-   # 特殊活动时设置兴奋情绪
-   /set_mood excited
-   ```
-
-2. **定期查看好感度**:
-   ```bash
-   /affection_status  # 了解用户互动情况
-   ```
-
-### 🎭 临时人格应用场景
-
-1. **活动期间临时调整**:
-   ```bash
-   # 聚会时设置活泼人格
-   /temp_persona apply "活泼开朗,善于活跃气氛" "大家一起玩游戏吧！|这个活动超级有趣的！" 180
-   ```
-
-2. **学习期间设置严肃人格**:
-   ```bash
-   # 学习讨论时
-   /temp_persona apply "认真严谨,专业知识丰富" "让我们专心讨论这个问题|这个知识点很重要" 120
-   ```
-
-3. **临时人格管理**:
-   ```bash
-   # 检查当前状态
-   /temp_persona status
-   
-   # 需要时延长时间
-   /temp_persona extend 60
-   
-   # 活动结束后移除
-   /temp_persona remove
-   ```
-
-### 🔍 故障排除
-
-1. **学习不工作**:
-   ```bash
-   /learning_status    # 检查配置状态
-   /start_learning     # 尝试手动启动
-   /force_learning     # 强制执行一次学习
-   ```
-
-2. **数据异常**:
-   ```bash
-   /analytics_report   # 查看数据分析
-   /export_data       # 备份当前数据
-   /clean_duplicate_content  # 清理冗余内容
-   ```
-
-3. **人格问题**:
-   ```bash
-   /temp_persona backup_list  # 查看可用备份
-   /temp_persona restore <文件名>  # 恢复到之前状态
-   ```
-
----
-
-## ⚠️ 注意事项
-
-1. **权限说明**: 带有管理员权限要求的命令只能由Bot管理员使用
-2. **数据安全**: `/clear_data`命令会永久删除数据，使用前请确保已备份
-3. **资源消耗**: `/force_learning`和`/analytics_report`命令可能消耗较多计算资源
-4. **临时人格**: 临时人格会在指定时间后自动过期，也可手动移除
-5. **好感度系统**: 情绪设置会影响用户体验，建议根据群聊氛围合理设置
-
-### 🔄 智能运行逻辑
-
-#### 1. **消息处理流程**
-```
-用户消息 → QQ过滤 → 消息收集 → 好感度处理 → 增强交互更新 → 实时学习处理
-```
-
-#### 2. **好感度系统流程**
-```
-消息分析 → 交互类型识别 → 好感度计算 → 情绪状态更新 → 系统提示词调整
-```
-
-#### 3. **学习循环流程**  
-```
-消息筛选 → 多维度分析 → 风格提取 → 质量评估 → 人格更新 → 效果验证
-```
-
-#### 4. **情感智能流程**
-```
-情感识别 → 知识图谱更新 → 个性化推荐 → 自适应调整 → 响应生成
-```
-
-## 🛠️ 技术栈升级
-
-### 🔥 AI/ML 技术栈
-- **大型语言模型**: OpenAI GPT系列、自定义API支持
-- **机器学习**: `scikit-learn`、`numpy`、`pandas`
-- **情感计算**: 情绪识别、情感状态建模
-- **知识图谱**: `networkx`、关系网络分析
-- **自然语言处理**: `jieba`、`nltk`、`spacy`
+支持的数据库：
+- **SQLite** - 开箱即用，适合单机部署
+- **MySQL** - 高性能，适合生产环境
+- **PostgreSQL** - 企业级，支持高级特性
 
 ### 📊 数据可视化
-- **图表生成**: `plotly`、`matplotlib`、`seaborn`
-- **网络可视化**: `bokeh`
-- **数据分析**: 多维度统计分析
 
-### 🏗️ 系统架构
-- **异步框架**: `asyncio`、`aiohttp`、`aiofiles`
-- **数据库**: `aiosqlite`、分布式数据存储
-- **Web框架**: `quart`、`quart-cors`
-- **缓存系统**: `cachetools`、`redis`
+#### WebUI 管理界面 (端口: 7833)
 
-## 📋 详细配置参数解析
+**1. 数据统计页面**
+![数据统计页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E6%95%B0%E6%8D%AE%E7%BB%9F%E8%AE%A1%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 消息收集统计、学习进度跟踪
+- 系统运行状态、数据库使用情况
 
-本插件提供了丰富的配置选项，支持高度自定义的学习和交互行为。
+**2. 人格管理页面**
+![人格管理页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E7%AE%A1%E7%90%86%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 人格列表查看、一键切换
+- 人格编辑、备份与恢复
+- 自动保护当前使用的人格
 
-### 🔧 基础学习设置 (Self_Learning_Basic)
+**3. 人格审查页面**
+![人格审查页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E5%AE%A1%E6%9F%A5%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 审查 AI 自动生成的人格更新建议
+- 对比显示原始内容和建议修改
+- 批准或拒绝更新，人工把关质量
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable_message_capture` | bool | true | 是否启用消息抓取功能，关闭后插件停止收集新消息 |
-| `enable_auto_learning` | bool | true | 是否启用定时自动学习，关闭后需要手动触发学习 |
-| `enable_realtime_learning` | bool | false | 是否在收到消息时立即处理，会增加实时负载 |
-| `enable_web_interface` | bool | true | 是否启用Web管理界面用于查看和管理学习数据 |
+**4. 风格学习页面**
+![对话风格学习页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E5%AF%B9%E8%AF%9D%E9%A3%8E%E6%A0%BC%E5%AD%A6%E4%B9%A0%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 学习进度可视化图表
+- 场景-表达模式映射展示
+- 质量评分和时间衰减管理
 
-### 🎯 目标设置 (Target_Settings)
+**5. 社交关系分析页面**
+![社交关系页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E7%A4%BE%E4%BA%A4%E5%85%B3%E7%B3%BB%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 力导向图展示成员互动关系
+- 节点大小表示活跃度
+- 连线粗细表示互动频率
+- 颜色表示好感度等级
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `target_qq_list` | list | [] | 指定要学习的QQ号列表，为空则学习所有用户消息 |
-| `current_persona_name` | string | "default" | 插件将学习并优化此人格的对话风格 |
+**6. 系统设置页面**
+![配置页面](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E9%85%8D%E7%BD%AE%E9%A1%B5%E9%9D%A2.png?raw=true)
+- 学习参数配置
+- 模型配置管理
+- 好感度和情绪系统开关
+- 数据管理和调试模式
 
-### 🤖 模型配置 (Model_Configuration)
+---
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `filter_model_name` | string | "gpt-4o-mini" | 用于初步筛选消息的弱模型，建议使用速度快、成本低的模型 |
-| `refine_model_name` | string | "gpt-4o" | 用于深度分析和提炼对话风格的强模型 |
-| `reinforce_model_name` | string | "gpt-4o" | 用于强化学习的LLM模型 |
-| `filter_provider_id` | string | null | 筛选模型的LLM提供商ID，为空使用默认提供商 |
-| `refine_provider_id` | string | null | 提炼模型的LLM提供商ID，为空使用默认提供商 |
-| `reinforce_provider_id` | string | null | 强化模型的LLM提供商ID，为空使用默认提供商 |
-| `filter_api_url` | string | null | 自定义筛选模型的API接口地址 |
-| `filter_api_key` | string | null | 自定义筛选模型的API密钥 |
-| `refine_api_url` | string | null | 自定义提炼模型的API接口地址 |
-| `refine_api_key` | string | null | 自定义提炼模型的API密钥 |
-| `reinforce_api_url` | string | null | 自定义强化模型的API接口地址 |
-| `reinforce_api_key` | string | null | 自定义强化模型的API密钥 |
-
-### ⏰ 学习参数 (Learning_Parameters)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `learning_interval_hours` | int | 6 | 自动学习的时间间隔，单位为小时 |
-| `min_messages_for_learning` | int | 50 | 开始学习所需的最少消息数量 |
-| `max_messages_per_batch` | int | 200 | 单次学习处理的最大消息数量，避免一次处理过多消息 |
-
-### 🔍 筛选参数 (Filter_Parameters)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `message_min_length` | int | 5 | 参与学习的消息最小字符长度 |
-| `message_max_length` | int | 500 | 参与学习的消息最大字符长度 |
-| `confidence_threshold` | float | 0.7 | 消息筛选的置信度阈值，0-1之间，越高越严格 |
-
-### 🎨 风格分析 (Style_Analysis)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `style_analysis_batch_size` | int | 100 | 单次风格分析处理的消息数量 |
-| `style_update_threshold` | float | 0.8 | 触发人格风格更新的置信度阈值，0-1之间 |
-
-### 🔬 机器学习设置 (Machine_Learning_Settings)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable_ml_analysis` | bool | true | 是否启用scikit-learn进行文本聚类和行为分析 |
-| `max_ml_sample_size` | int | 100 | 机器学习分析的最大样本数量，控制资源使用 |
-| `ml_cache_timeout_hours` | int | 1 | 机器学习分析结果的缓存时间 |
-
-
-### 💾 人格备份设置 (Persona_Backup_Settings)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `auto_backup_enabled` | bool | true | 是否在人格更新前自动创建备份 |
-| `backup_interval_hours` | int | 24 | 自动备份的时间间隔 |
-| `max_backups_per_group` | int | 10 | 每个群保留的最大备份数量 |
-
-### ❤️ 好感度系统设置 (Affection_System_Settings)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable_affection_system` | bool | true | 是否启用用户好感度和情绪响应系统 |
-| `max_total_affection` | int | 250 | bot对所有用户的总好感度上限值 |
-| `max_user_affection` | int | 100 | 单个用户可获得的最大好感度 |
-| `affection_decay_rate` | float | 0.95 | 好感度重新分配时的衰减比例，0-1之间 |
-| `daily_mood_change` | bool | true | 是否每天随机更换bot的情绪状态 |
-| `mood_affect_affection` | bool | true | 当前情绪是否影响好感度变化幅度 |
-
-### 🎭 情绪系统设置 (Mood_System_Settings)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `enable_daily_mood` | bool | true | 是否启用每日随机情绪系统 |
-| `mood_change_hour` | int | 6 | 每日更新情绪的小时(0-23) |
-| `mood_persistence_hours` | int | 24 | 每次情绪状态持续的小时数 |
-
-### ⚙️ 高级设置 (Advanced_Settings)
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `debug_mode` | bool | false | 启用详细的调试日志输出 |
-| `save_raw_messages` | bool | true | 是否保存未经处理的原始消息用于分析 |
-| `auto_backup_interval_days` | int | 7 | 学习数据自动备份的间隔天数，0为禁用 |
-
-### 💡 配置建议
-
-1. **生产环境建议**: 
-   - 关闭 `debug_mode` 以提高性能
-   - 适当调整 `learning_interval_hours` 避免过于频繁的学习
-   - 根据服务器性能调整 `max_messages_per_batch`
-
-2. **开发测试建议**:
-   - 启用 `debug_mode` 便于调试
-   - 降低 `min_messages_for_learning` 快速测试学习功能
-   - 启用 `enable_realtime_learning` 实时查看效果
-
-3. **资源优化建议**:
-   - 合理设置 `max_ml_sample_size` 控制内存使用
-   - 调整 `ml_cache_timeout_hours` 平衡性能与实时性
-   - 定期清理过期备份，控制存储空间
-
-### 新增配置项
-
-#### 好感度系统配置
-```python
-enable_affection_system: bool = True      # 启用好感度系统
-max_total_affection: int = 250           # bot总好感度上限
-max_user_affection: int = 100            # 单用户好感度上限  
-affection_decay_rate: float = 0.95       # 好感度衰减比例
-daily_mood_change: bool = True           # 启用每日情绪变化
-mood_affect_affection: bool = True       # 情绪影响好感度变化
-```
-
-#### 情绪系统配置
-```python
-enable_daily_mood: bool = True           # 启用每日情绪
-mood_change_hour: int = 6                # 情绪更新时间（24小时制）  
-mood_persistence_hours: int = 24         # 情绪持续时间
-```
-
-#### Web界面配置
-```python
-enable_web_interface: bool = True        # 启用Web管理界面
-web_interface_port: int = 7833          # Web界面端口
-```
-
-## 💾 数据管理架构升级
-
-### 🗄️ 数据库设计
-
-#### 新增数据表
-- **`user_affection`**: 用户好感度记录
-- **`bot_mood`**: bot情绪状态历史  
-- **`affection_history`**: 好感度变化记录
-- **`emotion_profiles`**: 用户情感档案
-- **`knowledge_entities`**: 知识实体库
-- **`user_preferences`**: 用户偏好设置
-- **`conversation_contexts`**: 对话上下文管理
-
-### 🔐 数据隐私与安全
-- **本地存储**: 所有数据本地化，确保隐私安全
-- **数据加密**: 敏感信息加密存储
-- **访问控制**: Web界面密码保护
-- **数据备份**: 自动备份与恢复机制
-
-## 🚀 部署与使用
+## 🚀 快速开始
 
 ### 环境准备
-1. 确保已安装 Python 3.8+ 
-2. 安装项目依赖：
+
+```bash
+# Python 版本要求
+Python 3.8+
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 安装步骤
+
+1. **将插件添加到 AstrBot 插件目录**
    ```bash
-   pip install -r astrabot_plugin_self_learning/requirements.txt
+   cd /path/to/astrbot/data/plugins
+   git clone https://github.com/NickCharlie/astrbot_plugin_self_learning.git
    ```
 
-### 快速开始
-1. 将插件添加到AstrBot插件目录
-2. 启动AstrBot，插件将自动加载
-3. 访问Web管理界面：`http://localhost:7833`
-4. 使用默认密码登录并立即修改密码
-5. 在Astrbot后台插件管理中设置插件配置项
+2. **启动 AstrBot**
+   - 插件将自动加载并初始化
 
-## 🎯 智能特性展示
+3. **访问 WebUI 管理界面**
+   ```
+   http://localhost:7833
+   ```
+   - 默认密码: `self_learning_pwd`
+   - **⚠️ 首次登录后务必修改密码！**
 
-### ❤️ 情感智能系统
-- **动态好感度**: 根据用户互动自动调节好感度
-- **情绪识别**: 智能识别夸赞、鼓励、侮辱、骚扰等交互类型
-- **情绪响应**: bot情绪会根据用户行为动态变化
-- **情感融入**: 当前情绪状态影响AI回复的语调和内容
+4. **配置插件**
+   - 在 AstrBot 后台插件管理中设置配置项
+   - 或通过 WebUI 系统设置页面配置
 
-### 📊 数据可视化分析
-- **学习轨迹图**: 可视化学习进度和质量变化
-- **用户行为热力图**: 分析用户活跃模式
-- **社交网络图**: 展示群内用户关系网络
-- **情感趋势分析**: 跟踪群聊情感氛围变化
+### 基础配置示例
 
-### 🧠 智能学习机制
-- **场景感知**: 根据不同场景自动切换最适合的人格
-- **增量学习**: 持续学习新知识，不遗忘历史经验  
-- **质量监控**: 实时评估学习效果，自动调优
-- **个性化推荐**: 基于用户偏好推荐话题和回复策略
+```yaml
+# 基础开关
+Self_Learning_Basic:
+  enable_message_capture: true
+  enable_auto_learning: true
+  enable_realtime_learning: false
+  enable_web_interface: true
+  web_interface_port: 7833
+
+# 目标设置
+Target_Settings:
+  target_qq_list: []  # 留空则学习所有用户
+  current_persona_name: "default"
+
+# 模型配置
+Model_Configuration:
+  filter_provider_id: "provider_id_1"  # 筛选模型
+  refine_provider_id: "provider_id_2"  # 提炼模型
+
+# 学习参数
+Learning_Parameters:
+  learning_interval_hours: 6
+  min_messages_for_learning: 50
+  max_messages_per_batch: 200
+
+# 数据库配置
+Database_Settings:
+  db_type: "sqlite"  # 或 mysql / postgresql
+```
+
+---
+
+## 🏛️ 技术架构
+
+### 项目结构
+
+```
+astrbot_plugin_self_learning/
+├── core/                          # 核心架构层
+│   ├── factory.py                # 工厂管理器（依赖注入容器）
+│   ├── interfaces.py             # 接口定义（抽象基类）
+│   ├── patterns.py               # 设计模式实现（策略、观察者等）
+│   ├── framework_llm_adapter.py  # LLM 框架适配器
+│   └── database/                 # 数据库抽象层
+│       ├── backend_interface.py  # 数据库接口
+│       ├── sqlite_backend.py     # SQLite 实现
+│       ├── mysql_backend.py      # MySQL 实现
+│       └── postgresql_backend.py # PostgreSQL 实现
+│
+├── services/                      # 服务层（业务逻辑）
+│   ├── message_collector.py      # 消息收集服务
+│   ├── multidimensional_analyzer.py  # 多维度分析
+│   ├── style_analyzer.py         # 风格分析服务
+│   ├── progressive_learning.py   # 渐进式学习服务
+│   ├── persona_manager.py        # 人格管理服务
+│   ├── expression_pattern_learner.py  # 表达模式学习器
+│   ├── affection_manager.py      # 好感度管理服务
+│   ├── jargon_miner.py          # 黑话挖掘服务
+│   ├── jargon_query.py          # 黑话查询服务
+│   ├── social_context_injector.py  # 社交上下文注入器
+│   └── response_diversity_manager.py  # 响应多样性管理器
+│
+├── models/                        # 数据模型层
+│   └── orm/                      # ORM 模型（SQLAlchemy）
+│       ├── base.py               # 基础模型
+│       ├── expression.py         # 表达模式模型
+│       ├── affection.py          # 好感度模型
+│       ├── learning.py           # 学习记录模型
+│       └── social_relation.py    # 社交关系模型
+│
+├── repositories/                  # 仓储层（数据访问）
+│   ├── base_repository.py        # 基础仓储
+│   ├── expression_repository.py  # 表达模式仓储
+│   ├── affection_repository.py   # 好感度仓储
+│   └── social_repository.py      # 社交关系仓储
+│
+├── webui/                         # Web 界面
+│   ├── app.py                    # Quart 应用主入口
+│   └── blueprints/               # 路由蓝图
+│       ├── auth.py               # 认证路由
+│       ├── persona.py            # 人格管理路由
+│       └── analytics.py          # 数据分析路由
+│
+├── utils/                         # 工具类
+│   ├── cache_manager.py          # 缓存管理
+│   ├── migration_tool_v2.py      # 数据库迁移工具
+│   └── security_utils.py         # 安全工具
+│
+├── config.py                      # 配置管理
+├── main.py                        # 插件主入口
+└── README.md                      # 项目文档
+```
+
+### 核心设计模式
+
+#### 1. 工厂模式 (Factory Pattern)
+
+**目的**: 统一管理服务创建，降低耦合
+
+```python
+class FactoryManager:
+    """全局工厂管理器 - 单例模式"""
+
+    def initialize_factories(self, config, context):
+        self._service_factory = ServiceFactory(config, context)
+        self._component_factory = ComponentFactory(config, self._service_factory)
+
+    def get_service_factory(self) -> ServiceFactory:
+        # 服务工厂：创建业务服务（数据库、学习、分析等）
+        return self._service_factory
+
+    def get_component_factory(self) -> ComponentFactory:
+        # 组件工厂：创建轻量级组件（过滤器、调度器等）
+        return self._component_factory
+```
+
+**优势**:
+- ✅ 集中管理服务实例，避免循环依赖
+- ✅ 服务缓存和单例模式，提升性能
+- ✅ 支持服务注册和依赖注入
+
+#### 2. 策略模式 (Strategy Pattern)
+
+**目的**: 灵活切换学习策略
+
+```python
+class StrategyFactory:
+    @staticmethod
+    def create_strategy(strategy_type: LearningStrategyType, config: dict):
+        strategies = {
+            LearningStrategyType.BATCH: BatchLearningStrategy,
+            LearningStrategyType.INCREMENTAL: IncrementalLearningStrategy,
+            LearningStrategyType.REINFORCEMENT: ReinforcementLearningStrategy
+        }
+        return strategies[strategy_type](config)
+```
+
+**学习策略类型**:
+- **批量学习** (Batch) - 定期批量处理消息
+- **增量学习** (Incremental) - 实时逐条学习
+- **强化学习** (Reinforcement) - 基于反馈优化
+
+#### 3. 仓储模式 (Repository Pattern)
+
+**目的**: 抽象数据访问层，支持多种数据库
+
+```python
+class BaseRepository:
+    """基础仓储 - 提供通用 CRUD 操作"""
+
+    async def get(self, id: int):
+        async with self.session() as session:
+            return await session.get(self.model, id)
+
+    async def save(self, entity):
+        async with self.session() as session:
+            session.add(entity)
+            await session.commit()
+
+class ExpressionRepository(BaseRepository):
+    """表达模式仓储 - 专门处理表达模式数据"""
+
+    async def get_patterns_by_group(self, group_id: str, limit: int = 10):
+        # 特定业务逻辑
+        ...
+```
+
+#### 4. 观察者模式 (Observer Pattern)
+
+**目的**: 事件驱动架构，解耦组件
+
+```python
+class EventBus:
+    """事件总线 - 发布/订阅模式"""
+
+    def subscribe(self, event_type: str, handler: Callable):
+        self._handlers[event_type].append(handler)
+
+    async def publish(self, event_type: str, data: Any):
+        for handler in self._handlers[event_type]:
+            await handler(data)
+
+# 使用示例
+event_bus.subscribe("learning_completed", on_learning_completed)
+await event_bus.publish("learning_completed", learning_result)
+```
+
+### 数据流架构
+
+```
+┌─────────────────┐
+│  消息接收层      │  on_message() - 监听所有消息
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  过滤器层        │  QQFilter + MessageFilter
+└────────┬────────┘
+         │
+         ▼
+┌─────────────────┐
+│  数据收集层      │  MessageCollector - 存储原始消息
+└────────┬────────┘
+         │
+         ├──────────────────┐
+         │                  │
+         ▼                  ▼
+┌─────────────────┐  ┌─────────────────┐
+│  分析层          │  │  学习层          │
+│  - 多维度分析    │  │  - 表达模式学习  │
+│  - 风格分析      │  │  - 黑话挖掘      │
+│  - 社交关系分析  │  │  - 记忆图构建    │
+└────────┬────────┘  └────────┬────────┘
+         │                    │
+         └──────────┬─────────┘
+                    ▼
+         ┌─────────────────┐
+         │  人格更新层      │
+         │  - PersonaUpdater│
+         │  - 审查机制      │
+         └────────┬────────┘
+                  │
+                  ▼
+         ┌─────────────────┐
+         │  LLM注入层       │  inject_diversity_to_llm_request()
+         │  - 表达模式注入  │
+         │  - 社交上下文    │
+         │  - 黑话理解      │
+         │  - 多样性增强    │
+         └─────────────────┘
+```
+
+---
+
+## 📖 详细功能说明
+
+### 表达模式学习系统
+
+**工作原理**:
+
+1. **消息收集** - 每收集 10-25 条消息触发一次学习
+2. **场景识别** - 使用 LLM 分析对话场景和上下文
+3. **表达提取** - 提取目标用户的特定表达方式
+4. **模式存储** - 保存"场景→表达"映射关系
+5. **时间衰减** - 15天衰减周期，质量分数随时间降低
+6. **Prompt注入** - 将高质量模式注入 LLM 请求
+
+**示例**:
+```
+场景: "用户需要表达赞同"
+表达: "确实是这样呢"
+质量分数: 0.85
+创建时间: 2025-11-20
+衰减后分数: 0.78 (5天后)
+```
+
+### 黑话挖掘系统
+
+**工作流程**:
+
+```python
+# 1. 候选词提取
+candidates = await jargon_miner.extract_candidates(recent_messages)
+# 输出: ["发财了", "下次一定", "真香"]
+
+# 2. LLM 推断含义
+meanings = await jargon_miner.infer_meanings(candidates, context)
+# 输出: {
+#   "发财了": "表示惊喜或获得好处",
+#   "下次一定": "委婉拒绝的表达"
+# }
+
+# 3. 保存到数据库
+await db.save_jargon_batch(chat_id, meanings)
+
+# 4. LLM 请求时注入理解
+jargon_explanation = await jargon_query.check_and_explain_jargon(
+    text="今天真是发财了！",
+    chat_id=group_id
+)
+# 注入到 LLM prompt: "文本中包含的黑话: 「发财了」: 表示惊喜或获得好处"
+```
+
+**特点**:
+- ✅ 自动检测高频词汇和新词
+- ✅ 上下文理解，精准推断含义
+- ✅ 60秒 TTL 缓存，提升性能
+- ✅ 实时注入 LLM 理解，避免误解
+
+### 社交关系分析
+
+**关系追踪**:
+```python
+# 自动记录用户互动
+await social_relation_manager.record_interaction(
+    group_id="123456",
+    user_a="10001",
+    user_b="10002",
+    interaction_type="mention"  # at / reply / topic_discussion
+)
+
+# 分析关系强度
+strength = await social_relation_manager.calculate_relationship_strength(
+    group_id, user_a, user_b
+)
+# 输出: 0.75 (基于互动频率、类型、时间衰减)
+```
+
+**好感度管理**:
+```python
+# 处理用户消息互动
+result = await affection_manager.process_message_interaction(
+    group_id, user_id, message_text
+)
+
+# 自动识别互动类型
+interaction_types = {
+    "praise": +10,      # 称赞
+    "encourage": +5,    # 鼓励
+    "insult": -15,      # 侮辱
+    "harass": -20       # 骚扰
+}
+
+# 好感度限制
+- 单用户上限: 100分
+- 群组总分上限: 250分
+- 超额时自动衰减旧好感度
+```
+
+### 人格更新机制
+
+**两种更新模式**:
+
+#### 1. PersonaManager 模式 (推荐)
+```python
+# 直接在原人格末尾增量更新
+await persona_manager_updater.apply_incremental_update(
+    group_id=group_id,
+    update_content="【学习成果】\n新增表达模式: ..."
+)
+
+# 优势:
+# ✅ 自动创建备份人格
+# ✅ 无需手动执行应用命令
+# ✅ 更好的版本管理
+```
+
+#### 2. 传统文件模式
+```python
+# 临时存储到 persona_updates.txt
+await temporary_persona_updater.write_to_updates_file(content)
+
+# 手动审查后应用
+/apply_persona_updates
+
+# 优势:
+# ✅ 人工审核把关
+# ✅ 批量应用更新
+```
+
+**人格审查流程**:
+```
+1. AI 生成更新建议 → 保存到 style_learning_reviews 表
+2. 管理员登录 WebUI → 人格审查页面
+3. 查看对比（原始 vs 建议） → 红色高亮显示修改
+4. 决策：批准 / 拒绝
+5. 批准后自动应用到人格
+```
+
+---
+
+## 📋 命令手册
+
+### 基础学习管理
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/learning_status` | 管理员 | 查看学习状态和统计信息 |
+| `/start_learning` | 管理员 | 手动启动学习批次 |
+| `/stop_learning` | 管理员 | 停止自动学习循环 |
+| `/force_learning` | 管理员 | 强制执行一次学习周期 |
+| `/clear_data` | 管理员 | 清空所有学习数据 (⚠️不可逆) |
+| `/export_data` | 管理员 | 导出学习数据为 JSON |
+
+### 好感度系统
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/affection_status` | 管理员 | 查看好感度状态和排行榜 |
+| `/set_mood <类型>` | 管理员 | 设置 Bot 情绪状态 |
+
+**情绪类型**: `happy` `sad` `excited` `calm` `angry` `anxious` `playful` `serious` `nostalgic` `curious`
+
+### 人格管理
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/persona_switch <名称>` | 管理员 | 切换到指定人格 |
+| `/persona_info` | 管理员 | 显示当前人格详细信息 |
+| `/temp_persona apply` | 管理员 | 应用临时人格 |
+| `/temp_persona status` | 管理员 | 查看临时人格状态 |
+| `/temp_persona remove` | 管理员 | 移除临时人格 |
+| `/temp_persona extend [分钟]` | 管理员 | 延长临时人格时间 |
+| `/temp_persona backup_list` | 管理员 | 列出所有备份 |
+| `/temp_persona restore <文件名>` | 管理员 | 从备份恢复人格 |
+
+### 高级管理
+
+| 命令 | 权限 | 说明 |
+|------|------|------|
+| `/apply_persona_updates` | 管理员 | 应用 persona_updates.txt 中的更新 |
+| `/switch_persona_update_mode` | 管理员 | 切换人格更新方式 (manager/file) |
+| `/clean_duplicate_content` | 管理员 | 清理重复的历史内容 |
+| `/analytics_report` | 管理员 | 生成数据分析报告 |
+
+---
+
+## 🔧 配置详解
+
+### 完整配置示例
+
+```yaml
+# ========================================
+# 基础开关
+# ========================================
+Self_Learning_Basic:
+  enable_message_capture: true      # 启用消息抓取
+  enable_auto_learning: true        # 启用定时自动学习
+  enable_realtime_learning: false   # 启用实时学习（每条消息）
+  enable_web_interface: true        # 启用 Web 管理界面
+  web_interface_port: 7833          # Web 界面端口
+
+# ========================================
+# 目标设置
+# ========================================
+Target_Settings:
+  target_qq_list: []                # 学习目标 QQ 号列表（空=全部）
+  target_blacklist: []              # 学习黑名单
+  current_persona_name: "default"   # 当前人格名称
+
+# ========================================
+# 模型配置（使用 AstrBot Provider）
+# ========================================
+Model_Configuration:
+  filter_provider_id: "provider_gpt4o_mini"  # 筛选模型（弱模型）
+  refine_provider_id: "provider_gpt4o"       # 提炼模型（强模型）
+  reinforce_provider_id: "provider_gpt4o"    # 强化模型
+
+# ========================================
+# 学习参数
+# ========================================
+Learning_Parameters:
+  learning_interval_hours: 6        # 自动学习间隔（小时）
+  min_messages_for_learning: 50     # 最少消息数才开始学习
+  max_messages_per_batch: 200       # 每批处理的最大消息数
+
+# ========================================
+# 筛选参数
+# ========================================
+Filter_Parameters:
+  message_min_length: 5             # 消息最小长度
+  message_max_length: 500           # 消息最大长度
+  confidence_threshold: 0.7         # 筛选置信度阈值
+  relevance_threshold: 0.6          # 相关性阈值
+
+# ========================================
+# 风格分析
+# ========================================
+Style_Analysis:
+  style_analysis_batch_size: 100    # 风格分析批次大小
+  style_update_threshold: 0.6       # 风格更新阈值
+
+# ========================================
+# 好感度系统
+# ========================================
+Affection_System_Settings:
+  enable_affection_system: true     # 启用好感度系统
+  max_total_affection: 250          # Bot 总好感度上限
+  max_user_affection: 100           # 单用户好感度上限
+  affection_decay_rate: 0.95        # 好感度衰减比例
+  daily_mood_change: true           # 启用每日情绪变化
+  mood_affect_affection: true       # 情绪影响好感度变化
+
+# ========================================
+# 情绪系统
+# ========================================
+Mood_System_Settings:
+  enable_daily_mood: true           # 启用每日情绪
+  enable_startup_random_mood: true  # 启用启动时随机情绪
+  mood_change_hour: 6               # 情绪更新时间（24小时制）
+  mood_persistence_hours: 24        # 情绪持续时间（小时）
+
+# ========================================
+# 数据库设置
+# ========================================
+Database_Settings:
+  db_type: "sqlite"                 # 数据库类型: sqlite / mysql / postgresql
+
+  # MySQL 配置（db_type="mysql"时生效）
+  mysql_host: "localhost"
+  mysql_port: 3306
+  mysql_user: "root"
+  mysql_password: "your_password"
+  mysql_database: "astrbot_self_learning"
+
+  # PostgreSQL 配置（db_type="postgresql"时生效）
+  postgresql_host: "localhost"
+  postgresql_port: 5432
+  postgresql_user: "postgres"
+  postgresql_password: "your_password"
+  postgresql_database: "astrbot_self_learning"
+  postgresql_schema: "public"
+
+  # 连接池配置
+  max_connections: 10
+  min_connections: 2
+
+  # 重构功能配置
+  use_sqlalchemy: false             # 使用 SQLAlchemy ORM
+  use_enhanced_managers: false      # 使用增强型管理器
+
+# ========================================
+# 社交上下文设置
+# ========================================
+Social_Context_Settings:
+  enable_social_context_injection: true  # 启用社交关系注入
+  include_social_relations: true         # 注入用户社交关系
+  include_affection_info: true           # 注入好感度信息
+  include_mood_info: true                # 注入 Bot 情绪信息
+  context_injection_position: "start"    # 注入位置: start / end
+
+# ========================================
+# 高级设置
+# ========================================
+Advanced_Settings:
+  debug_mode: false                 # 调试模式
+  save_raw_messages: true           # 保存原始消息
+  auto_backup_interval_days: 7      # 自动备份间隔（天）
+  use_enhanced_managers: false      # 使用增强型管理器
+  enable_memory_cleanup: true       # 启用记忆自动清理
+  memory_cleanup_days: 30           # 记忆保留天数
+  memory_importance_threshold: 0.3  # 记忆重要性阈值
+
+# ========================================
+# 存储设置
+# ========================================
+Storage_Settings:
+  data_dir: "./data/self_learning_data"  # 数据存储目录
+```
+
+---
+
+## 🛠️ 技术栈
+
+### AI/ML 技术栈
+- **大型语言模型**: OpenAI GPT系列、兼容 OpenAI API 的任意模型
+- **机器学习**: `scikit-learn` `numpy` `pandas`
+- **情感计算**: 情绪识别、情感状态建模
+- **知识图谱**: `networkx` - 关系网络分析
+- **自然语言处理**: `jieba` - 中文分词
+
+### 数据可视化
+- **图表生成**: `plotly` `matplotlib` `seaborn`
+- **网络可视化**: `bokeh` - 社交关系图
+- **数据分析**: 多维度统计分析
+
+### 系统架构
+- **异步框架**: `asyncio` `aiohttp` `aiofiles`
+- **数据库**: `aiosqlite` `aiomysql` `asyncpg` + `SQLAlchemy[asyncio]`
+- **Web框架**: `quart` `quart-cors` - 异步 Flask-like 框架
+- **缓存系统**: `cachetools` - TTL缓存
+- **任务调度**: `apscheduler` - 定时任务
+
+### 开发工具
+- **数据库迁移**: `alembic` - SQLAlchemy 迁移工具
+- **安全工具**: `guardrails-ai` - LLM 输出校验
+- **测试框架**: `pytest` `pytest-asyncio`
+
+---
+
+## 📚 文档导航
+
+### 用户文档
+- [快速开始指南](#-快速开始)
+- [WebUI 使用教程](#-数据可视化)
+- [命令手册](#-命令手册)
+- [配置详解](#-配置详解)
+
+### 开发文档
+- [架构设计](#-技术架构)
+- [设计模式详解](#核心设计模式)
+- [数据库迁移工具](utils/migration_tool_v2.py)
+- [API 接口文档](webui/README.md)
+
+### 进阶文档
+- [表达模式学习原理](#表达模式学习系统)
+- [黑话挖掘算法](#黑话挖掘系统)
+- [社交关系分析](#社交关系分析)
+- [人格更新机制](#人格更新机制)
+
+---
 
 ## 🤝 贡献指南
 
 欢迎开发者参与项目建设！
-- **Bug反馈**: 使用GitHub Issues报告问题
-- **功能建议**: 提交Feature Request  
-- **代码贡献**: Fork项目并提交Pull Request
-- **文档改进**: 帮助完善文档和教程
+
+### 贡献方式
+1. **Bug 反馈** - [提交 Issue](https://github.com/NickCharlie/astrbot_plugin_self_learning/issues)
+2. **功能建议** - [Feature Request](https://github.com/NickCharlie/astrbot_plugin_self_learning/issues/new?template=feature_request.md)
+3. **代码贡献** - Fork 项目并提交 Pull Request
+4. **文档改进** - 完善文档和教程
+
+### 开发规范
+- 遵循现有的架构设计和设计模式
+- 使用工厂模式统一管理服务
+- 优先使用依赖注入，避免硬编码
+- 每个功能分文件，每个模块分目录
+- 导入自己的模块时使用相对导入
+- 添加单元测试覆盖核心逻辑
+
+---
+
+## 📄 开源协议
+
+本项目采用 [GPLv3 License](LICENSE) 开源协议。
+
+### 致谢
+
+感谢以下项目的启发和支持：
+
+- **[MaiBot](https://github.com/Mai-with-u/MaiBot)** - 表达模式学习、时间衰减机制、知识图谱管理等核心设计思路
+- **[AstrBot](https://github.com/Soulter/AstrBot)** - 优秀的聊天机器人框架
+
+---
+
+## ⚠️ 免责声明
+
+1. **数据安全**:
+   - 所有学习数据本地化存储
+   - 请定期备份数据库和人格文件
+   - 建议在生产环境修改 WebUI 默认密码
+
+2. **使用风险**:
+   - 插件目前处于测试阶段，可能存在未知 Bug
+   - 使用前请务必备份人格文件
+   - 学习质量取决于学习样本质量
+
+3. **隐私保护**:
+   - 插件会收集和分析用户消息
+   - 请遵守相关法律法规，尊重用户隐私
+   - 不建议在公开环境暴露 WebUI 端口
+
+---
+
+## 🎯 未来计划
+
+### 即将推出
+- [ ] 知识图谱和长期记忆系统（理解上下文关系，建立持久记忆）
+- [ ] 多人格自动切换（根据对话场景）
+- [ ] 高级情绪建模（情绪链和情绪转移）
+- [ ] 强化学习优化（基于用户反馈）
+- [ ] 多模态学习支持（图片、语音）
+
+### 长期规划
+- [ ] 联邦学习（跨群组知识共享）
+- [ ] 自主对话发起（主动话题引导）
+
+---
+
+<div align="center">
+
+**感谢使用 AstrBot 智能自主学习插件！**
+
+如果觉得有帮助，欢迎 ⭐Star 支持！
+
+[回到顶部](#astrbot-智能自主学习插件-next-gen-)
+
+</div>

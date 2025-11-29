@@ -12,7 +12,7 @@
       },
       "enable_auto_learning": {
         "description": "启用自动学习",
-        "type": "bool", 
+        "type": "bool",
         "hint": "是否启用定时自动学习。关闭后需要手动触发学习",
         "default": true
       },
@@ -44,20 +44,24 @@
   },
   "Target_Settings": {
     "description": "抓取目标设置",
-    "type": "object", 
+    "type": "object",
     "hint": "配置要学习哪些用户的消息",
     "items": {
       "target_qq_list": {
         "description": "目标QQ号列表",
         "type": "list",
-        "items": {"type": "string"},
+        "items": {
+          "type": "string"
+        },
         "hint": "指定要学习的QQ号列表。为空则学习所有用户消息。支持个人QQ号和群聊格式group_群号",
         "default": []
       },
       "target_blacklist": {
         "description": "学习黑名单",
-        "type": "list", 
-        "items": {"type": "string"},
+        "type": "list",
+        "items": {
+          "type": "string"
+        },
         "hint": "黑名单内的成员消息不进行学习。为空则没有黑名单。支持个人QQ号和群聊格式group_群号",
         "default": []
       },
@@ -107,7 +111,7 @@
       },
       "min_messages_for_learning": {
         "description": "最少学习消息数量",
-        "type": "int", 
+        "type": "int",
         "hint": "开始学习所需的最少消息数量",
         "default": 50
       },
@@ -131,7 +135,7 @@
         "default": 5
       },
       "message_max_length": {
-        "description": "消息最大长度", 
+        "description": "消息最大长度",
         "type": "int",
         "hint": "参与学习的消息最大字符长度",
         "default": 500
@@ -157,7 +161,7 @@
       },
       "style_update_threshold": {
         "description": "风格更新阈值",
-        "type": "float", 
+        "type": "float",
         "hint": "触发人格风格更新的置信度阈值，0-1之间",
         "default": 0.8
       }
@@ -378,6 +382,12 @@
         "type": "string",
         "hint": "填写 sqlite 或 mysql。默认使用sqlite，适合单机部署；如需分布式部署或大规模数据，填写mysql",
         "default": "sqlite"
+      },
+      "use_sqlalchemy": {
+        "description": "使用SQLAlchemy数据库管理器（高级）",
+        "type": "bool",
+        "hint": "【高级选项】是否使用新的SQLAlchemy数据库管理器。默认false使用传统实现。一般用户无需修改此选项",
+        "default": false
       },
       "mysql_host": {
         "description": "MySQL服务器地址",

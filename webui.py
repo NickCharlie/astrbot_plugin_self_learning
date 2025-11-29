@@ -1390,7 +1390,8 @@ async def review_persona_update(update_id: str):
         else:
             # 传统人格审查
             if persona_updater:
-                result = await persona_updater.review_persona_update(int(update_id), status, comment)
+                # 传递modified_content参数
+                result = await persona_updater.review_persona_update(int(update_id), status, comment, modified_content)
                 if result:
                     return jsonify({"success": True, "message": f"人格更新 {update_id} 已{action}"})
                 else:
@@ -5794,16 +5795,28 @@ async def root():
 
 class Server:
     """Quart 服务器管理类"""
-    def __init__(self, host: str = "0.0.0.0", port: int = 7833):
+    def __init__(self, host: str = "0.0.0.0", port: int = 7833, auto_find_port: bool = True):
+        """
+        初始化Web服务器
+
+        Args:
+            host: 监听主机地址
+            port: 首选端口号
+            auto_find_port: 如果端口被占用，是否自动查找可用端口（默认True）
+        """
         try:
-            logger.info(f"🔧 初始化Web服务器 (端口: {port})...")
-            # 检查端口是否可用
-            logger.debug(f"Debug: 开始检查端口可用性")
-            self._check_port_availability(port)
-            logger.debug(f"Debug: 端口检查完成")
+            logger.info(f"🔧 初始化Web服务器 (首选端口: {port})...")
+
+            # 自动查找可用端口
+            available_port = self._find_available_port(port, auto_find_port=auto_find_port)
+
+            if available_port != port:
+                logger.warning(f"⚠️ 配置端口 {port} 被占用，已自动切换到端口 {available_port}")
+                logger.info(f"💡 如需固定使用端口 {port}，请先释放该端口或在配置中修改 web_interface_port")
 
             self.host = host
-            self.port = port
+            self.port = available_port  # 使用实际可用的端口
+            self.original_port = port  # 记录原始配置的端口
             self.server_task: Optional[asyncio.Task] = None
             # 使用 Hypercorn 的 shutdown_trigger 进行优雅关闭
             self._shutdown_event: Optional[asyncio.Event] = None
@@ -5829,7 +5842,7 @@ class Server:
                 self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
                 logger.debug("已启用SO_REUSEPORT选项")
 
-            logger.info(f"✅ Web服务器初始化完成 (端口: {port}, 端口复用: 已启用)")
+            logger.info(f"✅ Web服务器初始化完成 (端口: {self.port}, 端口复用: 已启用)")
             logger.debug(f"Debug: 配置绑定: {self.config.bind}")
 
         except Exception as e:
@@ -5837,62 +5850,110 @@ class Server:
             import traceback
             logger.error(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
             raise
-    
-    def _check_port_availability(self, port: int):
-        """检查端口可用性，如果被占用则尝试清理或提供解决方案"""
+
+    def _find_available_port(self, preferred_port: int, auto_find_port: bool = True, max_attempts: int = 10) -> int:
+        """
+        查找可用端口
+
+        Args:
+            preferred_port: 首选端口号
+            auto_find_port: 是否自动查找替代端口
+            max_attempts: 最大尝试次数
+
+        Returns:
+            可用的端口号
+
+        Raises:
+            RuntimeError: 如果无法找到可用端口
+        """
         import socket
-        
-        # 检查端口是否被占用
+
+        # 首先检查首选端口
+        if self._is_port_available(preferred_port):
+            logger.debug(f"首选端口 {preferred_port} 可用")
+            return preferred_port
+
+        # 如果不启用自动查找，直接抛出异常
+        if not auto_find_port:
+            raise RuntimeError(
+                f"❌ 端口 {preferred_port} 被占用，且未启用自动端口查找\n"
+                f"📋 解决方案：\n"
+                f"   1. 释放端口 {preferred_port}\n"
+                f"   2. 修改配置使用其他端口\n"
+                f"   3. 启用自动端口查找功能"
+            )
+
+        # 自动查找可用端口（从首选端口+1开始）
+        logger.info(f"🔍 端口 {preferred_port} 被占用，开始自动查找可用端口...")
+
+        for offset in range(1, max_attempts):
+            candidate_port = preferred_port + offset
+
+            # 确保端口号在有效范围内 (1024-65535)
+            if candidate_port > 65535:
+                candidate_port = 7834 + offset  # 回退到默认范围
+
+            if candidate_port < 1024:
+                continue  # 跳过系统保留端口
+
+            logger.debug(f"尝试端口 {candidate_port}...")
+
+            if self._is_port_available(candidate_port):
+                logger.info(f"✅ 找到可用端口: {candidate_port}")
+                return candidate_port
+
+        # 如果仍然找不到可用端口，尝试让系统自动分配
+        logger.warning(f"⚠️ 未能在 {preferred_port}-{preferred_port + max_attempts} 范围内找到可用端口")
+        logger.info("🔧 尝试让系统自动分配端口...")
+
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(1)
-                result = sock.connect_ex(("127.0.0.1", port))
-                if result == 0:
-                    logger.warning(f"端口 {port} 被占用，这可能是之前的插件实例未正确关闭")
-                    logger.info(f"Web服务器启动时将尝试重用该端口或自动处理冲突")
-                    
-                    # 尝试检查是否是本插件的残留进程
-                    try:
-                        import subprocess
-                        import sys
-                        if sys.platform == 'win32':
-                            # Windows: 使用netstat查看端口占用情况
-                            result = subprocess.run(['netstat', '-ano', '-p', 'TCP'], 
-                                                  capture_output=True, text=True, timeout=5)
-                            lines = result.stdout.split('\n')
-                            for line in lines:
-                                if f":{port}" in line and "LISTENING" in line:
-                                    logger.info(f"端口占用详情: {line.strip()}")
-                                    if "python" in line.lower() or "hypercorn" in line.lower():
-                                        logger.info(f"检测到可能的Python/Hypercorn进程占用端口")
-                                    break
-                        else:
-                            # Linux/Mac: 使用lsof或ss
-                            try:
-                                result = subprocess.run(['lsof', '-i', f':{port}'], 
-                                                      capture_output=True, text=True, timeout=5)
-                                if result.stdout:
-                                    logger.info(f"端口占用详情:\n{result.stdout}")
-                            except FileNotFoundError:
-                                try:
-                                    result = subprocess.run(['ss', '-tlnp', f'sport = :{port}'], 
-                                                          capture_output=True, text=True, timeout=5)
-                                    if result.stdout:
-                                        logger.info(f"端口占用详情:\n{result.stdout}")
-                                except FileNotFoundError:
-                                    logger.info(f"无法检查端口占用详情（缺少lsof和ss工具）")
-                    except Exception as check_error:
-                        logger.debug(f"检查端口占用详情时出错: {check_error}")
-                    
-                    logger.info(f"建议解决方案:")
-                    logger.info(f"   1. 等待几秒钟后重试（系统可能正在清理资源）")
-                    logger.info(f"   2. 重启AstrBot完全清理所有资源")
-                    logger.info(f"   3. 修改插件配置使用其他端口")
-                else:
-                    logger.debug(f"端口 {port} 可用")
+                sock.bind(('', 0))  # 绑定到端口0，让系统自动分配
+                _, auto_port = sock.getsockname()
+                logger.info(f"✅ 系统自动分配端口: {auto_port}")
+                return auto_port
         except Exception as e:
-            logger.warning(f"检查端口 {port} 时出错: {e}")
-            logger.info(f"继续初始化，启动时将处理任何端口冲突")
+            logger.error(f"系统自动分配端口失败: {e}")
+
+        # 最后的异常处理
+        raise RuntimeError(
+            f"❌ 无法找到可用端口！已尝试 {max_attempts} 个端口\n"
+            f"📋 建议：\n"
+            f"   1. 检查系统端口占用情况\n"
+            f"   2. 重启 AstrBot\n"
+            f"   3. 手动指定一个未占用的端口"
+        )
+
+    def _is_port_available(self, port: int) -> bool:
+        """
+        检查端口是否可用（使用bind测试）
+
+        Args:
+            port: 要检查的端口号
+
+        Returns:
+            True: 端口可用
+            False: 端口被占用
+        """
+        import socket
+
+        try:
+            # 不设置 SO_REUSEADDR，获取真实占用情况
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.5)
+                # 尝试绑定到 127.0.0.1，检查本地是否可用
+                sock.bind(("127.0.0.1", port))
+                return True
+        except OSError as e:
+            # errno 48 (macOS), 98 (Linux), 10048 (Windows): Address already in use
+            if e.errno in (48, 98, 10048):
+                return False
+            # 其他错误（如权限不足），也视为不可用
+            logger.debug(f"检查端口 {port} 时遇到错误 (errno={e.errno}): {e}")
+            return False
+        except Exception as e:
+            logger.warning(f"检查端口 {port} 时发生异常: {e}")
+            return False
 
     async def start(self):
         """启动服务器 - 增强版本，包含端口冲突处理和重试机制"""

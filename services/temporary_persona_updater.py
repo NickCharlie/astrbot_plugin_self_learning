@@ -58,6 +58,10 @@ class TemporaryPersonaUpdater:
         
         # 人格更新文件路径
         self.persona_updates_file = os.path.join(config.data_dir, "persona_updates.txt")
+
+        # ✅ 会话级增量更新存储 - 修复会话串流bug
+        # key: group_id, value: List[str] 存储该会话的所有增量更新
+        self.session_updates: Dict[str, List[str]] = {}
         
         # 初始化PersonaManager更新器
         self.persona_manager_updater = PersonaManagerUpdater(config, context)
@@ -306,41 +310,19 @@ class TemporaryPersonaUpdater:
         return "\n".join(enhancement_parts)
     
     async def _apply_persona_to_system(self, group_id: str, persona: Dict[str, Any]) -> bool:
-        """将人格应用到系统中 - 通过增强system prompt而不是替换整个人格"""
+        """
+        将人格应用到系统中 - 使用会话级存储而不是修改全局provider
+
+        ✅ 修复: 不再修改全局provider.curr_personality,避免会话串流
+        改为存储到self.session_updates[group_id]中,由LLM Hook注入
+        """
         try:
-            logger.info(f"尝试将增量人格更新应用到群组 {group_id} 的系统中")
+            logger.info(f"将增量人格更新存储到会话 {group_id}")
             logger.info(f"增强人格名称: {persona.get('name', '未知')}")
-            
-            # 获取provider并更新prompt
-            provider = self.context.get_using_provider()
-            if not provider:
-                logger.warning("无法获取provider")
-                return False
-            
-            # 检查是否有当前人格
-            if not hasattr(provider, 'curr_personality'):
-                logger.error("Provider没有curr_personality属性")
-                return False
-            
-            if not provider.curr_personality:
-                logger.warning("当前没有设置人格，将创建新的人格")
-                # 创建基础人格
-                provider.curr_personality = {
-                    'name': persona.get('name', '默认人格'),
-                    'prompt': persona.get('prompt', ''),
-                    'begin_dialogs': [],
-                    'mood_imitation_dialogs': []
-                }
-                logger.info(f"创建了新的基础人格并应用增量更新")
-                return True
-            
-            # 获取原有的基础prompt
-            original_prompt = provider.curr_personality.get('prompt', '')
-            logger.info(f"原有prompt长度: {len(original_prompt)}")
-            
+
             # 从增强的persona中提取增量更新部分
             enhanced_prompt = persona.get('prompt', '')
-            
+
             # 查找增量更新标记
             update_marker = "【增量更新 -"
             if update_marker in enhanced_prompt:
@@ -349,32 +331,36 @@ class TemporaryPersonaUpdater:
                 if update_start != -1:
                     incremental_update = enhanced_prompt[update_start:]
                     logger.info(f"提取到增量更新内容: {incremental_update[:100]}...")
-                    
-                    # 检查原有prompt是否已包含此更新
-                    if incremental_update not in original_prompt:
-                        # 将增量更新附加到原有prompt后面
-                        updated_prompt = original_prompt + incremental_update
-                        provider.curr_personality['prompt'] = updated_prompt
-                        
-                        logger.info(f"成功将增量更新附加到system prompt")
-                        logger.info(f"更新后prompt长度: {len(updated_prompt)}")
-                        
+
+                    # ✅ 存储到会话级映射,不修改全局provider
+                    if group_id not in self.session_updates:
+                        self.session_updates[group_id] = []
+
+                    # 检查该会话是否已包含此更新
+                    if incremental_update not in self.session_updates[group_id]:
+                        self.session_updates[group_id].append(incremental_update)
+                        logger.info(f"成功存储增量更新到会话 {group_id} (共{len(self.session_updates[group_id])}个更新)")
                         return True
                     else:
-                        logger.info("增量更新已存在于当前prompt中，跳过重复更新")
+                        logger.info(f"增量更新已存在于会话 {group_id} 中,跳过重复")
                         return True
                 else:
                     logger.warning("未找到增量更新标记的开始位置")
             else:
-                # 如果没有找到增量更新标记，直接使用整个增强的prompt
-                logger.info("未找到增量更新标记，使用整个增强的prompt")
-                provider.curr_personality['prompt'] = enhanced_prompt
-                return True
-                
+                # 如果没有找到增量更新标记，将整个prompt作为增量更新
+                logger.info("未找到增量更新标记，将整个prompt作为增量更新")
+                if group_id not in self.session_updates:
+                    self.session_updates[group_id] = []
+
+                if enhanced_prompt not in self.session_updates[group_id]:
+                    self.session_updates[group_id].append(enhanced_prompt)
+                    logger.info(f"成功存储完整prompt到会话 {group_id}")
+                    return True
+
             return False
-            
+
         except Exception as e:
-            logger.error(f"应用人格到系统失败: {e}")
+            logger.error(f"存储人格更新到会话失败: {e}")
             return False
     
     async def _schedule_temp_persona_expiry(self, group_id: str, duration_seconds: float):

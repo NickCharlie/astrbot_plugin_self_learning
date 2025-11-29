@@ -4513,7 +4513,15 @@ body.graph-3d-mode #graph-3d-theme:focus,
     color: var(--color-text1-3);
 }
 
+.form-label .optional-tag {
+    font-size: 11px;
+    color: var(--color-text1-5);
+    font-weight: normal;
+    margin-left: 4px;
+}
+
 .bug-form input[type="text"],
+.bug-form input[type="email"],
 .bug-form select {
     width: 100%;
     border: 1px solid var(--color-line1-2);
@@ -4526,6 +4534,7 @@ body.graph-3d-mode #graph-3d-theme:focus,
 }
 
 .bug-form input[type="text"]:focus,
+.bug-form input[type="email"]:focus,
 .bug-form select:focus {
     outline: none;
     border-color: var(--color-brand1-6);

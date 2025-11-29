@@ -7,6 +7,7 @@ from astrbot.api import logger
 from .backend_interface import IDatabaseBackend, DatabaseConfig, DatabaseType
 from .sqlite_backend import SQLiteBackend
 from .mysql_backend import MySQLBackend
+from .postgresql_backend import PostgreSQLBackend
 
 
 class DatabaseFactory:
@@ -37,6 +38,9 @@ class DatabaseFactory:
             elif config.db_type == DatabaseType.MYSQL:
                 logger.info(f"[DatabaseFactory] 创建MySQL后端: {config.mysql_host}:{config.mysql_port}/{config.mysql_database}")
                 return MySQLBackend(config)
+            elif config.db_type == DatabaseType.POSTGRESQL:
+                logger.info(f"[DatabaseFactory] 创建PostgreSQL后端: {config.postgresql_host}:{config.postgresql_port}/{config.postgresql_database}")
+                return PostgreSQLBackend(config)
             else:
                 logger.error(f"[DatabaseFactory] 不支持的数据库类型: {config.db_type}")
                 return None
@@ -71,6 +75,12 @@ class DatabaseFactory:
                 mysql_password=config_dict.get('mysql_password'),
                 mysql_database=config_dict.get('mysql_database'),
                 mysql_charset=config_dict.get('mysql_charset', 'utf8mb4'),
+                postgresql_host=config_dict.get('postgresql_host'),
+                postgresql_port=config_dict.get('postgresql_port', 5432),
+                postgresql_user=config_dict.get('postgresql_user'),
+                postgresql_password=config_dict.get('postgresql_password'),
+                postgresql_database=config_dict.get('postgresql_database'),
+                postgresql_schema=config_dict.get('postgresql_schema', 'public'),
                 max_connections=config_dict.get('max_connections', 10),
                 min_connections=config_dict.get('min_connections', 2),
                 connection_timeout=config_dict.get('connection_timeout', 30)

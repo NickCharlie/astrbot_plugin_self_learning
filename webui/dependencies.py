@@ -33,6 +33,9 @@ class ServiceContainer:
         # AstrBot 框架服务
         self.astrbot_persona_manager: Optional[Any] = None
 
+        # PersonaWebManager 实例
+        self.persona_web_manager: Optional[Any] = None
+
         # WebUI 配置
         self.webui_config: Optional[Any] = None
 
@@ -88,6 +91,19 @@ class ServiceContainer:
             )
         except Exception as e:
             logger.warning(f"初始化智能指标服务失败: {e}")
+
+        # 初始化 PersonaWebManager
+        if astrbot_persona_manager:
+            try:
+                from ..persona_web_manager import PersonaWebManager
+                self.persona_web_manager = PersonaWebManager(astrbot_persona_manager)
+                logger.info("✅ [WebUI] PersonaWebManager 初始化成功")
+            except Exception as e:
+                logger.warning(f"初始化 PersonaWebManager 失败: {e}")
+                self.persona_web_manager = None
+        else:
+            logger.warning("astrbot_persona_manager 未提供，无法初始化 PersonaWebManager")
+            self.persona_web_manager = None
 
         logger.info("✅ [WebUI] 服务容器初始化完成")
 

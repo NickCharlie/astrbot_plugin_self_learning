@@ -27,6 +27,7 @@ class PersonaReviewService:
         self.persona_updater = container.persona_updater
         self.database_manager = container.database_manager
         self.persona_manager = container.persona_manager
+        self.persona_web_manager = getattr(container, 'persona_web_manager', None)
 
     async def get_pending_persona_updates(self) -> Dict[str, Any]:
         """
@@ -276,44 +277,57 @@ class PersonaReviewService:
 
             if success:
                 if action == "approve":
-                    # 批准后应用人格更新并备份
+                    # 批准后创建新人格
                     try:
                         review_data = await self.database_manager.get_persona_learning_review_by_id(persona_learning_review_id)
                         if review_data:
                             content_to_apply = modified_content if modified_content else review_data.get('proposed_content')
+                            group_id = review_data.get('group_id', 'default')
 
-                            if self.persona_updater and content_to_apply:
+                            if self.persona_web_manager and content_to_apply:
                                 try:
-                                    logger.info(f"开始应用人格学习审查 {persona_learning_review_id}，群组: {review_data.get('group_id', 'default')}")
-                                    logger.info(f"待应用内容长度: {len(content_to_apply)} 字符")
+                                    logger.info(f"开始为群组 {group_id} 创建新人格（来源：人格学习审查 {persona_learning_review_id}）")
+                                    logger.info(f"新人格内容长度: {len(content_to_apply)} 字符")
 
-                                    style_analysis = {
-                                        'enhanced_prompt': content_to_apply,
-                                        'style_features': [],
-                                        'style_attributes': {},
-                                        'confidence': 0.8,
-                                        'source': f'人格学习审查{persona_learning_review_id}'
-                                    }
+                                    # 获取当前使用的原人格名称
+                                    base_persona_name = "default"
+                                    try:
+                                        if self.persona_manager:
+                                            current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                                            if current_persona and hasattr(current_persona, 'persona_id'):
+                                                base_persona_name = current_persona.persona_id
+                                            elif isinstance(current_persona, dict) and 'persona_id' in current_persona:
+                                                base_persona_name = current_persona['persona_id']
+                                    except Exception as e:
+                                        logger.warning(f"获取原人格名称失败，使用默认值: {e}")
 
-                                    success_apply = await self.persona_updater.update_persona_with_style(
-                                        review_data.get('group_id', 'default'),
-                                        style_analysis,
-                                        []
-                                    )
+                                    # 生成新人格ID: 原人格名-具体时间-批准人格
+                                    from datetime import datetime
+                                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                                    new_persona_id = f"{base_persona_name}-{timestamp}-approved"
 
-                                    if success_apply:
-                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已成功应用到人格")
-                                        message = f"人格学习审查 {persona_learning_review_id} 已批准并应用到人格"
+                                    # 使用PersonaWebManager创建新人格
+                                    create_result = await self.persona_web_manager.create_persona_via_web({
+                                        "persona_id": new_persona_id,
+                                        "system_prompt": content_to_apply,
+                                        "begin_dialogs": [],
+                                        "tools": []
+                                    })
+
+                                    if create_result.get('success'):
+                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已批准，成功创建新人格: {new_persona_id}")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，成功创建新人格: {new_persona_id}"
                                     else:
-                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但应用失败")
-                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但人格应用失败"
+                                        error_msg = create_result.get('error', '未知错误')
+                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但创建新人格失败: {error_msg}")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但创建新人格失败: {error_msg}"
 
                                 except Exception as apply_error:
-                                    logger.error(f"❌ 应用人格更新失败: {apply_error}", exc_info=True)
-                                    message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
-                            elif not self.persona_updater:
-                                logger.warning("PersonaUpdater未初始化，无法应用人格更新")
-                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法应用人格更新"
+                                    logger.error(f"❌ 创建新人格失败: {apply_error}", exc_info=True)
+                                    message = f"人格学习审查 {persona_learning_review_id} 已批准，但创建新人格过程出错: {str(apply_error)}"
+                            elif not self.persona_web_manager:
+                                logger.warning("PersonaWebManager未初始化，无法创建新人格")
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法创建新人格（PersonaWebManager未初始化）"
                             else:
                                 logger.warning(f"人格学习审查 {persona_learning_review_id} 缺少人格内容")
                                 message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少人格内容"
@@ -321,8 +335,8 @@ class PersonaReviewService:
                             logger.error(f"无法获取人格学习审查 {persona_learning_review_id} 的详情")
                             message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取详情"
                     except Exception as e:
-                        logger.error(f"应用人格学习审查失败: {e}", exc_info=True)
-                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(e)}"
+                        logger.error(f"批准人格学习审查失败: {e}", exc_info=True)
+                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但处理过程出错: {str(e)}"
                 else:
                     message = f"人格学习审查 {persona_learning_review_id} 已拒绝"
 
@@ -342,7 +356,7 @@ class PersonaReviewService:
                 return False, "Persona updater not initialized"
 
     async def _approve_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
-        """批准风格学习审查（内部方法）"""
+        """批准风格学习审查（内部方法）- 创建新人格"""
         if not self.database_manager:
             return False, "数据库管理器未初始化"
 
@@ -363,25 +377,49 @@ class PersonaReviewService:
         )
 
         if success and target_review['few_shots_content']:
-            if self.persona_updater:
-                style_analysis = {
-                    'enhanced_prompt': target_review['few_shots_content'],
-                    'style_features': [],
-                    'confidence': 0.8,
-                    'source': f'风格学习审查{review_id}'
-                }
-                success_apply = await self.persona_updater.update_persona_with_style(
-                    target_review.get('group_id', 'default'),
-                    style_analysis,
-                    []
-                )
+            group_id = target_review.get('group_id', 'default')
 
-                if success_apply:
-                    return True, f"风格学习审查 {review_id} 已批准并应用到人格"
-                else:
-                    return True, f"风格学习审查 {review_id} 已批准，但人格应用失败"
+            if self.persona_web_manager:
+                try:
+                    # 获取当前使用的原人格名称
+                    base_persona_name = "default"
+                    try:
+                        if self.persona_manager:
+                            current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                            if current_persona and hasattr(current_persona, 'persona_id'):
+                                base_persona_name = current_persona.persona_id
+                            elif isinstance(current_persona, dict) and 'persona_id' in current_persona:
+                                base_persona_name = current_persona['persona_id']
+                    except Exception as e:
+                        logger.warning(f"获取原人格名称失败，使用默认值: {e}")
+
+                    # 生成新人格ID: 原人格名-具体时间-批准人格
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    new_persona_id = f"{base_persona_name}-{timestamp}-approved"
+
+                    # 使用PersonaWebManager创建新人格
+                    create_result = await self.persona_web_manager.create_persona_via_web({
+                        "persona_id": new_persona_id,
+                        "system_prompt": target_review['few_shots_content'],
+                        "begin_dialogs": [],
+                        "tools": []
+                    })
+
+                    if create_result.get('success'):
+                        logger.info(f"✅ 风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}")
+                        return True, f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}"
+                    else:
+                        error_msg = create_result.get('error', '未知错误')
+                        logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但创建新人格失败: {error_msg}")
+                        return True, f"风格学习审查 {review_id} 已批准，但创建新人格失败: {error_msg}"
+
+                except Exception as e:
+                    logger.error(f"❌ 创建新人格失败: {e}", exc_info=True)
+                    return True, f"风格学习审查 {review_id} 已批准，但创建新人格过程出错: {str(e)}"
             else:
-                return True, f"风格学习审查 {review_id} 已批准，但PersonaUpdater未初始化"
+                logger.warning("PersonaWebManager未初始化，无法创建新人格")
+                return True, f"风格学习审查 {review_id} 已批准，但PersonaWebManager未初始化"
         else:
             return True, f"风格学习审查 {review_id} 已批准"
 

@@ -1315,8 +1315,11 @@ async function loadPersonaUpdates() {
                 const totalCount = data.total || data.updates.length;
                 console.log('[DEBUG] 数据总数:', totalCount, '第一页记录数:', data.updates.length);
 
-                // 立即显示第一页数据
+                // ✅ 立即显示第一页数据并缓存到全局变量
                 allPersonaUpdates = data.updates;
+                // ✅ 缓存到window对象供编辑对话框使用
+                window.currentPersonaUpdates = data.updates;
+
                 updateGroupFilterOptions(data.updates);
                 applyPersonaFilters();
                 await updateReviewStats(data.updates);
@@ -1338,6 +1341,7 @@ async function loadPersonaUpdates() {
                 console.error('[DEBUG] 人格更新数据格式不正确:', data);
                 allPersonaUpdates = [];
                 filteredPersonaUpdates = [];
+                window.currentPersonaUpdates = []; // ✅ 清空缓存
                 renderPersonaUpdates([]);
                 await updateReviewStats([]);
             }
@@ -1348,6 +1352,7 @@ async function loadPersonaUpdates() {
         console.error('[DEBUG] 加载人格更新失败:', error);
         allPersonaUpdates = [];
         filteredPersonaUpdates = [];
+        window.currentPersonaUpdates = []; // ✅ 清空缓存
 
         const reviewList = document.getElementById('review-list');
         if (reviewList) {
@@ -2100,6 +2105,22 @@ async function resetConfiguration() {
 // 审查人格更新
 async function reviewUpdate(updateId, action) {
     try {
+        // ✅ 添加批准操作的二次确认
+        if (action === 'approve') {
+            const confirmed = confirm(
+                '⚠️ 确认批准此人格更新吗？\n\n' +
+                '批准后将执行以下操作：\n' +
+                '1. 自动备份当前人格\n' +
+                '2. 创建新的更新后人格\n' +
+                '3. 将更新应用到系统\n\n' +
+                '此操作不可撤销，建议先使用"编辑"按钮预览更新内容。'
+            );
+
+            if (!confirmed) {
+                return; // 用户取消操作
+            }
+        }
+
         const response = await fetch(`/api/persona_updates/${updateId}/review`, {
             method: 'POST',
             headers: {
@@ -2110,41 +2131,76 @@ async function reviewUpdate(updateId, action) {
         });
 
         if (response.ok) {
-            showSuccess(`人格更新已${action === 'approve' ? '批准' : '拒绝'}`);
+            const result = await response.json();
+            showSuccess(result.message || `人格更新已${action === 'approve' ? '批准' : '拒绝'}`);
             await loadPersonaUpdates(); // 重新加载列表
         } else {
-            throw new Error('审查操作失败');
+            const error = await response.json();
+            throw new Error(error.error || '审查操作失败');
         }
     } catch (error) {
         console.error('审查操作失败:', error);
-        showError('操作失败，请重试');
+        showError(error.message || '操作失败，请重试');
     }
 }
 
 // 编辑人格更新内容
 function editPersonaUpdate(updateId) {
-    // 查找待审查的人格更新数据
+    console.log('[DEBUG] editPersonaUpdate 被调用, updateId:', updateId);
+
+    // ✅ 改进：直接从已加载的数据中查找，而不是重新请求API
+    // 查找当前页面中的更新数据
+    const reviewList = document.getElementById('review-list');
+    if (!reviewList) {
+        console.error('[DEBUG] 未找到review-list元素');
+        showError('页面加载错误');
+        return;
+    }
+
+    // 尝试从全局缓存获取数据（如果有的话）
+    if (window.currentPersonaUpdates && window.currentPersonaUpdates.length > 0) {
+        const update = window.currentPersonaUpdates.find(u => u.id === updateId);
+        if (update) {
+            console.log('[DEBUG] 从缓存找到更新记录，准备显示编辑对话框');
+            showPersonaEditDialog(update);
+            return;
+        }
+    }
+
+    // 备用方案：重新从API获取
+    console.log('[DEBUG] 缓存未命中，从API获取数据');
     fetch(`/api/persona_updates`, {
         credentials: 'include'  // 包含session cookie
     })
-        .then(response => response.json())
+        .then(response => {
+            console.log('[DEBUG] API响应状态:', response.status);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
+            console.log('[DEBUG] API返回数据:', data);
             if (!data.success) {
-                showError('获取更新列表失败');
+                console.error('[DEBUG] API返回失败:', data);
+                showError(data.error || '获取更新列表失败');
                 return;
             }
 
             const update = data.updates.find(u => u.id === updateId);
             if (!update) {
+                console.error('[DEBUG] 未找到ID为', updateId, '的更新记录');
+                console.log('[DEBUG] 可用的ID列表:', data.updates.map(u => u.id));
                 showError('未找到对应的更新记录');
                 return;
             }
 
+            console.log('[DEBUG] 找到更新记录，准备显示编辑对话框');
             showPersonaEditDialog(update);
         })
         .catch(error => {
-            console.error('获取更新详情失败:', error);
-            showError('获取更新详情失败');
+            console.error('[DEBUG] 获取更新详情失败:', error);
+            showError(`获取更新详情失败: ${error.message}`);
         });
 }
 
@@ -2232,7 +2288,21 @@ function showPersonaEditDialog(update) {
     
     // 批准和拒绝事件
     rejectBtn.addEventListener('click', () => reviewPersonaUpdate(update.id, 'reject'));
-    approveBtn.addEventListener('click', () => reviewPersonaUpdate(update.id, 'approve'));
+    approveBtn.addEventListener('click', () => {
+        // ✅ 批准前二次确认
+        const confirmed = confirm(
+            '⚠️ 确认批准此人格更新吗？\n\n' +
+            '批准后将执行以下操作：\n' +
+            '1. 自动备份当前人格\n' +
+            '2. 创建新的更新后人格\n' +
+            '3. 将更新应用到系统\n\n' +
+            '此操作不可撤销。'
+        );
+
+        if (confirmed) {
+            reviewPersonaUpdate(update.id, 'approve');
+        }
+    });
     
     // 添加点击外部关闭功能
     overlay.addEventListener('click', (e) => {
@@ -6685,6 +6755,7 @@ function updateBugAssistantUI(hasError = false) {
         document.getElementById('bugSteps').value = '';
         document.getElementById('bugDescription').value = '';
         document.getElementById('bugEnvironment').value = '';
+        document.getElementById('bugEmail').value = '';
         document.getElementById('bugBuild').value = bugAssistantState.config.defaultBuild || '';
         includeLogs.checked = true;
         bugAssistantState.uploadedFiles = [];
@@ -6871,6 +6942,7 @@ async function submitBugAssistantForm(event) {
     const steps = document.getElementById('bugSteps').value.trim();
     const description = document.getElementById('bugDescription').value.trim();
     const environment = document.getElementById('bugEnvironment').value.trim();
+    const email = document.getElementById('bugEmail').value.trim();
     const severity = document.getElementById('bugSeverity').value;
     const priority = document.getElementById('bugPriority').value;
     const bugType = document.getElementById('bugType').value;
@@ -6878,6 +6950,12 @@ async function submitBugAssistantForm(event) {
 
     if (!title) {
         showToast('请填写问题标题', 'error');
+        return;
+    }
+
+    // 验证邮箱格式（如果填写了）
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        showToast('请填写有效的邮箱地址', 'error');
         return;
     }
 
@@ -6890,6 +6968,7 @@ async function submitBugAssistantForm(event) {
     formData.append('steps', steps);
     formData.append('description', description);
     formData.append('environment', environment);
+    formData.append('email', email || '');  // 添加邮箱字段
     formData.append('severity', severity);
     formData.append('priority', priority);
     formData.append('bugType', bugType);

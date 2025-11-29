@@ -12,6 +12,7 @@ class DatabaseType(Enum):
     """数据库类型枚举"""
     SQLITE = "sqlite"
     MYSQL = "mysql"
+    POSTGRESQL = "postgresql"
 
 
 @dataclass
@@ -30,6 +31,14 @@ class DatabaseConfig:
     mysql_database: Optional[str] = None
     mysql_charset: str = "utf8mb4"
 
+    # PostgreSQL 配置
+    postgresql_host: Optional[str] = None
+    postgresql_port: int = 5432
+    postgresql_user: Optional[str] = None
+    postgresql_password: Optional[str] = None
+    postgresql_database: Optional[str] = None
+    postgresql_schema: str = "public"
+
     # 连接池配置
     max_connections: int = 10
     min_connections: int = 2
@@ -43,6 +52,9 @@ class DatabaseConfig:
         elif self.db_type == DatabaseType.MYSQL:
             if not all([self.mysql_host, self.mysql_user, self.mysql_database]):
                 return False, "MySQL host, user, and database are required"
+        elif self.db_type == DatabaseType.POSTGRESQL:
+            if not all([self.postgresql_host, self.postgresql_user, self.postgresql_database]):
+                return False, "PostgreSQL host, user, and database are required"
         else:
             return False, f"Unsupported database type: {self.db_type}"
 

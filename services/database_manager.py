@@ -234,6 +234,18 @@ class DatabaseManager(AsyncServiceBase):
                     max_connections=self.config.max_connections,
                     min_connections=self.config.min_connections
                 )
+            elif db_type == DatabaseType.POSTGRESQL:
+                db_config = DatabaseConfig(
+                    db_type=DatabaseType.POSTGRESQL,
+                    postgresql_host=self.config.postgresql_host,
+                    postgresql_port=self.config.postgresql_port,
+                    postgresql_user=self.config.postgresql_user,
+                    postgresql_password=self.config.postgresql_password,
+                    postgresql_database=self.config.postgresql_database,
+                    postgresql_schema=self.config.postgresql_schema,
+                    max_connections=self.config.max_connections,
+                    min_connections=self.config.min_connections
+                )
             else:
                 raise ValueError(f"不支持的数据库类型: {self.config.db_type}")
 
@@ -274,11 +286,13 @@ class DatabaseManager(AsyncServiceBase):
     def get_db_connection(self):
         """
         获取数据库连接的上下文管理器
-        根据配置的数据库类型，自动选择SQLite或MySQL后端
+        根据配置的数据库类型，自动选择SQLite、MySQL或PostgreSQL后端
         """
-        # 如果使用MySQL且db_backend可用，使用MySQL后端
-        if self.config.db_type.lower() == 'mysql' and self.db_backend:
-            return self._get_mysql_connection_manager()
+        db_type = self.config.db_type.lower()
+
+        # 如果使用MySQL或PostgreSQL且db_backend可用，使用通用后端连接管理器
+        if db_type in ('mysql', 'postgresql') and self.db_backend:
+            return self._get_backend_connection_manager()
         else:
             # 使用旧的SQLite连接池
             return self._get_sqlite_connection_manager()
@@ -300,22 +314,22 @@ class DatabaseManager(AsyncServiceBase):
 
         return SQLiteConnectionManager(self.connection_pool)
 
-    def _get_mysql_connection_manager(self):
-        """获取MySQL连接管理器 - 适配aiosqlite接口"""
+    def _get_backend_connection_manager(self):
+        """获取MySQL/PostgreSQL连接管理器 - 适配aiosqlite接口"""
         db_backend = self.db_backend
 
-        class MySQLConnectionAdapter:
-            """MySQL连接适配器 - 模拟aiosqlite接口"""
+        class BackendConnectionAdapter:
+            """数据库后端连接适配器 - 模拟aiosqlite接口"""
             def __init__(self, backend):
                 self.backend = backend
                 self._cursor = None
 
             async def cursor(self):
                 """返回游标适配器"""
-                return MySQLCursorAdapter(self.backend)
+                return BackendCursorAdapter(self.backend)
 
             async def commit(self):
-                """提交事务 - MySQL后端在execute中已自动提交"""
+                """提交事务 - 后端在execute中已自动提交"""
                 pass
 
             async def rollback(self):
@@ -338,8 +352,8 @@ class DatabaseManager(AsyncServiceBase):
                 """获取所有行"""
                 return await self._cursor.fetchall() if self._cursor else []
 
-        class MySQLCursorAdapter:
-            """MySQL游标适配器"""
+        class BackendCursorAdapter:
+            """数据库后端游标适配器"""
             def __init__(self, backend):
                 self.backend = backend
                 self._last_result = None
@@ -353,87 +367,103 @@ class DatabaseManager(AsyncServiceBase):
                 # 检测是SELECT查询还是其他操作
                 sql_upper = sql.strip().upper()
 
-                # 对于 CREATE TABLE 和 ALTER TABLE，需要特殊处理（避免与 strftime('%s') 冲突）
+                # 获取数据库类型
+                db_type = self.backend.db_type
+                is_mysql = (db_type == DatabaseType.MYSQL)
+                is_postgresql = (db_type == DatabaseType.POSTGRESQL)
+
+                # 对于 CREATE TABLE 和 ALTER TABLE，需要特殊处理
                 if sql_upper.startswith('CREATE TABLE') or sql_upper.startswith('ALTER TABLE'):
-                    # 转换 SQLite 特有语法为 MySQL
-                    converted_sql = sql
-                    # INTEGER PRIMARY KEY AUTOINCREMENT -> INT PRIMARY KEY AUTO_INCREMENT
-                    converted_sql = re.sub(r'\bINTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT\b',
-                                          'INT PRIMARY KEY AUTO_INCREMENT',
-                                          converted_sql, flags=re.IGNORECASE)
-                    # REAL -> DOUBLE
-                    converted_sql = re.sub(r'\bREAL\b', 'DOUBLE', converted_sql, flags=re.IGNORECASE)
-                    # strftime('%s', 'now') -> UNIX_TIMESTAMP()
-                    converted_sql = re.sub(r"strftime\s*\(\s*'%s'\s*,\s*'now'\s*\)",
-                                          'UNIX_TIMESTAMP()',
-                                          converted_sql, flags=re.IGNORECASE)
-                    # 执行 DDL（不需要参数）
+                    # 使用后端的 convert_ddl 进行转换
+                    converted_sql = self.backend.convert_ddl(sql)
                     await self.backend.execute(converted_sql, None)
                     self._last_result = []
                     self.rowcount = 0
                     return self
 
-                # 转换参数占位符 ? -> %s（仅对非 DDL 语句）
-                converted_sql = sql.replace('?', '%s')
+                # 转换参数占位符
+                if is_mysql:
+                    converted_sql = sql.replace('?', '%s')
+                elif is_postgresql:
+                    # PostgreSQL 使用 $1, $2, ...
+                    # 调用后端的占位符转换方法
+                    converted_sql = self.backend._convert_placeholders(sql) if hasattr(self.backend, '_convert_placeholders') else sql
+                else:
+                    converted_sql = sql
 
-                # 确保 params 是 tuple 类型（MySQL 需要 tuple）
-                if params is not None:
+                # 确保 params 是 tuple 类型
+                if params is not None and not isinstance(params, tuple):
                     if isinstance(params, list):
                         params = tuple(params)
-                    elif not isinstance(params, tuple):
+                    else:
                         params = (params,)
 
-                # 处理 sqlite_master 查询 - 转换为 MySQL 的 INFORMATION_SCHEMA
+                # 处理 sqlite_master 查询
                 if 'SQLITE_MASTER' in sql_upper:
-                    # 提取表名（支持多种格式）
-                    # 格式1: name='table_name'
-                    # 格式2: name="table_name"
                     table_match = re.search(r"NAME\s*=\s*['\"]?(\w+)['\"]?", sql_upper)
                     if table_match:
                         table_name = table_match.group(1).lower()
-                        # 查询 MySQL 的 INFORMATION_SCHEMA 来检查表是否存在
-                        check_sql = """
-                            SELECT TABLE_NAME as name
-                            FROM INFORMATION_SCHEMA.TABLES
-                            WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = %s
-                        """
-                        self._last_result = await self.backend.fetch_all(check_sql, (table_name,))
+                        if is_mysql:
+                            check_sql = """
+                                SELECT TABLE_NAME as name
+                                FROM INFORMATION_SCHEMA.TABLES
+                                WHERE TABLE_SCHEMA = DATABASE() AND LOWER(TABLE_NAME) = %s
+                            """
+                            self._last_result = await self.backend.fetch_all(check_sql, (table_name,))
+                        elif is_postgresql:
+                            check_sql = """
+                                SELECT table_name as name
+                                FROM information_schema.tables
+                                WHERE table_schema = $1 AND LOWER(table_name) = $2
+                            """
+                            schema = getattr(self.backend.config, 'postgresql_schema', 'public')
+                            self._last_result = await self.backend.fetch_all(check_sql, (schema, table_name))
                         self.rowcount = len(self._last_result) if self._last_result else 0
                         return self
                     else:
-                        # 无法解析，返回空结果
                         self._last_result = []
                         self.rowcount = 0
                         return self
 
-                # 处理 PRAGMA table_info 查询 - 转换为 MySQL 的 DESCRIBE
+                # 处理 PRAGMA table_info 查询
                 if sql_upper.startswith('PRAGMA'):
                     pragma_match = re.search(r'PRAGMA\s+TABLE_INFO\s*\(\s*(\w+)\s*\)', sql_upper)
                     if pragma_match:
                         table_name = pragma_match.group(1)
-                        # MySQL DESCRIBE 返回: Field, Type, Null, Key, Default, Extra
-                        # SQLite PRAGMA table_info 返回: cid, name, type, notnull, dflt_value, pk
-                        # 转换格式以兼容
-                        describe_sql = f"DESCRIBE {table_name}"
                         try:
-                            mysql_result = await self.backend.fetch_all(describe_sql, None)
-                            # 转换为 SQLite PRAGMA table_info 格式
-                            # (cid, name, type, notnull, dflt_value, pk)
-                            self._last_result = []
-                            for idx, row in enumerate(mysql_result or []):
-                                field_name = row[0]  # Field
-                                field_type = row[1]  # Type
-                                is_nullable = 0 if row[2] == 'NO' else 1  # Null
-                                default_value = row[4]  # Default
-                                is_pk = 1 if row[3] == 'PRI' else 0  # Key
-                                self._last_result.append((idx, field_name, field_type, 1 - is_nullable, default_value, is_pk))
+                            if is_mysql:
+                                describe_sql = f"DESCRIBE {table_name}"
+                                mysql_result = await self.backend.fetch_all(describe_sql, None)
+                                self._last_result = []
+                                for idx, row in enumerate(mysql_result or []):
+                                    field_name = row[0]
+                                    field_type = row[1]
+                                    is_nullable = 0 if row[2] == 'NO' else 1
+                                    default_value = row[4]
+                                    is_pk = 1 if row[3] == 'PRI' else 0
+                                    self._last_result.append((idx, field_name, field_type, 1 - is_nullable, default_value, is_pk))
+                            elif is_postgresql:
+                                # PostgreSQL 使用 information_schema.columns
+                                schema = getattr(self.backend.config, 'postgresql_schema', 'public')
+                                pg_sql = """
+                                    SELECT
+                                        ordinal_position - 1 as cid,
+                                        column_name as name,
+                                        data_type as type,
+                                        CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END as notnull,
+                                        column_default as dflt_value,
+                                        0 as pk
+                                    FROM information_schema.columns
+                                    WHERE table_schema = $1 AND table_name = $2
+                                    ORDER BY ordinal_position
+                                """
+                                self._last_result = await self.backend.fetch_all(pg_sql, (schema, table_name))
                             self.rowcount = len(self._last_result)
                         except Exception:
                             self._last_result = []
                             self.rowcount = 0
                         return self
                     else:
-                        # 其他PRAGMA命令，返回空结果
                         self._last_result = []
                         self.rowcount = 0
                         return self
@@ -447,7 +477,12 @@ class DatabaseManager(AsyncServiceBase):
                     # 尝试获取lastrowid（对于INSERT操作）
                     if sql_upper.startswith('INSERT'):
                         try:
-                            result = await self.backend.fetch_one("SELECT LAST_INSERT_ID()")
+                            if is_mysql:
+                                result = await self.backend.fetch_one("SELECT LAST_INSERT_ID()")
+                            elif is_postgresql:
+                                result = await self.backend.fetch_one("SELECT lastval()")
+                            else:
+                                result = None
                             self.lastrowid = result[0] if result else None
                         except Exception:
                             self.lastrowid = None
@@ -455,7 +490,13 @@ class DatabaseManager(AsyncServiceBase):
 
             async def executemany(self, sql, params_list):
                 """批量执行SQL"""
-                converted_sql = sql.replace('?', '%s')
+                db_type = self.backend.db_type
+                if db_type == DatabaseType.MYSQL:
+                    converted_sql = sql.replace('?', '%s')
+                elif db_type == DatabaseType.POSTGRESQL:
+                    converted_sql = self.backend._convert_placeholders(sql) if hasattr(self.backend, '_convert_placeholders') else sql
+                else:
+                    converted_sql = sql
                 self.rowcount = await self.backend.execute_many(converted_sql, params_list)
                 return self
 
@@ -483,25 +524,25 @@ class DatabaseManager(AsyncServiceBase):
                 return result
 
             async def close(self):
-                """关闭游标（MySQL后端使用连接池，无需实际关闭）"""
+                """关闭游标（后端使用连接池，无需实际关闭）"""
                 self._last_result = None
                 self.lastrowid = None
                 self.rowcount = 0
 
-        class MySQLConnectionManager:
+        class BackendConnectionManager:
             def __init__(self, backend):
                 self.backend = backend
                 self.adapter = None
 
             async def __aenter__(self):
-                self.adapter = MySQLConnectionAdapter(self.backend)
+                self.adapter = BackendConnectionAdapter(self.backend)
                 return self.adapter
 
             async def __aexit__(self, exc_type, exc_val, exc_tb):
-                # MySQL后端使用连接池，无需手动关闭
+                # 后端使用连接池，无需手动关闭
                 pass
 
-        return MySQLConnectionManager(db_backend)
+        return BackendConnectionManager(db_backend)
 
     def get_connection(self):
         """
@@ -867,6 +908,8 @@ class DatabaseManager(AsyncServiceBase):
                     few_shots_content TEXT,
                     status VARCHAR(50) DEFAULT 'pending',
                     description TEXT,
+                    reviewer_comment TEXT,
+                    review_time DOUBLE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_status (status),
@@ -4324,6 +4367,8 @@ class DatabaseManager(AsyncServiceBase):
                     few_shots_content TEXT,
                     status VARCHAR(50) DEFAULT 'pending',
                     description TEXT,
+                    reviewer_comment TEXT,
+                    review_time DOUBLE,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                     INDEX idx_status (status),
@@ -4342,6 +4387,8 @@ class DatabaseManager(AsyncServiceBase):
                     few_shots_content TEXT,
                     status TEXT DEFAULT 'pending',
                     description TEXT,
+                    reviewer_comment TEXT,
+                    review_time REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -4356,23 +4403,43 @@ class DatabaseManager(AsyncServiceBase):
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-                # 确保表存在（使用统一的结构）
-                await cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS persona_update_reviews (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        timestamp REAL NOT NULL,
-                        group_id TEXT NOT NULL,
-                        update_type TEXT NOT NULL,
-                        original_content TEXT,
-                        new_content TEXT,
-                        proposed_content TEXT, -- 建议的新内容（兼容字段）
-                        confidence_score REAL, -- 置信度得分
-                        reason TEXT,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        reviewer_comment TEXT,
-                        review_time REAL
-                    )
-                ''')
+                # 确保表存在（根据数据库类型使用不同的DDL）
+                if self.config.db_type.lower() == 'mysql':
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                            id INT PRIMARY KEY AUTO_INCREMENT,
+                            timestamp DOUBLE NOT NULL,
+                            group_id VARCHAR(255) NOT NULL,
+                            update_type VARCHAR(100) NOT NULL,
+                            original_content TEXT,
+                            new_content TEXT,
+                            proposed_content TEXT,
+                            confidence_score DOUBLE,
+                            reason TEXT,
+                            status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                            reviewer_comment TEXT,
+                            review_time DOUBLE,
+                            INDEX idx_status (status),
+                            INDEX idx_group_id (group_id)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    ''')
+                else:
+                    await cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            timestamp REAL NOT NULL,
+                            group_id TEXT NOT NULL,
+                            update_type TEXT NOT NULL,
+                            original_content TEXT,
+                            new_content TEXT,
+                            proposed_content TEXT, -- 建议的新内容（兼容字段）
+                            confidence_score REAL, -- 置信度得分
+                            reason TEXT,
+                            status TEXT NOT NULL DEFAULT 'pending',
+                            reviewer_comment TEXT,
+                            review_time REAL
+                        )
+                    ''')
 
                 # 尝试添加metadata列（如果表已存在但没有此列）
                 try:
@@ -4433,19 +4500,37 @@ class DatabaseManager(AsyncServiceBase):
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
+                # 根据数据库类型使用不同的占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
                 # 如果有修改后的内容，也要更新proposed_content字段
                 if modified_content:
-                    await cursor.execute('''
-                        UPDATE persona_update_reviews
-                        SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
-                        WHERE id = ?
-                    ''', (status, comment, time.time(), modified_content, modified_content, review_id))
+                    if self.config.db_type.lower() == 'mysql':
+                        await cursor.execute(f'''
+                            UPDATE persona_update_reviews
+                            SET status = {placeholder}, reviewer_comment = {placeholder}, review_time = {placeholder},
+                                proposed_content = {placeholder}, new_content = {placeholder}
+                            WHERE id = {placeholder}
+                        ''', (status, comment, time.time(), modified_content, modified_content, review_id))
+                    else:
+                        await cursor.execute('''
+                            UPDATE persona_update_reviews
+                            SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
+                            WHERE id = ?
+                        ''', (status, comment, time.time(), modified_content, modified_content, review_id))
                 else:
-                    await cursor.execute('''
-                        UPDATE persona_update_reviews
-                        SET status = ?, reviewer_comment = ?, review_time = ?
-                        WHERE id = ?
-                    ''', (status, comment, time.time(), review_id))
+                    if self.config.db_type.lower() == 'mysql':
+                        await cursor.execute(f'''
+                            UPDATE persona_update_reviews
+                            SET status = {placeholder}, reviewer_comment = {placeholder}, review_time = {placeholder}
+                            WHERE id = {placeholder}
+                        ''', (status, comment, time.time(), review_id))
+                    else:
+                        await cursor.execute('''
+                            UPDATE persona_update_reviews
+                            SET status = ?, reviewer_comment = ?, review_time = ?
+                            WHERE id = ?
+                        ''', (status, comment, time.time(), review_id))
 
                 await conn.commit()
                 return cursor.rowcount > 0
@@ -4460,9 +4545,12 @@ class DatabaseManager(AsyncServiceBase):
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
+                # 根据数据库类型使用不同的占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
                 # 删除审查记录
-                await cursor.execute('''
-                    DELETE FROM persona_update_reviews WHERE id = ?
+                await cursor.execute(f'''
+                    DELETE FROM persona_update_reviews WHERE id = {placeholder}
                 ''', (review_id,))
 
                 await conn.commit()
@@ -4850,15 +4938,29 @@ class DatabaseManager(AsyncServiceBase):
                 cursor = await conn.cursor()
             
             # API指标（基于学习批次的执行时间）
-            await cursor.execute('''
-                SELECT 
-                    strftime('%H', datetime(start_time, 'unixepoch')) as hour,
-                    AVG((CASE WHEN end_time IS NOT NULL THEN end_time - start_time ELSE 0 END)) as avg_response_time
-                FROM learning_batches
-                WHERE start_time > ? AND end_time IS NOT NULL
-                GROUP BY hour
-                ORDER BY hour
-            ''', (time.time() - 86400,))  # 最近24小时
+            # ✅ 修复：使用数据库无关的时间格式化方式
+            if self.db_type == 'sqlite':
+                # SQLite语法
+                await cursor.execute('''
+                    SELECT
+                        strftime('%H', datetime(start_time, 'unixepoch')) as hour,
+                        AVG((CASE WHEN end_time IS NOT NULL THEN end_time - start_time ELSE 0 END)) as avg_response_time
+                    FROM learning_batches
+                    WHERE start_time > ? AND end_time IS NOT NULL
+                    GROUP BY hour
+                    ORDER BY hour
+                ''', (time.time() - 86400,))
+            else:
+                # MySQL语法
+                await cursor.execute('''
+                    SELECT
+                        HOUR(FROM_UNIXTIME(start_time)) as hour,
+                        AVG((CASE WHEN end_time IS NOT NULL THEN end_time - start_time ELSE 0 END)) as avg_response_time
+                    FROM learning_batches
+                    WHERE start_time > %s AND end_time IS NOT NULL
+                    GROUP BY hour
+                    ORDER BY hour
+                ''', (time.time() - 86400,))
             
             api_hours = []
             api_response_times = []
@@ -5212,12 +5314,16 @@ class DatabaseManager(AsyncServiceBase):
                 # 如果 new_content 为空，则使用 proposed_content（向后兼容）
                 final_new_content = new_content if new_content else proposed_content
 
+                # 根据数据库类型使用不同的占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
                 # 插入记录
-                await cursor.execute('''
+                placeholders = ', '.join([placeholder] * 10)
+                await cursor.execute(f'''
                     INSERT INTO persona_update_reviews
                     (timestamp, group_id, update_type, original_content, new_content,
                      proposed_content, confidence_score, reason, status, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES ({placeholders})
                 ''', (
                     time.time(),
                     group_id,

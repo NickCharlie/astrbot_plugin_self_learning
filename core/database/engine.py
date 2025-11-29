@@ -99,12 +99,11 @@ class DatabaseEngine:
         else:
             db_url = self.database_url
 
-        # MySQL 配置
+        # MySQL 配置 (异步引擎不需要指定poolclass，SQLAlchemy会自动选择合适的)
         self.engine = create_async_engine(
             db_url,
             echo=self.echo,
             # MySQL 连接池配置
-            poolclass=QueuePool,
             pool_size=10,  # 连接池大小
             max_overflow=20,  # 最大溢出连接数
             pool_pre_ping=True,  # 连接前 ping，检查连接是否有效

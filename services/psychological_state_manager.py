@@ -187,15 +187,25 @@ class PsychologicalStateManager(AsyncServiceBase):
             return CompositePsychologicalState(group_id=group_id, state_id=str(uuid.uuid4()))
 
     async def _create_initial_state(self, group_id: str) -> CompositePsychologicalState:
-        """创建初始心理状态（基于当前时间）"""
+        """
+        创建初始心理状态（基于当前时间 + 随机积极状态）
+
+        初始化时会生成相对随机但较为积极的心理状态，包括：
+        - 随机的积极情绪状态（轻度到中度）
+        - 随机的认知状态（注意力/思维等）
+        - 随机的精力状态
+        - 随机的社交状态
+        每个状态的强度也是随机的，但保持在合理范围内
+        """
         state_id = str(uuid.uuid4())
         state = CompositePsychologicalState(
             group_id=group_id,
             state_id=state_id
         )
 
-        # 根据当前时间设置初始状态
+        # 根据当前时间设置基础状态（保持原有逻辑）
         current_hour = datetime.now().hour
+        time_based_applied = False
         for rule in self.time_based_rules:
             start, end = rule["time_range"]
             if start <= current_hour < end:
@@ -208,8 +218,90 @@ class PsychologicalStateManager(AsyncServiceBase):
                     )
                     state.add_component(component)
                 state.triggering_events.append(f"初始化: {rule['description']}")
-                self._logger.info(f"群组 {group_id} 初始心理状态: {rule['description']}")
+                self._logger.info(f"群组 {group_id} 基础心理状态: {rule['description']}")
+                time_based_applied = True
                 break
+
+        # 添加随机的积极心理状态（增强初始状态的多样性）
+        # 1. 随机积极情绪 (40%-70%强度)
+        positive_emotions = [
+            EmotionPositiveType.JOYFUL,
+            EmotionPositiveType.HAPPY,
+            EmotionPositiveType.SATISFIED,
+            EmotionPositiveType.RELAXED,
+            EmotionPositiveType.COMFORTABLE,
+            EmotionPositiveType.PLEASANT,
+            EmotionPositiveType.CHEERFUL
+        ]
+        selected_emotion = random.choice(positive_emotions)
+        emotion_intensity = random.uniform(0.4, 0.7)  # 中等强度的积极情绪
+        state.add_component(PsychologicalStateComponent(
+            category="情绪",
+            state_type=selected_emotion,
+            value=emotion_intensity,
+            description=f"初始化时的随机积极情绪"
+        ))
+
+        # 2. 随机认知状态 (30%-60%强度)
+        attention_states = [
+            AttentionState.FOCUSED,
+            AttentionState.CONCENTRATED,
+            AttentionState.ATTENTIVE
+        ]
+        selected_attention = random.choice(attention_states)
+        attention_intensity = random.uniform(0.3, 0.6)
+        state.add_component(PsychologicalStateComponent(
+            category="认知",
+            state_type=selected_attention,
+            value=attention_intensity,
+            description=f"初始化时的认知状态"
+        ))
+
+        # 3. 随机社交状态 (40%-65%强度)
+        social_states = [
+            SocialAttitudeState.FRIENDLY,
+            SocialAttitudeState.CORDIAL,
+            SocialAttitudeState.WARM,
+            SocialAttitudeState.TOLERANT
+        ]
+        selected_social = random.choice(social_states)
+        social_intensity = random.uniform(0.4, 0.65)
+        state.add_component(PsychologicalStateComponent(
+            category="社交",
+            state_type=selected_social,
+            value=social_intensity,
+            description=f"初始化时的社交态度"
+        ))
+
+        # 4. 随机精力状态 (35%-65%强度)
+        # 根据时间调整精力状态范围
+        if 9 <= current_hour < 17:  # 白天精力更高
+            energy_range = (0.5, 0.75)
+            energy_states = [EnergyState.VIGOROUS, EnergyState.ENERGETIC_FULL]
+        elif 22 <= current_hour or current_hour < 6:  # 深夜和凌晨精力较低
+            energy_range = (0.25, 0.45)
+            energy_states = [EnergyState.TIRED, EnergyState.DROWSY]
+        else:  # 其他时间中等
+            energy_range = (0.35, 0.65)
+            energy_states = [EnergyState.VIGOROUS, EnergyState.TIRED, EnergyState.DROWSY]
+
+        selected_energy = random.choice(energy_states)
+        energy_intensity = random.uniform(*energy_range)
+        state.add_component(PsychologicalStateComponent(
+            category="精力",
+            state_type=selected_energy,
+            value=energy_intensity,
+            description=f"初始化时的精力状态"
+        ))
+
+        state.triggering_events.append(f"随机积极状态初始化完成")
+        self._logger.info(
+            f"✅ 群组 {group_id} 已初始化随机积极心理状态 - "
+            f"情绪:{selected_emotion.value}({emotion_intensity:.2f}), "
+            f"认知:{selected_attention.value}({attention_intensity:.2f}), "
+            f"社交:{selected_social.value}({social_intensity:.2f}), "
+            f"精力:{selected_energy.value}({energy_intensity:.2f})"
+        )
 
         return state
 

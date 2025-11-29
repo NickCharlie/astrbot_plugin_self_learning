@@ -3,7 +3,7 @@
 将bot的心理状态和用户的社交关系信息整合注入到LLM prompt中
 支持提示词保护,避免注入内容泄露
 """
-import time
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 
 from astrbot.api import logger
@@ -17,7 +17,7 @@ class PsychologicalSocialContextInjector:
     1. 整合心理状态管理器和社交关系管理器的数据
     2. 生成结构化的上下文注入内容
     3. 应用提示词保护机制
-    4. 支持缓存优化性能
+    4. 使用统一缓存管理器优化性能
     5. 生成指导bot行为模式的详细提示词
     """
 
@@ -28,6 +28,7 @@ class PsychologicalSocialContextInjector:
         social_relation_manager=None,
         affection_manager=None,
         diversity_manager=None,
+        llm_adapter=None,
         config=None
     ):
         self.db_manager = database_manager
@@ -35,15 +36,29 @@ class PsychologicalSocialContextInjector:
         self.social_manager = social_relation_manager
         self.affection_manager = affection_manager
         self.diversity_manager = diversity_manager
+        self.llm_adapter = llm_adapter
         self.config = config
 
         # 提示词保护服务（延迟加载）
         self._prompt_protection = None
         self._enable_protection = True
 
-        # 缓存机制
-        self._cache: Dict[str, Tuple[float, Any]] = {}
-        self._cache_ttl = 60  # 60秒缓存
+        # 使用统一缓存管理器
+        from ..utils.cache_manager import get_cache_manager
+        self._cache_manager = get_cache_manager()
+
+        # 为心理社交上下文创建专用缓存(如果不存在)
+        if not hasattr(self._cache_manager, 'psych_social_cache'):
+            from cachetools import TTLCache
+            self._cache_manager.psych_social_cache = TTLCache(maxsize=1000, ttl=300)  # 5分钟TTL
+            # 注册到缓存管理器的映射表
+            if hasattr(self._cache_manager, '_get_cache'):
+                # 动态添加到cache_map
+                logger.info("✅ [心理社交上下文] 已创建专用缓存 (maxsize=1000, ttl=300s)")
+
+        # 后台任务管理 - 用于异步更新缓存
+        self._background_tasks: set = set()
+        self._llm_generation_lock: Dict[str, asyncio.Lock] = {}  # 防止重复LLM调用
 
     def _get_prompt_protection(self):
         """延迟加载提示词保护服务"""
@@ -58,18 +73,20 @@ class PsychologicalSocialContextInjector:
         return self._prompt_protection
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
-        """从缓存获取数据"""
-        if key in self._cache:
-            timestamp, data = self._cache[key]
-            if time.time() - timestamp < self._cache_ttl:
-                return data
-            else:
-                del self._cache[key]
-        return None
+        """
+        从统一缓存管理器获取数据
+
+        Args:
+            key: 缓存键
+
+        Returns:
+            缓存值或None
+        """
+        return self._cache_manager.psych_social_cache.get(key)
 
     def _set_to_cache(self, key: str, data: Any):
-        """设置缓存"""
-        self._cache[key] = (time.time(), data)
+        """设置缓存到统一缓存管理器"""
+        self._cache_manager.psych_social_cache[key] = data
 
     async def build_complete_context(
         self,
@@ -270,15 +287,70 @@ class PsychologicalSocialContextInjector:
         构建行为模式指导（基于心理状态和社交关系的联动分析）
 
         这是核心功能：根据当前的心理状态和社交关系，
-        生成对bot行为有强烈指导性但不死板的提示词
+        使用LLM提炼模型生成对bot行为有强烈指导性但不死板的提示词
+
+        ⚡ 非阻塞设计：
+        - 优先返回缓存数据(5分钟TTL)
+        - 如果缓存不存在,返回空字符串,并在后台异步生成
+        - 后台生成完成后更新缓存,下次调用时可用
         """
         try:
             cache_key = f"behavior_guidance_{group_id}_{user_id}"
+
+            # 1. 优先返回缓存(TTLCache自动管理过期,5分钟TTL)
             cached = self._get_from_cache(cache_key)
             if cached:
+                logger.debug(f"💾 [行为指导] 使用缓存 (group: {group_id[:8]}...)")
                 return cached
 
-            guidance_parts = ["【行为模式指导】"]
+            # 2. 缓存未命中 - 检查是否已有后台生成任务在运行
+            if cache_key not in self._llm_generation_lock:
+                self._llm_generation_lock[cache_key] = asyncio.Lock()
+
+            # 尝试获取锁(非阻塞)
+            if self._llm_generation_lock[cache_key].locked():
+                # 已有任务在生成,直接返回空字符串,不阻塞
+                logger.debug(f"⏳ [行为指导] 生成任务进行中,返回空字符串 (group: {group_id[:8]}...)")
+                return ""
+
+            # 3. 获取锁后,启动后台生成任务(不等待)
+            async with self._llm_generation_lock[cache_key]:
+                # 双重检查:再次查询缓存(可能其他协程已经生成了)
+                cached = self._get_from_cache(cache_key)
+                if cached:
+                    return cached
+
+                # 启动后台生成任务
+                task = asyncio.create_task(self._background_generate_guidance(
+                    cache_key, group_id, user_id
+                ))
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+
+                # 立即返回空字符串,不阻塞主流程
+                logger.debug(f"🚀 [行为指导] 已启动后台生成任务 (group: {group_id[:8]}...)")
+                return ""
+
+        except Exception as e:
+            logger.error(f"构建行为模式指导失败: {e}", exc_info=True)
+            return ""
+
+    async def _background_generate_guidance(
+        self,
+        cache_key: str,
+        group_id: str,
+        user_id: str
+    ):
+        """
+        后台生成行为指导(异步任务,不阻塞主流程)
+
+        Args:
+            cache_key: 缓存键
+            group_id: 群组ID
+            user_id: 用户ID
+        """
+        try:
+            logger.debug(f"🔄 [后台任务] 开始生成行为指导 (group: {group_id[:8]}...)")
 
             # 获取心理状态
             psych_state = None
@@ -302,66 +374,165 @@ class PsychologicalSocialContextInjector:
                 except:
                     pass
 
-            # 根据心理状态生成行为指导
-            if psych_state:
-                active_components = psych_state.get_active_components()
-
-                for component in active_components[:3]:  # 只取前3个最显著的状态
-                    category = component.category
-                    state_name = component.state_type.value if hasattr(
-                        component.state_type, 'value') else str(component.state_type)
-                    intensity = component.value
-
-                    # 根据不同类别生成不同的行为指导
-                    if category == "情绪":
-                        guidance_parts.append(
-                            self._generate_emotion_guidance(state_name, intensity)
-                        )
-                    elif category == "认知":
-                        guidance_parts.append(
-                            self._generate_cognitive_guidance(state_name, intensity)
-                        )
-                    elif category == "社交":
-                        guidance_parts.append(
-                            self._generate_social_guidance(state_name, intensity)
-                        )
-                    elif category == "精力":
-                        guidance_parts.append(
-                            self._generate_energy_guidance(state_name, intensity)
-                        )
-
-            # 根据社交关系生成行为指导
-            if social_profile:
-                significant_relations = social_profile.get_significant_relations()
-
-                if significant_relations:
-                    # 找出最强的关系
-                    strongest = max(significant_relations, key=lambda r: r.value)
-                    rel_name = strongest.relation_type.value if hasattr(
-                        strongest.relation_type, 'value') else str(strongest.relation_type)
-
-                    guidance_parts.append(
-                        self._generate_relation_guidance(rel_name, strongest.value, affection_level)
-                    )
-
-            # 综合指导
-            guidance_parts.append(
-                "\n注意事项:\n"
-                "- 以上指导是参考性的，不是强制规则\n"
-                "- 请根据实际对话内容灵活调整\n"
-                "- 保持自然真实的对话风格\n"
-                "- 可以适度偏离指导，展现个性\n"
-                "- 行为模式应该是渐进式的，不要突变"
+            # 使用LLM提炼模型生成行为指导
+            guidance = await self._generate_guidance_by_llm(
+                psych_state, social_profile, affection_level, group_id, user_id
             )
 
-            guidance = "\n".join(guidance_parts)
-
-            self._set_to_cache(cache_key, guidance)
-            return guidance
+            if guidance:
+                # 缓存生成的指导(5分钟TTL)
+                self._set_to_cache(cache_key, guidance)
+                logger.info(f"✅ [后台任务] 行为指导生成完成并已缓存 (group: {group_id[:8]}...)")
+            else:
+                logger.warning(f"⚠️ [后台任务] LLM生成失败,未缓存 (group: {group_id[:8]}...)")
 
         except Exception as e:
-            logger.error(f"构建行为模式指导失败: {e}", exc_info=True)
+            logger.error(f"❌ [后台任务] 生成行为指导失败: {e}", exc_info=True)
+
+    async def _generate_guidance_by_llm(
+        self,
+        psych_state,
+        social_profile,
+        affection_level: int,
+        group_id: str,
+        user_id: str
+    ) -> str:
+        """
+        使用LLM提炼模型生成行为指导prompt
+
+        Args:
+            psych_state: 复合心理状态对象
+            social_profile: 社交关系profile对象
+            affection_level: 好感度等级
+            group_id: 群组ID
+            user_id: 用户ID
+
+        Returns:
+            LLM生成的行为指导prompt字符串
+        """
+        try:
+            # 检查LLM适配器是否可用
+            if not self.llm_adapter or not hasattr(self.llm_adapter, 'has_refine_provider') or not self.llm_adapter.has_refine_provider():
+                logger.warning("⚠️ [行为指导生成] LLM提炼模型不可用，无法生成指导")
+                return ""
+
+            # 构建心理状态描述
+            psych_desc = ""
+            active_components = []
+            if psych_state:
+                active_components = psych_state.get_active_components()
+                if active_components:
+                    psych_parts = []
+                    for component in active_components[:5]:  # 取前5个最显著的状态
+                        category = component.category
+                        state_name = component.state_type.value if hasattr(
+                            component.state_type, 'value') else str(component.state_type)
+                        intensity = component.value
+                        psych_parts.append(f"- {category}: {state_name} (强度: {intensity:.2f})")
+                    psych_desc = "\n".join(psych_parts)
+
+            # 构建社交关系描述
+            social_desc = ""
+            if social_profile:
+                significant_relations = social_profile.get_significant_relations()
+                if significant_relations:
+                    social_parts = []
+                    for rel in significant_relations[:3]:  # 取前3个最显著的关系
+                        rel_name = rel.relation_type.value if hasattr(
+                            rel.relation_type, 'value') else str(rel.relation_type)
+                        social_parts.append(f"- {rel_name} (强度: {rel.value:.2f})")
+                    social_desc = "\n".join(social_parts)
+
+            # 构建好感度描述
+            if affection_level >= 80:
+                affection_desc = f"非常喜欢 ({affection_level}/100)"
+            elif affection_level >= 60:
+                affection_desc = f"比较喜欢 ({affection_level}/100)"
+            elif affection_level >= 40:
+                affection_desc = f"有一定好感 ({affection_level}/100)"
+            elif affection_level >= 20:
+                affection_desc = f"略有好感 ({affection_level}/100)"
+            elif affection_level >= 0:
+                affection_desc = f"初次见面 ({affection_level}/100)"
+            elif affection_level >= -20:
+                affection_desc = f"略有反感 ({affection_level}/100)"
+            elif affection_level >= -40:
+                affection_desc = f"比较不喜欢 ({affection_level}/100)"
+            else:
+                affection_desc = f"非常讨厌 ({affection_level}/100)"
+
+            # 构建LLM prompt
+            prompt = self._build_llm_guidance_prompt(
+                psych_desc, social_desc, affection_desc
+            )
+
+            # 调用LLM生成
+            logger.debug(f"📤 [行为指导] 调用LLM提炼模型生成指导 (group: {group_id[:8]}...)")
+
+            response = await self.llm_adapter.refine_chat_completion(
+                prompt=prompt,
+                temperature=0.7  # 适度的创造性
+            )
+
+            if response:
+                # 包装为标准格式
+                guidance = f"【行为模式指导】\n{response.strip()}"
+                logger.info(f"✅ [行为指导] LLM生成成功 (长度: {len(guidance)})")
+                return guidance
+            else:
+                logger.warning("⚠️ [行为指导] LLM返回空响应")
+                return ""
+
+        except Exception as e:
+            logger.error(f"❌ [行为指导] LLM生成失败: {e}", exc_info=True)
             return ""
+
+    def _build_llm_guidance_prompt(
+        self,
+        psych_desc: str,
+        social_desc: str,
+        affection_desc: str
+    ) -> str:
+        """
+        构建发送给LLM提炼模型的prompt
+
+        Args:
+            psych_desc: 心理状态描述
+            social_desc: 社交关系描述
+            affection_desc: 好感度描述
+
+        Returns:
+            完整的prompt字符串
+        """
+        prompt = f"""你是一个AI对话行为分析专家。根据以下Bot当前的心理状态、社交关系和好感度信息，生成一段简洁但有效的行为指导prompt。
+
+【Bot当前心理状态】
+{psych_desc if psych_desc else "无明显心理状态"}
+
+【与该用户的社交关系】
+{social_desc if social_desc else "初次接触，关系陌生"}
+
+【对该用户的好感度】
+{affection_desc}
+
+---
+
+请生成一段行为指导，用于指导Bot在对话中的语气、态度和行为模式。要求：
+
+1. **简洁明确**：用2-4个要点说明，每个要点1-2句话
+2. **自然灵活**：避免死板的规则，给Bot留有发挥空间
+3. **情感真实**：根据心理状态和好感度，体现真实的情感倾向
+4. **关系适配**：根据社交关系强度调整亲密度和距离感
+
+输出格式示例：
+- 语气风格：[描述语气特点，如"轻松活泼"、"平和沉稳"等]
+- 态度倾向：[描述对用户的态度，如"友好热情"、"略显冷淡"等]
+- 回复特点：[描述回复风格，如"简短直接"、"详细耐心"等]
+- 特别提示：[可选的其他建议]
+
+请直接输出行为指导内容，不要包含额外的解释或标题。"""
+
+        return prompt
 
     def _generate_emotion_guidance(self, emotion: str, intensity: float) -> str:
         """根据情绪生成行为指导"""

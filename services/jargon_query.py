@@ -3,9 +3,9 @@
 
 提供给LLM使用的黑话查询工具,用于在生成回复时理解群组黑话
 """
-import time
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 from astrbot.api import logger
+from cachetools import TTLCache
 
 
 class JargonQueryService:
@@ -21,23 +21,17 @@ class JargonQueryService:
         """
         self.db = db_manager
 
-        # ⚡ 缓存机制 - 避免频繁查询数据库
-        self._cache: Dict[str, Tuple[float, Any]] = {}
-        self._cache_ttl = cache_ttl
+        # ⚡ 使用 cachetools.TTLCache - 自动过期管理
+        self._cache = TTLCache(maxsize=500, ttl=cache_ttl)
+        logger.info(f"[黑话查询] 使用 TTLCache (maxsize=500, ttl={cache_ttl}s)")
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
-        """从缓存获取数据"""
-        if key in self._cache:
-            timestamp, data = self._cache[key]
-            if time.time() - timestamp < self._cache_ttl:
-                return data
-            else:
-                del self._cache[key]
-        return None
+        """从缓存获取数据 - TTLCache 自动管理过期"""
+        return self._cache.get(key)
 
     def _set_to_cache(self, key: str, data: Any):
-        """设置缓存"""
-        self._cache[key] = (time.time(), data)
+        """设置缓存 - TTLCache 自动管理 TTL"""
+        self._cache[key] = data
 
     async def query_jargon(
         self,
