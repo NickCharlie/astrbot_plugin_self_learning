@@ -948,7 +948,7 @@ class ComponentFactory:
             raise ServiceError(f"创建表达模式学习器失败: {str(e)}")
 
     def create_social_context_injector(self):
-        """创建社交上下文注入器"""
+        """创建社交上下文注入器（整合了心理状态和行为指导功能）"""
         cache_key = "social_context_injector"
 
         if cache_key in self._service_cache:
@@ -956,23 +956,52 @@ class ComponentFactory:
 
         try:
             from ..services.social_context_injector import SocialContextInjector
+            from ..services.manager_factory import ManagerFactory
 
             db_manager = self.service_factory.create_database_manager()
+            llm_adapter = self.service_factory.create_framework_llm_adapter()
 
             # 获取好感度管理器（如果已创建）
             affection_manager = self._service_cache.get("affection_manager")
+
+            # 创建心理状态管理器和社交关系管理器（整合自 PsychologicalSocialContextInjector）
+            manager_factory = ManagerFactory(self.config)
+
+            psychological_state_manager = None
+            social_relation_manager = None
+
+            try:
+                # 创建心理状态管理器
+                psychological_state_manager = manager_factory.create_psychological_manager(
+                    database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
+                    llm_adapter=llm_adapter,
+                    affection_manager=None  # 避免循环依赖
+                )
+
+                # 创建社交关系管理器
+                social_relation_manager = manager_factory.create_social_relation_manager(
+                    database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
+                    llm_adapter=llm_adapter
+                )
+
+                self._logger.info("✅ 成功创建心理状态和社交关系管理器（整合到SocialContextInjector）")
+            except Exception as e:
+                self._logger.warning(f"创建心理状态/社交关系管理器失败: {e}，将使用基础功能")
 
             service = SocialContextInjector(
                 database_manager=db_manager,
                 affection_manager=affection_manager,
                 mood_manager=affection_manager,  # AffectionManager同时也管理情绪
-                config=self.config  # ✅ 传递config以读取expression_patterns_hours配置
+                config=self.config,  # ✅ 传递config以读取expression_patterns_hours配置
+                psychological_state_manager=psychological_state_manager,  # 新增：心理状态管理器
+                social_relation_manager=social_relation_manager,  # 新增：社交关系管理器（但使用原有实现）
+                llm_adapter=llm_adapter  # 新增：LLM适配器
             )
 
             self._service_cache[cache_key] = service
             self._registry.register_service("social_context_injector", service)
 
-            self._logger.info("创建社交上下文注入器成功")
+            self._logger.info("创建社交上下文注入器成功（已整合心理状态功能）")
             return service
 
         except ImportError as e:
@@ -1004,14 +1033,14 @@ class ComponentFactory:
 
             # 创建心理状态管理器(传递affection_manager=None避免循环依赖)
             psychological_state_manager = manager_factory.create_psychological_manager(
-                db_manager=db_manager,
+                database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
                 llm_adapter=llm_adapter,
                 affection_manager=None
             )
 
             # 创建社交关系管理器
             social_relation_manager = manager_factory.create_social_relation_manager(
-                db_manager=db_manager,
+                database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
                 llm_adapter=llm_adapter
             )
 

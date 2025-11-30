@@ -383,7 +383,10 @@ class DatabaseManager(AsyncServiceBase):
 
                 # 转换参数占位符
                 if is_mysql:
-                    converted_sql = sql.replace('?', '%s')
+                    # ✅ MySQL: 转换 INSERT OR REPLACE 为 REPLACE INTO
+                    converted_sql = sql.replace('INSERT OR REPLACE', 'REPLACE')
+                    # 转换参数占位符 ? -> %s
+                    converted_sql = converted_sql.replace('?', '%s')
                 elif is_postgresql:
                     # PostgreSQL 使用 $1, $2, ...
                     # 调用后端的占位符转换方法
@@ -2477,8 +2480,8 @@ class DatabaseManager(AsyncServiceBase):
                 try:
                     await cursor.execute('SELECT COUNT(*) FROM expression_patterns')
                     stats['total_samples'] = (await cursor.fetchone())[0] or 0
-                    
-                    await cursor.execute('SELECT AVG(weight), MAX(created_time) FROM expression_patterns')
+
+                    await cursor.execute('SELECT AVG(weight), MAX(create_time) FROM expression_patterns')
                     row = await cursor.fetchone()
                     if row[0]:
                         stats['avg_confidence'] = round((row[0] or 0) * 100, 1)
@@ -4000,96 +4003,6 @@ class DatabaseManager(AsyncServiceBase):
         finally:
             await cursor.close()
 
-    # Web界面需要的统计方法
-    async def get_style_learning_statistics(self) -> Dict[str, Any]:
-        """获取风格学习统计数据"""
-        try:
-            async with self.get_db_connection() as conn:
-                cursor = await conn.cursor()
-            
-            # 获取基础统计
-            await cursor.execute('''
-                SELECT 
-                    COUNT(DISTINCT group_id) as unique_groups,
-                    AVG(confidence) as avg_confidence,
-                    COUNT(*) as total_samples
-                FROM filtered_messages
-            ''')
-            
-            row = await cursor.fetchone()
-            if row:
-                unique_styles = row[0] or 0
-                avg_confidence = row[1] or 0.0
-                total_samples = row[2] or 0
-            else:
-                unique_styles = 0
-                avg_confidence = 0.0
-                total_samples = 0
-            
-            # 获取最新更新时间
-            await cursor.execute('''
-                SELECT MAX(timestamp) FROM filtered_messages
-            ''')
-            latest_update = await cursor.fetchone()
-            latest_update_time = latest_update[0] if latest_update and latest_update[0] else None
-            
-            return {
-                'unique_styles': unique_styles,
-                'avg_confidence': round(avg_confidence, 2),
-                'total_samples': total_samples,
-                'latest_update': latest_update_time  # 返回时间戳而不是ISO格式
-            }
-            
-        except Exception as e:
-            self._logger.error(f"获取风格学习统计失败: {e}")
-            return {
-                'unique_styles': 0,
-                'avg_confidence': 0,
-                'total_samples': 0,
-                'latest_update': None
-            }
-        finally:
-            await cursor.close()
-
-    async def get_style_progress_data(self) -> List[Dict[str, Any]]:
-        """获取风格进度数据"""
-        try:
-            async with self.get_db_connection() as conn:
-                cursor = await conn.cursor()
-            
-            # 获取学习批次的进度数据
-            await cursor.execute('''
-                SELECT 
-                    group_id,
-                    end_time,
-                    quality_score,
-                    filtered_count,
-                    message_count
-                FROM learning_batches
-                WHERE success = 1 AND end_time IS NOT NULL
-                ORDER BY end_time DESC
-                LIMIT 20
-            ''')
-            
-            progress_data = []
-            for row in await cursor.fetchall():
-                progress_data.append({
-                    'group_id': row[0],
-                    'timestamp': row[1],
-                    'quality_score': row[2] or 0,
-                    'filtered_count': row[3] or 0,
-                    'message_count': row[4] or 0,
-                    'efficiency': (row[3] / row[4] * 100) if row[4] > 0 else 0
-                })
-            
-            return progress_data
-            
-        except Exception as e:
-            self._logger.error(f"获取风格进度数据失败: {e}")
-            return []
-        finally:
-            await cursor.close()
-
     async def get_learning_patterns_data(self) -> Dict[str, Any]:
         """获取学习模式数据"""
         try:
@@ -4376,6 +4289,34 @@ class DatabaseManager(AsyncServiceBase):
                     INDEX idx_timestamp (timestamp)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ''')
+
+            # ✅ 数据库迁移：添加缺失的字段（如果表已存在但缺少这些字段）
+            try:
+                # 检查并添加 reviewer_comment 字段
+                await cursor.execute('''
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'style_learning_reviews'
+                    AND COLUMN_NAME = 'reviewer_comment'
+                ''')
+                if (await cursor.fetchone())[0] == 0:
+                    await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN reviewer_comment TEXT')
+                    self._logger.info("✅ 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表")
+
+                # 检查并添加 review_time 字段
+                await cursor.execute('''
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = 'style_learning_reviews'
+                    AND COLUMN_NAME = 'review_time'
+                ''')
+                if (await cursor.fetchone())[0] == 0:
+                    await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN review_time DOUBLE')
+                    self._logger.info("✅ 迁移：已添加 review_time 字段到 style_learning_reviews 表")
+            except Exception as migration_error:
+                self._logger.warning(f"数据库迁移检查失败（可能是非 MySQL 数据库）: {migration_error}")
         else:
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS style_learning_reviews (
@@ -4393,6 +4334,24 @@ class DatabaseManager(AsyncServiceBase):
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
+
+            # ✅ SQLite 数据库迁移：添加缺失的字段
+            try:
+                # 检查表结构
+                await cursor.execute("PRAGMA table_info(style_learning_reviews)")
+                columns = {row[1] for row in await cursor.fetchall()}
+
+                # 添加 reviewer_comment 字段（如果不存在）
+                if 'reviewer_comment' not in columns:
+                    await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN reviewer_comment TEXT')
+                    self._logger.info("✅ 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表 (SQLite)")
+
+                # 添加 review_time 字段（如果不存在）
+                if 'review_time' not in columns:
+                    await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN review_time REAL')
+                    self._logger.info("✅ 迁移：已添加 review_time 字段到 style_learning_reviews 表 (SQLite)")
+            except Exception as migration_error:
+                self._logger.warning(f"SQLite 数据库迁移失败: {migration_error}")
 
     # 注意：get_pending_style_reviews 方法已在上面定义（约1456行），这里删除重复定义
     # 第一个版本是正确的，第二个版本有async with缩进bug
@@ -4939,7 +4898,7 @@ class DatabaseManager(AsyncServiceBase):
             
             # API指标（基于学习批次的执行时间）
             # ✅ 修复：使用数据库无关的时间格式化方式
-            if self.db_type == 'sqlite':
+            if self.config.db_type == 'sqlite':  # ✅ 修正：self.db_type → self.config.db_type
                 # SQLite语法
                 await cursor.execute('''
                     SELECT
@@ -6227,7 +6186,7 @@ class DatabaseManager(AsyncServiceBase):
 
                 query = '''
                     SELECT id, content, meaning, is_jargon, count,
-                           last_inference_count, is_complete, chat_id, updated_at
+                           last_inference_count, is_complete, chat_id, updated_at, is_global
                     FROM jargon
                     WHERE 1=1
                 '''
@@ -6256,7 +6215,8 @@ class DatabaseManager(AsyncServiceBase):
                         'last_inference_count': row[5],
                         'is_complete': bool(row[6]),
                         'chat_id': row[7],
-                        'updated_at': row[8]
+                        'updated_at': row[8],
+                        'is_global': bool(row[9]) if row[9] is not None else False
                     })
 
                 return jargon_list
@@ -6264,6 +6224,53 @@ class DatabaseManager(AsyncServiceBase):
             except Exception as e:
                 logger.error(f"获取黑话列表失败: {e}", exc_info=True)
                 return []
+            finally:
+                await cursor.close()
+
+    async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
+        """
+        根据ID获取黑话记录
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            黑话记录或None
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 根据数据库类型选择占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                query = f'''
+                    SELECT id, content, meaning, is_jargon, count,
+                           last_inference_count, is_complete, chat_id, updated_at, is_global
+                    FROM jargon
+                    WHERE id = {placeholder}
+                '''
+                await cursor.execute(query, (jargon_id,))
+                row = await cursor.fetchone()
+
+                if row:
+                    return {
+                        'id': row[0],
+                        'content': row[1],
+                        'meaning': row[2],
+                        'is_jargon': bool(row[3]) if row[3] is not None else None,
+                        'count': row[4],
+                        'last_inference_count': row[5],
+                        'is_complete': bool(row[6]),
+                        'chat_id': row[7],
+                        'updated_at': row[8],
+                        'is_global': bool(row[9]) if row[9] is not None else False
+                    }
+                return None
+
+            except Exception as e:
+                logger.error(f"获取黑话记录失败: {e}", exc_info=True)
+                return None
             finally:
                 await cursor.close()
 

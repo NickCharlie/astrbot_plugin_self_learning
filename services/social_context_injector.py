@@ -11,11 +11,25 @@ from astrbot.api import logger
 class SocialContextInjector:
     """社交上下文注入器 - 格式化并注入用户社交关系、好感度、Bot情绪到prompt"""
 
-    def __init__(self, database_manager, affection_manager=None, mood_manager=None, config=None):
+    def __init__(
+        self,
+        database_manager,
+        affection_manager=None,
+        mood_manager=None,
+        config=None,
+        psychological_state_manager=None,
+        social_relation_manager=None,
+        llm_adapter=None
+    ):
         self.database_manager = database_manager
         self.affection_manager = affection_manager
         self.mood_manager = mood_manager
         self.config = config  # 添加config参数以读取配置
+
+        # 新增：心理状态和社交关系管理器（整合自 PsychologicalSocialContextInjector）
+        self.psych_manager = psychological_state_manager
+        self.social_manager = social_relation_manager
+        self.llm_adapter = llm_adapter
 
         # 提示词保护服务（延迟加载）
         self._prompt_protection = None
@@ -60,10 +74,12 @@ class SocialContextInjector:
         include_affection: bool = True,
         include_mood: bool = True,
         include_expression_patterns: bool = True,
+        include_psychological: bool = True,
+        include_behavior_guidance: bool = True,
         enable_protection: bool = True
     ) -> Optional[str]:
         """
-        格式化完整的上下文信息（社交关系、好感度、情绪、风格特征）
+        格式化完整的上下文信息（社交关系、好感度、情绪、风格特征、心理状态、行为指导）
         并统一应用提示词保护
 
         Args:
@@ -73,6 +89,8 @@ class SocialContextInjector:
             include_affection: 是否包含好感度信息
             include_mood: 是否包含情绪信息
             include_expression_patterns: 是否包含最近学到的表达模式
+            include_psychological: 是否包含深度心理状态分析（整合自 PsychologicalSocialContextInjector）
+            include_behavior_guidance: 是否包含行为模式指导（整合自 PsychologicalSocialContextInjector）
             enable_protection: 是否启用提示词保护
 
         Returns:
@@ -81,28 +99,37 @@ class SocialContextInjector:
         try:
             context_parts = []
 
-            # 1. Bot当前情绪信息
+            # 1. 深度心理状态分析（整合自 PsychologicalSocialContextInjector）
+            if include_psychological and self.psych_manager:
+                psych_context = await self._build_psychological_context(group_id)
+                if psych_context:
+                    context_parts.append(psych_context)
+                    logger.info(f"✅ [社交上下文] 已准备深度心理状态 (群组: {group_id}, 长度: {len(psych_context)})")
+                else:
+                    logger.info(f"⚠️ [社交上下文] 群组 {group_id} 暂无活跃的心理状态")
+
+            # 2. Bot当前情绪信息（基础版，可与心理状态共存）
             if include_mood and self.mood_manager:
                 mood_text = await self._format_mood_context(group_id)
                 if mood_text:
                     context_parts.append(mood_text)
                     logger.debug(f"✅ [社交上下文] 已准备情绪信息 (群组: {group_id})")
 
-            # 2. 对该用户的好感度信息
+            # 3. 对该用户的好感度信息
             if include_affection and self.affection_manager:
                 affection_text = await self._format_affection_context(group_id, user_id)
                 if affection_text:
                     context_parts.append(affection_text)
                     logger.debug(f"✅ [社交上下文] 已准备好感度信息 (群组: {group_id}, 用户: {user_id[:8]}...)")
 
-            # 3. 用户社交关系信息
+            # 4. 用户社交关系信息（使用 SocialContextInjector 原有实现）
             if include_social_relations:
                 social_text = await self.format_social_context(group_id, user_id)
                 if social_text:
                     context_parts.append(social_text)
                     logger.debug(f"✅ [社交上下文] 已准备社交关系 (群组: {group_id}, 用户: {user_id[:8]}...)")
 
-            # 4. 最近学到的表达模式（风格特征）
+            # 5. 最近学到的表达模式（风格特征）- SocialContextInjector 独有
             # 注意：表达模式内部已经应用了保护，这里获取的是保护后的文本
             if include_expression_patterns:
                 expression_text = await self._format_expression_patterns_context(
@@ -114,6 +141,15 @@ class SocialContextInjector:
                     logger.info(f"✅ [社交上下文] 已准备表达模式 (群组: {group_id}, 长度: {len(expression_text)})")
                 else:
                     logger.info(f"⚠️ [社交上下文] 群组 {group_id} 暂无表达模式学习记录")
+
+            # 6. 行为模式指导（整合自 PsychologicalSocialContextInjector）
+            if include_behavior_guidance and (include_psychological or include_social_relations):
+                behavior_guidance = await self._build_behavior_guidance(group_id, user_id)
+                if behavior_guidance:
+                    context_parts.append(behavior_guidance)
+                    logger.info(f"✅ [社交上下文] 已准备行为模式指导 (长度: {len(behavior_guidance)})")
+                else:
+                    logger.debug(f"⚠️ [社交上下文] 未生成行为模式指导")
 
             if not context_parts:
                 return None
@@ -527,3 +563,64 @@ class SocialContextInjector:
         except Exception as e:
             logger.error(f"注入上下文失败: {e}", exc_info=True)
             return original_prompt
+    # ========== 整合自 PsychologicalSocialContextInjector 的方法 ==========
+
+    async def _build_psychological_context(self, group_id: str) -> str:
+        """构建深度心理状态上下文（整合自 PsychologicalSocialContextInjector）"""
+        try:
+            if not self.psych_manager:
+                return ""
+
+            cache_key = f"psych_context_{group_id}"
+            cached = self._get_from_cache(cache_key)
+            if cached:
+                return cached
+
+            # 从心理状态管理器获取当前状态
+            state_prompt = await self.psych_manager.get_state_prompt_injection(group_id)
+
+            if state_prompt:
+                self._set_to_cache(cache_key, state_prompt)
+                return state_prompt
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"构建深度心理状态上下文失败: {e}", exc_info=True)
+            return ""
+
+    async def _build_behavior_guidance(self, group_id: str, user_id: str) -> str:
+        """
+        构建行为模式指导（复用 PsychologicalSocialContextInjector 的完整实现）
+
+        基于心理状态和社交关系生成行为指导
+        通过内部调用 PsychologicalSocialContextInjector 来实现完整功能
+        """
+        try:
+            # 延迟导入，避免循环依赖
+            if not hasattr(self, '_psych_social_injector'):
+                from .psychological_social_context_injector import PsychologicalSocialContextInjector
+
+                # 创建 PsychologicalSocialContextInjector 实例（复用现有管理器）
+                self._psych_social_injector = PsychologicalSocialContextInjector(
+                    database_manager=self.database_manager,
+                    psychological_state_manager=self.psych_manager,
+                    social_relation_manager=self.social_manager,
+                    affection_manager=self.affection_manager,
+                    diversity_manager=None,  # 不需要多样性管理器
+                    llm_adapter=self.llm_adapter,
+                    config=self.config
+                )
+                logger.debug("✅ [SocialContextInjector] 已创建内部 PsychologicalSocialContextInjector")
+
+            # 调用 PsychologicalSocialContextInjector 的行为指导方法
+            if hasattr(self._psych_social_injector, '_build_behavior_guidance'):
+                guidance = await self._psych_social_injector._build_behavior_guidance(group_id, user_id)
+                return guidance
+            else:
+                logger.warning("⚠️ PsychologicalSocialContextInjector 没有 _build_behavior_guidance 方法")
+                return ""
+
+        except Exception as e:
+            logger.error(f"构建行为模式指导失败: {e}", exc_info=True)
+            return ""

@@ -2,6 +2,7 @@
 Bug报告服务 - 处理Bug报告相关业务逻辑
 """
 import os
+import aiohttp
 from typing import Dict, Any, List, Tuple, Optional
 from astrbot.api import logger
 
@@ -104,7 +105,16 @@ class BugReportService:
         提交Bug报告
 
         Args:
-            bug_data: Bug报告数据
+            bug_data: Bug报告数据，包含以下字段：
+                - title: Bug标题
+                - steps: 重现步骤
+                - severity: 严重程度 (1-4)
+                - pri: 优先级 (1-4)
+                - type: Bug类型
+                - build: 影响版本（可选）
+                - os: 操作系统（可选）
+                - browser: 浏览器（可选）
+                - mailto: 联系邮箱（可选）
 
         Returns:
             Tuple[bool, str, Optional[Dict]]: (是否成功, 消息, 响应数据)
@@ -116,17 +126,99 @@ class BugReportService:
                 return False, f"缺少必需字段: {field}", None
 
         try:
-            # TODO: 实现实际的Bug提交逻辑
-            # 这里应该调用云函数API提交Bug
+            # 获取云函数URL
+            cloud_url = os.getenv(
+                "ASTRBOT_BUG_CLOUD_URL",
+                "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
+            )
 
-            logger.info(f"Bug报告提交: {bug_data.get('title')}")
-
-            # 模拟成功响应
-            return True, "Bug报告提交成功", {
-                "bug_id": "mock_123",
-                "status": "submitted"
+            # ✅ 构建完整的重现步骤，包含所有信息
+            severity_labels = {1: "致命", 2: "严重", 3: "一般", 4: "轻微"}
+            priority_labels = {1: "紧急", 2: "高", 3: "中", 4: "低"}
+            type_labels = {
+                "codeerror": "代码错误",
+                "config": "配置相关",
+                "install": "安装部署",
+                "performance": "性能问题",
+                "others": "其他"
             }
 
+            severity = bug_data.get("severity", 3)
+            priority = bug_data.get("pri", 3)
+            bug_type = bug_data.get("type", "others")
+            mailto = bug_data.get("mailto", "")
+
+            # 构建格式化的完整步骤说明
+            formatted_steps = f"""【Bug标题】
+{bug_data['title']}
+
+【严重程度】
+{severity} - {severity_labels.get(severity, '未知')}
+
+【优先级】
+{priority} - {priority_labels.get(priority, '未知')}
+
+【Bug类型】
+{type_labels.get(bug_type, bug_type)}
+
+【影响版本】
+{bug_data.get('build', '未指定')}
+
+【操作系统】
+{bug_data.get('os', '未指定')}
+
+【浏览器】
+{bug_data.get('browser', '未指定')}
+
+【联系邮箱】
+{mailto if mailto else '未提供'}
+
+【重现步骤】
+{bug_data['steps']}
+"""
+
+            # ✅ 构建请求数据，将完整信息放入steps字段
+            payload = {
+                "title": bug_data["title"],
+                "steps": formatted_steps,
+                "severity": severity,
+                "pri": priority,
+                "type": bug_type,
+                "build": bug_data.get("build", "v2.0"),
+                "os": bug_data.get("os", ""),
+                "browser": bug_data.get("browser", ""),
+                "mailto": mailto,
+            }
+
+            logger.info(f"准备提交Bug报告: {payload['title']}")
+            logger.debug(f"Bug报告完整数据: {payload}")
+
+            # ✅ 实际调用云函数API
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    cloud_url,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    status_code = response.status
+                    response_text = await response.text()
+
+                    logger.info(f"云函数响应状态: {status_code}")
+                    logger.debug(f"云函数响应内容: {response_text}")
+
+                    if status_code == 200:
+                        try:
+                            response_data = await response.json()
+                            return True, "Bug报告提交成功", response_data
+                        except Exception:
+                            # 如果响应不是JSON，但状态码是200，仍然认为成功
+                            return True, "Bug报告提交成功", {"status": "submitted", "message": response_text}
+                    else:
+                        return False, f"提交失败: HTTP {status_code} - {response_text}", None
+
+        except aiohttp.ClientError as e:
+            logger.error(f"提交Bug报告网络错误: {e}", exc_info=True)
+            return False, f"网络请求失败: {str(e)}", None
         except Exception as e:
             logger.error(f"提交Bug报告失败: {e}", exc_info=True)
             return False, f"提交失败: {str(e)}", None

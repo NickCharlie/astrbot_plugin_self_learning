@@ -87,6 +87,7 @@ class MySQLConnectionPool(ConnectionPool):
     def __init__(self, config: DatabaseConfig):
         self.config = config
         self.pool: Optional[aiomysql.Pool] = None
+        self._is_closed = False  # ✅ 添加关闭状态标记
 
     async def initialize(self):
         """初始化连接池"""
@@ -104,20 +105,26 @@ class MySQLConnectionPool(ConnectionPool):
             maxsize=self.config.max_connections,
             autocommit=False
         )
+        self._is_closed = False
         logger.info(f"[MySQL] 连接池初始化成功: {self.config.mysql_host}:{self.config.mysql_port}/{self.config.mysql_database}")
 
     async def get_connection(self):
         """获取数据库连接"""
+        # ✅ 添加状态检查，防止使用已关闭的连接池
+        if self._is_closed or not self.pool:
+            logger.warning("[MySQL] 尝试从已关闭的连接池获取连接，跳过操作")
+            raise RuntimeError("连接池已关闭或未初始化，无法获取连接")
         return await self.pool.acquire()
 
     async def return_connection(self, conn):
         """归还数据库连接"""
-        if conn:
+        if conn and self.pool and not self._is_closed:
             self.pool.release(conn)
 
     async def close_all(self):
         """关闭所有连接"""
-        if self.pool:
+        if self.pool and not self._is_closed:
+            self._is_closed = True  # ✅ 先设置关闭标记
             self.pool.close()
             await self.pool.wait_closed()
             logger.info("[MySQL] 连接池已关闭")

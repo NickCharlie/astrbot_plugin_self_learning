@@ -30,20 +30,28 @@ class FrameworkLLMAdapter:
     def initialize_providers(self, config):
         """根据配置初始化Provider"""
         from astrbot.core.provider.entities import ProviderType
-        
+
         self.providers_configured = 0
-        
+
+        # ✅ 添加配置调试日志
+        logger.info(f"🔧 [LLM适配器] 开始初始化Provider，配置信息：")
+        logger.info(f"  - filter_provider_id: {config.filter_provider_id}")
+        logger.info(f"  - refine_provider_id: {config.refine_provider_id}")
+        logger.info(f"  - reinforce_provider_id: {config.reinforce_provider_id}")
+
         # 获取所有可用的Provider列表作为备选
         available_providers = []
         try:
             # 尝试获取所有Provider的ID列表
             if hasattr(self.context, 'get_all_provider_ids'):
                 provider_ids = self.context.get_all_provider_ids()
+                logger.info(f"  - 可用的Provider ID列表: {provider_ids}")
                 for provider_id in provider_ids:
                     provider = self.context.get_provider_by_id(provider_id)
                     if provider and provider.meta().provider_type == ProviderType.CHAT_COMPLETION:
                         available_providers.append(provider)
-            logger.info(f"发现 {len(available_providers)} 个可用的CHAT_COMPLETION类型Provider")
+                        logger.debug(f"    ✅ Provider {provider_id} 可用 (类型: {provider.meta().provider_type.value})")
+            logger.info(f"🔍 发现 {len(available_providers)} 个可用的CHAT_COMPLETION类型Provider")
         except Exception as e:
             logger.warning(f"获取可用Provider列表失败: {e}")
         

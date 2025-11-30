@@ -28,26 +28,37 @@ class JargonService:
         if not self.database_manager:
             return {
                 'total_jargons': 0,
-                'global_jargons': 0,
-                'group_specific_jargons': 0,
-                'total_groups': 0
+                'confirmed_jargon': 0,
+                'total_candidates': 0,
+                'active_groups': 0,
+                'total_occurrences': 0,
+                'average_count': 0
             }
 
         try:
-            stats = await self.database_manager.get_jargon_statistics()
-            return stats if stats else {
-                'total_jargons': 0,
-                'global_jargons': 0,
-                'group_specific_jargons': 0,
-                'total_groups': 0
+            # 调用数据库方法获取全局统计（不传chat_id）
+            stats = await self.database_manager.get_jargon_statistics(chat_id=None)
+
+            # 数据库返回的字段：total_candidates, confirmed_jargon, completed_inference, total_occurrences, average_count, active_groups
+            # WebUI需要的字段：total_jargons, confirmed_jargon, total_candidates, active_groups, ...
+            return {
+                'total_jargons': stats.get('total_candidates', 0),  # 总候选数即总黑话数
+                'confirmed_jargon': stats.get('confirmed_jargon', 0),  # 已确认的黑话
+                'total_candidates': stats.get('total_candidates', 0),  # 总候选数
+                'active_groups': stats.get('active_groups', 0),  # 活跃群组数
+                'total_occurrences': stats.get('total_occurrences', 0),  # 总出现次数
+                'average_count': stats.get('average_count', 0),  # 平均出现次数
+                'completed_inference': stats.get('completed_inference', 0)  # 已完成推理的数量
             }
         except Exception as e:
             logger.error(f"获取黑话统计失败: {e}", exc_info=True)
             return {
                 'total_jargons': 0,
-                'global_jargons': 0,
-                'group_specific_jargons': 0,
-                'total_groups': 0
+                'confirmed_jargon': 0,
+                'total_candidates': 0,
+                'active_groups': 0,
+                'total_occurrences': 0,
+                'average_count': 0
             }
 
     async def get_jargon_list(
@@ -71,14 +82,36 @@ class JargonService:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            jargons, total = await self.database_manager.get_jargon_list(
-                group_id=group_id,
-                offset=(page - 1) * page_size,
-                limit=page_size
+            # 使用数据库的 get_recent_jargon_list 方法
+            # 注意：原方法不支持分页，这里需要手动处理
+            jargons = await self.database_manager.get_recent_jargon_list(
+                chat_id=group_id,
+                limit=page_size * page,  # 获取到当前页的所有数据
+                only_confirmed=False  # 获取所有黑话，包括候选
             )
 
+            # 手动实现分页
+            total = len(jargons)
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            page_jargons = jargons[start_idx:end_idx] if start_idx < len(jargons) else []
+
+            # 格式化数据
+            formatted_jargons = []
+            for j in page_jargons:
+                formatted_jargons.append({
+                    'id': j.get('id'),
+                    'content': j.get('content'),
+                    'meaning': j.get('meaning', ''),
+                    'is_jargon': bool(j.get('is_jargon', False)),
+                    'is_global': bool(j.get('is_global', False)),
+                    'count': j.get('count', 0),
+                    'chat_id': j.get('chat_id'),
+                    'updated_at': j.get('updated_at')
+                })
+
             return {
-                'jargons': jargons,
+                'jargons': formatted_jargons,
                 'total': total,
                 'page': page,
                 'page_size': page_size,
@@ -122,7 +155,8 @@ class JargonService:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            success = await self.database_manager.delete_jargon(jargon_id)
+            # 使用 delete_jargon_by_id 方法
+            success = await self.database_manager.delete_jargon_by_id(jargon_id)
             if success:
                 logger.info(f"黑话 {jargon_id} 已删除")
                 return True, f"黑话 {jargon_id} 已删除"

@@ -176,6 +176,13 @@ class PluginConfig:
         basic_settings = config.get('Self_Learning_Basic', {})
         target_settings = config.get('Target_Settings', {})
         model_config = config.get('Model_Configuration', {})
+
+        # ✅ 添加调试日志：显示原始配置数据
+        logger.info(f"🔍 [配置加载] Model_Configuration原始数据: {model_config}")
+        logger.info(f"🔍 [配置加载] filter_provider_id: {model_config.get('filter_provider_id', 'NOT_FOUND')}")
+        logger.info(f"🔍 [配置加载] refine_provider_id: {model_config.get('refine_provider_id', 'NOT_FOUND')}")
+        logger.info(f"🔍 [配置加载] reinforce_provider_id: {model_config.get('reinforce_provider_id', 'NOT_FOUND')}")
+
         learning_params = config.get('Learning_Parameters', {})
         filter_params = config.get('Filter_Parameters', {})
         style_analysis = config.get('Style_Analysis', {})

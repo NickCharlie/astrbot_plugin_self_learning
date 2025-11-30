@@ -1,7 +1,7 @@
 """
 人格学习和风格学习相关的 ORM 模型
 """
-from sqlalchemy import Column, Integer, String, Text, Float, Index, BigInteger
+from sqlalchemy import Column, Integer, String, Text, Float, Index, BigInteger, DateTime
 from .base import Base
 
 
@@ -44,8 +44,10 @@ class StyleLearningReview(Base):
     description = Column(Text)  # 描述信息
     reviewer_comment = Column(Text)  # 审查评论
     review_time = Column(Float)  # 审查时间
-    created_at = Column(Float)  # 使用 REAL/Float 以匹配传统数据库
-    updated_at = Column(Float)  # 使用 REAL/Float 以匹配传统数据库
+    # ✅ 修改为 DateTime 类型以兼容 MySQL 的 DATETIME
+    # SQLite 使用 TIMESTAMP，MySQL 使用 DATETIME，SQLAlchemy 的 DateTime 可以自动适配
+    created_at = Column(DateTime)  # 创建时间
+    updated_at = Column(DateTime)  # 更新时间
 
     __table_args__ = (
         Index('idx_status', 'status'),

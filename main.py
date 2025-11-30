@@ -77,7 +77,13 @@ class SelfLearningPlugin(star.Star):
 
             logger.info(f"最终插件数据目录: {plugin_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
-            
+
+            # ✅ 添加Provider配置加载日志
+            logger.info(f"🔧 [插件初始化] Provider配置已加载：")
+            logger.info(f"  - filter_provider_id: {self.plugin_config.filter_provider_id}")
+            logger.info(f"  - refine_provider_id: {self.plugin_config.refine_provider_id}")
+            logger.info(f"  - reinforce_provider_id: {self.plugin_config.reinforce_provider_id}")
+
         except Exception as e:
             logger.error(f"初始化插件配置失败: {e}")
             # 使用最保险的默认配置
@@ -267,7 +273,8 @@ class SelfLearningPlugin(star.Star):
             self.intelligence_enhancement = component_factory.create_intelligence_enhancement_service()
             self.affection_manager = component_factory.create_affection_manager_service()
 
-            # ✅ 创建社交上下文注入器 - 用于注入表达模式学习结果和bot历史消息
+            # ✅ 创建社交上下文注入器（已整合心理状态、行为指导功能）
+            # 包含：表达模式学习、深度心理状态、社交关系、好感度、行为指导
             # 必须在intelligent_responder之前创建，这样才能被正确注入
             self.social_context_injector = component_factory.create_social_context_injector()
 
@@ -2530,42 +2537,47 @@ PersonaManager模式优势：
             original_prompt_length = len(req.prompt)
             logger.info(f"✅ [LLM Hook] 开始注入多样性增强 (group: {group_id}, 原prompt长度: {original_prompt_length})")
 
-            # 收集所有要注入的内容
-            injections = []
+            # 收集要注入的内容 - 所有增量内容都注入到 req.prompt（用户消息上下文）
+            prompt_injections = []
 
-            # ✅ 0. 注入会话绑定的人格信息
-            session_persona_prompt = await self._get_active_persona_prompt(event)
-            if session_persona_prompt:
-                injections.append(f"【当前人格设定】\n{session_persona_prompt}")
-                logger.info(f"✅ [LLM Hook] 已注入会话人格，长度 {len(session_persona_prompt)}")
-            else:
-                logger.debug("[LLM Hook] 未获取到会话人格，使用默认提示")
+            # ❌ 移除重复的人格注入 - 框架已经在 req.system_prompt 中注入了 persona["prompt"]
+            # 如果需要查看当前人格，可以通过 req.system_prompt 访问
+            # session_persona_prompt = await self._get_active_persona_prompt(event)
+            logger.debug("[LLM Hook] 跳过基础人格注入（框架已处理），专注于增量内容")
 
-            # ✅ 1. 注入社交上下文（根据配置决定）
+            # ✅ 1. 注入社交上下文（已整合所有功能）
+            # SocialContextInjector 现在包含：
+            # - 表达模式学习（原有）
+            # - 社交关系（原有）
+            # - 好感度（原有）
+            # - 基础情绪（原有）
+            # - 深度心理状态（整合自 PsychologicalSocialContextInjector）
+            # - 行为模式指导（整合自 PsychologicalSocialContextInjector）
+
             if hasattr(self, 'social_context_injector') and self.social_context_injector:
                 try:
-                    # 根据配置决定是否注入各类社交上下文
-                    # 修复: 使用正确的方法名 build_complete_context
-                    social_context = await self.social_context_injector.build_complete_context(
+                    social_context = await self.social_context_injector.format_complete_context(
                         group_id=group_id,
                         user_id=user_id,
-                        include_psychological=True,  # 包含心理状态
-                        include_social_relation=self.plugin_config.include_social_relations,  # 根据配置
-                        include_affection=self.plugin_config.include_affection_info,  # 根据配置
-                        include_diversity=False,  # 多样性在下面单独处理
-                        enable_protection=True  # 启用提示词保护
+                        include_social_relations=self.plugin_config.include_social_relations,  # 社交关系
+                        include_affection=self.plugin_config.include_affection_info,  # 好感度
+                        include_mood=False,  # 基础情绪（已被深度心理状态包含，避免重复）
+                        include_expression_patterns=True,  # ⭐ 表达模式学习结果
+                        include_psychological=True,  # ⭐ 深度心理状态分析
+                        include_behavior_guidance=True,  # ⭐ 行为模式指导
+                        enable_protection=True
                     )
                     if social_context:
-                        injections.append(social_context)
-                        logger.info(f"✅ [LLM Hook] 已准备社交上下文 (长度: {len(social_context)})")
+                        prompt_injections.append(social_context)
+                        logger.info(f"✅ [LLM Hook] 已准备完整社交上下文 (长度: {len(social_context)})")
                     else:
-                        logger.info(f"⚠️ [LLM Hook] 群组 {group_id} 暂无社交上下文（表达模式/社交关系/好感度/情绪均为空）")
+                        logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
                 except Exception as e:
                     logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
             else:
                 logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
 
-            # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容)
+            # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容) - 注入到 prompt
             diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
                 "",  # 传空字符串，只生成注入内容
                 group_id=group_id,  # 传入group_id以获取历史消息
@@ -2578,10 +2590,10 @@ PersonaManager模式优势：
             # 提取纯注入内容（去除空的base_prompt）
             diversity_content = diversity_content.strip()
             if diversity_content:
-                injections.append(diversity_content)
+                prompt_injections.append(diversity_content)
                 logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(diversity_content)})")
 
-            # ✅ 3. 注入黑话理解（如果用户消息中包含黑话）
+            # ✅ 3. 注入黑话理解（如果用户消息中包含黑话）- 注入到 prompt
             if hasattr(self, 'jargon_query_service') and self.jargon_query_service:
                 try:
                     # 获取用户消息文本
@@ -2594,7 +2606,7 @@ PersonaManager模式优势：
                     )
 
                     if jargon_explanation:
-                        injections.append(jargon_explanation)
+                        prompt_injections.append(jargon_explanation)
                         logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(jargon_explanation)})")
                     else:
                         logger.debug(f"[LLM Hook] 用户消息中未检测到已知黑话")
@@ -2603,13 +2615,13 @@ PersonaManager模式优势：
             else:
                 logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
 
-            # ✅ 4. 注入会话级增量更新 (修复会话串流bug)
+            # ✅ 4. 注入会话级增量更新 (修复会话串流bug) - 注入到 prompt
             if hasattr(self, 'temporary_persona_updater') and self.temporary_persona_updater:
                 try:
                     session_updates = self.temporary_persona_updater.session_updates.get(group_id, [])
                     if session_updates:
                         updates_text = '\n\n'.join(session_updates)
-                        injections.append(updates_text)
+                        prompt_injections.append(updates_text)
                         logger.info(f"✅ [LLM Hook] 已准备会话级更新 (会话: {group_id}, 更新数: {len(session_updates)}, 长度: {len(updates_text)})")
                     else:
                         logger.debug(f"[LLM Hook] 会话 {group_id} 暂无增量更新")
@@ -2618,23 +2630,24 @@ PersonaManager模式优势：
             else:
                 logger.debug("[LLM Hook] temporary_persona_updater未初始化，跳过会话级更新注入")
 
-            # ✅ 5. 使用 += 追加所有注入内容到 req.prompt
-            if injections:
-                injection_text = '\n\n'.join(injections)
-                req.prompt += '\n\n' + injection_text  # ← 使用 += 追加，不覆盖
+            # ✅ 5. 注入所有增量内容到 req.prompt（用户消息上下文）
+            if prompt_injections:
+                prompt_injection_text = '\n\n'.join(prompt_injections)
+                req.prompt += '\n\n' + prompt_injection_text
 
-                # 保存当前风格和模式（用于日志记录）
+                final_prompt_length = len(req.prompt)
+                prompt_injected_length = final_prompt_length - original_prompt_length
+
+                # 统计和日志
                 current_language_style = self.diversity_manager.get_current_style()
                 current_response_pattern = self.diversity_manager.get_current_pattern()
 
-                final_prompt_length = len(req.prompt)
-                injected_length = final_prompt_length - original_prompt_length
-
-                logger.info(f"✅ [LLM Hook] 多样性注入完成 - 原长度: {original_prompt_length}, 新增: {injected_length}, 总长度: {final_prompt_length}")
+                logger.info(f"✅ [LLM Hook] Prompt 注入完成 - 原长度: {original_prompt_length}, 新增: {prompt_injected_length}, 总长度: {final_prompt_length}")
                 logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
-                logger.debug(f"✅ [LLM Hook] 注入内容预览: {injection_text[:200]}...")
+                logger.info(f"✅ [LLM Hook] 注入内容数量: {len(prompt_injections)}项")
+                logger.debug(f"✅ [LLM Hook] Prompt 注入内容预览: {prompt_injection_text[:200]}...")
             else:
-                logger.debug("[LLM Hook] 没有可注入的多样性内容")
+                logger.debug("[LLM Hook] 没有可注入的增量内容")
 
         except Exception as e:
             logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)

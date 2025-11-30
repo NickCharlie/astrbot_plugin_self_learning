@@ -243,8 +243,9 @@ class SQLAlchemyDatabaseManager:
         self,
         group_id: str,
         user_id: str,
-        affection_delta: int,
-        max_affection: int = 100
+        new_level: int,
+        change_reason: str = "",
+        bot_mood: str = ""
     ) -> bool:
         """
         更新用户好感度（兼容接口）
@@ -252,8 +253,9 @@ class SQLAlchemyDatabaseManager:
         Args:
             group_id: 群组 ID
             user_id: 用户 ID
-            affection_delta: 好感度变化量
-            max_affection: 最大好感度
+            new_level: 新的好感度等级
+            change_reason: 变化原因
+            bot_mood: 机器人情绪状态
 
         Returns:
             bool: 是否更新成功
@@ -261,12 +263,23 @@ class SQLAlchemyDatabaseManager:
         try:
             async with self.get_session() as session:
                 repo = AffectionRepository(session)
+
+                # 获取当前好感度以计算delta
+                current = await repo.get_affection(group_id, user_id)
+                previous_level = current.level if current else 0
+                affection_delta = new_level - previous_level
+
+                # 使用 Repository 的 update_level 方法
                 affection = await repo.update_level(
                     group_id,
                     user_id,
                     affection_delta,
-                    max_affection
+                    max_affection=100  # 默认最大值
                 )
+
+                # TODO: 如果需要记录 change_reason 和 bot_mood，需要扩展 Repository
+                # 当前版本忽略这些参数，保持向后兼容
+
                 return affection is not None
 
         except Exception as e:
@@ -430,11 +443,11 @@ class SQLAlchemyDatabaseManager:
                 stmt_outgoing = select(UserSocialRelationComponent).where(
                     and_(
                         UserSocialRelationComponent.group_id == group_id,
-                        or_(*[UserSocialRelationComponent.from_user == key for key in user_keys])
+                        or_(*[UserSocialRelationComponent.from_user_id == key for key in user_keys])  # ✅ 修正字段名
                     )
                 ).order_by(
                     UserSocialRelationComponent.frequency.desc(),
-                    UserSocialRelationComponent.strength.desc()
+                    UserSocialRelationComponent.value.desc()  # ✅ 修正字段名 strength → value
                 ).limit(self.config.default_social_limit)
 
                 result = await session.execute(stmt_outgoing)
@@ -444,11 +457,11 @@ class SQLAlchemyDatabaseManager:
                 stmt_incoming = select(UserSocialRelationComponent).where(
                     and_(
                         UserSocialRelationComponent.group_id == group_id,
-                        or_(*[UserSocialRelationComponent.to_user == key for key in user_keys])
+                        or_(*[UserSocialRelationComponent.to_user_id == key for key in user_keys])  # ✅ 修正字段名
                     )
                 ).order_by(
                     UserSocialRelationComponent.frequency.desc(),
-                    UserSocialRelationComponent.strength.desc()
+                    UserSocialRelationComponent.value.desc()  # ✅ 修正字段名 strength → value
                 ).limit(self.config.default_social_limit)
 
                 result = await session.execute(stmt_incoming)
@@ -461,23 +474,23 @@ class SQLAlchemyDatabaseManager:
                     'group_id': group_id,
                     'outgoing': [
                         {
-                            'from_user': r.from_user,
-                            'to_user': r.to_user,
+                            'from_user': r.from_user_id,  # ✅ 修正字段名
+                            'to_user': r.to_user_id,      # ✅ 修正字段名
                             'relation_type': r.relation_type,
-                            'strength': r.strength,
+                            'strength': r.value,           # ✅ 修正字段名 strength → value
                             'frequency': r.frequency,
-                            'last_interaction': r.last_interaction_time
+                            'last_interaction': r.last_interaction  # ✅ 修正字段名
                         }
                         for r in outgoing_relations
                     ],
                     'incoming': [
                         {
-                            'from_user': r.from_user,
-                            'to_user': r.to_user,
+                            'from_user': r.from_user_id,  # ✅ 修正字段名
+                            'to_user': r.to_user_id,      # ✅ 修正字段名
                             'relation_type': r.relation_type,
-                            'strength': r.strength,
+                            'strength': r.value,           # ✅ 修正字段名 strength → value
                             'frequency': r.frequency,
-                            'last_interaction': r.last_interaction_time
+                            'last_interaction': r.last_interaction  # ✅ 修正字段名
                         }
                         for r in incoming_relations
                     ],

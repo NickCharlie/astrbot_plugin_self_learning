@@ -743,9 +743,16 @@ class PsychologicalStateManager(AsyncServiceBase):
             async with self.db_manager.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-                # 保存复合状态元数据
+                # ✅ 使用数据库无关的语法：DELETE + INSERT 替代 INSERT OR REPLACE
+                # 先删除旧记录
                 await cursor.execute('''
-                    INSERT OR REPLACE INTO composite_psychological_states
+                    DELETE FROM composite_psychological_states
+                    WHERE group_id = ? AND state_id = ?
+                ''', (state.group_id, state.state_id))
+
+                # 再插入新记录
+                await cursor.execute('''
+                    INSERT INTO composite_psychological_states
                     (group_id, state_id, triggering_events, context, created_at, last_updated)
                     VALUES (?, ?, ?, ?, ?, ?)
                 ''', (

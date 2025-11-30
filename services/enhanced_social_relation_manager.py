@@ -654,9 +654,16 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             async with self.db_manager.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-                # 保存档案统计
+                # ✅ 使用数据库无关的语法：DELETE + INSERT 替代 INSERT OR REPLACE
+                # 先删除旧记录
                 await cursor.execute('''
-                    INSERT OR REPLACE INTO user_social_profiles
+                    DELETE FROM user_social_profiles
+                    WHERE user_id = ? AND group_id = ?
+                ''', (profile.user_id, profile.group_id))
+
+                # 再插入新记录
+                await cursor.execute('''
+                    INSERT INTO user_social_profiles
                     (user_id, group_id, total_relations, significant_relations,
                      dominant_relation_type, created_at, last_updated)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -671,8 +678,15 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
                     rel_type_str = relation.relation_type.value if hasattr(
                         relation.relation_type, 'value') else str(relation.relation_type)
 
+                    # ✅ 先删除旧关系记录
                     await cursor.execute('''
-                        INSERT OR REPLACE INTO user_social_relation_components
+                        DELETE FROM user_social_relation_components
+                        WHERE from_user_id = ? AND to_user_id = ? AND group_id = ? AND relation_type = ?
+                    ''', (profile.user_id, "bot", profile.group_id, rel_type_str))
+
+                    # 再插入新关系记录
+                    await cursor.execute('''
+                        INSERT INTO user_social_relation_components
                         (from_user_id, to_user_id, group_id, relation_type, value,
                          frequency, last_interaction, description, tags, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
