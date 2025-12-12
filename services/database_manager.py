@@ -1698,25 +1698,37 @@ class DatabaseManager(AsyncServiceBase):
         cursor = await conn.cursor()
 
         try:
+            # 添加 WHERE 子句来过滤特定群组的关系
+            # 社交关系中的 from_user 和 to_user 格式为 "group_id:user_id"
             await cursor.execute('''
                 SELECT from_user, to_user, relation_type, strength, frequency, last_interaction
                 FROM social_relations
+                WHERE (from_user LIKE ? OR to_user LIKE ?)
                 ORDER BY frequency DESC, strength DESC
-            ''')
+            ''', (f'{group_id}:%', f'{group_id}:%'))
 
             rows = await cursor.fetchall()
             relations = []
 
             for row in rows:
-                relations.append({
-                    'from_user': row[0],
-                    'to_user': row[1],
-                    'relation_type': row[2],
-                    'strength': row[3],
-                    'frequency': row[4],
-                    'last_interaction': row[5]
-                })
+                try:
+                    # 添加行数据验证
+                    if len(row) < 6:
+                        self._logger.warning(f"社交关系数据行不完整 (期望6个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
 
+                    relations.append({
+                        'from_user': row[0],
+                        'to_user': row[1],
+                        'relation_type': row[2],
+                        'strength': float(row[3]) if row[3] else 0.0,
+                        'frequency': int(row[4]) if row[4] else 0,
+                        'last_interaction': row[5]
+                    })
+                except Exception as row_error:
+                    self._logger.warning(f"处理社交关系数据行时出错，跳过: {row_error}, row: {row}")
+
+            self._logger.info(f"群组 {group_id} 加载了 {len(relations)} 条社交关系")
             return relations
 
         except aiosqlite.Error as e:
@@ -2011,23 +2023,31 @@ class DatabaseManager(AsyncServiceBase):
                 
                 messages = []
                 for row in await cursor.fetchall():
-                    quality_scores = {}
                     try:
-                        if row[4]:  # quality_scores
-                            quality_scores = json.loads(row[4])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                    
-                    messages.append({
-                        'id': row[0],
-                        'message': row[1],
-                        'sender_id': row[2],
-                        'confidence': row[3],
-                        'quality_scores': quality_scores,
-                        'timestamp': row[5],
-                        'group_id': row[6]
-                    })
-                
+                        # 添加行数据验证
+                        if len(row) < 7:
+                            self._logger.warning(f"筛选消息行数据不完整 (期望7个字段，实际{len(row)}个)，跳过: {row}")
+                            continue
+
+                        quality_scores = {}
+                        try:
+                            if row[4]:  # quality_scores
+                                quality_scores = json.loads(row[4])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                        messages.append({
+                            'id': row[0],
+                            'message': row[1],
+                            'sender_id': row[2],
+                            'confidence': float(row[3]) if row[3] else 0.0,
+                            'quality_scores': quality_scores,
+                            'timestamp': float(row[5]) if row[5] else 0,
+                            'group_id': row[6]
+                        })
+                    except Exception as row_error:
+                        self._logger.warning(f"处理筛选消息行时出错，跳过: {row_error}, row: {row if len(row) < 20 else 'too long'}")
+
                 return messages
                 
             except aiosqlite.Error as e:
@@ -2131,36 +2151,51 @@ class DatabaseManager(AsyncServiceBase):
     async def get_messages_statistics(self) -> Dict[str, Any]:
         """
         获取消息统计信息
-        
+
         Returns:
             统计信息字典
         """
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
-            
+
             try:
                 # 获取原始消息统计
                 await cursor.execute('SELECT COUNT(*) FROM raw_messages')
-                total_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                if not result or len(result) == 0:
+                    total_messages = 0
+                else:
+                    total_messages = int(result[0]) if result[0] and str(result[0]).isdigit() else 0
+
                 await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE processed = FALSE')
-                unprocessed_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                unprocessed_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
                 # 获取筛选消息统计
                 await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-                filtered_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                filtered_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
                 await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE used_for_learning = FALSE')
-                unused_filtered_messages = (await cursor.fetchone())[0]
-                
-                return {
+                result = await cursor.fetchone()
+                unused_filtered_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
+                stats = {
                     'total_messages': total_messages,
                     'unprocessed_messages': unprocessed_messages,
                     'filtered_messages': filtered_messages,
                     'unused_filtered_messages': unused_filtered_messages,
                     'raw_messages': total_messages  # 兼容旧接口
                 }
-                
+
+                # 验证返回的统计数据没有表名
+                for key, value in stats.items():
+                    if isinstance(value, str) and not value.replace('-', '').isdigit():
+                        self._logger.error(f"get_messages_statistics 返回了非数字字符串: {key}={value}，设置为0")
+                        stats[key] = 0
+
+                return stats
+
             except aiosqlite.Error as e:
                 self._logger.error(f"获取消息统计失败: {e}", exc_info=True)
                 return {
@@ -2435,28 +2470,48 @@ class DatabaseManager(AsyncServiceBase):
         """获取风格进度数据"""
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
-            
+
             try:
+                # 首先检查表是否存在
+                await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='learning_batches'")
+                if not await cursor.fetchone():
+                    self._logger.info("learning_batches 表不存在，返回空列表")
+                    return []
+
                 # 从学习批次中获取进度数据
                 await cursor.execute('''
                     SELECT group_id, start_time, quality_score, success
-                    FROM learning_batches 
+                    FROM learning_batches
                     WHERE quality_score IS NOT NULL
-                    ORDER BY start_time DESC 
+                    ORDER BY start_time DESC
                     LIMIT 30
                 ''')
-                
+
                 progress_data = []
-                for row in await cursor.fetchall():
-                    progress_data.append({
-                        'group_id': row[0],
-                        'timestamp': row[1],
-                        'quality_score': row[2],
-                        'success': bool(row[3])
-                    })
-                
+                rows = await cursor.fetchall()
+
+                self._logger.debug(f"get_style_progress_data 获取到 {len(rows)} 行数据")
+                if rows and len(rows) > 0:
+                    self._logger.debug(f"第一行数据: {rows[0]}, 列数: {len(rows[0])}")
+
+                for row in rows:
+                    try:
+                        # 添加行数据验证
+                        if len(row) < 4:
+                            self._logger.warning(f"学习批次进度数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
+                            continue
+
+                        progress_data.append({
+                            'group_id': row[0],
+                            'timestamp': float(row[1]) if row[1] else 0,
+                            'quality_score': float(row[2]) if row[2] else 0,
+                            'success': bool(row[3])
+                        })
+                    except Exception as row_error:
+                        self._logger.warning(f"处理学习批次进度数据行时出错，跳过: {row_error}, row: {row}")
+
                 return progress_data
-                
+
             except Exception as e:
                 self._logger.warning(f"从learning_batches表获取进度数据失败: {e}")
                 return []
@@ -2512,39 +2567,51 @@ class DatabaseManager(AsyncServiceBase):
     async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
         """
         获取指定群组的消息统计信息
-        
+
         Args:
             group_id: 群组ID
-            
+
         Returns:
             统计信息字典
         """
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
-            
+
             try:
                 # 获取原始消息统计
                 await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ?', (group_id,))
-                total_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                total_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
                 await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE group_id = ? AND processed = FALSE', (group_id,))
-                unprocessed_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                unprocessed_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
                 # 获取筛选消息统计
                 await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
-                filtered_messages = (await cursor.fetchone())[0]
-                
+                result = await cursor.fetchone()
+                filtered_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
                 await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ? AND used_for_learning = FALSE', (group_id,))
-                unused_filtered_messages = (await cursor.fetchone())[0]
-                
-                return {
+                result = await cursor.fetchone()
+                unused_filtered_messages = int(result[0]) if result and result[0] and str(result[0]).replace('-', '').isdigit() else 0
+
+                stats = {
                     'total_messages': total_messages,
                     'unprocessed_messages': unprocessed_messages,
                     'filtered_messages': filtered_messages,
                     'unused_filtered_messages': unused_filtered_messages,
                     'raw_messages': total_messages  # 兼容旧接口
                 }
-                
+
+                # 验证返回的统计数据没有表名
+                for key, value in stats.items():
+                    if isinstance(value, str) and not value.replace('-', '').isdigit():
+                        self._logger.error(f"get_group_messages_statistics 返回了非数字字符串: {key}={value}，设置为0")
+                        stats[key] = 0
+
+                return stats
+
             except aiosqlite.Error as e:
                 logger.error(f"获取群组消息统计失败: {e}", exc_info=True)
                 return {
@@ -4099,10 +4166,10 @@ class DatabaseManager(AsyncServiceBase):
             
             # 话题偏好分析（基于群组活跃度和智能主题识别）
             topic_preferences = []
-            
+
             # 获取各个群组的消息数据进行主题分析
             await cursor.execute('''
-                SELECT 
+                SELECT
                     group_id,
                     COUNT(*) as message_count,
                     AVG(LENGTH(message)) as avg_length
@@ -4113,47 +4180,74 @@ class DatabaseManager(AsyncServiceBase):
                 ORDER BY message_count DESC
                 LIMIT 8
             ''')
-            
+
             group_data = await cursor.fetchall()
-            
+
+            # 先收集所有group_data，避免嵌套查询
             for row in group_data:
-                group_id = row[0]
-                message_count = row[1]
-                avg_length = row[2]
-                
-                # 获取该群组的代表性消息进行主题分析
-                await cursor.execute('''
-                    SELECT message 
-                    FROM raw_messages 
-                    WHERE group_id = ? AND LENGTH(TRIM(message)) > 5 AND LENGTH(TRIM(message)) < 200
-                    ORDER BY LENGTH(message) DESC, timestamp DESC 
-                    LIMIT 20
-                ''', (group_id,))
-                
-                messages = await cursor.fetchall()
-                if not messages:
+                try:
+                    # 添加行数据验证
+                    if len(row) < 3:
+                        self._logger.warning(f"群组话题数据行不完整 (期望3个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
+
+                    group_id = row[0]
+                    message_count = int(row[1]) if row[1] else 0
+                    avg_length = float(row[2]) if row[2] else 0
+
+                    # 创建新的cursor来执行嵌套查询（避免cursor状态冲突）
+                    async with self.get_db_connection() as nested_conn:
+                        nested_cursor = await nested_conn.cursor()
+
+                        # 获取该群组的代表性消息进行主题分析
+                        await nested_cursor.execute('''
+                            SELECT message
+                            FROM raw_messages
+                            WHERE group_id = ? AND LENGTH(TRIM(message)) > 5 AND LENGTH(TRIM(message)) < 200
+                            ORDER BY LENGTH(message) DESC, timestamp DESC
+                            LIMIT 20
+                        ''', (group_id,))
+
+                        messages = await nested_cursor.fetchall()
+                        await nested_cursor.close()
+
+                        if not messages:
+                            continue
+
+                        # 智能主题识别
+                        topic_analysis = self._analyze_topic_from_messages([msg[0] for msg in messages])
+                        topic_name = topic_analysis['topic']
+                        conversation_style = topic_analysis['style']
+
+                        # 根据消息长度和数量推断兴趣度
+                        interest_level = min(100, max(10, (message_count * avg_length) / 50))
+
+                        topic_preferences.append({
+                            'topic': topic_name,
+                            'style': conversation_style,
+                            'interest_level': round(interest_level, 1)
+                        })
+                except Exception as row_error:
+                    self._logger.warning(f"处理群组话题数据行时出错，跳过: {row_error}, row: {row if 'row' in locals() and len(str(row)) < 100 else 'row too long'}")
                     continue
-                    
-                # 智能主题识别
-                topic_analysis = self._analyze_topic_from_messages([msg[0] for msg in messages])
-                topic_name = topic_analysis['topic']
-                conversation_style = topic_analysis['style']
-                
-                # 根据消息长度和数量推断兴趣度
-                interest_level = min(100, max(10, (message_count * avg_length) / 50))
-                
-                topic_preferences.append({
-                    'topic': topic_name,
-                    'style': conversation_style,
-                    'interest_level': round(interest_level, 1)
-                })
 
             # 去重：确保每个话题只出现一次，保留兴趣度最高的
             seen_topics = {}
             for pref in topic_preferences:
-                topic = pref['topic']
-                if topic not in seen_topics or pref['interest_level'] > seen_topics[topic]['interest_level']:
-                    seen_topics[topic] = pref
+                try:
+                    topic = pref['topic']
+                    # 确保 interest_level 是数字类型
+                    current_interest = float(pref.get('interest_level', 0))
+                    pref['interest_level'] = current_interest
+
+                    if topic not in seen_topics:
+                        seen_topics[topic] = pref
+                    else:
+                        existing_interest = float(seen_topics[topic].get('interest_level', 0))
+                        if current_interest > existing_interest:
+                            seen_topics[topic] = pref
+                except (ValueError, TypeError, KeyError) as e:
+                    self._logger.warning(f"处理话题偏好时出错，跳过: {e}, pref: {pref}")
 
             topic_preferences = list(seen_topics.values())
 
@@ -4190,47 +4284,55 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_expression_patterns_for_webui(self, limit: int = 20) -> List[Dict[str, Any]]:
         """获取表达模式数据用于WebUI显示"""
-        try:
-            # 检查表是否存在
-            async with self.get_db_connection() as conn:
-                cursor = await conn.cursor()
-            
-            # 检查表是否存在
-            await cursor.execute('''
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='expression_patterns'
-            ''')
-            
-            table_exists = await cursor.fetchone()
-            if not table_exists:
-                self._logger.debug("expression_patterns表不存在")
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                # 检查表是否存在
+                await cursor.execute('''
+                    SELECT name FROM sqlite_master
+                    WHERE type='table' AND name='expression_patterns'
+                ''')
+
+                table_exists = await cursor.fetchone()
+                if not table_exists:
+                    self._logger.debug("expression_patterns表不存在")
+                    return []
+
+                # 获取表达模式数据
+                await cursor.execute('''
+                    SELECT situation, expression, weight, last_active_time, group_id
+                    FROM expression_patterns
+                    ORDER BY weight DESC, last_active_time DESC
+                    LIMIT ?
+                ''', (limit,))
+
+                patterns = []
+                for row in await cursor.fetchall():
+                    try:
+                        # 添加行数据验证
+                        if len(row) < 5:
+                            self._logger.warning(f"表达模式行数据不完整 (期望5个字段，实际{len(row)}个)，跳过: {row}")
+                            continue
+
+                        patterns.append({
+                            'situation': row[0],
+                            'expression': row[1],
+                            'weight': float(row[2]) if row[2] else 0.0,
+                            'last_active_time': row[3],
+                            'group_id': row[4]
+                        })
+                    except Exception as row_error:
+                        self._logger.warning(f"处理表达模式行时出错，跳过: {row_error}, row: {row}")
+                        continue
+
+                return patterns
+
+            except Exception as e:
+                self._logger.error(f"获取表达模式失败: {e}", exc_info=True)
                 return []
-            
-            # 获取表达模式数据
-            await cursor.execute('''
-                SELECT situation, expression, weight, last_active_time, group_id
-                FROM expression_patterns
-                ORDER BY weight DESC, last_active_time DESC
-                LIMIT ?
-            ''', (limit,))
-            
-            patterns = []
-            for row in await cursor.fetchall():
-                patterns.append({
-                    'situation': row[0],
-                    'expression': row[1],
-                    'weight': row[2],
-                    'last_active_time': row[3],
-                    'group_id': row[4]
-                })
-            
-            return patterns
-            
-        except Exception as e:
-            self._logger.error(f"获取表达模式失败: {e}")
-            return []
-        finally:
-            await cursor.close()
+            finally:
+                await cursor.close()
 
     async def create_style_learning_review(self, review_data: Dict[str, Any]) -> int:
         """创建对话风格学习审查记录"""
@@ -4525,6 +4627,46 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"删除人格学习审查记录失败: {e}")
             return False
+
+    async def delete_all_persona_learning_reviews(self, group_id: Optional[str] = None) -> int:
+        """
+        批量删除人格学习审查记录
+
+        Args:
+            group_id: 群组ID（可选），如果指定则只删除该群组的记录，否则删除所有记录
+
+        Returns:
+            int: 删除的记录数量
+        """
+        try:
+            async with self.get_db_connection() as conn:
+                cursor = await conn.cursor()
+
+                # 根据数据库类型使用不同的占位符
+                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+
+                if group_id:
+                    # 删除指定群组的审查记录
+                    await cursor.execute(f'''
+                        DELETE FROM persona_update_reviews WHERE group_id = {placeholder}
+                    ''', (group_id,))
+                    self._logger.info(f"删除群组 {group_id} 的所有人格学习审查记录")
+                else:
+                    # 删除所有审查记录
+                    await cursor.execute('''
+                        DELETE FROM persona_update_reviews
+                    ''')
+                    self._logger.info("删除所有人格学习审查记录")
+
+                await conn.commit()
+                deleted_count = cursor.rowcount
+
+                self._logger.info(f"✅ 成功删除 {deleted_count} 条人格学习审查记录")
+                return deleted_count
+
+        except Exception as e:
+            self._logger.error(f"批量删除人格学习审查记录失败: {e}")
+            return 0
     
     async def get_persona_learning_review_by_id(self, review_id: int) -> Optional[Dict[str, Any]]:
         """获取指定ID的人格学习审查记录详情"""
@@ -4755,32 +4897,40 @@ class DatabaseManager(AsyncServiceBase):
             updates = []
             
             for row in rows:
-                # 尝试解析learned_patterns以获取更多信息
+                # 添加行数据验证
                 try:
-                    learned_patterns = json.loads(row[4]) if row[4] else {}
-                    reason = learned_patterns.get('reason', '风格学习更新')
-                    original_content = learned_patterns.get('original_content', '原始风格特征')
-                    proposed_content = learned_patterns.get('proposed_content', row[4])  # 使用完整的learned_patterns作为proposed_content
-                    confidence_score = learned_patterns.get('confidence_score', 0.8)
-                except (json.JSONDecodeError, AttributeError):
-                    reason = row[7] or '风格学习更新'  # 使用description字段
-                    original_content = '原始风格特征'
-                    proposed_content = row[4] or '无内容'
-                    confidence_score = 0.8
-                
-                updates.append({
-                    'id': row[0],
-                    'group_id': row[2],
-                    'original_content': original_content,
-                    'proposed_content': proposed_content,
-                    'reason': reason,
-                    'confidence_score': confidence_score,
-                    'status': row[5],
-                    'reviewer_comment': '',  # 风格审查没有备注字段
-                    'review_time': row[6],  # 使用updated_at字段
-                    'timestamp': row[3],
-                    'update_type': f'style_learning_{row[1]}'
-                })
+                    if len(row) < 8:
+                        self._logger.warning(f"风格学习记录行数据不完整，跳过: {row}")
+                        continue
+
+                    # 尝试解析learned_patterns以获取更多信息
+                    try:
+                        learned_patterns = json.loads(row[4]) if row[4] else {}
+                        reason = learned_patterns.get('reason', '风格学习更新')
+                        original_content = learned_patterns.get('original_content', '原始风格特征')
+                        proposed_content = learned_patterns.get('proposed_content', row[4])  # 使用完整的learned_patterns作为proposed_content
+                        confidence_score = learned_patterns.get('confidence_score', 0.8)
+                    except (json.JSONDecodeError, AttributeError):
+                        reason = row[7] if len(row) > 7 and row[7] else '风格学习更新'  # 使用description字段
+                        original_content = '原始风格特征'
+                        proposed_content = row[4] if len(row) > 4 and row[4] else '无内容'
+                        confidence_score = 0.8
+
+                    updates.append({
+                        'id': row[0],
+                        'group_id': row[2],
+                        'original_content': original_content,
+                        'proposed_content': proposed_content,
+                        'reason': reason,
+                        'confidence_score': confidence_score,
+                        'status': row[5],
+                        'reviewer_comment': '',  # 风格审查没有备注字段
+                        'review_time': row[6] if len(row) > 6 else None,  # 使用updated_at字段
+                        'timestamp': row[3],
+                        'update_type': f'style_learning_{row[1]}'
+                    })
+                except Exception as row_error:
+                    self._logger.warning(f"处理风格学习记录行时出错，跳过: {row_error}, row: {row if len(row) < 20 else 'too long'}")
             
             return updates
             
@@ -4797,40 +4947,51 @@ class DatabaseManager(AsyncServiceBase):
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
-            
+
             # 构建查询条件
             where_clause = "WHERE status != 'pending'"
             params = []
-            
+
             if status_filter:
                 where_clause += " AND status = ?"
                 params.append(status_filter)
-            
-            await cursor.execute(f'''
-                SELECT id, timestamp, group_id, update_type, original_content, new_content, 
+
+            query = f'''
+                SELECT id, timestamp, group_id, update_type, original_content, new_content,
                        reason, status, reviewer_comment, review_time
                 FROM persona_update_records
                 {where_clause}
-                ORDER BY review_time DESC
+                ORDER BY COALESCE(review_time, timestamp) DESC
                 LIMIT ? OFFSET ?
-            ''', params + [limit, offset])
+            '''
+
+            self._logger.debug(f"执行人格更新记录查询: params={params + [limit, offset]}")
+            await cursor.execute(query, params + [limit, offset])
             
             rows = await cursor.fetchall()
             records = []
-            
+
             for row in rows:
-                records.append({
-                    'id': row[0],
-                    'timestamp': row[1],
-                    'group_id': row[2],
-                    'update_type': row[3],
-                    'original_content': row[4],
-                    'new_content': row[5],
-                    'reason': row[6],
-                    'status': row[7],
-                    'reviewer_comment': row[8],
-                    'review_time': row[9]
-                })
+                # 添加行数据验证
+                try:
+                    if len(row) < 10:
+                        self._logger.warning(f"人格更新记录行数据不完整 (期望10个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
+
+                    records.append({
+                        'id': row[0],
+                        'timestamp': row[1],
+                        'group_id': row[2],
+                        'update_type': row[3],
+                        'original_content': row[4],
+                        'new_content': row[5],
+                        'reason': row[6],
+                        'status': row[7],
+                        'reviewer_comment': row[8] if row[8] else '',
+                        'review_time': row[9]
+                    })
+                except Exception as row_error:
+                    self._logger.warning(f"处理人格更新记录行时出错，跳过: {row_error}, row: {row if len(row) < 20 else 'too long'}")
             
             return records
             
@@ -5010,10 +5171,16 @@ class DatabaseManager(AsyncServiceBase):
             ''', (week_ago, month_ago))
             
             message_stats = await cursor.fetchone()
-            if message_stats:
-                week_messages = message_stats[0] or 0
-                month_messages = message_stats[1] or 0
-                total_messages = message_stats[2] or 0
+            if message_stats and len(message_stats) >= 3:
+                week_messages = int(message_stats[0]) if message_stats[0] else 0
+                month_messages = int(message_stats[1]) if message_stats[1] else 0
+                total_messages = int(message_stats[2]) if message_stats[2] else 0
+            elif message_stats:
+                self._logger.warning(f"消息统计数据行不完整 (期望3个字段，实际{len(message_stats)}个): {message_stats}")
+                message_growth = 0
+                week_messages = 0
+                month_messages = 0
+                total_messages = 0
                 
                 # 计算增长率
                 if month_messages > week_messages:
@@ -5032,9 +5199,13 @@ class DatabaseManager(AsyncServiceBase):
             ''', (week_ago, month_ago))
             
             filtered_stats = await cursor.fetchone()
-            if filtered_stats:
-                week_filtered = filtered_stats[0] or 0
-                month_filtered = filtered_stats[1] or 0
+            if filtered_stats and len(filtered_stats) >= 2:
+                week_filtered = int(filtered_stats[0]) if filtered_stats[0] else 0
+                month_filtered = int(filtered_stats[1]) if filtered_stats[1] else 0
+            elif filtered_stats:
+                self._logger.warning(f"筛选消息统计数据行不完整 (期望2个字段，实际{len(filtered_stats)}个): {filtered_stats}")
+                week_filtered = 0
+                month_filtered = 0
                 
                 if month_filtered > week_filtered:
                     filtered_growth = ((week_filtered * 4 - (month_filtered - week_filtered)) / (month_filtered - week_filtered) * 100) if (month_filtered - week_filtered) > 0 else 0
@@ -5052,9 +5223,13 @@ class DatabaseManager(AsyncServiceBase):
             ''', (week_ago, month_ago))
             
             session_stats = await cursor.fetchone()
-            if session_stats:
-                week_sessions = session_stats[0] or 0
-                month_sessions = session_stats[1] or 0
+            if session_stats and len(session_stats) >= 2:
+                week_sessions = int(session_stats[0]) if session_stats[0] else 0
+                month_sessions = int(session_stats[1]) if session_stats[1] else 0
+            elif session_stats:
+                self._logger.warning(f"学习批次统计数据行不完整 (期望2个字段，实际{len(session_stats)}个): {session_stats}")
+                week_sessions = 0
+                month_sessions = 0
                 
                 if month_sessions > week_sessions:
                     sessions_growth = ((week_sessions * 4 - (month_sessions - week_sessions)) / (month_sessions - week_sessions) * 100) if (month_sessions - week_sessions) > 0 else 0
@@ -5167,19 +5342,28 @@ class DatabaseManager(AsyncServiceBase):
             
             batches = []
             for row in await cursor.fetchall():
-                batches.append({
-                    'id': row[0],
-                    'group_id': row[1],
-                    'start_time': row[2],
-                    'end_time': row[3],
-                    'quality_score': row[4],
-                    'processed_messages': row[5],
-                    'batch_name': row[6],
-                    'message_count': row[7],
-                    'filtered_count': row[8],
-                    'success': bool(row[9]),
-                    'error_message': row[10]
-                })
+                try:
+                    # 添加行数据验证
+                    if len(row) < 11:
+                        self._logger.warning(f"学习批次记录行数据不完整 (期望11个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
+
+                    batches.append({
+                        'id': int(row[0]) if row[0] else 0,
+                        'group_id': row[1],
+                        'start_time': float(row[2]) if row[2] else 0,
+                        'end_time': float(row[3]) if row[3] else 0,
+                        'quality_score': float(row[4]) if row[4] else 0,
+                        'processed_messages': int(row[5]) if row[5] else 0,
+                        'batch_name': row[6],
+                        'message_count': int(row[7]) if row[7] else 0,
+                        'filtered_count': int(row[8]) if row[8] else 0,
+                        'success': bool(row[9]) if row[9] is not None else False,
+                        'error_message': row[10]
+                    })
+                except Exception as row_error:
+                    self._logger.warning(f"处理学习批次记录行时出错，跳过: {row_error}, row: {row if len(str(row)) < 100 else 'row too long'}")
+                    continue
             
             return batches
 
@@ -6135,16 +6319,28 @@ class DatabaseManager(AsyncServiceBase):
 
                 row = await cursor.fetchone()
 
+                # 添加行数据验证
+                if not row or len(row) < 5:
+                    self._logger.warning(f"黑话统计数据行不完整 (期望至少5个字段，实际{len(row) if row else 0}个)，返回默认值")
+                    return {
+                        'total_candidates': 0,
+                        'confirmed_jargon': 0,
+                        'completed_inference': 0,
+                        'total_occurrences': 0,
+                        'average_count': 0,
+                        'active_groups': 0
+                    }
+
                 stats = {
-                    'total_candidates': row[0] or 0,
-                    'confirmed_jargon': row[1] or 0,
-                    'completed_inference': row[2] or 0,
-                    'total_occurrences': row[3] or 0,
-                    'average_count': round(row[4], 1) if row[4] else 0
+                    'total_candidates': int(row[0]) if row[0] else 0,
+                    'confirmed_jargon': int(row[1]) if row[1] else 0,
+                    'completed_inference': int(row[2]) if row[2] else 0,
+                    'total_occurrences': int(row[3]) if row[3] else 0,
+                    'average_count': round(float(row[4]), 1) if row[4] else 0
                 }
 
                 if not chat_id and len(row) > 5:
-                    stats['active_groups'] = row[5] or 0
+                    stats['active_groups'] = int(row[5]) if row[5] else 0
 
                 return stats
 
@@ -6206,18 +6402,27 @@ class DatabaseManager(AsyncServiceBase):
 
                 jargon_list = []
                 for row in await cursor.fetchall():
-                    jargon_list.append({
-                        'id': row[0],
-                        'content': row[1],
-                        'meaning': row[2],
-                        'is_jargon': bool(row[3]) if row[3] is not None else None,
-                        'count': row[4],
-                        'last_inference_count': row[5],
-                        'is_complete': bool(row[6]),
-                        'chat_id': row[7],
-                        'updated_at': row[8],
-                        'is_global': bool(row[9]) if row[9] is not None else False
-                    })
+                    try:
+                        # 添加行数据验证
+                        if len(row) < 10:
+                            self._logger.warning(f"黑话记录行数据不完整 (期望10个字段，实际{len(row)}个)，跳过: {row}")
+                            continue
+
+                        jargon_list.append({
+                            'id': row[0],
+                            'content': row[1],
+                            'meaning': row[2],
+                            'is_jargon': bool(row[3]) if row[3] is not None else None,
+                            'count': int(row[4]) if row[4] else 0,
+                            'last_inference_count': int(row[5]) if row[5] else 0,
+                            'is_complete': bool(row[6]),
+                            'chat_id': row[7],
+                            'updated_at': row[8],
+                            'is_global': bool(row[9]) if row[9] is not None else False
+                        })
+                    except Exception as row_error:
+                        self._logger.warning(f"处理黑话记录行时出错，跳过: {row_error}, row: {row}")
+                        continue
 
                 return jargon_list
 

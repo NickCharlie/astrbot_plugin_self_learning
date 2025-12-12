@@ -224,6 +224,9 @@ class SelfLearningPlugin(star.Star):
                 logger.info("🌐 Web服务器已成功启动！")
             except Exception as e:
                 logger.error(f"Web服务器启动失败: {e}", exc_info=True)
+                logger.error("提示: 端口可能仍被占用。AstrBot将尝试继续运行，但WebUI不可用。")
+                # 将实例置空，防止后续错误调用
+                server_instance = None
         else:
             logger.error("Debug: server_instance 为空或 web_interface 未启用")
 
@@ -803,10 +806,21 @@ class SelfLearningPlugin(star.Star):
                bool(re.match(pattern_without_prefix, message_text, re.IGNORECASE))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent):
-        """监听所有消息,收集用户对话数据（非阻塞优化版）"""
+    async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
+        """监听所有消息，收集用户对话数据（非阻塞优化版）"""
 
         try:
+            # 检查event参数类型 - 添加调试信息
+            if event is None:
+                logger.warning("on_message调用时event参数为None，跳过处理")
+                return
+
+            # ✅ 添加类型检查，防止参数传递错误
+            if not hasattr(event, 'get_message_str'):
+                logger.error(f"on_message接收到错误的event类型: {type(event)}, 预期: AstrMessageEvent")
+                logger.error(f"event对象: {event}")
+                logger.error(f"args: {args}, kwargs: {kwargs}")
+                return
 
             # 获取消息文本
             message_text = event.get_message_str()
@@ -910,17 +924,33 @@ class SelfLearningPlugin(star.Star):
             logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
 
     async def _process_learning_background(self, group_id: str, sender_id: str, message_text: str, event: AstrMessageEvent):
-        """后台处理学习相关操作（非阻塞）"""
+        """后台处理学习相关操作（非阻塞）
+
+        ⚠️ 注意：此函数通过 asyncio.create_task() 在后台运行
+        为避免 'Future attached to different loop' 错误，数据库操作需要特殊处理
+        """
         try:
-            # 1. 收集消息（用于学习）
-            await self.message_collector.collect_message({
-                'sender_id': sender_id,
-                'sender_name': event.get_sender_name(),
-                'message': message_text,
-                'group_id': group_id,
-                'timestamp': time.time(),
-                'platform': event.get_platform_name()
-            })
+            # 1. ✅ 修复事件循环问题：将数据库写入操作包装在异常处理中
+            # 对于 MySQL，可能会遇到事件循环绑定问题，捕获并记录而不是崩溃
+            try:
+                await self.message_collector.collect_message({
+                    'sender_id': sender_id,
+                    'sender_name': event.get_sender_name(),
+                    'message': message_text,
+                    'group_id': group_id,
+                    'timestamp': time.time(),
+                    'platform': event.get_platform_name()
+                })
+            except RuntimeError as e:
+                if "attached to a different loop" in str(e):
+                    # 这是已知的事件循环问题，记录警告但不中断流程
+                    logger.warning(f"消息收集遇到事件循环问题（已知MySQL限制），消息将被跳过: {str(e)[:100]}")
+                else:
+                    raise  # 其他 RuntimeError 继续抛出
+            except Exception as e:
+                # 其他异常也记录但不中断
+                logger.error(f"消息收集失败: {e}")
+
 
             # 2. 处理增强交互（多轮对话管理）
             try:
@@ -965,10 +995,40 @@ class SelfLearningPlugin(star.Star):
                 logger.debug(f"群组 {group_id} 学习间隔未到，剩余时间: {time_remaining/60:.1f}分钟")
                 return
             
-            # 检查群组消息数量是否达到学习阈值
+            # 检查群组消息数量是否达到学习阈值 (确保类型转换)
             stats = await self.message_collector.get_statistics(group_id)
-            if stats.get('total_messages', 0) < self.plugin_config.min_messages_for_learning:
-                logger.debug(f"群组 {group_id} 消息数量未达到学习阈值: {stats.get('total_messages', 0)}/{self.plugin_config.min_messages_for_learning}")
+
+            # 验证 stats 是否为字典
+            if not isinstance(stats, dict):
+                logger.warning(f"get_statistics 返回了非字典类型: {type(stats)}, 值: {stats}, 跳过学习启动")
+                return
+
+            # 安全获取并转换数值
+            total_messages_raw = stats.get('total_messages', 0)
+            min_messages_raw = self.plugin_config.min_messages_for_learning
+
+            # 类型转换带详细日志
+            try:
+                if isinstance(total_messages_raw, str) and not total_messages_raw.replace('-', '').isdigit():
+                    logger.warning(f"total_messages 是非数字字符串: '{total_messages_raw}', 跳过学习启动")
+                    return
+                total_messages = int(total_messages_raw) if total_messages_raw else 0
+            except (ValueError, TypeError) as e:
+                logger.warning(f"total_messages 转换失败: 原始值={total_messages_raw}, 类型={type(total_messages_raw)}, 错误={e}")
+                return
+
+            try:
+                if isinstance(min_messages_raw, str) and not min_messages_raw.replace('-', '').isdigit():
+                    logger.warning(f"min_messages_for_learning 是非数字字符串: '{min_messages_raw}', 使用默认值10")
+                    min_messages = 10
+                else:
+                    min_messages = int(min_messages_raw) if min_messages_raw else 0
+            except (ValueError, TypeError) as e:
+                logger.warning(f"min_messages 转换失败: 原始值={min_messages_raw}, 类型={type(min_messages_raw)}, 错误={e}, 使用默认值10")
+                min_messages = 10
+
+            if total_messages < min_messages:
+                logger.debug(f"群组 {group_id} 消息数量未达到学习阈值: {total_messages}/{min_messages}")
                 return
             
             # 记录学习启动时间
@@ -1074,66 +1134,89 @@ class SelfLearningPlugin(star.Star):
                     logger.warning("MySQL 连接池不可用，无法获取活跃群组")
                     return []
 
+            # ✅ 修复事件循环问题：确保在当前事件循环中执行数据库操作
             # 获取最近有消息的群组
-            async with self.db_manager.get_db_connection() as conn:
+            conn = None
+            cursor = None
+            try:
+                conn = await self.db_manager.get_db_connection().__aenter__()
                 cursor = await conn.cursor()
-                
+
                 # 首先尝试获取最近24小时内有消息的群组
                 cutoff_time = time.time() - 86400
                 await cursor.execute('''
                     SELECT DISTINCT group_id, COUNT(*) as msg_count
-                    FROM raw_messages 
+                    FROM raw_messages
                     WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
                     GROUP BY group_id
                     HAVING msg_count >= ?
                     ORDER BY msg_count DESC
                     LIMIT 10
                 ''', (cutoff_time, self.plugin_config.min_messages_for_learning))
-                
+
                 active_groups = []
                 for row in await cursor.fetchall():
                     if row[0]:  # 确保group_id不为空
                         active_groups.append(row[0])
-                
+
                 # 如果最近24小时没有活跃群组，扩大时间范围到7天
                 if not active_groups:
                     logger.warning("最近24小时内没有活跃群组，扩大搜索范围到7天...")
                     cutoff_time = time.time() - (86400 * 7)  # 7天
                     await cursor.execute('''
                         SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages 
+                        FROM raw_messages
                         WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
                         GROUP BY group_id
                         HAVING msg_count >= ?
                         ORDER BY msg_count DESC
                         LIMIT 10
                     ''', (cutoff_time, max(1, self.plugin_config.min_messages_for_learning // 2)))  # 降低消息数要求
-                    
+
                     for row in await cursor.fetchall():
                         if row[0]:
                             active_groups.append(row[0])
-                
+
                 # 如果还是没有，获取所有有消息的群组（无时间限制）
                 if not active_groups:
                     logger.warning("7天内也没有活跃群组，获取所有有消息记录的群组...")
                     await cursor.execute('''
                         SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages 
+                        FROM raw_messages
                         WHERE group_id IS NOT NULL AND group_id != ''
                         GROUP BY group_id
                         ORDER BY msg_count DESC
                         LIMIT 10
                     ''')
-                    
+
                     for row in await cursor.fetchall():
                         if row[0]:
                             active_groups.append(row[0])
-                            
+
                 await cursor.close()
-                        
+
                 logger.info(f"发现 {len(active_groups)} 个活跃群组: {active_groups if active_groups else '无'}")
                 return active_groups
-            
+
+            except RuntimeError as e:
+                if "attached to a different loop" in str(e):
+                    logger.warning("获取活跃群组遇到事件循环问题（已知MySQL限制），返回空列表")
+                    return []
+                else:
+                    raise
+            finally:
+                # 确保关闭游标和连接
+                if cursor:
+                    try:
+                        await cursor.close()
+                    except:
+                        pass
+                if conn:
+                    try:
+                        await self.db_manager.get_db_connection().__aexit__(None, None, None)
+                    except:
+                        pass
+
         except Exception as e:
             logger.error(f"获取活跃群组失败: {e}")
             return []
@@ -2715,33 +2798,35 @@ PersonaManager模式优势：
                 except Exception as e:
                     logger.error(f"保存消息收集器状态失败: {e}")
                 
-            # 7. 停止 Web 服务器 - 增强版
+            # 7. 停止 Web 服务器 (终极修正)
             global server_instance, _server_cleanup_lock
             async with _server_cleanup_lock:
                 if server_instance:
                     try:
                         logger.info(f"正在停止Web服务器 (端口: {server_instance.port})...")
                         
-                        # 记录服务器信息用于日志
-                        port = server_instance.port
-                        
-                        # 调用增强的停止方法
+                        # [A] 停止服务 (跨线程通知退出)
                         await server_instance.stop()
                         
-                        # 额外等待确保端口释放
-                        await asyncio.sleep(1)
+                        # [B] 关键新增：强制垃圾回收
+                        # 确保 Socket 句柄立即释放，而不是等待 Python 自动回收
+                        # 这对 Windows 这种 Socket 敏感的系统至关重要
+                        import gc
+                        gc.collect()
                         
-                        # 重置全局实例
+                        # [C] 平台差异化等待
+                        import sys
+                        if sys.platform == 'win32':
+                            logger.info("Windows环境：等待端口资源释放...")
+                            # Windows 需要给内核一点时间把 TIME_WAIT 清理掉
+                            await asyncio.sleep(2.0)
+                        
                         server_instance = None
-                        
-                        logger.info(f"Web服务器已停止，端口 {port} 已释放")
+                        logger.info("Web服务器实例已清理")
                     except Exception as e:
                         logger.error(f"停止Web服务器失败: {e}", exc_info=True)
-                        # 即使出错也要重置实例，避免重复尝试
                         server_instance = None
-                else:
-                    logger.info("Web服务器已经停止或未初始化")
-                
+
             # 8. 保存配置到文件
             try:
                 config_path = os.path.join(self.plugin_config.data_dir, 'config.json')

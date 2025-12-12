@@ -6,6 +6,11 @@ import time
 import base64
 import urllib.request
 import urllib.error
+import threading 
+import subprocess
+import sys
+import gc
+import socket
 from datetime import datetime, timedelta
 from astrbot.api import logger
 from typing import Optional, List, Dict, Any
@@ -16,6 +21,14 @@ from quart import Quart, Blueprint, render_template, request, jsonify, current_a
 from quart_cors import cors # 导入 cors
 import hypercorn.asyncio
 from hypercorn.config import Config as HypercornConfig
+try:
+    from hypercorn.config import Sockets
+except ImportError:
+    class Sockets:
+        def __init__(self, secure_sockets, insecure_sockets, quic_sockets):
+            self.secure_sockets = secure_sockets
+            self.insecure_sockets = insecure_sockets
+            self.quic_sockets = quic_sockets
 import aiohttp
 from werkzeug.utils import secure_filename
 
@@ -40,6 +53,83 @@ from .constants import (
     normalize_update_type,
     get_review_source_from_update_type
 )
+
+# ========== 数据库管理器适配层 ==========
+class DatabaseManagerAdapter:
+    """
+    数据库管理器适配层
+    自动检测使用 SQLAlchemy 数据库管理器还是传统数据库管理器
+    并调用相应的方法
+    """
+
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self._is_sqlalchemy = self._detect_sqlalchemy()
+
+    def _detect_sqlalchemy(self) -> bool:
+        """检测是否为 SQLAlchemy 数据库管理器"""
+        if not self.db_manager:
+            return False
+        # 检查类名或特定方法来判断类型
+        class_name = type(self.db_manager).__name__
+        logger.debug(f"检测到数据库管理器类型: {class_name}")
+        return 'SQLAlchemy' in class_name or hasattr(self.db_manager, '_legacy_db')
+
+    async def safe_call(self, method_name: str, *args, **kwargs):
+        """
+        安全调用数据库方法
+        如果 SQLAlchemy 管理器没有实现该方法，自动降级到传统管理器
+        """
+        try:
+            if not self.db_manager:
+                logger.warning(f"数据库管理器不可用，无法调用 {method_name}")
+                return None
+
+            # 获取方法
+            if hasattr(self.db_manager, method_name):
+                method = getattr(self.db_manager, method_name)
+                result = await method(*args, **kwargs)
+                return result
+            else:
+                logger.warning(f"方法 {method_name} 在当前数据库管理器中不存在")
+                return None
+
+        except Exception as e:
+            logger.error(f"调用数据库方法 {method_name} 失败: {e}", exc_info=True)
+            return None
+
+    async def get_db_connection(self):
+        """获取数据库连接"""
+        return await self.safe_call('get_db_connection')
+
+    async def get_messages_statistics(self):
+        """获取消息统计"""
+        return await self.safe_call('get_messages_statistics')
+
+    async def get_group_messages_statistics(self, group_id: str):
+        """获取群组消息统计"""
+        return await self.safe_call('get_group_messages_statistics', group_id)
+
+    async def get_social_relations_by_group(self, group_id: str):
+        """获取群组社交关系"""
+        return await self.safe_call('get_social_relations_by_group', group_id)
+
+    async def get_filtered_messages_for_learning(self, limit: int = None):
+        """获取用于学习的筛选消息"""
+        return await self.safe_call('get_filtered_messages_for_learning', limit)
+
+    async def get_recent_raw_messages(self, group_id: str, limit: int = 200):
+        """获取最近的原始消息"""
+        return await self.safe_call('get_recent_raw_messages', group_id, limit)
+
+    async def get_recent_learning_batches(self, limit: int = 5):
+        """获取最近的学习批次"""
+        return await self.safe_call('get_recent_learning_batches', limit)
+
+    # 可以继续添加更多方法...
+
+# 创建全局适配器实例（稍后初始化）
+db_adapter: Optional[DatabaseManagerAdapter] = None
 
 # 获取当前文件所在的目录，然后向上两级到达插件根目录
 PLUGIN_ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
@@ -644,6 +734,14 @@ async def set_plugin_services(
         globals()['db_manager'] = database_manager
         globals()['progressive_learning'] = progressive_learning
 
+        # 初始化数据库适配器
+        if database_manager:
+            logger.info("初始化数据库管理器适配层...")
+            globals()['db_adapter'] = DatabaseManagerAdapter(database_manager)
+            logger.info(f"✅ 数据库适配器已初始化，类型: {type(database_manager).__name__}")
+        else:
+            logger.warning("⚠️ 数据库管理器不可用，适配器未初始化")
+
         logger.info(f"全局变量设置完成:")
         logger.info(f"  - persona_updater: {globals().get('persona_updater') is not None}")
         logger.info(f"  - database_manager: {globals().get('database_manager') is not None}")
@@ -1044,8 +1142,8 @@ async def submit_bug_report():
 @require_auth
 async def get_persona_updates():
     """获取需要人工审查的人格更新内容（包括风格学习审查和人格学习审查）- 支持分页"""
-    # 获取分页参数
-    limit = request.args.get('limit', type=int)
+    # 获取分页参数 - 默认每页50条记录，实现懒加载
+    limit = request.args.get('limit', default=50, type=int)
     offset = request.args.get('offset', default=0, type=int)
 
     logger.info(f"开始获取persona_updates数据... limit={limit}, offset={offset}")
@@ -1096,8 +1194,10 @@ async def get_persona_updates():
     if database_manager:
         try:
             logger.info("正在获取人格学习审查...")
-            # 获取所有待审查记录（后面会统一分页）
-            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=999999)
+            # ✅ 懒加载优化：计算需要加载多少条记录（考虑分页）
+            # 保守估计：加载 offset + limit * 1.5 条记录，以应对可能的过滤
+            fetch_limit = min(offset + int(limit * 1.5), 1000)  # 最多加载1000条
+            persona_learning_reviews = await database_manager.get_pending_persona_learning_reviews(limit=fetch_limit)
             logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
 
             for review in persona_learning_reviews:
@@ -1179,8 +1279,9 @@ async def get_persona_updates():
     if database_manager:
         try:
             logger.info("正在获取风格学习审查...")
-            # 获取所有待审查记录（后面会统一分页）
-            style_reviews = await database_manager.get_pending_style_reviews(limit=999999)
+            # ✅ 懒加载优化：计算需要加载多少条记录（考虑分页）
+            fetch_limit = min(offset + int(limit * 1.5), 1000)  # 最多加载1000条
+            style_reviews = await database_manager.get_pending_style_reviews(limit=fetch_limit)
             logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
 
             for review in style_reviews:
@@ -1652,7 +1753,7 @@ async def batch_delete_persona_updates():
             except Exception as e:
                 logger.error(f"删除人格更新审查记录 {update_id} 失败: {e}")
                 failed_count += 1
-        
+
         return jsonify({
             "success": True,
             "message": f"批量删除完成：成功 {success_count} 条，失败 {failed_count} 条",
@@ -1662,9 +1763,42 @@ async def batch_delete_persona_updates():
                 "total_count": len(update_ids)
             }
         })
-                
+
     except Exception as e:
         logger.error(f"批量删除人格更新审查记录失败: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@api_bp.route("/persona_updates/delete_all", methods=["POST"])
+@require_auth
+async def delete_all_persona_reviews():
+    """删除所有人格学习审查记录（危险操作）"""
+    try:
+        data = await request.get_json()
+        group_id = data.get('group_id') if data else None  # 可选：只删除指定群组的记录
+
+        # 使用全局变量
+        global database_manager
+        if not database_manager:
+            return jsonify({"error": "Database manager not available"}), 500
+
+        # 执行批量删除
+        deleted_count = await database_manager.delete_all_persona_learning_reviews(group_id=group_id)
+
+        if group_id:
+            message = f"成功删除群组 {group_id} 的所有人格学习审查记录，共 {deleted_count} 条"
+        else:
+            message = f"成功删除所有人格学习审查记录，共 {deleted_count} 条"
+
+        logger.info(message)
+
+        return jsonify({
+            "success": True,
+            "message": message,
+            "deleted_count": deleted_count
+        })
+
+    except Exception as e:
+        logger.error(f"删除所有人格学习审查记录失败: {e}")
         return jsonify({"error": str(e)}), 500
 
 # 批量操作人格更新审查记录（批准、拒绝）
@@ -1904,8 +2038,29 @@ async def get_metrics():
             try:
                 # 从数据库获取真实统计
                 stats = await database_manager.get_messages_statistics()
-                total_messages = stats.get('total_messages', 0)
-                filtered_messages = stats.get('filtered_messages', 0)
+
+                # 验证返回的数据类型
+                if not isinstance(stats, dict):
+                    logger.warning(f"get_messages_statistics 返回了非字典类型: {type(stats)}, 值: {stats}")
+                    stats = {}
+
+                # 安全地获取并转换数值
+                total_messages_raw = stats.get('total_messages', 0)
+                filtered_messages_raw = stats.get('filtered_messages', 0)
+
+                # 类型转换带验证
+                try:
+                    total_messages = int(total_messages_raw) if total_messages_raw and str(total_messages_raw).replace('-', '').isdigit() else 0
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"total_messages 转换失败，原始值: {total_messages_raw}, 类型: {type(total_messages_raw)}, 错误: {e}")
+                    total_messages = 0
+
+                try:
+                    filtered_messages = int(filtered_messages_raw) if filtered_messages_raw and str(filtered_messages_raw).replace('-', '').isdigit() else 0
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"filtered_messages 转换失败，原始值: {filtered_messages_raw}, 类型: {type(filtered_messages_raw)}, 错误: {e}")
+                    filtered_messages = 0
+
             except Exception as e:
                 logger.warning(f"获取数据库统计失败: {e}")
                 # 使用配置中的统计作为后备
@@ -2040,20 +2195,32 @@ async def get_metrics():
                             # 统计提炼内容数量
                             await cursor.execute("SELECT COUNT(*) FROM filtered_messages WHERE refined = 1")
                             result = await cursor.fetchone()
-                            if result:
-                                refined_content_count = result[0]
+                            if result and len(result) > 0:
+                                try:
+                                    refined_content_count = int(result[0]) if result[0] else 0
+                                except (ValueError, TypeError) as e:
+                                    logger.warning(f"refined_content_count 转换失败，result[0]={result[0]}, 错误: {e}")
+                                    refined_content_count = 0
 
                             # 统计风格学习成果
                             await cursor.execute("SELECT COUNT(*) FROM style_learning_records")
                             result = await cursor.fetchone()
-                            if result:
-                                style_patterns_learned = result[0]
+                            if result and len(result) > 0:
+                                try:
+                                    style_patterns_learned = int(result[0]) if result[0] else 0
+                                except (ValueError, TypeError) as e:
+                                    logger.warning(f"style_patterns_learned 转换失败，result[0]={result[0]}, 错误: {e}")
+                                    style_patterns_learned = 0
 
                             # 统计待审查的人格更新
                             await cursor.execute("SELECT COUNT(*) FROM persona_update_reviews WHERE status = 'pending'")
                             result = await cursor.fetchone()
-                            if result:
-                                persona_updates_count = result[0]
+                            if result and len(result) > 0:
+                                try:
+                                    persona_updates_count = int(result[0]) if result[0] else 0
+                                except (ValueError, TypeError) as e:
+                                    logger.warning(f"persona_updates_count 转换失败，result[0]={result[0]}, 错误: {e}")
+                                    persona_updates_count = 0
 
                             await cursor.close()
                     except Exception as db_error:
@@ -2096,11 +2263,35 @@ async def get_metrics():
 
             except Exception as metrics_error:
                 logger.warning(f"智能学习效率计算失败,使用简单算法: {metrics_error}")
-                # 回退到简单计算
-                metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+                # 回退到简单计算 (确保类型转换，带错误处理)
+                try:
+                    total_msg = int(total_messages) if total_messages and str(total_messages).isdigit() else 0
+                except (ValueError, TypeError):
+                    logger.warning(f"total_messages 类型转换失败，值为: {total_messages}")
+                    total_msg = 0
+
+                try:
+                    filtered_msg = int(filtered_messages) if filtered_messages and str(filtered_messages).isdigit() else 0
+                except (ValueError, TypeError):
+                    logger.warning(f"filtered_messages 类型转换失败，值为: {filtered_messages}")
+                    filtered_msg = 0
+
+                metrics["learning_efficiency"] = (filtered_msg / total_msg * 100) if total_msg > 0 else 0
         else:
-            # 如果服务未初始化,使用简单算法
-            metrics["learning_efficiency"] = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+            # 如果服务未初始化,使用简单算法 (确保类型转换，带错误处理)
+            try:
+                total_msg = int(total_messages) if total_messages and str(total_messages).isdigit() else 0
+            except (ValueError, TypeError):
+                logger.warning(f"total_messages 类型转换失败，值为: {total_messages}")
+                total_msg = 0
+
+            try:
+                filtered_msg = int(filtered_messages) if filtered_messages and str(filtered_messages).isdigit() else 0
+            except (ValueError, TypeError):
+                logger.warning(f"filtered_messages 类型转换失败，值为: {filtered_messages}")
+                filtered_msg = 0
+
+            metrics["learning_efficiency"] = (filtered_msg / total_msg * 100) if total_msg > 0 else 0
 
         return jsonify(metrics)
         
@@ -4785,13 +4976,24 @@ async def get_social_relations(group_id: str):
             ''', (group_id,))
 
             for row in await cursor.fetchall():
-                sender_id, sender_name, message_count = row
-                if sender_id:
-                    user_key = f"{group_id}:{sender_id}"
-                    user_message_counts[user_key] = message_count
-                    user_names[user_key] = sender_name or sender_id
-                    # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
-                    user_names[sender_id] = sender_name or sender_id
+                try:
+                    # 添加行数据验证
+                    if len(row) < 3:
+                        logger.warning(f"用户统计数据行不完整 (期望3个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
+
+                    sender_id = row[0]
+                    sender_name = row[1]
+                    message_count = int(row[2]) if row[2] else 0
+
+                    if sender_id:
+                        user_key = f"{group_id}:{sender_id}"
+                        user_message_counts[user_key] = message_count
+                        user_names[user_key] = sender_name or sender_id
+                        # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
+                        user_names[sender_id] = sender_name or sender_id
+                except Exception as row_error:
+                    logger.warning(f"处理用户统计数据行时出错，跳过: {row_error}, row: {row}")
 
             await cursor.close()
 
@@ -4915,13 +5117,17 @@ async def get_available_groups_for_social_analysis():
             # 注意：social_relations 表应该在数据库初始化时已创建
             # 不在这里重复创建，避免 SQLite/MySQL 语法不兼容问题
 
-            # 获取群组的消息数和成员数
+            # 使用LEFT JOIN一次性获取群组的消息数、成员数和社交关系数
             await cursor.execute('''
-                SELECT DISTINCT group_id, COUNT(*) as message_count,
-                       COUNT(DISTINCT sender_id) as member_count
-                FROM raw_messages
-                WHERE group_id IS NOT NULL AND group_id != ''
-                GROUP BY group_id
+                SELECT
+                    rm.group_id,
+                    COUNT(DISTINCT rm.id) as message_count,
+                    COUNT(DISTINCT rm.sender_id) as member_count,
+                    COUNT(DISTINCT sr.id) as relation_count
+                FROM raw_messages rm
+                LEFT JOIN social_relations sr ON rm.group_id = sr.group_id
+                WHERE rm.group_id IS NOT NULL AND rm.group_id != ''
+                GROUP BY rm.group_id
                 HAVING message_count >= 10
                 ORDER BY message_count DESC
             ''')
@@ -4930,24 +5136,27 @@ async def get_available_groups_for_social_analysis():
 
             groups = []
             for row in group_rows:
-                group_id = row[0]
-                message_count = row[1]
-                member_count = row[2]
+                try:
+                    # 添加行数据验证
+                    if len(row) < 4:
+                        logger.warning(f"群组数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
 
-                # 获取该群组的社交关系数量
-                await cursor.execute('''
-                    SELECT COUNT(*) FROM social_relations WHERE group_id = ?
-                ''', (group_id,))
-                relation_row = await cursor.fetchone()
-                relation_count = relation_row[0] if relation_row else 0
+                    group_id = row[0]
+                    message_count = int(row[1]) if row[1] else 0
+                    member_count = int(row[2]) if row[2] else 0
+                    relation_count = int(row[3]) if row[3] else 0
 
-                groups.append({
-                    'group_id': group_id,
-                    'message_count': message_count,
-                    'member_count': member_count,  # 修复：使用正确的字段名
-                    'user_count': member_count,     # 保留旧字段以兼容
-                    'relation_count': relation_count  # 新增：关系数
-                })
+                    groups.append({
+                        'group_id': group_id,
+                        'message_count': message_count,
+                        'member_count': member_count,  # 修复：使用正确的字段名
+                        'user_count': member_count,     # 保留旧字段以兼容
+                        'relation_count': relation_count  # 新增：关系数
+                    })
+                except Exception as row_error:
+                    logger.warning(f"处理群组数据行时出错，跳过: {row_error}, row: {row}")
+                    continue
 
             await cursor.close()
 
@@ -5577,6 +5786,22 @@ async def get_jargon_groups():
         async with database_manager.get_db_connection() as conn:
             cursor = await conn.cursor()
 
+            # 首先检查jargon表是否存在
+            await cursor.execute('''
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='jargon'
+            ''')
+
+            table_exists = await cursor.fetchone()
+            if not table_exists:
+                logger.info("jargon表不存在")
+                await cursor.close()
+                return jsonify({
+                    "success": True,
+                    "data": [],
+                    "total_groups": 0
+                })
+
             # 获取所有有黑话记录的群组及其统计
             await cursor.execute('''
                 SELECT
@@ -5591,12 +5816,21 @@ async def get_jargon_groups():
 
             groups = []
             for row in await cursor.fetchall():
-                groups.append({
-                    'group_id': row[0],
-                    'total_candidates': row[1],
-                    'confirmed_jargon': row[2],
-                    'last_updated': row[3]
-                })
+                try:
+                    # 添加行数据验证
+                    if len(row) < 4:
+                        logger.warning(f"黑话群组数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
+                        continue
+
+                    groups.append({
+                        'group_id': row[0],
+                        'total_candidates': int(row[1]) if row[1] else 0,
+                        'confirmed_jargon': int(row[2]) if row[2] else 0,
+                        'last_updated': row[3]
+                    })
+                except Exception as row_error:
+                    logger.warning(f"处理黑话群组数据行时出错，跳过: {row_error}, row: {row}")
+                    continue
 
             await cursor.close()
 
@@ -5792,556 +6026,201 @@ async def root():
     """根路由重定向到API根路径"""
     return redirect("/api/")
 
+# ========== Quart 服务器管理类 ==========
+# 自定义 Config 类，用于劫持 Socket 创建过程
+# 全局锚点
+GLOBAL_SERVER_KEY = "_astrbot_self_learning_server_v5_fix"
+
+# [修改1] 自定义 Config 类
+class SecureConfig(HypercornConfig):
+    def create_sockets(self):
+        insecure_sockets = []
+        secure_sockets = []
+        quic_sockets = []
+
+        for bind in self.bind:
+            if ":" in bind:
+                host, port = bind.rsplit(":", 1)
+                port = int(port)
+            else:
+                host = bind
+                port = 80
+
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                if sys.platform != 'win32' and hasattr(socket, 'SO_REUSEPORT'):
+                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+
+                # [核心] 禁止继承
+                sock.set_inheritable(False)
+                
+                sock.bind((host, port))
+                sock.listen(100)
+                
+                logger.info(f"🔒 安全Socket创建成功: {host}:{port}")
+                insecure_sockets.append(sock)
+                
+            except Exception as e:
+                logger.error(f"Socket 创建失败 {bind}: {e}")
+                try: sock.close()
+                except: pass
+                raise e
+                
+        # [修复] 返回对象而非列表
+        return Sockets(secure_sockets, insecure_sockets, quic_sockets)
 
 class Server:
-    """Quart 服务器管理类"""
-    def __init__(self, host: str = "0.0.0.0", port: int = 7833, auto_find_port: bool = True):
-        """
-        初始化Web服务器
+    """Quart 服务器管理类 (最终修正版)"""
+    _instance = None
 
-        Args:
-            host: 监听主机地址
-            port: 首选端口号
-            auto_find_port: 如果端口被占用，是否自动查找可用端口（默认True）
-        """
+    def __new__(cls, *args, **kwargs):
+        if not cls._instance:
+            cls._instance = super(Server, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, host: str = "0.0.0.0", port: int = 7833, auto_find_port: bool = False):
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        
+        self._initialized = True
         try:
-            logger.info(f"🔧 初始化Web服务器 (首选端口: {port})...")
-
-            # 自动查找可用端口
-            available_port = self._find_available_port(port, auto_find_port=auto_find_port)
-
-            if available_port != port:
-                logger.warning(f"⚠️ 配置端口 {port} 被占用，已自动切换到端口 {available_port}")
-                logger.info(f"💡 如需固定使用端口 {port}，请先释放该端口或在配置中修改 web_interface_port")
-
+            logger.info(f"🔧 初始化Web服务器 (固定端口: {port})...")
             self.host = host
-            self.port = available_port  # 使用实际可用的端口
-            self.original_port = port  # 记录原始配置的端口
-            self.server_task: Optional[asyncio.Task] = None
-            # 使用 Hypercorn 的 shutdown_trigger 进行优雅关闭
-            self._shutdown_event: Optional[asyncio.Event] = None
+            self.port = port
+            
+            self.server_thread: Optional[threading.Thread] = None
+            self._thread_loop = None 
+            self._shutdown_event = None
 
-            logger.debug(f"Debug: 创建 HypercornConfig")
-            self.config = HypercornConfig()
-            self.config.bind = [f"{self.host}:{self.port}"]
-            self.config.accesslog = "-" # 输出访问日志到 stdout
-            self.config.errorlog = "-" # 输出错误日志到 stdout
-            # 添加其他必要的配置
-            self.config.loglevel = "INFO"
-            self.config.use_reloader = False
+            bind_host = self.host
+            if sys.platform == 'win32' and self.host == '0.0.0.0':
+                bind_host = '127.0.0.1'
+
+            # [修改2] 使用 SecureConfig
+            self.config = SecureConfig()
+            self.config.bind = [f"{bind_host}:{self.port}"]
+            self.config.accesslog = None 
+            self.config.errorlog = None 
+            self.config.loglevel = "WARNING"
             self.config.workers = 1
-
-            # 关键修复：设置socket选项以允许端口复用
-            # 这对于快速重启和插件重载非常重要
-            import socket
-            self.config.bind_socket_options = [
-                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),  # 允许地址复用
-            ]
-            # 在支持SO_REUSEPORT的系统上启用端口复用
-            if hasattr(socket, 'SO_REUSEPORT'):
-                self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
-                logger.debug("已启用SO_REUSEPORT选项")
-
-            logger.info(f"✅ Web服务器初始化完成 (端口: {self.port}, 端口复用: 已启用)")
-            logger.debug(f"Debug: 配置绑定: {self.config.bind}")
+            self.config.worker_class = "asyncio"
 
         except Exception as e:
             logger.error(f"❌ Web服务器初始化失败: {e}")
-            import traceback
-            logger.error(f"❌ 初始化异常堆栈: {traceback.format_exc()}")
-            raise
 
-    def _find_available_port(self, preferred_port: int, auto_find_port: bool = True, max_attempts: int = 10) -> int:
-        """
-        查找可用端口
+    async def _kill_port_holder(self, port: int):
+        import sys
+        import os
+        try:
+            if sys.platform == 'win32':
+                cmd_find = f'netstat -ano | findstr :{port}'
+                process = await asyncio.create_subprocess_shell(
+                    cmd_find, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await process.communicate()
+                if stdout:
+                    lines = stdout.decode('gbk', errors='ignore').strip().split('\n')
+                    for line in lines:
+                        parts = line.strip().split()
+                        if len(parts) > 4 and 'LISTENING' in line:
+                            pid = parts[-1]
+                            if pid and pid != str(os.getpid()):
+                                logger.warning(f"🔫 清理占用进程 PID={pid}")
+                                await asyncio.create_subprocess_shell(
+                                    f'taskkill /F /PID {pid}', 
+                                    stdout=asyncio.subprocess.DEVNULL, 
+                                    stderr=asyncio.subprocess.DEVNULL
+                                )
+                                await asyncio.sleep(1.0)
+        except: pass
 
-        Args:
-            preferred_port: 首选端口号
-            auto_find_port: 是否自动查找替代端口
-            max_attempts: 最大尝试次数
-
-        Returns:
-            可用的端口号
-
-        Raises:
-            RuntimeError: 如果无法找到可用端口
-        """
-        import socket
-
-        # 首先检查首选端口
-        if self._is_port_available(preferred_port):
-            logger.debug(f"首选端口 {preferred_port} 可用")
-            return preferred_port
-
-        # 如果不启用自动查找，直接抛出异常
-        if not auto_find_port:
-            raise RuntimeError(
-                f"❌ 端口 {preferred_port} 被占用，且未启用自动端口查找\n"
-                f"📋 解决方案：\n"
-                f"   1. 释放端口 {preferred_port}\n"
-                f"   2. 修改配置使用其他端口\n"
-                f"   3. 启用自动端口查找功能"
+    def _run_thread(self):
+        import asyncio
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self._thread_loop = loop
+            self._shutdown_event = asyncio.Event()
+            
+            # Hypercorn 会调用 SecureConfig.create_sockets
+            loop.run_until_complete(
+                hypercorn.asyncio.serve(
+                    app,
+                    self.config,
+                    shutdown_trigger=self._shutdown_event.wait
+                )
             )
-
-        # 自动查找可用端口（从首选端口+1开始）
-        logger.info(f"🔍 端口 {preferred_port} 被占用，开始自动查找可用端口...")
-
-        for offset in range(1, max_attempts):
-            candidate_port = preferred_port + offset
-
-            # 确保端口号在有效范围内 (1024-65535)
-            if candidate_port > 65535:
-                candidate_port = 7834 + offset  # 回退到默认范围
-
-            if candidate_port < 1024:
-                continue  # 跳过系统保留端口
-
-            logger.debug(f"尝试端口 {candidate_port}...")
-
-            if self._is_port_available(candidate_port):
-                logger.info(f"✅ 找到可用端口: {candidate_port}")
-                return candidate_port
-
-        # 如果仍然找不到可用端口，尝试让系统自动分配
-        logger.warning(f"⚠️ 未能在 {preferred_port}-{preferred_port + max_attempts} 范围内找到可用端口")
-        logger.info("🔧 尝试让系统自动分配端口...")
-
-        try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.bind(('', 0))  # 绑定到端口0，让系统自动分配
-                _, auto_port = sock.getsockname()
-                logger.info(f"✅ 系统自动分配端口: {auto_port}")
-                return auto_port
+            loop.close()
+            logger.info("WebUI 线程已退出")
         except Exception as e:
-            logger.error(f"系统自动分配端口失败: {e}")
-
-        # 最后的异常处理
-        raise RuntimeError(
-            f"❌ 无法找到可用端口！已尝试 {max_attempts} 个端口\n"
-            f"📋 建议：\n"
-            f"   1. 检查系统端口占用情况\n"
-            f"   2. 重启 AstrBot\n"
-            f"   3. 手动指定一个未占用的端口"
-        )
-
-    def _is_port_available(self, port: int) -> bool:
-        """
-        检查端口是否可用（使用bind测试）
-
-        Args:
-            port: 要检查的端口号
-
-        Returns:
-            True: 端口可用
-            False: 端口被占用
-        """
-        import socket
-
-        try:
-            # 不设置 SO_REUSEADDR，获取真实占用情况
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(0.5)
-                # 尝试绑定到 127.0.0.1，检查本地是否可用
-                sock.bind(("127.0.0.1", port))
-                return True
-        except OSError as e:
-            # errno 48 (macOS), 98 (Linux), 10048 (Windows): Address already in use
-            if e.errno in (48, 98, 10048):
-                return False
-            # 其他错误（如权限不足），也视为不可用
-            logger.debug(f"检查端口 {port} 时遇到错误 (errno={e.errno}): {e}")
-            return False
-        except Exception as e:
-            logger.warning(f"检查端口 {port} 时发生异常: {e}")
-            return False
+            logger.error(f"WebUI 线程异常: {e}")
 
     async def start(self):
-        """启动服务器 - 增强版本，包含端口冲突处理和重试机制"""
-        logger.info(f"🚀 启动Web服务器 (端口: {self.port})...")
-        logger.debug(f"Debug: self.server_task = {self.server_task}")
-        logger.debug(f"Debug: host = {self.host}, port = {self.port}")
+        """启动服务器"""
+        if self.server_thread and self.server_thread.is_alive():
+            return
 
-        if self.server_task and not self.server_task.done():
-            logger.info("ℹ️ Web服务器已在运行中")
-            return # Server already running
-
-        # 预检查：等待端口完全释放（处理插件重载场景）
-        # 增加等待时间和重试次数
-        port_wait_attempts = 5
-        for attempt in range(port_wait_attempts):
-            port_available = await self._async_check_port_available(self.port)
-            if port_available:
-                logger.info(f"✅ 端口 {self.port} 可用，继续启动")
-                break
-            else:
-                logger.warning(f"⚠️ 端口 {self.port} 仍被占用 (检查 {attempt + 1}/{port_wait_attempts})")
-                if attempt < port_wait_attempts - 1:
-                    # 尝试强制释放端口（仅Linux）
-                    await self._try_force_release_port(self.port)
-                    wait_time = 3 if attempt < 2 else 5  # 前两次等3秒，之后等5秒
-                    logger.info(f"⏳ 等待 {wait_time} 秒后重新检查...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    logger.warning(f"⚠️ 端口 {self.port} 在等待后仍被占用")
-                    logger.info("💡 继续尝试启动，将使用SO_REUSEADDR强制复用")
-
+        # 1. 暴力清理
+        if not self._is_port_available(self.port):
+            await self._kill_port_holder(self.port)
+        
+        # 2. 启动线程
         try:
-            # 为本次启动创建独立的 shutdown_event，用于优雅停止
-            self._shutdown_event = asyncio.Event()
-
-            logger.info(f"🔧 配置服务器绑定: {self.config.bind}")
-            logger.debug(f"Debug: 准备创建Hypercorn serve任务")
-            logger.debug(f"Debug: app类型: {type(app)}")
-            logger.debug(f"Debug: config类型: {type(self.config)}")
-
-            # 重新配置socket选项（确保每次启动都设置）
-            import socket
-            self.config.bind_socket_options = [
-                (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1),
-            ]
-            if hasattr(socket, 'SO_REUSEPORT'):
-                self.config.bind_socket_options.append((socket.SOL_SOCKET, socket.SO_REUSEPORT, 1))
-
-            # 添加重试机制
-            max_retries = 3
-            for retry_count in range(max_retries):
-                try:
-                    # Hypercorn 的 serve 函数是阻塞的，需要在一个单独的协程中运行
-                    logger.debug(f"Debug: 调用 asyncio.create_task (尝试 {retry_count + 1}/{max_retries})")
-                    self.server_task = asyncio.create_task(
-                        hypercorn.asyncio.serve(
-                            app,
-                            self.config,
-                            shutdown_trigger=self._shutdown_event.wait,  # 使用 shutdown_trigger 优雅关闭
-                        )
-                    )
-
-                    logger.info(f"✅ Web服务器任务已创建: {self.server_task}")
-                    logger.info(f"🌐 访问地址: http://{self.host}:{self.port}")
-
-                    # 等待服务器启动
-                    logger.debug(f"Debug: 等待服务器启动 (尝试 {retry_count + 1})")
-                    await asyncio.sleep(2)
-
-                    # 检查服务器状态
-                    logger.debug(f"Debug: 检查服务器状态, task.done() = {self.server_task.done() if self.server_task else 'None'}")
-                    if self.server_task and not self.server_task.done():
-                        # 验证服务器是否真的在监听端口
-                        if await self._verify_server_listening():
-                            logger.info(f"✅ Web服务器启动成功并正在监听端口 {self.port}")
-                            return  # 成功启动，退出重试循环
-                        else:
-                            logger.warning(f"⚠️ Web服务器任务运行中，但端口未响应 (尝试 {retry_count + 1})")
-                            if retry_count < max_retries - 1:
-                                # 取消当前任务，准备重试
-                                self.server_task.cancel()
-                                try:
-                                    await asyncio.wait_for(self.server_task, timeout=2.0)
-                                except:
-                                    pass
-                                self.server_task = None
-                                logger.info(f"🔄 准备重试启动...")
-                                await asyncio.sleep(2)
-                                continue
-                    else:
-                        logger.error(f"❌ Web服务器任务意外完成 (尝试 {retry_count + 1})")
-                        if self.server_task and self.server_task.done():
-                            try:
-                                # 获取任务异常
-                                exception = self.server_task.exception()
-                                if exception:
-                                    logger.error(f"❌ 服务器启动异常: {exception}")
-                                    logger.error(f"❌ 异常类型: {type(exception)}")
-                                    if "Address already in use" in str(exception):
-                                        logger.warning(f"🔧 检测到端口冲突，尝试强制释放...")
-                                        await self._try_force_release_port(self.port)
-                                        if retry_count < max_retries - 1:
-                                            await asyncio.sleep(3)
-                                            continue
-                            except Exception as ex:
-                                logger.error(f"❌ 获取异常信息时出错: {ex}")
-
-                        if retry_count < max_retries - 1:
-                            logger.info(f"🔄 启动失败，等待后重试 (尝试 {retry_count + 1}/{max_retries})")
-                            await asyncio.sleep(5)
-                        continue
-
-                except Exception as start_error:
-                    logger.error(f"❌ 启动尝试 {retry_count + 1} 失败: {start_error}")
-                    if "Address already in use" in str(start_error) or "port" in str(start_error).lower():
-                        logger.warning(f"🔧 检测到端口 {self.port} 冲突")
-                        await self._try_force_release_port(self.port)
-                        if retry_count < max_retries - 1:
-                            logger.info(f"⏳ 等待端口释放后重试...")
-                            await asyncio.sleep(5)
-                            continue
-                    elif retry_count < max_retries - 1:
-                        logger.info(f"🔄 等待后重试...")
-                        await asyncio.sleep(3)
-                        continue
-                    else:
-                        raise  # 最后一次重试也失败，抛出异常
+            self.server_thread = threading.Thread(
+                target=self._run_thread,
+                daemon=True,
+                name="SelfLearning_WebUI"
+            )
+            self.server_thread.start()
             
-            # 如果所有重试都失败了
-            logger.error(f"❌ 经过 {max_retries} 次重试，Web服务器仍无法启动")
-            self.server_task = None
+            # 3. 验证
+            for _ in range(5):
+                await asyncio.sleep(1.0)
+                if await self._verify_tcp():
+                    logger.info(f"✅ Web服务器启动成功")
+                    logger.info(f"🔗 本地访问: http://127.0.0.1:{self.port}")
+                    return
+            
+            logger.warning("⚠️ WebUI 线程已启动但端口无响应")
                 
         except Exception as e:
-            logger.error(f"❌ 启动Web服务器失败: {e}")
-            
-            # 检查是否是端口冲突
-            if "Address already in use" in str(e) or "port" in str(e).lower():
-                logger.warning(f"🔧 确认检测到端口 {self.port} 冲突")
-                logger.info(f"💡 建议解决方案:")
-                logger.info(f"   1. 稍等片刻后重新加载插件")
-                logger.info(f"   2. 重启AstrBot以完全清理资源")
-                logger.info(f"   3. 在插件配置中修改web_interface_port为其他端口")
-                
-            import traceback
-            logger.error(f"异常堆栈: {traceback.format_exc()}")
-            self.server_task = None
-
-    async def _async_check_port_available(self, port: int) -> bool:
-        """异步检查端口是否可用 - 改进版，使用bind检查而不是connect"""
-        try:
-            import socket
-            loop = asyncio.get_event_loop()
-
-            def check_port():
-                try:
-                    # 尝试绑定端口而不是连接端口
-                    # 这是更准确的检查方式
-                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                        sock.settimeout(1)
-                        try:
-                            # 尝试绑定端口
-                            sock.bind(("127.0.0.1", port))
-                            # 绑定成功,说明端口可用
-                            logger.debug(f"端口 {port} 可用(绑定测试成功)")
-                            return True
-                        except OSError as e:
-                            # 绑定失败,端口被占用
-                            if e.errno in (48, 98):  # macOS: 48, Linux: 98 (Address already in use)
-                                logger.debug(f"端口 {port} 被占用: {e}")
-                                return False
-                            # 其他错误,假设端口可用
-                            logger.debug(f"检查端口 {port} 时遇到其他错误: {e},假设可用")
-                            return True
-                except Exception as ex:
-                    logger.warning(f"检查端口 {port} 时发生异常: {ex},假设可用")
-                    return True  # 异常时假设端口可用
-
-            return await loop.run_in_executor(None, check_port)
-        except Exception:
-            return True  # 检查失败时假设端口可用
-
-    async def _verify_server_listening(self) -> bool:
-        """验证服务器是否正在监听端口"""
-        try:
-            import aiohttp
-            timeout = aiohttp.ClientTimeout(total=2)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                try:
-                    async with session.get(f"http://{self.host}:{self.port}/") as response:
-                        return response.status in [200, 302, 404]  # 任何HTTP响应都表示服务器在运行
-                except aiohttp.ClientConnectorError:
-                    return False
-        except ImportError:
-            # 如果没有aiohttp，回退到socket检查
-            try:
-                import socket
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                    sock.settimeout(2)
-                    result = sock.connect_ex(("127.0.0.1", self.port))
-                    return result == 0
-            except Exception:
-                return False
-        except Exception:
-            return False
-
-    async def _try_force_release_port(self, port: int):
-        """
-        尝试强制释放被占用的端口（跨平台支持）
-        主要用于处理框架重启后端口未能及时释放的情况
-        """
-        import sys
-        import subprocess
-
-        logger.info(f"🔧 尝试释放端口 {port}...")
-
-        try:
-            if sys.platform == 'darwin':  # macOS
-                # 查找占用端口的进程
-                try:
-                    result = subprocess.run(
-                        ['lsof', '-i', f':{port}', '-t'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.stdout.strip():
-                        pids = result.stdout.strip().split('\n')
-                        current_pid = str(os.getpid())
-                        for pid in pids:
-                            pid = pid.strip()
-                            if pid and pid != current_pid:
-                                logger.warning(f"⚠️ 发现占用端口 {port} 的进程: PID={pid}")
-                                # 不自动杀死进程，只是记录信息
-                                # 因为可能是同一AstrBot实例的其他部分
-                                logger.info(f"💡 如需释放，请手动执行: kill {pid}")
-                except FileNotFoundError:
-                    logger.debug("lsof命令不可用")
-                except subprocess.TimeoutExpired:
-                    logger.debug("lsof命令超时")
-
-            elif sys.platform == 'linux':
-                # Linux: 使用ss或lsof查找占用进程
-                try:
-                    result = subprocess.run(
-                        ['ss', '-tlnp', f'sport = :{port}'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.stdout:
-                        logger.info(f"端口 {port} 占用详情:\n{result.stdout}")
-                except FileNotFoundError:
-                    # 回退到lsof
-                    try:
-                        result = subprocess.run(
-                            ['lsof', '-i', f':{port}', '-t'],
-                            capture_output=True, text=True, timeout=5
-                        )
-                        if result.stdout.strip():
-                            pids = result.stdout.strip().split('\n')
-                            current_pid = str(os.getpid())
-                            for pid in pids:
-                                pid = pid.strip()
-                                if pid and pid != current_pid:
-                                    logger.warning(f"⚠️ 发现占用端口 {port} 的进程: PID={pid}")
-                    except FileNotFoundError:
-                        logger.debug("ss和lsof命令都不可用")
-                except subprocess.TimeoutExpired:
-                    logger.debug("ss命令超时")
-
-            elif sys.platform == 'win32':  # Windows
-                try:
-                    result = subprocess.run(
-                        ['netstat', '-ano'],
-                        capture_output=True, text=True, timeout=5
-                    )
-                    if result.stdout:
-                        for line in result.stdout.split('\n'):
-                            if f':{port}' in line and 'LISTENING' in line:
-                                logger.info(f"端口 {port} 占用详情: {line.strip()}")
-                except Exception as e:
-                    logger.debug(f"Windows netstat检查失败: {e}")
-
-        except Exception as e:
-            logger.debug(f"检查端口占用时出错: {e}")
-
-        # 给系统一些时间来清理TIME_WAIT状态的连接
-        logger.info(f"⏳ 等待系统清理TIME_WAIT连接...")
-        await asyncio.sleep(1)
+            logger.error(f"❌ 启动失败: {e}")
+            raise e
 
     async def stop(self):
-        """停止服务器 - 使用 Hypercorn shutdown_trigger 优雅关闭并验证端口释放"""
-        logger.info(f"🛑 正在停止Web服务器 (端口: {self.port})...")
-
-        if self.server_task and not self.server_task.done():
+        """停止服务器"""
+        if self._thread_loop and self._shutdown_event:
             try:
-                logger.info("📋 开始优雅停止Web服务器 (使用 shutdown_trigger)...")
+                self._thread_loop.call_soon_threadsafe(self._shutdown_event.set)
+            except: pass
+        
+        if self.server_thread:
+            await asyncio.sleep(1.0)
+            self.server_thread = None
+        
+        import gc
+        gc.collect()
 
-                graceful_stopped = False
+    async def _verify_tcp(self):
+        import socket
+        loop = asyncio.get_event_loop()
+        def check():
+            try:
+                check_host = "127.0.0.1" if self.host == "0.0.0.0" else self.host
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    return s.connect_ex((check_host, self.port)) == 0
+            except: return False
+        return await loop.run_in_executor(None, check)
 
-                # 1. 首先尝试通过 shutdown_trigger 优雅关闭 Hypercorn
-                try:
-                    if self._shutdown_event is not None and not self._shutdown_event.is_set():
-                        self._shutdown_event.set()
-                        # 给 Hypercorn 一定时间完成优雅关闭
-                        await asyncio.wait_for(self.server_task, timeout=10.0)
-                        logger.info("✅ Web服务器已通过 shutdown_trigger 优雅停止")
-                        graceful_stopped = True
-                except asyncio.TimeoutError:
-                    logger.warning("⚠️ Web服务器优雅停止超时，将尝试强制取消任务")
-                except asyncio.CancelledError:
-                    logger.info("✅ Web服务器任务在优雅停止过程中被取消")
-                    graceful_stopped = True
-                except Exception as e:
-                    logger.warning(f"⚠️ 使用 shutdown_trigger 停止Web服务器时出现异常: {e}")
-
-                # 2. 如优雅关闭未成功，则强制取消 Hypercorn 任务
-                if not graceful_stopped:
-                    logger.info("🔧 开始强制取消 Hypercorn 任务...")
-                    self.server_task.cancel()
-                    try:
-                        await asyncio.wait_for(self.server_task, timeout=5.0)
-                        logger.info("✅ Web服务器任务已强制取消")
-                    except asyncio.CancelledError:
-                        logger.info("✅ Web服务器任务已取消")
-                    except asyncio.TimeoutError:
-                        logger.warning("⚠️ 强制取消 Hypercorn 任务超时，可能仍有残留连接")
-                    except Exception as e:
-                        logger.warning(f"⚠️ 强制终止Web服务器时出现异常: {e}")
-
-                # 3. 清理任务引用与 shutdown_event
-                self.server_task = None
-                self._shutdown_event = None
-
-                # 4. 等待更长时间让端口完全释放
-                logger.info("⏳ 等待端口资源完全释放...")
-                await asyncio.sleep(3)
-
-                # 5. 强制关闭所有可能残留的socket连接
-                try:
-                    import socket
-                    import gc
-                    # 触发垃圾回收，清理未关闭的socket
-                    gc.collect()
-                    logger.debug("✅ 已触发垃圾回收")
-                except Exception as e:
-                    logger.debug(f"垃圾回收失败: {e}")
-
-                # 6. 验证端口是否真的释放了 - 使用 bind 测试
-                port_released = False
-                for attempt in range(5):  # 检查5次
-                    try:
-                        import socket
-                        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                            sock.settimeout(1)
-                            try:
-                                sock.bind(("127.0.0.1", self.port))
-                                port_released = True
-                                logger.info(f"✅ 端口 {self.port} 已确认释放 (绑定测试成功, 尝试 {attempt + 1}/5)")
-                                break
-                            except OSError as e:
-                                if e.errno in (48, 98):  # Address already in use
-                                    logger.debug(f"⏳ 端口 {self.port} 仍被占用 (尝试 {attempt + 1}/5): {e}")
-                                    if attempt < 4:
-                                        await asyncio.sleep(1)
-                                    continue
-                                else:
-                                    port_released = True
-                                    logger.debug(f"端口检查遇到其他错误,假设已释放: {e}")
-                                    break
-                    except Exception as e:
-                        logger.debug(f"端口检查失败 (尝试 {attempt + 1}/5): {e}")
-                        if attempt == 4:
-                            port_released = True
-                            logger.info("📝 端口检查失败，假定端口已释放")
-
-                if port_released:
-                    logger.info(f"✅ Web服务器完全停止，端口 {self.port} 已释放")
-                else:
-                    logger.warning(f"⚠️ Web服务器已停止，但端口 {self.port} 可能仍被占用")
-                    logger.info("💡 提示: 如果遇到端口占用问题，请重启AstrBot或等待10-15秒后重试")
-
-            except Exception as e:
-                logger.error(f"❌ 停止Web服务器过程中发生错误: {e}", exc_info=True)
-            finally:
-                # 无论如何都要清理任务引用
-                self.server_task = None
-                self._shutdown_event = None
-                logger.info("🧹 Web服务器任务引用已清理")
-        else:
-            logger.info("ℹ️ Web服务器已经停止或未启动，无需停止操作")
-
-        logger.info(f"🔧 Web服务器停止流程完成 (端口: {self.port})")
+    def _is_port_available(self, port):
+        import socket
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                s.bind(("127.0.0.1", port))
+                return True
+        except: return False
+    
+    def _find_available_port(self, p, auto_find_port=False): return p

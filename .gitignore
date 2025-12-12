@@ -22,3 +22,6 @@ ENABLED.md
 QUICK_START.md
 tests/README.md
 /moss
+main.py.old
+webui.py.old
+DATABASE_MANAGER_GUIDE.md

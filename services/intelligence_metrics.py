@@ -58,6 +58,7 @@ class IntelligenceMetricsService:
     def __init__(self, config: PluginConfig, db_manager=None):
         self.config = config
         self.db_manager = db_manager
+        self._logger = logger  # 添加 logger 属性
         self.logger = logger
 
     async def calculate_learning_efficiency(
@@ -79,7 +80,39 @@ class IntelligenceMetricsService:
             active_strategies = []
 
         # 1. 消息筛选率 (基础维度)
+        # 确保类型转换为整数，并处理非数字值
+        try:
+            total_messages = int(total_messages) if total_messages else 0
+        except (ValueError, TypeError) as e:
+            self._logger.warning(f"total_messages 类型转换失败，值为: {total_messages}, 错误: {e}")
+            total_messages = 0
+
+        try:
+            filtered_messages = int(filtered_messages) if filtered_messages else 0
+        except (ValueError, TypeError) as e:
+            self._logger.warning(f"filtered_messages 类型转换失败，值为: {filtered_messages}, 错误: {e}")
+            filtered_messages = 0
+
         message_filter_rate = (filtered_messages / total_messages * 100) if total_messages > 0 else 0
+
+        # 确保其他参数也是整数类型
+        try:
+            refined_content_count = int(refined_content_count) if refined_content_count else 0
+        except (ValueError, TypeError) as e:
+            self._logger.warning(f"refined_content_count 类型转换失败，值为: {refined_content_count}, 错误: {e}")
+            refined_content_count = 0
+
+        try:
+            style_patterns_learned = int(style_patterns_learned) if style_patterns_learned else 0
+        except (ValueError, TypeError) as e:
+            self._logger.warning(f"style_patterns_learned 类型转换失败，值为: {style_patterns_learned}, 错误: {e}")
+            style_patterns_learned = 0
+
+        try:
+            persona_updates_count = int(persona_updates_count) if persona_updates_count else 0
+        except (ValueError, TypeError) as e:
+            self._logger.warning(f"persona_updates_count 类型转换失败，值为: {persona_updates_count}, 错误: {e}")
+            persona_updates_count = 0
 
         # 2. 内容提炼质量 (考虑提炼后有效内容的数量和质量)
         content_refine_quality = self._calculate_refine_quality(

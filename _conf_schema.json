@@ -386,7 +386,7 @@
       "use_sqlalchemy": {
         "description": "使用SQLAlchemy数据库管理器（高级）",
         "type": "bool",
-        "hint": "【高级选项】是否使用新的SQLAlchemy数据库管理器。默认false使用传统实现。一般用户无需修改此选项",
+        "hint": "【高级选项】是否使用新的SQLAlchemy数据库管理器。默认false使用传统实现。建议开启",
         "default": false
       },
       "mysql_host": {

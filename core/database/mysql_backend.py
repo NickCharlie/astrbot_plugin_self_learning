@@ -46,6 +46,7 @@ async def retry_on_mysql_error(func: Callable[..., T], max_retries: int = 3, ini
         1213,  # Deadlock
         2013,  # Lost connection
         2006,  # MySQL server has gone away
+        2014,  # Command Out of Sync
     }
 
     for attempt in range(max_retries + 1):
@@ -62,7 +63,7 @@ async def retry_on_mysql_error(func: Callable[..., T], max_retries: int = 3, ini
                     is_retryable = True
 
             # 也检查错误消息
-            if any(keyword in error_msg.lower() for keyword in ['deadlock', 'lock wait', 'lost connection', 'gone away']):
+            if any(keyword in error_msg.lower() for keyword in ['deadlock', 'lock wait', 'lost connection', 'gone away', 'command out of sync', 'out of sync', 'packet sequence number wrong']):
                 is_retryable = True
 
             if not is_retryable:
