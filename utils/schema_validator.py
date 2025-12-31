@@ -313,9 +313,10 @@ class SchemaValidator:
             'DOUBLE': 'FLOAT',
             'VARCHAR': 'STRING',
             'CHAR': 'STRING',
-            'BIGINT': 'INT',
+            'BIGINT': 'BIGINT',  # 保持 BIGINT，因为它常用于时间戳
             'TINYINT': 'INT',
             'SMALLINT': 'INT',
+            'TIMESTAMP': 'DATETIME',  # 统一时间类型
         }
 
         return type_map.get(type_str, type_str)
@@ -339,6 +340,13 @@ class SchemaValidator:
         # STRING 类型族
         string_types = {'STRING', 'TEXT', 'VARCHAR', 'CHAR'}
         if type1 in string_types and type2 in string_types:
+            return True
+
+        # 时间戳类型兼容性（重要！）
+        # 我们使用 BIGINT/INTEGER/FLOAT 存储 Unix 时间戳
+        # DATETIME 和数字类型（INT/BIGINT/FLOAT）都可以表示时间戳，视为兼容
+        timestamp_types = {'BIGINT', 'INT', 'INTEGER', 'FLOAT', 'REAL', 'DATETIME', 'TIMESTAMP'}
+        if type1 in timestamp_types and type2 in timestamp_types:
             return True
 
         return False

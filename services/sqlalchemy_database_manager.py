@@ -976,6 +976,524 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 无法获取群组表达模式: SQLAlchemy 和传统数据库管理器都不可用")
             return []
 
+    # ========================================
+    # 社交关系系统方法（使用新ORM表）
+    # ========================================
+
+    async def get_social_relations_by_group(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        获取指定群组的社交关系（使用新ORM表）
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            List[Dict[str, Any]]: 社交关系列表
+        """
+        try:
+            async with self.get_session() as session:
+                # 使用新的 user_social_relation_components 表
+                from sqlalchemy import select
+                from ..models.orm.social_relation import UserSocialRelationComponent
+
+                # 查询该群组的所有社交关系组件
+                stmt = select(UserSocialRelationComponent).where(
+                    UserSocialRelationComponent.group_id == group_id
+                ).order_by(
+                    UserSocialRelationComponent.frequency.desc(),
+                    UserSocialRelationComponent.value.desc()
+                )
+
+                result = await session.execute(stmt)
+                components = result.scalars().all()
+
+                # 转换为旧格式的字典（保持向后兼容）
+                relations = []
+                for comp in components:
+                    relations.append({
+                        'from_user': f"{comp.group_id}:{comp.from_user_id}",  # 兼容旧格式
+                        'to_user': f"{comp.group_id}:{comp.to_user_id}",
+                        'relation_type': comp.relation_type,
+                        'strength': float(comp.value),  # value 对应 strength
+                        'frequency': int(comp.frequency),
+                        'last_interaction': comp.last_interaction
+                    })
+
+                logger.info(f"[SQLAlchemy] 群组 {group_id} 加载了 {len(relations)} 条社交关系")
+                return relations
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取社交关系失败: {e}", exc_info=True)
+            return []
+
+    async def load_social_graph(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        加载社交图谱（使用新ORM表）
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            List[Dict[str, Any]]: 社交关系列表
+        """
+        # load_social_graph 与 get_social_relations_by_group 功能相同
+        return await self.get_social_relations_by_group(group_id)
+
+    async def get_user_social_relations(self, group_id: str, user_id: str) -> Dict[str, Any]:
+        """
+        获取指定用户在群组中的社交关系（使用新ORM表）
+
+        Args:
+            group_id: 群组ID
+            user_id: 用户ID
+
+        Returns:
+            Dict: 包含用户社交关系的字典
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, or_
+                from ..models.orm.social_relation import UserSocialRelationComponent
+
+                # 查询该用户发起或接收的所有关系
+                stmt = select(UserSocialRelationComponent).where(
+                    UserSocialRelationComponent.group_id == group_id
+                ).where(
+                    or_(
+                        UserSocialRelationComponent.from_user_id == user_id,
+                        UserSocialRelationComponent.to_user_id == user_id
+                    )
+                ).order_by(
+                    UserSocialRelationComponent.frequency.desc(),
+                    UserSocialRelationComponent.value.desc()
+                ).limit(10)
+
+                result = await session.execute(stmt)
+                components = result.scalars().all()
+
+                # 分类为发起关系和接收关系
+                outgoing_relations = []
+                incoming_relations = []
+
+                for comp in components:
+                    relation_dict = {
+                        'from_user': f"{comp.group_id}:{comp.from_user_id}",
+                        'to_user': f"{comp.group_id}:{comp.to_user_id}",
+                        'relation_type': comp.relation_type,
+                        'strength': float(comp.value),
+                        'frequency': int(comp.frequency),
+                        'last_interaction': comp.last_interaction
+                    }
+
+                    if comp.from_user_id == user_id:
+                        outgoing_relations.append(relation_dict)
+                    else:
+                        incoming_relations.append(relation_dict)
+
+                return {
+                    'outgoing': outgoing_relations,
+                    'incoming': incoming_relations,
+                    'total_relations': len(components)
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取用户社交关系失败: {e}", exc_info=True)
+            return {'outgoing': [], 'incoming': [], 'total_relations': 0}
+
+    async def save_social_relation(self, group_id: str, relation_data: Dict[str, Any]):
+        """
+        保存社交关系（使用新ORM表）
+
+        Args:
+            group_id: 群组ID
+            relation_data: 关系数据
+        """
+        try:
+            async with self.get_session() as session:
+                from ..models.orm.social_relation import UserSocialRelationComponent
+                import time
+
+                # 解析 from_user 和 to_user（兼容旧格式 "group_id:user_id"）
+                from_user = relation_data.get('from_user', '')
+                to_user = relation_data.get('to_user', '')
+
+                # 提取用户ID（如果包含 group_id:）
+                from_user_id = from_user.split(':')[-1] if ':' in from_user else from_user
+                to_user_id = to_user.split(':')[-1] if ':' in to_user else to_user
+
+                # 创建新的社交关系组件
+                component = UserSocialRelationComponent(
+                    profile_id=0,  # 稍后关联 profile
+                    from_user_id=from_user_id,
+                    to_user_id=to_user_id,
+                    group_id=group_id,
+                    relation_type=relation_data.get('relation_type', 'unknown'),
+                    value=float(relation_data.get('strength', 0.0)),
+                    frequency=int(relation_data.get('frequency', 0)),
+                    last_interaction=int(relation_data.get('last_interaction', time.time())),
+                    created_at=int(time.time())
+                )
+
+                session.add(component)
+                await session.commit()
+
+                logger.debug(f"[SQLAlchemy] 已保存社交关系: {from_user_id} -> {to_user_id}")
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存社交关系失败: {e}", exc_info=True)
+
+    # ========================================
+    # 其他必要方法
+    # ========================================
+
+    def get_db_connection(self):
+        """
+        获取数据库连接（上下文管理器）
+
+        用于向后兼容传统代码
+
+        Returns:
+            AsyncContextManager: 异步上下文管理器
+        """
+        @asynccontextmanager
+        async def _connection_context():
+            if self.engine and self.engine.backend:
+                yield self.engine.backend
+            else:
+                raise RuntimeError("[SQLAlchemy] 数据库引擎未初始化")
+        return _connection_context()
+
+    async def get_group_connection(self, group_id: str):
+        """
+        获取群组数据库连接（用于向后兼容）
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            DatabaseBackend: 数据库后端实例
+        """
+        if self.engine and self.engine.backend:
+            return self.engine.backend
+        else:
+            raise RuntimeError("[SQLAlchemy] 数据库引擎未初始化")
+
+    async def mark_messages_processed(self, message_ids: List[int]):
+        """
+        标记消息为已处理
+
+        Args:
+            message_ids: 消息ID列表
+        """
+        if not message_ids:
+            return
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import update
+                from ..models.orm.conversation import UserConversationHistory
+
+                # 批量更新消息状态
+                stmt = update(UserConversationHistory).where(
+                    UserConversationHistory.id.in_(message_ids)
+                ).values(processed=True)
+
+                await session.execute(stmt)
+                await session.commit()
+
+                logger.debug(f"[SQLAlchemy] 已标记 {len(message_ids)} 条消息为已处理")
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 标记消息处理状态失败: {e}", exc_info=True)
+
+    async def save_learning_performance_record(self, record: Dict[str, Any]):
+        """
+        保存学习性能记录
+
+        Args:
+            record: 性能记录数据
+        """
+        try:
+            # 这个方法在旧系统中存在，但在新系统中可能不需要
+            # 暂时记录日志，不做实际操作
+            logger.debug(f"[SQLAlchemy] 学习性能记录（暂不实现）: {record}")
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存学习性能记录失败: {e}", exc_info=True)
+
+    async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
+        """
+        获取群组消息统计
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            Dict: 消息统计数据
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm.conversation import UserConversationHistory
+
+                # 统计总消息数
+                total_stmt = select(func.count()).select_from(UserConversationHistory).where(
+                    UserConversationHistory.group_id == group_id
+                )
+                total_result = await session.execute(total_stmt)
+                total_messages = total_result.scalar() or 0
+
+                # 统计未处理消息数
+                unprocessed_stmt = select(func.count()).select_from(UserConversationHistory).where(
+                    UserConversationHistory.group_id == group_id,
+                    UserConversationHistory.processed == False
+                )
+                unprocessed_result = await session.execute(unprocessed_stmt)
+                unprocessed_messages = unprocessed_result.scalar() or 0
+
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'processed_messages': total_messages - unprocessed_messages
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}", exc_info=True)
+            return {'total_messages': 0, 'unprocessed_messages': 0, 'processed_messages': 0}
+
+    async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
+        """
+        获取俚语统计信息
+
+        Args:
+            group_id: 群组ID（可选，None表示全局统计）
+
+        Returns:
+            Dict: 俚语统计数据
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm.expression import ExpressionPattern
+
+                # 构建查询
+                if group_id:
+                    stmt = select(func.count()).select_from(ExpressionPattern).where(
+                        ExpressionPattern.group_id == group_id
+                    )
+                else:
+                    stmt = select(func.count()).select_from(ExpressionPattern)
+
+                result = await session.execute(stmt)
+                total_count = result.scalar() or 0
+
+                return {
+                    'total_jargons': total_count,
+                    'group_id': group_id
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取俚语统计失败: {e}", exc_info=True)
+            return {'total_jargons': 0, 'group_id': group_id}
+
+    async def get_recent_jargon_list(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        获取最近的俚语列表
+
+        Args:
+            group_id: 群组ID
+            limit: 返回数量限制
+
+        Returns:
+            List[Dict]: 俚语列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.expression import ExpressionPattern
+
+                stmt = select(ExpressionPattern).where(
+                    ExpressionPattern.group_id == group_id
+                ).order_by(
+                    ExpressionPattern.last_active_time.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                patterns = result.scalars().all()
+
+                return [
+                    {
+                        'situation': pattern.situation,
+                        'expression': pattern.expression,
+                        'weight': pattern.weight,
+                        'last_active_time': pattern.last_active_time,
+                        'group_id': pattern.group_id
+                    }
+                    for pattern in patterns
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取最近俚语列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_learning_patterns_data(self, group_id: str = None) -> Dict[str, Any]:
+        """
+        获取学习模式数据
+
+        Args:
+            group_id: 群组ID（可选）
+
+        Returns:
+            Dict: 学习模式数据
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..repositories.learning_repository import PersonaLearningReviewRepository, StyleLearningReviewRepository
+
+                persona_repo = PersonaLearningReviewRepository(session)
+                style_repo = StyleLearningReviewRepository(session)
+
+                # 获取人格学习统计
+                persona_stats = await persona_repo.get_statistics()
+
+                # 获取风格学习统计
+                style_stats = await style_repo.get_statistics()
+
+                return {
+                    'persona_learning': persona_stats,
+                    'style_learning': style_stats,
+                    'group_id': group_id
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取学习模式数据失败: {e}", exc_info=True)
+            return {'persona_learning': {}, 'style_learning': {}, 'group_id': group_id}
+
+    async def save_learning_session_record(self, session_data: Dict[str, Any]) -> bool:
+        """
+        保存学习会话记录
+
+        Args:
+            session_data: 会话数据
+
+        Returns:
+            bool: 是否保存成功
+        """
+        try:
+            # 此方法在新架构中可能不需要，暂时只记录日志
+            logger.debug(f"[SQLAlchemy] 学习会话记录（暂不实现）: {session_data}")
+            return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存学习会话记录失败: {e}", exc_info=True)
+            return False
+
+    async def get_detailed_metrics(self, group_id: str = None) -> Dict[str, Any]:
+        """
+        获取详细指标数据
+
+        Args:
+            group_id: 群组ID（可选）
+
+        Returns:
+            Dict: 详细指标数据
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import UserAffection, UserConversationHistory, ExpressionPattern
+
+                metrics = {}
+
+                # 好感度指标
+                if group_id:
+                    affection_stmt = select(
+                        func.count(UserAffection.id).label('count'),
+                        func.avg(UserAffection.affection_level).label('avg_level')
+                    ).where(UserAffection.group_id == group_id)
+                else:
+                    affection_stmt = select(
+                        func.count(UserAffection.id).label('count'),
+                        func.avg(UserAffection.affection_level).label('avg_level')
+                    )
+
+                affection_result = await session.execute(affection_stmt)
+                affection_row = affection_result.first()
+
+                metrics['affection'] = {
+                    'total_users': affection_row.count if affection_row else 0,
+                    'avg_level': float(affection_row.avg_level) if affection_row and affection_row.avg_level else 0.0
+                }
+
+                # 对话历史指标
+                if group_id:
+                    conv_stmt = select(func.count(UserConversationHistory.id)).where(
+                        UserConversationHistory.group_id == group_id
+                    )
+                else:
+                    conv_stmt = select(func.count(UserConversationHistory.id))
+
+                conv_result = await session.execute(conv_stmt)
+                conv_count = conv_result.scalar() or 0
+
+                metrics['conversations'] = {
+                    'total_count': conv_count
+                }
+
+                # 表达模式指标
+                if group_id:
+                    expr_stmt = select(func.count(ExpressionPattern.id)).where(
+                        ExpressionPattern.group_id == group_id
+                    )
+                else:
+                    expr_stmt = select(func.count(ExpressionPattern.id))
+
+                expr_result = await session.execute(expr_stmt)
+                expr_count = expr_result.scalar() or 0
+
+                metrics['expressions'] = {
+                    'total_patterns': expr_count
+                }
+
+                return metrics
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取详细指标失败: {e}", exc_info=True)
+            return {'affection': {}, 'conversations': {}, 'expressions': {}}
+
+    async def get_style_progress_data(self, group_id: str = None) -> Dict[str, Any]:
+        """
+        获取风格进度数据
+
+        Args:
+            group_id: 群组ID（可选）
+
+        Returns:
+            Dict: 风格进度数据
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..repositories.learning_repository import StyleLearningReviewRepository
+
+                repo = StyleLearningReviewRepository(session)
+
+                # 获取审核状态统计
+                stats = await repo.get_statistics()
+
+                return {
+                    'total_reviews': stats.get('total', 0),
+                    'approved': stats.get('approved', 0),
+                    'rejected': stats.get('rejected', 0),
+                    'pending': stats.get('pending', 0),
+                    'group_id': group_id
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取风格进度数据失败: {e}", exc_info=True)
+            return {'total_reviews': 0, 'approved': 0, 'rejected': 0, 'pending': 0, 'group_id': group_id}
+
     def __getattr__(self, name):
         """
         魔法方法：自动降级未实现的方法到传统数据库管理器

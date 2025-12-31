@@ -59,6 +59,7 @@ class DatabaseMigrationTool:
         'persona_update_reviews': 'persona_update_reviews',  # 人格学习审核表
         'style_learning_reviews': 'style_learning_reviews',  # 风格学习审核表
         'expression_patterns': 'expression_patterns',        # 表达模式表
+        'social_relations': 'user_social_relation_components',  # 社交关系表（重构）
     }
 
     # 新版本新增的表 (不尝试迁移,直接创建)
@@ -407,11 +408,16 @@ class DatabaseMigrationTool:
         if not data:
             return 0
 
+        # 特殊处理：social_relations 迁移到 user_social_relation_components
+        if table_name == 'user_social_relation_components':
+            return await self._migrate_social_relations(session, data)
+
         # 根据表名选择合适的ORM模型
         model_map = {
             'persona_update_reviews': PersonaLearningReview,
             'style_learning_reviews': StyleLearningReview,
             'expression_patterns': ExpressionPattern,
+            'user_social_relation_components': None,  # 特殊处理
         }
 
         model_class = model_map.get(table_name)
@@ -464,6 +470,75 @@ class DatabaseMigrationTool:
                 logger.warning(f"插入记录失败,跳过: {e}")
                 continue
 
+        return count
+
+    async def _migrate_social_relations(
+        self,
+        session: AsyncSession,
+        data: List[Dict[str, Any]]
+    ) -> int:
+        """
+        特殊处理：从旧 social_relations 表迁移到新 user_social_relation_components 表
+
+        旧表字段: from_user, to_user, relation_type, strength, frequency, last_interaction
+        新表字段: from_user_id, to_user_id, relation_type, value, frequency, last_interaction, ...
+
+        Args:
+            session: 数据库会话
+            data: 旧表数据列表
+
+        Returns:
+            int: 成功插入的记录数
+        """
+        from ..models.orm.social_relation import UserSocialRelationComponent
+
+        count = 0
+        for item in data:
+            try:
+                # 解析旧格式的用户ID（可能是 "group_id:user_id" 或 "user_id"）
+                from_user = item.get('from_user', '')
+                to_user = item.get('to_user', '')
+
+                # 提取 group_id 和 user_id
+                if ':' in from_user:
+                    from_group, from_user_id = from_user.split(':', 1)
+                else:
+                    # 如果没有group_id，尝试从其他字段推断
+                    from_group = item.get('group_id', 'unknown')
+                    from_user_id = from_user
+
+                if ':' in to_user:
+                    to_group, to_user_id = to_user.split(':', 1)
+                else:
+                    to_group = item.get('group_id', from_group)
+                    to_user_id = to_user
+
+                # 统一使用 from_user 的 group_id
+                group_id = from_group
+
+                # 创建新的社交关系组件
+                component = UserSocialRelationComponent(
+                    profile_id=0,  # 临时值，稍后可以关联 profile
+                    from_user_id=from_user_id,
+                    to_user_id=to_user_id,
+                    group_id=group_id,
+                    relation_type=item.get('relation_type', 'unknown'),
+                    value=float(item.get('strength', 0.0)),  # strength -> value
+                    frequency=int(item.get('frequency', 0)),
+                    last_interaction=int(item.get('last_interaction', time.time())),
+                    description=None,
+                    tags=None,
+                    created_at=int(time.time())
+                )
+
+                session.add(component)
+                count += 1
+
+            except Exception as e:
+                logger.warning(f"    ⚠️ 迁移社交关系记录失败,跳过: {e}, 数据: {item}")
+                continue
+
+        logger.info(f"    ℹ️ 社交关系迁移: 成功转换 {count}/{len(data)} 条记录")
         return count
 
     async def _insert_raw_sql(

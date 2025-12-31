@@ -5245,20 +5245,21 @@ async def clear_group_social_relations(group_id: str):
         # 统计要删除的记录数
         deleted_count = 0
 
+        # 使用新的 ORM 表：user_social_relation_components
         async with db_manager.get_db_connection() as conn:
             cursor = await conn.cursor()
 
-            # 先统计数量
+            # 先统计数量（使用新表名）
             await cursor.execute('''
-                SELECT COUNT(*) FROM social_relations WHERE group_id = ?
+                SELECT COUNT(*) FROM user_social_relation_components WHERE group_id = ?
             ''', (group_id,))
             result = await cursor.fetchone()
             if result:
                 deleted_count = result[0]
 
-            # 执行删除
+            # 执行删除（使用新表名）
             await cursor.execute('''
-                DELETE FROM social_relations WHERE group_id = ?
+                DELETE FROM user_social_relation_components WHERE group_id = ?
             ''', (group_id,))
 
             await conn.commit()
