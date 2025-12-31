@@ -1,12 +1,25 @@
 """
-自动数据迁移工具
-从旧的数据库表结构迁移到新的 SQLAlchemy ORM 结构
+数据库自动迁移工具 - 从旧版本迁移到 SQLAlchemy ORM 结构
+
+主要功能:
+1. 自动检测旧表是否存在
+2. 备份旧数据库文件 (SQLite) 或表结构 (MySQL)
+3. 创建新表结构
+4. 智能迁移兼容的数据
+5. 验证数据完整性
+
+支持的数据库:
+- SQLite
+- MySQL
 """
 import asyncio
 import time
-from typing import Dict, List, Any
+import os
+import shutil
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Set
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy import text, select
+from sqlalchemy import text, inspect
 from astrbot.api import logger
 
 from ..models.orm import (
@@ -24,6 +37,9 @@ from ..models.orm import (
     UserSocialProfile,
     UserSocialRelationComponent,
     SocialRelationHistory,
+    PersonaLearningReview,
+    StyleLearningReview,
+    ExpressionPattern,
 )
 
 
@@ -31,732 +47,598 @@ class DatabaseMigrationTool:
     """
     数据库自动迁移工具
 
-    功能:
-    1. 检测旧表是否存在
-    2. 创建新表结构
-    3. 自动迁移数据
-    4. 验证数据完整性
-    5. 保留旧表作为备份
+    策略:
+    - 仅迁移旧版本中存在且新版本也需要的表
+    - 新版本新增的表直接创建,不尝试迁移
+    - 旧版本废弃的表保留为备份,不删除
     """
 
-    def __init__(self, old_db_url: str, new_db_url: str = None):
+    # 定义需要迁移的表映射 (旧表名 -> 新表名)
+    MIGRATION_TABLE_MAP = {
+        # 只有这些表需要从旧版本迁移数据
+        'persona_update_reviews': 'persona_update_reviews',  # 人格学习审核表
+        'style_learning_reviews': 'style_learning_reviews',  # 风格学习审核表
+        'expression_patterns': 'expression_patterns',        # 表达模式表
+    }
+
+    # 新版本新增的表 (不尝试迁移,直接创建)
+    NEW_TABLES = {
+        'user_affections',                      # 好感度系统重构
+        'affection_interactions',
+        'user_conversation_history',
+        'user_diversity',
+        'memories',                             # 记忆系统 (全新)
+        'memory_embeddings',
+        'memory_summaries',
+        'composite_psychological_states',       # 心理状态系统 (全新)
+        'psychological_state_components',
+        'psychological_state_history',
+        'user_social_profiles',                 # 社交关系系统重构
+        'user_social_relation_components',
+        'social_relation_history',
+        'social_relation_analysis_results',
+        'social_network_nodes',
+        'social_network_edges',
+        'style_learning_patterns',              # 学习系统新增
+        'interaction_records',
+    }
+
+    def __init__(self, db_url: str, db_type: str = 'sqlite'):
         """
         初始化迁移工具
 
         Args:
-            old_db_url: 旧数据库 URL
-            new_db_url: 新数据库 URL (如果为 None，则使用同一个数据库)
+            db_url: 数据库连接URL
+            db_type: 数据库类型 ('sqlite' 或 'mysql')
         """
-        self.old_db_url = old_db_url
-        self.new_db_url = new_db_url or old_db_url
+        self.db_url = db_url
+        self.db_type = db_type.lower()
 
-        # 创建引擎
-        if 'sqlite' in old_db_url:
-            self.old_engine = create_async_engine(
-                f"sqlite+aiosqlite:///{old_db_url.replace('sqlite:///', '')}",
+        # 创建异步引擎
+        if self.db_type == 'sqlite':
+            # 规范化 SQLite URL
+            if db_url.startswith('sqlite:///'):
+                db_path = db_url.replace('sqlite:///', '')
+            else:
+                db_path = db_url
+            self.db_path = db_path
+            self.engine = create_async_engine(
+                f"sqlite+aiosqlite:///{db_path}",
                 echo=False
             )
+        elif self.db_type == 'mysql':
+            self.db_path = None
+            # MySQL URL 应该已经包含了完整的连接信息
+            if not db_url.startswith('mysql+aiomysql://'):
+                db_url = db_url.replace('mysql://', 'mysql+aiomysql://')
+            self.engine = create_async_engine(db_url, echo=False)
         else:
-            self.old_engine = create_async_engine(old_db_url, echo=False)
+            raise ValueError(f"不支持的数据库类型: {db_type}")
 
-        if 'sqlite' in self.new_db_url:
-            self.new_engine = create_async_engine(
-                f"sqlite+aiosqlite:///{self.new_db_url.replace('sqlite:///', '')}",
-                echo=False
-            )
-        else:
-            self.new_engine = create_async_engine(self.new_db_url, echo=False)
+        self.session_factory = async_sessionmaker(self.engine, class_=AsyncSession)
+        logger.info(f"[数据迁移] 迁移工具初始化完成 (数据库类型: {self.db_type})")
 
-        self.old_session_factory = async_sessionmaker(self.old_engine, class_=AsyncSession)
-        self.new_session_factory = async_sessionmaker(self.new_engine, class_=AsyncSession)
-
-        logger.info("[数据迁移] 迁移工具初始化完成")
-
-    async def migrate_all(self, backup: bool = True):
+    async def migrate_all(self, backup: bool = True) -> bool:
         """
-        执行完整的数据迁移
+        执行完整的数据迁移流程
 
         Args:
-            backup: 是否备份旧表
+            backup: 是否备份旧数据库 (强制要求,如果为False会自动改为True)
+
+        Returns:
+            bool: 迁移是否成功
         """
-        logger.info("=" * 60)
-        logger.info("开始数据迁移流程")
-        logger.info("=" * 60)
+        logger.info("=" * 70)
+        logger.info("🔄 开始数据库迁移流程")
+        logger.info("=" * 70)
+
+        # 备份是强制性的,确保数据安全
+        if not backup:
+            logger.warning("⚠️  备份参数为False,但为了数据安全,强制启用备份")
+            backup = True
 
         start_time = time.time()
 
         try:
-            # 1. 创建新表结构
+            # 1. 备份旧数据库 (强制执行)
+            logger.info("[步骤 1/5] 备份数据库 (强制执行)...")
+            backup_path = await self._backup_database()
+
+            if not backup_path:
+                logger.error("❌ 数据库备份失败,为了数据安全,中止迁移!")
+                logger.error("💡 提示: 请确保有足够的磁盘空间和文件权限")
+                return False
+
+            logger.info(f"✅ 数据库已备份到: {backup_path}")
+
+            # 2. 检查旧表是否存在
+            old_tables = await self._check_old_tables()
+            logger.info(f"📊 检测到 {len(old_tables)} 个现有表")
+
+            # 3. 创建新表结构
             await self._create_new_tables()
 
-            # 2. 检查旧表
-            old_tables = await self._check_old_tables()
-            logger.info(f"检测到 {len(old_tables)} 个旧表")
+            # 4. 迁移可兼容的数据
+            migration_results = await self._migrate_compatible_data(old_tables)
 
-            # 3. 迁移数据
-            await self._migrate_user_affections()
-            await self._migrate_affection_interactions()
-            await self._migrate_conversation_history()
-            await self._migrate_user_diversity()
-            await self._migrate_memories()
-            await self._migrate_memory_embeddings()
-            await self._migrate_memory_summaries()
-            await self._migrate_psychological_states()
-            await self._migrate_social_relations()
-
-            # 4. 验证数据
-            await self._verify_migration()
-
-            # 5. 备份旧表 (可选)
-            if backup:
-                await self._backup_old_tables()
+            # 5. 验证迁移结果
+            await self._verify_migration(migration_results)
 
             elapsed = time.time() - start_time
-            logger.info("=" * 60)
+            logger.info("=" * 70)
             logger.info(f"✅ 数据迁移完成! 耗时: {elapsed:.2f} 秒")
-            logger.info("=" * 60)
+            logger.info("=" * 70)
+
+            return True
 
         except Exception as e:
             logger.error(f"❌ 数据迁移失败: {e}", exc_info=True)
-            raise
+            logger.error(f"💡 如果需要恢复数据,请使用备份文件: {backup_path if 'backup_path' in locals() else '未创建'}")
+            return False
 
-    async def _create_new_tables(self):
-        """创建新表结构"""
-        logger.info("[步骤 1/5] 创建新表结构...")
+    async def _backup_database(self) -> Optional[str]:
+        """
+        备份数据库
 
-        async with self.new_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        Returns:
+            str: 备份文件路径 (SQLite) 或备份标识 (MySQL)
+        """
+        logger.info("[步骤 1/5] 备份数据库...")
 
-        logger.info("✅ 新表结构创建完成")
+        if self.db_type == 'sqlite':
+            return await self._backup_sqlite()
+        elif self.db_type == 'mysql':
+            return await self._backup_mysql()
 
-    async def _check_old_tables(self) -> List[str]:
-        """检查旧表"""
-        logger.info("[步骤 2/5] 检查旧表...")
+        return None
 
-        async with self.old_session_factory() as session:
-            # SQLite
-            if 'sqlite' in self.old_db_url:
+    async def _backup_sqlite(self) -> Optional[str]:
+        """备份 SQLite 数据库文件"""
+        if not os.path.exists(self.db_path):
+            logger.info(f"  ℹ️  数据库文件不存在,这是全新安装,无需备份")
+            return "NEW_INSTALLATION"  # 返回特殊标识表示全新安装
+
+        try:
+            # 创建备份目录
+            db_dir = os.path.dirname(self.db_path)
+            if not db_dir:
+                db_dir = "."
+            backup_dir = os.path.join(db_dir, "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+
+            # 生成备份文件名
+            db_filename = os.path.basename(self.db_path)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"{db_filename}.backup_{timestamp}"
+            backup_path = os.path.join(backup_dir, backup_filename)
+
+            # 复制数据库文件
+            shutil.copy2(self.db_path, backup_path)
+
+            # 同时备份 WAL 和 SHM 文件 (如果存在)
+            for ext in ['-wal', '-shm']:
+                wal_path = self.db_path + ext
+                if os.path.exists(wal_path):
+                    shutil.copy2(wal_path, backup_path + ext)
+                    logger.info(f"  ✅ 已备份: {os.path.basename(wal_path)}")
+
+            # 验证备份文件
+            if not os.path.exists(backup_path):
+                raise Exception("备份文件创建失败")
+
+            backup_size = os.path.getsize(backup_path)
+            original_size = os.path.getsize(self.db_path)
+
+            if backup_size != original_size:
+                raise Exception(f"备份文件大小不匹配 (原始: {original_size}, 备份: {backup_size})")
+
+            logger.info(f"  ✅ SQLite 数据库已备份 ({backup_size / 1024:.2f} KB)")
+            return backup_path
+
+        except Exception as e:
+            logger.error(f"  ❌ SQLite 备份失败: {e}", exc_info=True)
+            return None
+
+    async def _backup_mysql(self) -> Optional[str]:
+        """备份 MySQL 数据库 (创建表结构快照)"""
+        try:
+            async with self.session_factory() as session:
+                # 获取所有表名
+                result = await session.execute(text("SHOW TABLES"))
+                tables = [row[0] for row in result.fetchall()]
+
+                if not tables:
+                    logger.warning("  ⚠️ MySQL 数据库为空,无需备份")
+                    return None
+
+                # 记录备份时间戳
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                logger.info(f"  ✅ MySQL 数据库快照已记录 (时间: {timestamp}, 表数量: {len(tables)})")
+                logger.info(f"  💡 提示: MySQL数据库建议使用 mysqldump 进行物理备份")
+
+                return f"mysql_snapshot_{timestamp}"
+
+        except Exception as e:
+            logger.error(f"  ❌ MySQL 备份失败: {e}")
+            return None
+
+    async def _check_old_tables(self) -> Set[str]:
+        """
+        检查数据库中已存在的表
+
+        Returns:
+            Set[str]: 表名集合
+        """
+        logger.info("[步骤 2/5] 检查现有表...")
+
+        async with self.session_factory() as session:
+            if self.db_type == 'sqlite':
                 result = await session.execute(
                     text("SELECT name FROM sqlite_master WHERE type='table'")
                 )
-            # MySQL
-            else:
+            elif self.db_type == 'mysql':
                 result = await session.execute(text("SHOW TABLES"))
+            else:
+                return set()
 
-            tables = [row[0] for row in result.fetchall()]
+            tables = {row[0] for row in result.fetchall()}
 
-        return tables
+            # 过滤掉系统表
+            tables = {t for t in tables if not t.startswith('sqlite_')}
 
-    async def _migrate_user_affections(self):
-        """迁移用户好感度表"""
-        logger.info("[迁移] user_affections...")
+            if tables:
+                logger.info(f"  📋 已存在的表: {', '.join(sorted(tables))}")
+            else:
+                logger.info("  ℹ️ 数据库为空,这是全新安装")
+
+            return tables
+
+    async def _create_new_tables(self):
+        """创建新表结构"""
+        logger.info("[步骤 3/5] 创建新表结构...")
 
         try:
-            async with self.old_session_factory() as old_session:
-                # 查询旧数据
-                result = await old_session.execute(
-                    text("SELECT * FROM user_affections")
-                )
+            async with self.engine.begin() as conn:
+                # 创建所有新表
+                await conn.run_sync(Base.metadata.create_all)
+
+            logger.info("  ✅ 所有新表结构已创建")
+
+        except Exception as e:
+            logger.error(f"  ❌ 创建表结构失败: {e}")
+            raise
+
+    async def _migrate_compatible_data(self, old_tables: Set[str]) -> Dict[str, int]:
+        """
+        迁移兼容的数据
+
+        Args:
+            old_tables: 旧数据库中已存在的表
+
+        Returns:
+            Dict[str, int]: {表名: 迁移记录数}
+        """
+        logger.info("[步骤 4/5] 迁移兼容数据...")
+
+        results = {}
+
+        # 只迁移在旧表中存在且在映射表中定义的表
+        for old_table, new_table in self.MIGRATION_TABLE_MAP.items():
+            if old_table in old_tables:
+                count = await self._migrate_table(old_table, new_table)
+                results[new_table] = count
+            else:
+                logger.info(f"  ⏭️ {old_table} 不存在于旧数据库,跳过迁移")
+
+        # 输出新增表的说明
+        new_tables_in_db = self.NEW_TABLES & old_tables
+        if new_tables_in_db:
+            logger.info(f"  ℹ️ 检测到部分新表已存在: {', '.join(new_tables_in_db)}")
+            logger.info(f"  💡 这些表将保留现有数据")
+
+        return results
+
+    async def _migrate_table(self, old_table: str, new_table: str) -> int:
+        """
+        迁移单个表的数据
+
+        Args:
+            old_table: 源表名
+            new_table: 目标表名
+
+        Returns:
+            int: 迁移的记录数
+        """
+        logger.info(f"  🔄 迁移表: {old_table} -> {new_table}")
+
+        try:
+            async with self.session_factory() as session:
+                # 读取旧表数据
+                result = await session.execute(text(f"SELECT * FROM {old_table}"))
                 rows = result.fetchall()
                 columns = result.keys()
 
                 if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
+                    logger.info(f"    - 表为空,跳过")
+                    return 0
 
-                # 转换为字典
+                # 转换为字典列表
                 data = [dict(zip(columns, row)) for row in rows]
+                logger.info(f"    - 找到 {len(data)} 条记录")
 
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                # 插入新表
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        affection = UserAffection(
-                            id=item.get('id'),
-                            group_id=item.get('group_id'),
-                            user_id=item.get('user_id'),
-                            affection_level=item.get('affection_level', 0),
-                            max_affection=item.get('max_affection', 100),
-                            created_at=int(item.get('created_at', time.time())),
-                            updated_at=int(item.get('updated_at', time.time()))
-                        )
-                        new_session.add(affection)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_affection_interactions(self):
-        """迁移好感度交互记录表"""
-        logger.info("[迁移] affection_interactions...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM affection_interactions")
+                # 检查目标表是否已有数据
+                count_result = await session.execute(
+                    text(f"SELECT COUNT(*) FROM {new_table}")
                 )
-                rows = result.fetchall()
-                columns = result.keys()
+                existing_count = count_result.scalar()
 
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
+                if existing_count > 0:
+                    logger.warning(f"    ⚠️ 目标表已有 {existing_count} 条记录,跳过迁移以避免重复")
+                    return 0
 
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
+                # 迁移数据
+                migrated = await self._insert_migrated_data(session, new_table, data)
+                await session.commit()
 
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        interaction = AffectionInteraction(
-                            id=item.get('id'),
-                            user_affection_id=item.get('user_affection_id'),
-                            interaction_type=item.get('interaction_type'),
-                            affection_delta=item.get('affection_delta', 0),
-                            message_content=item.get('message_content'),
-                            timestamp=int(item.get('timestamp', time.time()))
-                        )
-                        new_session.add(interaction)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
+                logger.info(f"    ✅ 成功迁移 {migrated} 条记录")
+                return migrated
 
         except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_conversation_history(self):
-        """迁移对话历史表"""
-        logger.info("[迁移] user_conversation_history...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM user_conversation_history")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
-
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        history = UserConversationHistory(
-                            id=item.get('id'),
-                            group_id=item.get('group_id'),
-                            user_id=item.get('user_id'),
-                            role=item.get('role'),
-                            content=item.get('content'),
-                            timestamp=int(item.get('timestamp', time.time())),
-                            turn_index=item.get('turn_index', 0)
-                        )
-                        new_session.add(history)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_user_diversity(self):
-        """迁移用户多样性表"""
-        logger.info("[迁移] user_diversity...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM user_diversity")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
-
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        diversity = UserDiversity(
-                            id=item.get('id'),
-                            group_id=item.get('group_id'),
-                            user_id=item.get('user_id'),
-                            response_hash=item.get('response_hash'),
-                            response_preview=item.get('response_preview'),
-                            timestamp=int(item.get('timestamp', time.time()))
-                        )
-                        new_session.add(diversity)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_memories(self):
-        """迁移记忆表"""
-        logger.info("[迁移] memories...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(text("SELECT * FROM memories"))
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
-
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        memory = Memory(
-                            id=item.get('id'),
-                            group_id=item.get('group_id'),
-                            user_id=item.get('user_id'),
-                            content=item.get('content'),
-                            importance=item.get('importance', 5),
-                            memory_type=item.get('memory_type', 'conversation'),
-                            created_at=int(item.get('created_at', time.time())),
-                            last_accessed=int(item.get('last_accessed', time.time())),
-                            access_count=item.get('access_count', 0)
-                        )
-                        new_session.add(memory)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_memory_embeddings(self):
-        """迁移记忆向量表"""
-        logger.info("[迁移] memory_embeddings...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM memory_embeddings")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
-
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        embedding = MemoryEmbedding(
-                            id=item.get('id'),
-                            memory_id=item.get('memory_id'),
-                            embedding_model=item.get('embedding_model'),
-                            embedding_data=item.get('embedding_data'),
-                            created_at=int(item.get('created_at', time.time()))
-                        )
-                        new_session.add(embedding)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_memory_summaries(self):
-        """迁移记忆摘要表"""
-        logger.info("[迁移] memory_summaries...")
-
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM memory_summaries")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if not rows:
-                    logger.info("  - 表为空，跳过")
-                    return
-
-                data = [dict(zip(columns, row)) for row in rows]
-                logger.info(f"  - 找到 {len(data)} 条记录")
-
-                async with self.new_session_factory() as new_session:
-                    for item in data:
-                        summary = MemorySummary(
-                            id=item.get('id'),
-                            group_id=item.get('group_id'),
-                            user_id=item.get('user_id'),
-                            summary_type=item.get('summary_type'),
-                            summary_content=item.get('summary_content'),
-                            memory_count=item.get('memory_count', 0),
-                            created_at=int(item.get('created_at', time.time())),
-                            updated_at=int(item.get('updated_at', time.time()))
-                        )
-                        new_session.add(summary)
-
-                    await new_session.commit()
-
-                logger.info(f"  ✅ 成功迁移 {len(data)} 条记录")
-
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - 表不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_psychological_states(self):
-        """迁移心理状态表"""
-        logger.info("[迁移] 心理状态相关表...")
-
-        # 迁移复合状态
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM composite_psychological_states")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - composite_psychological_states: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            state = CompositePsychologicalState(
-                                id=item.get('id'),
-                                group_id=item.get('group_id'),
-                                state_id=item.get('state_id'),
-                                triggering_events=item.get('triggering_events'),
-                                context=item.get('context'),
-                                created_at=int(item.get('created_at', time.time())),
-                                last_updated=int(item.get('last_updated', time.time()))
-                            )
-                            new_session.add(state)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 composite_psychological_states")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - composite_psychological_states 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-        # 迁移状态组件
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM psychological_state_components")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - psychological_state_components: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            component = PsychologicalStateComponent(
-                                id=item.get('id'),
-                                group_id=item.get('group_id'),
-                                state_id=item.get('state_id'),
-                                category=item.get('category'),
-                                state_type=item.get('state_type'),
-                                value=float(item.get('value', 0)),
-                                threshold=float(item.get('threshold', 0.3)),
-                                description=item.get('description'),
-                                start_time=int(item.get('start_time', time.time()))
-                            )
-                            new_session.add(component)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 psychological_state_components")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - psychological_state_components 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-        # 迁移历史记录
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM psychological_state_history")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - psychological_state_history: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            history = PsychologicalStateHistory(
-                                id=item.get('id'),
-                                group_id=item.get('group_id'),
-                                state_id=item.get('state_id'),
-                                category=item.get('category'),
-                                old_state_type=item.get('old_state_type'),
-                                new_state_type=item.get('new_state_type'),
-                                old_value=float(item.get('old_value', 0)) if item.get('old_value') else None,
-                                new_value=float(item.get('new_value', 0)),
-                                change_reason=item.get('change_reason'),
-                                timestamp=int(item.get('timestamp', time.time()))
-                            )
-                            new_session.add(history)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 psychological_state_history")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - psychological_state_history 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _migrate_social_relations(self):
-        """迁移社交关系表"""
-        logger.info("[迁移] 社交关系相关表...")
-
-        # 迁移用户档案
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM user_social_profiles")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - user_social_profiles: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            profile = UserSocialProfile(
-                                id=item.get('id'),
-                                user_id=item.get('user_id'),
-                                group_id=item.get('group_id'),
-                                total_relations=item.get('total_relations', 0),
-                                significant_relations=item.get('significant_relations', 0),
-                                dominant_relation_type=item.get('dominant_relation_type'),
-                                created_at=int(item.get('created_at', time.time())),
-                                last_updated=int(item.get('last_updated', time.time()))
-                            )
-                            new_session.add(profile)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 user_social_profiles")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - user_social_profiles 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-        # 迁移关系组件
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM user_social_relation_components")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - user_social_relation_components: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            component = UserSocialRelationComponent(
-                                id=item.get('id'),
-                                from_user_id=item.get('from_user_id'),
-                                to_user_id=item.get('to_user_id'),
-                                group_id=item.get('group_id'),
-                                relation_type=item.get('relation_type'),
-                                value=float(item.get('value', 0)),
-                                frequency=item.get('frequency', 0),
-                                last_interaction=int(item.get('last_interaction', time.time())),
-                                description=item.get('description'),
-                                tags=item.get('tags'),
-                                created_at=int(item.get('created_at', time.time()))
-                            )
-                            new_session.add(component)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 user_social_relation_components")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - user_social_relation_components 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-        # 迁移历史记录
-        try:
-            async with self.old_session_factory() as old_session:
-                result = await old_session.execute(
-                    text("SELECT * FROM social_relation_history")
-                )
-                rows = result.fetchall()
-                columns = result.keys()
-
-                if rows:
-                    data = [dict(zip(columns, row)) for row in rows]
-                    logger.info(f"  - social_relation_history: {len(data)} 条记录")
-
-                    async with self.new_session_factory() as new_session:
-                        for item in data:
-                            history = SocialRelationHistory(
-                                id=item.get('id'),
-                                from_user_id=item.get('from_user_id'),
-                                to_user_id=item.get('to_user_id'),
-                                group_id=item.get('group_id'),
-                                relation_type=item.get('relation_type'),
-                                old_value=float(item.get('old_value', 0)) if item.get('old_value') else None,
-                                new_value=float(item.get('new_value', 0)),
-                                change_reason=item.get('change_reason'),
-                                timestamp=int(item.get('timestamp', time.time()))
-                            )
-                            new_session.add(history)
-
-                        await new_session.commit()
-
-                    logger.info(f"  ✅ 成功迁移 social_relation_history")
-        except Exception as e:
-            if "no such table" in str(e) or "doesn't exist" in str(e):
-                logger.info("  - social_relation_history 不存在，跳过")
-            else:
-                logger.error(f"  ❌ 迁移失败: {e}")
-
-    async def _verify_migration(self):
-        """验证迁移数据完整性"""
-        logger.info("[步骤 4/5] 验证数据完整性...")
-
-        tables_to_check = [
-            'user_affections',
-            'affection_interactions',
-            'user_conversation_history',
-            'user_diversity',
-            'memories',
-            'memory_embeddings',
-            'memory_summaries',
-            'composite_psychological_states',
-            'psychological_state_components',
-            'psychological_state_history',
-            'user_social_profiles',
-            'user_social_relation_components',
-            'social_relation_history',
-        ]
-
-        for table in tables_to_check:
+            logger.error(f"    ❌ 迁移失败: {e}")
+            return 0
+
+    async def _insert_migrated_data(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        data: List[Dict[str, Any]]
+    ) -> int:
+        """
+        插入迁移的数据 (智能处理字段不一致问题)
+
+        Args:
+            session: 数据库会话
+            table_name: 表名
+            data: 数据列表
+
+        Returns:
+            int: 成功插入的记录数
+        """
+        if not data:
+            return 0
+
+        # 根据表名选择合适的ORM模型
+        model_map = {
+            'persona_update_reviews': PersonaLearningReview,
+            'style_learning_reviews': StyleLearningReview,
+            'expression_patterns': ExpressionPattern,
+        }
+
+        model_class = model_map.get(table_name)
+        if not model_class:
+            logger.warning(f"未找到表 {table_name} 的ORM模型,使用原始SQL插入")
+            return await self._insert_raw_sql(session, table_name, data)
+
+        # 获取目标模型的字段列表
+        model_fields = {c.name for c in model_class.__table__.columns}
+
+        # 分析字段差异
+        source_fields = set(data[0].keys()) if data else set()
+        missing_in_source = model_fields - source_fields - {'id'}  # 排除自增ID
+        extra_in_source = source_fields - model_fields
+
+        if missing_in_source:
+            logger.info(f"    ℹ️ 新版本新增字段: {', '.join(missing_in_source)}")
+        if extra_in_source:
+            logger.info(f"    ℹ️ 旧版本有但新版本已移除的字段: {', '.join(extra_in_source)}")
+
+        # 使用ORM插入 - 智能处理字段映射
+        count = 0
+        for item in data:
             try:
-                async with self.old_session_factory() as old_session:
-                    old_result = await old_session.execute(
-                        text(f"SELECT COUNT(*) FROM {table}")
-                    )
-                    old_count = old_result.scalar()
+                # 过滤掉模型中不存在的字段
+                filtered_data = {k: v for k, v in item.items() if k in model_fields}
 
-                async with self.new_session_factory() as new_session:
-                    new_result = await new_session.execute(
-                        text(f"SELECT COUNT(*) FROM {table}")
-                    )
-                    new_count = new_result.scalar()
+                # 为缺失的必填字段提供默认值
+                for field_name in missing_in_source:
+                    column = model_class.__table__.columns.get(field_name)
+                    if column is not None and not column.nullable and column.default is None:
+                        # 根据字段类型提供合理的默认值
+                        if 'int' in str(column.type).lower():
+                            filtered_data[field_name] = 0
+                        elif 'float' in str(column.type).lower() or 'real' in str(column.type).lower():
+                            filtered_data[field_name] = 0.0
+                        elif 'text' in str(column.type).lower() or 'string' in str(column.type).lower():
+                            filtered_data[field_name] = ''
+                        elif 'datetime' in str(column.type).lower():
+                            filtered_data[field_name] = datetime.now()
+                        elif 'bigint' in str(column.type).lower():
+                            filtered_data[field_name] = int(time.time())
 
-                if old_count == new_count:
-                    logger.info(f"  ✅ {table}: {new_count} 条记录 (匹配)")
-                else:
-                    logger.warning(f"  ⚠️ {table}: 旧表 {old_count} 条 vs 新表 {new_count} 条")
+                # 创建模型实例
+                obj = model_class(**filtered_data)
+                session.add(obj)
+                count += 1
 
             except Exception as e:
-                if "no such table" in str(e) or "doesn't exist" in str(e):
-                    logger.info(f"  - {table}: 不存在，跳过验证")
-                else:
-                    logger.error(f"  ❌ {table}: 验证失败 - {e}")
+                logger.warning(f"插入记录失败,跳过: {e}")
+                continue
 
-    async def _backup_old_tables(self):
-        """备份旧表 (重命名为 _old 后缀)"""
-        logger.info("[步骤 5/5] 备份旧表...")
+        return count
 
-        # 如果是同一个数据库，重命名旧表
-        if self.old_db_url == self.new_db_url:
-            logger.info("  - 将旧表重命名为 _backup 后缀")
-            # TODO: 实现重命名逻辑
+    async def _insert_raw_sql(
+        self,
+        session: AsyncSession,
+        table_name: str,
+        data: List[Dict[str, Any]]
+    ) -> int:
+        """使用原始SQL插入数据"""
+        count = 0
+        for item in data:
+            try:
+                columns = ', '.join(item.keys())
+                placeholders = ', '.join([f":{k}" for k in item.keys()])
+                sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+                await session.execute(text(sql), item)
+                count += 1
+            except Exception as e:
+                logger.warning(f"插入记录失败,跳过: {e}")
+                continue
+
+        return count
+
+    async def _verify_migration(self, results: Dict[str, int]):
+        """验证迁移结果"""
+        logger.info("[步骤 5/5] 验证迁移结果...")
+
+        total_migrated = sum(results.values())
+
+        if results:
+            logger.info(f"  📊 迁移统计:")
+            for table, count in results.items():
+                logger.info(f"    - {table}: {count} 条记录")
+            logger.info(f"  ✅ 总计迁移: {total_migrated} 条记录")
         else:
-            logger.info("  - 数据在不同数据库，无需备份")
+            logger.info(f"  ℹ️ 未迁移任何数据 (可能是全新安装或数据已存在)")
+
+    async def check_need_migration(self) -> bool:
+        """
+        检查是否需要执行迁移
+
+        Returns:
+            bool: True 表示需要迁移, False 表示不需要迁移(全新安装或已迁移)
+        """
+        try:
+            # 1. 检查数据库文件是否存在 (SQLite)
+            if self.db_type == 'sqlite':
+                if not os.path.exists(self.db_path):
+                    logger.info("✅ 数据库文件不存在,这是全新安装,无需迁移")
+                    return False
+
+            # 2. 检查数据库中的表
+            old_tables = await self._check_old_tables()
+
+            # 3. 如果数据库完全为空,不需要迁移
+            if not old_tables:
+                logger.info("✅ 数据库为空,这是全新安装,无需迁移")
+                return False
+
+            # 4. 检查是否有需要迁移的旧表
+            tables_to_migrate = set(self.MIGRATION_TABLE_MAP.keys()) & old_tables
+
+            if not tables_to_migrate:
+                logger.info("✅ 没有发现需要迁移的旧表数据")
+                return False
+
+            # 5. 检查这些表是否已经迁移过了
+            async with self.session_factory() as session:
+                for new_table in self.MIGRATION_TABLE_MAP.values():
+                    try:
+                        result = await session.execute(
+                            text(f"SELECT COUNT(*) FROM {new_table}")
+                        )
+                        count = result.scalar()
+                        if count > 0:
+                            # 已有数据,可能已经迁移过了
+                            logger.info(f"✅ 表 {new_table} 已有数据,可能已迁移,跳过迁移")
+                            return False
+                    except Exception:
+                        # 表不存在,需要创建和迁移
+                        logger.info(f"🔍 检测到需要迁移的数据: {', '.join(tables_to_migrate)}")
+                        return True
+
+            return True
+
+        except Exception as e:
+            logger.error(f"检查迁移需求时出错: {e}")
+            return False
 
     async def close(self):
-        """关闭连接"""
-        await self.old_engine.dispose()
-        await self.new_engine.dispose()
+        """关闭数据库连接"""
+        await self.engine.dispose()
 
 
 # ============================================================
 # 便捷函数
 # ============================================================
 
-async def migrate_database(db_url: str, backup: bool = True):
+async def migrate_database(
+    db_url: str,
+    db_type: str = 'sqlite',
+    backup: bool = True
+) -> bool:
     """
     执行数据库迁移
 
     Args:
-        db_url: 数据库 URL
-        backup: 是否备份旧表
+        db_url: 数据库连接URL
+        db_type: 数据库类型 ('sqlite' 或 'mysql')
+        backup: 是否备份
+
+    Returns:
+        bool: 是否成功
 
     Examples:
         # SQLite
-        await migrate_database('sqlite:///./data/database.db')
+        success = await migrate_database(
+            'sqlite:///./data/database.db',
+            db_type='sqlite'
+        )
 
         # MySQL
-        await migrate_database('mysql+aiomysql://user:pass@localhost/dbname')
+        success = await migrate_database(
+            'mysql://user:pass@localhost/dbname',
+            db_type='mysql'
+        )
     """
-    migrator = DatabaseMigrationTool(db_url, db_url)
+    migrator = DatabaseMigrationTool(db_url, db_type)
 
     try:
-        await migrator.migrate_all(backup=backup)
+        # 检查是否需要迁移
+        if not await migrator.check_need_migration():
+            logger.info("✅ 数据库已是最新版本,无需迁移")
+            return True
+
+        # 执行迁移
+        success = await migrator.migrate_all(backup=backup)
+        return success
+
+    finally:
+        await migrator.close()
+
+
+async def check_and_migrate_if_needed(
+    db_url: str,
+    db_type: str = 'sqlite',
+    backup: bool = True
+) -> bool:
+    """
+    检查并在需要时自动执行迁移
+
+    这是推荐的启动时调用函数
+
+    Args:
+        db_url: 数据库连接URL
+        db_type: 数据库类型
+        backup: 是否备份
+
+    Returns:
+        bool: 是否成功 (如果不需要迁移也返回True)
+    """
+    migrator = DatabaseMigrationTool(db_url, db_type)
+
+    try:
+        if await migrator.check_need_migration():
+            logger.info("🔍 检测到需要数据库迁移,开始执行...")
+            return await migrator.migrate_all(backup=backup)
+        else:
+            logger.info("✅ 数据库结构已是最新,无需迁移")
+            return True
+
+    except Exception as e:
+        logger.error(f"数据库迁移检查失败: {e}", exc_info=True)
+        return False
+
     finally:
         await migrator.close()
 
@@ -766,9 +648,12 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 2:
-        print("用法: python migration_tool.py <database_url>")
-        print("示例: python migration_tool.py sqlite:///./data/database.db")
+        print("用法: python migration_tool.py <database_url> [db_type]")
+        print("示例: python migration_tool.py sqlite:///./data/database.db sqlite")
+        print("示例: python migration_tool.py mysql://user:pass@localhost/db mysql")
         sys.exit(1)
 
     db_url = sys.argv[1]
-    asyncio.run(migrate_database(db_url))
+    db_type = sys.argv[2] if len(sys.argv) > 2 else 'sqlite'
+
+    asyncio.run(check_and_migrate_if_needed(db_url, db_type))

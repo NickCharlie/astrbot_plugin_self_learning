@@ -383,12 +383,6 @@
         "hint": "填写 sqlite 或 mysql。默认使用sqlite，适合单机部署；如需分布式部署或大规模数据，填写mysql",
         "default": "sqlite"
       },
-      "use_sqlalchemy": {
-        "description": "使用SQLAlchemy数据库管理器（高级）",
-        "type": "bool",
-        "hint": "【高级选项】是否使用新的SQLAlchemy数据库管理器。默认false使用传统实现。建议开启",
-        "default": false
-      },
       "mysql_host": {
         "description": "MySQL服务器地址",
         "type": "string",
