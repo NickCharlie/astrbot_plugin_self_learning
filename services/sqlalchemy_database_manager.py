@@ -1812,6 +1812,41 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取风格进度数据失败: {e}", exc_info=True)
             return {'total_reviews': 0, 'approved': 0, 'rejected': 0, 'pending': 0, 'group_id': group_id}
 
+    async def save_raw_message(self, message_data) -> int:
+        """
+        保存原始消息
+
+        Args:
+            message_data: 消息数据（对象或字典）
+
+        Returns:
+            int: 消息ID
+        """
+        try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 save_raw_message，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.save_raw_message(message_data)
+                return 0
+
+            # 使用传统实现（因为 raw_messages 表没有 ORM 模型）
+            if self._legacy_db:
+                return await self._legacy_db.save_raw_message(message_data)
+
+            logger.warning("[SQLAlchemy] save_raw_message 无可用实现")
+            return 0
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存原始消息失败: {e}", exc_info=True)
+            # 尝试降级
+            if self._legacy_db:
+                try:
+                    return await self._legacy_db.save_raw_message(message_data)
+                except:
+                    pass
+            return 0
+
     def __getattr__(self, name):
         """
         魔法方法：自动降级未实现的方法到传统数据库管理器
