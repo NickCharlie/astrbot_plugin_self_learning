@@ -766,6 +766,13 @@ class SQLAlchemyDatabaseManager:
             limit = self.config.default_review_limit
 
         try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_pending_persona_learning_reviews，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_pending_persona_learning_reviews(limit)
+                return []
+
             async with self.get_session() as session:
                 from ..repositories.learning_repository import PersonaLearningReviewRepository
 
@@ -1512,17 +1519,25 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取俚语统计失败: {e}", exc_info=True)
             return {'total_jargons': 0, 'group_id': group_id}
 
-    async def get_recent_jargon_list(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_recent_jargon_list(self, group_id: str = None, chat_id: str = None, limit: int = 10) -> List[Dict[str, Any]]:
         """
         获取最近的俚语列表
 
         Args:
-            group_id: 群组ID
+            group_id: 群组ID（可选，优先使用）
+            chat_id: 聊天ID（可选，兼容参数）
             limit: 返回数量限制
 
         Returns:
             List[Dict]: 俚语列表
         """
+        # chat_id 是 group_id 的别名（向后兼容）
+        if group_id is None and chat_id is not None:
+            group_id = chat_id
+
+        if group_id is None:
+            logger.warning("[SQLAlchemy] get_recent_jargon_list 缺少 group_id 或 chat_id 参数")
+            return []
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select
