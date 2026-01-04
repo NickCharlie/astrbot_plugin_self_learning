@@ -1688,11 +1688,12 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取学习模式数据失败: {e}", exc_info=True)
             return {'persona_learning': {}, 'style_learning': {}, 'group_id': group_id}
 
-    async def save_learning_session_record(self, session_data: Dict[str, Any]) -> bool:
+    async def save_learning_session_record(self, group_id: str, session_data: Dict[str, Any]) -> bool:
         """
         保存学习会话记录
 
         Args:
+            group_id: 群组ID
             session_data: 会话数据
 
         Returns:
@@ -1700,7 +1701,7 @@ class SQLAlchemyDatabaseManager:
         """
         try:
             # 此方法在新架构中可能不需要，暂时只记录日志
-            logger.debug(f"[SQLAlchemy] 学习会话记录（暂不实现）: {session_data}")
+            logger.debug(f"[SQLAlchemy] 学习会话记录（暂不实现）: group={group_id}, data={session_data}")
             return True
 
         except Exception as e:
