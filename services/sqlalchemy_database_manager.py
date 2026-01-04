@@ -1526,7 +1526,13 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取俚语统计失败: {e}", exc_info=True)
             return {'total_jargons': 0, 'group_id': group_id}
 
-    async def get_recent_jargon_list(self, group_id: str = None, chat_id: str = None, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_recent_jargon_list(
+        self,
+        group_id: str = None,
+        chat_id: str = None,
+        limit: int = 10,
+        only_confirmed: bool = None
+    ) -> List[Dict[str, Any]]:
         """
         获取最近的俚语列表
 
@@ -1534,6 +1540,7 @@ class SQLAlchemyDatabaseManager:
             group_id: 群组ID（可选，优先使用）
             chat_id: 聊天ID（可选，兼容参数）
             limit: 返回数量限制
+            only_confirmed: 是否只返回已确认的（可选，兼容参数，暂未使用）
 
         Returns:
             List[Dict]: 俚语列表
@@ -1545,6 +1552,8 @@ class SQLAlchemyDatabaseManager:
         if group_id is None:
             logger.warning("[SQLAlchemy] get_recent_jargon_list 缺少 group_id 或 chat_id 参数")
             return []
+
+        # only_confirmed 参数暂不使用（兼容旧接口）
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select
