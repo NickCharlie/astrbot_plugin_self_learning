@@ -1435,6 +1435,17 @@ class SQLAlchemyDatabaseManager:
             Dict: 消息统计数据
         """
         try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_group_messages_statistics，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_group_messages_statistics(group_id)
+                return {
+                    'total_messages': 0,
+                    'unprocessed_messages': 0,
+                    'processed_messages': 0
+                }
+
             async with self.get_session() as session:
                 from sqlalchemy import select, func
                 from ..models.orm import UserConversationHistory
@@ -1456,6 +1467,14 @@ class SQLAlchemyDatabaseManager:
 
         except Exception as e:
             logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}", exc_info=True)
+
+            # 尝试降级
+            if self._legacy_db and not self._is_cross_thread_call():
+                try:
+                    return await self._legacy_db.get_group_messages_statistics(group_id)
+                except:
+                    pass
+
             return {'total_messages': 0, 'unprocessed_messages': 0, 'processed_messages': 0}
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
