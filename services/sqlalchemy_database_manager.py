@@ -1158,8 +1158,12 @@ class SQLAlchemyDatabaseManager:
         """
         @asynccontextmanager
         async def _connection_context():
-            if not self.engine:
-                raise RuntimeError("[SQLAlchemy] 数据库引擎未初始化")
+            # 检查数据库管理器是否已启动
+            if not self._started or not self.engine:
+                raise RuntimeError(
+                    "[SQLAlchemy] 数据库引擎未初始化。请确保已调用 start() 方法。"
+                    f"状态: _started={self._started}, engine={'已创建' if self.engine else '未创建'}"
+                )
 
             # 创建一个兼容传统接口的连接适配器
             class SQLAlchemyConnectionAdapter:

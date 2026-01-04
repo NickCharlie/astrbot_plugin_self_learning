@@ -1112,27 +1112,20 @@ class SelfLearningPlugin(star.Star):
     async def _get_active_groups(self) -> List[str]:
         """获取活跃群组列表"""
         try:
-            # 检查数据库管理器是否可用
-            if not self.db_manager or not hasattr(self.db_manager, 'db_backend'):
+            # 检查数据库管理器是否可用和已启动
+            if not self.db_manager:
                 logger.warning("数据库管理器未初始化，无法获取活跃群组")
                 return []
 
-            # 对于 MySQL，检查连接池是否可用
-            if self.db_manager.config.db_type.lower() == 'mysql':
-                if not self.db_manager.db_backend or not hasattr(self.db_manager.db_backend, 'connection_pool'):
-                    logger.warning("MySQL 连接池未初始化，无法获取活跃群组")
-                    return []
+            # 对于 SQLAlchemy 数据库管理器，检查是否已启动
+            if hasattr(self.db_manager, '_started') and not self.db_manager._started:
+                logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
+                return []
 
-                # 检查连接池是否已关闭
-                pool = self.db_manager.db_backend.connection_pool
-                if pool and hasattr(pool, 'pool') and pool.pool:
-                    # aiomysql Pool 对象的 _closed 属性
-                    if hasattr(pool.pool, '_closed') and pool.pool._closed:
-                        logger.warning("MySQL 连接池已关闭，无法获取活跃群组")
-                        return []
-                else:
-                    logger.warning("MySQL 连接池不可用，无法获取活跃群组")
-                    return []
+            # 对于传统数据库管理器，检查 db_backend
+            if hasattr(self.db_manager, 'db_backend') and not self.db_manager.db_backend:
+                logger.warning("传统数据库管理器未初始化，无法获取活跃群组")
+                return []
 
             # ✅ 修复事件循环问题：确保在当前事件循环中执行数据库操作
             # 获取最近有消息的群组
