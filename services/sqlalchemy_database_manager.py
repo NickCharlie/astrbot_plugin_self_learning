@@ -1825,9 +1825,7 @@ class SQLAlchemyDatabaseManager:
         try:
             # 检查是否为跨线程调用
             if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 save_raw_message，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.save_raw_message(message_data)
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 save_raw_message，跳过保存（MySQL 不支持跨线程写入）")
                 return 0
 
             # 使用传统实现（因为 raw_messages 表没有 ORM 模型）
@@ -1838,13 +1836,13 @@ class SQLAlchemyDatabaseManager:
             return 0
 
         except Exception as e:
+            error_msg = str(e)
+            # 检查是否为 MySQL 连接错误
+            if "Packet sequence number wrong" in error_msg or "Lost connection" in error_msg:
+                logger.warning(f"[SQLAlchemy] MySQL 连接错误，跳过消息保存: {error_msg[:100]}")
+                return 0
+
             logger.error(f"[SQLAlchemy] 保存原始消息失败: {e}", exc_info=True)
-            # 尝试降级
-            if self._legacy_db:
-                try:
-                    return await self._legacy_db.save_raw_message(message_data)
-                except:
-                    pass
             return 0
 
     def __getattr__(self, name):
