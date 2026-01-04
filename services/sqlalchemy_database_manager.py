@@ -3,6 +3,8 @@
 与现有 DatabaseManager 接口兼容，可通过配置切换
 """
 import time
+import asyncio
+import threading
 from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
@@ -56,6 +58,56 @@ class SQLAlchemyDatabaseManager:
             affection = await affection_repo.get_by_group_and_user(group_id, user_id)
     """
 
+    def _is_event_loop_error(self, error: Exception) -> bool:
+        """
+        检查是否为事件循环冲突错误
+
+        Args:
+            error: 异常对象
+
+        Returns:
+            bool: 是否为事件循环错误
+        """
+        error_msg = str(error)
+        return (
+            "attached to a different loop" in error_msg or
+            "Event loop is closed" in error_msg or
+            "different event loop" in error_msg
+        )
+
+    def _is_cross_thread_call(self) -> bool:
+        """
+        检查是否为跨线程调用
+
+        Returns:
+            bool: 如果当前线程不是主线程，返回 True
+        """
+        if self._main_thread_id is None:
+            return False
+        current_thread_id = threading.get_ident()
+        return current_thread_id != self._main_thread_id
+
+    async def _run_in_main_loop(self, coro):
+        """
+        在主事件循环中执行协程（处理跨线程调用）
+
+        注意：这个方法应该从异步上下文调用
+
+        Args:
+            coro: 要执行的协程
+
+        Returns:
+            协程的返回值
+        """
+        # 如果在主线程中，直接执行
+        if not self._is_cross_thread_call() or self._main_loop is None:
+            return await coro
+
+        # 跨线程调用：降级到传统实现
+        # 因为 run_coroutine_threadsafe 需要在同步上下文中使用
+        logger.debug("[SQLAlchemyDBManager] 检测到跨线程调用，将降级到传统数据库实现")
+        raise RuntimeError("跨线程异步调用，需要降级到传统实现")
+
     def __init__(self, config: PluginConfig, context=None):
         """
         初始化数据库管理器
@@ -68,6 +120,8 @@ class SQLAlchemyDatabaseManager:
         self.context = context
         self.engine: Optional[DatabaseEngine] = None
         self._started = False
+        self._main_loop: Optional[asyncio.AbstractEventLoop] = None  # 保存主事件循环
+        self._main_thread_id: Optional[int] = None  # 保存主线程ID
 
         # 创建传统 DatabaseManager 实例用于委托未实现的方法
         from .database_manager import DatabaseManager
@@ -91,6 +145,14 @@ class SQLAlchemyDatabaseManager:
             return True
 
         try:
+            # 保存主事件循环和线程ID（用于跨线程调用检测）
+            try:
+                self._main_loop = asyncio.get_running_loop()
+                self._main_thread_id = threading.get_ident()
+                logger.debug(f"[SQLAlchemyDBManager] 主事件循环已保存，线程ID: {self._main_thread_id}")
+            except RuntimeError:
+                logger.warning("[SQLAlchemyDBManager] 无法获取当前事件循环，可能在非异步上下文中启动")
+
             # 启动传统数据库管理器（用于委托未实现的方法）
             if self._legacy_db:
                 legacy_started = await self._legacy_db.start()
@@ -558,6 +620,17 @@ class SQLAlchemyDatabaseManager:
         优先使用 SQLAlchemy Repository 实现，基于现有数据计算趋势
         """
         try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_trends_data，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_trends_data()
+                return {
+                    "affection_trend": [],
+                    "interaction_trend": [],
+                    "learning_trend": []
+                }
+
             # 尝试使用 Repository 计算趋势
             async with self.get_session() as session:
                 from sqlalchemy import select, func, cast, Date
@@ -627,14 +700,33 @@ class SQLAlchemyDatabaseManager:
                     "learning_trend": []  # 学习趋势需要学习记录表
                 }
 
+        except RuntimeError as e:
+            # 捕获事件循环冲突错误
+            if self._is_event_loop_error(e):
+                logger.warning(f"[SQLAlchemy] 事件循环冲突，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_trends_data()
+                # 返回空数据而不是崩溃
+                return {
+                    "affection_trend": [],
+                    "interaction_trend": [],
+                    "learning_trend": []
+                }
+            else:
+                raise
         except Exception as e:
-            # 降级到传统实现
-            logger.warning(f"[SQLAlchemy] Repository 计算趋势数据失败: {e}，降级到传统实现")
+            # 其他异常：降级到传统实现
+            logger.warning(f"[SQLAlchemy] Repository 计算趋势数据失败: {type(e).__name__}: {str(e)[:100]}，降级到传统实现")
             if self._legacy_db:
                 return await self._legacy_db.get_trends_data()
 
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取趋势数据: SQLAlchemy 和传统数据库管理器都不可用") from e
+            # 返回空数据而不是崩溃
+            logger.error("[SQLAlchemy] 无法获取趋势数据: SQLAlchemy 和传统数据库管理器都不可用")
+            return {
+                "affection_trend": [],
+                "interaction_trend": [],
+                "learning_trend": []
+            }
 
     async def get_style_learning_statistics(self) -> Dict[str, Any]:
         """
@@ -834,21 +926,49 @@ class SQLAlchemyDatabaseManager:
             Dict[str, Any]: 统计信息
         """
         try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_messages_statistics，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_messages_statistics()
+                return {
+                    "total_messages": 0,
+                    "filtered_messages": 0,
+                    "filter_rate": 0.0
+                }
+
             # TODO: 创建 RawMessage 和 FilteredMessage ORM 模型后实现
             # 目前直接降级到传统实现
             if self._legacy_db:
                 return await self._legacy_db.get_messages_statistics()
 
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError("无法获取消息统计: 传统数据库管理器不可用")
+            # 返回空统计
+            return {
+                "total_messages": 0,
+                "filtered_messages": 0,
+                "filter_rate": 0.0
+            }
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] 获取消息统计失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_messages_statistics()
+            # 检查事件循环错误
+            if self._is_event_loop_error(e):
+                logger.warning("[SQLAlchemy] 获取消息统计时遇到事件循环冲突，降级到传统实现")
+            else:
+                logger.warning(f"[SQLAlchemy] 获取消息统计失败: {type(e).__name__}: {str(e)[:100]}")
 
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取消息统计: SQLAlchemy 和传统数据库管理器都不可用") from e
+            # 尝试降级
+            if self._legacy_db and not self._is_cross_thread_call():
+                try:
+                    return await self._legacy_db.get_messages_statistics()
+                except:
+                    pass
+
+            # 返回空统计而不是崩溃
+            return {
+                "total_messages": 0,
+                "filtered_messages": 0,
+                "filter_rate": 0.0
+            }
 
     async def get_all_expression_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """
