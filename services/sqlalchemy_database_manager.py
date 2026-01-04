@@ -834,6 +834,13 @@ class SQLAlchemyDatabaseManager:
             limit = self.config.default_review_limit
 
         try:
+            # 检查是否为跨线程调用
+            if self._is_cross_thread_call():
+                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_pending_style_reviews，降级到传统实现")
+                if self._legacy_db:
+                    return await self._legacy_db.get_pending_style_reviews(limit)
+                return []
+
             async with self.get_session() as session:
                 from ..repositories.learning_repository import StyleLearningReviewRepository
 
