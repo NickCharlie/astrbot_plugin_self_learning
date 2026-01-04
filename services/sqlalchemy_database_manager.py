@@ -1246,6 +1246,7 @@ class SQLAlchemyDatabaseManager:
             async with self.get_session() as session:
                 from ..models.orm.social_relation import UserSocialRelationComponent
                 import time
+                from datetime import datetime
 
                 # 解析 from_user 和 to_user（兼容旧格式 "group_id:user_id"）
                 from_user = relation_data.get('from_user', '')
@@ -1254,6 +1255,20 @@ class SQLAlchemyDatabaseManager:
                 # 提取用户ID（如果包含 group_id:）
                 from_user_id = from_user.split(':')[-1] if ':' in from_user else from_user
                 to_user_id = to_user.split(':')[-1] if ':' in to_user else to_user
+
+                # 处理 last_interaction 时间戳（支持 ISO 格式字符串和数值）
+                last_interaction_raw = relation_data.get('last_interaction', time.time())
+                if isinstance(last_interaction_raw, str):
+                    # ISO 格式字符串 -> Unix 时间戳
+                    try:
+                        dt = datetime.fromisoformat(last_interaction_raw.replace('Z', '+00:00'))
+                        last_interaction = int(dt.timestamp())
+                    except (ValueError, AttributeError):
+                        last_interaction = int(time.time())
+                elif isinstance(last_interaction_raw, (int, float)):
+                    last_interaction = int(last_interaction_raw)
+                else:
+                    last_interaction = int(time.time())
 
                 # 创建新的社交关系组件
                 component = UserSocialRelationComponent(
@@ -1264,7 +1279,7 @@ class SQLAlchemyDatabaseManager:
                     relation_type=relation_data.get('relation_type', 'unknown'),
                     value=float(relation_data.get('strength', 0.0)),
                     frequency=int(relation_data.get('frequency', 0)),
-                    last_interaction=int(relation_data.get('last_interaction', time.time())),
+                    last_interaction=last_interaction,
                     created_at=int(time.time())
                 )
 
