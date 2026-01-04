@@ -145,6 +145,75 @@ class PersonaLearningReviewRepository(BaseRepository[PersonaLearningReview]):
             logger.error(f"[PersonaLearningReviewRepository] 拒绝审核失败: {e}")
             return False
 
+    async def get_statistics(self) -> Dict[str, Any]:
+        """
+        获取人格学习统计
+
+        Returns:
+            Dict[str, Any]: 统计数据
+        """
+        try:
+            # 1. 统计不同更新类型数量
+            unique_types_stmt = select(func.count(func.distinct(PersonaLearningReview.update_type)))
+            unique_types_result = await self.session.execute(unique_types_stmt)
+            unique_types = unique_types_result.scalar() or 0
+
+            # 2. 计算平均置信度
+            avg_confidence_stmt = select(func.avg(PersonaLearningReview.confidence_score))
+            avg_confidence_result = await self.session.execute(avg_confidence_stmt)
+            avg_confidence = avg_confidence_result.scalar() or 0.0
+
+            # 3. 统计总记录数
+            total_stmt = select(func.count()).select_from(PersonaLearningReview)
+            total_result = await self.session.execute(total_stmt)
+            total_count = total_result.scalar() or 0
+
+            # 4. 统计各状态数量
+            approved_stmt = select(func.count()).select_from(PersonaLearningReview).where(
+                PersonaLearningReview.status == 'approved'
+            )
+            approved_result = await self.session.execute(approved_stmt)
+            approved_count = approved_result.scalar() or 0
+
+            rejected_stmt = select(func.count()).select_from(PersonaLearningReview).where(
+                PersonaLearningReview.status == 'rejected'
+            )
+            rejected_result = await self.session.execute(rejected_stmt)
+            rejected_count = rejected_result.scalar() or 0
+
+            pending_stmt = select(func.count()).select_from(PersonaLearningReview).where(
+                PersonaLearningReview.status == 'pending'
+            )
+            pending_result = await self.session.execute(pending_stmt)
+            pending_count = pending_result.scalar() or 0
+
+            # 5. 最后更新时间
+            last_update_stmt = select(func.max(PersonaLearningReview.timestamp))
+            last_update_result = await self.session.execute(last_update_stmt)
+            latest_update = last_update_result.scalar()
+
+            return {
+                "total": total_count,
+                "approved": approved_count,
+                "rejected": rejected_count,
+                "pending": pending_count,
+                "unique_types": unique_types,
+                "avg_confidence": round(float(avg_confidence), 2) if avg_confidence else 0.0,
+                "latest_update": latest_update
+            }
+
+        except Exception as e:
+            logger.error(f"[PersonaLearningReviewRepository] 获取统计数据失败: {e}")
+            return {
+                "total": 0,
+                "approved": 0,
+                "rejected": 0,
+                "pending": 0,
+                "unique_types": 0,
+                "avg_confidence": 0.0,
+                "latest_update": None
+            }
+
 
 class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
     """风格学习审核 Repository"""
@@ -166,7 +235,7 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             stmt = select(StyleLearningReview).where(
                 StyleLearningReview.status == 'pending'
             ).order_by(
-                desc(StyleLearningReview.created_at)
+                desc(StyleLearningReview.timestamp)
             ).limit(limit)
 
             result = await self.session.execute(stmt)
@@ -239,7 +308,8 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             total_samples = total_patterns  # 暂时用总模式数代替
 
             # 4. 最后更新时间 (latest_update)
-            last_update_stmt = select(func.max(StyleLearningReview.updated_at))
+            # 使用 timestamp 而不是 updated_at，因为 timestamp 是数值类型
+            last_update_stmt = select(func.max(StyleLearningReview.timestamp))
             last_update_result = await self.session.execute(last_update_stmt)
             latest_update = last_update_result.scalar()
 

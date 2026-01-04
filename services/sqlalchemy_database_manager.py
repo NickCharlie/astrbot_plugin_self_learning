@@ -103,7 +103,7 @@ class SQLAlchemyDatabaseManager:
             # 创建数据库引擎
             self.engine = DatabaseEngine(db_url, echo=False)
 
-            # 创建表结构（如果不存在）
+            # 创建表结构（如果不��在）
             await self.engine.create_tables()
 
             # 健康检查
@@ -1151,32 +1151,116 @@ class SQLAlchemyDatabaseManager:
         获取数据库连接（上下文管理器）
 
         用于向后兼容传统代码
+        返回一个模拟传统数据库连接的适配器
 
         Returns:
             AsyncContextManager: 异步上下文管理器
         """
         @asynccontextmanager
         async def _connection_context():
-            if self.engine and self.engine.backend:
-                yield self.engine.backend
-            else:
+            if not self.engine:
                 raise RuntimeError("[SQLAlchemy] 数据库引擎未初始化")
+
+            # 创建一个兼容传统接口的连接适配器
+            class SQLAlchemyConnectionAdapter:
+                """SQLAlchemy 连接适配器 - 模拟传统数据库连接接口"""
+                def __init__(self, session_factory):
+                    self.session_factory = session_factory
+                    self._session = None
+
+                async def cursor(self):
+                    """返回游标适配器"""
+                    if not self._session:
+                        self._session = self.session_factory()
+                    return SQLAlchemyCursorAdapter(self._session)
+
+                async def commit(self):
+                    """提交事务"""
+                    if self._session:
+                        await self._session.commit()
+
+                async def rollback(self):
+                    """回滚事务"""
+                    if self._session:
+                        await self._session.rollback()
+
+                async def close(self):
+                    """关闭会话"""
+                    if self._session:
+                        await self._session.close()
+
+            class SQLAlchemyCursorAdapter:
+                """SQLAlchemy 游标适配器"""
+                def __init__(self, session):
+                    self.session = session
+                    self._result = None
+                    self.lastrowid = None
+                    self.rowcount = 0
+
+                async def execute(self, sql, params=None):
+                    """执行 SQL 语句"""
+                    from sqlalchemy import text
+
+                    # 转换参数格式（? → :1, :2...）
+                    if params:
+                        # 将 ? 占位符转换为命名参数
+                        param_dict = {}
+                        if isinstance(params, (list, tuple)):
+                            sql_converted = sql
+                            for i, param in enumerate(params):
+                                param_name = f"param_{i}"
+                                sql_converted = sql_converted.replace('?', f":{param_name}", 1)
+                                param_dict[param_name] = param
+                            self._result = await self.session.execute(text(sql_converted), param_dict)
+                        else:
+                            self._result = await self.session.execute(text(sql), params)
+                    else:
+                        self._result = await self.session.execute(text(sql))
+
+                    self.rowcount = self._result.rowcount if hasattr(self._result, 'rowcount') else 0
+                    return self
+
+                async def fetchone(self):
+                    """获取一行"""
+                    if self._result:
+                        return self._result.fetchone()
+                    return None
+
+                async def fetchall(self):
+                    """获取所有行"""
+                    if self._result:
+                        return self._result.fetchall()
+                    return []
+
+                async def close(self):
+                    """关闭游标"""
+                    if self._result:
+                        self._result.close()
+
+            # 创建并返回连接适配器
+            adapter = SQLAlchemyConnectionAdapter(self.engine.get_session)
+            try:
+                yield adapter
+            finally:
+                await adapter.close()
+
         return _connection_context()
 
     async def get_group_connection(self, group_id: str):
         """
         获取群组数据库连接（用于向后兼容）
 
+        注意：此方法已废弃，新代码应使用 get_session()
+        为了向后兼容，返回 get_db_connection() 的结果
+
         Args:
             group_id: 群组ID
 
         Returns:
-            DatabaseBackend: 数据库后端实例
+            Connection: 数据库连接适配器
         """
-        if self.engine and self.engine.backend:
-            return self.engine.backend
-        else:
-            raise RuntimeError("[SQLAlchemy] 数据库引擎未初始化")
+        # 返回通用连接（不区分群组）
+        return self.get_db_connection()
 
     async def mark_messages_processed(self, message_ids: List[int]):
         """
@@ -1191,7 +1275,7 @@ class SQLAlchemyDatabaseManager:
         try:
             async with self.get_session() as session:
                 from sqlalchemy import update
-                from ..models.orm.conversation import UserConversationHistory
+                from ..models.orm import UserConversationHistory
 
                 # 批量更新消息状态
                 stmt = update(UserConversationHistory).where(
@@ -1234,7 +1318,7 @@ class SQLAlchemyDatabaseManager:
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select, func
-                from ..models.orm.conversation import UserConversationHistory
+                from ..models.orm import UserConversationHistory
 
                 # 统计总消息数
                 total_stmt = select(func.count()).select_from(UserConversationHistory).where(
