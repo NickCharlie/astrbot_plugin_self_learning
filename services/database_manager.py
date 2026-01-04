@@ -5175,20 +5175,23 @@ class DatabaseManager(AsyncServiceBase):
                 week_messages = int(message_stats[0]) if message_stats[0] else 0
                 month_messages = int(message_stats[1]) if message_stats[1] else 0
                 total_messages = int(message_stats[2]) if message_stats[2] else 0
+
+                # 计算增长率
+                if month_messages > week_messages:
+                    message_growth = ((week_messages * 4 - (month_messages - week_messages)) / (month_messages - week_messages) * 100) if (month_messages - week_messages) > 0 else 0
+                else:
+                    message_growth = 0
             elif message_stats:
                 self._logger.warning(f"消息统计数据行不完整 (期望3个字段，实际{len(message_stats)}个): {message_stats}")
                 message_growth = 0
                 week_messages = 0
                 month_messages = 0
                 total_messages = 0
-                
-                # 计算增长率
-                if month_messages > week_messages:
-                    message_growth = ((week_messages * 4 - (month_messages - week_messages)) / (month_messages - week_messages) * 100) if (month_messages - week_messages) > 0 else 0
-                else:
-                    message_growth = 0
             else:
                 message_growth = 0
+                week_messages = 0
+                month_messages = 0
+                total_messages = 0
             
             # 筛选消息增长趋势
             await cursor.execute('''
@@ -5202,16 +5205,20 @@ class DatabaseManager(AsyncServiceBase):
             if filtered_stats and len(filtered_stats) >= 2:
                 week_filtered = int(filtered_stats[0]) if filtered_stats[0] else 0
                 month_filtered = int(filtered_stats[1]) if filtered_stats[1] else 0
-            elif filtered_stats:
-                self._logger.warning(f"筛选消息统计数据行不完整 (期望2个字段，实际{len(filtered_stats)}个): {filtered_stats}")
-                week_filtered = 0
-                month_filtered = 0
-                
+
+                # 计算增长率
                 if month_filtered > week_filtered:
                     filtered_growth = ((week_filtered * 4 - (month_filtered - week_filtered)) / (month_filtered - week_filtered) * 100) if (month_filtered - week_filtered) > 0 else 0
                 else:
                     filtered_growth = 0
+            elif filtered_stats:
+                self._logger.warning(f"筛选消息统计数据行不完整 (期望2个字段，实际{len(filtered_stats)}个): {filtered_stats}")
+                week_filtered = 0
+                month_filtered = 0
+                filtered_growth = 0
             else:
+                week_filtered = 0
+                month_filtered = 0
                 filtered_growth = 0
             
             # LLM调用增长（基于学习批次）
@@ -5226,16 +5233,20 @@ class DatabaseManager(AsyncServiceBase):
             if session_stats and len(session_stats) >= 2:
                 week_sessions = int(session_stats[0]) if session_stats[0] else 0
                 month_sessions = int(session_stats[1]) if session_stats[1] else 0
-            elif session_stats:
-                self._logger.warning(f"学习批次统计数据行不完整 (期望2个字段，实际{len(session_stats)}个): {session_stats}")
-                week_sessions = 0
-                month_sessions = 0
-                
+
+                # 计算增长率
                 if month_sessions > week_sessions:
                     sessions_growth = ((week_sessions * 4 - (month_sessions - week_sessions)) / (month_sessions - week_sessions) * 100) if (month_sessions - week_sessions) > 0 else 0
                 else:
                     sessions_growth = 0
+            elif session_stats:
+                self._logger.warning(f"学习批次统计数据行不完整 (期望2个字段，实际{len(session_stats)}个): {session_stats}")
+                week_sessions = 0
+                month_sessions = 0
+                sessions_growth = 0
             else:
+                week_sessions = 0
+                month_sessions = 0
                 sessions_growth = 0
             
             return {
