@@ -1353,25 +1353,81 @@ class SQLAlchemyDatabaseManager:
                 async def execute(self, sql, params=None):
                     """执行 SQL 语句"""
                     from sqlalchemy import text
+                    from sqlalchemy import inspect
+
+                    # 检测并转换 SQLite 专用查询
+                    sql_converted = self._convert_sqlite_queries(sql)
 
                     # 转换参数格式（? → :1, :2...）
                     if params:
                         # 将 ? 占位符转换为命名参数
                         param_dict = {}
                         if isinstance(params, (list, tuple)):
-                            sql_converted = sql
                             for i, param in enumerate(params):
                                 param_name = f"param_{i}"
                                 sql_converted = sql_converted.replace('?', f":{param_name}", 1)
                                 param_dict[param_name] = param
                             self._result = await self.session.execute(text(sql_converted), param_dict)
                         else:
-                            self._result = await self.session.execute(text(sql), params)
+                            self._result = await self.session.execute(text(sql_converted), params)
                     else:
-                        self._result = await self.session.execute(text(sql))
+                        self._result = await self.session.execute(text(sql_converted))
 
                     self.rowcount = self._result.rowcount if hasattr(self._result, 'rowcount') else 0
                     return self
+
+                def _convert_sqlite_queries(self, sql: str) -> str:
+                    """
+                    转换 SQLite 专用查询为数据库无关查询
+
+                    Args:
+                        sql: 原始 SQL 查询
+
+                    Returns:
+                        str: 转换后的 SQL 查询
+                    """
+                    import re
+
+                    # 检测数据库类型
+                    dialect_name = self.session.bind.dialect.name if self.session.bind else 'sqlite'
+
+                    # 如果是 SQLite，不需要转换
+                    if dialect_name == 'sqlite':
+                        return sql
+
+                    # MySQL: 转换 sqlite_master 查询
+                    if 'sqlite_master' in sql.lower():
+                        if dialect_name == 'mysql':
+                            # 提取表名检查模式
+                            # 匹配: SELECT name FROM sqlite_master WHERE type='table' AND name='表名'
+                            pattern = r"SELECT\s+name\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*['\"]table['\"]\s+AND\s+name\s*=\s*['\"](\w+)['\"]"
+                            match = re.search(pattern, sql, re.IGNORECASE)
+
+                            if match:
+                                table_name = match.group(1)
+                                # MySQL: 查询 INFORMATION_SCHEMA
+                                converted = f"""
+                                    SELECT TABLE_NAME as name
+                                    FROM INFORMATION_SCHEMA.TABLES
+                                    WHERE TABLE_SCHEMA = DATABASE()
+                                    AND TABLE_NAME = '{table_name}'
+                                """
+                                logger.debug(f"[SQLAlchemy] 转换 SQLite 查询为 MySQL 查询: {table_name}")
+                                return converted.strip()
+
+                            # 匹配: SELECT name FROM sqlite_master WHERE type='table'
+                            pattern2 = r"SELECT\s+name\s+FROM\s+sqlite_master\s+WHERE\s+type\s*=\s*['\"]table['\"]"
+                            if re.search(pattern2, sql, re.IGNORECASE):
+                                # 列出所有表
+                                converted = """
+                                    SELECT TABLE_NAME as name
+                                    FROM INFORMATION_SCHEMA.TABLES
+                                    WHERE TABLE_SCHEMA = DATABASE()
+                                """
+                                logger.debug("[SQLAlchemy] 转换 SQLite 查询为 MySQL 查询: 列出所有表")
+                                return converted.strip()
+
+                    return sql
 
                 async def fetchone(self):
                     """获取一行"""
