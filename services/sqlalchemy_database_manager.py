@@ -1390,6 +1390,9 @@ class SQLAlchemyDatabaseManager:
         """
         标记消息为已处理
 
+        注意：UserConversationHistory ORM 模型暂无 processed 字段
+        此方法暂时不执行实际操作，仅记录日志
+
         Args:
             message_ids: 消息ID列表
         """
@@ -1397,19 +1400,8 @@ class SQLAlchemyDatabaseManager:
             return
 
         try:
-            async with self.get_session() as session:
-                from sqlalchemy import update
-                from ..models.orm import UserConversationHistory
-
-                # 批量更新消息状态
-                stmt = update(UserConversationHistory).where(
-                    UserConversationHistory.id.in_(message_ids)
-                ).values(processed=True)
-
-                await session.execute(stmt)
-                await session.commit()
-
-                logger.debug(f"[SQLAlchemy] 已标记 {len(message_ids)} 条消息为已处理")
+            # TODO: 为 UserConversationHistory 添加 processed 字段后实现
+            logger.debug(f"[SQLAlchemy] mark_messages_processed 调用（暂不实现）: {len(message_ids)} 条消息")
 
         except Exception as e:
             logger.error(f"[SQLAlchemy] 标记消息处理状态失败: {e}", exc_info=True)
@@ -1433,6 +1425,9 @@ class SQLAlchemyDatabaseManager:
         """
         获取群组消息统计
 
+        注意：UserConversationHistory ORM 模型暂无 processed 字段
+        返回的 unprocessed_messages 和 processed_messages 将为 0
+
         Args:
             group_id: 群组ID
 
@@ -1451,18 +1446,12 @@ class SQLAlchemyDatabaseManager:
                 total_result = await session.execute(total_stmt)
                 total_messages = total_result.scalar() or 0
 
-                # 统计未处理消息数
-                unprocessed_stmt = select(func.count()).select_from(UserConversationHistory).where(
-                    UserConversationHistory.group_id == group_id,
-                    UserConversationHistory.processed == False
-                )
-                unprocessed_result = await session.execute(unprocessed_stmt)
-                unprocessed_messages = unprocessed_result.scalar() or 0
-
+                # TODO: UserConversationHistory 暂无 processed 字段
+                # 暂时返回未处理数 = 总数，已处理数 = 0
                 return {
                     'total_messages': total_messages,
-                    'unprocessed_messages': unprocessed_messages,
-                    'processed_messages': total_messages - unprocessed_messages
+                    'unprocessed_messages': total_messages,  # 假设全部未处理
+                    'processed_messages': 0
                 }
 
         except Exception as e:
