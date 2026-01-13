@@ -2186,43 +2186,19 @@ async def get_metrics():
                 persona_updates_count = 0
                 active_strategies = []
 
-                # 从数据库获取提炼内容数量
+                # ✅ 使用 ORM 方法获取统计数据（支持跨线程调用）
                 if database_manager:
                     try:
-                        async with database_manager.get_db_connection() as conn:
-                            cursor = await conn.cursor()
+                        # 统计提炼内容数量
+                        refined_content_count = await database_manager.count_refined_messages()
 
-                            # 统计提炼内容数量
-                            await cursor.execute("SELECT COUNT(*) FROM filtered_messages WHERE refined = 1")
-                            result = await cursor.fetchone()
-                            if result and len(result) > 0:
-                                try:
-                                    refined_content_count = int(result[0]) if result[0] else 0
-                                except (ValueError, TypeError) as e:
-                                    logger.warning(f"refined_content_count 转换失败，result[0]={result[0]}, 错误: {e}")
-                                    refined_content_count = 0
+                        # 统计风格学习成果
+                        style_patterns_learned = await database_manager.count_style_learning_patterns()
 
-                            # 统计风格学习成果
-                            await cursor.execute("SELECT COUNT(*) FROM style_learning_records")
-                            result = await cursor.fetchone()
-                            if result and len(result) > 0:
-                                try:
-                                    style_patterns_learned = int(result[0]) if result[0] else 0
-                                except (ValueError, TypeError) as e:
-                                    logger.warning(f"style_patterns_learned 转换失败，result[0]={result[0]}, 错误: {e}")
-                                    style_patterns_learned = 0
+                        # 统计待审查的人格更新
+                        persona_updates_count = await database_manager.count_pending_persona_updates()
 
-                            # 统计待审查的人格更新
-                            await cursor.execute("SELECT COUNT(*) FROM persona_update_reviews WHERE status = 'pending'")
-                            result = await cursor.fetchone()
-                            if result and len(result) > 0:
-                                try:
-                                    persona_updates_count = int(result[0]) if result[0] else 0
-                                except (ValueError, TypeError) as e:
-                                    logger.warning(f"persona_updates_count 转换失败，result[0]={result[0]}, 错误: {e}")
-                                    persona_updates_count = 0
-
-                            await cursor.close()
+                        logger.debug(f"学习统计: refined={refined_content_count}, style={style_patterns_learned}, persona={persona_updates_count}")
                     except Exception as db_error:
                         logger.warning(f"从数据库获取学习统计失败: {db_error}")
 
@@ -4959,43 +4935,19 @@ async def get_social_relations(group_id: str):
         saved_relations = await db_manager.get_social_relations_by_group(group_id)
         logger.info(f"从数据库加载到 {len(saved_relations)} 条社交关系记录")
 
-        # 构建用户列表和统计消息数 - 从数据库直接统计所有消息数量
+        # 构建用户列表和统计消息数 - 使用 ORM 方法获取用户统计
         user_message_counts = {}
         user_names = {}
 
-        # 从数据库统计每个用户的总消息数量
-        async with db_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
+        # ✅ 使用 ORM 方法统计每个用户的总消息数量（支持跨线程调用）
+        user_stats = await db_manager.get_group_user_statistics(group_id)
 
-            # 查询每个用户在该群组的消息总数
-            await cursor.execute('''
-                SELECT sender_id, MAX(sender_name) as sender_name, COUNT(*) as message_count
-                FROM raw_messages
-                WHERE group_id = ? AND sender_id != 'bot'
-                GROUP BY sender_id
-            ''', (group_id,))
-
-            for row in await cursor.fetchall():
-                try:
-                    # 添加行数据验证
-                    if len(row) < 3:
-                        logger.warning(f"用户统计数据行不完整 (期望3个字段，实际{len(row)}个)，跳过: {row}")
-                        continue
-
-                    sender_id = row[0]
-                    sender_name = row[1]
-                    message_count = int(row[2]) if row[2] else 0
-
-                    if sender_id:
-                        user_key = f"{group_id}:{sender_id}"
-                        user_message_counts[user_key] = message_count
-                        user_names[user_key] = sender_name or sender_id
-                        # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
-                        user_names[sender_id] = sender_name or sender_id
-                except Exception as row_error:
-                    logger.warning(f"处理用户统计数据行时出错，跳过: {row_error}, row: {row}")
-
-            await cursor.close()
+        for sender_id, stats in user_stats.items():
+            user_key = f"{group_id}:{sender_id}"
+            user_message_counts[user_key] = stats['message_count']
+            user_names[user_key] = stats['sender_name']
+            # 同时存储纯ID格式的映射,以兼容数据库中的社交关系数据
+            user_names[sender_id] = stats['sender_name']
 
         logger.info(f"群组 {group_id} 从数据库统计到 {len(user_message_counts)} 个用户")
 
@@ -5102,7 +5054,7 @@ async def get_social_relations(group_id: str):
 @api_bp.route("/social_relations/groups", methods=["GET"])
 @require_auth
 async def get_available_groups_for_social_analysis():
-    """获取可用于社交关系分析的群组列表"""
+    """获取可用于社交关系分析的群组列表（使用 ORM 版本）"""
     try:
         from .core.factory import FactoryManager
 
@@ -5110,55 +5062,27 @@ async def get_available_groups_for_social_analysis():
         service_factory = factory_manager.get_service_factory()
         db_manager = service_factory.create_database_manager()
 
-        # 获取所有有消息的群组
-        async with db_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
+        # ✅ 使用 ORM 方法获取群组统计（支持跨线程调用）
+        groups_data = await db_manager.get_groups_for_social_analysis()
 
-            # 注意：social_relations 表应该在数据库初始化时已创建
-            # 不在这里重复创建，避免 SQLite/MySQL 语法不兼容问题
+        groups = []
+        for group_data in groups_data:
+            try:
+                group_id = group_data['group_id']
+                message_count = group_data['message_count']
+                member_count = group_data['member_count']
+                relation_count = group_data['relation_count']
 
-            # 使用LEFT JOIN一次性获取群组的消息数、成员数和社交关系数
-            await cursor.execute('''
-                SELECT
-                    rm.group_id,
-                    COUNT(DISTINCT rm.id) as message_count,
-                    COUNT(DISTINCT rm.sender_id) as member_count,
-                    COUNT(DISTINCT sr.id) as relation_count
-                FROM raw_messages rm
-                LEFT JOIN social_relations sr ON rm.group_id = sr.group_id
-                WHERE rm.group_id IS NOT NULL AND rm.group_id != ''
-                GROUP BY rm.group_id
-                HAVING message_count >= 10
-                ORDER BY message_count DESC
-            ''')
-
-            group_rows = await cursor.fetchall()
-
-            groups = []
-            for row in group_rows:
-                try:
-                    # 添加行数据验证
-                    if len(row) < 4:
-                        logger.warning(f"群组数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
-                        continue
-
-                    group_id = row[0]
-                    message_count = int(row[1]) if row[1] else 0
-                    member_count = int(row[2]) if row[2] else 0
-                    relation_count = int(row[3]) if row[3] else 0
-
-                    groups.append({
-                        'group_id': group_id,
-                        'message_count': message_count,
-                        'member_count': member_count,  # 修复：使用正确的字段名
-                        'user_count': member_count,     # 保留旧字段以兼容
-                        'relation_count': relation_count  # 新增：关系数
-                    })
-                except Exception as row_error:
-                    logger.warning(f"处理群组数据行时出错，跳过: {row_error}, row: {row}")
-                    continue
-
-            await cursor.close()
+                groups.append({
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'member_count': member_count,  # 修复：使用正确的字段名
+                    'user_count': member_count,     # 保留旧字段以兼容
+                    'relation_count': relation_count  # 新增：关系数
+                })
+            except Exception as row_error:
+                logger.warning(f"处理群组数据行时出错，跳过: {row_error}, data: {group_data}")
+                continue
 
         return jsonify({
             "success": True,
@@ -5772,7 +5696,7 @@ async def toggle_jargon_global(jargon_id: int):
 @login_required
 async def get_jargon_groups():
     """
-    获取所有有黑话记录的群组列表
+    获取所有有黑话记录的群组列表（使用 ORM 版本）
 
     返回:
         JSON格式的群组列表，每个群组包含黑话统计
@@ -5784,56 +5708,22 @@ async def get_jargon_groups():
                 "error": "数据库管理器未初始化"
             }), 500
 
-        async with database_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
+        # ✅ 使用 ORM 方法获取黑话群组列表（支持跨线程调用）
+        groups_data = await database_manager.get_jargon_groups()
 
-            # 首先检查jargon表是否存在
-            await cursor.execute('''
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='jargon'
-            ''')
-
-            table_exists = await cursor.fetchone()
-            if not table_exists:
-                logger.info("jargon表不存在")
-                await cursor.close()
-                return jsonify({
-                    "success": True,
-                    "data": [],
-                    "total_groups": 0
+        groups = []
+        for group_data in groups_data:
+            try:
+                groups.append({
+                    'group_id': group_data['group_id'],
+                    'total_candidates': group_data['total_jargon'],  # 总黑话数
+                    'confirmed_jargon': group_data['complete_jargon'],  # 已完成黑话数
+                    'global_jargon': group_data['global_jargon'],  # 全局黑话数
+                    'last_updated': None  # ORM版本暂不提供 last_updated，可后续添加
                 })
-
-            # 获取所有有黑话记录的群组及其统计
-            await cursor.execute('''
-                SELECT
-                    chat_id,
-                    COUNT(*) as total_candidates,
-                    COUNT(CASE WHEN is_jargon = 1 THEN 1 END) as confirmed_jargon,
-                    MAX(updated_at) as last_updated
-                FROM jargon
-                GROUP BY chat_id
-                ORDER BY last_updated DESC
-            ''')
-
-            groups = []
-            for row in await cursor.fetchall():
-                try:
-                    # 添加行数据验证
-                    if len(row) < 4:
-                        logger.warning(f"黑话群组数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
-                        continue
-
-                    groups.append({
-                        'group_id': row[0],
-                        'total_candidates': int(row[1]) if row[1] else 0,
-                        'confirmed_jargon': int(row[2]) if row[2] else 0,
-                        'last_updated': row[3]
-                    })
-                except Exception as row_error:
-                    logger.warning(f"处理黑话群组数据行时出错，跳过: {row_error}, row: {row}")
-                    continue
-
-            await cursor.close()
+            except Exception as row_error:
+                logger.warning(f"处理黑话群组数据行时出错，跳过: {row_error}, data: {group_data}")
+                continue
 
         return jsonify({
             "success": True,

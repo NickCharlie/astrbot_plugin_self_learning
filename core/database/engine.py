@@ -99,15 +99,14 @@ class DatabaseEngine:
         else:
             db_url = self.database_url
 
-        # MySQL 配置 (异步引擎不需要指定poolclass，SQLAlchemy会自动选择合适的)
+        # MySQL 配置
+        # 使用 NullPool 避免跨线程/跨事件循环问题
+        # NullPool 不缓存连接，每次请求都创建新连接，适合多线程环境
         self.engine = create_async_engine(
             db_url,
             echo=self.echo,
-            # MySQL 连接池配置
-            pool_size=10,  # 连接池大小
-            max_overflow=20,  # 最大溢出连接数
-            pool_pre_ping=True,  # 连接前 ping，检查连接是否有效
-            pool_recycle=3600,  # 1小时回收连接
+            # 使用 NullPool 避免连接池在不同事件循环间共享的问题
+            poolclass=NullPool,
             # MySQL 特定参数
             connect_args={
                 'connect_timeout': 10,  # 连接超时
@@ -115,7 +114,8 @@ class DatabaseEngine:
             }
         )
 
-        logger.info(f"✅ [DatabaseEngine] MySQL 引擎创建成功")
+        logger.info(f"✅ [DatabaseEngine] MySQL 引擎创建成功 (使用 NullPool 支持多线程)")
+
 
     def _create_session_factory(self):
         """创建会话工厂"""
@@ -140,9 +140,178 @@ class DatabaseEngine:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("✅ [DatabaseEngine] 数据库表结构创建完成")
+
+            # 执行数据库迁移
+            await self.migrate_schema()
+
         except Exception as e:
             logger.error(f"❌ [DatabaseEngine] 创建表失败: {e}")
             raise
+
+    async def migrate_schema(self):
+        """
+        数据库结构迁移
+
+        为已存在的表添加新字段
+        """
+        try:
+            from sqlalchemy import text
+
+            async with self.get_session() as session:
+                # 检查数据库类型
+                is_mysql = 'mysql' in self.database_url.lower()
+
+                if is_mysql:
+                    # MySQL 迁移
+                    await self._migrate_mysql(session)
+                else:
+                    # SQLite 迁移
+                    await self._migrate_sqlite(session)
+
+        except Exception as e:
+            logger.warning(f"⚠️ [DatabaseEngine] 数据库迁移出现异常（可能字段已存在）: {e}")
+
+    async def _migrate_mysql(self, session):
+        """MySQL 数据库迁移"""
+        from sqlalchemy import text
+
+        # 1. 添加缺失字段
+        migrations = [
+            # raw_messages 表
+            ("raw_messages", "message_id", "ALTER TABLE raw_messages ADD COLUMN message_id VARCHAR(255)"),
+            ("raw_messages", "reply_to", "ALTER TABLE raw_messages ADD COLUMN reply_to VARCHAR(255)"),
+
+            # filtered_messages 表
+            ("filtered_messages", "processed", "ALTER TABLE filtered_messages ADD COLUMN processed TINYINT(1) DEFAULT 0"),
+            ("filtered_messages", "quality_score", "ALTER TABLE filtered_messages ADD COLUMN quality_score DOUBLE"),
+            ("filtered_messages", "filter_reason", "ALTER TABLE filtered_messages ADD COLUMN filter_reason TEXT"),
+
+            # psychological_state_components 表 - 添加外键字段（允许 NULL 以兼容传统数据）
+            ("psychological_state_components", "composite_state_id", "ALTER TABLE psychological_state_components ADD COLUMN composite_state_id INT NULL"),
+        ]
+
+        for table, column, sql in migrations:
+            try:
+                # 检查字段是否存在
+                check_sql = text(f"""
+                    SELECT COUNT(*)
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = '{table}'
+                    AND COLUMN_NAME = '{column}'
+                """)
+                result = await session.execute(check_sql)
+                count = result.scalar()
+
+                if count == 0:
+                    # 字段不存在，添加字段
+                    await session.execute(text(sql))
+                    await session.commit()
+                    logger.info(f"✅ [Migration] 已为 {table} 表添加 {column} 字段")
+
+            except Exception as e:
+                logger.debug(f"[Migration] {table}.{column} 迁移跳过: {e}")
+                await session.rollback()
+
+        # 2. 修复时间戳字段类型（DATETIME -> BIGINT）
+        # 安全迁移策略:添加临时字段->转换数据->替换字段
+        timestamp_fields = [
+            ("raw_messages", "timestamp"),
+            ("raw_messages", "created_at"),
+            ("filtered_messages", "timestamp"),
+            ("filtered_messages", "created_at"),
+            ("bot_messages", "timestamp"),
+            ("bot_messages", "created_at"),
+            ("learning_performance_history", "timestamp"),
+            ("learning_performance_history", "created_at"),
+            ("jargon", "created_at"),  # ✨ 新增：黑话表
+            ("jargon", "updated_at"),  # ✨ 新增：黑话表
+            ("social_relations", "created_at"),  # ✨ 新增：社交关系表
+            ("social_relations", "updated_at"),  # ✨ 新增：社交关系表
+        ]
+
+        for table, column in timestamp_fields:
+            try:
+                # 检查字段类型
+                check_sql = text(f"""
+                    SELECT DATA_TYPE
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = '{table}'
+                    AND COLUMN_NAME = '{column}'
+                """)
+                result = await session.execute(check_sql)
+                data_type = result.scalar()
+
+                # 如果是 DATETIME 或 TIMESTAMP 类型,需要安全转换为 BIGINT
+                if data_type and data_type.upper() in ('DATETIME', 'TIMESTAMP'):
+                    logger.warning(f"⚠️ [Migration] 发现 {table}.{column} 为 {data_type} 类型,开始安全转换为 BIGINT...")
+
+                    temp_column = f"{column}_bigint_temp"
+
+                    # 步骤1: 添加临时 BIGINT 列
+                    await session.execute(text(f"ALTER TABLE {table} ADD COLUMN {temp_column} BIGINT"))
+                    await session.commit()
+                    logger.debug(f"[Migration] 已添加临时列 {table}.{temp_column}")
+
+                    # 步骤2: 将 DATETIME 转换为 Unix 时间戳并复制到临时列
+                    await session.execute(text(f"""
+                        UPDATE {table}
+                        SET {temp_column} = UNIX_TIMESTAMP({column})
+                        WHERE {column} IS NOT NULL
+                    """))
+                    await session.commit()
+                    logger.debug(f"[Migration] 已将 {table}.{column} 数据转换为 Unix 时间戳")
+
+                    # 步骤3: 删除原列
+                    await session.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
+                    await session.commit()
+                    logger.debug(f"[Migration] 已删除原列 {table}.{column}")
+
+                    # 步骤4: 重命名临时列为原列名
+                    await session.execute(text(f"ALTER TABLE {table} CHANGE COLUMN {temp_column} {column} BIGINT NOT NULL"))
+                    await session.commit()
+
+                    logger.info(f"✅ [Migration] 已安全转换 {table}.{column} 从 {data_type} 到 BIGINT")
+
+            except Exception as e:
+                logger.warning(f"⚠️ [Migration] {table}.{column} 类型转换失败: {e}")
+                await session.rollback()
+
+    async def _migrate_sqlite(self, session):
+        """SQLite 数据库迁移"""
+        from sqlalchemy import text
+
+        migrations = [
+            # raw_messages 表
+            ("raw_messages", "message_id", "ALTER TABLE raw_messages ADD COLUMN message_id TEXT"),
+            ("raw_messages", "reply_to", "ALTER TABLE raw_messages ADD COLUMN reply_to TEXT"),
+
+            # filtered_messages 表
+            ("filtered_messages", "processed", "ALTER TABLE filtered_messages ADD COLUMN processed BOOLEAN DEFAULT 0"),
+            ("filtered_messages", "quality_score", "ALTER TABLE filtered_messages ADD COLUMN quality_score REAL"),
+            ("filtered_messages", "filter_reason", "ALTER TABLE filtered_messages ADD COLUMN filter_reason TEXT"),
+
+            # psychological_state_components 表 - 添加外键字段（允许 NULL 以兼容传统数据）
+            ("psychological_state_components", "composite_state_id", "ALTER TABLE psychological_state_components ADD COLUMN composite_state_id INTEGER NULL"),
+        ]
+
+        for table, column, sql in migrations:
+            try:
+                # 使用 PRAGMA 检查字段是否存在
+                check_sql = text(f"PRAGMA table_info({table})")
+                result = await session.execute(check_sql)
+                columns = [row[1] for row in result.fetchall()]
+
+                if column not in columns:
+                    # 字段不存在，添加字段
+                    await session.execute(text(sql))
+                    await session.commit()
+                    logger.info(f"✅ [Migration] 已为 {table} 表添加 {column} 字段")
+
+            except Exception as e:
+                logger.debug(f"[Migration] {table}.{column} 迁移跳过: {e}")
+                await session.rollback()
 
     async def drop_tables(self):
         """

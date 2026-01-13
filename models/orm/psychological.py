@@ -31,7 +31,7 @@ class PsychologicalStateComponent(Base):
     __tablename__ = 'psychological_state_components'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    composite_state_id = Column(Integer, ForeignKey('composite_psychological_states.id'), nullable=False)
+    composite_state_id = Column(Integer, ForeignKey('composite_psychological_states.id'), nullable=True)  # ✅ 允许 NULL 兼容传统数据
     group_id = Column(String(255), nullable=False, index=True)
     state_id = Column(String(255), nullable=False, index=True)
     category = Column(String(50), nullable=False)

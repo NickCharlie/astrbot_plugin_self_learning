@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "Next-1.0.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "Next-1.1.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -166,10 +166,15 @@ class SelfLearningPlugin(star.Star):
             # 启动数据库管理器
             try:
                 logger.info("Debug: 启动数据库管理器")
-                await self.db_manager.start()
-                logger.info("Debug: 数据库管理器启动成功")
+                db_started = await self.db_manager.start()
+                if db_started:
+                    logger.info("Debug: 数据库管理器启动成功")
+                else:
+                    logger.error("❌ 数据库管理器启动失败，但没有抛出异常")
+                    raise RuntimeError("数据库管理器启动失败")
             except Exception as e:
                 logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
+                raise  # 重新抛出异常，停止插件启动
 
             # 设置插件服务
             try:
@@ -238,10 +243,14 @@ class SelfLearningPlugin(star.Star):
             try:
                 await server_instance.start()
                 logger.info(StatusMessages.WEB_SERVER_STARTED)
-                
+
                 # 启动数据库管理器
-                await self.db_manager.start()
-                logger.info(StatusMessages.DB_MANAGER_STARTED)
+                db_started = await self.db_manager.start()
+                if db_started:
+                    logger.info(StatusMessages.DB_MANAGER_STARTED)
+                else:
+                    logger.error("❌ 数据库管理器启动失败，但没有抛出异常")
+                    raise RuntimeError("数据库管理器启动失败")
             except Exception as e:
                 logger.error(StatusMessages.WEB_SERVER_START_FAILED.format(error=e), exc_info=True)
 
@@ -550,11 +559,34 @@ class SelfLearningPlugin(star.Star):
         await self._check_and_migrate_database()
 
         # 启动数据库管理器，确保数据库表被创建
-        try:
-            await self.db_manager.start()
-            logger.info(StatusMessages.DB_MANAGER_STARTED)
-        except Exception as e:
-            logger.error(StatusMessages.DB_MANAGER_START_FAILED.format(error=e), exc_info=True)
+        db_started = False
+        max_retries = 3
+        retry_delay = 2  # 秒
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"尝试启动数据库管理器 (第 {attempt + 1}/{max_retries} 次)")
+                db_started = await self.db_manager.start()
+
+                if db_started:
+                    logger.info(StatusMessages.DB_MANAGER_STARTED)
+                    break
+                else:
+                    logger.warning(f"数据库管理器启动返回False (尝试 {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        logger.info(f"等待 {retry_delay} 秒后重试...")
+                        await asyncio.sleep(retry_delay)
+
+            except Exception as e:
+                logger.error(f"数据库启动异常 (尝试 {attempt + 1}/{max_retries}): {e}", exc_info=True)
+                if attempt < max_retries - 1:
+                    logger.info(f"等待 {retry_delay} 秒后重试...")
+                    await asyncio.sleep(retry_delay)
+
+        # 检查数据库是否成功启动
+        if not db_started:
+            logger.error(StatusMessages.DB_MANAGER_START_FAILED.format(error="所有重试均失败"))
+            logger.warning("⚠️ 插件将在数据库功能受限的情况下继续运行")
         
         # 启动好感度管理服务（包含随机情绪初始化）
         if self.plugin_config.enable_affection_system:

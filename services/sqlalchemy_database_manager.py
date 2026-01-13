@@ -133,6 +133,17 @@ class SQLAlchemyDatabaseManager:
             logger.warning(f"[SQLAlchemyDBManager] 初始化传统数据库管理器失败: {e}，部分功能可能不可用")
             logger.info("[SQLAlchemyDBManager] 初始化完成")
 
+    @property
+    def db_backend(self):
+        """
+        提供 db_backend 属性用于向后兼容
+
+        返回传统数据库管理器的 db_backend
+        """
+        if self._legacy_db:
+            return self._legacy_db.db_backend
+        return None
+
     async def start(self) -> bool:
         """
         启动数据库管理器
@@ -165,6 +176,7 @@ class SQLAlchemyDatabaseManager:
             # 创建数据库引擎
             self.engine = DatabaseEngine(db_url, echo=False)
 
+            logger.info("[SQLAlchemyDBManager] 数据库引擎已创建")
             # 创建表结构（如果不��在）
             await self.engine.create_tables()
 
@@ -192,16 +204,19 @@ class SQLAlchemyDatabaseManager:
             return True
 
         try:
-            # 停止传统数据库管理器
-            if self._legacy_db:
-                await self._legacy_db.stop()
+            # ⚠️ 不停止传统数据库管理器，因为 Web UI 路由可能随时需要它
+            # 传统数据库会在插件卸载时由 AstrBot 框架自动清理
+            # if self._legacy_db:
+            #     await self._legacy_db.stop()
+
+            logger.debug("[SQLAlchemyDBManager] 保持传统数据库运行（用于 Web UI 兼容）")
 
             # 停止 SQLAlchemy 引擎
             if self.engine:
                 await self.engine.close()
 
             self._started = False
-            logger.info("✅ [SQLAlchemyDBManager] 数据库已停止")
+            logger.info("✅ [SQLAlchemyDBManager] 数据库已停止（传统数据库保持运行）")
             return True
 
         except Exception as e:
@@ -327,8 +342,8 @@ class SQLAlchemyDatabaseManager:
                 repo = AffectionRepository(session)
 
                 # 获取当前好感度以计算delta
-                current = await repo.get_affection(group_id, user_id)
-                previous_level = current.level if current else 0
+                current = await repo.get_by_group_and_user(group_id, user_id)
+                previous_level = current.affection_level if current else 0
                 affection_delta = new_level - previous_level
 
                 # 使用 Repository 的 update_level 方法
@@ -560,13 +575,8 @@ class SQLAlchemyDatabaseManager:
                 }
 
         except Exception as e:
-            # 降级到传统实现
-            logger.warning(f"[SQLAlchemy] Repository 查询社交关系失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_user_social_relations(group_id, user_id)
-
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取用户社交关系: SQLAlchemy 和传统数据库管理器都不可用") from e
+            logger.error(f"[SQLAlchemy] Repository 查询社交关系失败: {e}")
+            raise RuntimeError(f"无法获取用户社交关系: {e}") from e
 
     async def get_reviewed_persona_learning_updates(
         self,
@@ -606,31 +616,16 @@ class SQLAlchemyDatabaseManager:
                 ]
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 查询已审查人格更新失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_reviewed_persona_learning_updates(limit, offset, status_filter)
-
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取已审查人格更新: SQLAlchemy 和传统数据库管理器都不可用") from e
+            logger.error(f"[SQLAlchemy] Repository 查询已审查人格更新失败: {e}")
+            raise RuntimeError(f"无法获取已审查人格更新: {e}") from e
 
     async def get_trends_data(self) -> Dict[str, Any]:
         """
         获取趋势数据
 
-        优先使用 SQLAlchemy Repository 实现，基于现有数据计算趋势
+        使用 SQLAlchemy Repository 实现，支持跨线程调用（NullPool），基于现有数据计算趋势
         """
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_trends_data，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_trends_data()
-                return {
-                    "affection_trend": [],
-                    "interaction_trend": [],
-                    "learning_trend": []
-                }
-
             # 尝试使用 Repository 计算趋势
             async with self.get_session() as session:
                 from sqlalchemy import select, func, cast, Date
@@ -700,39 +695,15 @@ class SQLAlchemyDatabaseManager:
                     "learning_trend": []  # 学习趋势需要学习记录表
                 }
 
-        except RuntimeError as e:
-            # 捕获事件循环冲突错误
-            if self._is_event_loop_error(e):
-                logger.warning(f"[SQLAlchemy] 事件循环冲突，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_trends_data()
-                # 返回空数据而不是崩溃
-                return {
-                    "affection_trend": [],
-                    "interaction_trend": [],
-                    "learning_trend": []
-                }
-            else:
-                raise
         except Exception as e:
-            # 其他异常：降级到传统实现
-            logger.warning(f"[SQLAlchemy] Repository 计算趋势数据失败: {type(e).__name__}: {str(e)[:100]}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_trends_data()
-
-            # 返回空数据而不是崩溃
-            logger.error("[SQLAlchemy] 无法获取趋势数据: SQLAlchemy 和传统数据库管理器都不可用")
-            return {
-                "affection_trend": [],
-                "interaction_trend": [],
-                "learning_trend": []
-            }
+            logger.error(f"[SQLAlchemy] Repository 计算趋势数据失败: {e}")
+            raise RuntimeError(f"无法获取趋势数据: {e}") from e
 
     async def get_style_learning_statistics(self) -> Dict[str, Any]:
         """
         获取风格学习统计
 
-        优先使用 SQLAlchemy Repository 实现，失败时降级到传统实现
+        使用 SQLAlchemy Repository 实现，支持跨线程调用（NullPool）
         """
         try:
             async with self.get_session() as session:
@@ -746,18 +717,14 @@ class SQLAlchemyDatabaseManager:
                 return statistics
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 计算风格学习统计失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_style_learning_statistics()
-
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取风格学习统计: SQLAlchemy 和传统数据库管理器都不可用") from e
+            logger.error(f"[SQLAlchemy] 获取风格学习统计失败: {e}")
+            raise RuntimeError(f"无法获取风格学习统计: {e}") from e
 
     async def get_pending_persona_learning_reviews(self, limit: int = None) -> List[Dict[str, Any]]:
         """
         获取待审查的人格学习更新
 
-        优先使用 SQLAlchemy Repository 实现，失败时降级到传统实现
+        使用 SQLAlchemy Repository 实现，支持跨线程调用（NullPool）
 
         Args:
             limit: 最大返回数量（None则使用配置中的default_review_limit）
@@ -766,13 +733,6 @@ class SQLAlchemyDatabaseManager:
             limit = self.config.default_review_limit
 
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_pending_persona_learning_reviews，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_pending_persona_learning_reviews(limit)
-                return []
-
             async with self.get_session() as session:
                 from ..repositories.learning_repository import PersonaLearningReviewRepository
 
@@ -814,18 +774,14 @@ class SQLAlchemyDatabaseManager:
                 return result
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 查询待审查人格更新失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_pending_persona_learning_reviews(limit)
-
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取待审查人格更新: SQLAlchemy 和传统数据库管理器都不可用") from e
+            logger.error(f"[SQLAlchemy] Repository 查询待审查人格更新失败: {e}")
+            raise RuntimeError(f"无法获取待审查人格更新: {e}") from e
 
     async def get_pending_style_reviews(self, limit: int = None) -> List[Dict[str, Any]]:
         """
         获取待审查的风格学习更新
 
-        优先使用 SQLAlchemy Repository 实现，失败时降级到传统实现
+        使用 SQLAlchemy Repository 实现，支持跨线程调用（NullPool）
 
         Args:
             limit: 最大返回数量（None则使用配置中的default_review_limit）
@@ -834,13 +790,6 @@ class SQLAlchemyDatabaseManager:
             limit = self.config.default_review_limit
 
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_pending_style_reviews，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_pending_style_reviews(limit)
-                return []
-
             async with self.get_session() as session:
                 from ..repositories.learning_repository import StyleLearningReviewRepository
 
@@ -865,12 +814,77 @@ class SQLAlchemyDatabaseManager:
                 ]
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 查询待审查风格更新失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.get_pending_style_reviews(limit)
+            logger.error(f"[SQLAlchemy] Repository 查询待审查风格更新失败: {e}")
+            raise RuntimeError(f"无法获取待审查风格更新: {e}") from e
 
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法获取待审查风格更新: SQLAlchemy 和传统数据库管理器都不可用") from e
+    async def get_reviewed_style_learning_updates(
+        self,
+        limit: int = None,
+        offset: int = 0,
+        status_filter: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取已审查的风格学习更新
+
+        使用 SQLAlchemy Repository 实现，支持跨线程调用（NullPool）
+
+        Args:
+            limit: 最大返回数量（None则使用配置中的default_review_limit）
+            offset: 偏移量
+            status_filter: 状态过滤（'approved', 'rejected', None表示全部）
+
+        Returns:
+            List[Dict]: 已审查的风格学习记录列表
+        """
+        if limit is None:
+            limit = self.config.default_review_limit
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.learning import StyleLearningReview
+
+                # 构建查询
+                stmt = select(StyleLearningReview)
+
+                # 状态过滤
+                if status_filter:
+                    stmt = stmt.where(StyleLearningReview.status == status_filter)
+                else:
+                    # 只查询非 pending 状态的记录
+                    stmt = stmt.where(StyleLearningReview.status != 'pending')
+
+                # 按时间倒序排列
+                stmt = stmt.order_by(StyleLearningReview.review_time.desc())
+
+                # 分页
+                stmt = stmt.offset(offset).limit(limit)
+
+                result = await session.execute(stmt)
+                reviews = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询已审查风格更新: {len(reviews)} 条 (状态={status_filter})")
+
+                return [
+                    {
+                        'id': review.id,
+                        'type': review.type,
+                        'group_id': review.group_id,
+                        'timestamp': review.timestamp,
+                        'learned_patterns': review.learned_patterns,
+                        'few_shots_content': review.few_shots_content,
+                        'status': review.status,
+                        'description': review.description,
+                        'reviewer_comment': review.reviewer_comment,
+                        'review_time': review.review_time,
+                        'created_at': review.created_at
+                    }
+                    for review in reviews
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询已审查风格更新失败: {e}")
+            raise RuntimeError(f"无法获取已审查风格更新: {e}") from e
 
     async def update_style_review_status(
         self,
@@ -896,12 +910,8 @@ class SQLAlchemyDatabaseManager:
                 return success
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 更新风格审查状态失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.update_style_review_status(review_id, status, reviewer_comment)
-
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法更新风格审查状态: SQLAlchemy 和传统数据库管理器都不可用") from e
+            logger.error(f"[SQLAlchemy] Repository 更新风格审查状态失败: {e}")
+            raise RuntimeError(f"无法更新风格审查状态: {e}") from e
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         """
@@ -922,67 +932,109 @@ class SQLAlchemyDatabaseManager:
                 return success
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 删除人格学习审查失败: {e}，降级到传统实现")
-            if self._legacy_db:
-                return await self._legacy_db.delete_persona_learning_review_by_id(review_id)
+            logger.error(f"[SQLAlchemy] Repository 删除人格学习审查失败: {e}")
+            raise RuntimeError(f"无法删除人格学习审查: {e}") from e
 
-            # 不返回默认值，直接抛出异常
-            raise RuntimeError(f"无法删除人格学习审查: SQLAlchemy 和传统数据库管理器都不可用") from e
+    async def add_persona_learning_review(
+        self,
+        group_id: str,
+        proposed_content: str,
+        learning_source: str = "expression_learning",
+        confidence_score: float = 0.5,
+        raw_analysis: str = "",
+        metadata: Dict[str, Any] = None,
+        original_content: str = "",
+        new_content: str = ""
+    ) -> int:
+        """
+        添加人格学习审查记录
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            group_id: 群组ID
+            proposed_content: 建议的增量人格内容
+            learning_source: 学习来源
+            confidence_score: 置信度分数
+            raw_analysis: 原始分析结果
+            metadata: 元数据
+            original_content: 原人格完整文本
+            new_content: 新人格完整文本
+
+        Returns:
+            int: 插入记录的ID
+        """
+        try:
+            async with self.get_session() as session:
+                from ..models.orm.learning import PersonaLearningReview
+                import time
+                import json
+
+                # 创建记录
+                review = PersonaLearningReview(
+                    group_id=group_id,
+                    timestamp=time.time(),  # ✅ 使用 Float 类型（与 ORM 模型定义一致）
+                    update_type=learning_source,
+                    original_content=original_content,
+                    new_content=new_content,
+                    proposed_content=proposed_content,
+                    confidence_score=confidence_score,
+                    reason=raw_analysis,
+                    status='pending',
+                    reviewer_comment=None,
+                    review_time=None,
+                    metadata_=json.dumps(metadata) if metadata else None,
+                    # ❌ 移除 created_at - PersonaLearningReview 模型没有此字段
+                )
+
+                session.add(review)
+                await session.commit()
+                await session.refresh(review)
+
+                logger.debug(f"[SQLAlchemy] 已添加人格学习审查记录: ID={review.id}, group={group_id}")
+                return review.id
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 添加人格学习审查记录失败: {e}", exc_info=True)
+            raise RuntimeError(f"无法添加人格学习审查记录: {e}") from e
 
     async def get_messages_statistics(self) -> Dict[str, Any]:
         """
         获取消息统计信息
 
-        注意：此功能依赖 raw_messages 和 filtered_messages 表，
-        目前无 ORM 模型，直接降级到传统实现
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+        统计 raw_messages 和 filtered_messages 表的数据
 
         Returns:
             Dict[str, Any]: 统计信息
         """
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_messages_statistics，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_messages_statistics()
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import RawMessage, FilteredMessage
+
+                # 统计原始消息数量
+                total_stmt = select(func.count()).select_from(RawMessage)
+                total_result = await session.execute(total_stmt)
+                total_messages = total_result.scalar() or 0
+
+                # 统计筛选后消息数量
+                filtered_stmt = select(func.count()).select_from(FilteredMessage)
+                filtered_result = await session.execute(filtered_stmt)
+                filtered_messages = filtered_result.scalar() or 0
+
+                # 计算筛选率
+                filter_rate = (filtered_messages / total_messages * 100) if total_messages > 0 else 0.0
+
                 return {
-                    "total_messages": 0,
-                    "filtered_messages": 0,
-                    "filter_rate": 0.0
+                    "total_messages": total_messages,
+                    "filtered_messages": filtered_messages,
+                    "filter_rate": round(filter_rate, 2)
                 }
 
-            # TODO: 创建 RawMessage 和 FilteredMessage ORM 模型后实现
-            # 目前直接降级到传统实现
-            if self._legacy_db:
-                return await self._legacy_db.get_messages_statistics()
-
-            # 返回空统计
-            return {
-                "total_messages": 0,
-                "filtered_messages": 0,
-                "filter_rate": 0.0
-            }
-
         except Exception as e:
-            # 检查事件循环错误
-            if self._is_event_loop_error(e):
-                logger.warning("[SQLAlchemy] 获取消息统计时遇到事件循环冲突，降级到传统实现")
-            else:
-                logger.warning(f"[SQLAlchemy] 获取消息统计失败: {type(e).__name__}: {str(e)[:100]}")
-
-            # 尝试降级
-            if self._legacy_db and not self._is_cross_thread_call():
-                try:
-                    return await self._legacy_db.get_messages_statistics()
-                except:
-                    pass
-
-            # 返回空统计而不是崩溃
-            return {
-                "total_messages": 0,
-                "filtered_messages": 0,
-                "filter_rate": 0.0
-            }
+            logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}")
+            raise RuntimeError(f"无法获取消息统计: {e}") from e
 
     async def get_all_expression_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """
@@ -1021,13 +1073,8 @@ class SQLAlchemyDatabaseManager:
                 return result
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 获取表达模式失败: {e}，降级到传统实现")
-            if self._legacy_db and hasattr(self._legacy_db, 'get_all_expression_patterns'):
-                return await self._legacy_db.get_all_expression_patterns()
-
-            # 对于表达模式，返回空字典而不是抛出异常（WebUI 可以处理空数据）
-            logger.error(f"[SQLAlchemy] 无法获取表达模式: SQLAlchemy 和传统数据库管理器都不可用")
-            return {}
+            logger.error(f"[SQLAlchemy] Repository 获取表达模式失败: {e}")
+            raise RuntimeError(f"无法获取表达模式: {e}") from e
 
     async def get_expression_patterns_statistics(self) -> Dict[str, Any]:
         """
@@ -1050,18 +1097,8 @@ class SQLAlchemyDatabaseManager:
                 return stats
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 获取表达模式统计失败: {e}，降级到传统实现")
-            if self._legacy_db and hasattr(self._legacy_db, 'get_expression_patterns_statistics'):
-                return await self._legacy_db.get_expression_patterns_statistics()
-
-            # 返回空统计信息
-            logger.error(f"[SQLAlchemy] 无法获取表达模式统计: SQLAlchemy 和传统数据库管理器都不可用")
-            return {
-                'total_count': 0,
-                'avg_weight': 0.0,
-                'group_count': 0,
-                'latest_time': 0
-            }
+            logger.error(f"[SQLAlchemy] Repository 获取表达模式统计失败: {e}")
+            raise RuntimeError(f"无法获取表达模式统计: {e}") from e
 
     async def get_group_expression_patterns(self, group_id: str, limit: int = None) -> List[Dict[str, Any]]:
         """
@@ -1102,13 +1139,8 @@ class SQLAlchemyDatabaseManager:
                 ]
 
         except Exception as e:
-            logger.warning(f"[SQLAlchemy] Repository 获取群组表达模式失败: {e}，降级到传统实现")
-            if self._legacy_db and hasattr(self._legacy_db, 'get_group_expression_patterns'):
-                return await self._legacy_db.get_group_expression_patterns(group_id, limit)
-
-            # 返回空列表
-            logger.error(f"[SQLAlchemy] 无法获取群组表达模式: SQLAlchemy 和传统数据库管理器都不可用")
-            return []
+            logger.error(f"[SQLAlchemy] Repository 获取群组表达模式失败: {e}")
+            raise RuntimeError(f"无法获取群组表达模式: {e}") from e
 
     # ========================================
     # 社交关系系统方法（使用新ORM表）
@@ -1244,7 +1276,8 @@ class SQLAlchemyDatabaseManager:
         """
         try:
             async with self.get_session() as session:
-                from ..models.orm.social_relation import UserSocialRelationComponent
+                from ..models.orm.social_relation import UserSocialRelationComponent, UserSocialProfile
+                from sqlalchemy import select
                 import time
                 from datetime import datetime
 
@@ -1270,9 +1303,30 @@ class SQLAlchemyDatabaseManager:
                 else:
                     last_interaction = int(time.time())
 
+                # 获取或创建 from_user 的社交档案
+                stmt = select(UserSocialProfile).where(
+                    UserSocialProfile.user_id == from_user_id,
+                    UserSocialProfile.group_id == group_id
+                )
+                result = await session.execute(stmt)
+                profile = result.scalars().first()
+
+                if not profile:
+                    # 创建新的用户社交档案
+                    profile = UserSocialProfile(
+                        user_id=from_user_id,
+                        group_id=group_id,
+                        total_relations=0,
+                        significant_relations=0,
+                        created_at=int(time.time()),
+                        last_updated=int(time.time())
+                    )
+                    session.add(profile)
+                    await session.flush()  # 确保获得 profile.id
+
                 # 创建新的社交关系组件
                 component = UserSocialRelationComponent(
-                    profile_id=0,  # 稍后关联 profile
+                    profile_id=profile.id,
                     from_user_id=from_user_id,
                     to_user_id=to_user_id,
                     group_id=group_id,
@@ -1284,6 +1338,11 @@ class SQLAlchemyDatabaseManager:
                 )
 
                 session.add(component)
+
+                # 更新用户档案统计信息
+                profile.total_relations += 1
+                profile.last_updated = int(time.time())
+
                 await session.commit()
 
                 logger.debug(f"[SQLAlchemy] 已保存社交关系: {from_user_id} -> {to_user_id}")
@@ -1491,27 +1550,51 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[SQLAlchemy] 标记消息处理状态失败: {e}", exc_info=True)
 
-    async def save_learning_performance_record(self, record: Dict[str, Any]):
+    async def save_learning_performance_record(self, group_id: str, performance_data: Dict[str, Any]) -> bool:
         """
         保存学习性能记录
 
         Args:
-            record: 性能记录数据
+            group_id: 群组ID
+            performance_data: 性能记录数据
+
+        Returns:
+            bool: 是否保存成功
         """
         try:
-            # 这个方法在旧系统中存在，但在新系统中可能不需要
-            # 暂时记录日志，不做实际操作
-            logger.debug(f"[SQLAlchemy] 学习性能记录（暂不实现）: {record}")
+            async with self.get_session() as session:
+                from ..models.orm import LearningPerformanceHistory
+                import time
+
+                # 创建学习性能记录
+                record = LearningPerformanceHistory(
+                    group_id=group_id,
+                    session_id=performance_data.get('session_id', ''),
+                    timestamp=int(performance_data.get('timestamp', time.time())),
+                    quality_score=float(performance_data.get('quality_score', 0.0)),
+                    learning_time=float(performance_data.get('learning_time', 0.0)),
+                    success=bool(performance_data.get('success', False)),
+                    successful_pattern=performance_data.get('successful_pattern', ''),
+                    failed_pattern=performance_data.get('failed_pattern', ''),
+                    created_at=int(time.time())
+                )
+
+                session.add(record)
+                await session.commit()
+
+                logger.debug(f"[SQLAlchemy] 已保存学习性能记录: {group_id}")
+                return True
 
         except Exception as e:
             logger.error(f"[SQLAlchemy] 保存学习性能记录失败: {e}", exc_info=True)
+            return False
 
     async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
         """
         获取群组消息统计
 
-        注意：UserConversationHistory ORM 模型暂无 processed 字段
-        返回的 unprocessed_messages 和 processed_messages 将为 0
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+        使用 RawMessage 表进行统计
 
         Args:
             group_id: 群组ID
@@ -1520,47 +1603,37 @@ class SQLAlchemyDatabaseManager:
             Dict: 消息统计数据
         """
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 get_group_messages_statistics，降级到传统实现")
-                if self._legacy_db:
-                    return await self._legacy_db.get_group_messages_statistics(group_id)
-                return {
-                    'total_messages': 0,
-                    'unprocessed_messages': 0,
-                    'processed_messages': 0
-                }
-
             async with self.get_session() as session:
                 from sqlalchemy import select, func
-                from ..models.orm import UserConversationHistory
+                from ..models.orm import RawMessage
 
                 # 统计总消息数
-                total_stmt = select(func.count()).select_from(UserConversationHistory).where(
-                    UserConversationHistory.group_id == group_id
+                total_stmt = select(func.count()).select_from(RawMessage).where(
+                    RawMessage.group_id == group_id
                 )
                 total_result = await session.execute(total_stmt)
                 total_messages = total_result.scalar() or 0
 
-                # TODO: UserConversationHistory 暂无 processed 字段
-                # 暂时返回未处理数 = 总数，已处理数 = 0
+                # 统计已处理消息数
+                processed_stmt = select(func.count()).select_from(RawMessage).where(
+                    RawMessage.group_id == group_id,
+                    RawMessage.processed == True
+                )
+                processed_result = await session.execute(processed_stmt)
+                processed_messages = processed_result.scalar() or 0
+
+                # 计算未处理消息数
+                unprocessed_messages = total_messages - processed_messages
+
                 return {
                     'total_messages': total_messages,
-                    'unprocessed_messages': total_messages,  # 假设全部未处理
-                    'processed_messages': 0
+                    'unprocessed_messages': unprocessed_messages,
+                    'processed_messages': processed_messages
                 }
 
         except Exception as e:
-            logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}", exc_info=True)
-
-            # 尝试降级
-            if self._legacy_db and not self._is_cross_thread_call():
-                try:
-                    return await self._legacy_db.get_group_messages_statistics(group_id)
-                except:
-                    pass
-
-            return {'total_messages': 0, 'unprocessed_messages': 0, 'processed_messages': 0}
+            logger.error(f"[SQLAlchemy] 获取群组消息统计失败: {e}", exc_info=True)
+            raise RuntimeError(f"无法获取群组 {group_id} 的消息统计: {e}") from e
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         """
@@ -1605,53 +1678,68 @@ class SQLAlchemyDatabaseManager:
         only_confirmed: bool = None
     ) -> List[Dict[str, Any]]:
         """
-        获取最近的俚语列表
+        获取最近的黑话列表
 
         Args:
-            group_id: 群组ID（可选，优先使用）
+            group_id: 群组ID（可选，None 表示获取所有群组）
             chat_id: 聊天ID（可选，兼容参数）
             limit: 返回数量限制
-            only_confirmed: 是否只返回已确认的（可选，兼容参数，暂未使用）
+            only_confirmed: 是否只返回已确认的黑话
 
         Returns:
-            List[Dict]: 俚语列表
+            List[Dict]: 黑话列表，包含 content, meaning 等字段
         """
         # chat_id 是 group_id 的别名（向后兼容）
         if group_id is None and chat_id is not None:
             group_id = chat_id
 
-        if group_id is None:
-            logger.warning("[SQLAlchemy] get_recent_jargon_list 缺少 group_id 或 chat_id 参数")
-            return []
-
-        # only_confirmed 参数暂不使用（兼容旧接口）
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select
-                from ..models.orm.expression import ExpressionPattern
+                from ..models.orm import Jargon
 
-                stmt = select(ExpressionPattern).where(
-                    ExpressionPattern.group_id == group_id
-                ).order_by(
-                    ExpressionPattern.last_active_time.desc()
-                ).limit(limit)
+                # 构建查询
+                stmt = select(Jargon)
+
+                # 如果指定了 group_id，则只查询该群组
+                if group_id is not None:
+                    stmt = stmt.where(Jargon.chat_id == group_id)
+
+                # 如果只返回已确认的黑话
+                if only_confirmed:
+                    stmt = stmt.where(Jargon.is_jargon == True)
+
+                # 按更新时间倒序排列，限制数量
+                stmt = stmt.order_by(Jargon.updated_at.desc()).limit(limit)
 
                 result = await session.execute(stmt)
-                patterns = result.scalars().all()
+                jargon_records = result.scalars().all()
 
-                return [
-                    {
-                        'situation': pattern.situation,
-                        'expression': pattern.expression,
-                        'weight': pattern.weight,
-                        'last_active_time': pattern.last_active_time,
-                        'group_id': pattern.group_id
-                    }
-                    for pattern in patterns
-                ]
+                logger.debug(f"[SQLAlchemy] 查询最近黑话列表: group_id={group_id}, 数量={len(jargon_records)}")
+
+                jargon_list = []
+                for record in jargon_records:
+                    try:
+                        jargon_list.append({
+                            'id': record.id,
+                            'content': record.content,
+                            'meaning': record.meaning,
+                            'is_jargon': record.is_jargon,
+                            'count': record.count or 0,
+                            'last_inference_count': record.last_inference_count or 0,
+                            'is_complete': record.is_complete,
+                            'chat_id': record.chat_id,
+                            'updated_at': record.updated_at,
+                            'is_global': record.is_global or False
+                        })
+                    except Exception as row_error:
+                        logger.warning(f"处理黑话记录行时出错，跳过: {row_error}")
+                        continue
+
+                return jargon_list
 
         except Exception as e:
-            logger.error(f"[SQLAlchemy] 获取最近俚语列表失败: {e}", exc_info=True)
+            logger.error(f"[SQLAlchemy] 获取最近黑话列表失败: {e}", exc_info=True)
             return []
 
     async def get_learning_patterns_data(self, group_id: str = None) -> Dict[str, Any]:
@@ -1815,7 +1903,7 @@ class SQLAlchemyDatabaseManager:
 
     async def save_raw_message(self, message_data) -> int:
         """
-        保存原始消息
+        保存原始消息（纯 ORM 实现）
 
         Args:
             message_data: 消息数据（对象或字典）
@@ -1824,48 +1912,837 @@ class SQLAlchemyDatabaseManager:
             int: 消息ID
         """
         try:
-            # 检查是否为跨线程调用
-            if self._is_cross_thread_call():
-                logger.debug("[SQLAlchemy] 检测到跨线程调用 save_raw_message，跳过保存（MySQL 不支持跨线程写入）")
-                return 0
+            async with self.get_session() as session:
+                from ..models.orm import RawMessage
+                import time
 
-            # 使用传统实现（因为 raw_messages 表没有 ORM 模型）
-            if self._legacy_db:
-                return await self._legacy_db.save_raw_message(message_data)
+                # 兼容对象和字典两种输入
+                if hasattr(message_data, '__dict__'):
+                    data = message_data.__dict__
+                else:
+                    data = message_data
 
-            logger.warning("[SQLAlchemy] save_raw_message 无可用实现")
-            return 0
+                # 创建原始消息记录
+                raw_msg = RawMessage(
+                    sender_id=str(data.get('sender_id', '')),
+                    sender_name=data.get('sender_name', ''),
+                    message=data.get('message', ''),
+                    group_id=data.get('group_id', ''),
+                    timestamp=int(data.get('timestamp', time.time())),
+                    platform=data.get('platform', ''),
+                    message_id=data.get('message_id'),
+                    reply_to=data.get('reply_to'),
+                    created_at=int(time.time()),
+                    processed=False
+                )
+
+                session.add(raw_msg)
+                await session.commit()
+                await session.refresh(raw_msg)
+
+                logger.debug(f"[SQLAlchemy] 已保存原始消息: ID={raw_msg.id}, group={data.get('group_id')}")
+                return raw_msg.id
 
         except Exception as e:
-            error_msg = str(e)
-            # 检查是否为 MySQL 连接错误
-            if "Packet sequence number wrong" in error_msg or "Lost connection" in error_msg:
-                logger.warning(f"[SQLAlchemy] MySQL 连接错误，跳过消息保存: {error_msg[:100]}")
-                return 0
-
             logger.error(f"[SQLAlchemy] 保存原始消息失败: {e}", exc_info=True)
             return 0
+
+    async def get_recent_raw_messages(self, group_id: str, limit: int = 200) -> List[Dict[str, Any]]:
+        """
+        获取最近的原始消息
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            group_id: 群组ID
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 原始消息列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import RawMessage
+
+                # 构建查询：按时间倒序
+                stmt = select(RawMessage).where(
+                    RawMessage.group_id == group_id
+                ).order_by(
+                    RawMessage.timestamp.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                messages = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询最近原始消息: 群组={group_id}, 数量={len(messages)}")
+
+                return [
+                    {
+                        'id': msg.id,
+                        'sender_id': msg.sender_id,
+                        'sender_name': msg.sender_name,
+                        'message': msg.message,
+                        'group_id': msg.group_id,
+                        'timestamp': msg.timestamp,
+                        'platform': msg.platform,
+                        'message_id': msg.message_id,
+                        'reply_to': msg.reply_to,
+                        'created_at': msg.created_at,
+                        'processed': msg.processed
+                    }
+                    for msg in messages
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询最近原始消息失败: {e}")
+            raise RuntimeError(f"无法获取群组 {group_id} 的最近原始消息: {e}") from e
+
+    async def get_recent_filtered_messages(self, group_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        获取最近的筛选后消息
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            group_id: 群组ID
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 筛选后消息列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import FilteredMessage
+
+                # 构建查询：按时间倒序
+                stmt = select(FilteredMessage).where(
+                    FilteredMessage.group_id == group_id
+                ).order_by(
+                    FilteredMessage.timestamp.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                messages = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询最近筛选消息: 群组={group_id}, 数量={len(messages)}")
+
+                return [
+                    {
+                        'id': msg.id,
+                        'raw_message_id': msg.raw_message_id,
+                        'message': msg.message,
+                        'sender_id': msg.sender_id,
+                        'group_id': msg.group_id,
+                        'timestamp': msg.timestamp,
+                        'confidence': msg.confidence,
+                        'quality_score': msg.quality_score,
+                        'filter_reason': msg.filter_reason,
+                        'created_at': msg.created_at,
+                        'processed': msg.processed
+                    }
+                    for msg in messages
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询最近筛选消息失败: {e}")
+            raise RuntimeError(f"无法获取群组 {group_id} 的最近筛选消息: {e}") from e
+
+    async def get_unprocessed_messages(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        获取未处理的原始消息（ORM 版本 - 支持跨线程调用）
+
+        Args:
+            limit: 限制返回的消息数量
+
+        Returns:
+            未处理的消息列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import RawMessage
+
+                # 构建查询
+                stmt = select(RawMessage).where(
+                    RawMessage.processed == False
+                ).order_by(
+                    RawMessage.timestamp.asc()
+                )
+
+                # 添加限制
+                if limit:
+                    stmt = stmt.limit(limit)
+
+                # 执行查询
+                result = await session.execute(stmt)
+                raw_messages = result.scalars().all()
+
+                # 转换为字典格式
+                messages = []
+                for msg in raw_messages:
+                    messages.append({
+                        'id': msg.id,
+                        'sender_id': msg.sender_id,
+                        'sender_name': msg.sender_name,
+                        'message': msg.message,
+                        'group_id': msg.group_id,
+                        'platform': msg.platform,
+                        'timestamp': msg.timestamp
+                    })
+
+                logger.debug(f"[SQLAlchemy] 获取到 {len(messages)} 条未处理消息")
+                return messages
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取未处理消息失败: {e}", exc_info=True)
+            raise RuntimeError(f"获取未处理消息失败: {str(e)}") from e
+
+    async def mark_messages_processed(self, message_ids: List[int]) -> bool:
+        """
+        标记消息为已处理（ORM 版本 - 支持跨线程调用）
+
+        Args:
+            message_ids: 消息ID列表
+
+        Returns:
+            是否成功标记
+        """
+        if not message_ids:
+            return True
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import update
+                from ..models.orm import RawMessage
+
+                # 批量更新消息状态
+                stmt = update(RawMessage).where(
+                    RawMessage.id.in_(message_ids)
+                ).values(
+                    processed=True
+                )
+
+                result = await session.execute(stmt)
+                await session.commit()
+
+                updated_count = result.rowcount
+                logger.debug(f"[SQLAlchemy] 已标记 {updated_count} 条消息为已处理")
+                return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 标记消息处理状态失败: {e}", exc_info=True)
+            raise RuntimeError(f"标记消息处理状态失败: {str(e)}") from e
+
+    async def get_filtered_messages_for_learning(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        获取用于学习的筛选后消息
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 筛选后消息列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import FilteredMessage
+
+                # 构建查询：获取未处理的高质量消息
+                stmt = select(FilteredMessage).where(
+                    FilteredMessage.processed == False
+                ).order_by(
+                    FilteredMessage.quality_score.desc(),
+                    FilteredMessage.timestamp.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                messages = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询用于学习的筛选消息: 数量={len(messages)}")
+
+                return [
+                    {
+                        'id': msg.id,
+                        'raw_message_id': msg.raw_message_id,
+                        'message': msg.message,
+                        'sender_id': msg.sender_id,
+                        'group_id': msg.group_id,
+                        'timestamp': msg.timestamp,
+                        'confidence': msg.confidence,
+                        'quality_score': msg.quality_score,
+                        'filter_reason': msg.filter_reason,
+                        'created_at': msg.created_at,
+                        'processed': msg.processed
+                    }
+                    for msg in messages
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询用于学习的筛选消息失败: {e}")
+            raise RuntimeError(f"无法获取用于学习的筛选消息: {e}") from e
+
+    async def get_recent_learning_batches(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        获取最近的学习批次
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 学习批次列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import LearningPerformanceHistory
+
+                # 构建查询：按时间倒序
+                stmt = select(LearningPerformanceHistory).order_by(
+                    LearningPerformanceHistory.timestamp.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                batches = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询最近学习批次: 数量={len(batches)}")
+
+                return [
+                    {
+                        'id': batch.id,
+                        'group_id': batch.group_id,
+                        'session_id': batch.session_id,
+                        'timestamp': batch.timestamp,
+                        'quality_score': batch.quality_score,
+                        'learning_time': batch.learning_time,
+                        'success': batch.success,
+                        'successful_pattern': batch.successful_pattern,
+                        'failed_pattern': batch.failed_pattern,
+                        'created_at': batch.created_at
+                    }
+                    for batch in batches
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询最近学习批次失败: {e}")
+            raise RuntimeError(f"无法获取最近学习批次: {e}") from e
+
+    async def get_learning_sessions(self, group_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        获取学习会话
+
+        使用 SQLAlchemy ORM 实现，支持跨线程调用（NullPool）
+
+        Args:
+            group_id: 群组ID
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 学习会话列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import LearningPerformanceHistory
+
+                # 构建查询：按时间倒序，过滤群组
+                stmt = select(LearningPerformanceHistory).where(
+                    LearningPerformanceHistory.group_id == group_id
+                ).order_by(
+                    LearningPerformanceHistory.timestamp.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                sessions = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询学习会话: 群组={group_id}, 数量={len(sessions)}")
+
+                return [
+                    {
+                        'id': session.id,
+                        'group_id': session.group_id,
+                        'session_id': session.session_id,
+                        'timestamp': session.timestamp,
+                        'quality_score': session.quality_score,
+                        'learning_time': session.learning_time,
+                        'success': session.success,
+                        'successful_pattern': session.successful_pattern,
+                        'failed_pattern': session.failed_pattern,
+                        'created_at': session.created_at
+                    }
+                    for session in sessions
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询学习会话失败: {e}")
+            raise RuntimeError(f"无法获取群组 {group_id} 的学习会话: {e}") from e
+
+    async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
+        """
+        获取待审核的人格更新记录（ORM 版本）
+
+        Returns:
+            待审核记录列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import PersonaLearningReview
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.status == 'pending'
+                ).order_by(
+                    PersonaLearningReview.timestamp.desc()
+                )
+
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询待审核人格更新记录: 数量={len(records)}")
+
+                return [
+                    {
+                        'id': record.id,
+                        'timestamp': record.timestamp,
+                        'group_id': record.group_id,
+                        'update_type': record.update_type,
+                        'original_content': record.original_content,
+                        'new_content': record.new_content,
+                        'reason': record.reason,
+                        'status': record.status,
+                        'reviewer_comment': record.reviewer_comment,
+                        'review_time': record.review_time
+                    }
+                    for record in records
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取待审核人格更新记录失败: {e}")
+            raise RuntimeError(f"无法获取待审核人格更新记录: {e}") from e
+
+    async def get_reviewed_persona_update_records(
+        self,
+        status: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        获取已审核的人格更新记录（ORM 版本）
+
+        Args:
+            status: 筛选状态 ('approved' 或 'rejected')，None 表示返回所有已审核记录
+            limit: 返回数量限制
+            offset: 偏移量
+
+        Returns:
+            已审核记录列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, or_
+                from ..models.orm import PersonaLearningReview
+
+                # 构建查询
+                if status:
+                    # 筛选特定状态
+                    stmt = select(PersonaLearningReview).where(
+                        PersonaLearningReview.status == status
+                    )
+                else:
+                    # 返回所有已审核记录（approved 或 rejected）
+                    stmt = select(PersonaLearningReview).where(
+                        or_(
+                            PersonaLearningReview.status == 'approved',
+                            PersonaLearningReview.status == 'rejected'
+                        )
+                    )
+
+                stmt = stmt.order_by(
+                    PersonaLearningReview.review_time.desc()
+                ).limit(limit).offset(offset)
+
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询已审核人格更新记录: 状态={status}, 数量={len(records)}")
+
+                return [
+                    {
+                        'id': record.id,
+                        'timestamp': record.timestamp,
+                        'group_id': record.group_id,
+                        'update_type': record.update_type,
+                        'original_content': record.original_content,
+                        'new_content': record.new_content,
+                        'reason': record.reason,
+                        'status': record.status,
+                        'reviewer_comment': record.reviewer_comment,
+                        'review_time': record.review_time
+                    }
+                    for record in records
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取已审核人格更新记录失败: {e}")
+            raise RuntimeError(f"无法获取已审核人格更新记录: {e}") from e
+
+    async def get_global_jargon_list(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        获取全局共享的黑话列表（ORM 版本）
+
+        Args:
+            limit: 返回数量限制
+
+        Returns:
+            全局黑话列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import Jargon
+
+                stmt = select(Jargon).where(
+                    Jargon.is_jargon == True,
+                    Jargon.is_global == True
+                ).order_by(
+                    Jargon.count.desc(),
+                    Jargon.updated_at.desc()
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                jargon_list = result.scalars().all()
+
+                logger.debug(f"[SQLAlchemy] 查询全局黑话列表: 数量={len(jargon_list)}")
+
+                return [
+                    {
+                        'id': jargon.id,
+                        'content': jargon.content,
+                        'meaning': jargon.meaning,
+                        'is_jargon': jargon.is_jargon,
+                        'count': jargon.count,
+                        'last_inference_count': jargon.last_inference_count,
+                        'is_complete': jargon.is_complete,
+                        'is_global': jargon.is_global,
+                        'chat_id': jargon.chat_id,
+                        'updated_at': jargon.updated_at
+                    }
+                    for jargon in jargon_list
+                ]
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取全局黑话列表失败: {e}")
+            raise RuntimeError(f"无法获取全局黑话列表: {e}") from e
+
+    async def get_groups_for_social_analysis(self) -> List[Dict[str, Any]]:
+        """
+        获取可用于社交关系分析的群组列表（ORM 版本）
+
+        返回包含消息数、成员数、社交关系数的群组列表
+        仅返回消息数 >= 10 的群组
+
+        Returns:
+            群组统计列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import RawMessage, SocialRelation
+
+                # 使用 LEFT JOIN 一次性获取群组的消息数、成员数和社交关系数
+                # 注意：这里需要处理 MySQL 和 SQLite 的字段差异
+                stmt = select(
+                    RawMessage.group_id,
+                    func.count(func.distinct(RawMessage.id)).label('message_count'),
+                    func.count(func.distinct(RawMessage.sender_id)).label('member_count'),
+                    func.count(func.distinct(SocialRelation.id)).label('relation_count')
+                ).select_from(RawMessage).outerjoin(
+                    SocialRelation,
+                    RawMessage.group_id == SocialRelation.group_id
+                ).where(
+                    RawMessage.group_id.isnot(None),
+                    RawMessage.group_id != ''
+                ).group_by(
+                    RawMessage.group_id
+                ).having(
+                    func.count(func.distinct(RawMessage.id)) >= 10
+                ).order_by(
+                    func.count(func.distinct(RawMessage.id)).desc()
+                )
+
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                logger.debug(f"[SQLAlchemy] 查询社交分析群组列表: 数量={len(rows)}")
+
+                groups = []
+                for row in rows:
+                    try:
+                        groups.append({
+                            'group_id': row.group_id,
+                            'message_count': row.message_count,
+                            'member_count': row.member_count,
+                            'relation_count': row.relation_count
+                        })
+                    except Exception as e:
+                        logger.warning(f"处理群组数据行失败: {e}, 行数据: {row}")
+                        continue
+
+                return groups
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取社交分析群组列表失败: {e}")
+            raise RuntimeError(f"无法获取社交分析群组列表: {e}") from e
+
+    async def get_jargon_groups(self) -> List[Dict[str, Any]]:
+        """
+        获取包含黑话的群组列表（ORM 版本）
+
+        Returns:
+            包含黑话的群组列表，包括群组ID、黑话数量、已完成黑话数、全局黑话数
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func, case
+                from ..models.orm import Jargon
+
+                # 统计每个群组的黑话情况
+                stmt = select(
+                    Jargon.chat_id.label('group_id'),
+                    func.count(Jargon.id).label('total_jargon'),
+                    func.sum(case((Jargon.is_complete == True, 1), else_=0)).label('complete_jargon'),
+                    func.sum(case((Jargon.is_global == True, 1), else_=0)).label('global_jargon')
+                ).where(
+                    Jargon.is_jargon == True
+                ).group_by(
+                    Jargon.chat_id
+                ).order_by(
+                    func.count(Jargon.id).desc()
+                )
+
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                logger.debug(f"[SQLAlchemy] 查询黑话群组列表: 数量={len(rows)}")
+
+                groups = []
+                for row in rows:
+                    try:
+                        groups.append({
+                            'group_id': row.group_id,
+                            'total_jargon': row.total_jargon or 0,
+                            'complete_jargon': row.complete_jargon or 0,
+                            'global_jargon': row.global_jargon or 0
+                        })
+                    except Exception as e:
+                        logger.warning(f"处理黑话群组数据行失败: {e}, 行数据: {row}")
+                        continue
+
+                return groups
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取黑话群组列表失败: {e}")
+            raise RuntimeError(f"无法获取黑话群组列表: {e}") from e
+
+    async def get_group_user_statistics(self, group_id: str) -> Dict[str, Dict[str, Any]]:
+        """
+        获取群组用户消息统计（ORM 版本）
+
+        Args:
+            group_id: 群组ID
+
+        Returns:
+            字典，key 为 user_id，value 包含 sender_name 和 message_count
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import RawMessage
+
+                # 统计每个用户在该群组的消息总数
+                stmt = select(
+                    RawMessage.sender_id,
+                    func.max(RawMessage.sender_name).label('sender_name'),
+                    func.count(RawMessage.id).label('message_count')
+                ).where(
+                    RawMessage.group_id == group_id,
+                    RawMessage.sender_id != 'bot'
+                ).group_by(
+                    RawMessage.sender_id
+                )
+
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                logger.debug(f"[SQLAlchemy] 查询群组用户统计: group_id={group_id}, 用户数={len(rows)}")
+
+                user_stats = {}
+                for row in rows:
+                    try:
+                        sender_id = row.sender_id
+                        if sender_id:
+                            user_stats[sender_id] = {
+                                'sender_name': row.sender_name or sender_id,
+                                'message_count': row.message_count or 0
+                            }
+                    except Exception as row_error:
+                        logger.warning(f"处理用户统计数据行失败: {row_error}, row: {row}")
+                        continue
+
+                return user_stats
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取群组用户统计失败: {e}")
+            raise RuntimeError(f"无法获取群组 {group_id} 的用户统计: {e}") from e
+
+    async def count_refined_messages(self) -> int:
+        """
+        统计提炼内容数量（ORM 版本 - 支持跨线程调用）
+
+        Returns:
+            提炼消息的数量
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import FilteredMessage
+
+                # 统计 refined = True 的消息数量
+                stmt = select(func.count(FilteredMessage.id)).where(
+                    FilteredMessage.processed == True  # refined 字段在某些版本中是 processed
+                )
+
+                result = await session.execute(stmt)
+                count = result.scalar() or 0
+
+                logger.debug(f"[SQLAlchemy] 统计提炼消息数量: {count}")
+                return count
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 统计提炼消息数量失败: {e}")
+            return 0
+
+    async def count_style_learning_patterns(self) -> int:
+        """
+        统计风格学习模式数量（ORM 版本 - 支持跨线程调用）
+
+        Returns:
+            风格学习模式的数量
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import StyleLearningPattern
+
+                # 统计所有风格学习模式
+                stmt = select(func.count(StyleLearningPattern.id))
+
+                result = await session.execute(stmt)
+                count = result.scalar() or 0
+
+                logger.debug(f"[SQLAlchemy] 统计风格学习模式数量: {count}")
+                return count
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 统计风格学习模式数量失败: {e}")
+            return 0
+
+    async def count_pending_persona_updates(self) -> int:
+        """
+        统计待审查的人格更新数量（ORM 版本 - 支持跨线程调用）
+
+        Returns:
+            待审查人格更新的数量
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm import PersonaLearningReview
+
+                # 统计 status = 'pending' 的记录
+                stmt = select(func.count(PersonaLearningReview.id)).where(
+                    PersonaLearningReview.status == 'pending'
+                )
+
+                result = await session.execute(stmt)
+                count = result.scalar() or 0
+
+                logger.debug(f"[SQLAlchemy] 统计待审查人格更新数量: {count}")
+                return count
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 统计待审查人格更新数量失败: {e}")
+            return 0
+
+    def get_db_connection(self):
+        """
+        获取数据库连接（兼容性方法）
+
+        ⚠️ 向后兼容策略：
+        - 如果有传统数据库管理器，返回其连接（支持 cursor() 方法）
+        - 否则返回 SQLAlchemy 会话工厂（不支持 cursor()）
+
+        Returns:
+            传统数据库连接或 AsyncSession 工厂
+        """
+        if self._legacy_db:
+            logger.debug("[SQLAlchemy] get_db_connection() 被调用，返回传统数据库连接（兼容 cursor()）")
+            return self._legacy_db.get_db_connection()
+        else:
+            logger.debug("[SQLAlchemy] get_db_connection() 被调用，返回 SQLAlchemy 会话工厂")
+            return self.get_session()
 
     def __getattr__(self, name):
         """
         魔法方法：自动降级未实现的方法到传统数据库管理器
 
+        ⚠️ 跨线程调用限制：
+        - 如果是跨线程调用未实现的 ORM 方法，将抛出 NotImplementedError
+        - 建议为所有跨线程调用的方法实现真正的 ORM 版本
+        - 同线程调用可以降级到传统数据库管理器
+
         当访问 SQLAlchemyDatabaseManager 中不存在的属性/方法时：
         1. 检查传统数据库管理器是否可用
-        2. 如果可用，返回传统管理器的对应方法
-        3. 如果不可用，抛出 AttributeError
-
-        这样可以避免为每个传统方法都写一个包装函数
+        2. 如果是跨线程调用，抛出 NotImplementedError（禁止降级）
+        3. 如果是同线程调用，返回传统管理器的对应方法
+        4. 如果不可用，抛出 AttributeError
         """
         # 避免无限递归：_legacy_db 本身不应该触发 __getattr__
-        if name == '_legacy_db':
+        if name in ('_legacy_db', '_main_loop', '_main_thread_id', '_started', 'config', 'context', 'engine'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
         # 如果传统数据库管理器可用，尝试从它获取属性
         if self._legacy_db and hasattr(self._legacy_db, name):
             attr = getattr(self._legacy_db, name)
-            logger.debug(f"[SQLAlchemy] 方法 '{name}' 未实现，自动降级到传统数据库管理器")
-            return attr
+
+            # 如果是异步方法，需要检查跨线程场景
+            if asyncio.iscoroutinefunction(attr):
+                # 检查当前是否在跨线程场景
+                is_cross_thread = self._is_cross_thread_call()
+
+                if is_cross_thread:
+                    # ⚠️ 跨线程场景：禁止降级，要求实现 ORM 版本
+                    logger.error(
+                        f"[SQLAlchemy] 禁止跨线程调用未实现的方法 '{name}'。"
+                        f"请为此方法实现真正的 ORM 版本，使用 NullPool 支持跨线程调用。"
+                    )
+                    raise NotImplementedError(
+                        f"方法 '{name}' 尚未实现 ORM 版本，无法进行跨线程调用。\n"
+                        f"提示：需要在 SQLAlchemyDatabaseManager 中使用 SQLAlchemy ORM 实现此方法。"
+                    )
+                else:
+                    # ✅ 同一事件循环：允许降级到传统管理器
+                    logger.debug(f"[SQLAlchemy] 方法 '{name}' 未实现 ORM 版本，降级到传统数据库管理器（同线程）")
+                    return attr
+            else:
+                # 非异步方法，直接返回
+                return attr
 
         # 如果传统数据库管理器也没有这个属性，抛出 AttributeError
         raise AttributeError(

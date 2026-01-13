@@ -79,22 +79,25 @@
     "hint": "配置用于筛选和提炼的AI模型提供商",
     "items": {
       "filter_provider_id": {
-        "description": "筛选模型提供商ID",
+        "description": "筛选模型提供商",
         "type": "string",
-        "hint": "从AstrBot配置的Provider中选择用于消息筛选的提供商ID，建议选择速度快、成本低的模型如gpt-4o-mini",
-        "default": null
+        "hint": "用于消息筛选的提供商，建议选择速度快、成本低的模型如gpt-4o-mini",
+        "default": null,
+        "_special": "select_provider"
       },
       "refine_provider_id": {
-        "description": "提炼模型提供商ID",
+        "description": "提炼模型提供商",
         "type": "string",
-        "hint": "从AstrBot配置的Provider中选择用于深度分析和提炼对话风格的提供商ID，建议选择能力强的模型如gpt-4o",
-        "default": null
+        "hint": "用于深度分析和提炼对话风格的提供商，建议选择能力强的模型如gpt-4o",
+        "default": null,
+        "_special": "select_provider"
       },
       "reinforce_provider_id": {
-        "description": "强化模型提供商ID",
+        "description": "强化模型提供商",
         "type": "string",
-        "hint": "从AstrBot配置的Provider中选择用于强化学习的提供商ID，建议选择能力强的模型",
-        "default": null
+        "hint": "用于强化学习的提供商，建议选择能力强的模型",
+        "default": null,
+        "_special": "select_provider"
       }
     }
   },

@@ -6,6 +6,45 @@ from sqlalchemy.orm import relationship
 from .base import Base
 
 
+class SocialRelation(Base):
+    """社交关系表 - 匹配传统数据库 social_relations 表（兼容版本）"""
+    __tablename__ = 'social_relations'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # MySQL 版本字段
+    user_id = Column(String(255))  # MySQL 使用 user_id
+    # SQLite 版本字段（兼容）
+    from_user = Column(String(255))  # SQLite 使用 from_user
+    to_user = Column(String(255))    # SQLite 使用 to_user
+
+    group_id = Column(String(255), index=True)
+    relation_type = Column(String(100))
+
+    # MySQL 版本字段
+    affection_score = Column(Float, default=0)
+    interaction_count = Column(Integer, default=0)
+
+    # SQLite 版本字段（兼容）
+    strength = Column(Float)      # SQLite 使用 strength
+    frequency = Column(Integer)   # SQLite 使用 frequency
+
+    last_interaction = Column(Float)
+    metadata_ = Column('metadata', Text)  # JSON 格式（MySQL 版本），使用 metadata_ 避免与 SQLAlchemy 保留字冲突
+
+    # 使用 BigInteger 存储 Unix 时间戳（自动迁移会将 DATETIME 转换为 BIGINT）
+    created_at = Column(BigInteger)
+    updated_at = Column(BigInteger)
+
+    __table_args__ = (
+        Index('idx_group', 'group_id'),
+        Index('idx_affection', 'affection_score'),
+        # MySQL 的唯一索引
+        Index('uk_user_group', 'user_id', 'group_id', unique=True),
+        # SQLite 的唯一索引
+        Index('uk_from_to_type', 'from_user', 'to_user', 'relation_type', unique=True),
+    )
+
+
 class UserSocialProfile(Base):
     """用户社交档案表"""
     __tablename__ = 'user_social_profiles'

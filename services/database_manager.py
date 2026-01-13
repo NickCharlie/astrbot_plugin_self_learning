@@ -1868,33 +1868,33 @@ class DatabaseManager(AsyncServiceBase):
     async def get_unprocessed_messages(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         获取未处理的原始消息
-        
+
         Args:
             limit: 限制返回的消息数量
-            
+
         Returns:
             未处理的消息列表
         """
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
-            
+
             try:
                 if limit:
                     await cursor.execute('''
                         SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
-                        FROM raw_messages 
-                        WHERE processed = FALSE 
-                        ORDER BY timestamp ASC 
+                        FROM raw_messages
+                        WHERE processed = FALSE
+                        ORDER BY timestamp ASC
                         LIMIT ?
                     ''', (limit,))
                 else:
                     await cursor.execute('''
                         SELECT id, sender_id, sender_name, message, group_id, platform, timestamp
-                        FROM raw_messages 
-                        WHERE processed = FALSE 
+                        FROM raw_messages
+                        WHERE processed = FALSE
                         ORDER BY timestamp ASC
                     ''')
-                
+
                 messages = []
                 for row in await cursor.fetchall():
                     messages.append({
@@ -1906,10 +1906,10 @@ class DatabaseManager(AsyncServiceBase):
                         'platform': row[5],
                         'timestamp': row[6]
                     })
-                
+
                 logger.debug(f"获取到 {len(messages)} 条未处理消息")
                 return messages
-                
+
             except aiosqlite.Error as e:
                 logger.error(f"获取未处理消息失败: {e}", exc_info=True)
                 raise DataStorageError(f"获取未处理消息失败: {str(e)}")
@@ -1919,32 +1919,32 @@ class DatabaseManager(AsyncServiceBase):
     async def mark_messages_processed(self, message_ids: List[int]) -> bool:
         """
         标记消息为已处理
-        
+
         Args:
             message_ids: 消息ID列表
-            
+
         Returns:
             是否成功标记
         """
         if not message_ids:
             return True
-            
+
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
-            
+
             try:
                 # 批量更新消息状态
                 placeholders = ','.join(['?' for _ in message_ids])
                 await cursor.execute(f'''
-                    UPDATE raw_messages 
-                    SET processed = TRUE 
+                    UPDATE raw_messages
+                    SET processed = TRUE
                     WHERE id IN ({placeholders})
                 ''', message_ids)
-                
+
                 await conn.commit()
                 logger.debug(f"已标记 {len(message_ids)} 条消息为已处理")
                 return True
-                
+
             except aiosqlite.Error as e:
                 logger.error(f"标记消息处理状态失败: {e}", exc_info=True)
                 raise DataStorageError(f"标记消息处理状态失败: {str(e)}")
@@ -1965,19 +1965,21 @@ class DatabaseManager(AsyncServiceBase):
             cursor = await conn.cursor()
             
             try:
+                current_time = int(time.time())
                 await cursor.execute('''
-                    INSERT INTO filtered_messages 
-                    (raw_message_id, message, sender_id, confidence, filter_reason, timestamp, quality_scores, group_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO filtered_messages
+                    (raw_message_id, message, sender_id, confidence, filter_reason, timestamp, quality_scores, group_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     filtered_data.get('raw_message_id'),
                     filtered_data.get('message'),
                     filtered_data.get('sender_id'),
                     filtered_data.get('confidence', 0.8),
                     filtered_data.get('filter_reason', ''),
-                    filtered_data.get('timestamp') or time.time(),
+                    filtered_data.get('timestamp') or current_time,
                     json.dumps(filtered_data.get('quality_scores', {}), ensure_ascii=False),
-                    filtered_data.get('group_id')
+                    filtered_data.get('group_id'),
+                    current_time
                 ))
                 
                 filtered_id = cursor.lastrowid

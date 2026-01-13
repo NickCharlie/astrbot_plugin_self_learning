@@ -217,27 +217,33 @@ class PersonaBackupManager:
             return False
 
     async def _cleanup_old_backups(self, group_id: str):
-        """清理旧备份"""
+        """清理旧备份（暂时禁用，等待 ORM 实现）"""
         try:
-            # 获取备份列表
-            backups = await self.db_manager.get_persona_backups(group_id, limit=100)
-            
-            if len(backups) > self.max_backups_per_group:
-                # 删除多余的备份（保留最新的）
-                excess_count = len(backups) - self.max_backups_per_group
-                old_backups = backups[self.max_backups_per_group:]
-                
-                conn = await self.db_manager.get_group_connection(group_id)
-                cursor = await conn.cursor()
-                
-                for backup in old_backups:
-                    await cursor.execute('DELETE FROM persona_backups WHERE id = ?', (backup['id'],))
-                
-                await conn.commit()
-                logger.info(f"清理了 {excess_count} 个旧备份")
-                
+            # TODO: 实现 ORM 版本的备份清理
+            # 当前版本暂时跳过清理，避免跨线程问题
+            logger.debug(f"[PersonaBackupManager] 备份清理功能暂时禁用（等待 ORM 实现）")
+            return
+
+            # 原有代码（暂时注释）
+            # # 获取备份列表
+            # backups = await self.db_manager.get_persona_backups(group_id, limit=100)
+            #
+            # if len(backups) > self.max_backups_per_group:
+            #     # 删除多余的备份（保留最新的）
+            #     excess_count = len(backups) - self.max_backups_per_group
+            #     old_backups = backups[self.max_backups_per_group:]
+            #
+            #     conn = await self.db_manager.get_group_connection(group_id)
+            #     cursor = await conn.cursor()
+            #
+            #     for backup in old_backups:
+            #         await cursor.execute('DELETE FROM persona_backups WHERE id = ?', (backup['id'],))
+            #
+            #     await conn.commit()
+            #     logger.info(f"清理了 {excess_count} 个旧备份")
+
         except Exception as e:
-            logger.error(f"清理旧备份失败: {e}")
+            logger.debug(f"清理旧备份失败（已忽略）: {e}")
 
     async def get_backup_list(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
         """获取备份列表"""

@@ -19,6 +19,7 @@ from .psychological import (
     PsychologicalStateHistory
 )
 from .social_relation import (
+    SocialRelation,
     UserSocialProfile,
     UserSocialRelationComponent,
     SocialRelationHistory
@@ -37,6 +38,17 @@ from .learning import (
 from .expression import (
     ExpressionPattern
 )
+from .performance import (
+    LearningPerformanceHistory
+)
+from .message import (
+    RawMessage,
+    FilteredMessage,
+    BotMessage
+)
+from .jargon import (
+    Jargon
+)
 
 __all__ = [
     'Base',
@@ -54,6 +66,7 @@ __all__ = [
     'PsychologicalStateComponent',
     'PsychologicalStateHistory',
     # 社交关系系统
+    'SocialRelation',
     'UserSocialProfile',
     'UserSocialRelationComponent',
     'SocialRelationHistory',
@@ -68,4 +81,12 @@ __all__ = [
     'InteractionRecord',
     # 表达模式
     'ExpressionPattern',
+    # 性能记录
+    'LearningPerformanceHistory',
+    # 消息系统
+    'RawMessage',
+    'FilteredMessage',
+    'BotMessage',
+    # 黑话系统
+    'Jargon',
 ]

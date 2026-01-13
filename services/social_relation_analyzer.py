@@ -102,38 +102,31 @@ class SocialRelationAnalyzer:
             return []
 
     async def _get_group_messages(self, group_id: str, limit: int) -> List[Dict[str, Any]]:
-        """获取群组消息记录"""
+        """获取群组消息记录（使用 ORM 方法，支持跨线程调用）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            # ✅ 使用 ORM 方法获取消息（支持跨线程调用）
+            raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=limit)
 
-                # 获取最近的消息，排除bot消息
-                await cursor.execute('''
-                    SELECT id, sender_id, sender_name, message, timestamp
-                    FROM raw_messages
-                    WHERE group_id = ? AND sender_id != 'bot'
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                ''', (group_id, limit))
-
-                messages = []
-                for row in await cursor.fetchall():
+            # 过滤掉 bot 消息并转换格式
+            messages = []
+            for msg in raw_messages:
+                if msg.get('sender_id') != 'bot':
                     messages.append({
-                        'id': row[0],
-                        'sender_id': row[1],
-                        'sender_name': row[2] or row[1],
-                        'content': row[3],
-                        'timestamp': row[4]
+                        'id': msg.get('id'),
+                        'sender_id': msg.get('sender_id'),
+                        'sender_name': msg.get('sender_name') or msg.get('sender_id'),
+                        'content': msg.get('message'),
+                        'timestamp': msg.get('timestamp')
                     })
 
-                await cursor.close()
+            # 按时间正序排列（最早的在前）
+            messages.reverse()
 
-                # 按时间正序排列（最早的在前）
-                messages.reverse()
-                return messages
+            self.logger.debug(f"[SocialRelationAnalyzer] 获取群组消息: group_id={group_id}, 数量={len(messages)}")
+            return messages
 
         except Exception as e:
-            self.logger.error(f"获取群组消息失败: {e}")
+            self.logger.error(f"获取群组消息失败: {e}", exc_info=True)
             return []
 
     def _extract_users_from_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
