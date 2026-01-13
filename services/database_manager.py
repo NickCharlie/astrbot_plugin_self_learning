@@ -1035,7 +1035,7 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             self._logger.info("filtered_messages 表创建/检查完成。")
-            
+
             # 检查并添加 quality_scores 列（如果不存在）
             await cursor.execute("PRAGMA table_info(filtered_messages)")
             columns = [col[1] for col in await cursor.fetchall()]
@@ -1052,6 +1052,11 @@ class DatabaseManager(AsyncServiceBase):
             if 'refined' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN refined BOOLEAN DEFAULT 0")
                 logger.info("已为 filtered_messages 表添加 refined 列。")
+
+            # 检查并添加 used_for_learning 列（如果不存在）
+            if 'used_for_learning' not in columns:
+                await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN used_for_learning BOOLEAN DEFAULT 0")
+                logger.info("已为 filtered_messages 表添加 used_for_learning 列。")
 
             # 创建学习批次表
             await cursor.execute('''
