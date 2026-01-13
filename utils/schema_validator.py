@@ -172,13 +172,18 @@ class SchemaValidator:
             return False
 
     async def _create_table(self, table_name: str, table_obj):
-        """创建表"""
+        """创建表（带索引冲突处理）"""
         try:
             async with self.engine.begin() as conn:
                 await conn.run_sync(table_obj.create, checkfirst=True)
             logger.info(f"  ✅ 表已创建: {table_name}")
         except Exception as e:
-            logger.error(f"  ❌ 创建表失败: {e}")
+            # 检查是否是索引已存在的错误（这是正常情况，可以忽略）
+            error_msg = str(e).lower()
+            if 'index' in error_msg and 'already exists' in error_msg:
+                logger.info(f"  ✅ 表和索引已存在，跳过创建: {table_name}")
+            else:
+                logger.error(f"  ❌ 创建表失败: {e}")
 
     async def _get_table_columns(self, table_name: str) -> Dict[str, ColumnInfo]:
         """
