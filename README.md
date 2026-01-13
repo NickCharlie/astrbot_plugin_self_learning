@@ -2,6 +2,18 @@
 
 # AstrBot 自主学习插件 Next-Gen 🧠✨
 
+
+---
+
+[![Version](https://img.shields.io/badge/version-Next--1.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
+[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.0.0-orange.svg)](https://github.com/Soulter/AstrBot)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+
+**让你的 AI 聊天机器人像真人一样学习、思考和对话**
+
+[功能特性](#-核心特性) • [快速开始](#-快速开始) • [架构设计](#-技术架构) • [文档](#-文档导航) • [贡献指南](#-贡献指南)
+
 > **⚠️ 使用前必读：请务必先手动备份人格到本地，以防出现BUG导致人格混乱**
 
 > ## ⚖️ 免责声明与用户协议
@@ -36,16 +48,6 @@
 >
 > **📌 重要提示：下载、安装、使用本项目的任何功能，即视为您已完全理解并同意遵守以上所有条款。如不同意，请立即停止使用并删除本项目。**
 
----
-
-[![Version](https://img.shields.io/badge/version-Next--1.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
-[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
-[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.0.0-orange.svg)](https://github.com/Soulter/AstrBot)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
-
-**让你的 AI 聊天机器人像真人一样学习、思考和对话**
-
-[功能特性](#-核心特性) • [快速开始](#-快速开始) • [架构设计](#-技术架构) • [文档](#-文档导航) • [贡献指南](#-贡献指南)
 
 </div>
 
