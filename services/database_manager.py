@@ -146,11 +146,12 @@ class DatabaseConnectionPool:
 class DatabaseManager(AsyncServiceBase):
     """数据库管理器 - 使用连接池管理数据库连接，支持SQLite和MySQL"""
 
-    def __init__(self, config: PluginConfig, context=None):
+    def __init__(self, config: PluginConfig, context=None, skip_table_init: bool = False):
         super().__init__("database_manager")
         self.config = config
         self.context = context
         self.group_db_connections: Dict[str, aiosqlite.Connection] = {}
+        self.skip_table_init = skip_table_init  # ✨ 新增：跳过表初始化标志
 
         # 安全地构建路径
         if not config.data_dir:
@@ -172,11 +173,21 @@ class DatabaseManager(AsyncServiceBase):
         # 确保数据目录存在
         os.makedirs(self.group_data_dir, exist_ok=True)
 
-        self._logger.info(f"数据库管理器初始化完成 (类型: {config.db_type})")
+        self._logger.info(f"数据库管理器初始化完成 (类型: {config.db_type}, 跳过表初始化: {skip_table_init})")
 
     async def _do_start(self) -> bool:
         """启动服务时初始化连接池和数据库"""
         try:
+            # 如果跳过表初始化标志为真，则仅初始化连接池，不创建表
+            # 这通常发生在 SQLAlchemyDatabaseManager 已经通过 ORM 创建表的情况
+            if self.skip_table_init:
+                self._logger.info("⏭️ 跳过传统数据库表初始化（由 ORM 管理）")
+                # 仅初始化连接池用于兼容性查询
+                await self.connection_pool.initialize()
+                self._logger.info("数据库连接池初始化成功（仅用于兼容性）")
+                return True
+
+            # 正常的初始化流程（当 skip_table_init=False 时）
             # 1. 创建数据库后端
             backend_success = await self._initialize_database_backend()
 
