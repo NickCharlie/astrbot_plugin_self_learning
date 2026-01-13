@@ -137,6 +137,12 @@ class PluginConfig:
     include_mood_info: bool = True  # 注入Bot情绪信息
     context_injection_position: str = "start"  # 上下文注入位置: "start" 或 "end"
 
+    # LLM Hook 注入位置设置（v1.1.1新增）
+    # 控制注入内容添加到 req.system_prompt 还是 req.prompt
+    # - "system_prompt": 注入到系统提示（推荐，不会被保存到对话历史）
+    # - "prompt": 注入到用户消息（旧版行为，会导致对话历史膨胀）
+    llm_hook_injection_target: str = "system_prompt"  # 可选值: "system_prompt" 或 "prompt"
+
     # 重构功能配置（新增）
     use_sqlalchemy: bool = False  # 使用SQLAlchemy数据库管理器（False=使用传统实现）
     use_enhanced_managers: bool = False  # 使用增强型管理器（False=使用原始实现）
