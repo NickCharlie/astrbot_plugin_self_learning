@@ -145,8 +145,15 @@ class DatabaseEngine:
             await self.migrate_schema()
 
         except Exception as e:
-            logger.error(f"❌ [DatabaseEngine] 创建表失败: {e}")
-            raise
+            # 检查是否是索引已存在的错误（这是正常情况，可以忽略）
+            error_msg = str(e).lower()
+            if 'index' in error_msg and 'already exists' in error_msg:
+                logger.info("✅ [DatabaseEngine] 数据库表和索引已存在，跳过创建")
+                # 即使索引已存在，仍然执行迁移以添加新字段
+                await self.migrate_schema()
+            else:
+                logger.error(f"❌ [DatabaseEngine] 创建表失败: {e}")
+                raise
 
     async def migrate_schema(self):
         """

@@ -127,8 +127,10 @@ class SQLAlchemyDatabaseManager:
         from .database_manager import DatabaseManager
         self._legacy_db: Optional[DatabaseManager] = None
         try:
-            self._legacy_db = DatabaseManager(config, context)
-            logger.info("[SQLAlchemyDBManager] 初始化完成（包含传统数据库管理器后备）")
+            # ✨ 传入 skip_table_init=True，让传统数据库管理器跳过表初始化
+            # 因为 SQLAlchemy ORM 会通过 create_tables() 自动创建和迁移所有表
+            self._legacy_db = DatabaseManager(config, context, skip_table_init=True)
+            logger.info("[SQLAlchemyDBManager] 初始化完成（包含传统数据库管理器后备，跳过表初始化）")
         except Exception as e:
             logger.warning(f"[SQLAlchemyDBManager] 初始化传统数据库管理器失败: {e}，部分功能可能不可用")
             logger.info("[SQLAlchemyDBManager] 初始化完成")

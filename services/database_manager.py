@@ -146,11 +146,12 @@ class DatabaseConnectionPool:
 class DatabaseManager(AsyncServiceBase):
     """数据库管理器 - 使用连接池管理数据库连接，支持SQLite和MySQL"""
 
-    def __init__(self, config: PluginConfig, context=None):
+    def __init__(self, config: PluginConfig, context=None, skip_table_init: bool = False):
         super().__init__("database_manager")
         self.config = config
         self.context = context
         self.group_db_connections: Dict[str, aiosqlite.Connection] = {}
+        self.skip_table_init = skip_table_init  # ✨ 新增：跳过表初始化标志
 
         # 安全地构建路径
         if not config.data_dir:
@@ -172,11 +173,21 @@ class DatabaseManager(AsyncServiceBase):
         # 确保数据目录存在
         os.makedirs(self.group_data_dir, exist_ok=True)
 
-        self._logger.info(f"数据库管理器初始化完成 (类型: {config.db_type})")
+        self._logger.info(f"数据库管理器初始化完成 (类型: {config.db_type}, 跳过表初始化: {skip_table_init})")
 
     async def _do_start(self) -> bool:
         """启动服务时初始化连接池和数据库"""
         try:
+            # 如果跳过表初始化标志为真，则仅初始化连接池，不创建表
+            # 这通常发生在 SQLAlchemyDatabaseManager 已经通过 ORM 创建表的情况
+            if self.skip_table_init:
+                self._logger.info("⏭️ 跳过传统数据库表初始化（由 ORM 管理）")
+                # 仅初始化连接池用于兼容性查询
+                await self.connection_pool.initialize()
+                self._logger.info("数据库连接池初始化成功（仅用于兼容性）")
+                return True
+
+            # 正常的初始化流程（当 skip_table_init=False 时）
             # 1. 创建数据库后端
             backend_success = await self._initialize_database_backend()
 
@@ -1035,7 +1046,7 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
             self._logger.info("filtered_messages 表创建/检查完成。")
-            
+
             # 检查并添加 quality_scores 列（如果不存在）
             await cursor.execute("PRAGMA table_info(filtered_messages)")
             columns = [col[1] for col in await cursor.fetchall()]
@@ -1052,6 +1063,11 @@ class DatabaseManager(AsyncServiceBase):
             if 'refined' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN refined BOOLEAN DEFAULT 0")
                 logger.info("已为 filtered_messages 表添加 refined 列。")
+
+            # 检查并添加 used_for_learning 列（如果不存在）
+            if 'used_for_learning' not in columns:
+                await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN used_for_learning BOOLEAN DEFAULT 0")
+                logger.info("已为 filtered_messages 表添加 used_for_learning 列。")
 
             # 创建学习批次表
             await cursor.execute('''
@@ -1086,16 +1102,24 @@ class DatabaseManager(AsyncServiceBase):
                     review_time REAL
                 )
             ''')
-            
-            # 创建索引
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_timestamp ON raw_messages(timestamp)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_sender ON raw_messages(sender_id)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_processed ON raw_messages(processed)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_filtered_messages_confidence ON filtered_messages(confidence)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_filtered_messages_used ON filtered_messages(used_for_learning)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_persona_update_records_status ON persona_update_records(status)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_persona_update_records_group_id ON persona_update_records(group_id)')
-            
+
+            # 创建索引（带错误处理，避免列不存在导致失败）
+            indices = [
+                ('idx_raw_messages_timestamp', 'raw_messages', 'timestamp'),
+                ('idx_raw_messages_sender', 'raw_messages', 'sender_id'),
+                ('idx_raw_messages_processed', 'raw_messages', 'processed'),
+                ('idx_filtered_messages_confidence', 'filtered_messages', 'confidence'),
+                ('idx_filtered_messages_used', 'filtered_messages', 'used_for_learning'),
+                ('idx_persona_update_records_status', 'persona_update_records', 'status'),
+                ('idx_persona_update_records_group_id', 'persona_update_records', 'group_id'),
+            ]
+
+            for index_name, table_name, column_name in indices:
+                try:
+                    await cursor.execute(f'CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})')
+                except Exception as e:
+                    logger.debug(f"创建索引 {index_name} 失败（可能列不存在）: {e}")
+
             # 新增强化学习相关表
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS reinforcement_learning_results (
