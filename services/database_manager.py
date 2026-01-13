@@ -1091,16 +1091,24 @@ class DatabaseManager(AsyncServiceBase):
                     review_time REAL
                 )
             ''')
-            
-            # 创建索引
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_timestamp ON raw_messages(timestamp)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_sender ON raw_messages(sender_id)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_raw_messages_processed ON raw_messages(processed)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_filtered_messages_confidence ON filtered_messages(confidence)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_filtered_messages_used ON filtered_messages(used_for_learning)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_persona_update_records_status ON persona_update_records(status)')
-            await cursor.execute('CREATE INDEX IF NOT EXISTS idx_persona_update_records_group_id ON persona_update_records(group_id)')
-            
+
+            # 创建索引（带错误处理，避免列不存在导致失败）
+            indices = [
+                ('idx_raw_messages_timestamp', 'raw_messages', 'timestamp'),
+                ('idx_raw_messages_sender', 'raw_messages', 'sender_id'),
+                ('idx_raw_messages_processed', 'raw_messages', 'processed'),
+                ('idx_filtered_messages_confidence', 'filtered_messages', 'confidence'),
+                ('idx_filtered_messages_used', 'filtered_messages', 'used_for_learning'),
+                ('idx_persona_update_records_status', 'persona_update_records', 'status'),
+                ('idx_persona_update_records_group_id', 'persona_update_records', 'group_id'),
+            ]
+
+            for index_name, table_name, column_name in indices:
+                try:
+                    await cursor.execute(f'CREATE INDEX IF NOT EXISTS {index_name} ON {table_name}({column_name})')
+                except Exception as e:
+                    logger.debug(f"创建索引 {index_name} 失败（可能列不存在）: {e}")
+
             # 新增强化学习相关表
             await cursor.execute('''
                 CREATE TABLE IF NOT EXISTS reinforcement_learning_results (
