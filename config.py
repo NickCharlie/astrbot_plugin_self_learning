@@ -144,7 +144,7 @@ class PluginConfig:
     llm_hook_injection_target: str = "system_prompt"  # 可选值: "system_prompt" 或 "prompt"
 
     # 重构功能配置（新增）
-    use_sqlalchemy: bool = False  # 使用SQLAlchemy数据库管理器（False=使用传统实现）
+    use_sqlalchemy: bool = True  # 使用SQLAlchemy数据库管理器（推荐：统一使用 ORM，避免字段不一致）
     use_enhanced_managers: bool = False  # 使用增强型管理器（False=使用原始实现）
     enable_memory_cleanup: bool = True  # 启用记忆自动清理（每天凌晨3点）
     memory_cleanup_days: int = 30  # 记忆保留天数（低于阈值的旧记忆会被清理）
