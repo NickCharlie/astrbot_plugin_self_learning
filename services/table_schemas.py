@@ -188,8 +188,8 @@ class TableSchemas:
             ),
 
             # 黑话表
-            'jargons': (
-                '''CREATE TABLE IF NOT EXISTS jargons (
+            'jargon': (
+                '''CREATE TABLE IF NOT EXISTS jargon (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     jargon TEXT NOT NULL,
                     meaning TEXT NOT NULL,
@@ -202,7 +202,7 @@ class TableSchemas:
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(jargon, source_chat_id)
                 )''',
-                '''CREATE TABLE IF NOT EXISTS jargons (
+                '''CREATE TABLE IF NOT EXISTS jargon (
                     id INT PRIMARY KEY AUTO_INCREMENT,
                     jargon VARCHAR(255) NOT NULL,
                     meaning TEXT NOT NULL,

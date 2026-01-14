@@ -779,17 +779,22 @@ class ProgressiveLearningService:
                     message['context_analysis'] = context_analysis
                     message['relevance_score'] = relevance
                     filtered.append(message)
-                    
+
                     # 保存到筛选消息表
                     await self.message_collector.add_filtered_message({
                         'raw_message_id': message.get('id'),
                         'message': message['message'],
                         'sender_id': message.get('sender_id', ''),
+                        'group_id': message.get('group_id', group_id),  # ✅ 添加 group_id
                         'confidence': relevance,
                         'filter_reason': 'context_relevance',
-                        'timestamp': message.get('timestamp', time.time())
+                        'timestamp': message.get('timestamp', time.time()),
+                        'quality_scores': {  # ✅ 添加 quality_scores
+                            'relevance': relevance,
+                            'context_score': context_analysis.get('relevance_score', 0.0) if context_analysis else 0.0
+                        }
                     })
-                    
+
             except Exception as e:
                 logger.warning(f"消息筛选失败: {e}")
                 continue
