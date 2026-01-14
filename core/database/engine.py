@@ -333,6 +333,19 @@ class DatabaseEngine:
         """SQLite 数据库迁移"""
         from sqlalchemy import text
 
+        # 0. 首先检查表是否存在
+        try:
+            check_table_sql = text("SELECT name FROM sqlite_master WHERE type='table' AND name='filtered_messages'")
+            result = await session.execute(check_table_sql)
+            table_exists = result.fetchone() is not None
+
+            if not table_exists:
+                logger.debug("[Migration] filtered_messages 表不存在，跳过迁移")
+                return
+        except Exception as e:
+            logger.debug(f"[Migration] 检查表存在性失败: {e}")
+            return
+
         # 1. 修复 filtered_messages 的 quality_score 字段问题
         # 旧版本可能创建了 quality_score REAL，但应该是 quality_scores TEXT
         try:
@@ -357,7 +370,7 @@ class DatabaseEngine:
                 logger.info("✅ [Migration] 已为 filtered_messages 表添加 quality_scores 字段")
 
         except Exception as e:
-            logger.warning(f"⚠️ [Migration] quality_scores 字段迁移失败: {e}")
+            logger.debug(f"⚠️ [Migration] quality_scores 字段迁移跳过: {e}")
             await session.rollback()
 
         # 2. 添加其他缺失字段
