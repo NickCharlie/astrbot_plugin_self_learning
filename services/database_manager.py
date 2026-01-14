@@ -1052,21 +1052,32 @@ class DatabaseManager(AsyncServiceBase):
             columns = [col[1] for col in await cursor.fetchall()]
             if 'quality_scores' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT")
+                await conn.commit()  # 立即提交，确保列添加成功
                 logger.info("已为 filtered_messages 表添加 quality_scores 列。")
 
             # 检查并添加 group_id 列（如果不存在）
+            # 重新获取列信息，因为前面可能添加了新列
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'group_id' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN group_id TEXT")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 group_id 列。")
 
             # 检查并添加 refined 列（如果不存在）
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'refined' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN refined BOOLEAN DEFAULT 0")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 refined 列。")
 
             # 检查并添加 used_for_learning 列（如果不存在）
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'used_for_learning' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN used_for_learning BOOLEAN DEFAULT 0")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 used_for_learning 列。")
 
             # 创建学习批次表

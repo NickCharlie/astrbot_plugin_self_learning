@@ -85,7 +85,22 @@ class DatabaseEngine:
             }
         )
 
-        logger.info(f"✅ [DatabaseEngine] SQLite 引擎创建成功: {db_path}")
+        # 配置 SQLite 为 WAL 模式以支持并发读写，避免数据库锁定
+        from sqlalchemy import event
+        from sqlalchemy.pool import Pool
+
+        @event.listens_for(self.engine.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_conn, connection_record):
+            """在每个连接建立时设置 SQLite PRAGMA"""
+            cursor = dbapi_conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=10000")
+            cursor.execute("PRAGMA temp_store=memory")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
+        logger.info(f"✅ [DatabaseEngine] SQLite 引擎创建成功 (WAL模式): {db_path}")
 
     def _init_mysql_engine(self):
         """初始化 MySQL 引擎"""
@@ -182,7 +197,37 @@ class DatabaseEngine:
         """MySQL 数据库迁移"""
         from sqlalchemy import text
 
-        # 1. 添加缺失字段
+        # 1. 修复 filtered_messages 的 quality_score 字段问题
+        # 旧版本可能创建了 quality_score DOUBLE，但应该是 quality_scores TEXT
+        try:
+            check_sql = text("""
+                SELECT COLUMN_NAME, DATA_TYPE
+                FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = 'filtered_messages'
+                AND COLUMN_NAME IN ('quality_score', 'quality_scores')
+            """)
+            result = await session.execute(check_sql)
+            existing_columns = {row[0]: row[1] for row in result.fetchall()}
+
+            # 如果存在错误的 quality_score 字段，删除它
+            if 'quality_score' in existing_columns:
+                logger.info("[Migration] 检测到旧字段 quality_score，准备删除...")
+                await session.execute(text("ALTER TABLE filtered_messages DROP COLUMN quality_score"))
+                await session.commit()
+                logger.info("✅ [Migration] 已删除 filtered_messages.quality_score 旧字段")
+
+            # 如果 quality_scores 不存在，添加它
+            if 'quality_scores' not in existing_columns:
+                await session.execute(text("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT"))
+                await session.commit()
+                logger.info("✅ [Migration] 已为 filtered_messages 表添加 quality_scores 字段")
+
+        except Exception as e:
+            logger.warning(f"⚠️ [Migration] quality_scores 字段迁移失败: {e}")
+            await session.rollback()
+
+        # 2. 添加其他缺失字段
         migrations = [
             # raw_messages 表
             ("raw_messages", "message_id", "ALTER TABLE raw_messages ADD COLUMN message_id VARCHAR(255)"),
@@ -190,7 +235,6 @@ class DatabaseEngine:
 
             # filtered_messages 表
             ("filtered_messages", "processed", "ALTER TABLE filtered_messages ADD COLUMN processed TINYINT(1) DEFAULT 0"),
-            ("filtered_messages", "quality_score", "ALTER TABLE filtered_messages ADD COLUMN quality_score DOUBLE"),
             ("filtered_messages", "filter_reason", "ALTER TABLE filtered_messages ADD COLUMN filter_reason TEXT"),
 
             # psychological_state_components 表 - 添加外键字段（允许 NULL 以兼容传统数据）
@@ -220,7 +264,7 @@ class DatabaseEngine:
                 logger.debug(f"[Migration] {table}.{column} 迁移跳过: {e}")
                 await session.rollback()
 
-        # 2. 修复时间戳字段类型（DATETIME -> BIGINT）
+        # 3. 修复时间戳字段类型（DATETIME -> BIGINT）
         # 安全迁移策略:添加临时字段->转换数据->替换字段
         timestamp_fields = [
             ("raw_messages", "timestamp"),
@@ -289,6 +333,34 @@ class DatabaseEngine:
         """SQLite 数据库迁移"""
         from sqlalchemy import text
 
+        # 1. 修复 filtered_messages 的 quality_score 字段问题
+        # 旧版本可能创建了 quality_score REAL，但应该是 quality_scores TEXT
+        try:
+            check_sql = text("PRAGMA table_info(filtered_messages)")
+            result = await session.execute(check_sql)
+            columns_info = {row[1]: row[2] for row in result.fetchall()}  # {column_name: column_type}
+
+            # 如果存在错误的 quality_score 字段，需要删除
+            # 注意：SQLite 不支持直接 DROP COLUMN，需要重建表
+            if 'quality_score' in columns_info and 'quality_scores' not in columns_info:
+                logger.info("[Migration] 检测到旧字段 quality_score，准备迁移为 quality_scores...")
+
+                # SQLite 不支持直接修改列，但我们可以添加新列
+                await session.execute(text("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT"))
+                await session.commit()
+                logger.info("✅ [Migration] 已为 filtered_messages 添加 quality_scores 字段 (保留旧的 quality_score 字段)")
+
+            elif 'quality_scores' not in columns_info:
+                # 两个字段都不存在，直接添加正确的字段
+                await session.execute(text("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT"))
+                await session.commit()
+                logger.info("✅ [Migration] 已为 filtered_messages 表添加 quality_scores 字段")
+
+        except Exception as e:
+            logger.warning(f"⚠️ [Migration] quality_scores 字段迁移失败: {e}")
+            await session.rollback()
+
+        # 2. 添加其他缺失字段
         migrations = [
             # raw_messages 表
             ("raw_messages", "message_id", "ALTER TABLE raw_messages ADD COLUMN message_id TEXT"),
@@ -296,7 +368,6 @@ class DatabaseEngine:
 
             # filtered_messages 表
             ("filtered_messages", "processed", "ALTER TABLE filtered_messages ADD COLUMN processed BOOLEAN DEFAULT 0"),
-            ("filtered_messages", "quality_score", "ALTER TABLE filtered_messages ADD COLUMN quality_score REAL"),
             ("filtered_messages", "filter_reason", "ALTER TABLE filtered_messages ADD COLUMN filter_reason TEXT"),
 
             # psychological_state_components 表 - 添加外键字段（允许 NULL 以兼容传统数据）

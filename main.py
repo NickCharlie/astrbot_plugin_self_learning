@@ -657,7 +657,7 @@ class SelfLearningPlugin(star.Star):
                 logger.info("Debug: Web服务器启动完成")
             except Exception as e:
                 logger.error(StatusMessages.WEB_SERVER_START_FAILED.format(error=e), exc_info=True)
-                logger.error(f"Debug: Web服务器启动异常详情: {type(e).__name__}: {str(e)}")
+                logger.error(f"Debug: Web服务器启动异常详���: {type(e).__name__}: {str(e)}")
                 import traceback
                 logger.error(f"Debug: 异常堆栈: {traceback.format_exc()}")
         else:
@@ -2607,7 +2607,7 @@ PersonaManager模式优势：
 
 
     @filter.on_llm_request()
-    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
+    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)
 
         重要改进 (v1.1.1):
@@ -2622,6 +2622,11 @@ PersonaManager模式优势：
         4. 会话级增量更新（临时人格调整）
         """
         try:
+            # 检查 req 参数是否存在
+            if req is None:
+                logger.warning("[LLM Hook] req 参数为 None，跳过注入")
+                return
+
             # 如果diversity_manager不存在,跳过注入
             if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
                 logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
