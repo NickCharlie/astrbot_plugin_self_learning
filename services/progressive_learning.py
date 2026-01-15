@@ -1012,7 +1012,7 @@ class ProgressiveLearningService:
                         "new_prompt_length": len(new_prompt),
                         "incremental_content": incremental_content,  # ✅ 单独记录增量内容，用于高亮
                         "incremental_start_pos": len(original_prompt),  # ✅ 标记新增内容的起始位置
-                        "relearn_mode": relearn_mode  # ✅ 标记是否为重新学习模式
+                        "relearn_mode": relearn_mode  # ✅ 标记是否���重新学习模式
                     }
 
                     # ✅ 添加强化学习调优信息到元数据
@@ -1263,20 +1263,28 @@ class ProgressiveLearningService:
             quality_metrics: 质量指标
         """
         try:
+            # ✅ 处理 AnalysisResult 对象，提取其 data 属性
+            if style_analysis and hasattr(style_analysis, 'data'):
+                style_analysis_dict = style_analysis.data
+            elif isinstance(style_analysis, dict):
+                style_analysis_dict = style_analysis
+            else:
+                style_analysis_dict = {}
+
             # ✅ 即使没有 style_analysis，也应该基于消息创建学习记录
-            if not style_analysis and not messages:
+            if not style_analysis_dict and not messages:
                 logger.debug(f"群组 {group_id} 没有风格分析结果且没有消息，跳过风格学习记录保存")
                 return
 
             # 1. 保存表达模式到 expression_patterns 表
-            expression_patterns = style_analysis.get('expression_patterns', []) if style_analysis else []
+            expression_patterns = style_analysis_dict.get('expression_patterns', [])
             if expression_patterns:
                 await self._save_expression_patterns(group_id, expression_patterns)
 
             # 2. 构建 few_shots 内容
             few_shots_content = ''
-            if style_analysis:
-                few_shots_content = style_analysis.get('enhanced_prompt', '')
+            if style_analysis_dict:
+                few_shots_content = style_analysis_dict.get('enhanced_prompt', '')
                 if not few_shots_content and expression_patterns:
                     # 如果没有 enhanced_prompt，从 expression_patterns 构建
                     few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
