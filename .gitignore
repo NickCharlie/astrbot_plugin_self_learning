@@ -30,3 +30,4 @@ DATABASE_MANAGER_GUIDE.md
 migrate_database.py
 check_progress.py
 scripts/inspect_old_database.py
+/models/orm/__pycache__

@@ -5923,6 +5923,48 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
+    async def get_all_expression_patterns_by_group(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        获取所有群组的表达模式（按群组分组）
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: 群组ID -> 表达模式列表的映射
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT id, situation, expression, weight, last_active_time, create_time, group_id
+                    FROM expression_patterns
+                    ORDER BY group_id, last_active_time DESC
+                ''')
+
+                patterns_by_group = {}
+                for row in await cursor.fetchall():
+                    group_id = row[6]
+                    if group_id not in patterns_by_group:
+                        patterns_by_group[group_id] = []
+
+                    patterns_by_group[group_id].append({
+                        'id': row[0],
+                        'situation': row[1],
+                        'expression': row[2],
+                        'weight': row[3],
+                        'last_active_time': row[4],
+                        'created_time': row[5],
+                        'group_id': group_id,
+                        'style_type': 'general'
+                    })
+
+                return patterns_by_group
+
+            except Exception as e:
+                self._logger.error(f"获取所有表达模式失败: {e}", exc_info=True)
+                return {}
+            finally:
+                await cursor.close()
+
     async def get_recent_week_expression_patterns(self, group_id: str = None, limit: int = 20, hours: int = 168) -> List[Dict[str, Any]]:
         """
         获取最近指定小时内学习到的表达模式（按质量分数和时间排序）

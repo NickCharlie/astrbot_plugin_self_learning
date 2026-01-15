@@ -1095,12 +1095,15 @@ class SQLAlchemyDatabaseManager:
         """
         获取所有群组的表达模式
 
-        优先使用 SQLAlchemy Repository 实现，失败时降级到传统实现
+        使用 SQLAlchemy Repository 实现，支持跨线程调用
 
         Returns:
             Dict[str, List[Dict[str, Any]]]: 群组ID -> 表达模式列表的映射
         """
         try:
+            # 直接使用 ORM，引擎已配置支持多线程
+            # SQLite: check_same_thread=False
+            # MySQL: NullPool 每次都创建新连接
             async with self.get_session() as session:
                 from ..repositories.expression_repository import ExpressionPatternRepository
 
