@@ -2537,9 +2537,10 @@ class DatabaseManager(AsyncServiceBase):
                     self._logger.info("learning_batches 表不存在，返回空列表")
                     return []
 
-                # 从学习批次中获取进度数据
+                # 从学习批次中获取进度数据，包含消息数量信息
                 await cursor.execute('''
-                    SELECT group_id, start_time, quality_score, success
+                    SELECT group_id, start_time, quality_score, success,
+                           processed_messages, filtered_count, batch_name
                     FROM learning_batches
                     WHERE quality_score IS NOT NULL
                     ORDER BY start_time DESC
@@ -2555,17 +2556,27 @@ class DatabaseManager(AsyncServiceBase):
 
                 for row in rows:
                     try:
-                        # 添加行数据验证
+                        # 添加行数据验证（现在有7个字段）
                         if len(row) < 4:
-                            self._logger.warning(f"学习批次进度数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
+                            self._logger.warning(f"学习批次进度数据行不完整 (期望至少4个字段，实际{len(row)}个)，跳过: {row}")
                             continue
 
-                        progress_data.append({
+                        progress_item = {
                             'group_id': row[0],
                             'timestamp': float(row[1]) if row[1] else 0,
                             'quality_score': float(row[2]) if row[2] else 0,
                             'success': bool(row[3])
-                        })
+                        }
+
+                        # 添加消息数量信息（如果存在）
+                        if len(row) > 4:
+                            progress_item['processed_messages'] = int(row[4]) if row[4] else 0
+                        if len(row) > 5:
+                            progress_item['filtered_count'] = int(row[5]) if row[5] else 0
+                        if len(row) > 6:
+                            progress_item['batch_name'] = row[6] if row[6] else '未命名'
+
+                        progress_data.append(progress_item)
                     except Exception as row_error:
                         self._logger.warning(f"处理学习批次进度数据行时出错，跳过: {row_error}, row: {row}")
 

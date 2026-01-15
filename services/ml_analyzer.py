@@ -121,10 +121,15 @@ class LightweightMLAnalyzer:
             if response:
                 # response 是字符串，清理响应文本，移除markdown标识符
                 clean_response = clean_llm_json_response(response)
-                
+
                 try:
                     reinforcement_result = safe_parse_llm_json(clean_response)
-                    
+
+                    # ✅ 检查解析结果是否为None
+                    if not reinforcement_result:
+                        logger.warning("强化学习记忆重放解析结果为空")
+                        return {}
+
                     # 保存强化学习结果到数据库
                     await self.db_manager.save_reinforcement_learning_result(group_id, {
                         'timestamp': time.time(),
@@ -133,10 +138,10 @@ class LightweightMLAnalyzer:
                         'reinforcement_feedback': reinforcement_result.get('reinforcement_feedback', {}),
                         'next_action': reinforcement_result.get('next_action', '')
                     })
-                    
+
                     logger.info(f"强化学习记忆重放完成，奖励分数: {reinforcement_result.get('reinforcement_feedback', {}).get('reward_score', 0)}")
                     return reinforcement_result
-                    
+
                 except json.JSONDecodeError:
                     logger.error(f"强化模型返回的JSON格式不正确: {clean_response}")
                     return {}

@@ -756,72 +756,17 @@ class ProgressiveLearningService:
     #         raise LearningError(f"学习批次执行失败: {str(e)}")
 
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """使用多维度分析进行智能筛选
+        """对话风格学习不需要筛选，直接返回所有消息"""
 
-        注意：对话风格学习降低筛选阈值，让更多消息通过
-        """
-        filtered = []
+        # ✅ 对话风格学习不需要LLM筛选，直接学习所有原始消息
+        logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
 
-        # 添加批量处理限制，防止过度的LLM调用
-        max_messages_to_analyze = min(len(messages), 10)  # 减少到每批最多分析10条消息
-        messages_to_process = messages[:max_messages_to_analyze]
+        # 为每条消息添加默认的相关性评分
+        for message in messages:
+            message['relevance_score'] = 1.0  # 默认完全相关
+            message['filter_reason'] = 'style_learning_no_filter'
 
-        # ✅ 对话风格学习使用更低的阈值（0.3），让更多消息通过
-        style_learning_threshold = 0.3  # 原阈值: self.config.relevance_threshold (0.6)
-
-        logger.info(f"开始筛选 {len(messages_to_process)} 条消息 (原始: {len(messages)} 条，使用对话风格学习阈值: {style_learning_threshold})")
-
-        for i, message in enumerate(messages_to_process):
-            try:
-                # 添加处理进度日志
-                if i % 3 == 0:  # 减少日志频率
-                    logger.debug(f"筛选进度: {i+1}/{len(messages_to_process)}")
-
-                # 使用专门的批量分析方法，不需要事件对象
-                context_analysis = await self.multidimensional_analyzer.analyze_message_batch(
-                    message['message'],
-                    sender_id=message.get('sender_id', ''),
-                    sender_name=message.get('sender_name', ''),
-                    group_id=message.get('group_id', ''),
-                    timestamp=message.get('timestamp', time.time())
-                )
-
-                # ✅ 使用更低的阈值进行筛选
-                relevance = context_analysis.get('contextual_relevance', 0.0)
-                if relevance >= style_learning_threshold:
-                    # 添加筛选信息到消息
-                    message['context_analysis'] = context_analysis
-                    message['relevance_score'] = relevance
-                    filtered.append(message)
-
-                    # 保存到筛选消息表
-                    # 注意: raw_message_id 可能不存在于 raw_messages 表中,设为 None 以避免外键约束错误
-                    await self.message_collector.add_filtered_message({
-                        'raw_message_id': None,  # 暂时不关联 raw_message,避免外键约束问题
-                        'message': message['message'],
-                        'sender_id': message.get('sender_id', ''),
-                        'group_id': message.get('group_id', ''),
-                        'confidence': relevance,
-                        'filter_reason': 'style_learning_context',
-                        'timestamp': message.get('timestamp', time.time()),
-                        'quality_scores': {
-                            'relevance': relevance,
-                            'context_score': context_analysis.get('relevance_score', 0.0) if context_analysis else 0.0
-                        }
-                    })
-                else:
-                    logger.debug(f"消息相关性 {relevance:.2f} < 阈值 {style_learning_threshold}，跳过")
-
-            except Exception as e:
-                logger.warning(f"消息筛选失败: {e}")
-                continue
-
-        # 如果还有未处理的消息，记录日志
-        if len(messages) > max_messages_to_analyze:
-            logger.info(f"由于批量处理限制，跳过了 {len(messages) - max_messages_to_analyze} 条消息，减少LLM调用频率")
-
-        logger.info(f"筛选完成: {len(filtered)} 条消息通过筛选（阈值: {style_learning_threshold}）")
-        return filtered
+        return messages
 
     async def _get_current_persona(self, group_id: str) -> Dict[str, Any]:
         """获取当前人格设置 (针对特定群组)"""
