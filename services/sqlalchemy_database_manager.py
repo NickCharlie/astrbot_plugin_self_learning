@@ -158,6 +158,7 @@ class SQLAlchemyDatabaseManager:
             return True
 
         try:
+            logger.info("[SQLAlchemyDBManager] 🚀 开始启动数据库管理器...")
             # 保存主事件循环和线程ID（用于跨线程调用检测）
             try:
                 self._main_loop = asyncio.get_running_loop()
@@ -192,9 +193,11 @@ class SQLAlchemyDatabaseManager:
                 self._started = True
                 return True
             else:
+                self._started = False
                 logger.error("❌ [SQLAlchemyDBManager] 数据库健康检查失败")
                 return False
 
+            self._started = False
         except Exception as e:
             logger.error(f"❌ [SQLAlchemyDBManager] 启动失败: {e}", exc_info=True)
             return False
