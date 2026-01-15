@@ -24,8 +24,8 @@ class Jargon(Base):
     updated_at = Column(BigInteger, nullable=False)
 
     __table_args__ = (
-        Index('idx_jargon_content', 'content'),
+        Index('idx_jargon_content', 'content', mysql_length=255),
         Index('idx_jargon_chat_id', 'chat_id'),
         Index('idx_jargon_is_jargon', 'is_jargon'),
-        Index('uk_chat_content', 'chat_id', 'content', unique=True),  # 唯一索引
+        Index('uk_chat_content', 'chat_id', 'content', unique=True, mysql_length={'content': 255}),  # 唯一索引，MySQL 限制 TEXT 前255字符
     )
