@@ -465,8 +465,8 @@ class ProgressiveLearningService:
             
             # 7. 质量评估和应用更新
             await self._finalize_learning_batch(
-                group_id, current_persona, updated_persona, filtered_messages, 
-                unprocessed_messages, batch_start_time
+                group_id, current_persona, updated_persona, filtered_messages,
+                unprocessed_messages, batch_start_time, style_analysis  # ✅ 传递 style_analysis
             )
             
         except Exception as e:
@@ -503,26 +503,31 @@ class ProgressiveLearningService:
             logger.error(f"后台增量微调失败: {e}")
             return {}
 
-    async def _finalize_learning_batch(self, group_id: str, current_persona, updated_persona, 
-                                     filtered_messages, unprocessed_messages, batch_start_time):
-        """完成学习批次的最终处理"""
+    async def _finalize_learning_batch(self, group_id: str, current_persona, updated_persona,
+                                     filtered_messages, unprocessed_messages, batch_start_time, style_analysis=None):
+        """完成学习批次的最终处理
+
+        Args:
+            style_analysis: 风格分析结果，用于保存对话风格学习记录
+        """
         try:
             # 质量监控评估
             # 确保参数不为None，提供默认值
             if current_persona is None:
                 current_persona = {"prompt": "默认人格"}
                 logger.warning("_finalize_learning_batch: current_persona为None，使用默认值")
-            
+
             if updated_persona is None:
                 updated_persona = current_persona.copy()
                 logger.warning("_finalize_learning_batch: updated_persona为None，使用current_persona的副本")
-                
+
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, updated_persona, filtered_messages
             )
 
             # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
-            await self._apply_learning_updates(group_id, {}, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)  # style_analysis may be empty, 后台学习不使用relearn模式
+            # ✅ 传递 style_analysis 用于保存对话风格学习记录
+            await self._apply_learning_updates(group_id, style_analysis or {}, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
 
@@ -1253,25 +1258,32 @@ class ProgressiveLearningService:
 
         Args:
             group_id: 群组ID
-            style_analysis: 风格分析结果
+            style_analysis: 风格分析结果（可以为空，会基于消息创建简单记录）
             messages: 处理的消息列表
             quality_metrics: 质量指标
         """
         try:
-            if not style_analysis:
-                logger.debug(f"群组 {group_id} 没有风格分析结果，跳过风格学习记录保存")
+            # ✅ 即使没有 style_analysis，也应该基于消息创建学习记录
+            if not style_analysis and not messages:
+                logger.debug(f"群组 {group_id} 没有风格分析结果且没有消息，跳过风格学习记录保存")
                 return
 
             # 1. 保存表达模式到 expression_patterns 表
-            expression_patterns = style_analysis.get('expression_patterns', [])
+            expression_patterns = style_analysis.get('expression_patterns', []) if style_analysis else []
             if expression_patterns:
                 await self._save_expression_patterns(group_id, expression_patterns)
 
             # 2. 构建 few_shots 内容
-            few_shots_content = style_analysis.get('enhanced_prompt', '')
-            if not few_shots_content and expression_patterns:
-                # 如果没有 enhanced_prompt，从 expression_patterns 构建
-                few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
+            few_shots_content = ''
+            if style_analysis:
+                few_shots_content = style_analysis.get('enhanced_prompt', '')
+                if not few_shots_content and expression_patterns:
+                    # 如果没有 enhanced_prompt，从 expression_patterns 构建
+                    few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
+
+            # ✅ 如果没有 few_shots_content，从消息中构建简单的学习内容
+            if not few_shots_content and messages:
+                few_shots_content = f"基于 {len(messages)} 条对话消息的风格学习"
 
             # 3. 构建学习模式列表
             learned_patterns = []
@@ -1287,7 +1299,9 @@ class ProgressiveLearningService:
             confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.75
 
             # 5. 构建描述
-            description = f"群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）"
+            pattern_count = len(learned_patterns) if learned_patterns else 0
+            message_count = len(messages) if messages else 0
+            description = f"群组 {group_id} 的对话风格学习结果（处理 {message_count} 条消息，提取 {pattern_count} 个表达模式）"
 
             # 6. 保存风格学习记录（使用 ORM）
             try:
@@ -1313,7 +1327,7 @@ class ProgressiveLearningService:
                     await session.commit()
                     await session.refresh(review)
 
-                    logger.info(f"✅ 对话风格学习记录已保存 (ID: {review.id})，包含 {len(learned_patterns)} 个模式")
+                    logger.info(f"✅ 对话风格学习记录已保存 (ID: {review.id})，处理 {message_count} 条消息，提取 {pattern_count} 个模式")
 
             except Exception as e:
                 logger.error(f"保存对话风格学习记录失败: {e}", exc_info=True)
