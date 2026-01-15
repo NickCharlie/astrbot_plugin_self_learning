@@ -838,21 +838,10 @@ class SelfLearningPlugin(star.Star):
                bool(re.match(pattern_without_prefix, message_text, re.IGNORECASE))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
+    async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
 
         try:
-            # 检查event参数类型 - 添加调试信息
-            if event is None:
-                logger.warning("on_message调用时event参数为None，跳过处理")
-                return
-
-            # ✅ 添加类型检查，防止参数传递错误
-            if not hasattr(event, 'get_message_str'):
-                logger.error(f"on_message接收到错误的event类型: {type(event)}, 预期: AstrMessageEvent")
-                logger.error(f"event对象: {event}")
-                logger.error(f"args: {args}, kwargs: {kwargs}")
-                return
 
             # 获取消息文本
             message_text = event.get_message_str()
