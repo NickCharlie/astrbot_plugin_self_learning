@@ -2538,11 +2538,13 @@ class DatabaseManager(AsyncServiceBase):
                     return []
 
                 # 从学习批次中获取进度数据，包含消息数量信息
+                # ✅ 只显示有实际消息的记录（过滤旧的空数据）
                 await cursor.execute('''
                     SELECT group_id, start_time, quality_score, success,
                            processed_messages, filtered_count, batch_name
                     FROM learning_batches
                     WHERE quality_score IS NOT NULL
+                      AND processed_messages > 0
                     ORDER BY start_time DESC
                     LIMIT 30
                 ''')
