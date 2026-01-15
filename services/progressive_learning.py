@@ -1007,7 +1007,7 @@ class ProgressiveLearningService:
                     metadata = {
                         "progressive_learning": True,
                         "message_count": len(messages),
-                        "style_analysis_fields": list(style_analysis.keys()) if style_analysis else [],
+                        "style_analysis_fields": list(style_analysis.data.keys()) if (hasattr(style_analysis, "data") and isinstance(style_analysis.data, dict)) else (list(style_analysis.keys()) if isinstance(style_analysis, dict) else []),
                         "original_prompt_length": len(original_prompt),
                         "new_prompt_length": len(new_prompt),
                         "incremental_content": incremental_content,  # ✅ 单独记录增量内容，用于高亮
@@ -1315,20 +1315,22 @@ class ProgressiveLearningService:
             try:
                 async with self.db_manager.get_session() as session:
                     from ..models.orm.learning import StyleLearningReview
-                    import time
+                    from datetime import datetime
+
+                    current_timestamp = time.time()
 
                     review = StyleLearningReview(
                         type='对话风格学习',
                         group_id=group_id,
-                        timestamp=time.time(),
+                        timestamp=current_timestamp,
                         learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),
                         few_shots_content=few_shots_content,
                         status='approved',  # 直接批准，不需要审查
                         description=description,
                         reviewer_comment='自动批准',
-                        review_time=time.time(),
-                        created_at=int(time.time()),
-                        updated_at=int(time.time())
+                        review_time=current_timestamp,
+                        created_at=datetime.fromtimestamp(current_timestamp),  # ✅ 转换为datetime对象
+                        updated_at=datetime.fromtimestamp(current_timestamp)   # ✅ 转换为datetime对象
                     )
 
                     session.add(review)
@@ -1381,15 +1383,14 @@ class ProgressiveLearningService:
                     if not situation or not expression:
                         continue
 
-                    # 创建表达模式记录
+                    # 创建表达模式记录（ExpressionPattern只有weight, last_active_time, create_time字段）
                     expr_pattern = ExpressionPattern(
                         group_id=group_id,
                         situation=situation,
                         expression=expression,
                         weight=float(pattern.get('weight', 1.0)),
-                        confidence=float(pattern.get('confidence', 0.8)),
-                        create_time=current_time,
-                        update_time=current_time
+                        last_active_time=current_time,  # ✅ 使用last_active_time而不是confidence
+                        create_time=current_time
                     )
 
                     session.add(expr_pattern)
