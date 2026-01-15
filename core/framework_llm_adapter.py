@@ -42,16 +42,17 @@ class FrameworkLLMAdapter:
         # 获取所有可用的Provider列表作为备选
         available_providers = []
         try:
-            # 尝试获取所有Provider的ID列表
-            if hasattr(self.context, 'get_all_provider_ids'):
-                provider_ids = self.context.get_all_provider_ids()
-                logger.info(f"  - 可用的Provider ID列表: {provider_ids}")
-                for provider_id in provider_ids:
-                    provider = self.context.get_provider_by_id(provider_id)
-                    if provider and provider.meta().provider_type == ProviderType.CHAT_COMPLETION:
-                        available_providers.append(provider)
-                        logger.debug(f"    ✅ Provider {provider_id} 可用 (类型: {provider.meta().provider_type.value})")
-            logger.info(f"🔍 发现 {len(available_providers)} 个可用的CHAT_COMPLETION类型Provider")
+            # 使用 get_all_providers() 方法获取所有 CHAT_COMPLETION 类型的 Provider
+            all_providers = self.context.get_all_providers()
+            logger.info(f"  - 发现 {len(all_providers)} 个 Provider")
+
+            for provider in all_providers:
+                provider_meta = provider.meta()
+                if provider_meta.provider_type == ProviderType.CHAT_COMPLETION:
+                    available_providers.append(provider)
+                    logger.debug(f"    ✅ Provider {provider_meta.id} 可用 (类型: {provider_meta.provider_type.value})")
+
+            logger.info(f"🔍 发现 {len(available_providers)} 个可用的 CHAT_COMPLETION 类型 Provider")
         except Exception as e:
             logger.warning(f"获取可用Provider列表失败: {e}")
         
