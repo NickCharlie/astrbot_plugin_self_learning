@@ -1,13 +1,31 @@
 """
 数据库表结构定义
-定义所有需要的表结构，支持SQLite和MySQL
+
+⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+此文件保留仅供参考，不再使用
+
+新的表结构定义位置：
+- models/orm/message.py - 消息相关表
+- models/orm/psychological.py - 心理状态表
+- models/orm/social_relation.py - 社交关系表
+- models/orm/affection.py - 好感度表
+- models/orm/memory.py - 记忆表
+- models/orm/learning.py - 学习记录表
+- models/orm/expression.py - 表达模式表
+- models/orm/jargon.py - 黑话表
+- models/orm/social_analysis.py - 社交分析表
 """
 from typing import Dict, Tuple
 from ..core.database.backend_interface import DatabaseType
 
 
 class TableSchemas:
-    """数据库表结构定义"""
+    """
+    数据库表结构定义
+
+    ⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+    请使用 models/orm/ 目录下的 ORM 模型定义
+    """
 
     @staticmethod
     def get_all_table_schemas() -> Dict[str, Tuple[str, str]]:

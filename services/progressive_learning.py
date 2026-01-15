@@ -781,15 +781,16 @@ class ProgressiveLearningService:
                     filtered.append(message)
 
                     # 保存到筛选消息表
+                    # 注意: raw_message_id 可能不存在于 raw_messages 表中,设为 None 以避免外键约束错误
                     await self.message_collector.add_filtered_message({
-                        'raw_message_id': message.get('id'),
+                        'raw_message_id': None,  # 暂时不关联 raw_message,避免外键约束问题
                         'message': message['message'],
                         'sender_id': message.get('sender_id', ''),
-                        'group_id': message.get('group_id', ''),  # ✅ 添加 group_id
+                        'group_id': message.get('group_id', ''),
                         'confidence': relevance,
                         'filter_reason': 'context_relevance',
                         'timestamp': message.get('timestamp', time.time()),
-                        'quality_scores': {  # ✅ 添加 quality_scores
+                        'quality_scores': {
                             'relevance': relevance,
                             'context_score': context_analysis.get('relevance_score', 0.0) if context_analysis else 0.0
                         }

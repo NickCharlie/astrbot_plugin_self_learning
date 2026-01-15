@@ -378,7 +378,7 @@
   "Database_Settings": {
     "description": "数据库配置",
     "type": "object",
-    "hint": "配置数据库类型和连接参数。支持SQLite（默认，无需配置）和MySQL（需要提前创建数据库）",
+    "hint": "配置数据库类型和连接参数。支持SQLite（默认，无需配置）和MySQL（自动创建数据库以及数据库表）",
     "items": {
       "db_type": {
         "description": "数据库类型",
@@ -413,7 +413,7 @@
       "mysql_database": {
         "description": "MySQL数据库名",
         "type": "string",
-        "hint": "MySQL数据库名称。使用MySQL前需要手动创建此数据库，执行SQL: CREATE DATABASE astrbot_self_learning CHARACTER SET utf8mb4;",
+        "hint": "MySQL数据库名称。使用MySQL 自动创建数据库以及数据库表",
         "default": "astrbot_self_learning"
       },
       "max_connections": {

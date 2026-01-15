@@ -144,13 +144,20 @@ class DatabaseEngine:
             )
             logger.debug("[DatabaseEngine] 会话工厂创建成功")
 
-    async def create_tables(self):
+    async def create_tables(self, enable_auto_migration: bool = False):
         """
         创建所有表
 
         根据 ORM 模型自动创建表结构
         如果表已存在则跳过
+
+        Args:
+            enable_auto_migration: 是否启用自动迁移（默认禁用）
         """
+        if not enable_auto_migration:
+            logger.info("⏭️ [DatabaseEngine] 数据库自动迁移已禁用，跳过表创建")
+            return
+
         try:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
