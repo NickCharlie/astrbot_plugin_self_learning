@@ -525,40 +525,48 @@ class ProgressiveLearningService:
             await self._apply_learning_updates(group_id, {}, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)  # style_analysis may be empty, 后台学习不使用relearn模式
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
-            
+
             # 【新增】记录学习批次到数据库，供webui查询使用
-            batch_name = f"batch_{group_id}_{int(time.time())}"
-            start_time = batch_start_time.timestamp()
-            end_time = time.time()
-            
-            # 连接到全局消息数据库记录学习批次
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                try:
-                    await cursor.execute('''
-                        INSERT INTO learning_batches
-                        (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
-                         message_count, filtered_count, success, error_message)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        group_id,
-                        batch_name,
-                        start_time,
-                        end_time,
-                        quality_metrics.consistency_score,
-                        len(unprocessed_messages),
-                        len(unprocessed_messages),
-                        len(filtered_messages),
-                        success,
-                        None  # 对话风格学习总是成功，不记录错误
-                    ))
-                    await conn.commit()
-                    logger.debug(f"学习批次记录已保存: {batch_name}")
-                except Exception as e:
-                    logger.error(f"保存学习批次记录失败: {e}")
-                finally:
-                    await cursor.close()
+            # ✅ 增强错误处理，如果表不存在则跳过记录
+            try:
+                batch_name = f"batch_{group_id}_{int(time.time())}"
+                start_time = batch_start_time.timestamp()
+                end_time = time.time()
+
+                # 连接到全局消息数据库记录学习批次
+                async with self.db_manager.get_db_connection() as conn:
+                    cursor = await conn.cursor()
+
+                    try:
+                        await cursor.execute('''
+                            INSERT INTO learning_batches
+                            (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
+                             message_count, filtered_count, success, error_message)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            group_id,
+                            batch_name,
+                            start_time,
+                            end_time,
+                            quality_metrics.consistency_score,
+                            len(unprocessed_messages),
+                            len(unprocessed_messages),
+                            len(filtered_messages),
+                            success,
+                            None  # 对话风格学习总是成功，不记录错误
+                        ))
+                        await conn.commit()
+                        logger.debug(f"学习批次记录已保存: {batch_name}")
+                    except Exception as e:
+                        error_str = str(e)
+                        if "no such table" in error_str.lower() or "doesn't exist" in error_str.lower() or "unknown column" in error_str.lower():
+                            logger.debug(f"学习批次表不存在或结构过旧，跳过保存（这不影响学习功能）: {e}")
+                        else:
+                            logger.error(f"保存学习批次记录失败: {e}")
+                    finally:
+                        await cursor.close()
+            except Exception as e:
+                logger.debug(f"无法记录学习批次（这不影响学习功能）: {e}")
             
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {

@@ -5,6 +5,49 @@
 -- 选择数据库
 USE bot_db_migrated;
 
+-- ===================================================
+-- 学习批次表（如果已存在则确保结构正确）
+-- ===================================================
+-- 先创建表（如果不存在）
+CREATE TABLE IF NOT EXISTS learning_batches (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    batch_id VARCHAR(255) UNIQUE,
+    batch_name VARCHAR(255) NOT NULL,
+    group_id VARCHAR(255) NOT NULL,
+    start_time DOUBLE NOT NULL,
+    end_time DOUBLE,
+    quality_score DOUBLE,
+    processed_messages INT DEFAULT 0,
+    message_count INT DEFAULT 0,
+    filtered_count INT DEFAULT 0,
+    success BOOLEAN DEFAULT 1,
+    error_message TEXT,
+    status VARCHAR(50) DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_group (group_id),
+    INDEX idx_batch_id (batch_id),
+    INDEX idx_batch_name (batch_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 确保 batch_name 列存在（用于向后兼容）
+-- 如果表已存在但缺少该列，则添加
+SET @column_exists = (SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'learning_batches'
+    AND COLUMN_NAME = 'batch_name');
+
+SET @alter_sql = IF(@column_exists = 0,
+    'ALTER TABLE learning_batches ADD COLUMN batch_name VARCHAR(255) NOT NULL AFTER batch_id',
+    'SELECT "Column batch_name already exists"');
+
+PREPARE stmt FROM @alter_sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- ===================================================
+-- 其他传统表
+-- ===================================================
+
 -- 强化学习结果表
 CREATE TABLE IF NOT EXISTS reinforcement_learning_results (
     id INT PRIMARY KEY AUTO_INCREMENT,
@@ -41,20 +84,6 @@ CREATE TABLE IF NOT EXISTS persona_fusion_history (
     compatibility_score DOUBLE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_group (group_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- 学习批次表
-CREATE TABLE IF NOT EXISTS learning_batches (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    batch_id VARCHAR(255) UNIQUE NOT NULL,
-    group_id VARCHAR(255) NOT NULL,
-    start_time DOUBLE NOT NULL,
-    end_time DOUBLE,
-    message_count INT DEFAULT 0,
-    status VARCHAR(50) DEFAULT 'pending',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_group (group_id),
-    INDEX idx_batch (batch_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 学习会话表

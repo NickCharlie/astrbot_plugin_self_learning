@@ -120,6 +120,8 @@ class SQLAlchemyDatabaseManager:
         self.context = context
         self.engine: Optional[DatabaseEngine] = None
         self._started = False
+        self._starting = False  # 添加启动中标志，防止并发启动
+        self._start_lock = asyncio.Lock()  # 添加启动锁
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None  # 保存主事件循环
         self._main_thread_id: Optional[int] = None  # 保存主线程ID
 
@@ -148,59 +150,75 @@ class SQLAlchemyDatabaseManager:
 
     async def start(self) -> bool:
         """
-        启动数据库管理器
+        启动数据库管理器（带并发保护）
 
         Returns:
             bool: 是否启动成功
         """
-        if self._started:
-            logger.warning("[SQLAlchemyDBManager] 已经启动，跳过")
-            return True
-
-        try:
-            logger.info("[SQLAlchemyDBManager] 🚀 开始启动数据库管理器...")
-            # 保存主事件循环和线程ID（用于跨线程调用检测）
-            try:
-                self._main_loop = asyncio.get_running_loop()
-                self._main_thread_id = threading.get_ident()
-                logger.debug(f"[SQLAlchemyDBManager] 主事件循环已保存，线程ID: {self._main_thread_id}")
-            except RuntimeError:
-                logger.warning("[SQLAlchemyDBManager] 无法获取当前事件循环，可能在非异步上下文中启动")
-
-            # 启动传统数据库管理器（用于委托未实现的方法）
-            if self._legacy_db:
-                legacy_started = await self._legacy_db.start()
-                if not legacy_started:
-                    logger.warning("[SQLAlchemyDBManager] 传统数据库管理器启动失败，部分功能可能不可用")
-
-            # 获取数据库 URL
-            db_url = self._get_database_url()
-
-            # 如果是 MySQL，先确保数据库存在
-            if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
-                await self._ensure_mysql_database_exists()
-
-            # 创建数据库引擎
-            self.engine = DatabaseEngine(db_url, echo=False)
-
-            logger.info("[SQLAlchemyDBManager] 数据库引擎已创建")
-            # 创建表结构（如果不��在）
-            await self.engine.create_tables()
-
-            # 健康检查
-            if await self.engine.health_check():
-                logger.info("✅ [SQLAlchemyDBManager] 数据库启动成功")
-                self._started = True
+        # 使用锁防止并发启动
+        async with self._start_lock:
+            if self._started:
+                logger.debug("[SQLAlchemyDBManager] 已经启动，跳过")
                 return True
-            else:
-                self._started = False
-                logger.error("❌ [SQLAlchemyDBManager] 数据库健康检查失败")
+
+            if self._starting:
+                logger.warning("[SQLAlchemyDBManager] 正在启动中，等待完成...")
+                # 等待启动完成
+                for _ in range(50):  # 最多等待5秒
+                    await asyncio.sleep(0.1)
+                    if self._started:
+                        return True
+                logger.error("[SQLAlchemyDBManager] 启动超时")
                 return False
 
-            self._started = False
-        except Exception as e:
-            logger.error(f"❌ [SQLAlchemyDBManager] 启动失败: {e}", exc_info=True)
-            return False
+            try:
+                self._starting = True
+                logger.info("[SQLAlchemyDBManager] 🚀 开始启动数据库管理器...")
+                # 保存主事件循环和线程ID（用于跨线程调用检测）
+                try:
+                    self._main_loop = asyncio.get_running_loop()
+                    self._main_thread_id = threading.get_ident()
+                    logger.debug(f"[SQLAlchemyDBManager] 主事件循环已保存，线程ID: {self._main_thread_id}")
+                except RuntimeError:
+                    logger.warning("[SQLAlchemyDBManager] 无法获取当前事件循环，可能在非异步上下文中启动")
+
+                # 启动传统数据库管理器（用于委托未实现的方法）
+                if self._legacy_db:
+                    legacy_started = await self._legacy_db.start()
+                    if not legacy_started:
+                        logger.warning("[SQLAlchemyDBManager] 传统数据库管理器启动失败，部分功能可能不可用")
+
+                # 获取数据库 URL
+                db_url = self._get_database_url()
+
+                # 如果是 MySQL，先确保数据库存在
+                if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
+                    await self._ensure_mysql_database_exists()
+
+                # 创建数据库引擎
+                self.engine = DatabaseEngine(db_url, echo=False)
+
+                logger.info("[SQLAlchemyDBManager] 数据库引擎已创建")
+                # 创建表结构（如果不存在）
+                await self.engine.create_tables()
+
+                # 健康检查
+                if await self.engine.health_check():
+                    logger.info("✅ [SQLAlchemyDBManager] 数据库启动成功")
+                    self._started = True
+                    self._starting = False
+                    return True
+                else:
+                    self._started = False
+                    self._starting = False
+                    logger.error("❌ [SQLAlchemyDBManager] 数据库健康检查失败")
+                    return False
+
+            except Exception as e:
+                self._started = False
+                self._starting = False
+                logger.error(f"❌ [SQLAlchemyDBManager] 启动失败: {e}", exc_info=True)
+                return False
 
     async def stop(self) -> bool:
         """
@@ -319,13 +337,33 @@ class SQLAlchemyDatabaseManager:
         """
         获取数据库会话（上下文管理器）
 
+        改进: 更宽松的状态检查，检查 engine 是否可用而不是严格依赖 _started 标志
+        这样可以避免在并发场景下的状态不一致问题
+
         用法:
             async with db_manager.get_session() as session:
                 repo = AffectionRepository(session)
                 result = await repo.get_by_id(1)
         """
-        if not self._started or not self.engine:
-            raise RuntimeError("数据库管理器未启动")
+        # ✅ 改进：检查 engine 是否存在，而不是仅依赖 _started 标志
+        # 这样可以处理启动过程中的并发访问
+        if not self.engine:
+            # 如果正在启动，等待一小段时间
+            if self._starting:
+                logger.debug("[SQLAlchemyDBManager] 数据库正在启动中，等待engine创建...")
+                for _ in range(30):  # 最多等待3秒
+                    await asyncio.sleep(0.1)
+                    if self.engine:
+                        break
+
+                if not self.engine:
+                    raise RuntimeError("数据库管理器启动超时，engine未创建")
+            else:
+                raise RuntimeError("数据库管理器未启动，engine不存在")
+
+        # ⚠️ 记录调试信息，帮助诊断问题
+        if not self._started:
+            logger.warning(f"[SQLAlchemyDBManager] get_session被调用但_started=False（engine存在），继续执行...")
 
         session = self.engine.get_session()
         try:
@@ -2005,7 +2043,7 @@ class SQLAlchemyDatabaseManager:
                 return raw_msg.id
 
         except Exception as e:
-            logger.error(f"[SQLAlchemy] 保存原始消息失败: {e}", exc_info=True)
+            logger.error(f"[SQLAlchemy] 保存���始消息失败: {e}", exc_info=True)
             return 0
 
     async def get_recent_raw_messages(self, group_id: str, limit: int = 200) -> List[Dict[str, Any]]:
