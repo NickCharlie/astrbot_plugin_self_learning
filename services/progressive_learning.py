@@ -988,7 +988,7 @@ class ProgressiveLearningService:
     async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
                                      current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
                                      quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None):
-        """应用学习更新，并创建人格学习审查记录
+        """应用学习更新，并创建人格学习审查记录和风格学习记录
 
         Args:
             group_id: 群组ID
@@ -1001,7 +1001,10 @@ class ProgressiveLearningService:
             ml_tuning_info: 强化学习调优信息（包含是否使用保守融合策略等）
         """
         try:
-            # 1. 更新人格prompt（通过 PersonaManagerService）
+            # 1. 保存对话风格学习记录（不需要审查，直接保存）
+            await self._save_style_learning_record(group_id, style_analysis, messages, quality_metrics)
+
+            # 2. 更新人格prompt（通过 PersonaManagerService）
             logger.info(f"应用人格更新 for group {group_id}")
             update_success = await self.persona_manager.update_persona(group_id, style_analysis, messages)
             if not update_success:
@@ -1285,7 +1288,139 @@ class ProgressiveLearningService:
             except Exception as db_error:
                 logger.error(f"保存审查记录到数据库失败: {db_error}")
                 return False
-            
+
         except Exception as e:
             logger.error(f"创建质量不达标审查记录失败: {e}")
             return False
+
+    async def _save_style_learning_record(self, group_id: str, style_analysis: Dict[str, Any],
+                                         messages: List[Dict[str, Any]], quality_metrics=None):
+        """
+        保存对话风格学习记录（直接保存，不需要审查）
+
+        Args:
+            group_id: 群组ID
+            style_analysis: 风格分析结果
+            messages: 处理的消息列表
+            quality_metrics: 质量指标
+        """
+        try:
+            if not style_analysis:
+                logger.debug(f"群组 {group_id} 没有风格分析结果，跳过风格学习记录保存")
+                return
+
+            # 1. 保存表达模式到 expression_patterns 表
+            expression_patterns = style_analysis.get('expression_patterns', [])
+            if expression_patterns:
+                await self._save_expression_patterns(group_id, expression_patterns)
+
+            # 2. 构建 few_shots 内容
+            few_shots_content = style_analysis.get('enhanced_prompt', '')
+            if not few_shots_content and expression_patterns:
+                # 如果没有 enhanced_prompt，从 expression_patterns 构建
+                few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
+
+            # 3. 构建学习模式列表
+            learned_patterns = []
+            for pattern in expression_patterns[:10]:  # 取前10个模式
+                learned_patterns.append({
+                    'situation': pattern.get('situation', ''),
+                    'expression': pattern.get('expression', ''),
+                    'weight': pattern.get('weight', 1.0),
+                    'confidence': pattern.get('confidence', 0.8)
+                })
+
+            # 4. 获取质量得分
+            confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.75
+
+            # 5. 构建描述
+            description = f"群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）"
+
+            # 6. 保存风格学习记录（使用 ORM）
+            try:
+                async with self.db_manager.get_session() as session:
+                    from ..models.orm.learning import StyleLearningReview
+                    import time
+
+                    review = StyleLearningReview(
+                        type='对话风格学习',
+                        group_id=group_id,
+                        timestamp=time.time(),
+                        learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),
+                        few_shots_content=few_shots_content,
+                        status='approved',  # 直接批准，不需要审查
+                        description=description,
+                        reviewer_comment='自动批准',
+                        review_time=time.time(),
+                        created_at=int(time.time()),
+                        updated_at=int(time.time())
+                    )
+
+                    session.add(review)
+                    await session.commit()
+                    await session.refresh(review)
+
+                    logger.info(f"✅ 对话风格学习记录已保存 (ID: {review.id})，包含 {len(learned_patterns)} 个模式")
+
+            except Exception as e:
+                logger.error(f"保存对话风格学习记录失败: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"保存风格学习记录失败: {e}", exc_info=True)
+
+    def _build_few_shots_from_patterns(self, patterns: List[Dict[str, Any]]) -> str:
+        """从表达模式构建 few-shots 内容"""
+        few_shots = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n"
+
+        for i, pattern in enumerate(patterns[:5], 1):  # 只取前5个
+            situation = pattern.get('situation', '')
+            expression = pattern.get('expression', '')
+            if situation and expression:
+                few_shots += f"A: {situation}\nB: {expression}\n\n"
+
+        return few_shots.strip()
+
+    async def _save_expression_patterns(self, group_id: str, patterns: List[Dict[str, Any]]):
+        """
+        保存表达模式到 expression_patterns 表
+
+        Args:
+            group_id: 群组ID
+            patterns: 表达模式列表
+        """
+        try:
+            if not patterns:
+                return
+
+            # 使用 ORM 保存表达模式
+            async with self.db_manager.get_session() as session:
+                from ..models.orm.expression import ExpressionPattern
+                import time
+
+                current_time = time.time()
+
+                for pattern in patterns:
+                    situation = pattern.get('situation', '').strip()
+                    expression = pattern.get('expression', '').strip()
+
+                    if not situation or not expression:
+                        continue
+
+                    # 创建表达模式记录
+                    expr_pattern = ExpressionPattern(
+                        group_id=group_id,
+                        situation=situation,
+                        expression=expression,
+                        weight=float(pattern.get('weight', 1.0)),
+                        confidence=float(pattern.get('confidence', 0.8)),
+                        create_time=current_time,
+                        update_time=current_time
+                    )
+
+                    session.add(expr_pattern)
+
+                await session.commit()
+                logger.info(f"✅ 已保存 {len(patterns)} 个表达模式到数据库 (群组: {group_id})")
+
+        except Exception as e:
+            logger.error(f"保存表达模式失败: {e}", exc_info=True)
