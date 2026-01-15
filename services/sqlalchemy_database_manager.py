@@ -2039,7 +2039,7 @@ class SQLAlchemyDatabaseManager:
                         'group_id': msg.group_id,
                         'timestamp': msg.timestamp,
                         'confidence': msg.confidence,
-                        'quality_score': msg.quality_score,
+                        'quality_scores': msg.quality_scores,
                         'filter_reason': msg.filter_reason,
                         'created_at': msg.created_at,
                         'processed': msg.processed
@@ -2158,7 +2158,6 @@ class SQLAlchemyDatabaseManager:
                 stmt = select(FilteredMessage).where(
                     FilteredMessage.processed == False
                 ).order_by(
-                    FilteredMessage.quality_score.desc(),
                     FilteredMessage.timestamp.desc()
                 ).limit(limit)
 
@@ -2176,7 +2175,7 @@ class SQLAlchemyDatabaseManager:
                         'group_id': msg.group_id,
                         'timestamp': msg.timestamp,
                         'confidence': msg.confidence,
-                        'quality_score': msg.quality_score,
+                        'quality_scores': msg.quality_scores,
                         'filter_reason': msg.filter_reason,
                         'created_at': msg.created_at,
                         'processed': msg.processed
