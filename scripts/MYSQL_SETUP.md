@@ -21,12 +21,19 @@
 
 ## 初始化步骤
 
-### 方法 1: 直接执行 SQL 脚本（推荐）
+### 方法 1: 执行完整建表脚本（推荐）
 
 ```bash
-# 在 MySQL 中执行建表脚本
+# 1. 执行 ORM 模型表（27个表）
 mysql -h 47.121.138.217 -P 13307 -u root -p < scripts/mysql_schema.sql
+
+# 2. 执行传统表（23个表）
+mysql -h 47.121.138.217 -P 13307 -u root -p < scripts/mysql_schema_additional.sql
 ```
+
+**说明**:
+- `mysql_schema.sql` 包含从 ORM 模型生成的 27 个核心表
+- `mysql_schema_additional.sql` 包含尚未迁移到 ORM 的 23 个传统表
 
 ### 方法 2: 通过 MySQL 客户端导入
 
