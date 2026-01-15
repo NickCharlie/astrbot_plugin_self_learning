@@ -175,6 +175,10 @@ class SQLAlchemyDatabaseManager:
             # 获取数据库 URL
             db_url = self._get_database_url()
 
+            # 如果是 MySQL，先确保数据库存在
+            if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
+                await self._ensure_mysql_database_exists()
+
             # 创建数据库引擎
             self.engine = DatabaseEngine(db_url, echo=False)
 
@@ -257,6 +261,55 @@ class SQLAlchemyDatabaseManager:
                 db_path = os.path.abspath(db_path)
 
             return f"sqlite:///{db_path}"
+
+    async def _ensure_mysql_database_exists(self):
+        """
+        确保 MySQL 数据库存在，如果不存在则创建
+        """
+        try:
+            import aiomysql
+
+            host = getattr(self.config, 'mysql_host', 'localhost')
+            port = getattr(self.config, 'mysql_port', 3306)
+            user = getattr(self.config, 'mysql_user', 'root')
+            password = getattr(self.config, 'mysql_password', '')
+            database = getattr(self.config, 'mysql_database', 'astrbot_self_learning')
+
+            # 先连接到 MySQL 服务器（不指定数据库）
+            conn = await aiomysql.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                charset='utf8mb4'
+            )
+
+            try:
+                async with conn.cursor() as cursor:
+                    # 检查数据库是否存在
+                    await cursor.execute(
+                        "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = %s",
+                        (database,)
+                    )
+                    result = await cursor.fetchone()
+
+                    if not result:
+                        # 数据库不存在，创建它
+                        logger.info(f"[SQLAlchemyDBManager] 数据库 {database} 不存在，正在创建...")
+                        await cursor.execute(
+                            f"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                        )
+                        await conn.commit()
+                        logger.info(f"✅ [SQLAlchemyDBManager] 数据库 {database} 创建成功")
+                    else:
+                        logger.debug(f"[SQLAlchemyDBManager] 数据库 {database} 已存在")
+
+            finally:
+                conn.close()
+
+        except Exception as e:
+            logger.error(f"❌ [SQLAlchemyDBManager] 确保 MySQL 数据库存在失败: {e}")
+            raise
 
     @asynccontextmanager
     async def get_session(self):
