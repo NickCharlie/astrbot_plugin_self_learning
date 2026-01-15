@@ -1142,7 +1142,7 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"延迟自动启动学习失败: {e}")
 
     async def _get_active_groups(self) -> List[str]:
-        """获取活跃群组列表"""
+        """获取活跃群组列表（使用ORM）"""
         try:
             # 检查数据库管理器是否可用和已启动
             if not self.db_manager:
@@ -1154,93 +1154,76 @@ class SelfLearningPlugin(star.Star):
                 logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
                 return []
 
-            # 对于传统数据库管理器，检查 db_backend
-            if hasattr(self.db_manager, 'db_backend') and not self.db_manager.db_backend:
-                logger.warning("传统数据库管理器未初始化，无法获取活跃群组")
-                return []
-
-            # ✅ 修复事件循环问题：确保在当前事件循环中执行数据库操作
-            # 获取最近有消息的群组
-            conn = None
-            cursor = None
-            try:
-                conn = await self.db_manager.get_db_connection().__aenter__()
-                cursor = await conn.cursor()
+            # 使用 ORM 方式查询活跃群组
+            async with self.db_manager.get_session() as session:
+                from sqlalchemy import select, func
+                from .models.orm import RawMessage
 
                 # 首先尝试获取最近24小时内有消息的群组
-                cutoff_time = time.time() - 86400
-                await cursor.execute('''
-                    SELECT DISTINCT group_id, COUNT(*) as msg_count
-                    FROM raw_messages
-                    WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
-                    GROUP BY group_id
-                    HAVING msg_count >= ?
-                    ORDER BY msg_count DESC
-                    LIMIT 10
-                ''', (cutoff_time, self.plugin_config.min_messages_for_learning))
+                cutoff_time = int(time.time() - 86400)
 
-                active_groups = []
-                for row in await cursor.fetchall():
-                    if row[0]:  # 确保group_id不为空
-                        active_groups.append(row[0])
+                stmt = select(
+                    RawMessage.group_id,
+                    func.count(RawMessage.id).label('msg_count')
+                ).where(
+                    RawMessage.timestamp > cutoff_time,
+                    RawMessage.group_id.isnot(None),
+                    RawMessage.group_id != ''
+                ).group_by(
+                    RawMessage.group_id
+                ).having(
+                    func.count(RawMessage.id) >= self.plugin_config.min_messages_for_learning
+                ).order_by(
+                    func.count(RawMessage.id).desc()
+                ).limit(10)
+
+                result = await session.execute(stmt)
+                active_groups = [row.group_id for row in result if row.group_id]
 
                 # 如果最近24小时没有活跃群组，扩大时间范围到7天
                 if not active_groups:
                     logger.warning("最近24小时内没有活跃群组，扩大搜索范围到7天...")
-                    cutoff_time = time.time() - (86400 * 7)  # 7天
-                    await cursor.execute('''
-                        SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages
-                        WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
-                        GROUP BY group_id
-                        HAVING msg_count >= ?
-                        ORDER BY msg_count DESC
-                        LIMIT 10
-                    ''', (cutoff_time, max(1, self.plugin_config.min_messages_for_learning // 2)))  # 降低消息数要求
+                    cutoff_time = int(time.time() - (86400 * 7))  # 7天
 
-                    for row in await cursor.fetchall():
-                        if row[0]:
-                            active_groups.append(row[0])
+                    stmt = select(
+                        RawMessage.group_id,
+                        func.count(RawMessage.id).label('msg_count')
+                    ).where(
+                        RawMessage.timestamp > cutoff_time,
+                        RawMessage.group_id.isnot(None),
+                        RawMessage.group_id != ''
+                    ).group_by(
+                        RawMessage.group_id
+                    ).having(
+                        func.count(RawMessage.id) >= max(1, self.plugin_config.min_messages_for_learning // 2)
+                    ).order_by(
+                        func.count(RawMessage.id).desc()
+                    ).limit(10)
+
+                    result = await session.execute(stmt)
+                    active_groups = [row.group_id for row in result if row.group_id]
 
                 # 如果还是没有，获取所有有消息的群组（无时间限制）
                 if not active_groups:
                     logger.warning("7天内也没有活跃群组，获取所有有消息记录的群组...")
-                    await cursor.execute('''
-                        SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages
-                        WHERE group_id IS NOT NULL AND group_id != ''
-                        GROUP BY group_id
-                        ORDER BY msg_count DESC
-                        LIMIT 10
-                    ''')
 
-                    for row in await cursor.fetchall():
-                        if row[0]:
-                            active_groups.append(row[0])
+                    stmt = select(
+                        RawMessage.group_id,
+                        func.count(RawMessage.id).label('msg_count')
+                    ).where(
+                        RawMessage.group_id.isnot(None),
+                        RawMessage.group_id != ''
+                    ).group_by(
+                        RawMessage.group_id
+                    ).order_by(
+                        func.count(RawMessage.id).desc()
+                    ).limit(10)
 
-                await cursor.close()
+                    result = await session.execute(stmt)
+                    active_groups = [row.group_id for row in result if row.group_id]
 
                 logger.info(f"发现 {len(active_groups)} 个活跃群组: {active_groups if active_groups else '无'}")
                 return active_groups
-
-            except RuntimeError as e:
-                if "attached to a different loop" in str(e):
-                    logger.warning("获取活跃群组遇到事件循环问题（已知MySQL限制），返回空列表")
-                    return []
-                else:
-                    raise
-            finally:
-                # 确保关闭游标和连接
-                if cursor:
-                    try:
-                        await cursor.close()
-                    except:
-                        pass
-                if conn:
-                    try:
-                        await self.db_manager.get_db_connection().__aexit__(None, None, None)
-                    except:
-                        pass
 
         except Exception as e:
             logger.error(f"获取活跃群组失败: {e}")
