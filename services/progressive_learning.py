@@ -785,7 +785,7 @@ class ProgressiveLearningService:
                         'raw_message_id': message.get('id'),
                         'message': message['message'],
                         'sender_id': message.get('sender_id', ''),
-                        'group_id': message.get('group_id', group_id),  # ✅ 添加 group_id
+                        'group_id': message.get('group_id', ''),  # ✅ 添加 group_id
                         'confidence': relevance,
                         'filter_reason': 'context_relevance',
                         'timestamp': message.get('timestamp', time.time()),
