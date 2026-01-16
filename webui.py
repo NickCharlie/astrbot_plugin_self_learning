@@ -3128,8 +3128,11 @@ async def get_style_learning_content_text():
 
                         pattern_count = 0
                         for group_id, patterns in group_patterns.items():
-                            logger.debug(f"处理群组 {group_id} 的 {len(patterns)} 个表达模式")
-                            for pattern in patterns[:5]:  # 每个群组取前5个
+                            logger.info(f"[WebUI DEBUG] 处理群组 {group_id} 的 {len(patterns)} 个表达模式")
+                            for i, pattern in enumerate(patterns[:5]):  # 每个群组取前5个
+                                logger.debug(f"[WebUI DEBUG] 群组 {group_id} 模式 {i}: type={type(pattern)}, is_dict={isinstance(pattern, dict)}")
+                                if isinstance(pattern, dict):
+                                    logger.debug(f"[WebUI DEBUG] 模式字典keys: {pattern.keys()}")
                                 # 处理字典格式（SQLAlchemy 返回）
                                 if isinstance(pattern, dict):
                                     if 'situation' in pattern and 'expression' in pattern:
@@ -3139,6 +3142,9 @@ async def get_style_learning_content_text():
                                             'metadata': f"权重: {pattern.get('weight', 0.5):.2f}, 群组: {group_id}"
                                         })
                                         pattern_count += 1
+                                        logger.debug(f"[WebUI DEBUG] 成功添加模式: {pattern['situation'][:20]}...")
+                                    else:
+                                        logger.warning(f"[WebUI DEBUG] 模式缺少必要字段，有situation={('situation' in pattern)}，有expression={('expression' in pattern)}")
                                 # 处理对象格式（传统方法返回）
                                 elif hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
                                     content_data['features'].append({
@@ -3147,6 +3153,9 @@ async def get_style_learning_content_text():
                                         'metadata': f"权重: {getattr(pattern, 'weight', 0.5):.2f}, 群组: {group_id}"
                                     })
                                     pattern_count += 1
+                                    logger.debug(f"[WebUI DEBUG] 成功添加对象模式")
+                                else:
+                                    logger.warning(f"[WebUI DEBUG] 模式既不是字典也不是对象，或缺少必要属性")
                         logger.info(f"成功添加 {pattern_count} 个表达模式特征")
                     else:
                         logger.warning("[WebUI] SQLAlchemy 返回空数据，降级到表达模式学习器")
