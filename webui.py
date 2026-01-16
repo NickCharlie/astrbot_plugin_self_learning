@@ -3003,35 +3003,65 @@ async def get_style_learning_content_text():
 
         if db_manager:
             try:
-                # 获取风格分析结果 - 使用学习批次数据
+                # 获取风格分析结果 - 使用对话风格学习记录
                 logger.info("开始获取风格学习分析结果...")
-                recent_batches = await db_manager.get_recent_learning_batches(limit=5)
-                logger.info(f"从数据库获取到 {len(recent_batches) if recent_batches else 0} 个学习批次记录")
-                
-                if recent_batches:
-                    for i, batch in enumerate(recent_batches):
-                        batch_name = batch.get('batch_name', '未命名')
-                        start_time = batch.get('start_time', time.time())
-                        message_count = batch.get('message_count', 0)
-                        quality_score = batch.get('quality_score', 0)
-                        success = batch.get('success', False)
-                        
-                        logger.debug(f"处理学习批次 {i+1}/{len(recent_batches)}: {batch_name}, "
-                                   f"消息数: {message_count}, 质量得分: {quality_score:.2f}, 成功: {success}")
-                        
-                        content_data['analysis'].append({
-                            'timestamp': datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
-                            'text': f"学习批次: {batch_name}\n处理消息: {message_count}条\n质量得分: {quality_score:.2f}",
-                            'metadata': f"成功: {'是' if success else '否'}"
-                        })
-                    logger.info(f"成功添加 {len(recent_batches)} 个学习批次到分析内容")
-                else:
-                    logger.warning("未找到任何学习批次记录，可能系统尚未进行自动学习")
+
+                # 优先从 style_learning_reviews 表获取对话风格学习记录
+                try:
+                    async with db_manager.get_session() as session:
+                        from sqlalchemy import select, desc
+                        from models.orm.learning import StyleLearningReview
+
+                        stmt = select(StyleLearningReview).order_by(desc(StyleLearningReview.timestamp)).limit(5)
+                        result = await session.execute(stmt)
+                        style_reviews = result.scalars().all()
+
+                        logger.info(f"从数据库获取到 {len(style_reviews)} 个对话风格学习记录")
+
+                        if style_reviews:
+                            for i, review in enumerate(style_reviews):
+                                # 解析 learned_patterns 获取消息数量
+                                try:
+                                    patterns = json.loads(review.learned_patterns) if review.learned_patterns else []
+                                    pattern_count = len(patterns)
+                                except:
+                                    pattern_count = 0
+
+                                # 从描述中提取消息数量（格式: "处理 X 条消息"）
+                                import re
+                                message_count = 0
+                                if review.description:
+                                    match = re.search(r'处理\s*(\d+)\s*条消息', review.description)
+                                    if match:
+                                        message_count = int(match.group(1))
+
+                                review_time = review.timestamp if review.timestamp else time.time()
+
+                                logger.debug(f"处理对话风格学习记录 {i+1}/{len(style_reviews)}: "
+                                           f"消息数: {message_count}, 模式数: {pattern_count}")
+
+                                content_data['analysis'].append({
+                                    'timestamp': datetime.fromtimestamp(review_time).strftime('%Y-%m-%d %H:%M:%S'),
+                                    'text': f"对话风格学习\n处理消息: {message_count}条\n提取模式: {pattern_count}个",
+                                    'metadata': f"状态: {review.status or '已完成'}"
+                                })
+                            logger.info(f"成功添加 {len(style_reviews)} 个对话风格学习记录到分析内容")
+                        else:
+                            logger.warning("未找到任何对话风格学习记录")
+                            content_data['analysis'].append({
+                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': '暂无学习分析数据，系统还未开始学习过程',
+                                'metadata': '系统提示'
+                            })
+                except Exception as e:
+                    logger.error(f"从 style_learning_reviews 表获取数据失败: {e}", exc_info=True)
+                    # 降级到旧的方法
                     content_data['analysis'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'text': '暂无学习分析数据，系统还未开始自动学习过程',
-                        'metadata': '系统提示'
+                        'text': f'获取学习数据时出错: {str(e)}',
+                        'metadata': '错误信息'
                     })
+
             except Exception as e:
                 logger.error(f"获取风格分析结果失败: {e}", exc_info=True)
                 content_data['analysis'].append({
