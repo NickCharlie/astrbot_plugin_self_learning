@@ -3010,7 +3010,7 @@ async def get_style_learning_content_text():
                 try:
                     async with db_manager.get_session() as session:
                         from sqlalchemy import select, desc
-                        from models.orm.learning import StyleLearningReview
+                        from .models.orm.learning import StyleLearningReview
 
                         stmt = select(StyleLearningReview).order_by(desc(StyleLearningReview.timestamp)).limit(5)
                         result = await session.execute(stmt)
