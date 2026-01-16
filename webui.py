@@ -2968,29 +2968,65 @@ async def get_style_learning_content_text():
         if db_manager:
             logger.info("数据库管理器可用，开始获取学习内容数据")
             try:
-                # 获取对话示例文本 - 使用现有的方法
+                # 获取对话示例文本 - 从raw_messages表获取最近的原始消息
                 logger.debug("开始获取对话示例文本...")
-                recent_messages = await db_manager.get_filtered_messages_for_learning(20)
-                logger.info(f"获取到 {len(recent_messages) if recent_messages else 0} 条筛选消息用于对话示例")
-                
-                if recent_messages:
-                    for i, msg in enumerate(recent_messages):
-                        content_data['dialogues'].append({
-                            'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
-                            'text': f"用户: {msg.get('message', '暂无内容')}",
-                            'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
-                        })
-                        if i == 0:  # 记录第一条消息的详细信息用于调试
-                            logger.debug(f"第一条对话示例: 群组={msg.get('group_id')}, 时间={msg.get('timestamp')}, 内容长度={len(msg.get('message', ''))}")
-                    logger.info(f"成功添加 {len(recent_messages)} 条对话示例")
-                else:
-                    # 没有数据时提供友好提示
-                    logger.warning("未找到筛选消息，显示默认提示")
+
+                # 优先使用SQLAlchemy从raw_messages获取
+                try:
+                    async with db_manager.get_session() as session:
+                        from sqlalchemy import select, desc, func
+                        from .models.orm import RawMessage
+
+                        # 获取最近20条消息,按时间倒序
+                        stmt = select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(20)
+                        result = await session.execute(stmt)
+                        raw_messages = result.scalars().all()
+
+                        logger.info(f"从raw_messages表获取到 {len(raw_messages)} 条原始消息用于对话示例")
+
+                        if raw_messages:
+                            for i, msg in enumerate(raw_messages):
+                                # 过滤太短的消息
+                                message_text = msg.message if msg.message else ''
+                                if len(message_text.strip()) < 5:
+                                    continue
+
+                                content_data['dialogues'].append({
+                                    'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                    'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
+                                    'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
+                                })
+                                if i == 0:
+                                    logger.debug(f"第一条对话示例: 群组={msg.group_id}, 时间={msg.timestamp}, 内容长度={len(message_text)}")
+                            logger.info(f"成功添加 {len([d for d in content_data['dialogues']])} 条对话示例")
+                        else:
+                            logger.warning("raw_messages表为空")
+                            raise ValueError("raw_messages表为空")
+
+                except Exception as e:
+                    logger.warning(f"从raw_messages表获取失败: {e}, 尝试降级方法")
+                    # 降级到filtered_messages表
+                    recent_messages = await db_manager.get_filtered_messages_for_learning(20)
+                    logger.info(f"降级获取到 {len(recent_messages) if recent_messages else 0} 条筛选消息")
+
+                    if recent_messages:
+                        for i, msg in enumerate(recent_messages):
+                            content_data['dialogues'].append({
+                                'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"用户: {msg.get('message', '暂无内容')}",
+                                'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
+                            })
+                        logger.info(f"成功添加 {len(recent_messages)} 条对话示例")
+
+                # 如果仍然没有数据,显示提示
+                if not content_data['dialogues']:
+                    logger.warning("未找到任何消息，显示默认提示")
                     content_data['dialogues'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无对话数据，请先进行一些群聊对话，系统会自动学习和筛选有价值的内容',
                         'metadata': '系统提示'
                     })
+
             except Exception as e:
                 logger.error(f"获取对话示例文本失败: {e}", exc_info=True)
                 content_data['dialogues'].append({
