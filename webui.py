@@ -3116,6 +3116,13 @@ async def get_style_learning_content_text():
                     logger.debug("尝试从 SQLAlchemy 数据库管理器获取表达模式...")
                     group_patterns = await db_manager.get_all_expression_patterns()
 
+                    logger.info(f"[WebUI DEBUG] get_all_expression_patterns返回类型: {type(group_patterns)}")
+                    logger.info(f"[WebUI DEBUG] get_all_expression_patterns返回值: {group_patterns is not None}")
+                    if group_patterns:
+                        logger.info(f"[WebUI DEBUG] 群组数量: {len(group_patterns)}")
+                        for gid, pats in list(group_patterns.items())[:3]:
+                            logger.info(f"[WebUI DEBUG] 群组 {gid}: {len(pats)} 个模式")
+
                     if group_patterns:
                         logger.info(f"[WebUI] 从 SQLAlchemy 获取到 {len(group_patterns)} 个群组的模式")
 
@@ -3478,7 +3485,7 @@ async def generate_recommendations():
 @api_bp.route("/style_learning/stats", methods=["GET"])
 @require_auth
 async def get_style_learning_stats():
-    """获取对话风格学习统计数据"""
+    """获取对���风格学习统计数据"""
     try:
         from .core.factory import FactoryManager
         
