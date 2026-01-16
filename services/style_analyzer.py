@@ -11,6 +11,7 @@ from astrbot.api import logger
 from astrbot.api.star import Context
 
 from ..core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+from ..core.interfaces import AnalysisResult  # 导入 AnalysisResult
 
 from ..config import PluginConfig
 
@@ -100,15 +101,25 @@ class StyleAnalyzerService:
         else:
             logger.info("未找到基准风格档案，将从零开始。")
 
-    async def analyze_conversation_style(self, group_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def analyze_conversation_style(self, group_id: str, messages: List[Dict[str, Any]]) -> AnalysisResult:
         """分析对话风格，使用强模型进行深度分析"""
         try:
             if not messages:
-                return {"error": "没有消息数据"}
-            
+                return AnalysisResult(
+                    success=False,
+                    confidence=0.0,
+                    data={},
+                    error="没有消息数据"
+                )
+
             # 检查框架适配器是否可用
             if not self.llm_adapter or not self.llm_adapter.has_refine_provider():
-                return {"error": "提炼模型适配器未配置，无法进行风格分析。"}
+                return AnalysisResult(
+                    success=False,
+                    confidence=0.0,
+                    data={},
+                    error="提炼模型适配器未配置，无法进行风格分析。"
+                )
             
             # 准备分析数据
             message_texts = [msg.get('message', '') for msg in messages]
@@ -128,26 +139,41 @@ class StyleAnalyzerService:
             # 更新基准风格并持久化
             self.baseline_style = style_profile
             await self.db_manager.save_style_profile(group_id, {"profile_name": "baseline_style_profile", **self.baseline_style.__dict__})
-            
-            # 准备返回结果
-            result = {
+
+            # 计算置信度
+            confidence = await self._calculate_analysis_confidence(messages)
+
+            # 准备返回结果数据
+            result_data = {
                 'style_analysis': style_analysis,
                 'style_profile': self.baseline_style.__dict__, # 返回更新后的基准风格
                 'style_evolution': style_evolution.__dict__ if style_evolution else None,
                 'message_count': len(messages),
                 'analysis_timestamp': datetime.now().isoformat(),
-                'confidence': await self._calculate_analysis_confidence(messages),
+                'confidence': confidence,
                 'analyzed_messages': [{'message': msg.get('message', ''), 'sender': msg.get('sender_name', '')} for msg in messages[:10]]  # 保存前10条消息用于分析记录
             }
-            
+
             # 将分析结果保存到数据库
-            await self._save_style_analysis_to_db(group_id, result)
-            
-            return result
-            
+            await self._save_style_analysis_to_db(group_id, result_data)
+
+            # 返回 AnalysisResult 对象
+            return AnalysisResult(
+                success=True,
+                confidence=confidence,
+                data=result_data,
+                timestamp=time.time()
+            )
+
         except Exception as e:
             logger.error(f"对话风格分析失败: {e}")
-            raise StyleAnalysisError(f"风格分析失败: {str(e)}")
+            return AnalysisResult(
+                success=False,
+                confidence=0.0,
+                data={},
+                error=f"风格分析失败: {str(e)}",
+                timestamp=time.time()
+            )
 
     async def _generate_style_analysis(self, text: str) -> Dict[str, Any]:
         """生成详细的风格分析报告"""

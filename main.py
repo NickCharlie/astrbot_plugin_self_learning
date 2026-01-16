@@ -740,13 +740,14 @@ class SelfLearningPlugin(star.Star):
                             reply_to=msg_dict.get('reply_to')
                         )
                         analysis_messages.append(message_data)
-                    
+
                     # 立即分析消息的风格
                     style_result = await self.style_analyzer.analyze_conversation_style(
                         group_id, analysis_messages
                     )
-                    if style_result:
-                        logger.debug(f"实时风格分析完成: {style_result}")
+                    # ✅ 正确检查 AnalysisResult 的 success 属性
+                    if style_result and (style_result.success if hasattr(style_result, 'success') else True):
+                        logger.debug(f"实时风格分析完成，置信度: {style_result.confidence if hasattr(style_result, 'confidence') else 'N/A'}")
                 except Exception as e:
                     logger.error(f"实时风格分析失败: {e}")
 

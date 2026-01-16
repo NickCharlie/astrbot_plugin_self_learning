@@ -292,24 +292,30 @@ class ProgressiveLearningService:
                         # 使用强化学习优化后的人格
                         final_persona = tuning_result.get('updated_persona')
 
-                        # 检测是否使用了保守融合策略
-                        original_prompt_length = len(current_persona.get('prompt', ''))
-                        new_prompt_length = len(final_persona.get('prompt', ''))
-                        used_conservative_fusion = new_prompt_length < original_prompt_length * 0.8
+                        # ✅ 检查 updated_persona 类型，确保是字典才调用 update
+                        if not isinstance(updated_persona, dict):
+                            logger.error(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
+                        elif not isinstance(final_persona, dict):
+                            logger.error(f"final_persona 类型不正确，预期为 dict 但得到 {type(final_persona)}，跳过强化学习调优")
+                        else:
+                            # 检测是否使用了保守融合策略
+                            original_prompt_length = len(current_persona.get('prompt', ''))
+                            new_prompt_length = len(final_persona.get('prompt', ''))
+                            used_conservative_fusion = new_prompt_length < original_prompt_length * 0.8
 
-                        updated_persona.update(final_persona)
+                            updated_persona.update(final_persona)
 
-                        # 保存强化学习调优信息，供审查记录使用
-                        ml_tuning_info = {
-                            'applied': True,
-                            'expected_improvement': tuning_result.get('performance_prediction', {}).get('expected_improvement', 0),
-                            'used_conservative_fusion': used_conservative_fusion,
-                            'original_length': original_prompt_length,
-                            'tuned_length': new_prompt_length
-                        }
+                            # 保存强化学习调优信息，供审查记录使用
+                            ml_tuning_info = {
+                                'applied': True,
+                                'expected_improvement': tuning_result.get('performance_prediction', {}).get('expected_improvement', 0),
+                                'used_conservative_fusion': used_conservative_fusion,
+                                'original_length': original_prompt_length,
+                                'tuned_length': new_prompt_length
+                            }
 
-                        logger.info(f"应用强化学习优化后的人格，预期改进: {ml_tuning_info['expected_improvement']}" +
-                                  (f"，使用保守融合策略" if used_conservative_fusion else ""))
+                            logger.info(f"应用强化学习优化后的人格，预期改进: {ml_tuning_info['expected_improvement']}" +
+                                      (f"，使用保守融合策略" if used_conservative_fusion else ""))
 
                 except Exception as e:
                     logger.error(f"强化学习增量微调失败: {e}")
@@ -338,13 +344,15 @@ class ProgressiveLearningService:
             success = True  # 对话风格学习总是成功
             
             # 10. 【新增】保存学习性能记录
+            # ✅ 正确处理 AnalysisResult 对象进行序列化
+            style_analysis_for_db = style_analysis.data if hasattr(style_analysis, 'data') else style_analysis
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self.current_session.session_id if self.current_session else '',
                 'timestamp': time.time(),
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
                 'success': success,
-                'successful_pattern': json.dumps(style_analysis, default=self._json_serializer),
+                'successful_pattern': json.dumps(style_analysis_for_db, default=self._json_serializer),
                 'failed_pattern': ''  # 对话风格学习总是成功，不记录失败
             })
             
@@ -460,8 +468,12 @@ class ProgressiveLearningService:
                     group_id, current_persona, updated_persona
                 )
                 if tuning_result and tuning_result.get('updated_persona'):
-                    updated_persona.update(tuning_result.get('updated_persona'))
-                    logger.info(f"应用强化学习优化，预期改进: {tuning_result.get('performance_prediction', {}).get('expected_improvement', 0)}")
+                    # ✅ 检查 updated_persona 类型，确保是字典才调用 update
+                    if isinstance(updated_persona, dict):
+                        updated_persona.update(tuning_result.get('updated_persona'))
+                        logger.info(f"应用强化学习优化，预期改进: {tuning_result.get('performance_prediction', {}).get('expected_improvement', 0)}")
+                    else:
+                        logger.warning(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
             
             # 7. 质量评估和应用更新
             await self._finalize_learning_batch(
@@ -487,11 +499,12 @@ class ProgressiveLearningService:
 
     async def _execute_style_analysis_background(self, group_id: str, filtered_messages):
         """在后台执行风格分析"""
+        from ..core.interfaces import AnalysisResult
         try:
             return await self.style_analyzer.analyze_conversation_style(group_id, filtered_messages)
         except Exception as e:
             logger.error(f"后台风格分析失败: {e}")
-            return {}
+            return AnalysisResult(success=False, confidence=0.0, data={}, error=str(e))
 
     async def _execute_incremental_tuning_background(self, group_id: str, base_persona, incremental_updates):
         """在后台执行增量微调"""
@@ -527,7 +540,11 @@ class ProgressiveLearningService:
 
             # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
             # ✅ 传递 style_analysis 用于保存对话风格学习记录
-            await self._apply_learning_updates(group_id, style_analysis or {}, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
+            # ✅ 如果 style_analysis 为 None，创建一个空的 AnalysisResult
+            from ..core.interfaces import AnalysisResult
+            if style_analysis is None:
+                style_analysis = AnalysisResult(success=True, confidence=0.5, data={})
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
 
@@ -964,7 +981,28 @@ class ProgressiveLearningService:
 
             # 2. 更新人格prompt（通过 PersonaManagerService）
             logger.info(f"应用人格更新 for group {group_id}")
-            update_success = await self.persona_manager.update_persona(group_id, style_analysis, messages)
+
+            # ✅ 正确处理 AnalysisResult 对象
+            if hasattr(style_analysis, 'success'):
+                # 这是一个 AnalysisResult 对象
+                if not style_analysis.success:
+                    logger.error(f"风格分析失败，跳过人格更新: {style_analysis.error}")
+                    return
+
+                # 使用 AnalysisResult 的 data 属性
+                style_analysis_dict = style_analysis.data
+                confidence = style_analysis.confidence
+                logger.debug(f"使用 AnalysisResult 对象，置信度: {confidence:.3f}")
+            elif isinstance(style_analysis, dict):
+                # 向后兼容：如果传入的是字典
+                style_analysis_dict = style_analysis
+                confidence = style_analysis.get('confidence', 0.5)
+                logger.debug("使用字典形式的 style_analysis（向后兼容）")
+            else:
+                logger.error(f"style_analysis 类型不正确: {type(style_analysis)}")
+                return
+
+            update_success = await self.persona_manager.update_persona(group_id, style_analysis_dict, messages)
             if not update_success:
                 logger.error(f"通过 PersonaManagerService 更新人格失败 for group {group_id}")
 
