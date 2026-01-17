@@ -715,7 +715,7 @@ class SocialContextInjector:
             if task_index < len(planned_stages):
                 context_lines.append(f"✅ 请根据以上对话目标信息，结合用户的最新消息，围绕当前阶段性目标「{current_task}」组织你的回复内容。")
                 context_lines.append(f"✅ 你的回复应该自然地推进对话朝着「{goal_name}」的方向发展，同时保持对话的连贯性和真实性。")
-                context_lines.append(f"✅ 注意：不要机械地提及"目标"或"阶段"等元信息，而是通过对话内容本身体现当前阶段的意图。")
+                context_lines.append(f"✅ 注意：不要机械地提及'目标'或'阶段'等元信息，而是通过对话内容本身体现当前阶段的意图。")
 
                 # 根据进度和参与度调整提示
                 if progress < 0.3:
