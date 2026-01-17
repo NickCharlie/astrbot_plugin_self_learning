@@ -484,13 +484,22 @@ class ConversationGoalManager:
             logger.debug(f"🔍 [对话目标-分析初始目标] LLM Response: {response}")
 
             # 消毒响应
-            sanitized_response, report = self.prompt_protection.sanitize_response(response)
+            try:
+                sanitized_response, report = self.prompt_protection.sanitize_response(response)
+                logger.debug(f"🔍 [对话目标-分析初始目标] 消毒后响应: {sanitized_response}")
+            except Exception as sanitize_error:
+                logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
+                sanitized_response = response  # 使用原始响应
 
             # 使用guardrails验证和清理JSON
-            result = self.guardrails.validate_and_clean_json(
-                sanitized_response,
-                expected_type="object"
-            )
+            try:
+                result = self.guardrails.validate_and_clean_json(
+                    sanitized_response,
+                    expected_type="object"
+                )
+            except Exception as validation_error:
+                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+                result = None
 
             # 如果验证失败,使用回退值
             if result is None:
@@ -504,7 +513,7 @@ class ConversationGoalManager:
             return result
 
         except Exception as e:
-            logger.warning(f"LLM分析初始目标失败: {e}")
+            logger.warning(f"LLM分析初始目标失败: {e}", exc_info=True)
             # 默认返回闲聊
             return {
                 "goal_type": "casual_chat",
@@ -566,13 +575,22 @@ class ConversationGoalManager:
             logger.debug(f"🔍 [对话目标-动态规划阶段] LLM Response: {response}")
 
             # 消毒响应
-            sanitized_response, report = self.prompt_protection.sanitize_response(response)
+            try:
+                sanitized_response, report = self.prompt_protection.sanitize_response(response)
+                logger.debug(f"🔍 [对话目标-动态规划阶段] 消毒后响应: {sanitized_response}")
+            except Exception as sanitize_error:
+                logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
+                sanitized_response = response  # 使用原始响应
 
             # 使用guardrails验证和清理JSON
-            stages = self.guardrails.validate_and_clean_json(
-                sanitized_response,
-                expected_type="array"
-            )
+            try:
+                stages = self.guardrails.validate_and_clean_json(
+                    sanitized_response,
+                    expected_type="array"
+                )
+            except Exception as validation_error:
+                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+                stages = None
 
             # 如果验证成功且是有效列表,返回
             if isinstance(stages, list) and len(stages) >= 2:
@@ -581,7 +599,7 @@ class ConversationGoalManager:
                 return base_stages
 
         except Exception as e:
-            logger.warning(f"动态规划阶段失败: {e}, 使用基础模板")
+            logger.warning(f"动态规划阶段失败: {e}, 使用基础模板", exc_info=True)
             return base_stages
 
     async def update_goal_with_dynamic_adjustment(
@@ -760,13 +778,22 @@ Bot: {bot_response}
             logger.debug(f"🔍 [对话目标-意图分析] LLM Response: {response}")
 
             # 消毒响应
-            sanitized_response, report = self.prompt_protection.sanitize_response(response)
+            try:
+                sanitized_response, report = self.prompt_protection.sanitize_response(response)
+                logger.debug(f"🔍 [对话目标-意图分析] 消毒后响应: {sanitized_response}")
+            except Exception as sanitize_error:
+                logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
+                sanitized_response = response  # 使用原始响应
 
             # 使用guardrails验证和清理JSON
-            analysis = self.guardrails.validate_and_clean_json(
-                sanitized_response,
-                expected_type="object"
-            )
+            try:
+                analysis = self.guardrails.validate_and_clean_json(
+                    sanitized_response,
+                    expected_type="object"
+                )
+            except Exception as validation_error:
+                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+                analysis = None
 
             # 如果验证失败,使用回退值
             if analysis is None:
@@ -783,7 +810,7 @@ Bot: {bot_response}
             return analysis
 
         except Exception as e:
-            logger.warning(f"意图分析失败: {e}")
+            logger.warning(f"意图分析失败: {e}", exc_info=True)
             # 返回默认分析
             return {
                 "goal_switch_needed": False,
