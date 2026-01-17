@@ -5,10 +5,10 @@
 
 ---
 
-[![Version](https://img.shields.io/badge/version-Next--1.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-Next--1.1.5-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
-[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.0.0-orange.svg)](https://github.com/Soulter/AstrBot)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 **让你的 AI 聊天机器人像真人一样学习、思考和对话**
 
