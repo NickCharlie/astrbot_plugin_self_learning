@@ -55,12 +55,13 @@
 
 ## 🌟 项目概述
 
-AstrBot 智能自主学习插件是一个全功能 AI 自主学习 聊天拟人化 解决方案。通过实时消息捕获、多维度数据分析、表达模式学习和动态人格优化，让聊天机器人能够：
+AstrBot 智能自主学习插件是一个全功能 AI 自主学习 聊天拟人化 解决方案。通过实时消息捕获、多维度数据分析、表达模式学习、动态人格优化和目标驱动对话，让聊天机器人能够:
 
 - 📖 **学习特定用户的对话风格** - 自动模仿学习对象的表达方式
 - 🎯 **智能黑话理解系统** - 自动学习群组特定用语，避免误解
 - ❤️ **管理社交关系和好感度** - 追踪用户互动，动态调整回复策略
 - 🎭 **自适应人格演化** - 根据学习成果智能更新 AI 人格设定
+- 🎯 **目标驱动对话引导** - 智能检测对话目标，阶段式推进对话深度
 - 🌐 **可视化管理界面** - 通过 WebUI 实时监控学习进度和效果
 
 
@@ -115,6 +116,21 @@ AstrBot 智能自主学习插件是一个全功能 AI 自主学习 聊天拟人�
 - 自动检测候选黑话
 - LLM 智能推断含义
 - 实时注入对话理解
+
+#### 5. 目标驱动对话系统 🎯
+```python
+# 自动检测对话目标并动态规划阶段
+用户: "我最近工作压力好大..."
+Bot: 检测目标 → emotional_support (情感支持)
+     规划阶段 → ["倾听诉说", "识别核心问题", "表达理解", "提供建议", "给予鼓励"]
+     当前阶段 → "倾听诉说"
+```
+- **38种预设目标类型** - 覆盖情感支持、信息交流、娱乐互动、社交场景、冲突处理等
+- **智能目标检测** - 使用LLM自动分析用户意图，识别对话目标
+- **动态阶段规划** - 根据目标类型和话题，LLM生成循序渐进的对话阶段
+- **会话级管理** - 24小时会话隔离，自动追踪对话进度和用户参与度
+- **目标切换支持** - 检测话题完结，自动切换到新目标
+- **上下文注入** - 将目标状态注入LLM prompt，引导回复策略
 
 ### 🏗️ 架构特性
 
@@ -222,6 +238,13 @@ Database_Settings:
 - 模型配置管理
 - 好感度和情绪系统开关
 - 数据管理和调试模式
+
+**7. 智能对话管理**
+- 目标驱动对话系统管理
+- 查看用户当前对话目标和进度
+- 清除会话目标，重置对话状态
+- 目标统计信息和分析
+- 支持的38种目标类型查询
 
 ---
 
@@ -550,6 +573,148 @@ jargon_explanation = await jargon_query.check_and_explain_jargon(
 - ✅ 60秒 TTL 缓存，提升性能
 - ✅ 实时注入 LLM 理解，避免误解
 
+### 目标驱动对话系统
+
+**工作原理**:
+
+1. **会话初始化** - 用户发送消息时自动创建24小时会话
+2. **目标检测** - 使用 LLM 分析用户意图，识别对话目标类型
+3. **阶段规划** - 根据目标和话题，LLM 生成3-5个对话阶段
+4. **动态调整** - 实时分析对话进展，自动推进或调整阶段
+5. **目标切换** - 检测话题完结，切换到新目标类型
+6. **上下文注入** - 将目标状态注入 LLM prompt，引导回复策略
+
+**38种预设目标类型**:
+
+```python
+# 情感支持类 (5种)
+comfort           # 安慰用户
+emotional_support # 情感支持
+empathy          # 深度共情
+encouragement    # 鼓励打气
+calm_down        # 情绪安抚
+
+# 信息交流类 (5种)
+qa               # 解答疑问
+guide_share      # 引导分享
+teach            # 教学指导
+discuss          # 深度讨论
+storytelling     # 讲故事
+
+# 娱乐互动类 (6种)
+casual_chat      # 闲聊互动
+tease            # 友好调侃
+flirt            # 俏皮调戏
+joke             # 幽默搞笑
+meme             # 梗文化互动
+roleplay         # 角色扮演
+
+# 社交互动类 (5种)
+greeting         # 问候寒暄
+compliment       # 赞美夸奖
+celebrate        # 庆祝祝贺
+apologize        # 道歉和解
+gossip           # 八卦闲聊
+
+# 建议指导类 (4种)
+advise           # 提供建议
+brainstorm       # 头脑风暴
+plan             # 制定计划
+analyze          # 分析问题
+
+# 情绪调节类 (3种)
+vent             # 倾听发泄
+motivate         # 激励鼓舞
+complaint        # 抱怨吐槽
+
+# 兴趣分享类 (3种)
+recommend        # 推荐分享
+review           # 评价点评
+hobby_chat       # 爱好交流
+
+# 特殊场景类 (3种)
+debate           # 友好辩论
+confess          # 倾诉秘密
+nostalgia        # 怀旧回忆
+
+# 冲突场景类 (4种)
+argument         # 激烈争论
+quarrel          # 吵架互怼
+insult_exchange  # 互骂对喷
+provoke          # 挑衅应对
+```
+
+**会话管理**:
+
+```python
+# 会话ID生成 (24小时不变)
+session_id = MD5(group_id + user_id + date)
+
+# 会话数据结构
+{
+  "session_id": "sess_a1b2c3d4e5f6",
+  "final_goal": {
+    "type": "emotional_support",
+    "name": "情感支持",
+    "topic": "工作压力",
+    "topic_status": "active"
+  },
+  "current_stage": {
+    "index": 2,
+    "task": "识别核心问题",
+    "strategy": "顺序推进",
+    "adjustment_reason": "上一阶段已完成"
+  },
+  "planned_stages": [
+    "倾听诉说", "识别核心问题", "表达理解",
+    "提供建议", "给予鼓励"
+  ],
+  "metrics": {
+    "rounds": 5,
+    "user_engagement": 0.8,
+    "goal_progress": 0.4
+  },
+  "conversation_history": [...]
+}
+```
+
+**WebUI API 接口**:
+
+```bash
+# 1. 带目标引导的对话
+POST /api/intelligent_chat/chat
+{
+  "user_id": "10001",
+  "message": "我最近工作压力好大...",
+  "group_id": "123456",
+  "force_normal_mode": false
+}
+
+# 2. 获取用户当前目标状态
+GET /api/intelligent_chat/goal/status?user_id=10001&group_id=123456
+
+# 3. 清除用户当前目标
+DELETE /api/intelligent_chat/goal/clear
+{
+  "user_id": "10001",
+  "group_id": "123456"
+}
+
+# 4. 获取目标统计信息
+GET /api/intelligent_chat/goal/statistics
+
+# 5. 获取所有可用的目标类型
+GET /api/intelligent_chat/goal/templates
+```
+
+**特点**:
+- ✅ 38种预设目标类型，覆盖日常对话场景
+- ✅ LLM智能检测，自动识别用户意图
+- ✅ 动态阶段规划，循序渐进推进对话
+- ✅ 会话级隔离，支持多用户并发
+- ✅ 目标切换机制，适应话题变化
+- ✅ 完整的REST API，方便集成
+
 ### 社交关系分析
 
 **关系追踪**:
@@ -752,6 +917,15 @@ Mood_System_Settings:
   enable_startup_random_mood: true  # 启用启动时随机情绪
   mood_change_hour: 6               # 情绪更新时间（24小时制）
   mood_persistence_hours: 24        # 情绪持续时间（小时）
+
+# ========================================
+# 目标驱动对话系统
+# ========================================
+Goal_Driven_Chat_Settings:
+  enable_goal_driven_chat: false    # 启用目标驱动对话系统
+  goal_session_timeout_hours: 24    # 会话超时时间（小时）
+  goal_auto_detect: true            # 自动检测对话目标
+  goal_max_conversation_history: 40 # 最大对话历史记录数（轮次）
 
 # ========================================
 # 数据库设置
