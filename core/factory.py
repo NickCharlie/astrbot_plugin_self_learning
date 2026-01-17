@@ -999,6 +999,9 @@ class ComponentFactory:
             # 获取好感度管理器（如果已创建）
             affection_manager = self._service_cache.get("affection_manager")
 
+            # 获取对话目标管理器（如果已创建）
+            goal_manager = self._service_cache.get("conversation_goal_manager")
+
             # 创建心理状态管理器和社交关系管理器（整合自 PsychologicalSocialContextInjector）
             manager_factory = ManagerFactory(self.config)
 
@@ -1030,13 +1033,17 @@ class ComponentFactory:
                 config=self.config,  # ✅ 传递config以读取expression_patterns_hours配置
                 psychological_state_manager=psychological_state_manager,  # 新增：心理状态管理器
                 social_relation_manager=social_relation_manager,  # 新增：社交关系管理器（但使用原有实现）
-                llm_adapter=llm_adapter  # 新增：LLM适配器
+                llm_adapter=llm_adapter,  # 新增：LLM适配器
+                goal_manager=goal_manager  # 新增：对话目标管理器
             )
 
             self._service_cache[cache_key] = service
             self._registry.register_service("social_context_injector", service)
 
-            self._logger.info("创建社交上下文注入器成功（已整合心理状态功能）")
+            if goal_manager:
+                self._logger.info("创建社交上下文注入器成功（已整合心理状态功能和对话目标管理器）")
+            else:
+                self._logger.info("创建社交上下文注入器成功（已整合心理状态功能，对话目标管理器未初始化）")
             return service
 
         except ImportError as e:
