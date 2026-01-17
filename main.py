@@ -996,6 +996,25 @@ class SelfLearningPlugin(star.Star):
             # 5. 智能启动学习任务（基于消息活动，添加频率限制）
             await self._smart_start_learning_for_group(group_id)
 
+            # 6. 对话目标管理（如果启用）
+            if self.plugin_config.enable_goal_driven_chat:
+                try:
+                    if hasattr(self, 'conversation_goal_manager') and self.conversation_goal_manager:
+                        # 创建或获取对话目标
+                        goal = await self.conversation_goal_manager.get_or_create_conversation_goal(
+                            user_id=sender_id,
+                            group_id=group_id,
+                            user_message=message_text
+                        )
+                        if goal:
+                            goal_type = goal['final_goal'].get('type', 'unknown')
+                            goal_name = goal['final_goal'].get('name', '未知目标')
+                            topic = goal['final_goal'].get('topic', '未知话题')
+                            current_stage = goal['current_stage'].get('task', '初始化')
+                            logger.info(f"✅ [对话目标] 会话目标: {goal_name} (类型: {goal_type}), 话题: {topic}, 当前阶段: {current_stage}")
+                except Exception as e:
+                    logger.error(f"对话目标处理失败: {e}", exc_info=True)
+
         except Exception as e:
             logger.error(f"后台学习处理失败: {e}", exc_info=True)
 
@@ -2649,6 +2668,7 @@ PersonaManager模式优势：
                         include_expression_patterns=True,  # ⭐ 表达模式学习结果
                         include_psychological=True,  # ⭐ 深度心理状态分析
                         include_behavior_guidance=True,  # ⭐ 行为模式指导
+                        include_conversation_goal=self.plugin_config.enable_goal_driven_chat,  # ⭐ 对话目标上下文
                         enable_protection=True
                     )
                     if social_context:

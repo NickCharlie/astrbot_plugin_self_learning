@@ -661,6 +661,7 @@ class SocialContextInjector:
             if not goal:
                 # ⚡ 缓存空结果
                 self._set_to_cache(cache_key, None)
+                logger.debug(f"⚠️ [对话目标上下文] 群组 {group_id} 用户 {user_id[:8]}... 暂无活跃对话目标")
                 return None
 
             # 提取关键信息
@@ -680,6 +681,8 @@ class SocialContextInjector:
             rounds = metrics.get('rounds', 0)
             user_engagement = metrics.get('user_engagement', 0.5)
             progress = metrics.get('goal_progress', 0.0)
+
+            logger.info(f"✅ [对话目标上下文] 检测到活跃目标 - 类型: {goal_type}, 名称: {goal_name}, 进度: {progress:.0%}, 阶段: {current_task}")
 
             # 格式化上下文文本
             context_lines = []
