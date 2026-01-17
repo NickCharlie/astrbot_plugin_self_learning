@@ -471,11 +471,17 @@ class ConversationGoalManager:
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
-            response = await self.llm.filter_chat_completion(
+            # ✅ Debug日志: 输出发送给LLM的prompt
+            logger.debug(f"🔍 [对话目标-分析初始目标] LLM Prompt:\n{prompt}")
+
+            # ✅ 使用提炼模型(refine)进行目标分析
+            response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
                 temperature=0.3,
                 max_tokens=200
             )
+
+            logger.debug(f"🔍 [对话目标-分析初始目标] LLM Response: {response}")
 
             # 消毒响应
             sanitized_response, report = self.prompt_protection.sanitize_response(response)
@@ -547,11 +553,17 @@ class ConversationGoalManager:
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
-            response = await self.llm.filter_chat_completion(
+            # ✅ Debug日志: 输出发送给LLM的prompt
+            logger.debug(f"🔍 [对话目标-动态规划阶段] LLM Prompt:\n{prompt}")
+
+            # ✅ 使用提炼模型(refine)进行阶段规划
+            response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
                 temperature=0.5,
                 max_tokens=150
             )
+
+            logger.debug(f"🔍 [对话目标-动态规划阶段] LLM Response: {response}")
 
             # 消毒响应
             sanitized_response, report = self.prompt_protection.sanitize_response(response)
@@ -736,11 +748,16 @@ Bot: {bot_response}
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
+            # ✅ Debug日志: 输出发送给LLM的prompt
+            logger.debug(f"🔍 [对话目标-意图分析] LLM Prompt:\n{prompt}")
+
             response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
                 temperature=0.3,
                 max_tokens=300
             )
+
+            logger.debug(f"🔍 [对话目标-意图分析] LLM Response: {response}")
 
             # 消毒响应
             sanitized_response, report = self.prompt_protection.sanitize_response(response)
