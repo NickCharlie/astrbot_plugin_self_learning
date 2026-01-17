@@ -287,9 +287,14 @@ class SelfLearningPlugin(star.Star):
 
             # ✅ 创建对话目标管理器 - 用于智能对话目标检测和管理
             # 必须在social_context_injector之前创建，这样才能被注入器引用
+            logger.info(f"🔍 [初始化] 检查enable_goal_driven_chat配置: {self.plugin_config.enable_goal_driven_chat}")
             if self.plugin_config.enable_goal_driven_chat:
-                self.conversation_goal_manager = component_factory.create_conversation_goal_manager()
-                logger.info("✅ 对话目标管理器已初始化（目标驱动对话系统已启用）")
+                try:
+                    self.conversation_goal_manager = component_factory.create_conversation_goal_manager()
+                    logger.info("✅ 对话目标管理器已初始化（目标驱动对话系统已启用）")
+                except Exception as e:
+                    logger.error(f"❌ 创建对话目标管理器失败: {e}", exc_info=True)
+                    self.conversation_goal_manager = None
             else:
                 self.conversation_goal_manager = None
                 logger.info("⚠️ 对话目标管理器未启用（配置中 enable_goal_driven_chat=False）")

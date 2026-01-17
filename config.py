@@ -213,6 +213,10 @@ class PluginConfig:
         repository_settings = config.get('Repository_Settings', {})  # 新增：Repository配置
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {})  # 新增：目标驱动对话设置
 
+        # ✅ 添加调试日志：显示目标驱动对话配置数据
+        logger.info(f"🔍 [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
+        logger.info(f"🔍 [配置加载] enable_goal_driven_chat: {goal_driven_chat_settings.get('enable_goal_driven_chat', 'NOT_FOUND')}")
+
         return cls(
             enable_message_capture=basic_settings.get('enable_message_capture', True),
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
