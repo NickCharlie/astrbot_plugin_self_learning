@@ -40,45 +40,39 @@ class ServiceFactory(IServiceFactory):
         self._framework_llm_adapter: Optional[FrameworkLLMAdapter] = None
 
     def create_framework_llm_adapter(self) -> FrameworkLLMAdapter:
-        """创建或获取框架LLM适配器（带重试机制）"""
+        """创建或获取框架LLM适配器（带延迟初始化）"""
         if self._framework_llm_adapter is None:
-            max_retries = 3
-            retry_delay = 3  # 秒
+            try:
+                self._logger.info("初始化框架LLM适配器...")
 
-            for attempt in range(max_retries):
-                try:
-                    self._logger.info(f"尝试初始化框架LLM适配器 (第 {attempt + 1}/{max_retries} 次)")
+                self._framework_llm_adapter = FrameworkLLMAdapter(self.context)
+                self._framework_llm_adapter.initialize_providers(self.config)
 
-                    self._framework_llm_adapter = FrameworkLLMAdapter(self.context)
-                    self._framework_llm_adapter.initialize_providers(self.config)
+                # 检查是否成功配置了至少一个提供商
+                if self._framework_llm_adapter.providers_configured > 0:
+                    self._logger.info(f"✅ 框架LLM适配器初始化成功，已配置 {self._framework_llm_adapter.providers_configured} 个提供商")
+                else:
+                    # ⚠️ 重要变更：Provider未配置时不抛出异常，允许延迟初始化
+                    self._logger.warning(
+                        "⚠️ 框架LLM适配器初始化时未找到可用的Provider。\n"
+                        "   原因可能是：\n"
+                        "   1. AstrBot的Provider系统尚未完全初始化（插件加载时序问题）\n"
+                        "   2. 配置文件中未指定filter_provider_id/refine_provider_id\n"
+                        "   3. 指定的Provider ID不存在\n"
+                        "   插件将继续加载，Provider会在实际使用时自动重试初始化。"
+                    )
+                    # 标记为需要延迟初始化
+                    self._framework_llm_adapter._needs_lazy_init = True
 
-                    # 检查是否成功配置了至少一个提供商
-                    if self._framework_llm_adapter.providers_configured > 0:
-                        self._logger.info(f"✅ 框架LLM适配器初始化成功，已配置 {self._framework_llm_adapter.providers_configured} 个提供商")
-                        break
-                    else:
-                        self._logger.warning(f"⚠️ 框架LLM适配器未配置任何提供商 (尝试 {attempt + 1}/{max_retries})")
-                        self._framework_llm_adapter = None
-
-                        if attempt < max_retries - 1:
-                            import time
-                            self._logger.info(f"等待 {retry_delay} 秒后重试...")
-                            time.sleep(retry_delay)
-                        else:
-                            self._logger.error("❌ 所有重试均失败，无法配置LLM提供商")
-                            raise ServiceError("无法配置任何LLM提供商，请检查AstrBot配置")
-
-                except Exception as e:
-                    self._logger.error(f"初始化LLM适配器异常 (尝试 {attempt + 1}/{max_retries}): {e}", exc_info=True)
-                    self._framework_llm_adapter = None
-
-                    if attempt < max_retries - 1:
-                        import time
-                        self._logger.info(f"等待 {retry_delay} 秒后重试...")
-                        time.sleep(retry_delay)
-                    else:
-                        self._logger.error("❌ 所有重试均失败")
-                        raise ServiceError(f"创建框架LLM适配器失败: {str(e)}")
+            except Exception as e:
+                self._logger.warning(
+                    f"⚠️ 初始化LLM适配器时发生异常: {e}\n"
+                    "   插件将继续加载，LLM功能会在实际调用时重试初始化。",
+                    exc_info=self.config.debug_mode  # 仅在debug模式显示完整堆栈
+                )
+                # 创建一个最小化的适配器实例，允许插件继续加载
+                self._framework_llm_adapter = FrameworkLLMAdapter(self.context)
+                self._framework_llm_adapter._needs_lazy_init = True
 
         return self._framework_llm_adapter
 
