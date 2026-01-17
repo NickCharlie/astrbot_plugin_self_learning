@@ -311,8 +311,16 @@ class GuardrailsManager:
         import re
 
         try:
+            # 检查输入是否为空
+            if not response_text:
+                logger.error(f"❌ [Guardrails] 输入为空，无法解析 JSON")
+                return None
+
             # 1. 移除 Markdown 代码块标记
             cleaned_text = response_text.strip()
+
+            # 记录原始响应长度用于调试
+            logger.debug(f"🔍 [Guardrails] 原始响应长度: {len(response_text)}, 清理后长度: {len(cleaned_text)}")
 
             # 移除 ```json 和 ``` 标记
             if cleaned_text.startswith("```json"):
@@ -347,7 +355,10 @@ class GuardrailsManager:
             return parsed
 
         except json.JSONDecodeError as e:
+            # 显示响应预览用于调试
+            preview = cleaned_text[:200] if len(cleaned_text) > 200 else cleaned_text
             logger.warning(f"⚠️ [Guardrails] JSON 解析失败: {e}，尝试修复...")
+            logger.debug(f"🔍 [Guardrails] 响应预览: {preview}")
 
             # 尝试修复常见的 JSON 错误
             try:
