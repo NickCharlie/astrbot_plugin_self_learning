@@ -432,8 +432,18 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                logger.debug(f"✅ [Guardrails] 对话目标解析成功: {result.validated_output.goal_type}")
-                return result.validated_output
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    goal_result = GoalAnalysisResult(**validated_data)
+                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {goal_result.goal_type}")
+                    return goal_result
+                elif isinstance(validated_data, GoalAnalysisResult):
+                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {validated_data.goal_type}")
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
             else:
                 logger.warning(f"⚠️ [Guardrails] 对话目标验证失败: {result.validation_summaries}")
                 return None
@@ -495,8 +505,18 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                logger.debug(f"✅ [Guardrails] 对话意图解析成功")
-                return result.validated_output
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    intent_result = ConversationIntentAnalysis(**validated_data)
+                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    return intent_result
+                elif isinstance(validated_data, ConversationIntentAnalysis):
+                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
             else:
                 logger.warning(f"⚠️ [Guardrails] 对话意图验证失败: {result.validation_summaries}")
                 return None
@@ -525,13 +545,23 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                return result.validated_output
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    # 将 dict 转换为 Pydantic 模型实例
+                    return model_class(**validated_data)
+                elif isinstance(validated_data, model_class):
+                    # 已经是模型实例，直接返回
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
             else:
                 logger.warning(f"⚠️ [Guardrails] JSON 验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}")
+            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}", exc_info=True)
             return None
 
     def validate_and_clean_json(
