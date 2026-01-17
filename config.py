@@ -211,6 +211,7 @@ class PluginConfig:
         database_settings = config.get('Database_Settings', {})  # 新增：数据库设置
         social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
         repository_settings = config.get('Repository_Settings', {})  # 新增：Repository配置
+        goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {})  # 新增：目标驱动对话设置
 
         return cls(
             enable_message_capture=basic_settings.get('enable_message_capture', True),
@@ -310,6 +311,12 @@ class PluginConfig:
             include_affection_info=social_context_settings.get('include_affection_info', True),
             include_mood_info=social_context_settings.get('include_mood_info', True),
             context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+
+            # 目标驱动对话设置
+            enable_goal_driven_chat=goal_driven_chat_settings.get('enable_goal_driven_chat', False),
+            goal_session_timeout_hours=goal_driven_chat_settings.get('goal_session_timeout_hours', 24),
+            goal_auto_detect=goal_driven_chat_settings.get('goal_auto_detect', True),
+            goal_max_conversation_history=goal_driven_chat_settings.get('goal_max_conversation_history', 40),
 
             # Repository数据访问层配置
             default_review_limit=repository_settings.get('default_review_limit', 50),
