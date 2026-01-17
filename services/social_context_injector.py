@@ -154,12 +154,15 @@ class SocialContextInjector:
 
             # 7. 对话目标上下文（新增）
             if include_conversation_goal and self.goal_manager:
+                logger.info(f"🔍 [社交上下文] 尝试获取对话目标上下文 (user={user_id[:8]}..., group={group_id})")
                 goal_context = await self._format_conversation_goal_context(group_id, user_id)
                 if goal_context:
                     context_parts.append(goal_context)
                     logger.info(f"✅ [社交上下文] 已准备对话目标 (长度: {len(goal_context)})")
                 else:
-                    logger.debug(f"⚠️ [社交上下文] 未找到活跃对话目标")
+                    logger.info(f"ℹ️ [社交上下文] 未找到活跃对话目标 (user={user_id[:8]}..., group={group_id})")
+            elif include_conversation_goal and not self.goal_manager:
+                logger.warning(f"⚠️ [社交上下文] 对话目标功能已启用但goal_manager未初始化")
 
             if not context_parts:
                 return None
@@ -207,6 +210,14 @@ class SocialContextInjector:
                 return None
 
             full_context = "\n\n".join(final_parts)
+
+            # 🔍 输出最终上下文的组成部分用于调试
+            logger.info(f"📋 [社交上下文] 最终上下文包含 {len(final_parts)} 个部分")
+            if "对话目标" in full_context or "【当前对话目标状态】" in full_context:
+                logger.info(f"✅ [社交上下文] 对话目标上下文已成功包含在最终输出中")
+            else:
+                logger.info(f"ℹ️ [社交上下文] 对话目标上下文未包含在最终输出中")
+
             return full_context
 
         except Exception as e:
