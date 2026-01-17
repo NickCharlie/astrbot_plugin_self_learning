@@ -14,6 +14,7 @@ from .bug_report import bug_report_bp
 from .metrics import metrics_bp
 from .social import social_bp
 from .persona_reviews import persona_reviews_bp
+from .intelligent_chat import intelligent_chat_bp
 
 
 def get_blueprints() -> List[Blueprint]:
@@ -34,6 +35,7 @@ def get_blueprints() -> List[Blueprint]:
         metrics_bp,
         social_bp,
         persona_reviews_bp,
+        intelligent_chat_bp,
     ]
 
 
@@ -61,6 +63,7 @@ __all__ = [
     'metrics_bp',
     'social_bp',
     'persona_reviews_bp',
+    'intelligent_chat_bp',
     'get_blueprints',
     'register_blueprints'
 ]

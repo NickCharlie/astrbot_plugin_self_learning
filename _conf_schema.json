@@ -245,6 +245,37 @@
       }
     }
   },
+  "Goal_Driven_Chat_Settings": {
+    "description": "目标驱动对话系统设置",
+    "type": "object",
+    "hint": "智能对话目标管理系统，支持动态目标检测和阶段规划",
+    "items": {
+      "enable_goal_driven_chat": {
+        "description": "启用目标驱动对话",
+        "type": "bool",
+        "hint": "是否启用智能对话目标系统。启用后会自动检测对话目标并动态调整回复策略",
+        "default": false
+      },
+      "goal_session_timeout_hours": {
+        "description": "会话超时时间(小时)",
+        "type": "int",
+        "hint": "对话目标会话的超时时间，超过该时间未活跃的会话将被自动清理",
+        "default": 24
+      },
+      "goal_auto_detect": {
+        "description": "自动检测对话目标",
+        "type": "bool",
+        "hint": "是否自动使用LLM分析用户消息检测对话目标类型。关闭后使用默认的闲聊模式",
+        "default": true
+      },
+      "goal_max_conversation_history": {
+        "description": "最大对话历史记录数",
+        "type": "int",
+        "hint": "保留在会话中的最大对话轮次（用户消息+Bot回复=1轮）。建议20-40轮",
+        "default": 40
+      }
+    }
+  },
   "Affection_System_Settings": {
     "description": "好感度系统设置",
     "type": "object",

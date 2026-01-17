@@ -1043,6 +1043,85 @@ class ComponentFactory:
             self._logger.error(f"导入社交上下文注入器失败: {e}", exc_info=True)
             raise ServiceError(f"创建社交上下文注入器失败: {str(e)}")
 
+    def create_conversation_goal_manager(self):
+        """创建对话目标管理器"""
+        cache_key = "conversation_goal_manager"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.conversation_goal_manager import ConversationGoalManager
+
+            service = ConversationGoalManager(
+                database_manager=self.service_factory.create_database_manager(),
+                llm_adapter=self.service_factory.create_framework_llm_adapter(),
+                config=self.config
+            )
+
+            self._service_cache[cache_key] = service
+            self._registry.register_service("conversation_goal_manager", service)
+
+            self._logger.info("创建对话目标管理器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入对话目标管理器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建对话目标管理器失败: {str(e)}")
+
+    def create_intelligent_chat_service(self):
+        """创建智能对话服务"""
+        cache_key = "intelligent_chat_service"
+
+        if cache_key in self._service_cache:
+            return self._service_cache[cache_key]
+
+        try:
+            from ..services.intelligent_chat_service import IntelligentChatService
+            from ..services.manager_factory import ManagerFactory
+
+            # 创建必要的依赖
+            db_manager = self.service_factory.create_database_manager()
+            llm_adapter = self.service_factory.create_framework_llm_adapter()
+
+            # 创建对话目标管理器
+            goal_manager = self.create_conversation_goal_manager()
+
+            # 创建或获取社交上下文注入器，并设置goal_manager
+            social_injector = self.create_social_context_injector()
+            social_injector.goal_manager = goal_manager
+
+            # 创建心理状态管理器（可选）
+            psychological_state_manager = None
+            try:
+                manager_factory = ManagerFactory(self.config)
+                psychological_state_manager = manager_factory.create_psychological_manager(
+                    database_manager=db_manager,
+                    llm_adapter=llm_adapter,
+                    affection_manager=None
+                )
+                self._logger.info("✅ 为智能对话服务创建心理状态管理器成功")
+            except Exception as e:
+                self._logger.warning(f"创建心理状态管理器失败: {e}，智能对话服务将使用基础功能")
+
+            # 创建服务实例
+            service = IntelligentChatService(
+                psychological_state_manager=psychological_state_manager,
+                social_context_injector=social_injector,
+                llm_adapter=llm_adapter,
+                config=self.config
+            )
+
+            self._service_cache[cache_key] = service
+            self._registry.register_service("intelligent_chat_service", service)
+
+            self._logger.info("创建智能对话服务成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入智能对话服务失败: {e}", exc_info=True)
+            raise ServiceError(f"创建智能对话服务失败: {str(e)}")
+
     def create_psychological_social_context_injector(self):
         """
         创建心理社交上下文注入器

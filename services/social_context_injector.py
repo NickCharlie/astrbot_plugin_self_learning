@@ -4,6 +4,7 @@
 """
 import time
 from typing import Dict, Any, List, Optional, Tuple
+from cachetools import TTLCache
 
 from astrbot.api import logger
 
@@ -19,7 +20,8 @@ class SocialContextInjector:
         config=None,
         psychological_state_manager=None,
         social_relation_manager=None,
-        llm_adapter=None
+        llm_adapter=None,
+        goal_manager=None
     ):
         self.database_manager = database_manager
         self.affection_manager = affection_manager
@@ -31,13 +33,17 @@ class SocialContextInjector:
         self.social_manager = social_relation_manager
         self.llm_adapter = llm_adapter
 
+        # 新增：对话目标管理器
+        self.goal_manager = goal_manager
+
         # 提示词保护服务（延迟加载）
         self._prompt_protection = None
         self._enable_protection = True
 
-        # ⚡ 缓存机制 - 避免频繁查询数据库
-        self._cache: Dict[str, Tuple[float, Any]] = {}  # key -> (timestamp, data)
-        self._cache_ttl = 60  # 缓存有效期：60秒（1分钟）
+        # ⚡ 缓存机制 - 使用cachetools的TTLCache
+        # maxsize=1000: 最多缓存1000个条目
+        # ttl=60: 缓存有效期60秒（1分钟）
+        self._cache = TTLCache(maxsize=1000, ttl=60)
 
     def _get_prompt_protection(self):
         """延迟加载提示词保护服务"""
@@ -52,19 +58,12 @@ class SocialContextInjector:
         return self._prompt_protection
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
-        """从缓存获取数据"""
-        if key in self._cache:
-            timestamp, data = self._cache[key]
-            if time.time() - timestamp < self._cache_ttl:
-                return data
-            else:
-                # 缓存过期，删除
-                del self._cache[key]
-        return None
+        """从缓存获取数据 (使用TTLCache自动过期机制)"""
+        return self._cache.get(key)
 
     def _set_to_cache(self, key: str, data: Any):
-        """设置缓存"""
-        self._cache[key] = (time.time(), data)
+        """设置缓存 (使用TTLCache自动管理过期)"""
+        self._cache[key] = data
 
     async def format_complete_context(
         self,
@@ -76,10 +75,11 @@ class SocialContextInjector:
         include_expression_patterns: bool = True,
         include_psychological: bool = True,
         include_behavior_guidance: bool = True,
+        include_conversation_goal: bool = False,
         enable_protection: bool = True
     ) -> Optional[str]:
         """
-        格式化完整的上下文信息（社交关系、好感度、情绪、风格特征、心理状态、行为指导）
+        格式化完整的上下文信息（社交关系、好感度、情绪、风格特征、心理状态、行为指导、对话目标）
         并统一应用提示词保护
 
         Args:
@@ -91,6 +91,7 @@ class SocialContextInjector:
             include_expression_patterns: 是否包含最近学到的表达模式
             include_psychological: 是否包含深度心理状态分析（整合自 PsychologicalSocialContextInjector）
             include_behavior_guidance: 是否包含行为模式指导（整合自 PsychologicalSocialContextInjector）
+            include_conversation_goal: 是否包含对话目标上下文
             enable_protection: 是否启用提示词保护
 
         Returns:
@@ -150,6 +151,15 @@ class SocialContextInjector:
                     logger.info(f"✅ [社交上下文] 已准备行为模式指导 (长度: {len(behavior_guidance)})")
                 else:
                     logger.debug(f"⚠️ [社交上下文] 未生成行为模式指导")
+
+            # 7. 对话目标上下文（新增）
+            if include_conversation_goal and self.goal_manager:
+                goal_context = await self._format_conversation_goal_context(group_id, user_id)
+                if goal_context:
+                    context_parts.append(goal_context)
+                    logger.info(f"✅ [社交上下文] 已准备对话目标 (长度: {len(goal_context)})")
+                else:
+                    logger.debug(f"⚠️ [社交上下文] 未找到活跃对话目标")
 
             if not context_parts:
                 return None
@@ -624,3 +634,77 @@ class SocialContextInjector:
         except Exception as e:
             logger.error(f"构建行为模式指导失败: {e}", exc_info=True)
             return ""
+
+    async def _format_conversation_goal_context(self, group_id: str, user_id: str) -> Optional[str]:
+        """
+        格式化对话目标上下文（带缓存）
+
+        Args:
+            group_id: 群组ID
+            user_id: 用户ID
+
+        Returns:
+            格式化的对话目标文本，如果没有活跃目标则返回None
+        """
+        try:
+            if not self.goal_manager:
+                return None
+
+            # ⚡ 尝试从缓存获取
+            cache_key = f"conv_goal_{group_id}_{user_id}"
+            cached = self._get_from_cache(cache_key)
+            if cached is not None:
+                return cached
+
+            # 获取当前对话目标
+            goal = await self.goal_manager.get_conversation_goal(user_id, group_id)
+            if not goal:
+                # ⚡ 缓存空结果
+                self._set_to_cache(cache_key, None)
+                return None
+
+            # 提取关键信息
+            final_goal = goal.get('final_goal', {})
+            current_stage = goal.get('current_stage', {})
+            planned_stages = goal.get('planned_stages', [])
+            metrics = goal.get('metrics', {})
+
+            goal_type = final_goal.get('type', 'unknown')
+            goal_name = final_goal.get('name', '未知目标')
+            topic = final_goal.get('topic', '未知话题')
+            topic_status = final_goal.get('topic_status', 'active')
+
+            current_task = current_stage.get('task', '无')
+            task_index = current_stage.get('index', 0)
+
+            rounds = metrics.get('rounds', 0)
+            user_engagement = metrics.get('user_engagement', 0.5)
+            progress = metrics.get('goal_progress', 0.0)
+
+            # 格式化上下文文本
+            context_lines = []
+            context_lines.append("【当前对话目标状态】")
+            context_lines.append(f"对话目标: {goal_name} (类型: {goal_type})")
+            context_lines.append(f"当前话题: {topic} (状态: {'进行中' if topic_status == 'active' else '已完结'})")
+            context_lines.append(f"当前阶段: {current_task} ({task_index + 1}/{len(planned_stages)})")
+
+            # 显示规划的阶段
+            if planned_stages:
+                context_lines.append(f"规划阶段: {' → '.join(planned_stages)}")
+
+            context_lines.append(f"对话进度: {progress:.0%}, 已进行{rounds}轮")
+            context_lines.append(f"用户参与度: {user_engagement:.0%}")
+
+            # 添加行为提示
+            if task_index < len(planned_stages):
+                context_lines.append(f"提示: 当前应专注于「{current_task}」，自然推进对话。")
+
+            context_text = "\n".join(context_lines)
+
+            # ⚡ 缓存结果
+            self._set_to_cache(cache_key, context_text)
+            return context_text
+
+        except Exception as e:
+            logger.error(f"格式化对话目标上下文失败: {e}", exc_info=True)
+            return None

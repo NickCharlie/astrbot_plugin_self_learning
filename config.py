@@ -143,6 +143,12 @@ class PluginConfig:
     # - "prompt": 注入到用户消息（旧版行为，会导致对话历史膨胀）
     llm_hook_injection_target: str = "system_prompt"  # 可选值: "system_prompt" 或 "prompt"
 
+    # 目标驱动对话配置
+    enable_goal_driven_chat: bool = False  # 启用目标驱动对话
+    goal_session_timeout_hours: int = 24  # 会话超时时间（小时）
+    goal_auto_detect: bool = True  # 自动检测对话目标
+    goal_max_conversation_history: int = 40  # 最大对话历史（轮次*2）
+
     # 重构功能配置（新增）
     # ⚠️ 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
     use_sqlalchemy: bool = True  # ✨ 硬编码为 True，确保所有数据库操作使用 ORM 模型

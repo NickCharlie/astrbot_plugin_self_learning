@@ -49,6 +49,9 @@ from .message import (
 from .jargon import (
     Jargon
 )
+from .conversation_goal import (
+    ConversationGoal
+)
 
 __all__ = [
     'Base',
@@ -89,4 +92,6 @@ __all__ = [
     'BotMessage',
     # 黑话系统
     'Jargon',
+    # 对话目标系统
+    'ConversationGoal',
 ]
