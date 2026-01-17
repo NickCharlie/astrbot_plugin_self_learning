@@ -709,9 +709,29 @@ class SocialContextInjector:
             context_lines.append(f"对话进度: {progress:.0%}, 已进行{rounds}轮")
             context_lines.append(f"用户参与度: {user_engagement:.0%}")
 
-            # 添加行为提示
+            # 添加明确的行为指令
+            context_lines.append("")
+            context_lines.append("【回复指令】")
             if task_index < len(planned_stages):
-                context_lines.append(f"提示: 当前应专注于「{current_task}」，自然推进对话。")
+                context_lines.append(f"✅ 请根据以上对话目标信息，结合用户的最新消息，围绕当前阶段性目标「{current_task}」组织你的回复内容。")
+                context_lines.append(f"✅ 你的回复应该自然地推进对话朝着「{goal_name}」的方向发展，同时保持对话的连贯性和真实性。")
+                context_lines.append(f"✅ 注意：不要机械地提及"目标"或"阶段"等元信息，而是通过对话内容本身体现当前阶段的意图。")
+
+                # 根据进度和参与度调整提示
+                if progress < 0.3:
+                    context_lines.append(f"💡 对话刚开始，重点是{current_task}，建立良好的互动基础。")
+                elif progress < 0.7:
+                    context_lines.append(f"💡 对话进行中，继续围绕{current_task}深入交流，适时引导话题发展。")
+                else:
+                    context_lines.append(f"💡 对话接近完成，注意把握{current_task}的收尾，为下一阶段做准备。")
+
+                if user_engagement < 0.4:
+                    context_lines.append(f"⚠️ 用户参与度较低({user_engagement:.0%})，尝试提出开放性问题或话题，激发用户兴趣。")
+                elif user_engagement > 0.7:
+                    context_lines.append(f"✨ 用户参与度很高({user_engagement:.0%})，保持当前互动风格，深化对话内容。")
+            else:
+                context_lines.append(f"✅ 对话目标「{goal_name}」的所有规划阶段已完成，请自然地结束本话题或引导新话题。")
+                context_lines.append(f"✅ 注意：避免生硬地结束对话，保持自然流畅的互动。")
 
             context_text = "\n".join(context_lines)
 
