@@ -40,6 +40,97 @@ class PsychologicalStateTransition(BaseModel):
 
 
 # ============================================================
+# Pydantic 模型定义 - 用于对话目标分析
+# ============================================================
+
+class GoalAnalysisResult(BaseModel):
+    """
+    对话目标分析结果模型
+    """
+    goal_type: str = Field(
+        description="对话目标类型,例如: emotional_support, casual_chat等"
+    )
+    topic: str = Field(
+        description="对话话题,简短描述(1-20字)"
+    )
+    confidence: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="置信度(0-1)"
+    )
+    reasoning: Optional[str] = Field(
+        default="",
+        description="分析理由"
+    )
+
+    @field_validator('goal_type')
+    @classmethod
+    def validate_goal_type(cls, v: str) -> str:
+        """验证目标类型"""
+        if not v or len(v) > 50:
+            raise ValueError("目标类型必须是1-50个字符")
+        return v.strip()
+
+    @field_validator('topic')
+    @classmethod
+    def validate_topic(cls, v: str) -> str:
+        """验证话题"""
+        if not v or len(v) > 100:
+            raise ValueError("话题必须是1-100个字符")
+        return v.strip()
+
+
+class ConversationIntentAnalysis(BaseModel):
+    """
+    对话意图分析结果模型
+    """
+    goal_switch_needed: bool = Field(
+        default=False,
+        description="是否需要切换目标类型"
+    )
+    new_goal_type: Optional[str] = Field(
+        default=None,
+        description="新的目标类型(如果需要切换)"
+    )
+    new_topic: Optional[str] = Field(
+        default=None,
+        description="新的话题(如果需要切换)"
+    )
+    topic_completed: bool = Field(
+        default=False,
+        description="当前话题是否已完成"
+    )
+    stage_completed: bool = Field(
+        default=False,
+        description="当前阶段是否已完成"
+    )
+    stage_adjustment_needed: bool = Field(
+        default=False,
+        description="是否需要调整当前阶段"
+    )
+    suggested_stage: Optional[str] = Field(
+        default=None,
+        description="建议的下一阶段任务"
+    )
+    completion_signals: int = Field(
+        default=0,
+        ge=0,
+        description="检测到的完成信号数量"
+    )
+    user_engagement: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="用户参与度(0-1)"
+    )
+    reasoning: Optional[str] = Field(
+        default="",
+        description="分析理由"
+    )
+
+
+# ============================================================
 # Pydantic 模型定义 - 用于社交关系分析
 # ============================================================
 
@@ -120,6 +211,8 @@ class GuardrailsManager:
         # 创建不同用途的 Guard 实例
         self._state_guard: Optional[Guard] = None
         self._relation_guard: Optional[Guard] = None
+        self._goal_analysis_guard: Optional[Guard] = None
+        self._intent_analysis_guard: Optional[Guard] = None
 
         logger.info(f"[Guardrails] 管理器初始化完成 (max_reasks={max_reasks})")
 
@@ -263,6 +356,175 @@ class GuardrailsManager:
             logger.error(f"❌ [Guardrails] 社交关系解析失败: {e}", exc_info=True)
             return None
 
+    def get_goal_analysis_guard(self) -> Guard:
+        """
+        获取对话目标分析的 Guard 实例
+
+        Returns:
+            Guard 实例
+        """
+        if self._goal_analysis_guard is None:
+            self._goal_analysis_guard = Guard.for_pydantic(
+                output_class=GoalAnalysisResult,
+            )
+            logger.debug("[Guardrails] 对话目标分析 Guard 已创建")
+
+        return self._goal_analysis_guard
+
+    def get_intent_analysis_guard(self) -> Guard:
+        """
+        获取对话意图分析的 Guard 实例
+
+        Returns:
+            Guard 实例
+        """
+        if self._intent_analysis_guard is None:
+            self._intent_analysis_guard = Guard.for_pydantic(
+                output_class=ConversationIntentAnalysis,
+            )
+            logger.debug("[Guardrails] 对话意图分析 Guard 已创建")
+
+        return self._intent_analysis_guard
+
+    async def parse_goal_analysis(
+        self,
+        llm_callable,
+        prompt: str,
+        model: str = "gpt-4o",
+        **kwargs
+    ) -> Optional[GoalAnalysisResult]:
+        """
+        解析对话目标分析结果
+
+        Args:
+            llm_callable: LLM 调用函数
+            prompt: 提示词
+            model: 模型名称
+            **kwargs: 其他参数
+
+        Returns:
+            GoalAnalysisResult 对象,失败返回 None
+        """
+        try:
+            guard = self.get_goal_analysis_guard()
+
+            # 增强提示词
+            enhanced_prompt = f"""{prompt}
+
+请以 JSON 格式返回结果,格式如下:
+{{
+    "goal_type": "emotional_support",
+    "topic": "工作压力",
+    "confidence": 0.85,
+    "reasoning": "简短理由"
+}}
+
+注意:
+- goal_type 必须是英文蛇形命名(如 emotional_support, casual_chat)
+- topic 简短描述(1-20字)
+- confidence 范围 [0.0, 1.0]
+"""
+
+            # 调用 LLM
+            response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
+
+            # 使用 Guard 验证
+            result = guard.parse(response_text)
+
+            if result.validation_passed:
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    goal_result = GoalAnalysisResult(**validated_data)
+                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {goal_result.goal_type}")
+                    return goal_result
+                elif isinstance(validated_data, GoalAnalysisResult):
+                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {validated_data.goal_type}")
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
+            else:
+                logger.warning(f"⚠️ [Guardrails] 对话目标验证失败: {result.validation_summaries}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] 对话目标解析失败: {e}", exc_info=True)
+            return None
+
+    async def parse_intent_analysis(
+        self,
+        llm_callable,
+        prompt: str,
+        model: str = "gpt-4o",
+        **kwargs
+    ) -> Optional[ConversationIntentAnalysis]:
+        """
+        解析对话意图分析结果
+
+        Args:
+            llm_callable: LLM 调用函数
+            prompt: 提示词
+            model: 模型名称
+            **kwargs: 其他参数
+
+        Returns:
+            ConversationIntentAnalysis 对象,失败返回 None
+        """
+        try:
+            guard = self.get_intent_analysis_guard()
+
+            # 增强提示词
+            enhanced_prompt = f"""{prompt}
+
+请以 JSON 格式返回结果,格式如下:
+{{
+    "goal_switch_needed": false,
+    "new_goal_type": null,
+    "new_topic": null,
+    "topic_completed": false,
+    "stage_completed": true,
+    "stage_adjustment_needed": false,
+    "suggested_stage": "下一阶段任务",
+    "completion_signals": 1,
+    "user_engagement": 0.8,
+    "reasoning": "简短理由(20字内)"
+}}
+
+注意:
+- goal_switch_needed/topic_completed/stage_completed/stage_adjustment_needed 为 boolean 类型
+- new_goal_type/new_topic/suggested_stage 为字符串或 null
+- completion_signals 为非负整数
+- user_engagement 范围 [0.0, 1.0]
+"""
+
+            # 调用 LLM
+            response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
+
+            # 使用 Guard 验证
+            result = guard.parse(response_text)
+
+            if result.validation_passed:
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    intent_result = ConversationIntentAnalysis(**validated_data)
+                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    return intent_result
+                elif isinstance(validated_data, ConversationIntentAnalysis):
+                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
+            else:
+                logger.warning(f"⚠️ [Guardrails] 对话意图验证失败: {result.validation_summaries}")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ [Guardrails] 对话意图解析失败: {e}", exc_info=True)
+            return None
+
     def parse_json_direct(
         self,
         response_text: str,
@@ -283,13 +545,23 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                return result.validated_output
+                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                validated_data = result.validated_output
+                if isinstance(validated_data, dict):
+                    # 将 dict 转换为 Pydantic 模型实例
+                    return model_class(**validated_data)
+                elif isinstance(validated_data, model_class):
+                    # 已经是模型实例，直接返回
+                    return validated_data
+                else:
+                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    return None
             else:
                 logger.warning(f"⚠️ [Guardrails] JSON 验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}")
+            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}", exc_info=True)
             return None
 
     def validate_and_clean_json(
@@ -311,8 +583,16 @@ class GuardrailsManager:
         import re
 
         try:
+            # 检查输入是否为空
+            if not response_text:
+                logger.error(f"❌ [Guardrails] 输入为空，无法解析 JSON")
+                return None
+
             # 1. 移除 Markdown 代码块标记
             cleaned_text = response_text.strip()
+
+            # 记录原始响应长度用于调试
+            logger.debug(f"🔍 [Guardrails] 原始响应长度: {len(response_text)}, 清理后长度: {len(cleaned_text)}")
 
             # 移除 ```json 和 ``` 标记
             if cleaned_text.startswith("```json"):
@@ -347,7 +627,10 @@ class GuardrailsManager:
             return parsed
 
         except json.JSONDecodeError as e:
+            # 显示响应预览用于调试
+            preview = cleaned_text[:200] if len(cleaned_text) > 200 else cleaned_text
             logger.warning(f"⚠️ [Guardrails] JSON 解析失败: {e}，尝试修复...")
+            logger.debug(f"🔍 [Guardrails] 响应预览: {preview}")
 
             # 尝试修复常见的 JSON 错误
             try:

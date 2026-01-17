@@ -143,6 +143,12 @@ class PluginConfig:
     # - "prompt": 注入到用户消息（旧版行为，会导致对话历史膨胀）
     llm_hook_injection_target: str = "system_prompt"  # 可选值: "system_prompt" 或 "prompt"
 
+    # 目标驱动对话配置
+    enable_goal_driven_chat: bool = False  # 启用目标驱动对话
+    goal_session_timeout_hours: int = 24  # 会话超时时间（小时）
+    goal_auto_detect: bool = True  # 自动检测对话目标
+    goal_max_conversation_history: int = 40  # 最大对话历史（轮次*2）
+
     # 重构功能配置（新增）
     # ⚠️ 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
     use_sqlalchemy: bool = True  # ✨ 硬编码为 True，确保所有数据库操作使用 ORM 模型
@@ -205,6 +211,11 @@ class PluginConfig:
         database_settings = config.get('Database_Settings', {})  # 新增：数据库设置
         social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
         repository_settings = config.get('Repository_Settings', {})  # 新增：Repository配置
+        goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {})  # 新增：目标驱动对话设置
+
+        # ✅ 添加调试日志：显示目标驱动对话配置数据
+        logger.info(f"🔍 [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
+        logger.info(f"🔍 [配置加载] enable_goal_driven_chat: {goal_driven_chat_settings.get('enable_goal_driven_chat', 'NOT_FOUND')}")
 
         return cls(
             enable_message_capture=basic_settings.get('enable_message_capture', True),
@@ -304,6 +315,12 @@ class PluginConfig:
             include_affection_info=social_context_settings.get('include_affection_info', True),
             include_mood_info=social_context_settings.get('include_mood_info', True),
             context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+
+            # 目标驱动对话设置
+            enable_goal_driven_chat=goal_driven_chat_settings.get('enable_goal_driven_chat', False),
+            goal_session_timeout_hours=goal_driven_chat_settings.get('goal_session_timeout_hours', 24),
+            goal_auto_detect=goal_driven_chat_settings.get('goal_auto_detect', True),
+            goal_max_conversation_history=goal_driven_chat_settings.get('goal_max_conversation_history', 40),
 
             # Repository数据访问层配置
             default_review_limit=repository_settings.get('default_review_limit', 50),

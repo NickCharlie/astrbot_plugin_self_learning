@@ -15,10 +15,13 @@ class FrameworkLLMAdapter:
     def __init__(self, context):
         self.context = context
         self.filter_provider: Optional[Provider] = None
-        self.refine_provider: Optional[Provider] = None  
+        self.refine_provider: Optional[Provider] = None
         self.reinforce_provider: Optional[Provider] = None
         self.providers_configured = 0
-        
+        self._needs_lazy_init = False  # 延迟初始化标记
+        self._lazy_init_attempted = False  # 避免重复尝试
+        self._config = None  # 保存配置用于延迟初始化
+
         # 添加调用统计
         self.call_stats = {
             'filter': {'total_calls': 0, 'total_time': 0, 'errors': 0},
@@ -31,6 +34,8 @@ class FrameworkLLMAdapter:
         """根据配置初始化Provider"""
         from astrbot.core.provider.entities import ProviderType
 
+        # 保存配置用于可能的延迟初始化
+        self._config = config
         self.providers_configured = 0
 
         # ✅ 添加配置调试日志
@@ -178,7 +183,22 @@ class FrameworkLLMAdapter:
             logger.info(f"📋 Provider配置摘要: {' | '.join(config_summary)}")
         else:
             logger.warning("⚠️ 所有Provider均未配置，插件功能将受限")
-    
+
+    def _try_lazy_init(self):
+        """尝试延迟初始化Provider（仅执行一次）"""
+        if self._needs_lazy_init and not self._lazy_init_attempted and self._config:
+            self._lazy_init_attempted = True
+            logger.info("🔄 [LLM适配器] 尝试延迟初始化Provider...")
+            try:
+                self.initialize_providers(self._config)
+                if self.providers_configured > 0:
+                    self._needs_lazy_init = False
+                    logger.info(f"✅ [LLM适配器] 延迟初始化成功，已配置 {self.providers_configured} 个Provider")
+                else:
+                    logger.warning("⚠️ [LLM适配器] 延迟初始化仍未找到可用Provider")
+            except Exception as e:
+                logger.warning(f"⚠️ [LLM适配器] 延迟初始化失败: {e}")
+
     async def filter_chat_completion(
         self,
         prompt: str,
@@ -187,6 +207,9 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用筛选模型进行对话补全"""
+        # 尝试延迟初始化
+        self._try_lazy_init()
+
         if not self.filter_provider:
             logger.warning("筛选Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
@@ -242,6 +265,9 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用提炼模型进行对话补全"""
+        # 尝试延迟初始化
+        self._try_lazy_init()
+
         if not self.refine_provider:
             logger.warning("提炼Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
@@ -297,6 +323,9 @@ class FrameworkLLMAdapter:
         **kwargs
     ) -> Optional[str]:
         """使用强化模型进行对话补全"""
+        # 尝试延迟初始化
+        self._try_lazy_init()
+
         if not self.reinforce_provider:
             logger.warning("强化Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选

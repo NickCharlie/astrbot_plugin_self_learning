@@ -39,7 +39,7 @@ class LearningStats:
     last_persona_update: Optional[str] = None
 
 
-@register("astrbot_plugin_self_learning", "NickMo", "智能自学习对话插件", "Next-1.1.0", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
+@register("astrbot_plugin_self_learning", "NickMo", "自主学习对话插件", "Next-1.1.5", "https://github.com/NickCharlie/astrbot_plugin_self_learning")
 class SelfLearningPlugin(star.Star):
     """AstrBot 自学习插件 - 智能学习用户对话风格并优化人格设置"""
 
@@ -284,6 +284,20 @@ class SelfLearningPlugin(star.Star):
             self.enhanced_interaction = component_factory.create_enhanced_interaction_service()
             self.intelligence_enhancement = component_factory.create_intelligence_enhancement_service()
             self.affection_manager = component_factory.create_affection_manager_service()
+
+            # ✅ 创建对话目标管理器 - 用于智能对话目标检测和管理
+            # 必须在social_context_injector之前创建，这样才能被注入器引用
+            logger.info(f"🔍 [初始化] 检查enable_goal_driven_chat配置: {self.plugin_config.enable_goal_driven_chat}")
+            if self.plugin_config.enable_goal_driven_chat:
+                try:
+                    self.conversation_goal_manager = component_factory.create_conversation_goal_manager()
+                    logger.info("✅ 对话目标管理器已初始化（目标驱动对话系统已启用）")
+                except Exception as e:
+                    logger.error(f"❌ 创建对话目标管理器失败: {e}", exc_info=True)
+                    self.conversation_goal_manager = None
+            else:
+                self.conversation_goal_manager = None
+                logger.info("⚠️ 对话目标管理器未启用（配置中 enable_goal_driven_chat=False）")
 
             # ✅ 创建社交上下文注入器（已整合心理状态、行为指导功能）
             # 包含：表达模式学习、深度心理状态、社交关系、好感度、行为指导
@@ -995,6 +1009,25 @@ class SelfLearningPlugin(star.Star):
 
             # 5. 智能启动学习任务（基于消息活动，添加频率限制）
             await self._smart_start_learning_for_group(group_id)
+
+            # 6. 对话目标管理（如果启用）
+            if self.plugin_config.enable_goal_driven_chat:
+                try:
+                    if hasattr(self, 'conversation_goal_manager') and self.conversation_goal_manager:
+                        # 创建或获取对话目标
+                        goal = await self.conversation_goal_manager.get_or_create_conversation_goal(
+                            user_id=sender_id,
+                            group_id=group_id,
+                            user_message=message_text
+                        )
+                        if goal:
+                            goal_type = goal['final_goal'].get('type', 'unknown')
+                            goal_name = goal['final_goal'].get('name', '未知目标')
+                            topic = goal['final_goal'].get('topic', '未知话题')
+                            current_stage = goal['current_stage'].get('task', '初始化')
+                            logger.info(f"✅ [对话目标] 会话目标: {goal_name} (类型: {goal_type}), 话题: {topic}, 当前阶段: {current_stage}")
+                except Exception as e:
+                    logger.error(f"对话目标处理失败: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"后台学习处理失败: {e}", exc_info=True)
@@ -2649,6 +2682,7 @@ PersonaManager模式优势：
                         include_expression_patterns=True,  # ⭐ 表达模式学习结果
                         include_psychological=True,  # ⭐ 深度心理状态分析
                         include_behavior_guidance=True,  # ⭐ 行为模式指导
+                        include_conversation_goal=self.plugin_config.enable_goal_driven_chat,  # ⭐ 对话目标上下文
                         enable_protection=True
                     )
                     if social_context:

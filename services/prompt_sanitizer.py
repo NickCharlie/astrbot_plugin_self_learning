@@ -500,13 +500,18 @@ class DoubleCheckValidator:
 
         使用动态规划实现
         """
+        # 限制长度避免内存问题
+        if len(text1) > 500:
+            text1 = text1[:500]
+        if len(text2) > 500:
+            text2 = text2[:500]
+
+        # 重新计算实际长度
         m, n = len(text1), len(text2)
 
-        # 限制长度避免内存问题
-        if m > 500 or n > 500:
-            text1 = text1[:500]
-            text2 = text2[:500]
-            m, n = 500, 500
+        # 处理空字符串情况
+        if m == 0 or n == 0:
+            return 0
 
         # DP表 (空间优化为两行)
         prev = [0] * (n + 1)
