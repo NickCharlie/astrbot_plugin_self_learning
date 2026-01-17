@@ -483,13 +483,17 @@ class ConversationGoalManager:
             # 使用guardrails验证和清理JSON
             result = self.guardrails.validate_and_clean_json(
                 sanitized_response,
-                fallback={
+                expected_type="object"
+            )
+
+            # 如果验证失败,使用回退值
+            if result is None:
+                result = {
                     "goal_type": "casual_chat",
                     "topic": "闲聊",
                     "confidence": 0.5,
                     "reasoning": "无法识别明确目标"
                 }
-            )
 
             return result
 
@@ -555,9 +559,10 @@ class ConversationGoalManager:
             # 使用guardrails验证和清理JSON
             stages = self.guardrails.validate_and_clean_json(
                 sanitized_response,
-                fallback=base_stages
+                expected_type="array"
             )
 
+            # 如果验证成功且是有效列表,返回
             if isinstance(stages, list) and len(stages) >= 2:
                 return stages
             else:
@@ -743,7 +748,12 @@ Bot: {bot_response}
             # 使用guardrails验证和清理JSON
             analysis = self.guardrails.validate_and_clean_json(
                 sanitized_response,
-                fallback={
+                expected_type="object"
+            )
+
+            # 如果验证失败,使用回退值
+            if analysis is None:
+                analysis = {
                     "goal_switch_needed": False,
                     "topic_completed": False,
                     "stage_completed": False,
@@ -752,7 +762,6 @@ Bot: {bot_response}
                     "user_engagement": 0.5,
                     "reasoning": "分析失败"
                 }
-            )
 
             return analysis
 
