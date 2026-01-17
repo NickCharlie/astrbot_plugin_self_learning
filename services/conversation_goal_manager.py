@@ -283,8 +283,10 @@ class ConversationGoalManager:
         self.prompt_protection = PromptProtectionService(wrapper_template_index=0)
 
         # 初始化Guardrails管理器用于JSON验证
-        from ..utils.guardrails_manager import get_guardrails_manager
+        from ..utils.guardrails_manager import get_guardrails_manager, GoalAnalysisResult, ConversationIntentAnalysis
         self.guardrails = get_guardrails_manager()
+        self.GoalAnalysisResult = GoalAnalysisResult
+        self.ConversationIntentAnalysis = ConversationIntentAnalysis
 
     def _generate_session_id(self, group_id: str, user_id: str) -> str:
         """生成会话ID (24小时内保持不变)"""
@@ -491,14 +493,28 @@ class ConversationGoalManager:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response  # 使用原始响应
 
-            # 使用guardrails验证和清理JSON
+            # ✅ 使用Guardrails Pydantic模型验证和解析JSON
             try:
-                result = self.guardrails.validate_and_clean_json(
+                # 直接解析已有的响应文本
+                parsed_result = self.guardrails.parse_json_direct(
                     sanitized_response,
-                    expected_type="object"
+                    model_class=self.GoalAnalysisResult  # 使用正确的模型引用
                 )
+
+                if parsed_result:
+                    # 转换为字典格式
+                    result = {
+                        "goal_type": parsed_result.goal_type,
+                        "topic": parsed_result.topic,
+                        "confidence": parsed_result.confidence,
+                        "reasoning": parsed_result.reasoning
+                    }
+                    logger.debug(f"✅ [对话目标] Pydantic验证成功: goal_type={result['goal_type']}")
+                else:
+                    result = None
+
             except Exception as validation_error:
-                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+                logger.error(f"Pydantic验证失败: {validation_error}", exc_info=True)
                 result = None
 
             # 如果验证失败,使用回退值
@@ -785,14 +801,34 @@ Bot: {bot_response}
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response  # 使用原始响应
 
-            # 使用guardrails验证和清理JSON
+            # ✅ 使用Guardrails Pydantic模型验证和解析JSON
             try:
-                analysis = self.guardrails.validate_and_clean_json(
+                # 直接解析已有的响应文本
+                parsed_result = self.guardrails.parse_json_direct(
                     sanitized_response,
-                    expected_type="object"
+                    model_class=self.ConversationIntentAnalysis  # 使用正确的模型引用
                 )
+
+                if parsed_result:
+                    # 转换为字典格式
+                    analysis = {
+                        "goal_switch_needed": parsed_result.goal_switch_needed,
+                        "new_goal_type": parsed_result.new_goal_type,
+                        "new_topic": parsed_result.new_topic,
+                        "topic_completed": parsed_result.topic_completed,
+                        "stage_completed": parsed_result.stage_completed,
+                        "stage_adjustment_needed": parsed_result.stage_adjustment_needed,
+                        "suggested_stage": parsed_result.suggested_stage,
+                        "completion_signals": parsed_result.completion_signals,
+                        "user_engagement": parsed_result.user_engagement,
+                        "reasoning": parsed_result.reasoning
+                    }
+                    logger.debug(f"✅ [对话目标] 意图分析Pydantic验证成功")
+                else:
+                    analysis = None
+
             except Exception as validation_error:
-                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+                logger.error(f"意图分析Pydantic验证失败: {validation_error}", exc_info=True)
                 analysis = None
 
             # 如果验证失败,使用回退值
