@@ -285,6 +285,15 @@ class SelfLearningPlugin(star.Star):
             self.intelligence_enhancement = component_factory.create_intelligence_enhancement_service()
             self.affection_manager = component_factory.create_affection_manager_service()
 
+            # ✅ 创建对话目标管理器 - 用于智能对话目标检测和管理
+            # 必须在social_context_injector之前创建，这样才能被注入器引用
+            if self.plugin_config.enable_goal_driven_chat:
+                self.conversation_goal_manager = component_factory.create_conversation_goal_manager()
+                logger.info("✅ 对话目标管理器已初始化（目标驱动对话系统已启用）")
+            else:
+                self.conversation_goal_manager = None
+                logger.info("⚠️ 对话目标管理器未启用（配置中 enable_goal_driven_chat=False）")
+
             # ✅ 创建社交上下文注入器（已整合心理状态、行为指导功能）
             # 包含：表达模式学习、深度心理状态、社交关系、好感度、行为指导
             # 必须在intelligent_responder之前创建，这样才能被正确注入
