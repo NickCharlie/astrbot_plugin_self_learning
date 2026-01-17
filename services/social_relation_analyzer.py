@@ -38,15 +38,63 @@ class SocialRelationAnalyzer:
         self.db_manager = db_manager
         self.logger = logger
 
-        # 关系类型映射
+        # 关系类型映射 - 扩展版本，包含15+种关系类型
         self.relation_type_map = {
+            # 正常社交关系
             'frequent_interaction': '频繁互动',
             'mention': '提及(@)',
             'reply': '回复对话',
             'topic_discussion': '话题讨论',
             'question_answer': '问答互动',
             'agreement': '观点认同',
-            'debate': '辩论讨论'
+            'debate': '辩论讨论',
+            'best_friend': '好友/闺蜜',
+            'colleague': '同事/工作伙伴',
+            'classmate': '同学',
+            'teacher_student': '师生关系',
+
+            # 亲属关系
+            'parent_child': '父母子女',
+            'siblings': '兄弟姐妹',
+            'relatives': '亲戚',
+
+            # 亲密关系
+            'couple': '情侣/恋人',
+            'spouse': '夫妻',
+            'ambiguous': '暧昧关系',
+            'affair': '不正当关系',
+
+            # 其他特殊关系
+            'enemy': '敌对/仇人',
+            'rival': '竞争对手',
+            'admiration': '崇拜/仰慕',
+            'idol_fan': '偶像粉丝'
+        }
+
+        # 关系类型详细说明（供LLM理解）
+        self.relation_type_descriptions = {
+            'frequent_interaction': '经常对话、互相回复的普通互动关系',
+            'mention': '直接提及或@对方，表示关注',
+            'reply': '针对某人的消息进行回复',
+            'topic_discussion': '围绕相同话题展开讨论',
+            'question_answer': '一方提问，另一方回答，存在求助/帮助关系',
+            'agreement': '表示赞同、支持对方观点',
+            'debate': '存在不同观点的讨论或争论',
+            'best_friend': '非常亲密的朋友关系，互相信任、分享私密话题、频繁互动',
+            'colleague': '工作相关的同事关系，讨论工作话题',
+            'classmate': '学习相关的同学关系，讨论学习话题',
+            'teacher_student': '教学关系，一方传授知识/经验，另一方学习请教',
+            'parent_child': '父母与子女的亲属关系，有明确的辈分、关怀、教导等特征',
+            'siblings': '兄弟姐妹关系，平辈亲属关系',
+            'relatives': '其他亲戚关系',
+            'couple': '恋爱关系，表现出爱意、亲密称呼、情侣互动',
+            'spouse': '夫妻关系，已婚配偶',
+            'ambiguous': '暧昧关系，有超出普通朋友的亲密互动，但未明确恋爱关系',
+            'affair': '不正当的亲密关系，可能涉及婚外情等',
+            'enemy': '敌对关系，存在明显冲突、攻击性言论',
+            'rival': '竞争对手关系，存在竞争但不一定敌对',
+            'admiration': '崇拜或仰慕关系，一方对另一方表示崇拜、羡慕',
+            'idol_fan': '偶像与粉丝的关系'
         }
 
         self.logger.info("社交关系智能分析器初始化完成")
@@ -194,7 +242,13 @@ class SocialRelationAnalyzer:
             for msg in sample_messages
         ])
 
-        prompt = f"""你是一个专业的社交关系分析专家。请分析以下群聊消息记录，识别群成员之间的社交关系。
+        # 构建关系类型说明
+        relation_type_explanations = "\n".join([
+            f"**{key}** ({value}): {self.relation_type_descriptions[key]}"
+            for key, value in self.relation_type_map.items()
+        ])
+
+        prompt = f"""你是一个专业的社交关系分析专家。请仔细分析以下群聊消息记录，识别群成员之间的社交关系类型和强度。
 
 【群组成员列表】
 {user_list}
@@ -202,38 +256,56 @@ class SocialRelationAnalyzer:
 【消息记录样本】(共 {len(messages)} 条消息，以下为代表性样本)
 {message_context}
 
+【关系类型说明】
+请识别以下社交关系类型（共{len(self.relation_type_map)}种）：
+
+{relation_type_explanations}
+
 【分析任务】
-请根据消息内容分析群成员之间的社交关系，识别以下几种关系类型：
-1. **frequent_interaction** (频繁互动): 经常对话、互相回复
-2. **mention** (提及@): 直接提及或@某人
-3. **reply** (回复对话): 针对某人的消息进行回复
-4. **topic_discussion** (话题讨论): 围绕相同话题展开讨论
-5. **question_answer** (问答互动): 一方提问，另一方回答
-6. **agreement** (观点认同): 表示赞同、支持对方观点
-7. **debate** (辩论讨论): 存在不同观点的讨论
+1. 根据消息内容中的互动模式、称呼、话题、语气等特征判断关系类型
+2. 评估关系强度(0.0-1.0)，考虑因素包括：
+   - 互动频率：越频繁，强度越高
+   - 亲密程度：称呼、语气、话题私密性
+   - 回复及时性：快速回复表示关系较强
+   - 情感表达：表情、语气词的使用
+   - 话题深度：是否涉及私密或重要话题
+3. 估算互动频次（从消息记录中统计）
 
 【输出格式】
-请以JSON格式输出所有识别到的社交关系，格式如下：
+请以JSON格式输出所有识别到的社交关系：
 {{
     "relations": [
         {{
             "from_user": "用户ID",
             "to_user": "用户ID",
-            "relation_type": "关系类型(英文)",
+            "relation_type": "关系类型(英文key)",
             "relation_name": "关系名称(中文)",
-            "strength": 0.8,  // 关系强度 0.0-1.0，基于互动频率和质量
-            "frequency": 5,   // 互动次数（估算）
-            "evidence": "分析依据的简要说明"
+            "strength": 0.85,  // 关系强度 0.0-1.0
+            "frequency": 12,   // 互动次数
+            "evidence": "识别依据：例如'频繁使用亲密称呼'、'讨论私密话题'、'快速回复'等"
         }}
     ]
 }}
 
-【分析要点】
-- 关系是有方向的（from_user -> to_user）
-- strength 应该基于互动频率、回复及时性、话题深度等综合评估
-- frequency 可以根据消息中的互动次数估算
-- 只输出有明确证据的关系，不要猜测
-- 同一对用户可能有多种关系类型
+【重要提示】
+- 关系是有方向的（from_user -> to_user），同一对用户的双向关系需要分别记录
+- 只输出有明确证据的关系，证据不足的不要输出
+- 同一对用户可能存在多种关系类型（例如既是同事又是好友）
+- 特别注意识别亲密关系（couple, spouse, ambiguous, affair）的特征：
+  * 特殊称呼（老婆、老公、宝贝、亲爱的等）
+  * 情侣/夫妻间的互动模式
+  * 暧昧的语言表达
+- 亲属关系特征：
+  * 明确的辈分称呼（爸妈、儿子女儿、哥姐弟妹等）
+  * 家庭相关话题
+- 敌对关系特征：
+  * 明显的冲突性语言
+  * 频繁的争吵或攻击
+- strength评分标准：
+  * 0.1-0.3: 偶尔互动，关系较弱
+  * 0.4-0.6: 中等互动频率，普通关系
+  * 0.7-0.8: 频繁互动，关系较好
+  * 0.9-1.0: 非常亲密或特殊关系
 
 请直接返回JSON，不要其他内容。"""
 

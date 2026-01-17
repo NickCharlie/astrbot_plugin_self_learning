@@ -40,7 +40,7 @@ class FilteredMessage(Base):
     group_id = Column(String(255), index=True)
     timestamp = Column(BigInteger, nullable=False)
     confidence = Column(Float)
-    quality_score = Column(Float)
+    quality_scores = Column(Text)  # JSON 字符串，存储多个质量分数（与传统 database_manager 保持一致）
     filter_reason = Column(Text)
     created_at = Column(BigInteger, nullable=False)
     processed = Column(Boolean, default=False)

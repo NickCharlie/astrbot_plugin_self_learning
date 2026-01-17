@@ -657,7 +657,7 @@ class SelfLearningPlugin(star.Star):
                 logger.info("Debug: Web服务器启动完成")
             except Exception as e:
                 logger.error(StatusMessages.WEB_SERVER_START_FAILED.format(error=e), exc_info=True)
-                logger.error(f"Debug: Web服务器启动异常详情: {type(e).__name__}: {str(e)}")
+                logger.error(f"Debug: Web服务器启动异常详���: {type(e).__name__}: {str(e)}")
                 import traceback
                 logger.error(f"Debug: 异常堆栈: {traceback.format_exc()}")
         else:
@@ -740,13 +740,14 @@ class SelfLearningPlugin(star.Star):
                             reply_to=msg_dict.get('reply_to')
                         )
                         analysis_messages.append(message_data)
-                    
+
                     # 立即分析消息的风格
                     style_result = await self.style_analyzer.analyze_conversation_style(
                         group_id, analysis_messages
                     )
-                    if style_result:
-                        logger.debug(f"实时风格分析完成: {style_result}")
+                    # ✅ 正确检查 AnalysisResult 的 success 属性
+                    if style_result and (style_result.success if hasattr(style_result, 'success') else True):
+                        logger.debug(f"实时风格分析完成，置信度: {style_result.confidence if hasattr(style_result, 'confidence') else 'N/A'}")
                 except Exception as e:
                     logger.error(f"实时风格分析失败: {e}")
 
@@ -838,21 +839,10 @@ class SelfLearningPlugin(star.Star):
                bool(re.match(pattern_without_prefix, message_text, re.IGNORECASE))
 
     @filter.event_message_type(filter.EventMessageType.ALL)
-    async def on_message(self, event: AstrMessageEvent = None, *args, **kwargs):
+    async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
 
         try:
-            # 检查event参数类型 - 添加调试信息
-            if event is None:
-                logger.warning("on_message调用时event参数为None，跳过处理")
-                return
-
-            # ✅ 添加类型检查，防止参数传递错误
-            if not hasattr(event, 'get_message_str'):
-                logger.error(f"on_message接收到错误的event类型: {type(event)}, 预期: AstrMessageEvent")
-                logger.error(f"event对象: {event}")
-                logger.error(f"args: {args}, kwargs: {kwargs}")
-                return
 
             # 获取消息文本
             message_text = event.get_message_str()
@@ -1142,7 +1132,7 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"延迟自动启动学习失败: {e}")
 
     async def _get_active_groups(self) -> List[str]:
-        """获取活跃群组列表"""
+        """获取活跃群组列表（使用ORM）"""
         try:
             # 检查数据库管理器是否可用和已启动
             if not self.db_manager:
@@ -1154,93 +1144,76 @@ class SelfLearningPlugin(star.Star):
                 logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
                 return []
 
-            # 对于传统数据库管理器，检查 db_backend
-            if hasattr(self.db_manager, 'db_backend') and not self.db_manager.db_backend:
-                logger.warning("传统数据库管理器未初始化，无法获取活跃群组")
-                return []
-
-            # ✅ 修复事件循环问题：确保在当前事件循环中执行数据库操作
-            # 获取最近有消息的群组
-            conn = None
-            cursor = None
-            try:
-                conn = await self.db_manager.get_db_connection().__aenter__()
-                cursor = await conn.cursor()
+            # 使用 ORM 方式查询活跃群组
+            async with self.db_manager.get_session() as session:
+                from sqlalchemy import select, func
+                from .models.orm import RawMessage
 
                 # 首先尝试获取最近24小时内有消息的群组
-                cutoff_time = time.time() - 86400
-                await cursor.execute('''
-                    SELECT DISTINCT group_id, COUNT(*) as msg_count
-                    FROM raw_messages
-                    WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
-                    GROUP BY group_id
-                    HAVING msg_count >= ?
-                    ORDER BY msg_count DESC
-                    LIMIT 10
-                ''', (cutoff_time, self.plugin_config.min_messages_for_learning))
+                cutoff_time = int(time.time() - 86400)
 
-                active_groups = []
-                for row in await cursor.fetchall():
-                    if row[0]:  # 确保group_id不为空
-                        active_groups.append(row[0])
+                stmt = select(
+                    RawMessage.group_id,
+                    func.count(RawMessage.id).label('msg_count')
+                ).where(
+                    RawMessage.timestamp > cutoff_time,
+                    RawMessage.group_id.isnot(None),
+                    RawMessage.group_id != ''
+                ).group_by(
+                    RawMessage.group_id
+                ).having(
+                    func.count(RawMessage.id) >= self.plugin_config.min_messages_for_learning
+                ).order_by(
+                    func.count(RawMessage.id).desc()
+                ).limit(10)
+
+                result = await session.execute(stmt)
+                active_groups = [row.group_id for row in result if row.group_id]
 
                 # 如果最近24小时没有活跃群组，扩大时间范围到7天
                 if not active_groups:
                     logger.warning("最近24小时内没有活跃群组，扩大搜索范围到7天...")
-                    cutoff_time = time.time() - (86400 * 7)  # 7天
-                    await cursor.execute('''
-                        SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages
-                        WHERE timestamp > ? AND group_id IS NOT NULL AND group_id != ''
-                        GROUP BY group_id
-                        HAVING msg_count >= ?
-                        ORDER BY msg_count DESC
-                        LIMIT 10
-                    ''', (cutoff_time, max(1, self.plugin_config.min_messages_for_learning // 2)))  # 降低消息数要求
+                    cutoff_time = int(time.time() - (86400 * 7))  # 7天
 
-                    for row in await cursor.fetchall():
-                        if row[0]:
-                            active_groups.append(row[0])
+                    stmt = select(
+                        RawMessage.group_id,
+                        func.count(RawMessage.id).label('msg_count')
+                    ).where(
+                        RawMessage.timestamp > cutoff_time,
+                        RawMessage.group_id.isnot(None),
+                        RawMessage.group_id != ''
+                    ).group_by(
+                        RawMessage.group_id
+                    ).having(
+                        func.count(RawMessage.id) >= max(1, self.plugin_config.min_messages_for_learning // 2)
+                    ).order_by(
+                        func.count(RawMessage.id).desc()
+                    ).limit(10)
+
+                    result = await session.execute(stmt)
+                    active_groups = [row.group_id for row in result if row.group_id]
 
                 # 如果还是没有，获取所有有消息的群组（无时间限制）
                 if not active_groups:
                     logger.warning("7天内也没有活跃群组，获取所有有消息记录的群组...")
-                    await cursor.execute('''
-                        SELECT DISTINCT group_id, COUNT(*) as msg_count
-                        FROM raw_messages
-                        WHERE group_id IS NOT NULL AND group_id != ''
-                        GROUP BY group_id
-                        ORDER BY msg_count DESC
-                        LIMIT 10
-                    ''')
 
-                    for row in await cursor.fetchall():
-                        if row[0]:
-                            active_groups.append(row[0])
+                    stmt = select(
+                        RawMessage.group_id,
+                        func.count(RawMessage.id).label('msg_count')
+                    ).where(
+                        RawMessage.group_id.isnot(None),
+                        RawMessage.group_id != ''
+                    ).group_by(
+                        RawMessage.group_id
+                    ).order_by(
+                        func.count(RawMessage.id).desc()
+                    ).limit(10)
 
-                await cursor.close()
+                    result = await session.execute(stmt)
+                    active_groups = [row.group_id for row in result if row.group_id]
 
                 logger.info(f"发现 {len(active_groups)} 个活跃群组: {active_groups if active_groups else '无'}")
                 return active_groups
-
-            except RuntimeError as e:
-                if "attached to a different loop" in str(e):
-                    logger.warning("获取活跃群组遇到事件循环问题（已知MySQL限制），返回空列表")
-                    return []
-                else:
-                    raise
-            finally:
-                # 确保关闭游标和连接
-                if cursor:
-                    try:
-                        await cursor.close()
-                    except:
-                        pass
-                if conn:
-                    try:
-                        await self.db_manager.get_db_connection().__aexit__(None, None, None)
-                    except:
-                        pass
 
         except Exception as e:
             logger.error(f"获取活跃群组失败: {e}")
@@ -2607,12 +2580,26 @@ PersonaManager模式优势：
 
 
     @filter.on_llm_request()
-    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req):
+    async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)
 
-        重要: 使用 += 追加方式，不会覆盖其他插件已注入的内容
+        重要改进 (v1.1.1):
+        - 将注入内容添加到 req.system_prompt 而不是 req.prompt
+        - 解决对话历史膨胀问题：AstrBot 只保存 req.prompt 到对话历史，不保存 system_prompt
+        - 避免 token 超限：每次对话不再累积注入的人格设定、社交上下文、多样性提示
+
+        注入内容包括：
+        1. 社交上下文（表达模式学习、社交关系、好感度、深度心理状态、行为指导）
+        2. 多样性增强（语言风格、回复模式、表达变化、历史Bot消息避重）
+        3. 黑话理解（如果用户消息中包含黑话）
+        4. 会话级增量更新（临时人格调整）
         """
         try:
+            # 检查 req 参数是否存在
+            if req is None:
+                logger.warning("[LLM Hook] req 参数为 None，跳过注入")
+                return
+
             # 如果diversity_manager不存在,跳过注入
             if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
                 logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
@@ -2727,22 +2714,46 @@ PersonaManager模式优势：
             else:
                 logger.debug("[LLM Hook] temporary_persona_updater未初始化，跳过会话级更新注入")
 
-            # ✅ 5. 注入所有增量内容到 req.prompt（用户消息上下文）
+            # ✅ 5. 注入所有增量内容（根据配置选择注入位置）
+            # 关键改进 (v1.1.1)：支持将注入内容添加到 system_prompt 或 prompt
+            # - system_prompt: 不会被 AstrBot 保存到对话历史，避免历史膨胀 (推荐)
+            # - prompt: 会被保存到对话历史，导致 token 累积和超限 (旧版行为)
             if prompt_injections:
                 prompt_injection_text = '\n\n'.join(prompt_injections)
-                req.prompt += '\n\n' + prompt_injection_text
 
-                final_prompt_length = len(req.prompt)
-                prompt_injected_length = final_prompt_length - original_prompt_length
+                # 根据配置决定注入位置
+                injection_target = getattr(self.plugin_config, 'llm_hook_injection_target', 'system_prompt')
+
+                if injection_target == 'system_prompt':
+                    # 注入到 system_prompt（推荐，不会被保存到对话历史）
+                    if not req.system_prompt:
+                        req.system_prompt = ""
+
+                    original_length = len(req.system_prompt)
+                    req.system_prompt += '\n\n' + prompt_injection_text
+                    final_length = len(req.system_prompt)
+                    injected_length = final_length - original_length
+
+                    logger.info(f"✅ [LLM Hook] System Prompt 注入完成 - 原长度: {original_length}, 新增: {injected_length}, 总长度: {final_length}")
+                    logger.info(f"💡 [LLM Hook] 注入位置: system_prompt (不会被保存到对话历史)")
+
+                else:
+                    # 注入到 prompt（旧版行为，会导致对话历史膨胀）
+                    original_length = len(req.prompt)
+                    req.prompt += '\n\n' + prompt_injection_text
+                    final_length = len(req.prompt)
+                    injected_length = final_length - original_length
+
+                    logger.info(f"✅ [LLM Hook] Prompt 注入完成 - 原长度: {original_length}, 新增: {injected_length}, 总长度: {final_length}")
+                    logger.warning(f"⚠️ [LLM Hook] 注入位置: prompt (会被保存到对话历史，可能导致token超限)")
 
                 # 统计和日志
                 current_language_style = self.diversity_manager.get_current_style()
                 current_response_pattern = self.diversity_manager.get_current_pattern()
 
-                logger.info(f"✅ [LLM Hook] Prompt 注入完成 - 原长度: {original_prompt_length}, 新增: {prompt_injected_length}, 总长度: {final_prompt_length}")
                 logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
                 logger.info(f"✅ [LLM Hook] 注入内容数量: {len(prompt_injections)}项")
-                logger.debug(f"✅ [LLM Hook] Prompt 注入内容预览: {prompt_injection_text[:200]}...")
+                logger.debug(f"✅ [LLM Hook] 注入内容预览: {prompt_injection_text[:200]}...")
             else:
                 logger.debug("[LLM Hook] 没有可注入的增量内容")
 

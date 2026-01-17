@@ -40,16 +40,30 @@ class LearningService:
 
         if self.db_manager:
             try:
-                # 尝试从数据库获取真实数据
-                real_stats = await self.db_manager.get_style_learning_statistics()
-                if real_stats:
-                    results_data['statistics'].update(real_stats)
+                # 优先使用ORM Repository获取统计数据
+                if hasattr(self.db_manager, 'get_session'):
+                    # 使用ORM方式获取统计
+                    from ...repositories.learning_repository import StyleLearningReviewRepository
 
+                    async with self.db_manager.get_session() as session:
+                        style_repo = StyleLearningReviewRepository(session)
+                        real_stats = await style_repo.get_statistics()
+                        if real_stats:
+                            results_data['statistics'].update(real_stats)
+
+                    logger.debug(f"使用ORM获取风格学习统计: {real_stats}")
+                else:
+                    # 降级到传统数据库方法
+                    real_stats = await self.db_manager.get_style_learning_statistics()
+                    if real_stats:
+                        results_data['statistics'].update(real_stats)
+
+                # 获取进度数据（保持原有逻辑）
                 real_progress = await self.db_manager.get_style_progress_data()
                 if real_progress:
                     results_data['style_progress'] = real_progress
             except Exception as e:
-                logger.warning(f"无法从数据库获取风格学习数据: {e}")
+                logger.warning(f"无法从数据库获取风格学习数据: {e}", exc_info=True)
 
         return results_data
 

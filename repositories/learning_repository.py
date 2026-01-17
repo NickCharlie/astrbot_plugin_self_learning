@@ -283,6 +283,8 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             Dict[str, Any]: 统计数据，字段名与前端API期望一致
         """
         try:
+            from datetime import datetime
+
             # 1. 统计不同学习类型数量 (unique_styles)
             unique_types_stmt = select(func.count(func.distinct(StyleLearningReview.type)))
             unique_types_result = await self.session.execute(unique_types_stmt)
@@ -311,7 +313,12 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             # 使用 timestamp 而不是 updated_at，因为 timestamp 是数值类型
             last_update_stmt = select(func.max(StyleLearningReview.timestamp))
             last_update_result = await self.session.execute(last_update_stmt)
-            latest_update = last_update_result.scalar()
+            latest_timestamp = last_update_result.scalar()
+
+            # ✅ 转换 Unix 时间戳为可读格式
+            latest_update = None
+            if latest_timestamp:
+                latest_update = datetime.fromtimestamp(latest_timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
             return {
                 "unique_styles": unique_styles,

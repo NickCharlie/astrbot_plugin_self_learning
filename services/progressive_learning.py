@@ -292,24 +292,30 @@ class ProgressiveLearningService:
                         # 使用强化学习优化后的人格
                         final_persona = tuning_result.get('updated_persona')
 
-                        # 检测是否使用了保守融合策略
-                        original_prompt_length = len(current_persona.get('prompt', ''))
-                        new_prompt_length = len(final_persona.get('prompt', ''))
-                        used_conservative_fusion = new_prompt_length < original_prompt_length * 0.8
+                        # ✅ 检查 updated_persona 类型，确保是字典才调用 update
+                        if not isinstance(updated_persona, dict):
+                            logger.error(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
+                        elif not isinstance(final_persona, dict):
+                            logger.error(f"final_persona 类型不正确，预期为 dict 但得到 {type(final_persona)}，跳过强化学习调优")
+                        else:
+                            # 检测是否使用了保守融合策略
+                            original_prompt_length = len(current_persona.get('prompt', ''))
+                            new_prompt_length = len(final_persona.get('prompt', ''))
+                            used_conservative_fusion = new_prompt_length < original_prompt_length * 0.8
 
-                        updated_persona.update(final_persona)
+                            updated_persona.update(final_persona)
 
-                        # 保存强化学习调优信息，供审查记录使用
-                        ml_tuning_info = {
-                            'applied': True,
-                            'expected_improvement': tuning_result.get('performance_prediction', {}).get('expected_improvement', 0),
-                            'used_conservative_fusion': used_conservative_fusion,
-                            'original_length': original_prompt_length,
-                            'tuned_length': new_prompt_length
-                        }
+                            # 保存强化学习调优信息，供审查记录使用
+                            ml_tuning_info = {
+                                'applied': True,
+                                'expected_improvement': tuning_result.get('performance_prediction', {}).get('expected_improvement', 0),
+                                'used_conservative_fusion': used_conservative_fusion,
+                                'original_length': original_prompt_length,
+                                'tuned_length': new_prompt_length
+                            }
 
-                        logger.info(f"应用强化学习优化后的人格，预期改进: {ml_tuning_info['expected_improvement']}" +
-                                  (f"，使用保守融合策略" if used_conservative_fusion else ""))
+                            logger.info(f"应用强化学习优化后的人格，预期改进: {ml_tuning_info['expected_improvement']}" +
+                                      (f"，使用保守融合策略" if used_conservative_fusion else ""))
 
                 except Exception as e:
                     logger.error(f"强化学习增量微调失败: {e}")
@@ -338,13 +344,15 @@ class ProgressiveLearningService:
             success = True  # 对话风格学习总是成功
             
             # 10. 【新增】保存学习性能记录
+            # ✅ 正确处理 AnalysisResult 对象进行序列化
+            style_analysis_for_db = style_analysis.data if hasattr(style_analysis, 'data') else style_analysis
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self.current_session.session_id if self.current_session else '',
                 'timestamp': time.time(),
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
                 'success': success,
-                'successful_pattern': json.dumps(style_analysis, default=self._json_serializer),
+                'successful_pattern': json.dumps(style_analysis_for_db, default=self._json_serializer),
                 'failed_pattern': ''  # 对话风格学习总是成功，不记录失败
             })
             
@@ -460,13 +468,17 @@ class ProgressiveLearningService:
                     group_id, current_persona, updated_persona
                 )
                 if tuning_result and tuning_result.get('updated_persona'):
-                    updated_persona.update(tuning_result.get('updated_persona'))
-                    logger.info(f"应用强化学习优化，预期改进: {tuning_result.get('performance_prediction', {}).get('expected_improvement', 0)}")
+                    # ✅ 检查 updated_persona 类型，确保是字典才调用 update
+                    if isinstance(updated_persona, dict):
+                        updated_persona.update(tuning_result.get('updated_persona'))
+                        logger.info(f"应用强化学习优化，预期改进: {tuning_result.get('performance_prediction', {}).get('expected_improvement', 0)}")
+                    else:
+                        logger.warning(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
             
             # 7. 质量评估和应用更新
             await self._finalize_learning_batch(
-                group_id, current_persona, updated_persona, filtered_messages, 
-                unprocessed_messages, batch_start_time
+                group_id, current_persona, updated_persona, filtered_messages,
+                unprocessed_messages, batch_start_time, style_analysis  # ✅ 传递 style_analysis
             )
             
         except Exception as e:
@@ -487,11 +499,12 @@ class ProgressiveLearningService:
 
     async def _execute_style_analysis_background(self, group_id: str, filtered_messages):
         """在后台执行风格分析"""
+        from ..core.interfaces import AnalysisResult
         try:
             return await self.style_analyzer.analyze_conversation_style(group_id, filtered_messages)
         except Exception as e:
             logger.error(f"后台风格分析失败: {e}")
-            return {}
+            return AnalysisResult(success=False, confidence=0.0, data={}, error=str(e))
 
     async def _execute_incremental_tuning_background(self, group_id: str, base_persona, incremental_updates):
         """在后台执行增量微调"""
@@ -503,62 +516,79 @@ class ProgressiveLearningService:
             logger.error(f"后台增量微调失败: {e}")
             return {}
 
-    async def _finalize_learning_batch(self, group_id: str, current_persona, updated_persona, 
-                                     filtered_messages, unprocessed_messages, batch_start_time):
-        """完成学习批次的最终处理"""
+    async def _finalize_learning_batch(self, group_id: str, current_persona, updated_persona,
+                                     filtered_messages, unprocessed_messages, batch_start_time, style_analysis=None):
+        """完成学习批次的最终处理
+
+        Args:
+            style_analysis: 风格分析结果，用于保存对话风格学习记录
+        """
         try:
             # 质量监控评估
             # 确保参数不为None，提供默认值
             if current_persona is None:
                 current_persona = {"prompt": "默认人格"}
                 logger.warning("_finalize_learning_batch: current_persona为None，使用默认值")
-            
+
             if updated_persona is None:
                 updated_persona = current_persona.copy()
                 logger.warning("_finalize_learning_batch: updated_persona为None，使用current_persona的副本")
-                
+
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, updated_persona, filtered_messages
             )
 
             # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
-            await self._apply_learning_updates(group_id, {}, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)  # style_analysis may be empty, 后台学习不使用relearn模式
+            # ✅ 传递 style_analysis 用于保存对话风格学习记录
+            # ✅ 如果 style_analysis 为 None，创建一个空的 AnalysisResult
+            from ..core.interfaces import AnalysisResult
+            if style_analysis is None:
+                style_analysis = AnalysisResult(success=True, confidence=0.5, data={})
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True  # 对话风格学习总是成功
-            
+
             # 【新增】记录学习批次到数据库，供webui查询使用
-            batch_name = f"batch_{group_id}_{int(time.time())}"
-            start_time = batch_start_time.timestamp()
-            end_time = time.time()
-            
-            # 连接到全局消息数据库记录学习批次
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                try:
-                    await cursor.execute('''
-                        INSERT INTO learning_batches
-                        (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
-                         message_count, filtered_count, success, error_message)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        group_id,
-                        batch_name,
-                        start_time,
-                        end_time,
-                        quality_metrics.consistency_score,
-                        len(unprocessed_messages),
-                        len(unprocessed_messages),
-                        len(filtered_messages),
-                        success,
-                        None  # 对话风格学习总是成功，不记录错误
-                    ))
-                    await conn.commit()
-                    logger.debug(f"学习批次记录已保存: {batch_name}")
-                except Exception as e:
-                    logger.error(f"保存学习批次记录失败: {e}")
-                finally:
-                    await cursor.close()
+            # ✅ 增强错误处理，如果表不存在则跳过记录
+            try:
+                batch_name = f"batch_{group_id}_{int(time.time())}"
+                start_time = batch_start_time.timestamp()
+                end_time = time.time()
+
+                # 连接到全局消息数据库记录学习批次
+                async with self.db_manager.get_db_connection() as conn:
+                    cursor = await conn.cursor()
+
+                    try:
+                        await cursor.execute('''
+                            INSERT INTO learning_batches
+                            (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
+                             message_count, filtered_count, success, error_message)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ''', (
+                            group_id,
+                            batch_name,
+                            start_time,
+                            end_time,
+                            quality_metrics.consistency_score,
+                            len(unprocessed_messages),
+                            len(unprocessed_messages),
+                            len(filtered_messages),
+                            success,
+                            None  # 对话风格学习总是成功，不记录错误
+                        ))
+                        await conn.commit()
+                        logger.debug(f"学习批次记录已保存: {batch_name}")
+                    except Exception as e:
+                        error_str = str(e)
+                        if "no such table" in error_str.lower() or "doesn't exist" in error_str.lower() or "unknown column" in error_str.lower():
+                            logger.debug(f"学习批次表不存在或结构过旧，跳过保存（这不影响学习功能）: {e}")
+                        else:
+                            logger.error(f"保存学习批次记录失败: {e}")
+                    finally:
+                        await cursor.close()
+            except Exception as e:
+                logger.debug(f"无法记录学习批次（这不影响学习功能）: {e}")
             
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
@@ -748,58 +778,17 @@ class ProgressiveLearningService:
     #         raise LearningError(f"学习批次执行失败: {str(e)}")
 
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """使用多维度分析进行智能筛选"""
-        filtered = []
-        
-        # 添加批量处理限制，防止过度的LLM调用
-        max_messages_to_analyze = min(len(messages), 10)  # 减少到每批最多分析10条消息
-        messages_to_process = messages[:max_messages_to_analyze]
-        
-        logger.info(f"开始筛选 {len(messages_to_process)} 条消息 (原始: {len(messages)} 条，限制批量大小以减少LLM调用)")
-        
-        for i, message in enumerate(messages_to_process):
-            try:
-                # 添加处理进度日志
-                if i % 3 == 0:  # 减少日志频率
-                    logger.debug(f"筛选进度: {i+1}/{len(messages_to_process)}")
-                
-                # 使用专门的批量分析方法，不需要事件对象
-                context_analysis = await self.multidimensional_analyzer.analyze_message_batch(
-                    message['message'],
-                    sender_id=message.get('sender_id', ''),
-                    sender_name=message.get('sender_name', ''),
-                    group_id=message.get('group_id', ''),
-                    timestamp=message.get('timestamp', time.time())
-                )
-                
-                # 根据上下文相关性筛选
-                relevance = context_analysis.get('contextual_relevance', 0.0)
-                if relevance >= self.config.relevance_threshold:
-                    # 添加筛选信息到消息
-                    message['context_analysis'] = context_analysis
-                    message['relevance_score'] = relevance
-                    filtered.append(message)
-                    
-                    # 保存到筛选消息表
-                    await self.message_collector.add_filtered_message({
-                        'raw_message_id': message.get('id'),
-                        'message': message['message'],
-                        'sender_id': message.get('sender_id', ''),
-                        'confidence': relevance,
-                        'filter_reason': 'context_relevance',
-                        'timestamp': message.get('timestamp', time.time())
-                    })
-                    
-            except Exception as e:
-                logger.warning(f"消息筛选失败: {e}")
-                continue
-        
-        # 如果还有未处理的消息，记录日志
-        if len(messages) > max_messages_to_analyze:
-            logger.info(f"由于批量处理限制，跳过了 {len(messages) - max_messages_to_analyze} 条消息，减少LLM调用频率")
-        
-        logger.info(f"筛选完成: {len(filtered)} 条消息通过筛选")
-        return filtered
+        """对话风格学习不需要筛选，直接返回所有消息"""
+
+        # ✅ 对话风格学习不需要LLM筛选，直接学习所有原始消息
+        logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
+
+        # 为每条消息添加默认的相关性评分
+        for message in messages:
+            message['relevance_score'] = 1.0  # 默认完全相关
+            message['filter_reason'] = 'style_learning_no_filter'
+
+        return messages
 
     async def _get_current_persona(self, group_id: str) -> Dict[str, Any]:
         """获取当前人格设置 (针对特定群组)"""
@@ -974,7 +963,7 @@ class ProgressiveLearningService:
     async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
                                      current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
                                      quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None):
-        """应用学习更新，并创建人格学习审查记录
+        """应用学习更新，并创建人格学习审查记录和风格学习记录
 
         Args:
             group_id: 群组ID
@@ -987,9 +976,33 @@ class ProgressiveLearningService:
             ml_tuning_info: 强化学习调优信息（包含是否使用保守融合策略等）
         """
         try:
-            # 1. 更新人格prompt（通过 PersonaManagerService）
+            # 1. 保存对话风格学习记录（不需要审查，直接保存）
+            await self._save_style_learning_record(group_id, style_analysis, messages, quality_metrics)
+
+            # 2. 更新人格prompt（通过 PersonaManagerService）
             logger.info(f"应用人格更新 for group {group_id}")
-            update_success = await self.persona_manager.update_persona(group_id, style_analysis, messages)
+
+            # ✅ 正确处理 AnalysisResult 对象
+            if hasattr(style_analysis, 'success'):
+                # 这是一个 AnalysisResult 对象
+                if not style_analysis.success:
+                    logger.error(f"风格分析失败，跳过人格更新: {style_analysis.error}")
+                    return
+
+                # 使用 AnalysisResult 的 data 属性
+                style_analysis_dict = style_analysis.data
+                confidence = style_analysis.confidence
+                logger.debug(f"使用 AnalysisResult 对象，置信度: {confidence:.3f}")
+            elif isinstance(style_analysis, dict):
+                # 向后兼容：如果传入的是字典
+                style_analysis_dict = style_analysis
+                confidence = style_analysis.get('confidence', 0.5)
+                logger.debug("使用字典形式的 style_analysis（向后兼容）")
+            else:
+                logger.error(f"style_analysis 类型不正确: {type(style_analysis)}")
+                return
+
+            update_success = await self.persona_manager.update_persona(group_id, style_analysis_dict, messages)
             if not update_success:
                 logger.error(f"通过 PersonaManagerService 更新人格失败 for group {group_id}")
 
@@ -1032,12 +1045,12 @@ class ProgressiveLearningService:
                     metadata = {
                         "progressive_learning": True,
                         "message_count": len(messages),
-                        "style_analysis_fields": list(style_analysis.keys()) if style_analysis else [],
+                        "style_analysis_fields": list(style_analysis.data.keys()) if (hasattr(style_analysis, "data") and isinstance(style_analysis.data, dict)) else (list(style_analysis.keys()) if isinstance(style_analysis, dict) else []),
                         "original_prompt_length": len(original_prompt),
                         "new_prompt_length": len(new_prompt),
                         "incremental_content": incremental_content,  # ✅ 单独记录增量内容，用于高亮
                         "incremental_start_pos": len(original_prompt),  # ✅ 标记新增内容的起始位置
-                        "relearn_mode": relearn_mode  # ✅ 标记是否为重新学习模式
+                        "relearn_mode": relearn_mode  # ✅ 标记是否���重新学习模式
                     }
 
                     # ✅ 添加强化学习调优信息到元数据
@@ -1271,7 +1284,157 @@ class ProgressiveLearningService:
             except Exception as db_error:
                 logger.error(f"保存审查记录到数据库失败: {db_error}")
                 return False
-            
+
         except Exception as e:
             logger.error(f"创建质量不达标审查记录失败: {e}")
             return False
+
+    async def _save_style_learning_record(self, group_id: str, style_analysis: Dict[str, Any],
+                                         messages: List[Dict[str, Any]], quality_metrics=None):
+        """
+        保存对话风格学习记录（直接保存，不需要审查）
+
+        Args:
+            group_id: 群组ID
+            style_analysis: 风格分析结果（可以为空，会基于消息创建简单记录）
+            messages: 处理的消息列表
+            quality_metrics: 质量指标
+        """
+        try:
+            # ✅ 处理 AnalysisResult 对象，提取其 data 属性
+            if style_analysis and hasattr(style_analysis, 'data'):
+                style_analysis_dict = style_analysis.data
+            elif isinstance(style_analysis, dict):
+                style_analysis_dict = style_analysis
+            else:
+                style_analysis_dict = {}
+
+            # ✅ 即使没有 style_analysis，也应该基于消息创建学习记录
+            if not style_analysis_dict and not messages:
+                logger.debug(f"群组 {group_id} 没有风格分析结果且没有消息，跳过风格学习记录保存")
+                return
+
+            # 1. 保存表达模式到 expression_patterns 表
+            expression_patterns = style_analysis_dict.get('expression_patterns', [])
+            if expression_patterns:
+                await self._save_expression_patterns(group_id, expression_patterns)
+
+            # 2. 构建 few_shots 内容
+            few_shots_content = ''
+            if style_analysis_dict:
+                few_shots_content = style_analysis_dict.get('enhanced_prompt', '')
+                if not few_shots_content and expression_patterns:
+                    # 如果没有 enhanced_prompt，从 expression_patterns 构建
+                    few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
+
+            # ✅ 如果没有 few_shots_content，从消息中构建简单的学习内容
+            if not few_shots_content and messages:
+                few_shots_content = f"基于 {len(messages)} 条对话消息的风格学习"
+
+            # 3. 构建学习模式列表
+            learned_patterns = []
+            for pattern in expression_patterns[:10]:  # 取前10个模式
+                learned_patterns.append({
+                    'situation': pattern.get('situation', ''),
+                    'expression': pattern.get('expression', ''),
+                    'weight': pattern.get('weight', 1.0),
+                    'confidence': pattern.get('confidence', 0.8)
+                })
+
+            # 4. 获取质量得分
+            confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.75
+
+            # 5. 构建描述
+            pattern_count = len(learned_patterns) if learned_patterns else 0
+            message_count = len(messages) if messages else 0
+            description = f"群组 {group_id} 的对话风格学习结果（处理 {message_count} 条消息，提取 {pattern_count} 个表达模式）"
+
+            # 6. 保存风格学习记录（使用 ORM）
+            try:
+                async with self.db_manager.get_session() as session:
+                    from ..models.orm.learning import StyleLearningReview
+                    from datetime import datetime
+
+                    current_timestamp = time.time()
+
+                    review = StyleLearningReview(
+                        type='对话风格学习',
+                        group_id=group_id,
+                        timestamp=current_timestamp,
+                        learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),
+                        few_shots_content=few_shots_content,
+                        status='approved',  # 直接批准，不需要审查
+                        description=description,
+                        reviewer_comment='自动批准',
+                        review_time=current_timestamp,
+                        created_at=datetime.fromtimestamp(current_timestamp),  # ✅ 转换为datetime对象
+                        updated_at=datetime.fromtimestamp(current_timestamp)   # ✅ 转换为datetime对象
+                    )
+
+                    session.add(review)
+                    await session.commit()
+                    await session.refresh(review)
+
+                    logger.info(f"✅ 对话风格学习记录已保存 (ID: {review.id})，处理 {message_count} 条消息，提取 {pattern_count} 个模式")
+
+            except Exception as e:
+                logger.error(f"保存对话风格学习记录失败: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(f"保存风格学习记录失败: {e}", exc_info=True)
+
+    def _build_few_shots_from_patterns(self, patterns: List[Dict[str, Any]]) -> str:
+        """从表达模式构建 few-shots 内容"""
+        few_shots = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n"
+
+        for i, pattern in enumerate(patterns[:5], 1):  # 只取前5个
+            situation = pattern.get('situation', '')
+            expression = pattern.get('expression', '')
+            if situation and expression:
+                few_shots += f"A: {situation}\nB: {expression}\n\n"
+
+        return few_shots.strip()
+
+    async def _save_expression_patterns(self, group_id: str, patterns: List[Dict[str, Any]]):
+        """
+        保存表达模式到 expression_patterns 表
+
+        Args:
+            group_id: 群组ID
+            patterns: 表达模式列表
+        """
+        try:
+            if not patterns:
+                return
+
+            # 使用 ORM 保存表达模式
+            async with self.db_manager.get_session() as session:
+                from ..models.orm.expression import ExpressionPattern
+                import time
+
+                current_time = time.time()
+
+                for pattern in patterns:
+                    situation = pattern.get('situation', '').strip()
+                    expression = pattern.get('expression', '').strip()
+
+                    if not situation or not expression:
+                        continue
+
+                    # 创建表达模式记录（ExpressionPattern只有weight, last_active_time, create_time字段）
+                    expr_pattern = ExpressionPattern(
+                        group_id=group_id,
+                        situation=situation,
+                        expression=expression,
+                        weight=float(pattern.get('weight', 1.0)),
+                        last_active_time=current_time,  # ✅ 使用last_active_time而不是confidence
+                        create_time=current_time
+                    )
+
+                    session.add(expr_pattern)
+
+                await session.commit()
+                logger.info(f"✅ 已保存 {len(patterns)} 个表达模式到数据库 (群组: {group_id})")
+
+        except Exception as e:
+            logger.error(f"保存表达模式失败: {e}", exc_info=True)

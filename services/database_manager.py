@@ -178,47 +178,37 @@ class DatabaseManager(AsyncServiceBase):
     async def _do_start(self) -> bool:
         """启动服务时初始化连接池和数据库"""
         try:
-            # 如果跳过表初始化标志为真，则仅初始化连接池，不创建表
-            # 这通常发生在 SQLAlchemyDatabaseManager 已经通过 ORM 创建表的情况
-            if self.skip_table_init:
-                self._logger.info("⏭️ 跳过传统数据库表初始化（由 ORM 管理）")
-                # 仅初始化连接池用于兼容性查询
-                await self.connection_pool.initialize()
-                self._logger.info("数据库连接池初始化成功（仅用于兼容性）")
-                return True
+            self._logger.info(f"🚀 [DatabaseManager] 开始启动 (db_type={self.config.db_type}, skip_table_init={self.skip_table_init})")
 
-            # 正常的初始化流程（当 skip_table_init=False 时）
-            # 1. 创建数据库后端
+            # 1. 创建数据库后端（无论 skip_table_init 是否为 True 都需要初始化后端）
+            # skip_table_init 只影响表的创建，不影响后端连接的初始化
+            self._logger.info(f"📡 [DatabaseManager] 正在初始化 {self.config.db_type} 数据库后端...")
             backend_success = await self._initialize_database_backend()
 
-            # 2. 如果数据库后端初始化失败，尝试回退到SQLite
+            # 2. 如果数据库后端初始化失败，直接报错，不回退
             if not backend_success or not self.db_backend:
-                self._logger.warning(
-                    f"数据库后端初始化失败，回退到SQLite"
-                )
-                # 强制使用SQLite配置
-                fallback_config = DatabaseConfig(
-                    db_type=DatabaseType.SQLITE,
-                    sqlite_path=self.messages_db_path,
-                    max_connections=self.config.max_connections,
-                    min_connections=self.config.min_connections
-                )
-                self.db_backend = DatabaseFactory.create_backend(fallback_config)
-                if self.db_backend:
-                    await self.db_backend.initialize()
-                    self._logger.info("已成功回退到SQLite数据库")
+                error_msg = f"❌ {self.config.db_type} 数据库后端初始化失败"
+                self._logger.error(error_msg)
+                raise RuntimeError(error_msg)
+
+            self._logger.info(f"✅ [DatabaseManager] {self.config.db_type} 后端初始化成功")
 
             # 3. 初始化旧的连接池（仅用于group数据库，暂时保留）
             await self.connection_pool.initialize()
-            self._logger.info("数据库连接池初始化成功")
+            self._logger.info("✅ [DatabaseManager] 数据库连接池初始化成功")
 
             # 4. 初始化数据库表结构（如果表不存在则自动创建）
-            await self._init_messages_database()
-            self._logger.info("全局消息数据库初始化成功")
+            # 如果 skip_table_init=True（由 ORM 管理表），则跳过表创建
+            if not self.skip_table_init:
+                await self._init_messages_database()
+                self._logger.info("✅ [DatabaseManager] 全局消息数据库初始化成功")
+            else:
+                self._logger.info("⏭️ [DatabaseManager] 跳过传统数据库表创建（由 SQLAlchemy ORM 管理）")
 
+            self._logger.info(f"🎉 [DatabaseManager] 数据库管理器启动完成 (使用后端: {self.config.db_type})")
             return True
         except Exception as e:
-            self._logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
+            self._logger.error(f"❌ [DatabaseManager] 启动数据库管理器失败: {e}", exc_info=True)
             return False
 
     async def _initialize_database_backend(self) -> bool:
@@ -301,11 +291,17 @@ class DatabaseManager(AsyncServiceBase):
         """
         db_type = self.config.db_type.lower()
 
+        # 🔍 调试日志：输出数据库类型和后端状态
+        self._logger.debug(f"[get_db_connection] 配置的数据库类型: {db_type}")
+        self._logger.debug(f"[get_db_connection] db_backend 状态: {self.db_backend is not None}")
+
         # 如果使用MySQL或PostgreSQL且db_backend可用，使用通用后端连接管理器
         if db_type in ('mysql', 'postgresql') and self.db_backend:
+            self._logger.debug(f"[get_db_connection] ✅ 使用 {db_type.upper()} 后端")
             return self._get_backend_connection_manager()
         else:
             # 使用旧的SQLite连接池
+            self._logger.warning(f"[get_db_connection] ⚠️ 回退到 SQLite 连接池 (db_type={db_type}, backend_exists={self.db_backend is not None})")
             return self._get_sqlite_connection_manager()
 
     def _get_sqlite_connection_manager(self):
@@ -618,19 +614,33 @@ class DatabaseManager(AsyncServiceBase):
     async def _init_messages_database(self):
         """
         初始化全局消息数据库（根据数据库类型选择后端）
+
+        ⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+        此方法保留仅用于向后兼容，不再创建表
         """
+        self._logger.info("⏭️ [传统数据库管理器] 表创建已由 SQLAlchemy ORM 接管，跳过传统表初始化")
         # 如果使用MySQL后端，使用db_backend初始化表
-        if self.db_backend and self.config.db_type.lower() == 'mysql':
-            await self._init_messages_database_mysql()
-            self._logger.info("MySQL数据库表初始化完成。")
-        else:
-            # 使用旧的SQLite连接池
-            async with self.get_db_connection() as conn:
-                await self._init_messages_database_tables(conn)
-                self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
+        # if self.db_backend and self.config.db_type.lower() == 'mysql':
+        #     await self._init_messages_database_mysql()
+        #     self._logger.info("MySQL数据库表初始化完成。")
+        # else:
+        #     # 使用旧的SQLite连接池
+        #     async with self.get_db_connection() as conn:
+        #         await self._init_messages_database_tables(conn)
+        #         self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
 
     async def _init_messages_database_mysql(self):
-        """使用MySQL后端初始化数据库表"""
+        """
+        使用MySQL后端初始化数据库表
+
+        ⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+        此方法保留仅用于参考，不再使用
+        """
+        self._logger.warning("⚠️ [传统数据库管理器] _init_messages_database_mysql 已废弃，请使用 SQLAlchemy ORM")
+        return
+
+        # 以下代码已禁用，保留仅供参考
+        """
         try:
             # 创建原始消息表
             self._logger.info("尝试创建 raw_messages 表 (MySQL)...")
@@ -976,11 +986,22 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"MySQL表初始化失败: {e}", exc_info=True)
             raise
+        """
 
     async def _init_messages_database_tables(self, conn: aiosqlite.Connection):
-        """初始化全局消息SQLite数据库的表结构"""
+        """
+        初始化全局消息SQLite数据库的表结构
+
+        ⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+        此方法保留仅用于向后兼容，不再创建表
+        """
+        self._logger.warning("⚠️ [传统数据库管理器] _init_messages_database_tables 已废弃，请使用 SQLAlchemy ORM")
+        return
+
+        # 以下代码已禁用，保留仅供参考
+        """
         cursor = await conn.cursor()
-        
+
         try:
             # 设置数据库为WAL模式，提高并发性能并避免锁定问题
             await cursor.execute('PRAGMA journal_mode=WAL')
@@ -1052,21 +1073,32 @@ class DatabaseManager(AsyncServiceBase):
             columns = [col[1] for col in await cursor.fetchall()]
             if 'quality_scores' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN quality_scores TEXT")
+                await conn.commit()  # 立即提交，确保列添加成功
                 logger.info("已为 filtered_messages 表添加 quality_scores 列。")
 
             # 检查并添加 group_id 列（如果不存在）
+            # 重新获取列信息，因为前面可能添加了新列
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'group_id' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN group_id TEXT")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 group_id 列。")
 
             # 检查并添加 refined 列（如果不存在）
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'refined' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN refined BOOLEAN DEFAULT 0")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 refined 列。")
 
             # 检查并添加 used_for_learning 列（如果不存在）
+            await cursor.execute("PRAGMA table_info(filtered_messages)")
+            columns = [col[1] for col in await cursor.fetchall()]
             if 'used_for_learning' not in columns:
                 await cursor.execute("ALTER TABLE filtered_messages ADD COLUMN used_for_learning BOOLEAN DEFAULT 0")
+                await conn.commit()
                 logger.info("已为 filtered_messages 表添加 used_for_learning 列。")
 
             # 创建学习批次表
@@ -1283,7 +1315,7 @@ class DatabaseManager(AsyncServiceBase):
 
             await conn.commit()
             logger.info("全局消息数据库初始化完成")
-            
+
         except aiosqlite.Error as e:
             logger.error(f"全局消息数据库初始化失败: {e}", exc_info=True)
             # 尝试删除可能损坏的数据库文件，以便下次启动时重新创建
@@ -1294,6 +1326,7 @@ class DatabaseManager(AsyncServiceBase):
                 except OSError as ose:
                     self._logger.error(f"删除数据库文件失败: {ose}")
             raise DataStorageError(f"全局消息数据库初始化失败: {str(e)}")
+        """
 
     def get_group_db_path(self, group_id: str) -> str:
         """获取群数据库文件路径"""
@@ -2504,11 +2537,14 @@ class DatabaseManager(AsyncServiceBase):
                     self._logger.info("learning_batches 表不存在，返回空列表")
                     return []
 
-                # 从学习批次中获取进度数据
+                # 从学习批次中获取进度数据，包含消息数量信息
+                # ✅ 只显示有实际消息的记录（过滤旧的空数据）
                 await cursor.execute('''
-                    SELECT group_id, start_time, quality_score, success
+                    SELECT group_id, start_time, quality_score, success,
+                           processed_messages, filtered_count, batch_name
                     FROM learning_batches
                     WHERE quality_score IS NOT NULL
+                      AND processed_messages > 0
                     ORDER BY start_time DESC
                     LIMIT 30
                 ''')
@@ -2522,17 +2558,27 @@ class DatabaseManager(AsyncServiceBase):
 
                 for row in rows:
                     try:
-                        # 添加行数据验证
+                        # 添加行数据验证（现在有7个字段）
                         if len(row) < 4:
-                            self._logger.warning(f"学习批次进度数据行不完整 (期望4个字段，实际{len(row)}个)，跳过: {row}")
+                            self._logger.warning(f"学习批次进度数据行不完整 (期望至少4个字段，实际{len(row)}个)，跳过: {row}")
                             continue
 
-                        progress_data.append({
+                        progress_item = {
                             'group_id': row[0],
                             'timestamp': float(row[1]) if row[1] else 0,
                             'quality_score': float(row[2]) if row[2] else 0,
                             'success': bool(row[3])
-                        })
+                        }
+
+                        # 添加消息数量信息（如果存在）
+                        if len(row) > 4:
+                            progress_item['processed_messages'] = int(row[4]) if row[4] else 0
+                        if len(row) > 5:
+                            progress_item['filtered_count'] = int(row[5]) if row[5] else 0
+                        if len(row) > 6:
+                            progress_item['batch_name'] = row[6] if row[6] else '未命名'
+
+                        progress_data.append(progress_item)
                     except Exception as row_error:
                         self._logger.warning(f"处理学习批次进度数据行时出错，跳过: {row_error}, row: {row}")
 
@@ -5887,6 +5933,48 @@ class DatabaseManager(AsyncServiceBase):
             except aiosqlite.Error as e:
                 self._logger.error(f"获取表达模式失败: {e}", exc_info=True)
                 return []
+            finally:
+                await cursor.close()
+
+    async def get_all_expression_patterns_by_group(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        获取所有群组的表达模式（按群组分组）
+
+        Returns:
+            Dict[str, List[Dict[str, Any]]]: 群组ID -> 表达模式列表的映射
+        """
+        async with self.get_db_connection() as conn:
+            cursor = await conn.cursor()
+
+            try:
+                await cursor.execute('''
+                    SELECT id, situation, expression, weight, last_active_time, create_time, group_id
+                    FROM expression_patterns
+                    ORDER BY group_id, last_active_time DESC
+                ''')
+
+                patterns_by_group = {}
+                for row in await cursor.fetchall():
+                    group_id = row[6]
+                    if group_id not in patterns_by_group:
+                        patterns_by_group[group_id] = []
+
+                    patterns_by_group[group_id].append({
+                        'id': row[0],
+                        'situation': row[1],
+                        'expression': row[2],
+                        'weight': row[3],
+                        'last_active_time': row[4],
+                        'created_time': row[5],
+                        'group_id': group_id,
+                        'style_type': 'general'
+                    })
+
+                return patterns_by_group
+
+            except Exception as e:
+                self._logger.error(f"获取所有表达模式失败: {e}", exc_info=True)
+                return {}
             finally:
                 await cursor.close()
 

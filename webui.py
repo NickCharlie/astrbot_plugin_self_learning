@@ -2968,29 +2968,65 @@ async def get_style_learning_content_text():
         if db_manager:
             logger.info("数据库管理器可用，开始获取学习内容数据")
             try:
-                # 获取对话示例文本 - 使用现有的方法
+                # 获取对话示例文本 - 从raw_messages表获取最近的原始消息
                 logger.debug("开始获取对话示例文本...")
-                recent_messages = await db_manager.get_filtered_messages_for_learning(20)
-                logger.info(f"获取到 {len(recent_messages) if recent_messages else 0} 条筛选消息用于对话示例")
-                
-                if recent_messages:
-                    for i, msg in enumerate(recent_messages):
-                        content_data['dialogues'].append({
-                            'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
-                            'text': f"用户: {msg.get('message', '暂无内容')}",
-                            'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
-                        })
-                        if i == 0:  # 记录第一条消息的详细信息用于调试
-                            logger.debug(f"第一条对话示例: 群组={msg.get('group_id')}, 时间={msg.get('timestamp')}, 内容长度={len(msg.get('message', ''))}")
-                    logger.info(f"成功添加 {len(recent_messages)} 条对话示例")
-                else:
-                    # 没有数据时提供友好提示
-                    logger.warning("未找到筛选消息，显示默认提示")
+
+                # 优先使用SQLAlchemy从raw_messages获取
+                try:
+                    async with db_manager.get_session() as session:
+                        from sqlalchemy import select, desc, func
+                        from .models.orm import RawMessage
+
+                        # 获取最近20条消息,按时间倒序
+                        stmt = select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(20)
+                        result = await session.execute(stmt)
+                        raw_messages = result.scalars().all()
+
+                        logger.info(f"从raw_messages表获取到 {len(raw_messages)} 条原始消息用于对话示例")
+
+                        if raw_messages:
+                            for i, msg in enumerate(raw_messages):
+                                # 过滤太短的消息
+                                message_text = msg.message if msg.message else ''
+                                if len(message_text.strip()) < 5:
+                                    continue
+
+                                content_data['dialogues'].append({
+                                    'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                    'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
+                                    'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
+                                })
+                                if i == 0:
+                                    logger.debug(f"第一条对话示例: 群组={msg.group_id}, 时间={msg.timestamp}, 内容长度={len(message_text)}")
+                            logger.info(f"成功添加 {len([d for d in content_data['dialogues']])} 条对话示例")
+                        else:
+                            logger.warning("raw_messages表为空")
+                            raise ValueError("raw_messages表为空")
+
+                except Exception as e:
+                    logger.warning(f"从raw_messages表获取失败: {e}, 尝试降级方法")
+                    # 降级到filtered_messages表
+                    recent_messages = await db_manager.get_filtered_messages_for_learning(20)
+                    logger.info(f"降级获取到 {len(recent_messages) if recent_messages else 0} 条筛选消息")
+
+                    if recent_messages:
+                        for i, msg in enumerate(recent_messages):
+                            content_data['dialogues'].append({
+                                'timestamp': datetime.fromtimestamp(msg.get('timestamp', time.time())).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"用户: {msg.get('message', '暂无内容')}",
+                                'metadata': f"置信度: {msg.get('confidence', 0):.1%}, 群组: {msg.get('group_id', '未知')}"
+                            })
+                        logger.info(f"成功添加 {len(recent_messages)} 条对话示例")
+
+                # 如果仍然没有数据,显示提示
+                if not content_data['dialogues']:
+                    logger.warning("未找到任何消息，显示默认提示")
                     content_data['dialogues'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                         'text': '暂无对话数据，请先进行一些群聊对话，系统会自动学习和筛选有价值的内容',
                         'metadata': '系统提示'
                     })
+
             except Exception as e:
                 logger.error(f"获取对话示例文本失败: {e}", exc_info=True)
                 content_data['dialogues'].append({
@@ -3003,35 +3039,65 @@ async def get_style_learning_content_text():
 
         if db_manager:
             try:
-                # 获取风格分析结果 - 使用学习批次数据
+                # 获取风格分析结果 - 使用对话风格学习记录
                 logger.info("开始获取风格学习分析结果...")
-                recent_batches = await db_manager.get_recent_learning_batches(limit=5)
-                logger.info(f"从数据库获取到 {len(recent_batches) if recent_batches else 0} 个学习批次记录")
-                
-                if recent_batches:
-                    for i, batch in enumerate(recent_batches):
-                        batch_name = batch.get('batch_name', '未命名')
-                        start_time = batch.get('start_time', time.time())
-                        message_count = batch.get('message_count', 0)
-                        quality_score = batch.get('quality_score', 0)
-                        success = batch.get('success', False)
-                        
-                        logger.debug(f"处理学习批次 {i+1}/{len(recent_batches)}: {batch_name}, "
-                                   f"消息数: {message_count}, 质量得分: {quality_score:.2f}, 成功: {success}")
-                        
-                        content_data['analysis'].append({
-                            'timestamp': datetime.fromtimestamp(start_time).strftime('%Y-%m-%d %H:%M:%S'),
-                            'text': f"学习批次: {batch_name}\n处理消息: {message_count}条\n质量得分: {quality_score:.2f}",
-                            'metadata': f"成功: {'是' if success else '否'}"
-                        })
-                    logger.info(f"成功添加 {len(recent_batches)} 个学习批次到分析内容")
-                else:
-                    logger.warning("未找到任何学习批次记录，可能系统尚未进行自动学习")
+
+                # 优先从 style_learning_reviews 表获取对话风格学习记录
+                try:
+                    async with db_manager.get_session() as session:
+                        from sqlalchemy import select, desc
+                        from .models.orm.learning import StyleLearningReview
+
+                        stmt = select(StyleLearningReview).order_by(desc(StyleLearningReview.timestamp)).limit(5)
+                        result = await session.execute(stmt)
+                        style_reviews = result.scalars().all()
+
+                        logger.info(f"从数据库获取到 {len(style_reviews)} 个对话风格学习记录")
+
+                        if style_reviews:
+                            for i, review in enumerate(style_reviews):
+                                # 解析 learned_patterns 获取消息数量
+                                try:
+                                    patterns = json.loads(review.learned_patterns) if review.learned_patterns else []
+                                    pattern_count = len(patterns)
+                                except:
+                                    pattern_count = 0
+
+                                # 从描述中提取消息数量（格式: "处理 X 条消息"）
+                                import re
+                                message_count = 0
+                                if review.description:
+                                    match = re.search(r'处理\s*(\d+)\s*条消息', review.description)
+                                    if match:
+                                        message_count = int(match.group(1))
+
+                                review_time = review.timestamp if review.timestamp else time.time()
+
+                                logger.debug(f"处理对话风格学习记录 {i+1}/{len(style_reviews)}: "
+                                           f"消息数: {message_count}, 模式数: {pattern_count}")
+
+                                content_data['analysis'].append({
+                                    'timestamp': datetime.fromtimestamp(review_time).strftime('%Y-%m-%d %H:%M:%S'),
+                                    'text': f"对话风格学习\n处理消息: {message_count}条\n提取模式: {pattern_count}个",
+                                    'metadata': f"状态: {review.status or '已完成'}"
+                                })
+                            logger.info(f"成功添加 {len(style_reviews)} 个对话风格学习记录到分析内容")
+                        else:
+                            logger.warning("未找到任何对话风格学习记录")
+                            content_data['analysis'].append({
+                                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': '暂无学习分析数据，系统还未开始学习过程',
+                                'metadata': '系统提示'
+                            })
+                except Exception as e:
+                    logger.error(f"从 style_learning_reviews 表获取数据失败: {e}", exc_info=True)
+                    # 降级到旧的方法
                     content_data['analysis'].append({
                         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'text': '暂无学习分析数据，系统还未开始自动学习过程',
-                        'metadata': '系统提示'
+                        'text': f'获取学习数据时出错: {str(e)}',
+                        'metadata': '错误信息'
                     })
+
             except Exception as e:
                 logger.error(f"获取风格分析结果失败: {e}", exc_info=True)
                 content_data['analysis'].append({
@@ -3050,13 +3116,23 @@ async def get_style_learning_content_text():
                     logger.debug("尝试从 SQLAlchemy 数据库管理器获取表达模式...")
                     group_patterns = await db_manager.get_all_expression_patterns()
 
+                    logger.info(f"[WebUI DEBUG] get_all_expression_patterns返回类型: {type(group_patterns)}")
+                    logger.info(f"[WebUI DEBUG] get_all_expression_patterns返回值: {group_patterns is not None}")
+                    if group_patterns:
+                        logger.info(f"[WebUI DEBUG] 群组数量: {len(group_patterns)}")
+                        for gid, pats in list(group_patterns.items())[:3]:
+                            logger.info(f"[WebUI DEBUG] 群组 {gid}: {len(pats)} 个模式")
+
                     if group_patterns:
                         logger.info(f"[WebUI] 从 SQLAlchemy 获取到 {len(group_patterns)} 个群组的模式")
 
                         pattern_count = 0
                         for group_id, patterns in group_patterns.items():
-                            logger.debug(f"处理群组 {group_id} 的 {len(patterns)} 个表达模式")
-                            for pattern in patterns[:5]:  # 每个群组取前5个
+                            logger.info(f"[WebUI DEBUG] 处理群组 {group_id} 的 {len(patterns)} 个表达模式")
+                            for i, pattern in enumerate(patterns[:5]):  # 每个群组取前5个
+                                logger.debug(f"[WebUI DEBUG] 群组 {group_id} 模式 {i}: type={type(pattern)}, is_dict={isinstance(pattern, dict)}")
+                                if isinstance(pattern, dict):
+                                    logger.debug(f"[WebUI DEBUG] 模式字典keys: {pattern.keys()}")
                                 # 处理字典格式（SQLAlchemy 返回）
                                 if isinstance(pattern, dict):
                                     if 'situation' in pattern and 'expression' in pattern:
@@ -3066,6 +3142,9 @@ async def get_style_learning_content_text():
                                             'metadata': f"权重: {pattern.get('weight', 0.5):.2f}, 群组: {group_id}"
                                         })
                                         pattern_count += 1
+                                        logger.debug(f"[WebUI DEBUG] 成功添加模式: {pattern['situation'][:20]}...")
+                                    else:
+                                        logger.warning(f"[WebUI DEBUG] 模式缺少必要字段，有situation={('situation' in pattern)}，有expression={('expression' in pattern)}")
                                 # 处理对象格式（传统方法返回）
                                 elif hasattr(pattern, 'situation') and hasattr(pattern, 'expression'):
                                     content_data['features'].append({
@@ -3074,6 +3153,9 @@ async def get_style_learning_content_text():
                                         'metadata': f"权重: {getattr(pattern, 'weight', 0.5):.2f}, 群组: {group_id}"
                                     })
                                     pattern_count += 1
+                                    logger.debug(f"[WebUI DEBUG] 成功添加对象模式")
+                                else:
+                                    logger.warning(f"[WebUI DEBUG] 模式既不是字典也不是对象，或缺少必要属性")
                         logger.info(f"成功添加 {pattern_count} 个表达模式特征")
                     else:
                         logger.warning("[WebUI] SQLAlchemy 返回空数据，降级到表达模式学习器")
@@ -3412,7 +3494,7 @@ async def generate_recommendations():
 @api_bp.route("/style_learning/stats", methods=["GET"])
 @require_auth
 async def get_style_learning_stats():
-    """获取对话风格学习统计数据"""
+    """获取对���风格学习统计数据"""
     try:
         from .core.factory import FactoryManager
         

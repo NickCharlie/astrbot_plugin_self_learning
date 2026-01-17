@@ -137,8 +137,15 @@ class PluginConfig:
     include_mood_info: bool = True  # 注入Bot情绪信息
     context_injection_position: str = "start"  # 上下文注入位置: "start" 或 "end"
 
+    # LLM Hook 注入位置设置（v1.1.1新增）
+    # 控制注入内容添加到 req.system_prompt 还是 req.prompt
+    # - "system_prompt": 注入到系统提示（推荐，不会被保存到对话历史）
+    # - "prompt": 注入到用户消息（旧版行为，会导致对话历史膨胀）
+    llm_hook_injection_target: str = "system_prompt"  # 可选值: "system_prompt" 或 "prompt"
+
     # 重构功能配置（新增）
-    use_sqlalchemy: bool = False  # 使用SQLAlchemy数据库管理器（False=使用传统实现）
+    # ⚠️ 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
+    use_sqlalchemy: bool = True  # ✨ 硬编码为 True，确保所有数据库操作使用 ORM 模型
     use_enhanced_managers: bool = False  # 使用增强型管理器（False=使用原始实现）
     enable_memory_cleanup: bool = True  # 启用记忆自动清理（每天凌晨3点）
     memory_cleanup_days: int = 30  # 记忆保留天数（低于阈值的旧记忆会被清理）
@@ -284,7 +291,8 @@ class PluginConfig:
             min_connections=database_settings.get('min_connections', 2),
 
             # 重构功能配置
-            use_sqlalchemy=database_settings.get('use_sqlalchemy', False),
+            # ⚠️ 强制使用 SQLAlchemy ORM，忽略配置文件中的设置
+            use_sqlalchemy=True,  # 硬编码为 True
             use_enhanced_managers=advanced_settings.get('use_enhanced_managers', False),
             enable_memory_cleanup=advanced_settings.get('enable_memory_cleanup', True),
             memory_cleanup_days=advanced_settings.get('memory_cleanup_days', 30),
