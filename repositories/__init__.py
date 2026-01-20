@@ -62,6 +62,9 @@ from .message_repository import (
 )
 
 # 黑话与表达系统相关
+from .jargon_repository import (
+    JargonRepository
+)
 from .jargon_expression_repository import (
     JargonUsageFrequencyRepository,
     ExpressionGenerationResultRepository,
@@ -114,7 +117,8 @@ __all__ = [
     'ConversationQualityMetricsRepository',
     'ContextSimilarityCacheRepository',
 
-    # 黑话与表达系统 (3个)
+    # 黑话与表达系统 (4个)
+    'JargonRepository',
     'JargonUsageFrequencyRepository',
     'ExpressionGenerationResultRepository',
     'AdaptiveResponseTemplateRepository',

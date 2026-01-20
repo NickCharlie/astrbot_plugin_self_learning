@@ -42,6 +42,9 @@ from ..repositories.message_repository import (
     ConversationQualityMetricsRepository,
     ContextSimilarityCacheRepository
 )
+from ..repositories.jargon_repository import (
+    JargonRepository
+)
 
 
 class DatabaseConnectionPool:
@@ -7397,4 +7400,148 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取相似度缓存失败: {e}", exc_info=True)
             return None
+
+    # ==================== 黑话系统 ORM 方法 ====================
+
+    async def get_recent_jargon_list_orm(
+        self,
+        chat_id: Optional[str] = None,
+        limit: int = 20,
+        only_confirmed: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        获取最近学习到的黑话列表（使用 ORM）
+
+        Args:
+            chat_id: 群组ID (None表示获取所有)
+            limit: 返回数量限制
+            only_confirmed: 是否只返回已确认的黑话
+
+        Returns:
+            List[Dict]: 黑话列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                jargons = await repo.get_recent_jargon_list(
+                    chat_id=chat_id,
+                    limit=limit,
+                    only_confirmed=only_confirmed
+                )
+                return [jargon.to_dict() for jargon in jargons]
+
+        except Exception as e:
+            self._logger.error(f"获取黑话列表失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def get_jargon_statistics_orm(
+        self,
+        chat_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        获取黑话学习统计信息（使用 ORM）
+
+        Args:
+            chat_id: 群组ID (None表示获取全局统计)
+
+        Returns:
+            Dict[str, Any]: 统计信息字典
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回默认值")
+            return {
+                'total_candidates': 0,
+                'confirmed_jargon': 0,
+                'completed_inference': 0,
+                'total_occurrences': 0,
+                'average_count': 0.0,
+                'active_groups': 0
+            }
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                return await repo.get_jargon_statistics(chat_id=chat_id)
+
+        except Exception as e:
+            self._logger.error(f"获取黑话统计失败（ORM）: {e}", exc_info=True)
+            return {
+                'total_candidates': 0,
+                'confirmed_jargon': 0,
+                'completed_inference': 0,
+                'total_occurrences': 0,
+                'average_count': 0.0,
+                'active_groups': 0
+            }
+
+    async def get_jargon_by_id_orm(
+        self,
+        jargon_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        根据ID获取黑话记录（使用 ORM）
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            Optional[Dict]: 黑话记录或None
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                jargon = await repo.get_by_id(jargon_id)
+                return jargon.to_dict() if jargon else None
+
+        except Exception as e:
+            self._logger.error(f"根据ID获取黑话失败（ORM）: {e}", exc_info=True)
+            return None
+
+    async def update_jargon_status_orm(
+        self,
+        jargon_id: int,
+        is_jargon: Optional[bool] = None,
+        is_complete: Optional[bool] = None,
+        meaning: Optional[str] = None
+    ) -> bool:
+        """
+        更新黑话状态（使用 ORM）
+
+        Args:
+            jargon_id: 黑话ID
+            is_jargon: 是否为黑话
+            is_complete: 是否完成推理
+            meaning: 含义
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法更新黑话状态")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                success = await repo.update_jargon_status(
+                    jargon_id=jargon_id,
+                    is_jargon=is_jargon,
+                    is_complete=is_complete,
+                    meaning=meaning
+                )
+                await session.commit()
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新黑话状态失败（ORM）: {e}", exc_info=True)
+            return False
+
 
