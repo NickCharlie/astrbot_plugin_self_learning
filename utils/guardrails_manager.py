@@ -605,6 +605,11 @@ class GuardrailsManager:
 
             cleaned_text = cleaned_text.strip()
 
+            # 检查清理后是否为空
+            if not cleaned_text:
+                logger.warning(f"⚠️ [Guardrails] 清理后的响应为空")
+                return None
+
             # 2. 尝试提取 JSON 部分（处理 LLM 可能在 JSON 前后加说明的情况）
             # 匹配最外层的 { } 或 [ ]
             json_pattern = r'(\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\})'
@@ -619,6 +624,11 @@ class GuardrailsManager:
             elif expected_type == "array" or (expected_type == "auto" and array_match):
                 if array_match:
                     cleaned_text = array_match.group(1)
+
+            # 再次检查提取后是否为空
+            if not cleaned_text:
+                logger.warning(f"⚠️ [Guardrails] 提取JSON后内容为空")
+                return None
 
             # 3. 尝试解析 JSON
             parsed = json.loads(cleaned_text)

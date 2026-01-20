@@ -311,6 +311,7 @@ class ConversationGoalManager:
         Returns:
             对话目标字典
         """
+        session = None
         try:
             async with self.db_manager.get_session() as session:
                 repo = ConversationGoalRepository(session)
@@ -332,6 +333,12 @@ class ConversationGoalManager:
 
         except Exception as e:
             logger.error(f"获取或创建对话目标失败: {e}", exc_info=True)
+            # 确保session被rollback
+            if session:
+                try:
+                    await session.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"Session rollback失败: {rollback_error}")
             return None
 
     async def _create_new_session(
@@ -427,6 +434,20 @@ class ConversationGoalManager:
 
         except Exception as e:
             logger.error(f"创建新会话失败: {e}", exc_info=True)
+
+            # 处理并发导致的重复键错误
+            from sqlalchemy.exc import IntegrityError
+            if isinstance(e, IntegrityError) and 'Duplicate entry' in str(e):
+                logger.warning(f"检测到session_id重复(可能是并发创建)，尝试查询已存在的会话")
+                try:
+                    # 重新查询已存在的会话
+                    existing_goal = await repo.get_active_goal_by_user(user_id, group_id)
+                    if existing_goal:
+                        logger.info(f"成功查询到已存在的会话: session={existing_goal.session_id}")
+                        return self._orm_to_dict(existing_goal)
+                except Exception as query_error:
+                    logger.error(f"查询已存在会话失败: {query_error}")
+
             # 返回默认会话
             return self._get_default_session(user_id, group_id, user_message)
 

@@ -976,6 +976,15 @@ class ProgressiveLearningService:
             ml_tuning_info: 强化学习调优信息（包含是否使用保守融合策略等）
         """
         try:
+            # 处理可能的list类型参数
+            if isinstance(current_persona, list):
+                logger.warning(f"current_persona为list类型(长度{len(current_persona)})，转换为空字典")
+                current_persona = {}
+
+            if isinstance(updated_persona, list):
+                logger.warning(f"updated_persona为list类型(长度{len(updated_persona)})，转换为空字典")
+                updated_persona = {}
+
             # 1. 保存对话风格学习记录（不需要审查，直接保存）
             await self._save_style_learning_record(group_id, style_analysis, messages, quality_metrics)
 
