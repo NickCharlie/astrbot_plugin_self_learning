@@ -35,7 +35,8 @@ from ..repositories.reinforcement_repository import (
 from ..repositories.learning_repository import (
     LearningBatchRepository,
     LearningSessionRepository,
-    StyleLearningReviewRepository
+    StyleLearningReviewRepository,
+    PersonaLearningReviewRepository
 )
 from ..repositories.message_repository import (
     ConversationContextRepository,
@@ -7681,5 +7682,174 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"从learning_batches表获取进度数据失败（ORM）: {e}", exc_info=True)
             return []
+
+    # ==================== 人格学习审查系统 ORM 方法 ====================
+
+    async def get_pending_persona_learning_reviews_orm(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的人格学习记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                reviews = await repo.get_pending_reviews(limit=limit)
+
+                # 转换为字典格式，保持与传统方法相同的格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 metadata JSON 字符串
+                    metadata = {}
+                    try:
+                        if review_dict.get('metadata'):
+                            import json
+                            metadata = json.loads(review_dict['metadata'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    # 确保有proposed_content字段，如果为空则使用new_content
+                    proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                    confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'timestamp': review_dict['timestamp'],
+                        'group_id': review_dict['group_id'],
+                        'update_type': review_dict['update_type'],
+                        'original_content': review_dict['original_content'],
+                        'new_content': review_dict['new_content'],
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': review_dict['reason'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': review_dict['reviewer_comment'],
+                        'review_time': review_dict['review_time'],
+                        'metadata': metadata
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取待审查人格学习记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def update_persona_learning_review_status_orm(
+        self,
+        review_id: int,
+        status: str,
+        comment: str = None,
+        modified_content: str = None
+    ) -> bool:
+        """更新人格学习审查状态（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+
+                import time
+                update_data = {
+                    'status': status,
+                    'review_time': time.time()
+                }
+
+                if comment:
+                    update_data['reviewer_comment'] = comment
+
+                # 如果有修改后的内容，也要更新proposed_content和new_content字段
+                if modified_content:
+                    update_data['proposed_content'] = modified_content
+                    update_data['new_content'] = modified_content
+
+                success = await repo.update(review_id, **update_data)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"更新人格学习审查状态成功（ORM）: ID={review_id}, 状态={status}")
+                else:
+                    self._logger.warning(f"更新人格学习审查状态失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新人格学习审查状态失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def get_persona_learning_review_by_id_orm(self, review_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取人格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                review = await repo.get_by_id(review_id)
+
+                if not review:
+                    return None
+
+                review_dict = review.to_dict()
+
+                # 解析 metadata JSON 字符串
+                metadata = {}
+                try:
+                    if review_dict.get('metadata'):
+                        import json
+                        metadata = json.loads(review_dict['metadata'])
+                except json.JSONDecodeError:
+                    pass
+
+                # 确保有proposed_content字段
+                proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                return {
+                    'id': review_dict['id'],
+                    'timestamp': review_dict['timestamp'],
+                    'group_id': review_dict['group_id'],
+                    'update_type': review_dict['update_type'],
+                    'original_content': review_dict['original_content'],
+                    'new_content': review_dict['new_content'],
+                    'proposed_content': proposed_content,
+                    'confidence_score': confidence_score,
+                    'reason': review_dict['reason'],
+                    'status': review_dict['status'],
+                    'reviewer_comment': review_dict['reviewer_comment'],
+                    'review_time': review_dict['review_time'],
+                    'metadata': metadata
+                }
+
+        except Exception as e:
+            self._logger.error(f"根据ID获取人格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return None
+
+    async def delete_persona_learning_review_by_id_orm(self, review_id: int) -> bool:
+        """删除指定ID的人格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                success = await repo.delete(review_id)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"删除人格学习审查记录成功（ORM）: ID={review_id}")
+                else:
+                    self._logger.warning(f"删除人格学习审查记录失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除人格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return False
 
 
