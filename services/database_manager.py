@@ -8012,4 +8012,89 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"删除风格学习审查记录失败（ORM）: {e}", exc_info=True)
             return False
 
+    async def search_jargon_orm(
+        self,
+        keyword: str,
+        chat_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """搜索黑话（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                from sqlalchemy import select, and_, or_, desc
+                from ..models.orm import Jargon
+
+                # 构建查询
+                stmt = select(Jargon)
+
+                if chat_id:
+                    # 搜索指定群组的黑话
+                    stmt = stmt.where(
+                        and_(
+                            Jargon.chat_id == chat_id,
+                            Jargon.content.like(f'%{keyword}%'),
+                            Jargon.is_jargon == True
+                        )
+                    )
+                else:
+                    # 搜索全局黑话
+                    stmt = stmt.where(
+                        and_(
+                            Jargon.content.like(f'%{keyword}%'),
+                            Jargon.is_jargon == True,
+                            Jargon.is_global == True
+                        )
+                    )
+
+                stmt = stmt.order_by(
+                    desc(Jargon.count),
+                    desc(Jargon.updated_at)
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                jargons = list(result.scalars().all())
+
+                # 转换为字典格式
+                results = []
+                for jargon in jargons:
+                    results.append({
+                        'id': jargon.id,
+                        'content': jargon.content,
+                        'meaning': jargon.meaning,
+                        'is_jargon': bool(jargon.is_jargon),
+                        'count': jargon.count,
+                        'is_complete': bool(jargon.is_complete)
+                    })
+
+                return results
+
+        except Exception as e:
+            self._logger.error(f"搜索黑话失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def delete_jargon_by_id_orm(self, jargon_id: int) -> bool:
+        """根据ID删除黑话记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                success = await repo.delete(jargon_id)
+                await session.commit()
+
+                if success:
+                    self._logger.debug(f"删除黑话记录成功（ORM）, ID: {jargon_id}")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除黑话记录失败（ORM）: {e}", exc_info=True)
+            return False
+
 
