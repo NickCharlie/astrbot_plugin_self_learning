@@ -51,7 +51,11 @@ from .performance import (
 from .message import (
     RawMessage,
     FilteredMessage,
-    BotMessage
+    BotMessage,
+    ConversationContext,
+    ConversationTopicClustering,
+    ConversationQualityMetrics,
+    ContextSimilarityCache
 )
 from .jargon import (
     Jargon
@@ -109,6 +113,10 @@ __all__ = [
     'RawMessage',
     'FilteredMessage',
     'BotMessage',
+    'ConversationContext',
+    'ConversationTopicClustering',
+    'ConversationQualityMetrics',
+    'ContextSimilarityCache',
     # 黑话系统
     'Jargon',
     # 对话目标系统

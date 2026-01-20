@@ -36,6 +36,12 @@ from ..repositories.learning_repository import (
     LearningBatchRepository,
     LearningSessionRepository
 )
+from ..repositories.message_repository import (
+    ConversationContextRepository,
+    ConversationTopicClusteringRepository,
+    ConversationQualityMetricsRepository,
+    ContextSimilarityCacheRepository
+)
 
 
 class DatabaseConnectionPool:
@@ -7063,4 +7069,332 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"获取学习会话列表失败: {e}", exc_info=True)
             return []
+
+    # ==================== 对话与上下文系统 ORM 方法 ====================
+
+    async def save_conversation_context(
+        self,
+        group_id: str,
+        user_id: str,
+        context_window: str,
+        topic: Optional[str] = None,
+        sentiment: Optional[str] = None,
+        context_embedding: Optional[bytes] = None,
+        last_updated: Optional[float] = None
+    ) -> bool:
+        """
+        保存对话上下文（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            user_id: 用户 ID
+            context_window: 上下文窗口（JSON字符串）
+            topic: 当前话题
+            sentiment: 情感倾向
+            context_embedding: 上下文向量嵌入
+            last_updated: 最后更新时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存对话上下文")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationContextRepository(session)
+                context = await repo.save_context(
+                    group_id=group_id,
+                    user_id=user_id,
+                    context_window=context_window,
+                    topic=topic,
+                    sentiment=sentiment,
+                    context_embedding=context_embedding,
+                    last_updated=last_updated
+                )
+                await session.commit()
+                return context is not None
+
+        except Exception as e:
+            self._logger.error(f"保存对话上下文失败: {e}", exc_info=True)
+            return False
+
+    async def get_latest_conversation_context(
+        self,
+        group_id: str,
+        user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取最新的对话上下文（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            user_id: 用户 ID
+
+        Returns:
+            Optional[Dict]: 上下文记录
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationContextRepository(session)
+                context = await repo.get_latest_context(
+                    group_id=group_id,
+                    user_id=user_id
+                )
+                return context.to_dict() if context else None
+
+        except Exception as e:
+            self._logger.error(f"获取最新对话上下文失败: {e}", exc_info=True)
+            return None
+
+    async def save_topic_cluster(
+        self,
+        group_id: str,
+        cluster_id: str,
+        topic_keywords: str,
+        message_count: int = 0,
+        representative_messages: Optional[str] = None,
+        cluster_center: Optional[bytes] = None
+    ) -> bool:
+        """
+        保存主题聚类（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            cluster_id: 聚类 ID
+            topic_keywords: 主题关键词（JSON字符串）
+            message_count: 消息数量
+            representative_messages: 代表性消息（JSON字符串）
+            cluster_center: 聚类中心向量
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存主题聚类")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationTopicClusteringRepository(session)
+                cluster = await repo.save_cluster(
+                    group_id=group_id,
+                    cluster_id=cluster_id,
+                    topic_keywords=topic_keywords,
+                    message_count=message_count,
+                    representative_messages=representative_messages,
+                    cluster_center=cluster_center
+                )
+                await session.commit()
+                return cluster is not None
+
+        except Exception as e:
+            self._logger.error(f"保存主题聚类失败: {e}", exc_info=True)
+            return False
+
+    async def get_all_topic_clusters(
+        self,
+        group_id: str,
+        order_by_message_count: bool = True,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        获取所有主题聚类（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            order_by_message_count: 是否按消息数量排序
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 聚类列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationTopicClusteringRepository(session)
+                clusters = await repo.get_all_clusters(
+                    group_id=group_id,
+                    order_by_message_count=order_by_message_count,
+                    limit=limit
+                )
+                return [cluster.to_dict() for cluster in clusters]
+
+        except Exception as e:
+            self._logger.error(f"获取主题聚类列表失败: {e}", exc_info=True)
+            return []
+
+    async def save_quality_metrics(
+        self,
+        group_id: str,
+        message_id: int,
+        coherence_score: Optional[float] = None,
+        relevance_score: Optional[float] = None,
+        engagement_score: Optional[float] = None,
+        sentiment_alignment: Optional[float] = None,
+        calculated_at: Optional[float] = None
+    ) -> bool:
+        """
+        保存对话质量指标（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            message_id: 消息 ID
+            coherence_score: 连贯性分数
+            relevance_score: 相关性分数
+            engagement_score: 互动度分数
+            sentiment_alignment: 情感一致性分数
+            calculated_at: 计算时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存质量指标")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationQualityMetricsRepository(session)
+                metrics = await repo.save_quality_metrics(
+                    group_id=group_id,
+                    message_id=message_id,
+                    coherence_score=coherence_score,
+                    relevance_score=relevance_score,
+                    engagement_score=engagement_score,
+                    sentiment_alignment=sentiment_alignment,
+                    calculated_at=calculated_at
+                )
+                await session.commit()
+                return metrics is not None
+
+        except Exception as e:
+            self._logger.error(f"保存质量指标失败: {e}", exc_info=True)
+            return False
+
+    async def get_average_quality_scores(
+        self,
+        group_id: str,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None
+    ) -> Dict[str, float]:
+        """
+        获取平均质量分数（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            start_time: 开始时间戳（可选）
+            end_time: 结束时间戳（可选）
+
+        Returns:
+            Dict[str, float]: 各指标的平均分数
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回默认值")
+            return {
+                "avg_coherence_score": 0.0,
+                "avg_relevance_score": 0.0,
+                "avg_engagement_score": 0.0,
+                "avg_sentiment_alignment": 0.0
+            }
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationQualityMetricsRepository(session)
+                return await repo.get_average_scores(
+                    group_id=group_id,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+        except Exception as e:
+            self._logger.error(f"获取平均质量分数失败: {e}", exc_info=True)
+            return {
+                "avg_coherence_score": 0.0,
+                "avg_relevance_score": 0.0,
+                "avg_engagement_score": 0.0,
+                "avg_sentiment_alignment": 0.0
+            }
+
+    async def save_context_similarity(
+        self,
+        context_hash_1: str,
+        context_hash_2: str,
+        similarity_score: float,
+        calculation_method: Optional[str] = None,
+        cached_at: Optional[float] = None
+    ) -> bool:
+        """
+        保存上下文相似度缓存（使用 ORM）
+
+        Args:
+            context_hash_1: 上下文1的哈希值
+            context_hash_2: 上下文2的哈希值
+            similarity_score: 相似度分数
+            calculation_method: 计算方法
+            cached_at: 缓存时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存相似度缓存")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ContextSimilarityCacheRepository(session)
+                cache = await repo.save_similarity(
+                    context_hash_1=context_hash_1,
+                    context_hash_2=context_hash_2,
+                    similarity_score=similarity_score,
+                    calculation_method=calculation_method,
+                    cached_at=cached_at
+                )
+                await session.commit()
+                return cache is not None
+
+        except Exception as e:
+            self._logger.error(f"保存相似度缓存失败: {e}", exc_info=True)
+            return False
+
+    async def get_context_similarity(
+        self,
+        context_hash_1: str,
+        context_hash_2: str
+    ) -> Optional[float]:
+        """
+        获取上下文相似度（使用 ORM，支持双向查找）
+
+        Args:
+            context_hash_1: 上下文1的哈希值
+            context_hash_2: 上下文2的哈希值
+
+        Returns:
+            Optional[float]: 相似度分数
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ContextSimilarityCacheRepository(session)
+                cache = await repo.get_similarity(
+                    context_hash_1=context_hash_1,
+                    context_hash_2=context_hash_2
+                )
+                return cache.similarity_score if cache else None
+
+        except Exception as e:
+            self._logger.error(f"获取相似度缓存失败: {e}", exc_info=True)
+            return None
 

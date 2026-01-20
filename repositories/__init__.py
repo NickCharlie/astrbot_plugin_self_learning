@@ -53,6 +53,14 @@ from .persona_repository import (
     PersonaEvolutionSnapshotRepository
 )
 
+# 消息与对话系统相关
+from .message_repository import (
+    ConversationContextRepository,
+    ConversationTopicClusteringRepository,
+    ConversationQualityMetricsRepository,
+    ContextSimilarityCacheRepository
+)
+
 __all__ = [
     # 基础
     'BaseRepository',
@@ -92,4 +100,10 @@ __all__ = [
     'PersonaDiversityScoreRepository',
     'PersonaAttributeWeightRepository',
     'PersonaEvolutionSnapshotRepository',
+
+    # 消息与对话系统 (4个)
+    'ConversationContextRepository',
+    'ConversationTopicClusteringRepository',
+    'ConversationQualityMetricsRepository',
+    'ContextSimilarityCacheRepository',
 ]
