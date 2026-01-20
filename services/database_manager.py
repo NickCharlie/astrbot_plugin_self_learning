@@ -7852,4 +7852,141 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"删除人格学习审查记录失败（ORM）: {e}", exc_info=True)
             return False
 
+    async def get_reviewed_persona_learning_updates_orm(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: str = None
+    ) -> List[Dict[str, Any]]:
+        """获取已审查的人格学习更新记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                reviews = await repo.get_reviewed_updates(
+                    limit=limit,
+                    offset=offset,
+                    status_filter=status_filter
+                )
+
+                # 转换为字典格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 metadata JSON 字符串
+                    metadata = {}
+                    try:
+                        if review_dict.get('metadata'):
+                            import json
+                            metadata = json.loads(review_dict['metadata'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    # 确保有proposed_content字段
+                    proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                    confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'timestamp': review_dict['timestamp'],
+                        'group_id': review_dict['group_id'],
+                        'update_type': review_dict['update_type'],
+                        'original_content': review_dict['original_content'],
+                        'new_content': review_dict['new_content'],
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': review_dict['reason'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': review_dict['reviewer_comment'],
+                        'review_time': review_dict['review_time'],
+                        'metadata': metadata
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取已审查人格学习更新记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def get_reviewed_style_learning_updates_orm(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: str = None
+    ) -> List[Dict[str, Any]]:
+        """获取已审查的风格学习更新记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                from sqlalchemy import select, or_, func as sql_func, case
+                from ..models.orm import StyleLearningReview
+
+                # 构建查询
+                stmt = select(StyleLearningReview)
+
+                # 状态过滤
+                if status_filter:
+                    stmt = stmt.where(StyleLearningReview.status == status_filter)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            StyleLearningReview.status == 'approved',
+                            StyleLearningReview.status == 'rejected'
+                        )
+                    )
+
+                # 排序：使用updated_at，如果为NULL则使用timestamp
+                stmt = stmt.order_by(
+                    sql_func.coalesce(StyleLearningReview.updated_at, StyleLearningReview.timestamp).desc()
+                ).offset(offset).limit(limit)
+
+                result = await session.execute(stmt)
+                reviews = list(result.scalars().all())
+
+                # 转换为字典格式
+                updates = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 尝试解析learned_patterns以获取更多信息
+                    try:
+                        import json
+                        learned_patterns = json.loads(review_dict['learned_patterns']) if review_dict.get('learned_patterns') else {}
+                        reason = learned_patterns.get('reason', '风格学习更新')
+                        original_content = learned_patterns.get('original_content', '原始风格特征')
+                        proposed_content = learned_patterns.get('proposed_content', review_dict.get('learned_patterns', ''))
+                        confidence_score = learned_patterns.get('confidence_score', 0.8)
+                    except (json.JSONDecodeError, AttributeError):
+                        reason = review_dict.get('description', '风格学习更新')
+                        original_content = '原始风格特征'
+                        proposed_content = review_dict.get('learned_patterns', '无内容')
+                        confidence_score = 0.8
+
+                    updates.append({
+                        'id': review_dict['id'],
+                        'group_id': review_dict['group_id'],
+                        'original_content': original_content,
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': reason,
+                        'update_type': review_dict.get('type', 'style'),
+                        'timestamp': review_dict['timestamp'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': None,
+                        'review_time': review_dict.get('updated_at', review_dict['timestamp'])
+                    })
+
+                return updates
+
+        except Exception as e:
+            self._logger.error(f"获取已审查风格学习更新记录失败（ORM）: {e}", exc_info=True)
+            return []
+
 
