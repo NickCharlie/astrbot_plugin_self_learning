@@ -7989,4 +7989,27 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"获取已审查风格学习更新记录失败（ORM）: {e}", exc_info=True)
             return []
 
+    async def delete_style_review_by_id_orm(self, review_id: int) -> bool:
+        """删除指定ID的风格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+                success = await repo.delete(review_id)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"成功删除风格学习审查记录（ORM），ID: {review_id}")
+                else:
+                    self._logger.warning(f"未找到要删除的风格学习审查记录（ORM），ID: {review_id}")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除风格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return False
+
 
