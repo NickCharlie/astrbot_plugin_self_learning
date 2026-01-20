@@ -61,6 +61,13 @@ from .message_repository import (
     ContextSimilarityCacheRepository
 )
 
+# 黑话与表达系统相关
+from .jargon_expression_repository import (
+    JargonUsageFrequencyRepository,
+    ExpressionGenerationResultRepository,
+    AdaptiveResponseTemplateRepository
+)
+
 __all__ = [
     # 基础
     'BaseRepository',
@@ -106,4 +113,9 @@ __all__ = [
     'ConversationTopicClusteringRepository',
     'ConversationQualityMetricsRepository',
     'ContextSimilarityCacheRepository',
+
+    # 黑话与表达系统 (3个)
+    'JargonUsageFrequencyRepository',
+    'ExpressionGenerationResultRepository',
+    'AdaptiveResponseTemplateRepository',
 ]

@@ -43,7 +43,9 @@ from .learning import (
     LearningOptimizationLog
 )
 from .expression import (
-    ExpressionPattern
+    ExpressionPattern,
+    ExpressionGenerationResult,
+    AdaptiveResponseTemplate
 )
 from .performance import (
     LearningPerformanceHistory
@@ -58,7 +60,8 @@ from .message import (
     ContextSimilarityCache
 )
 from .jargon import (
-    Jargon
+    Jargon,
+    JargonUsageFrequency
 )
 from .conversation_goal import (
     ConversationGoal
@@ -107,6 +110,8 @@ __all__ = [
     'LearningOptimizationLog',
     # 表达模式
     'ExpressionPattern',
+    'ExpressionGenerationResult',
+    'AdaptiveResponseTemplate',
     # 性能记录
     'LearningPerformanceHistory',
     # 消息系统
@@ -119,6 +124,7 @@ __all__ = [
     'ContextSimilarityCache',
     # 黑话系统
     'Jargon',
+    'JargonUsageFrequency',
     # 对话目标系统
     'ConversationGoal',
     # 强化学习系统
