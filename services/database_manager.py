@@ -1,5 +1,5 @@
 """
-数据库管理器 - 管理分群数据库和数据持久化
+数据库管理器 - 管理分群数据库和数据持久化 即将弃用
 """
 import os
 import json
@@ -23,6 +23,18 @@ from ..core.database import (
     DatabaseConfig,
     DatabaseType,
     IDatabaseBackend
+)
+
+# ✨ 导入ORM支持
+from ..core.database.engine import DatabaseEngine
+from ..repositories.reinforcement_repository import (
+    ReinforcementLearningRepository,
+    PersonaFusionRepository,
+    StrategyOptimizationRepository
+)
+from ..repositories.learning_repository import (
+    LearningBatchRepository,
+    LearningSessionRepository
 )
 
 
@@ -162,6 +174,9 @@ class DatabaseManager(AsyncServiceBase):
 
         # 新增: 数据库后端（支持SQLite和MySQL）
         self.db_backend: Optional[IDatabaseBackend] = None
+
+        # ✨ 新增: DatabaseEngine for ORM支持
+        self.db_engine: Optional[DatabaseEngine] = None
 
         # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
         self.connection_pool = DatabaseConnectionPool(
@@ -6836,4 +6851,216 @@ class DatabaseManager(AsyncServiceBase):
                 }
             finally:
                 await cursor.close()
+
+    # ========================================================================
+    # ORM Repository 方法（新）
+    # ========================================================================
+
+    async def save_learning_batch(
+        self,
+        batch_id: str,
+        batch_name: str,
+        group_id: str,
+        start_time: float,
+        end_time: Optional[float] = None,
+        quality_score: Optional[float] = None,
+        processed_messages: int = 0,
+        message_count: int = 0,
+        filtered_count: int = 0,
+        success: bool = True,
+        error_message: Optional[str] = None,
+        status: str = 'pending'
+    ) -> bool:
+        """
+        保存学习批次（使用 ORM）
+
+        Args:
+            batch_id: 批次 ID
+            batch_name: 批次名称
+            group_id: 群组 ID
+            start_time: 开始时间
+            end_time: 结束时间
+            quality_score: 质量分数
+            processed_messages: 已处理消息数
+            message_count: 总消息数
+            filtered_count: 过滤掉的消息数
+            success: 是否成功
+            error_message: 错误信息
+            status: 状态
+
+        Returns:
+            bool: 是否保存成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存学习批次")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batch = await repo.save_learning_batch(
+                    batch_id=batch_id,
+                    batch_name=batch_name,
+                    group_id=group_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    quality_score=quality_score,
+                    processed_messages=processed_messages,
+                    message_count=message_count,
+                    filtered_count=filtered_count,
+                    success=success,
+                    error_message=error_message,
+                    status=status
+                )
+                await session.commit()
+                return batch is not None
+
+        except Exception as e:
+            self._logger.error(f"保存学习批次失败: {e}", exc_info=True)
+            return False
+
+    async def get_learning_batches(
+        self,
+        group_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取学习批次列表（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            limit: 最大返回数量
+            offset: 偏移量
+            status_filter: 状态过滤
+
+        Returns:
+            List[Dict]: 批次列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batches = await repo.get_learning_batches(
+                    group_id=group_id,
+                    limit=limit,
+                    offset=offset,
+                    status_filter=status_filter
+                )
+                return [batch.to_dict() for batch in batches]
+
+        except Exception as e:
+            self._logger.error(f"获取学习批次列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_learning_batch_by_id(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据 batch_id 获取学习批次（使用 ORM）
+
+        Args:
+            batch_id: 批次 ID
+
+        Returns:
+            Optional[Dict]: 批次记录
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batch = await repo.get_learning_batch_by_id(batch_id)
+                return batch.to_dict() if batch else None
+
+        except Exception as e:
+            self._logger.error(f"获取学习批次失败: {e}", exc_info=True)
+            return None
+
+    async def save_learning_session(
+        self,
+        session_id: str,
+        group_id: str,
+        batch_id: Optional[str] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        metrics: Optional[str] = None
+    ) -> bool:
+        """
+        保存学习会话（使用 ORM）
+
+        Args:
+            session_id: 会话 ID
+            group_id: 群组 ID
+            batch_id: 批次 ID
+            start_time: 开始时间
+            end_time: 结束时间
+            metrics: 指标数据（JSON字符串）
+
+        Returns:
+            bool: 是否保存成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存学习会话")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningSessionRepository(session)
+                learning_session = await repo.save_learning_session(
+                    session_id=session_id,
+                    group_id=group_id,
+                    batch_id=batch_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    metrics=metrics
+                )
+                await session.commit()
+                return learning_session is not None
+
+        except Exception as e:
+            self._logger.error(f"保存学习会话失败: {e}", exc_info=True)
+            return False
+
+    async def get_learning_sessions(
+        self,
+        group_id: str,
+        batch_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        获取学习会话列表（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            batch_id: 批次 ID（可选）
+            limit: 最大返回数量
+            offset: 偏移量
+
+        Returns:
+            List[Dict]: 会话列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningSessionRepository(session)
+                sessions = await repo.get_learning_sessions(
+                    group_id=group_id,
+                    batch_id=batch_id,
+                    limit=limit,
+                    offset=offset
+                )
+                return [sess.to_dict() for sess in sessions]
+
+        except Exception as e:
+            self._logger.error(f"获取学习会话列表失败: {e}", exc_info=True)
+            return []
 

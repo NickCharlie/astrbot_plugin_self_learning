@@ -39,7 +39,18 @@ from .learning_repository import (
     PersonaLearningReviewRepository,
     StyleLearningReviewRepository,
     StyleLearningPatternRepository,
-    InteractionRecordRepository
+    InteractionRecordRepository,
+    LearningBatchRepository,
+    LearningSessionRepository,
+    LearningReinforcementFeedbackRepository,
+    LearningOptimizationLogRepository
+)
+
+# 人格系统相关
+from .persona_repository import (
+    PersonaDiversityScoreRepository,
+    PersonaAttributeWeightRepository,
+    PersonaEvolutionSnapshotRepository
 )
 
 __all__ = [
@@ -67,9 +78,18 @@ __all__ = [
     'SocialRelationComponentRepository',
     'SocialRelationHistoryRepository',
 
-    # 学习系统 (4个)
+    # 学习系统 (8个)
     'PersonaLearningReviewRepository',
     'StyleLearningReviewRepository',
     'StyleLearningPatternRepository',
     'InteractionRecordRepository',
+    'LearningBatchRepository',
+    'LearningSessionRepository',
+    'LearningReinforcementFeedbackRepository',
+    'LearningOptimizationLogRepository',
+
+    # 人格系统 (3个)
+    'PersonaDiversityScoreRepository',
+    'PersonaAttributeWeightRepository',
+    'PersonaEvolutionSnapshotRepository',
 ]

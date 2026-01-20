@@ -16,7 +16,10 @@ from .memory import (
 from .psychological import (
     CompositePsychologicalState,
     PsychologicalStateComponent,
-    PsychologicalStateHistory
+    PsychologicalStateHistory,
+    PersonaDiversityScore,
+    PersonaAttributeWeight,
+    PersonaEvolutionSnapshot
 )
 from .social_relation import (
     SocialRelation,
@@ -33,7 +36,11 @@ from .learning import (
     PersonaLearningReview,
     StyleLearningReview,
     StyleLearningPattern,
-    InteractionRecord
+    InteractionRecord,
+    LearningBatch,
+    LearningSession,
+    LearningReinforcementFeedback,
+    LearningOptimizationLog
 )
 from .expression import (
     ExpressionPattern
@@ -52,6 +59,11 @@ from .jargon import (
 from .conversation_goal import (
     ConversationGoal
 )
+from .reinforcement import (
+    ReinforcementLearningResult,
+    PersonaFusionHistory,
+    StrategyOptimizationResult
+)
 
 __all__ = [
     'Base',
@@ -68,6 +80,9 @@ __all__ = [
     'CompositePsychologicalState',
     'PsychologicalStateComponent',
     'PsychologicalStateHistory',
+    'PersonaDiversityScore',
+    'PersonaAttributeWeight',
+    'PersonaEvolutionSnapshot',
     # 社交关系系统
     'SocialRelation',
     'UserSocialProfile',
@@ -82,6 +97,10 @@ __all__ = [
     'StyleLearningReview',
     'StyleLearningPattern',
     'InteractionRecord',
+    'LearningBatch',
+    'LearningSession',
+    'LearningReinforcementFeedback',
+    'LearningOptimizationLog',
     # 表达模式
     'ExpressionPattern',
     # 性能记录
@@ -94,4 +113,8 @@ __all__ = [
     'Jargon',
     # 对话目标系统
     'ConversationGoal',
+    # 强化学习系统
+    'ReinforcementLearningResult',
+    'PersonaFusionHistory',
+    'StrategyOptimizationResult',
 ]
