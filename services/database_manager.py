@@ -34,7 +34,8 @@ from ..repositories.reinforcement_repository import (
 )
 from ..repositories.learning_repository import (
     LearningBatchRepository,
-    LearningSessionRepository
+    LearningSessionRepository,
+    StyleLearningReviewRepository
 )
 from ..repositories.message_repository import (
     ConversationContextRepository,
@@ -7543,5 +7544,142 @@ class DatabaseManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"更新黑话状态失败（ORM）: {e}", exc_info=True)
             return False
+
+    # ==================== 学习系统 ORM 方法 ====================
+
+    async def get_pending_style_reviews_orm(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的风格学习记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+                reviews = await repo.get_by_status(status='pending', limit=limit)
+
+                # 转换为字典格式，保持与传统方法相同的格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 learned_patterns JSON 字符串
+                    learned_patterns = []
+                    try:
+                        if review_dict.get('learned_patterns'):
+                            import json
+                            learned_patterns = json.loads(review_dict['learned_patterns'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'type': review_dict['type'],
+                        'group_id': review_dict['group_id'],
+                        'timestamp': review_dict['timestamp'],
+                        'learned_patterns': learned_patterns,
+                        'few_shots_content': review_dict['few_shots_content'],
+                        'status': review_dict['status'],
+                        'description': review_dict['description'],
+                        'created_at': review_dict['created_at']
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取待审查风格学习记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def update_style_review_status_orm(
+        self,
+        review_id: int,
+        status: str,
+        group_id: str = None
+    ) -> bool:
+        """更新风格学习审查状态（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+
+                import time
+                success = await repo.update(
+                    review_id,
+                    status=status,
+                    updated_at=time.time()
+                )
+
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"更新风格学习审查状态成功（ORM）: ID={review_id}, 状态={status}")
+                else:
+                    self._logger.warning(f"更新风格学习审查状态失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新风格学习审查状态失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def get_style_progress_data_orm(self) -> List[Dict[str, Any]]:
+        """获取风格进度数据（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+
+                # 获取最近30条有质量分数和消息的学习批次
+                from sqlalchemy import select, and_
+                from ..models.orm import LearningBatch
+
+                stmt = select(LearningBatch).where(
+                    and_(
+                        LearningBatch.quality_score.isnot(None),
+                        LearningBatch.processed_messages > 0
+                    )
+                ).order_by(LearningBatch.start_time.desc()).limit(30)
+
+                result = await session.execute(stmt)
+                batches = list(result.scalars().all())
+
+                self._logger.debug(f"get_style_progress_data_orm 获取到 {len(batches)} 行数据")
+
+                progress_data = []
+                for batch in batches:
+                    try:
+                        progress_item = {
+                            'group_id': batch.group_id,
+                            'timestamp': float(batch.start_time) if batch.start_time else 0,
+                            'quality_score': float(batch.quality_score) if batch.quality_score else 0,
+                            'success': bool(batch.success)
+                        }
+
+                        # 添加消息数量信息
+                        if batch.processed_messages is not None:
+                            progress_item['processed_messages'] = int(batch.processed_messages)
+                        if batch.filtered_count is not None:
+                            progress_item['filtered_count'] = int(batch.filtered_count)
+                        if batch.batch_name:
+                            progress_item['batch_name'] = batch.batch_name
+                        else:
+                            progress_item['batch_name'] = '未命名'
+
+                        progress_data.append(progress_item)
+
+                    except Exception as row_error:
+                        self._logger.warning(f"处理学习批次进度数据行时出错（ORM），跳过: {row_error}")
+
+                return progress_data
+
+        except Exception as e:
+            self._logger.error(f"从learning_batches表获取进度数据失败（ORM）: {e}", exc_info=True)
+            return []
 
 
