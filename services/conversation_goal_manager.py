@@ -352,6 +352,8 @@ class ConversationGoalManager:
         """
         创建新会话 (使用LLM检测初始目标)
 
+        使用 get_or_create() 方法确保并发安全
+
         Returns:
             新会话目标数据
         """
@@ -416,8 +418,8 @@ class ConversationGoalManager:
                 "goal_progress": 0.0
             }
 
-            # 4. 持久化
-            goal_orm = await repo.create(
+            # 4. 使用 get_or_create() 确保并发安全
+            goal_orm, is_created = await repo.get_or_create(
                 session_id=session_id,
                 user_id=user_id,
                 group_id=group_id,
@@ -428,26 +430,15 @@ class ConversationGoalManager:
                 metrics=metrics
             )
 
-            logger.info(f"创建新会话: user={user_id}, session={session_id}, goal={goal_type}, topic={topic}")
+            if is_created:
+                logger.info(f"创建新会话: user={user_id}, session={session_id}, goal={goal_type}, topic={topic}")
+            else:
+                logger.info(f"并发冲突,使用已存在会话: user={user_id}, session={session_id}")
 
             return self._orm_to_dict(goal_orm)
 
         except Exception as e:
             logger.error(f"创建新会话失败: {e}", exc_info=True)
-
-            # 处理并发导致的重复键错误
-            from sqlalchemy.exc import IntegrityError
-            if isinstance(e, IntegrityError) and 'Duplicate entry' in str(e):
-                logger.warning(f"检测到session_id重复(可能是并发创建)，尝试查询已存在的会话")
-                try:
-                    # 重新查询已存在的会话
-                    existing_goal = await repo.get_active_goal_by_user(user_id, group_id)
-                    if existing_goal:
-                        logger.info(f"成功查询到已存在的会话: session={existing_goal.session_id}")
-                        return self._orm_to_dict(existing_goal)
-                except Exception as query_error:
-                    logger.error(f"查询已存在会话失败: {query_error}")
-
             # 返回默认会话
             return self._get_default_session(user_id, group_id, user_message)
 
