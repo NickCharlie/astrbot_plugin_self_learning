@@ -122,6 +122,84 @@ class ConversationGoalRepository:
         logger.info(f"创建对话目标: session={session_id}, user={user_id}, group={group_id}")
         return goal
 
+    async def get_or_create(
+        self,
+        session_id: str,
+        user_id: str,
+        group_id: str,
+        final_goal: dict,
+        current_stage: dict,
+        planned_stages: list,
+        conversation_history: list = None,
+        metrics: dict = None
+    ) -> tuple[ConversationGoal, bool]:
+        """
+        获取或创建对话目标 (并发安全)
+
+        使用策略:
+        1. 先尝试查询已存在的记录
+        2. 如果不存在,尝试创建
+        3. 如果创建时遇到唯一键冲突(并发竞争),再次查询并返回
+
+        Args:
+            session_id: 会话ID
+            user_id: 用户ID
+            group_id: 群组ID
+            final_goal: 最终目标数据
+            current_stage: 当前阶段数据
+            planned_stages: 规划的阶段列表
+            conversation_history: 对话历史
+            metrics: 指标数据
+
+        Returns:
+            tuple[ConversationGoal, bool]: (对话目标实例, 是否新创建)
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        # 1. 先尝试查询已存在的记录
+        existing_goal = await self.get_by_session_id(session_id)
+        if existing_goal:
+            logger.debug(f"找到已存在的会话: session={session_id}")
+            return existing_goal, False
+
+        # 2. 尝试创建新记录
+        try:
+            new_goal = await self.create(
+                session_id=session_id,
+                user_id=user_id,
+                group_id=group_id,
+                final_goal=final_goal,
+                current_stage=current_stage,
+                planned_stages=planned_stages,
+                conversation_history=conversation_history,
+                metrics=metrics
+            )
+            logger.info(f"成功创建新会话: session={session_id}")
+            return new_goal, True
+
+        except IntegrityError as e:
+            # 3. 遇到唯一键冲突 (并发竞争)
+            logger.warning(f"检测到并发创建冲突: session={session_id}, 错误={str(e)[:100]}")
+
+            # 3.1 回滚当前事务 (关键步骤!)
+            await self.session.rollback()
+            logger.debug(f"已回滚事务: session={session_id}")
+
+            # 3.2 重新查询已存在的记录
+            existing_goal = await self.get_by_session_id(session_id)
+            if existing_goal:
+                logger.info(f"并发冲突解决: 返回已存在的会话 session={session_id}")
+                return existing_goal, False
+            else:
+                # 极端情况: 记录被删除或其他异常
+                logger.error(f"并发冲突后未找到记录: session={session_id}")
+                raise RuntimeError(f"并发冲突后记录丢失: session_id={session_id}")
+
+        except Exception as e:
+            # 其他异常,直接向上抛出
+            logger.error(f"创建会话失败: session={session_id}, 错误={e}")
+            raise
+
     async def update(self, goal: ConversationGoal) -> ConversationGoal:
         """
         更新对话目标

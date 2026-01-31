@@ -318,25 +318,34 @@ class MaiBotQualityMonitor(IQualityMonitor):
     async def evaluate_learning_quality(self, before: Dict[str, Any], after: Dict[str, Any]) -> AnalysisResult:
         """
         评估学习质量 - 使用MaiBot的质量评估方法
-        
+
         Args:
             before: 学习前的状态
             after: 学习后的状态
-            
+
         Returns:
             质量评估结果
         """
         try:
-            # 处理None参数，提供默认值
+            # 处理None参数,提供默认值
             if before is None:
                 before = {}
                 logger.warning("学习质量评估: before参数为None，使用空字典作为默认值")
-            
+
             if after is None:
                 after = {}
                 logger.warning("学习质量评估: after参数为None，使用空字典作为默认值")
-            
-            # 如果两个参数都为空，返回中性结果
+
+            # 处理list类型参数,转换为字典
+            if isinstance(before, list):
+                logger.warning(f"学习质量评估: before参数为list类型(长度{len(before)})，转换为空字典")
+                before = {}
+
+            if isinstance(after, list):
+                logger.warning(f"学习质量评估: after参数为list类型(长度{len(after)})，转换为空字典")
+                after = {}
+
+            # 如果两个参数都为空,返回中性结果
             if not before and not after:
                 logger.warning("学习质量评估: before和after参数都为空，返回中性结果")
                 return AnalysisResult(

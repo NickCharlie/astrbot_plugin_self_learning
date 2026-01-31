@@ -16,7 +16,10 @@ from .memory import (
 from .psychological import (
     CompositePsychologicalState,
     PsychologicalStateComponent,
-    PsychologicalStateHistory
+    PsychologicalStateHistory,
+    PersonaDiversityScore,
+    PersonaAttributeWeight,
+    PersonaEvolutionSnapshot
 )
 from .social_relation import (
     SocialRelation,
@@ -33,10 +36,16 @@ from .learning import (
     PersonaLearningReview,
     StyleLearningReview,
     StyleLearningPattern,
-    InteractionRecord
+    InteractionRecord,
+    LearningBatch,
+    LearningSession,
+    LearningReinforcementFeedback,
+    LearningOptimizationLog
 )
 from .expression import (
-    ExpressionPattern
+    ExpressionPattern,
+    ExpressionGenerationResult,
+    AdaptiveResponseTemplate
 )
 from .performance import (
     LearningPerformanceHistory
@@ -44,13 +53,23 @@ from .performance import (
 from .message import (
     RawMessage,
     FilteredMessage,
-    BotMessage
+    BotMessage,
+    ConversationContext,
+    ConversationTopicClustering,
+    ConversationQualityMetrics,
+    ContextSimilarityCache
 )
 from .jargon import (
-    Jargon
+    Jargon,
+    JargonUsageFrequency
 )
 from .conversation_goal import (
     ConversationGoal
+)
+from .reinforcement import (
+    ReinforcementLearningResult,
+    PersonaFusionHistory,
+    StrategyOptimizationResult
 )
 
 __all__ = [
@@ -68,6 +87,9 @@ __all__ = [
     'CompositePsychologicalState',
     'PsychologicalStateComponent',
     'PsychologicalStateHistory',
+    'PersonaDiversityScore',
+    'PersonaAttributeWeight',
+    'PersonaEvolutionSnapshot',
     # 社交关系系统
     'SocialRelation',
     'UserSocialProfile',
@@ -82,16 +104,31 @@ __all__ = [
     'StyleLearningReview',
     'StyleLearningPattern',
     'InteractionRecord',
+    'LearningBatch',
+    'LearningSession',
+    'LearningReinforcementFeedback',
+    'LearningOptimizationLog',
     # 表达模式
     'ExpressionPattern',
+    'ExpressionGenerationResult',
+    'AdaptiveResponseTemplate',
     # 性能记录
     'LearningPerformanceHistory',
     # 消息系统
     'RawMessage',
     'FilteredMessage',
     'BotMessage',
+    'ConversationContext',
+    'ConversationTopicClustering',
+    'ConversationQualityMetrics',
+    'ContextSimilarityCache',
     # 黑话系统
     'Jargon',
+    'JargonUsageFrequency',
     # 对话目标系统
     'ConversationGoal',
+    # 强化学习系统
+    'ReinforcementLearningResult',
+    'PersonaFusionHistory',
+    'StrategyOptimizationResult',
 ]

@@ -338,19 +338,26 @@ class ExpressionPatternLearner:
     def _generate_fallback_expression_patterns(self, messages: List[MessageData]) -> str:
         """
         当LLM不可用时的降级方案：使用简单规则生成基本表达模式
-        
+
         Args:
             messages: 消息列表
-            
+
         Returns:
             str: JSON格式的表达模式字符串
         """
         try:
             patterns = []
-            
+
             # 分析消息特征
             for msg in messages[:10]:  # 只分析前10条消息
-                content = msg.message.strip()
+                # 兼容处理MessageData对象和字典类型
+                if hasattr(msg, 'message'):
+                    # 如果是MessageData对象
+                    content = msg.message.strip() if msg.message else ''
+                else:
+                    # 如果是字典
+                    content = msg.get('message', '').strip()
+
                 if len(content) < 5:
                     continue
                 
@@ -433,52 +440,85 @@ class ExpressionPatternLearner:
     
     def _parse_expression_response(self, response: str, group_id: str) -> List[ExpressionPattern]:
         """
-        解析LLM返回的表达模式 - 完全参考MaiBot的解析逻辑
-        
+        解析LLM返回的表达模式 - 完全参考MaiBot的解析逻辑,同时支持JSON格式
+
         Args:
             response: LLM响应
             group_id: 群组ID
-            
+
         Returns:
             解析出的表达模式列表
         """
         patterns = []
         current_time = time.time()
-        
+
         # 检查response是否为None或空字符串
         if not response:
             logger.warning(f"LLM返回的response为空或None，无法解析表达模式")
             return patterns
-        
+
+        # 尝试解析JSON格式(降级方案)
+        try:
+            response_stripped = response.strip()
+            if response_stripped.startswith('{') or response_stripped.startswith('['):
+                data = json.loads(response_stripped)
+                # 处理{"patterns": [...]}格式
+                if isinstance(data, dict) and 'patterns' in data:
+                    pattern_list = data['patterns']
+                elif isinstance(data, list):
+                    pattern_list = data
+                else:
+                    pattern_list = []
+
+                for p in pattern_list:
+                    if isinstance(p, dict) and 'situation' in p and 'expression' in p:
+                        pattern = ExpressionPattern(
+                            situation=p['situation'],
+                            expression=p['expression'],
+                            weight=p.get('weight', 1.0),
+                            last_active_time=current_time,
+                            create_time=current_time,
+                            group_id=group_id
+                        )
+                        patterns.append(pattern)
+
+                if patterns:
+                    logger.info(f"成功从JSON格式解析出{len(patterns)}个表达模式")
+                    return patterns
+        except json.JSONDecodeError:
+            # 不是JSON格式,继续使用文本解析
+            pass
+
+        # 文本格式解析(MaiBot原格式)
         for line in response.splitlines():
             line = line.strip()
             if not line:
                 continue
-                
+
             # 查找"当"和下一个引号
             idx_when = line.find('当"')
             if idx_when == -1:
                 continue
-                
+
             idx_quote1 = idx_when + 1
             idx_quote2 = line.find('"', idx_quote1 + 1)
             if idx_quote2 == -1:
                 continue
-                
+
             situation = line[idx_quote1 + 1:idx_quote2]
-            
+
             # 查找"使用"或"时，使用"
             idx_use = line.find('使用"', idx_quote2)
             if idx_use == -1:
                 continue
-                
+
             idx_quote3 = idx_use + 2
             idx_quote4 = line.find('"', idx_quote3 + 1)
             if idx_quote4 == -1:
                 continue
-                
+
             expression = line[idx_quote3 + 1:idx_quote4]
-            
+
             if situation and expression:
                 pattern = ExpressionPattern(
                     situation=situation,
@@ -489,7 +529,7 @@ class ExpressionPatternLearner:
                     group_id=group_id
                 )
                 patterns.append(pattern)
-                
+
         return patterns
     
     async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):

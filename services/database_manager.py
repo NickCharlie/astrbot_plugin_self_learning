@@ -1,5 +1,5 @@
 """
-数据库管理器 - 管理分群数据库和数据持久化
+数据库管理器 - 管理分群数据库和数据持久化 即将弃用
 """
 import os
 import json
@@ -23,6 +23,29 @@ from ..core.database import (
     DatabaseConfig,
     DatabaseType,
     IDatabaseBackend
+)
+
+# ✨ 导入ORM支持
+from ..core.database.engine import DatabaseEngine
+from ..repositories.reinforcement_repository import (
+    ReinforcementLearningRepository,
+    PersonaFusionRepository,
+    StrategyOptimizationRepository
+)
+from ..repositories.learning_repository import (
+    LearningBatchRepository,
+    LearningSessionRepository,
+    StyleLearningReviewRepository,
+    PersonaLearningReviewRepository
+)
+from ..repositories.message_repository import (
+    ConversationContextRepository,
+    ConversationTopicClusteringRepository,
+    ConversationQualityMetricsRepository,
+    ContextSimilarityCacheRepository
+)
+from ..repositories.jargon_repository import (
+    JargonRepository
 )
 
 
@@ -162,6 +185,9 @@ class DatabaseManager(AsyncServiceBase):
 
         # 新增: 数据库后端（支持SQLite和MySQL）
         self.db_backend: Optional[IDatabaseBackend] = None
+
+        # ✨ 新增: DatabaseEngine for ORM支持
+        self.db_engine: Optional[DatabaseEngine] = None
 
         # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
         self.connection_pool = DatabaseConnectionPool(
@@ -6836,4 +6862,1239 @@ class DatabaseManager(AsyncServiceBase):
                 }
             finally:
                 await cursor.close()
+
+    # ========================================================================
+    # ORM Repository 方法（新）
+    # ========================================================================
+
+    async def save_learning_batch(
+        self,
+        batch_id: str,
+        batch_name: str,
+        group_id: str,
+        start_time: float,
+        end_time: Optional[float] = None,
+        quality_score: Optional[float] = None,
+        processed_messages: int = 0,
+        message_count: int = 0,
+        filtered_count: int = 0,
+        success: bool = True,
+        error_message: Optional[str] = None,
+        status: str = 'pending'
+    ) -> bool:
+        """
+        保存学习批次（使用 ORM）
+
+        Args:
+            batch_id: 批次 ID
+            batch_name: 批次名称
+            group_id: 群组 ID
+            start_time: 开始时间
+            end_time: 结束时间
+            quality_score: 质量分数
+            processed_messages: 已处理消息数
+            message_count: 总消息数
+            filtered_count: 过滤掉的消息数
+            success: 是否成功
+            error_message: 错误信息
+            status: 状态
+
+        Returns:
+            bool: 是否保存成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存学习批次")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batch = await repo.save_learning_batch(
+                    batch_id=batch_id,
+                    batch_name=batch_name,
+                    group_id=group_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    quality_score=quality_score,
+                    processed_messages=processed_messages,
+                    message_count=message_count,
+                    filtered_count=filtered_count,
+                    success=success,
+                    error_message=error_message,
+                    status=status
+                )
+                await session.commit()
+                return batch is not None
+
+        except Exception as e:
+            self._logger.error(f"保存学习批次失败: {e}", exc_info=True)
+            return False
+
+    async def get_learning_batches(
+        self,
+        group_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        获取学习批次列表（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            limit: 最大返回数量
+            offset: 偏移量
+            status_filter: 状态过滤
+
+        Returns:
+            List[Dict]: 批次列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batches = await repo.get_learning_batches(
+                    group_id=group_id,
+                    limit=limit,
+                    offset=offset,
+                    status_filter=status_filter
+                )
+                return [batch.to_dict() for batch in batches]
+
+        except Exception as e:
+            self._logger.error(f"获取学习批次列表失败: {e}", exc_info=True)
+            return []
+
+    async def get_learning_batch_by_id(self, batch_id: str) -> Optional[Dict[str, Any]]:
+        """
+        根据 batch_id 获取学习批次（使用 ORM）
+
+        Args:
+            batch_id: 批次 ID
+
+        Returns:
+            Optional[Dict]: 批次记录
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+                batch = await repo.get_learning_batch_by_id(batch_id)
+                return batch.to_dict() if batch else None
+
+        except Exception as e:
+            self._logger.error(f"获取学习批次失败: {e}", exc_info=True)
+            return None
+
+    async def save_learning_session(
+        self,
+        session_id: str,
+        group_id: str,
+        batch_id: Optional[str] = None,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None,
+        metrics: Optional[str] = None
+    ) -> bool:
+        """
+        保存学习会话（使用 ORM）
+
+        Args:
+            session_id: 会话 ID
+            group_id: 群组 ID
+            batch_id: 批次 ID
+            start_time: 开始时间
+            end_time: 结束时间
+            metrics: 指标数据（JSON字符串）
+
+        Returns:
+            bool: 是否保存成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存学习会话")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningSessionRepository(session)
+                learning_session = await repo.save_learning_session(
+                    session_id=session_id,
+                    group_id=group_id,
+                    batch_id=batch_id,
+                    start_time=start_time,
+                    end_time=end_time,
+                    metrics=metrics
+                )
+                await session.commit()
+                return learning_session is not None
+
+        except Exception as e:
+            self._logger.error(f"保存学习会话失败: {e}", exc_info=True)
+            return False
+
+    async def get_learning_sessions(
+        self,
+        group_id: str,
+        batch_id: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> List[Dict[str, Any]]:
+        """
+        获取学习会话列表（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            batch_id: 批次 ID（可选）
+            limit: 最大返回数量
+            offset: 偏移量
+
+        Returns:
+            List[Dict]: 会话列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningSessionRepository(session)
+                sessions = await repo.get_learning_sessions(
+                    group_id=group_id,
+                    batch_id=batch_id,
+                    limit=limit,
+                    offset=offset
+                )
+                return [sess.to_dict() for sess in sessions]
+
+        except Exception as e:
+            self._logger.error(f"获取学习会话列表失败: {e}", exc_info=True)
+            return []
+
+    # ==================== 对话与上下文系统 ORM 方法 ====================
+
+    async def save_conversation_context(
+        self,
+        group_id: str,
+        user_id: str,
+        context_window: str,
+        topic: Optional[str] = None,
+        sentiment: Optional[str] = None,
+        context_embedding: Optional[bytes] = None,
+        last_updated: Optional[float] = None
+    ) -> bool:
+        """
+        保存对话上下文（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            user_id: 用户 ID
+            context_window: 上下文窗口（JSON字符串）
+            topic: 当前话题
+            sentiment: 情感倾向
+            context_embedding: 上下文向量嵌入
+            last_updated: 最后更新时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存对话上下文")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationContextRepository(session)
+                context = await repo.save_context(
+                    group_id=group_id,
+                    user_id=user_id,
+                    context_window=context_window,
+                    topic=topic,
+                    sentiment=sentiment,
+                    context_embedding=context_embedding,
+                    last_updated=last_updated
+                )
+                await session.commit()
+                return context is not None
+
+        except Exception as e:
+            self._logger.error(f"保存对话上下文失败: {e}", exc_info=True)
+            return False
+
+    async def get_latest_conversation_context(
+        self,
+        group_id: str,
+        user_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取最新的对话上下文（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            user_id: 用户 ID
+
+        Returns:
+            Optional[Dict]: 上下文记录
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationContextRepository(session)
+                context = await repo.get_latest_context(
+                    group_id=group_id,
+                    user_id=user_id
+                )
+                return context.to_dict() if context else None
+
+        except Exception as e:
+            self._logger.error(f"获取最新对话上下文失败: {e}", exc_info=True)
+            return None
+
+    async def save_topic_cluster(
+        self,
+        group_id: str,
+        cluster_id: str,
+        topic_keywords: str,
+        message_count: int = 0,
+        representative_messages: Optional[str] = None,
+        cluster_center: Optional[bytes] = None
+    ) -> bool:
+        """
+        保存主题聚类（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            cluster_id: 聚类 ID
+            topic_keywords: 主题关键词（JSON字符串）
+            message_count: 消息数量
+            representative_messages: 代表性消息（JSON字符串）
+            cluster_center: 聚类中心向量
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存主题聚类")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationTopicClusteringRepository(session)
+                cluster = await repo.save_cluster(
+                    group_id=group_id,
+                    cluster_id=cluster_id,
+                    topic_keywords=topic_keywords,
+                    message_count=message_count,
+                    representative_messages=representative_messages,
+                    cluster_center=cluster_center
+                )
+                await session.commit()
+                return cluster is not None
+
+        except Exception as e:
+            self._logger.error(f"保存主题聚类失败: {e}", exc_info=True)
+            return False
+
+    async def get_all_topic_clusters(
+        self,
+        group_id: str,
+        order_by_message_count: bool = True,
+        limit: int = 100
+    ) -> List[Dict[str, Any]]:
+        """
+        获取所有主题聚类（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            order_by_message_count: 是否按消息数量排序
+            limit: 最大返回数量
+
+        Returns:
+            List[Dict]: 聚类列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationTopicClusteringRepository(session)
+                clusters = await repo.get_all_clusters(
+                    group_id=group_id,
+                    order_by_message_count=order_by_message_count,
+                    limit=limit
+                )
+                return [cluster.to_dict() for cluster in clusters]
+
+        except Exception as e:
+            self._logger.error(f"获取主题聚类列表失败: {e}", exc_info=True)
+            return []
+
+    async def save_quality_metrics(
+        self,
+        group_id: str,
+        message_id: int,
+        coherence_score: Optional[float] = None,
+        relevance_score: Optional[float] = None,
+        engagement_score: Optional[float] = None,
+        sentiment_alignment: Optional[float] = None,
+        calculated_at: Optional[float] = None
+    ) -> bool:
+        """
+        保存对话质量指标（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            message_id: 消息 ID
+            coherence_score: 连贯性分数
+            relevance_score: 相关性分数
+            engagement_score: 互动度分数
+            sentiment_alignment: 情感一致性分数
+            calculated_at: 计算时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存质量指标")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationQualityMetricsRepository(session)
+                metrics = await repo.save_quality_metrics(
+                    group_id=group_id,
+                    message_id=message_id,
+                    coherence_score=coherence_score,
+                    relevance_score=relevance_score,
+                    engagement_score=engagement_score,
+                    sentiment_alignment=sentiment_alignment,
+                    calculated_at=calculated_at
+                )
+                await session.commit()
+                return metrics is not None
+
+        except Exception as e:
+            self._logger.error(f"保存质量指标失败: {e}", exc_info=True)
+            return False
+
+    async def get_average_quality_scores(
+        self,
+        group_id: str,
+        start_time: Optional[float] = None,
+        end_time: Optional[float] = None
+    ) -> Dict[str, float]:
+        """
+        获取平均质量分数（使用 ORM）
+
+        Args:
+            group_id: 群组 ID
+            start_time: 开始时间戳（可选）
+            end_time: 结束时间戳（可选）
+
+        Returns:
+            Dict[str, float]: 各指标的平均分数
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回默认值")
+            return {
+                "avg_coherence_score": 0.0,
+                "avg_relevance_score": 0.0,
+                "avg_engagement_score": 0.0,
+                "avg_sentiment_alignment": 0.0
+            }
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ConversationQualityMetricsRepository(session)
+                return await repo.get_average_scores(
+                    group_id=group_id,
+                    start_time=start_time,
+                    end_time=end_time
+                )
+
+        except Exception as e:
+            self._logger.error(f"获取平均质量分数失败: {e}", exc_info=True)
+            return {
+                "avg_coherence_score": 0.0,
+                "avg_relevance_score": 0.0,
+                "avg_engagement_score": 0.0,
+                "avg_sentiment_alignment": 0.0
+            }
+
+    async def save_context_similarity(
+        self,
+        context_hash_1: str,
+        context_hash_2: str,
+        similarity_score: float,
+        calculation_method: Optional[str] = None,
+        cached_at: Optional[float] = None
+    ) -> bool:
+        """
+        保存上下文相似度缓存（使用 ORM）
+
+        Args:
+            context_hash_1: 上下文1的哈希值
+            context_hash_2: 上下文2的哈希值
+            similarity_score: 相似度分数
+            calculation_method: 计算方法
+            cached_at: 缓存时间戳
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法保存相似度缓存")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ContextSimilarityCacheRepository(session)
+                cache = await repo.save_similarity(
+                    context_hash_1=context_hash_1,
+                    context_hash_2=context_hash_2,
+                    similarity_score=similarity_score,
+                    calculation_method=calculation_method,
+                    cached_at=cached_at
+                )
+                await session.commit()
+                return cache is not None
+
+        except Exception as e:
+            self._logger.error(f"保存相似度缓存失败: {e}", exc_info=True)
+            return False
+
+    async def get_context_similarity(
+        self,
+        context_hash_1: str,
+        context_hash_2: str
+    ) -> Optional[float]:
+        """
+        获取上下文相似度（使用 ORM，支持双向查找）
+
+        Args:
+            context_hash_1: 上下文1的哈希值
+            context_hash_2: 上下文2的哈希值
+
+        Returns:
+            Optional[float]: 相似度分数
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = ContextSimilarityCacheRepository(session)
+                cache = await repo.get_similarity(
+                    context_hash_1=context_hash_1,
+                    context_hash_2=context_hash_2
+                )
+                return cache.similarity_score if cache else None
+
+        except Exception as e:
+            self._logger.error(f"获取相似度缓存失败: {e}", exc_info=True)
+            return None
+
+    # ==================== 黑话系统 ORM 方法 ====================
+
+    async def get_recent_jargon_list_orm(
+        self,
+        chat_id: Optional[str] = None,
+        limit: int = 20,
+        only_confirmed: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        获取最近学习到的黑话列表（使用 ORM）
+
+        Args:
+            chat_id: 群组ID (None表示获取所有)
+            limit: 返回数量限制
+            only_confirmed: 是否只返回已确认的黑话
+
+        Returns:
+            List[Dict]: 黑话列表
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                jargons = await repo.get_recent_jargon_list(
+                    chat_id=chat_id,
+                    limit=limit,
+                    only_confirmed=only_confirmed
+                )
+                return [jargon.to_dict() for jargon in jargons]
+
+        except Exception as e:
+            self._logger.error(f"获取黑话列表失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def get_jargon_statistics_orm(
+        self,
+        chat_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        获取黑话学习统计信息（使用 ORM）
+
+        Args:
+            chat_id: 群组ID (None表示获取全局统计)
+
+        Returns:
+            Dict[str, Any]: 统计信息字典
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回默认值")
+            return {
+                'total_candidates': 0,
+                'confirmed_jargon': 0,
+                'completed_inference': 0,
+                'total_occurrences': 0,
+                'average_count': 0.0,
+                'active_groups': 0
+            }
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                return await repo.get_jargon_statistics(chat_id=chat_id)
+
+        except Exception as e:
+            self._logger.error(f"获取黑话统计失败（ORM）: {e}", exc_info=True)
+            return {
+                'total_candidates': 0,
+                'confirmed_jargon': 0,
+                'completed_inference': 0,
+                'total_occurrences': 0,
+                'average_count': 0.0,
+                'active_groups': 0
+            }
+
+    async def get_jargon_by_id_orm(
+        self,
+        jargon_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        根据ID获取黑话记录（使用 ORM）
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            Optional[Dict]: 黑话记录或None
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回 None")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                jargon = await repo.get_by_id(jargon_id)
+                return jargon.to_dict() if jargon else None
+
+        except Exception as e:
+            self._logger.error(f"根据ID获取黑话失败（ORM）: {e}", exc_info=True)
+            return None
+
+    async def update_jargon_status_orm(
+        self,
+        jargon_id: int,
+        is_jargon: Optional[bool] = None,
+        is_complete: Optional[bool] = None,
+        meaning: Optional[str] = None
+    ) -> bool:
+        """
+        更新黑话状态（使用 ORM）
+
+        Args:
+            jargon_id: 黑话ID
+            is_jargon: 是否为黑话
+            is_complete: 是否完成推理
+            meaning: 含义
+
+        Returns:
+            bool: 是否成功
+        """
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，无法更新黑话状态")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                success = await repo.update_jargon_status(
+                    jargon_id=jargon_id,
+                    is_jargon=is_jargon,
+                    is_complete=is_complete,
+                    meaning=meaning
+                )
+                await session.commit()
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新黑话状态失败（ORM）: {e}", exc_info=True)
+            return False
+
+    # ==================== 学习系统 ORM 方法 ====================
+
+    async def get_pending_style_reviews_orm(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的风格学习记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+                reviews = await repo.get_by_status(status='pending', limit=limit)
+
+                # 转换为字典格式，保持与传统方法相同的格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 learned_patterns JSON 字符串
+                    learned_patterns = []
+                    try:
+                        if review_dict.get('learned_patterns'):
+                            import json
+                            learned_patterns = json.loads(review_dict['learned_patterns'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'type': review_dict['type'],
+                        'group_id': review_dict['group_id'],
+                        'timestamp': review_dict['timestamp'],
+                        'learned_patterns': learned_patterns,
+                        'few_shots_content': review_dict['few_shots_content'],
+                        'status': review_dict['status'],
+                        'description': review_dict['description'],
+                        'created_at': review_dict['created_at']
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取待审查风格学习记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def update_style_review_status_orm(
+        self,
+        review_id: int,
+        status: str,
+        group_id: str = None
+    ) -> bool:
+        """更新风格学习审查状态（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+
+                import time
+                success = await repo.update(
+                    review_id,
+                    status=status,
+                    updated_at=time.time()
+                )
+
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"更新风格学习审查状态成功（ORM）: ID={review_id}, 状态={status}")
+                else:
+                    self._logger.warning(f"更新风格学习审查状态失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新风格学习审查状态失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def get_style_progress_data_orm(self) -> List[Dict[str, Any]]:
+        """获取风格进度数据（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = LearningBatchRepository(session)
+
+                # 获取最近30条有质量分数和消息的学习批次
+                from sqlalchemy import select, and_
+                from ..models.orm import LearningBatch
+
+                stmt = select(LearningBatch).where(
+                    and_(
+                        LearningBatch.quality_score.isnot(None),
+                        LearningBatch.processed_messages > 0
+                    )
+                ).order_by(LearningBatch.start_time.desc()).limit(30)
+
+                result = await session.execute(stmt)
+                batches = list(result.scalars().all())
+
+                self._logger.debug(f"get_style_progress_data_orm 获取到 {len(batches)} 行数据")
+
+                progress_data = []
+                for batch in batches:
+                    try:
+                        progress_item = {
+                            'group_id': batch.group_id,
+                            'timestamp': float(batch.start_time) if batch.start_time else 0,
+                            'quality_score': float(batch.quality_score) if batch.quality_score else 0,
+                            'success': bool(batch.success)
+                        }
+
+                        # 添加消息数量信息
+                        if batch.processed_messages is not None:
+                            progress_item['processed_messages'] = int(batch.processed_messages)
+                        if batch.filtered_count is not None:
+                            progress_item['filtered_count'] = int(batch.filtered_count)
+                        if batch.batch_name:
+                            progress_item['batch_name'] = batch.batch_name
+                        else:
+                            progress_item['batch_name'] = '未命名'
+
+                        progress_data.append(progress_item)
+
+                    except Exception as row_error:
+                        self._logger.warning(f"处理学习批次进度数据行时出错（ORM），跳过: {row_error}")
+
+                return progress_data
+
+        except Exception as e:
+            self._logger.error(f"从learning_batches表获取进度数据失败（ORM）: {e}", exc_info=True)
+            return []
+
+    # ==================== 人格学习审查系统 ORM 方法 ====================
+
+    async def get_pending_persona_learning_reviews_orm(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取待审查的人格学习记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                reviews = await repo.get_pending_reviews(limit=limit)
+
+                # 转换为字典格式，保持与传统方法相同的格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 metadata JSON 字符串
+                    metadata = {}
+                    try:
+                        if review_dict.get('metadata'):
+                            import json
+                            metadata = json.loads(review_dict['metadata'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    # 确保有proposed_content字段，如果为空则使用new_content
+                    proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                    confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'timestamp': review_dict['timestamp'],
+                        'group_id': review_dict['group_id'],
+                        'update_type': review_dict['update_type'],
+                        'original_content': review_dict['original_content'],
+                        'new_content': review_dict['new_content'],
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': review_dict['reason'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': review_dict['reviewer_comment'],
+                        'review_time': review_dict['review_time'],
+                        'metadata': metadata
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取待审查人格学习记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def update_persona_learning_review_status_orm(
+        self,
+        review_id: int,
+        status: str,
+        comment: str = None,
+        modified_content: str = None
+    ) -> bool:
+        """更新人格学习审查状态（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+
+                import time
+                update_data = {
+                    'status': status,
+                    'review_time': time.time()
+                }
+
+                if comment:
+                    update_data['reviewer_comment'] = comment
+
+                # 如果有修改后的内容，也要更新proposed_content和new_content字段
+                if modified_content:
+                    update_data['proposed_content'] = modified_content
+                    update_data['new_content'] = modified_content
+
+                success = await repo.update(review_id, **update_data)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"更新人格学习审查状态成功（ORM）: ID={review_id}, 状态={status}")
+                else:
+                    self._logger.warning(f"更新人格学习审查状态失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"更新人格学习审查状态失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def get_persona_learning_review_by_id_orm(self, review_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取人格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return None
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                review = await repo.get_by_id(review_id)
+
+                if not review:
+                    return None
+
+                review_dict = review.to_dict()
+
+                # 解析 metadata JSON 字符串
+                metadata = {}
+                try:
+                    if review_dict.get('metadata'):
+                        import json
+                        metadata = json.loads(review_dict['metadata'])
+                except json.JSONDecodeError:
+                    pass
+
+                # 确保有proposed_content字段
+                proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                return {
+                    'id': review_dict['id'],
+                    'timestamp': review_dict['timestamp'],
+                    'group_id': review_dict['group_id'],
+                    'update_type': review_dict['update_type'],
+                    'original_content': review_dict['original_content'],
+                    'new_content': review_dict['new_content'],
+                    'proposed_content': proposed_content,
+                    'confidence_score': confidence_score,
+                    'reason': review_dict['reason'],
+                    'status': review_dict['status'],
+                    'reviewer_comment': review_dict['reviewer_comment'],
+                    'review_time': review_dict['review_time'],
+                    'metadata': metadata
+                }
+
+        except Exception as e:
+            self._logger.error(f"根据ID获取人格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return None
+
+    async def delete_persona_learning_review_by_id_orm(self, review_id: int) -> bool:
+        """删除指定ID的人格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                success = await repo.delete(review_id)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"删除人格学习审查记录成功（ORM）: ID={review_id}")
+                else:
+                    self._logger.warning(f"删除人格学习审查记录失败（ORM）: 未找到ID={review_id}的记录")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除人格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def get_reviewed_persona_learning_updates_orm(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: str = None
+    ) -> List[Dict[str, Any]]:
+        """获取已审查的人格学习更新记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = PersonaLearningReviewRepository(session)
+                reviews = await repo.get_reviewed_updates(
+                    limit=limit,
+                    offset=offset,
+                    status_filter=status_filter
+                )
+
+                # 转换为字典格式
+                result = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 解析 metadata JSON 字符串
+                    metadata = {}
+                    try:
+                        if review_dict.get('metadata'):
+                            import json
+                            metadata = json.loads(review_dict['metadata'])
+                    except json.JSONDecodeError:
+                        pass
+
+                    # 确保有proposed_content字段
+                    proposed_content = review_dict.get('proposed_content') or review_dict.get('new_content')
+                    confidence_score = review_dict.get('confidence_score') if review_dict.get('confidence_score') is not None else 0.5
+
+                    result.append({
+                        'id': review_dict['id'],
+                        'timestamp': review_dict['timestamp'],
+                        'group_id': review_dict['group_id'],
+                        'update_type': review_dict['update_type'],
+                        'original_content': review_dict['original_content'],
+                        'new_content': review_dict['new_content'],
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': review_dict['reason'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': review_dict['reviewer_comment'],
+                        'review_time': review_dict['review_time'],
+                        'metadata': metadata
+                    })
+
+                return result
+
+        except Exception as e:
+            self._logger.error(f"获取已审查人格学习更新记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def get_reviewed_style_learning_updates_orm(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: str = None
+    ) -> List[Dict[str, Any]]:
+        """获取已审查的风格学习更新记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                from sqlalchemy import select, or_, func as sql_func, case
+                from ..models.orm import StyleLearningReview
+
+                # 构建查询
+                stmt = select(StyleLearningReview)
+
+                # 状态过滤
+                if status_filter:
+                    stmt = stmt.where(StyleLearningReview.status == status_filter)
+                else:
+                    stmt = stmt.where(
+                        or_(
+                            StyleLearningReview.status == 'approved',
+                            StyleLearningReview.status == 'rejected'
+                        )
+                    )
+
+                # 排序：使用updated_at，如果为NULL则使用timestamp
+                stmt = stmt.order_by(
+                    sql_func.coalesce(StyleLearningReview.updated_at, StyleLearningReview.timestamp).desc()
+                ).offset(offset).limit(limit)
+
+                result = await session.execute(stmt)
+                reviews = list(result.scalars().all())
+
+                # 转换为字典格式
+                updates = []
+                for review in reviews:
+                    review_dict = review.to_dict()
+
+                    # 尝试解析learned_patterns以获取更多信息
+                    try:
+                        import json
+                        learned_patterns = json.loads(review_dict['learned_patterns']) if review_dict.get('learned_patterns') else {}
+                        reason = learned_patterns.get('reason', '风格学习更新')
+                        original_content = learned_patterns.get('original_content', '原始风格特征')
+                        proposed_content = learned_patterns.get('proposed_content', review_dict.get('learned_patterns', ''))
+                        confidence_score = learned_patterns.get('confidence_score', 0.8)
+                    except (json.JSONDecodeError, AttributeError):
+                        reason = review_dict.get('description', '风格学习更新')
+                        original_content = '原始风格特征'
+                        proposed_content = review_dict.get('learned_patterns', '无内容')
+                        confidence_score = 0.8
+
+                    updates.append({
+                        'id': review_dict['id'],
+                        'group_id': review_dict['group_id'],
+                        'original_content': original_content,
+                        'proposed_content': proposed_content,
+                        'confidence_score': confidence_score,
+                        'reason': reason,
+                        'update_type': review_dict.get('type', 'style'),
+                        'timestamp': review_dict['timestamp'],
+                        'status': review_dict['status'],
+                        'reviewer_comment': None,
+                        'review_time': review_dict.get('updated_at', review_dict['timestamp'])
+                    })
+
+                return updates
+
+        except Exception as e:
+            self._logger.error(f"获取已审查风格学习更新记录失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def delete_style_review_by_id_orm(self, review_id: int) -> bool:
+        """删除指定ID的风格学习审查记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = StyleLearningReviewRepository(session)
+                success = await repo.delete(review_id)
+                await session.commit()
+
+                if success:
+                    self._logger.info(f"成功删除风格学习审查记录（ORM），ID: {review_id}")
+                else:
+                    self._logger.warning(f"未找到要删除的风格学习审查记录（ORM），ID: {review_id}")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除风格学习审查记录失败（ORM）: {e}", exc_info=True)
+            return False
+
+    async def search_jargon_orm(
+        self,
+        keyword: str,
+        chat_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """搜索黑话（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化，返回空列表")
+            return []
+
+        try:
+            async with self.db_engine.get_session() as session:
+                from sqlalchemy import select, and_, or_, desc
+                from ..models.orm import Jargon
+
+                # 构建查询
+                stmt = select(Jargon)
+
+                if chat_id:
+                    # 搜索指定群组的黑话
+                    stmt = stmt.where(
+                        and_(
+                            Jargon.chat_id == chat_id,
+                            Jargon.content.like(f'%{keyword}%'),
+                            Jargon.is_jargon == True
+                        )
+                    )
+                else:
+                    # 搜索全局黑话
+                    stmt = stmt.where(
+                        and_(
+                            Jargon.content.like(f'%{keyword}%'),
+                            Jargon.is_jargon == True,
+                            Jargon.is_global == True
+                        )
+                    )
+
+                stmt = stmt.order_by(
+                    desc(Jargon.count),
+                    desc(Jargon.updated_at)
+                ).limit(limit)
+
+                result = await session.execute(stmt)
+                jargons = list(result.scalars().all())
+
+                # 转换为字典格式
+                results = []
+                for jargon in jargons:
+                    results.append({
+                        'id': jargon.id,
+                        'content': jargon.content,
+                        'meaning': jargon.meaning,
+                        'is_jargon': bool(jargon.is_jargon),
+                        'count': jargon.count,
+                        'is_complete': bool(jargon.is_complete)
+                    })
+
+                return results
+
+        except Exception as e:
+            self._logger.error(f"搜索黑话失败（ORM）: {e}", exc_info=True)
+            return []
+
+    async def delete_jargon_by_id_orm(self, jargon_id: int) -> bool:
+        """根据ID删除黑话记录（使用 ORM）"""
+        if not self.db_engine:
+            self._logger.warning("DatabaseEngine 未初始化")
+            return False
+
+        try:
+            async with self.db_engine.get_session() as session:
+                repo = JargonRepository(session)
+                success = await repo.delete(jargon_id)
+                await session.commit()
+
+                if success:
+                    self._logger.debug(f"删除黑话记录成功（ORM）, ID: {jargon_id}")
+
+                return success
+
+        except Exception as e:
+            self._logger.error(f"删除黑话记录失败（ORM）: {e}", exc_info=True)
+            return False
+
 

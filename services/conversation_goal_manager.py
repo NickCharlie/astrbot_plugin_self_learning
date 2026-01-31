@@ -311,6 +311,7 @@ class ConversationGoalManager:
         Returns:
             对话目标字典
         """
+        session = None
         try:
             async with self.db_manager.get_session() as session:
                 repo = ConversationGoalRepository(session)
@@ -332,6 +333,12 @@ class ConversationGoalManager:
 
         except Exception as e:
             logger.error(f"获取或创建对话目标失败: {e}", exc_info=True)
+            # 确保session被rollback
+            if session:
+                try:
+                    await session.rollback()
+                except Exception as rollback_error:
+                    logger.error(f"Session rollback失败: {rollback_error}")
             return None
 
     async def _create_new_session(
@@ -344,6 +351,8 @@ class ConversationGoalManager:
     ) -> Dict:
         """
         创建新会话 (使用LLM检测初始目标)
+
+        使用 get_or_create() 方法确保并发安全
 
         Returns:
             新会话目标数据
@@ -409,8 +418,8 @@ class ConversationGoalManager:
                 "goal_progress": 0.0
             }
 
-            # 4. 持久化
-            goal_orm = await repo.create(
+            # 4. 使用 get_or_create() 确保并发安全
+            goal_orm, is_created = await repo.get_or_create(
                 session_id=session_id,
                 user_id=user_id,
                 group_id=group_id,
@@ -421,7 +430,10 @@ class ConversationGoalManager:
                 metrics=metrics
             )
 
-            logger.info(f"创建新会话: user={user_id}, session={session_id}, goal={goal_type}, topic={topic}")
+            if is_created:
+                logger.info(f"创建新会话: user={user_id}, session={session_id}, goal={goal_type}, topic={topic}")
+            else:
+                logger.info(f"并发冲突,使用已存在会话: user={user_id}, session={session_id}")
 
             return self._orm_to_dict(goal_orm)
 
@@ -570,6 +582,10 @@ class ConversationGoalManager:
 2. 针对具体话题调整
 3. 循序渐进，自然流畅
 4. 每个阶段控制在15字以内
+5. 当遇到不合适的或者是带有骚扰性质的话题时，可调整阶段内容
+6. 当遇到话题即将冷场时，可调整阶段内容
+7. 当遇到用户情绪波动较大时，可调整阶段内容
+8. 当遇到用户反应冷淡时，可调整阶段内容
 
 返回JSON数组:
 ["阶段1", "阶段2", "阶段3"]"""
