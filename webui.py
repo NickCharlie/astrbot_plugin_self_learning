@@ -6067,8 +6067,8 @@ class Server:
             self._shutdown_event = None
 
             bind_host = self.host
-            if sys.platform == 'win32' and self.host == '0.0.0.0':
-                bind_host = '127.0.0.1'
+            #if sys.platform == 'win32' and self.host == '0.0.0.0':
+            #    bind_host = '127.0.0.1'
 
             # [修改2] 使用 SecureConfig
             self.config = SecureConfig()
