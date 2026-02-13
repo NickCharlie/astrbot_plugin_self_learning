@@ -2424,19 +2424,178 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取待审核人格更新记录失败: {e}")
             raise RuntimeError(f"无法获取待审核人格更新记录: {e}") from e
 
+    async def save_persona_update_record(self, record: Dict[str, Any]) -> int:
+        """
+        保存人格更新记录（ORM 版本）
+
+        Args:
+            record: 人格更新记录字典
+
+        Returns:
+            int: 新记录 ID
+        """
+        try:
+            async with self.get_session() as session:
+                from ..models.orm import PersonaLearningReview
+
+                orm_record = PersonaLearningReview(
+                    timestamp=record.get('timestamp', time.time()),
+                    group_id=record.get('group_id', 'default'),
+                    update_type=record.get('update_type', 'prompt_update'),
+                    original_content=record.get('original_content', ''),
+                    new_content=record.get('new_content', ''),
+                    proposed_content=record.get('new_content', ''),
+                    confidence_score=record.get('confidence_score'),
+                    reason=record.get('reason', ''),
+                    status=record.get('status', 'pending'),
+                    reviewer_comment=record.get('reviewer_comment'),
+                    review_time=record.get('review_time')
+                )
+
+                session.add(orm_record)
+                await session.flush()
+                record_id = orm_record.id
+                await session.commit()
+
+                logger.debug(f"[SQLAlchemy] 已保存人格更新记录: id={record_id}")
+                return record_id
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存人格更新记录失败: {e}")
+            raise RuntimeError(f"无法保存人格更新记录: {e}") from e
+
+    async def update_persona_update_record_status(
+        self,
+        record_id: int,
+        status: str,
+        reviewer_comment: Optional[str] = None
+    ) -> bool:
+        """
+        更新人格更新记录状态（ORM 版本）
+
+        Args:
+            record_id: 记录 ID
+            status: 新状态
+            reviewer_comment: 审核备注
+
+        Returns:
+            bool: 是否更新成功
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import PersonaLearningReview
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.id == record_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+
+                if not record:
+                    logger.warning(f"[SQLAlchemy] 未找到人格更新记录: id={record_id}")
+                    return False
+
+                record.status = status
+                record.reviewer_comment = reviewer_comment
+                record.review_time = time.time()
+
+                await session.commit()
+                logger.debug(f"[SQLAlchemy] 已更新人格记录状态: id={record_id}, status={status}")
+                return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 更新人格更新记录状态失败: {e}")
+            raise RuntimeError(f"无法更新人格更新记录状态: {e}") from e
+
+    async def delete_persona_update_record(self, record_id: int) -> bool:
+        """
+        删除人格更新记录（ORM 版本）
+
+        Args:
+            record_id: 记录 ID
+
+        Returns:
+            bool: 是否删除成功
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import PersonaLearningReview
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.id == record_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+
+                if not record:
+                    logger.warning(f"[SQLAlchemy] 删除失败，记录不存在: id={record_id}")
+                    return False
+
+                await session.delete(record)
+                await session.commit()
+                logger.debug(f"[SQLAlchemy] 已删除人格更新记录: id={record_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 删除人格更新记录失败: {e}")
+            raise RuntimeError(f"无法删除人格更新记录: {e}") from e
+
+    async def get_persona_update_record_by_id(self, record_id: int) -> Optional[Dict[str, Any]]:
+        """
+        根据 ID 获取人格更新记录（ORM 版本）
+
+        Args:
+            record_id: 记录 ID
+
+        Returns:
+            Optional[Dict]: 记录字典，不存在时返回 None
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm import PersonaLearningReview
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.id == record_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+
+                if not record:
+                    return None
+
+                return {
+                    'id': record.id,
+                    'timestamp': record.timestamp,
+                    'group_id': record.group_id,
+                    'update_type': record.update_type,
+                    'original_content': record.original_content,
+                    'new_content': record.new_content,
+                    'reason': record.reason,
+                    'status': record.status,
+                    'reviewer_comment': record.reviewer_comment,
+                    'review_time': record.review_time
+                }
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 根据ID获取人格更新记录失败: {e}")
+            raise RuntimeError(f"无法获取人格更新记录: {e}") from e
+
     async def get_reviewed_persona_update_records(
         self,
-        status: Optional[str] = None,
         limit: int = 50,
-        offset: int = 0
+        offset: int = 0,
+        status_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         获取已审核的人格更新记录（ORM 版本）
 
         Args:
-            status: 筛选状态 ('approved' 或 'rejected')，None 表示返回所有已审核记录
             limit: 返回数量限制
             offset: 偏移量
+            status_filter: 筛选状态 ('approved' 或 'rejected')，None 表示返回所有已审核记录
 
         Returns:
             已审核记录列表
@@ -2447,10 +2606,10 @@ class SQLAlchemyDatabaseManager:
                 from ..models.orm import PersonaLearningReview
 
                 # 构建查询
-                if status:
+                if status_filter:
                     # 筛选特定状态
                     stmt = select(PersonaLearningReview).where(
-                        PersonaLearningReview.status == status
+                        PersonaLearningReview.status == status_filter
                     )
                 else:
                     # 返回所有已审核记录（approved 或 rejected）
@@ -2468,7 +2627,9 @@ class SQLAlchemyDatabaseManager:
                 result = await session.execute(stmt)
                 records = result.scalars().all()
 
-                logger.debug(f"[SQLAlchemy] 查询已审核人格更新记录: 状态={status}, 数量={len(records)}")
+                logger.debug(
+                    f"[SQLAlchemy] 查询已审核人格更新记录: 状态={status_filter}, 数量={len(records)}"
+                )
 
                 return [
                     {
