@@ -37,6 +37,9 @@ class FrameworkLLMAdapter:
         # 保存配置用于可能的延迟初始化
         self._config = config
         self.providers_configured = 0
+        self.filter_provider = None
+        self.refine_provider = None
+        self.reinforce_provider = None
 
         # ✅ 添加配置调试日志
         logger.info(f"🔧 [LLM适配器] 开始初始化Provider，配置信息：")
@@ -60,6 +63,27 @@ class FrameworkLLMAdapter:
             logger.info(f"🔍 发现 {len(available_providers)} 个可用的 CHAT_COMPLETION 类型 Provider")
         except Exception as e:
             logger.warning(f"获取可用Provider列表失败: {e}")
+
+        has_configured_provider_ids = bool(
+            config.filter_provider_id or config.refine_provider_id or config.reinforce_provider_id
+        )
+        provider_registry_ready = len(available_providers) > 0
+
+        # 启动早期常见场景：Provider 注册表尚未准备完成。
+        # 此时直接返回，避免误报“配置错误”日志。
+        if not provider_registry_ready:
+            self._needs_lazy_init = True
+            if has_configured_provider_ids:
+                logger.warning(
+                    "⏳ [LLM适配器] Provider 注册表尚未就绪（当前 0 个），"
+                    "跳过本次绑定并等待延迟重试。"
+                )
+            else:
+                logger.warning(
+                    "⏳ [LLM适配器] 当前没有可用 Provider，且未配置 provider_id，"
+                    "稍后将重试初始化。"
+                )
+            return
         
         # 初始化筛选Provider
         if config.filter_provider_id:
@@ -169,6 +193,9 @@ class FrameworkLLMAdapter:
             logger.info(f"ℹ️ 已配置 {self.providers_configured}/3 个AI模型Provider。部分高级功能可能使用简化算法。")
         else:
             logger.info(f"✅ 已成功配置所有 {self.providers_configured} 个AI模型Provider！")
+
+        if self.providers_configured > 0:
+            self._needs_lazy_init = False
             
         # 显示最终配置结果
         config_summary = []
