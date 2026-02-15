@@ -1,11 +1,12 @@
 <div align="center">
 
-# AstrBot 自主学习插件 Next-Gen 🧠✨
+# AstrBot 自主学习插件
+ SELF-LEARNING 🧠✨
 
 
 ---
 
-[![Version](https://img.shields.io/badge/version-Next--1.1.5-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-Next--1.1.9-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
