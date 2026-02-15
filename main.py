@@ -1177,10 +1177,27 @@ class SelfLearningPlugin(star.Star):
                 logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
                 return []
 
+            # 根据白名单/黑名单配置构建群组过滤条件
+            allowed_groups = self.qq_filter.get_allowed_group_ids()
+            blocked_groups = self.qq_filter.get_blocked_group_ids()
+
+            if allowed_groups:
+                logger.info(f"应用群组白名单过滤，仅查询: {allowed_groups}")
+            if blocked_groups:
+                logger.info(f"应用群组黑名单过滤，排除: {blocked_groups}")
+
             # 使用 ORM 方式查询活跃群组
             async with self.db_manager.get_session() as session:
                 from sqlalchemy import select, func
                 from .models.orm import RawMessage
+
+                def _apply_group_filter(stmt):
+                    """对查询语句应用白名单/黑名单过滤"""
+                    if allowed_groups:
+                        stmt = stmt.where(RawMessage.group_id.in_(allowed_groups))
+                    if blocked_groups:
+                        stmt = stmt.where(RawMessage.group_id.notin_(blocked_groups))
+                    return stmt
 
                 # 首先尝试获取最近24小时内有消息的群组
                 cutoff_time = int(time.time() - 86400)
@@ -1192,7 +1209,9 @@ class SelfLearningPlugin(star.Star):
                     RawMessage.timestamp > cutoff_time,
                     RawMessage.group_id.isnot(None),
                     RawMessage.group_id != ''
-                ).group_by(
+                )
+                stmt = _apply_group_filter(stmt)
+                stmt = stmt.group_by(
                     RawMessage.group_id
                 ).having(
                     func.count(RawMessage.id) >= self.plugin_config.min_messages_for_learning
@@ -1215,7 +1234,9 @@ class SelfLearningPlugin(star.Star):
                         RawMessage.timestamp > cutoff_time,
                         RawMessage.group_id.isnot(None),
                         RawMessage.group_id != ''
-                    ).group_by(
+                    )
+                    stmt = _apply_group_filter(stmt)
+                    stmt = stmt.group_by(
                         RawMessage.group_id
                     ).having(
                         func.count(RawMessage.id) >= max(1, self.plugin_config.min_messages_for_learning // 2)
@@ -1236,7 +1257,9 @@ class SelfLearningPlugin(star.Star):
                     ).where(
                         RawMessage.group_id.isnot(None),
                         RawMessage.group_id != ''
-                    ).group_by(
+                    )
+                    stmt = _apply_group_filter(stmt)
+                    stmt = stmt.group_by(
                         RawMessage.group_id
                     ).order_by(
                         func.count(RawMessage.id).desc()
