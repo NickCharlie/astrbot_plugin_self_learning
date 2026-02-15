@@ -32,3 +32,5 @@ check_progress.py
 scripts/inspect_old_database.py
 /scripts
 /models/orm/__pycache__
+/export
+/remote_export
