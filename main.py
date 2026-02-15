@@ -666,6 +666,9 @@ class SelfLearningPlugin(star.Star):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
 
         try:
+            # 检查数据库是否就绪（避免在 on_load 完成前处理消息）
+            if not self.db_manager or not self.db_manager.engine:
+                return
 
             # 获取消息文本
             message_text = event.get_message_str()
