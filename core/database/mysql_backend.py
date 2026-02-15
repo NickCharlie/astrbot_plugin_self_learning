@@ -157,24 +157,11 @@ class MySQLBackend(IDatabaseBackend):
                 f"@{self.config.mysql_host}:{self.config.mysql_port}/{self.config.mysql_database}"
             )
 
-            # 2. 首先运行数据库迁移(从旧版本迁移数据)
-            try:
-                from ...utils.migration_tool import check_and_migrate_if_needed
-                migration_success = await check_and_migrate_if_needed(
-                    db_url=mysql_url,
-                    db_type='mysql',
-                    backup=True
-                )
-                if not migration_success:
-                    logger.warning("[MySQL] 数据迁移未完全成功,但继续初始化...")
-            except Exception as e:
-                logger.warning(f"[MySQL] 数据迁移检查失败: {e},继续初始化...")
-
-            # 3. 初始化连接池
+            # 2. 初始化连接池
             self.connection_pool = MySQLConnectionPool(self.config)
             await self.connection_pool.initialize()
 
-            # 4. 验证并修复表结构
+            # 3. 验证并修复表结构
             try:
                 from ...utils.schema_validator import validate_and_fix_schema
                 schema_valid = await validate_and_fix_schema(

@@ -173,20 +173,7 @@ class SQLiteBackend(IDatabaseBackend):
                 logger.error(f"[SQLite] 配置验证失败: {error}")
                 return False
 
-            # 1. 首先运行数据库迁移(从旧版本迁移数据)
-            try:
-                from ...utils.migration_tool import check_and_migrate_if_needed
-                migration_success = await check_and_migrate_if_needed(
-                    db_url=self.config.sqlite_path,
-                    db_type='sqlite',
-                    backup=True
-                )
-                if not migration_success:
-                    logger.warning("[SQLite] 数据迁移未完全成功,但继续初始化...")
-            except Exception as e:
-                logger.warning(f"[SQLite] 数据迁移检查失败: {e},继续初始化...")
-
-            # 2. 初始化连接池
+            # 1. 初始化连接池
             self.connection_pool = SQLiteConnectionPool(
                 db_path=self.config.sqlite_path,
                 max_connections=self.config.max_connections,
@@ -195,7 +182,7 @@ class SQLiteBackend(IDatabaseBackend):
 
             await self.connection_pool.initialize()
 
-            # 3. 验证并修复表结构
+            # 2. 验证并修复表结构
             try:
                 from ...utils.schema_validator import validate_and_fix_schema
                 schema_valid = await validate_and_fix_schema(
