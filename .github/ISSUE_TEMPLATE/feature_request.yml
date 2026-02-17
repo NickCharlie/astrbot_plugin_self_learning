@@ -1,0 +1,60 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提出新功能建议！请描述你的想法。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: 你希望解决什么问题？或者在什么场景下需要这个功能？
+      placeholder: 当我使用 ... 的时候，我发现 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: 你期望的功能是什么样的？
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: 你是否考虑过其他替代方案？
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Feature Scope
+      description: 这个功能属于哪个模块？
+      options:
+        - Learning System (学习系统)
+        - Affection / Mood (好感度/情绪)
+        - Persona Management (人格管理)
+        - Jargon / Slang (黑话系统)
+        - Social Relations (社交关系)
+        - WebUI (管理后台)
+        - Commands (命令)
+        - Database (数据库)
+        - Other (其他)
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional Context
+      description: 其他补充信息（截图、参考链接等）
+    validations:
+      required: false

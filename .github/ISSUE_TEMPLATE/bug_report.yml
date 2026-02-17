@@ -1,0 +1,105 @@
+name: Bug Report
+description: Report a bug or unexpected behavior
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢你提交 Bug 报告！请尽量详细填写以下信息，帮助我们快速定位和修复问题。
+
+  - type: input
+    id: version
+    attributes:
+      label: Plugin Version
+      description: 插件版本号（可在 AstrBot 后台插件管理中查看）
+      placeholder: "e.g. Next-1.1.9"
+    validations:
+      required: true
+
+  - type: input
+    id: astrbot_version
+    attributes:
+      label: AstrBot Version
+      description: AstrBot 框架版本号
+      placeholder: "e.g. 4.11.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: db_type
+    attributes:
+      label: Database Type
+      description: 你使用的数据库类型
+      options:
+        - SQLite (default)
+        - MySQL
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating System
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Docker
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: 清晰简洁地描述问题是什么
+      placeholder: 描述你遇到的问题...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: 复现问题的步骤
+      placeholder: |
+        1. 执行命令 '...'
+        2. 查看日志 '...'
+        3. 出现错误
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: 你期望的正确行为是什么
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs
+      description: 粘贴相关的错误日志（请脱敏敏感信息）
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevant Configuration
+      description: 粘贴与问题相关的配置项（请脱敏密码等敏感信息）
+      render: yaml
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional Context
+      description: 其他有助于排查问题的信息（截图、环境细节等）
+    validations:
+      required: false
