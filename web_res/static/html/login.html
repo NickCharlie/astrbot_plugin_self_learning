@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN" class="modern-ui pc">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,7 +25,7 @@
             --color-line1-4: #b3b3b3;
             --color-fill1-1: #fafafa;
             --color-fill1-2: #f4f4f4;
-            --color-fill1-3: rgba(17,0,0,0.1);
+            --color-fill1-3: rgba(17, 0, 0, 0.1);
             --color-error-4: #d6260b;
             --color-error-3: #fa6b55;
             --color-error-1: #ffe9e5;
@@ -47,8 +48,8 @@
             --btn-size-l-height: 40px;
             --btn-pure-primary-bg: var(--color-brand1-6);
             --btn-pure-primary-bg-hover: var(--color-brand1-8);
-            --shadow-2-down: 0px 4px 16px 0px rgba(0,0,0,0.1);
-            --shadow-1-down: 0px 2px 4px 0px rgba(0,0,0,0.1);
+            --shadow-2-down: 0px 4px 16px 0px rgba(0, 0, 0, 0.1);
+            --shadow-1-down: 0px 2px 4px 0px rgba(0, 0, 0, 0.1);
             --corner-1: 0px;
             --s-4: 16px;
             --s-3: 12px;
@@ -247,7 +248,7 @@
             transition: color 0.3s ease;
         }
 
-        .input-group input:focus + .input-icon {
+        .input-group input:focus+.input-icon {
             color: var(--color-brand1-6);
         }
 
@@ -297,8 +298,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .message-container {
@@ -418,7 +424,99 @@
             }
         }
     </style>
+    <style>
+        /* 移动端适配适配增强 */
+        @media screen and (max-width: 850px) {
+            body {
+                height: auto;
+                min-height: 100vh;
+                padding: 20px 10px;
+            }
+
+            .login-container {
+                padding: 0;
+                height: auto;
+            }
+
+            .login-card {
+                display: flex;
+                flex-direction: column;
+                grid-template-columns: 1fr;
+                width: 100%;
+                max-width: 500px;
+                height: auto;
+                min-height: auto;
+                padding: 30px 20px;
+                margin: 0 auto;
+                gap: 20px;
+            }
+
+            .login-card::before {
+                height: 4px;
+            }
+
+            .logo-section,
+            .message-container,
+            .form-section,
+            .footer-section {
+                width: 100%;
+                margin: 0;
+            }
+
+            .logo-section {
+                margin-bottom: 20px;
+            }
+
+            .form-section {
+                margin-bottom: 20px;
+            }
+
+            .footer-section {
+                margin-top: 10px;
+                padding-top: 20px;
+            }
+
+            /* 调整字体和尺寸以适应触控 */
+            .logo-icon {
+                width: 64px;
+                height: 64px;
+            }
+
+            .logo-icon .iconfont {
+                font-size: 28px;
+            }
+
+            .login-title {
+                font-size: 22px;
+            }
+
+            .input-group input {
+                height: 44px;
+                /* 增大触控区域 */
+                font-size: 16px;
+                /* 防止缩放 */
+            }
+
+            .login-btn {
+                height: 44px;
+                font-size: 15px;
+            }
+        }
+
+        @media screen and (max-width: 480px) {
+            .footer-links {
+                flex-direction: row;
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .security-tip {
+                font-size: 12px;
+            }
+        }
+    </style>
 </head>
+
 <body>
     <div class="login-container" id="login-container">
         <div class="login-card">
@@ -430,42 +528,38 @@
                 <h1 class="login-title">控制台登录</h1>
                 <p class="login-subtitle">自学习插件管理系统</p>
             </div>
-            
+
             <!-- 消息提示 -->
             <div class="message-container">
                 <div id="errorMessage" class="error-message"></div>
                 <div id="successMessage" class="success-message"></div>
             </div>
-            
+
             <!-- 表单部分 -->
             <form class="form-section" id="loginForm">
                 <div class="input-group">
                     <label for="password">登录密码</label>
                     <div class="input-wrapper">
-                        <input type="password" 
-                               id="password" 
-                               name="password" 
-                               placeholder="请输入登录密码" 
-                               required 
-                               autocomplete="current-password">
+                        <input type="password" id="password" name="password" placeholder="请输入登录密码" required
+                            autocomplete="current-password">
                         <i class="iconfont input-icon">&#xe617;</i>
                     </div>
                 </div>
-                
+
                 <button type="submit" class="login-btn" id="submitBtn">
                     <div class="btn-content">
                         <div class="loading-spinner" id="loadingSpinner"></div>
                         <span id="btnText">登录</span>
                     </div>
                 </button>
-                
+
                 <!-- 安全提示 -->
                 <div class="security-tip">
                     <i class="iconfont">&#xe61c;</i>
                     <span>请确保在安全环境中使用</span>
                 </div>
             </form>
-            
+
             <!-- 页脚 -->
             <div class="footer-section">
                 <div class="footer-links">
@@ -480,7 +574,7 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             const loginContainer = document.getElementById('login-container');
             const loginButton = document.getElementById('submitBtn');
             const passwordInput = document.getElementById('password');
@@ -603,7 +697,7 @@
             });
 
             // 回车键提交
-            passwordInput.addEventListener('keypress', function(e) {
+            passwordInput.addEventListener('keypress', function (e) {
                 if (e.key === 'Enter') {
                     loginButton.click();
                 }
@@ -622,4 +716,5 @@
         });
     </script>
 </body>
+
 </html>
