@@ -1,10 +1,13 @@
 """
 Issue Triage Script — Powered by OpenAI
 Automatically classifies, checks completeness, and suggests solutions for new issues.
+Includes source code analysis for more accurate triage.
 """
 
 import json
 import os
+import re
+import subprocess
 import sys
 import urllib.request
 
@@ -29,6 +32,26 @@ VALID_LABELS = [
     "good first issue",
 ]
 
+# Common words to skip during keyword extraction
+STOP_WORDS = {
+    "the", "and", "for", "that", "this", "with", "from", "have", "has",
+    "not", "but", "are", "was", "were", "been", "will", "would", "could",
+    "should", "can", "may", "might", "need", "use", "used", "using",
+    "also", "than", "then", "when", "where", "which", "while", "after",
+    "before", "into", "through", "during", "each", "some", "all", "any",
+    "both", "few", "more", "most", "other", "such", "only", "same",
+    "very", "just", "about", "above", "below", "between", "under",
+    "over", "again", "here", "there", "why", "how", "what", "who",
+    "its", "they", "them", "their", "our", "your", "his", "her",
+    "does", "did", "doing", "done", "get", "got", "set", "put",
+    "let", "make", "like", "new", "old", "one", "two", "way",
+    "out", "see", "now", "look", "come", "take", "want", "say",
+    "try", "ask", "work", "run", "add", "still", "too", "off",
+    "version", "steps", "expected", "actual", "behavior", "describe",
+    "bug", "feature", "issue", "error", "problem", "please", "none",
+    "true", "false", "null", "undefined", "info", "log", "logs",
+}
+
 SYSTEM_PROMPT = """\
 You are a professional open-source project maintainer triaging a GitHub issue for "AstrBot Self-Learning Plugin" — \
 an AI chatbot plugin that learns conversation styles, understands slang, manages social relationships, and evolves its persona.
@@ -37,7 +60,15 @@ Core modules: message capture, expression pattern learning, jargon mining, affec
 persona management, social relationship analysis, goal-driven conversation, WebUI (port 7833), \
 SQLite/MySQL database support.
 
-Analyze the issue below and respond in **valid JSON** with these fields:
+You will be given:
+1. The issue title and body
+2. The project file tree (all Python source files)
+3. Recent git commits
+4. Relevant source code snippets matching keywords from the issue
+
+Use ALL of the above context — especially the source code — to provide an accurate, code-aware analysis.
+
+Analyze the issue and respond in **valid JSON** with these fields:
 
 {
   "labels": ["<label1>", ...],
@@ -47,9 +78,10 @@ Analyze the issue below and respond in **valid JSON** with these fields:
   },
   "analysis": {
     "summary": "<1-2 sentence summary of the issue>",
-    "possible_cause": "<likely root cause if applicable, or null>",
-    "suggested_solution": "<actionable suggestion, or null>",
-    "related_modules": ["<module1>", ...]
+    "possible_cause": "<likely root cause based on the source code, or null>",
+    "suggested_solution": "<actionable suggestion referencing specific files/functions, or null>",
+    "related_modules": ["<module1>", ...],
+    "related_files": ["<file_path1>", ...]
   },
   "priority": "low" | "medium" | "high" | "critical",
   "language": "zh" | "en"
@@ -59,7 +91,9 @@ Rules:
 - labels: pick from """ + json.dumps(VALID_LABELS) + """
 - completeness: for bug reports, check for: version, reproduction steps, expected behavior, actual behavior, logs. \
 For feature requests, check for: problem statement, proposed solution.
-- analysis: be specific about which module/file might be involved
+- analysis.possible_cause: reference actual code (file name, function name, line) when possible
+- analysis.suggested_solution: be specific — point to exact files/functions to modify
+- analysis.related_files: list the source files most likely related to this issue
 - language: detect whether the issue is written in Chinese ("zh") or English ("en")
 - priority: critical = data loss / crash on startup; high = core feature broken; medium = minor bug or important feature; low = cosmetic / question
 - Return ONLY the JSON object, no markdown fences, no extra text.
@@ -75,7 +109,7 @@ def call_openai(system: str, user: str) -> dict:
             {"role": "user", "content": user},
         ],
         "temperature": 0.1,
-        "max_tokens": 1024,
+        "max_tokens": 2048,
     }).encode()
 
     req = urllib.request.Request(
@@ -87,7 +121,7 @@ def call_openai(system: str, user: str) -> dict:
         },
     )
 
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=60) as resp:
         data = json.loads(resp.read())
 
     content = data["choices"][0]["message"]["content"].strip()
@@ -135,6 +169,137 @@ def post_comment(body: str):
     urllib.request.urlopen(req, timeout=10)
 
 
+# ---------------------------------------------------------------------------
+# Source code analysis helpers
+# ---------------------------------------------------------------------------
+
+def get_file_tree() -> str:
+    """Generate a compact project file tree of Python source files."""
+    try:
+        proc = subprocess.run(
+            ["find", ".", "-name", "*.py",
+             "-not", "-path", "./.git/*",
+             "-not", "-path", "*/__pycache__/*",
+             "-not", "-path", "./tests/*",
+             "-not", "-path", "./scripts/*",
+             "-not", "-path", "./export/*"],
+            capture_output=True, text=True, timeout=5,
+        )
+        files = sorted(f for f in proc.stdout.strip().split("\n") if f)
+        return "\n".join(files)
+    except Exception:
+        return ""
+
+
+def get_recent_commits(n: int = 15) -> str:
+    """Get recent git commit messages."""
+    try:
+        proc = subprocess.run(
+            ["git", "log", "--oneline", f"-{n}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return proc.stdout.strip()
+    except Exception:
+        return ""
+
+
+def extract_keywords(title: str, body: str) -> list[str]:
+    """Extract meaningful keywords from issue text for code search."""
+    text = f"{title}\n{body}"
+    keywords = set()
+
+    # CamelCase class/error names (from original text)
+    for m in re.finditer(r'\b([A-Z][a-z]+(?:[A-Z][a-z]+)+)\b', text):
+        keywords.add(m.group(1))
+
+    # Error/Exception/Warning types
+    for m in re.finditer(r'\b(\w+(?:Error|Exception|Warning))\b', text):
+        keywords.add(m.group(1))
+
+    # Python filenames
+    for m in re.finditer(r'\b(\w+\.py)\b', text):
+        keywords.add(m.group(1))
+
+    # Quoted identifiers (backticks, single/double quotes)
+    for m in re.finditer(r'[`\'"](\w{3,})[`\'"]', text):
+        word = m.group(1)
+        if word.lower() not in STOP_WORDS:
+            keywords.add(word)
+
+    # snake_case identifiers (3+ chars, from lowered text)
+    for m in re.finditer(r'\b([a-z][a-z0-9_]{2,})\b', text.lower()):
+        word = m.group(1)
+        if word not in STOP_WORDS and not word.isdigit():
+            keywords.add(word)
+
+    return list(keywords)[:20]
+
+
+def search_source_code(keywords: list[str]) -> str:
+    """Search source code for keywords, return matching lines with context."""
+    all_matches = []
+    seen = set()
+
+    for keyword in keywords:
+        if len(all_matches) >= 40:
+            break
+        try:
+            proc = subprocess.run(
+                ["grep", "-rn", "--include=*.py", "-m", "3", keyword, "."],
+                capture_output=True, text=True, timeout=5,
+            )
+            for line in proc.stdout.strip().split("\n"):
+                if line and line not in seen:
+                    seen.add(line)
+                    all_matches.append(line)
+        except Exception:
+            continue
+
+    if not all_matches:
+        return ""
+
+    result = "\n".join(all_matches[:50])
+    if len(result) > 8000:
+        result = result[:8000] + "\n... (truncated)"
+    return result
+
+
+def gather_source_context(title: str, body: str) -> str:
+    """Gather relevant source code context for LLM analysis."""
+    sections = []
+
+    # 1. Project file tree
+    tree = get_file_tree()
+    if tree:
+        sections.append(f"## Project Source Files\n{tree}")
+
+    # 2. Recent commits
+    commits = get_recent_commits(15)
+    if commits:
+        sections.append(f"## Recent Commits\n{commits}")
+
+    # 3. Keyword-based code search
+    keywords = extract_keywords(title, body)
+    if keywords:
+        print(f"Extracted keywords: {keywords}")
+        matches = search_source_code(keywords)
+        if matches:
+            sections.append(f"## Relevant Source Code (grep matches)\n{matches}")
+        else:
+            print("No source code matches found for keywords.")
+
+    context = "\n\n".join(sections)
+    # Hard limit to avoid token overflow
+    if len(context) > 15000:
+        context = context[:15000] + "\n\n... (source context truncated)"
+
+    return context
+
+
+# ---------------------------------------------------------------------------
+# Comment builder
+# ---------------------------------------------------------------------------
+
 def build_comment(result: dict) -> str:
     """Build the triage comment in the detected language."""
     lang = result.get("language", "zh")
@@ -164,6 +329,11 @@ def build_comment(result: dict) -> str:
             lines.append(f"**\u76f8\u5173\u6a21\u5757**: {', '.join(analysis['related_modules'])}")
             lines.append("")
 
+        if analysis.get("related_files"):
+            files_str = ", ".join(f"`{f}`" for f in analysis["related_files"])
+            lines.append(f"**\u76f8\u5173\u6587\u4ef6**: {files_str}")
+            lines.append("")
+
         if analysis.get("possible_cause"):
             lines.append(f"**\u53ef\u80fd\u539f\u56e0**: {analysis['possible_cause']}")
             lines.append("")
@@ -183,7 +353,7 @@ def build_comment(result: dict) -> str:
             lines.append("")
 
         lines.append("---")
-        lines.append("<sub>\U0001f916 \u6b64\u62a5\u544a\u7531 AI \u81ea\u52a8\u751f\u6210\uff0c\u4ec5\u4f9b\u53c2\u8003\u3002\u5f00\u53d1\u8005\u4f1a\u5c3d\u5feb\u5ba1\u9605\u60a8\u7684 issue\u3002</sub>")
+        lines.append("<sub>\U0001f916 \u6b64\u62a5\u544a\u7531 AI \u81ea\u52a8\u751f\u6210\uff0c\u5df2\u5206\u6790\u4ed3\u5e93\u6e90\u7801\uff0c\u4ec5\u4f9b\u53c2\u8003\u3002\u5f00\u53d1\u8005\u4f1a\u5c3d\u5feb\u5ba1\u9605\u60a8\u7684 issue\u3002</sub>")
     else:
         lines = [
             "## \U0001f916 Issue Triage Report",
@@ -196,6 +366,11 @@ def build_comment(result: dict) -> str:
 
         if analysis.get("related_modules"):
             lines.append(f"**Related Modules**: {', '.join(analysis['related_modules'])}")
+            lines.append("")
+
+        if analysis.get("related_files"):
+            files_str = ", ".join(f"`{f}`" for f in analysis["related_files"])
+            lines.append(f"**Related Files**: {files_str}")
             lines.append("")
 
         if analysis.get("possible_cause"):
@@ -217,15 +392,22 @@ def build_comment(result: dict) -> str:
             lines.append("")
 
         lines.append("---")
-        lines.append("<sub>\U0001f916 This report was auto-generated by AI for reference only. A maintainer will review your issue shortly.</sub>")
+        lines.append("<sub>\U0001f916 This report was auto-generated by AI with source code analysis. A maintainer will review your issue shortly.</sub>")
 
     return "\n".join(lines)
 
 
 def main():
-    user_content = f"**Issue Title**: {ISSUE_TITLE}\n\n**Issue Body**:\n{ISSUE_BODY}"
-
     print(f"Triaging issue #{ISSUE_NUMBER}: {ISSUE_TITLE}")
+
+    # Gather source code context
+    print("Analyzing repository source code...")
+    source_context = gather_source_context(ISSUE_TITLE, ISSUE_BODY)
+
+    # Build user message with issue + source context
+    user_content = f"**Issue Title**: {ISSUE_TITLE}\n\n**Issue Body**:\n{ISSUE_BODY}"
+    if source_context:
+        user_content += f"\n\n---\n\n# Repository Source Code Context\n\n{source_context}"
 
     try:
         result = call_openai(SYSTEM_PROMPT, user_content)
