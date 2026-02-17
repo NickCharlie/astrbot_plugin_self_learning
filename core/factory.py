@@ -701,14 +701,41 @@ class QQFilter:
         # 检查个人QQ号
         if sender_id in self.target_qq_list:
             return True
-        
+
         # 检查群聊格式 (group_群号)
         if group_id:
             group_format = f"group_{group_id}"
             if group_format in self.target_qq_list:
                 return True
-        
+
         return False
+
+    def get_allowed_group_ids(self) -> list:
+        """从 target_qq_list 中提取允许的群组 ID 列表。
+
+        返回空列表表示不限制（允许所有群组）。
+        """
+        if not self.target_qq_list:
+            return []
+
+        prefix = "group_"
+        return [
+            item[len(prefix):]
+            for item in self.target_qq_list
+            if item.startswith(prefix)
+        ]
+
+    def get_blocked_group_ids(self) -> list:
+        """从 target_blacklist 中提取需要排除的群组 ID 列表。"""
+        if not self.blacklist:
+            return []
+
+        prefix = "group_"
+        return [
+            item[len(prefix):]
+            for item in self.blacklist
+            if item.startswith(prefix)
+        ]
 
 
 class MessageFilter:

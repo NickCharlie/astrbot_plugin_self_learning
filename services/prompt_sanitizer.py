@@ -683,6 +683,8 @@ class PromptProtectionService:
         Returns:
             (消毒后的回复, 处理报告)
         """
+        if response is None:
+            response = ""
         report = {
             'original_length': len(response),
             'sanitized_length': 0,
