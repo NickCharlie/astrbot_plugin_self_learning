@@ -1,56 +1,66 @@
 <div align="center">
 
+**[English](README_EN.md)** | **中文**
+
+<br>
+
+<img src="logo.png" alt="Self-Learning Logo" width="180"/>
+
+<br>
+
 # AstrBot 自主学习插件
- SELF-LEARNING 🧠✨
-
-
----
-
-[![Version](https://img.shields.io/badge/version-Next--1.1.9-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
-[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
-[![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 **让你的 AI 聊天机器人像真人一样学习、思考和对话**
 
-[功能特性](#-核心特性) • [快速开始](#-快速开始) • [架构设计](#-技术架构) • [文档](#-文档导航) • [贡献指南](#-贡献指南)
+<br>
 
-> **⚠️ 使用前必读：请务必先手动备份人格到本地，以防出现BUG导致人格混乱**
+[![Version](https://img.shields.io/badge/version-Next--1.1.9-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
-> ## ⚖️ 免责声明与用户协议
->
-> **使用本项目即表示您已阅读、理解并同意以下条款：**
->
-> 1. **合法使用承诺**
->    - 本项目仅供学习、研究和合法用途使用
->    - **严禁将本项目直接或间接用于任何违反当地法律法规的用途**
->    - 包括但不限于：侵犯隐私、非法采集数据、恶意传播信息、违反平台服务条款等行为
->
-> 2. **隐私保护责任**
->    - 使用者需遵守《中华人民共和国网络安全法》《个人信息保护法》等相关法律法规
->    - 在收集和处理用户消息数据时，必须取得用户明确同意
->    - 不得将收集的数据用于商业目的或泄露给第三方
->    - 建议仅在私有环境或已获得所有参与者同意的群组中使用
->
-> 3. **使用风险声明**
->    - 本项目按"原样"提供，不提供任何明示或暗示的保证
->    - 开发者不对使用本项目造成的任何直接或间接损失负责
->    - 使用者需自行承担数据丢失、人格错误、系统崩溃等风险
->    - **强烈建议在生产环境使用前进行充分测试**
->
-> 4. **开发者免责**
->    - 开发者不对用户的违法违规行为承担任何责任
->    - 因用户违规使用导致的法律纠纷，由用户自行承担全部责任
->    - 开发者保留随时修改或终止本项目的权利
->
-> 5. **协议变更**
->    - 本协议可能随时更新，恕不另行通知
->    - 继续使用本项目即表示接受更新后的协议条款
->
-> **📌 重要提示：下载、安装、使用本项目的任何功能，即视为您已完全理解并同意遵守以上所有条款。如不同意，请立即停止使用并删除本项目。**
-
+[功能特性](#-核心特性) · [快速开始](#-快速开始) · [架构设计](#-技术架构) · [文档](#-文档导航) · [贡献指南](#-贡献指南)
 
 </div>
+
+<br>
+
+> [!WARNING]
+> **使用前必读：请务必先手动备份人格到本地，以防出现 BUG 导致人格混乱**
+
+<details>
+<summary><strong>⚖️ 免责声明与用户协议（点击展开）</strong></summary>
+
+<br>
+
+**使用本项目即表示您已阅读、理解并同意以下条款：**
+
+1. **合法使用承诺**
+   - 本项目仅供学习、研究和合法用途使用
+   - **严禁将本项目直接或间接用于任何违反当地法律法规的用途**
+   - 包括但不限于：侵犯隐私、非法采集数据、恶意传播信息、违反平台服务条款等行为
+
+2. **隐私保护责任**
+   - 使用者需遵守《中华人民共和国网络安全法》《个人信息保护法》等相关法律法规
+   - 在收集和处理用户消息数据时，必须取得用户明确同意
+   - 不得将收集的数据用于商业目的或泄露给第三方
+   - 建议仅在私有环境或已获得所有参与者同意的群组中使用
+
+3. **使用风险声明**
+   - 本项目按"原样"提供，不提供任何明示或暗示的保证
+   - 开发者不对使用本项目造成的任何直接或间接损失负责
+   - 使用者需自行承担数据丢失、人格错误、系统崩溃等风险
+   - **强烈建议在生产环境使用前进行充分测试**
+
+4. **开发者免责**
+   - 开发者不对用户的违法违规行为承担任何责任
+   - 因用户违规使用导致的法律纠纷，由用户自行承担全部责任
+   - 开发者保留随时修改或终止本项目的权利
+
+5. **协议变更**
+   - 本协议可能随时更新，恕不另行通知
+   - 继续使用本项目即表示接受更新后的协议条款
+
+**📌 重要提示：下载、安装、使用本项目的任何功能，即视为您已完全理解并同意遵守以上所有条款。如不同意，请立即停止使用并删除本项目。**
+
+</details>
 
 ---
 
@@ -370,7 +380,6 @@ astrbot_plugin_self_learning/
 │
 ├── utils/                         # 工具类
 │   ├── cache_manager.py          # 缓存管理
-│   ├── migration_tool_v2.py      # 数据库迁移工具
 │   └── security_utils.py         # 安全工具
 │
 ├── config.py                      # 配置管理
@@ -774,19 +783,6 @@ await persona_manager_updater.apply_incremental_update(
 # ✅ 更好的版本管理
 ```
 
-#### 2. 传统文件模式
-```python
-# 临时存储到 persona_updates.txt
-await temporary_persona_updater.write_to_updates_file(content)
-
-# 手动审查后应用
-/apply_persona_updates
-
-# 优势:
-# ✅ 人工审核把关
-# ✅ 批量应用更新
-```
-
 **人格审查流程**:
 ```
 1. AI 生成更新建议 → 保存到 style_learning_reviews 表
@@ -800,47 +796,16 @@ await temporary_persona_updater.write_to_updates_file(content)
 
 ## 📋 命令手册
 
-### 基础学习管理
-
 | 命令 | 权限 | 说明 |
 |------|------|------|
 | `/learning_status` | 管理员 | 查看学习状态和统计信息 |
 | `/start_learning` | 管理员 | 手动启动学习批次 |
 | `/stop_learning` | 管理员 | 停止自动学习循环 |
 | `/force_learning` | 管理员 | 强制执行一次学习周期 |
-| `/clear_data` | 管理员 | 清空所有学习数据 (⚠️不可逆) |
-| `/export_data` | 管理员 | 导出学习数据为 JSON |
-
-### 好感度系统
-
-| 命令 | 权限 | 说明 |
-|------|------|------|
 | `/affection_status` | 管理员 | 查看好感度状态和排行榜 |
 | `/set_mood <类型>` | 管理员 | 设置 Bot 情绪状态 |
 
 **情绪类型**: `happy` `sad` `excited` `calm` `angry` `anxious` `playful` `serious` `nostalgic` `curious`
-
-### 人格管理
-
-| 命令 | 权限 | 说明 |
-|------|------|------|
-| `/persona_switch <名称>` | 管理员 | 切换到指定人格 |
-| `/persona_info` | 管理员 | 显示当前人格详细信息 |
-| `/temp_persona apply` | 管理员 | 应用临时人格 |
-| `/temp_persona status` | 管理员 | 查看临时人格状态 |
-| `/temp_persona remove` | 管理员 | 移除临时人格 |
-| `/temp_persona extend [分钟]` | 管理员 | 延长临时人格时间 |
-| `/temp_persona backup_list` | 管理员 | 列出所有备份 |
-| `/temp_persona restore <文件名>` | 管理员 | 从备份恢复人格 |
-
-### 高级管理
-
-| 命令 | 权限 | 说明 |
-|------|------|------|
-| `/apply_persona_updates` | 管理员 | 应用 persona_updates.txt 中的更新 |
-| `/switch_persona_update_mode` | 管理员 | 切换人格更新方式 (manager/file) |
-| `/clean_duplicate_content` | 管理员 | 清理重复的历史内容 |
-| `/analytics_report` | 管理员 | 生成数据分析报告 |
 
 ---
 
@@ -1010,7 +975,6 @@ Storage_Settings:
 - **任务调度**: `apscheduler` - 定时任务
 
 ### 开发工具
-- **数据库迁移**: `alembic` - SQLAlchemy 迁移工具
 - **安全工具**: `guardrails-ai` - LLM 输出校验
 - **测试框架**: `pytest` `pytest-asyncio`
 
@@ -1027,8 +991,6 @@ Storage_Settings:
 ### 开发文档
 - [架构设计](#-技术架构)
 - [设计模式详解](#核心设计模式)
-- [数据库迁移工具](utils/migration_tool_v2.py)
-- [API 接口文档](webui/README.md)
 
 ### 进阶文档
 - [表达模式学习原理](#表达模式学习系统)
@@ -1062,12 +1024,20 @@ Storage_Settings:
 
 本项目采用 [GPLv3 License](LICENSE) 开源协议。
 
-### 致谢
+### 特别鸣谢
 
 感谢以下项目的启发和支持：
 
 - **[MaiBot](https://github.com/Mai-with-u/MaiBot)** - 表达模式学习、时间衰减机制、知识图谱管理等核心设计思路
 - **[AstrBot](https://github.com/Soulter/AstrBot)** - 优秀的聊天机器人框架
+
+### 贡献者
+
+感谢所有为本项目做出贡献的开发者！
+
+<a href="https://github.com/NickCharlie/astrbot_plugin_self_learning/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=NickCharlie/astrbot_plugin_self_learning" />
+</a>
 
 ---
 
@@ -1145,10 +1115,10 @@ Storage_Settings:
 
 <div align="center">
 
-**感谢使用 AstrBot 智能自主学习插件！**
+**感谢使用 AstrBot 自主学习插件！**
 
 如果觉得有帮助，欢迎 ⭐Star 支持！
 
-[回到顶部](#astrbot-智能自主学习插件-next-gen-)
+[回到顶部](#astrbot-自主学习插件)
 
 </div>
