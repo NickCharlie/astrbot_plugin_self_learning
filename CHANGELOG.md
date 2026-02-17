@@ -1,6 +1,68 @@
+# 🧧 新年快乐！Happy Lunar New Year!
+
+> 祝所有用户和社区贡献者马年大吉、万事如意！
+
+---
+
 # Changelog
 
 所有重要更改都将记录在此文件中。
+
+## [Next-1.1.9] - 2026-02-17
+
+### 🔥 关键修复
+
+#### SQLite 模式完全不可用 (Critical)
+- **根因**：`_check_and_migrate_database()` 在首次启动时对不存在的数据库执行迁移，导致 `on_load()` 崩溃，`db_manager.start()` 永远不会执行
+- **表现**：所有数据库操作报错 `数据库管理器未启动，engine不存在`
+- **修复**：彻底移除数据库迁移系统，表结构由 SQLAlchemy ORM `Base.metadata.create_all` 幂等创建
+
+#### 群聊限制不生效 (#28)
+- **根因**：`_get_active_groups()` 查询所有群组时未应用 `target_qq_list` 白名单和 `target_blacklist` 黑名单
+- **修复**：为 `QQFilter` 新增 `get_allowed_group_ids()` / `get_blocked_group_ids()` 方法，在三级渐进查询（24h → 7d → 全量）中统一应用 `.in_()` / `.notin_()` 过滤
+
+#### 命令报错 (#24)
+- **根因**：`/persona_info` 等命令引用了不存在的方法 `PersonaUpdater.format_current_persona_display`
+- **修复**：移除 11 个已废弃命令，保留 6 个核心命令
+
+#### 启动竞态条件
+- 为 `on_message()` 添加数据库就绪检查，在 `on_load()` 完成前跳过消息处理，防止 "engine不存在" 错误
+
+#### LLM 空响应崩溃
+- `prompt_sanitizer.sanitize_response()` 在 LLM 返回 `None` 时触发 `TypeError`，已添加空值保护
+
+### 🗑️ 移除
+
+#### 数据库迁移系统 (完整移除)
+- 删除 `utils/migration_tool.py`（v1 迁移工具）
+- 删除 `utils/migration_tool_v2.py`（SmartDatabaseMigrator）
+- 删除 `test_migration_quick.py`（迁移测试）
+- 移除 `engine.py` 中的 `migrate_schema()`、`_migrate_mysql()`、`_migrate_sqlite()`
+- 移除 `sqlite_backend.py`、`mysql_backend.py` 中的迁移调用
+- 移除 `main.py` 中的 `_check_and_migrate_database()`、`_get_database_url()`、`_mask_url()`
+
+#### 废弃命令 (11 个)
+- `clear_data`、`export_data`、`analytics_report`
+- `persona_switch`、`persona_info`、`temp_persona`
+- `apply_persona_updates`、`switch_persona_update_mode`
+- `clean_duplicate_content`、`migrate_database`、`db_status`
+
+### ✅ 保留命令 (6 个)
+- `learning_status`、`start_learning`、`stop_learning`
+- `force_learning`、`affection_status`、`set_mood`
+
+### 📝 其他
+- 更新 README 标题和版本徽章至 Next-1.1.9
+- 更新 `.gitignore` 排除导出目录
+
+### 🤝 致谢
+- 感谢 @NieiR 和 @sdfsfsk 在早期版本中的社区贡献
+
+### 📊 统计
+- **净减少约 2600 行代码**，删除 3 个文件
+- **变更文件**：main.py、engine.py、factory.py、sqlite_backend.py、mysql_backend.py、prompt_sanitizer.py
+
+---
 
 ## [Next-1.1.5] - 2026-01-17
 
