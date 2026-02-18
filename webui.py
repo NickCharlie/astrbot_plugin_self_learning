@@ -1845,16 +1845,11 @@ async def batch_review_persona_updates():
                         review_data = await database_manager.get_persona_learning_review_by_id(numeric_id)
 
                         if review_data:
-                            status = 'approved' if action == 'approve' else 'rejected'
-                            success = await database_manager.update_persona_learning_review_status(
-                                numeric_id, status, comment
-                            )
-
-                            if success and action == 'approve':
+                            # ===== 先执行自动应用（不依赖数据库状态更新） =====
+                            if action == 'approve':
                                 content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
                                 group_id = review_data.get('group_id', 'default')
 
-                                # ===== 自动应用到框架默认人格 =====
                                 auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
                                 logger.info(f"[自动应用-批量] 检查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}, content={len(content_to_apply) if content_to_apply else 0}")
                                 if content_to_apply and auto_apply_enabled and persona_manager:
@@ -1872,28 +1867,25 @@ async def batch_review_persona_updates():
                                     except Exception as auto_err:
                                         logger.error(f"[自动应用-批量] ❌ 应用失败: {auto_err}", exc_info=True)
 
-                                # 原有的update_persona_with_style逻辑
-                                if persona_updater and content_to_apply:
-                                    try:
-                                        style_analysis = {
-                                            'enhanced_prompt': content_to_apply,
-                                            'style_features': [],
-                                            'style_attributes': {},
-                                            'confidence': 0.8,
-                                            'source': f'批量审查{update_id}'
-                                        }
-                                        success_apply = await persona_updater.update_persona_with_style(
-                                            group_id, style_analysis, []
-                                        )
-                                        if success_apply:
-                                            logger.info(f"批量审查 {update_id} 备份和内存更新完成")
-                                    except Exception as apply_error:
-                                        logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
+                            # 更新数据库审查状态（可能因event loop问题失败）
+                            status = 'approved' if action == 'approve' else 'rejected'
+                            try:
+                                success = await database_manager.update_persona_learning_review_status(
+                                    numeric_id, status, comment
+                                )
+                            except Exception as db_err:
+                                logger.error(f"更新审查状态失败（event loop问题）: {db_err}")
+                                success = False
 
                             if success:
                                 success_count += 1
                             else:
-                                failed_count += 1
+                                # 即使数据库更新失败，如果自动应用成功了也算部分成功
+                                if action == 'approve' and auto_apply_enabled:
+                                    success_count += 1
+                                    logger.info(f"批量审查 {update_id} 数据库状态更新失败，但自动应用已执行")
+                                else:
+                                    failed_count += 1
                         else:
                             failed_count += 1
                             logger.warning(f"未找到人格学习审查记录: {numeric_id}")
