@@ -40,7 +40,7 @@
       {
         key: "system_launchpad",
         component: "SystemLaunchPad",
-        icon: "icon-shezhi",
+        icon: "icon-appstore",
         title: "启动台",
         iconColor: "#333",
         iconBgColor: "#d4dbef",
@@ -99,7 +99,7 @@
         height: 480,
         disableResize: true,
         hideInDesktop: false,
-        keepInDock: false,
+        keepInDock: true,
       },
       // === 业务应用（全部在 Dock 中）===
       {

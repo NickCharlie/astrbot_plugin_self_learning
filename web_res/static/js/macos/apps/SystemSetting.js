@@ -5,35 +5,35 @@ window.SystemSetting = {
   props: { app: Object },
   data() {
     return {
-      currentTheme: localStorage.getItem('macos-theme') || 'light',
-      currentWallpaper: localStorage.getItem('macos-wallpaper') || '/static/img/bg.jpg',
-      presetWallpapers: [
-        '/static/img/bg.jpg',
-      ],
+      currentTheme: localStorage.getItem("macos-theme") || "light",
+      currentWallpaper:
+        localStorage.getItem("macos-wallpaper") || "/static/img/bg.jpg",
+      presetWallpapers: ["/static/img/bg.jpg"],
     };
   },
   methods: {
     setTheme(theme) {
       this.currentTheme = theme;
-      localStorage.setItem('macos-theme', theme);
-      document.documentElement.setAttribute('data-theme', theme);
-      if (theme === 'dark') {
-        document.body.style.colorScheme = 'dark';
+      localStorage.setItem("macos-theme", theme);
+      document.documentElement.setAttribute("data-theme", theme);
+      document.body.setAttribute("data-theme", theme);
+      if (theme === "dark") {
+        document.body.style.colorScheme = "dark";
       } else {
-        document.body.style.colorScheme = 'light';
+        document.body.style.colorScheme = "light";
       }
     },
     setWallpaper(url) {
       this.currentWallpaper = url;
-      localStorage.setItem('macos-wallpaper', url);
+      localStorage.setItem("macos-wallpaper", url);
       // 通知背景组件更新
-      window.EventBus.emit('wallpaper-change', url);
+      window.EventBus.emit("wallpaper-change", url);
     },
     uploadWallpaper(event) {
       const file = event.target.files[0];
       if (!file) return;
-      if (!file.type.startsWith('image/')) {
-        alert('请选择图片文件');
+      if (!file.type.startsWith("image/")) {
+        alert("请选择图片文件");
         return;
       }
       const reader = new FileReader();
@@ -85,5 +85,5 @@ window.SystemSetting = {
         </div>
       </div>
     </div>
-  `
+  `,
 };

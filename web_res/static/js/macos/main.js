@@ -57,6 +57,16 @@
   // 挂载
   app.mount("#app");
 
+  // 恢复保存的主题
+  var savedTheme = localStorage.getItem("macos-theme");
+  if (savedTheme) {
+    document.documentElement.setAttribute("data-theme", savedTheme);
+    document.body.setAttribute("data-theme", savedTheme);
+    if (savedTheme === "dark") {
+      document.body.style.colorScheme = "dark";
+    }
+  }
+
   // 调试信息
   console.log(
     "[MacOS Web UI] 应用已挂载，已注册组件:",
