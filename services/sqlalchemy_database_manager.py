@@ -3,8 +3,9 @@
 与现有 DatabaseManager 接口兼容，可通过配置切换
 """
 import time
+import json
 import asyncio
-import threading
+
 from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
@@ -30,6 +31,11 @@ from ..repositories import (
     SocialProfileRepository,
     SocialRelationComponentRepository,
     SocialRelationHistoryRepository,
+)
+from ..repositories.reinforcement_repository import (
+    ReinforcementLearningRepository,
+    PersonaFusionRepository,
+    StrategyOptimizationRepository,
 )
 
 
@@ -58,56 +64,6 @@ class SQLAlchemyDatabaseManager:
             affection = await affection_repo.get_by_group_and_user(group_id, user_id)
     """
 
-    def _is_event_loop_error(self, error: Exception) -> bool:
-        """
-        检查是否为事件循环冲突错误
-
-        Args:
-            error: 异常对象
-
-        Returns:
-            bool: 是否为事件循环错误
-        """
-        error_msg = str(error)
-        return (
-            "attached to a different loop" in error_msg or
-            "Event loop is closed" in error_msg or
-            "different event loop" in error_msg
-        )
-
-    def _is_cross_thread_call(self) -> bool:
-        """
-        检查是否为跨线程调用
-
-        Returns:
-            bool: 如果当前线程不是主线程，返回 True
-        """
-        if self._main_thread_id is None:
-            return False
-        current_thread_id = threading.get_ident()
-        return current_thread_id != self._main_thread_id
-
-    async def _run_in_main_loop(self, coro):
-        """
-        在主事件循环中执行协程（处理跨线程调用）
-
-        注意：这个方法应该从异步上下文调用
-
-        Args:
-            coro: 要执行的协程
-
-        Returns:
-            协程的返回值
-        """
-        # 如果在主线程中，直接执行
-        if not self._is_cross_thread_call() or self._main_loop is None:
-            return await coro
-
-        # 跨线程调用：降级到传统实现
-        # 因为 run_coroutine_threadsafe 需要在同步上下文中使用
-        logger.debug("[SQLAlchemyDBManager] 检测到跨线程调用，将降级到传统数据库实现")
-        raise RuntimeError("跨线程异步调用，需要降级到传统实现")
-
     def __init__(self, config: PluginConfig, context=None):
         """
         初始化数据库管理器
@@ -120,10 +76,8 @@ class SQLAlchemyDatabaseManager:
         self.context = context
         self.engine: Optional[DatabaseEngine] = None
         self._started = False
-        self._starting = False  # 添加启动中标志，防止并发启动
-        self._start_lock = asyncio.Lock()  # 添加启动锁
-        self._main_loop: Optional[asyncio.AbstractEventLoop] = None  # 保存主事件循环
-        self._main_thread_id: Optional[int] = None  # 保存主线程ID
+        self._starting = False
+        self._start_lock = asyncio.Lock()
 
         # 创建传统 DatabaseManager 实例用于委托未实现的方法
         from .database_manager import DatabaseManager
@@ -173,14 +127,7 @@ class SQLAlchemyDatabaseManager:
 
             try:
                 self._starting = True
-                logger.info("[SQLAlchemyDBManager] 🚀 开始启动数据库管理器...")
-                # 保存主事件循环和线程ID（用于跨线程调用检测）
-                try:
-                    self._main_loop = asyncio.get_running_loop()
-                    self._main_thread_id = threading.get_ident()
-                    logger.debug(f"[SQLAlchemyDBManager] 主事件循环已保存，线程ID: {self._main_thread_id}")
-                except RuntimeError:
-                    logger.warning("[SQLAlchemyDBManager] 无法获取当前事件循环，可能在非异步上下文中启动")
+                logger.info("[SQLAlchemyDBManager] 开始启动数据库管理器...")
 
                 # 启动传统数据库管理器（用于委托未实现的方法）
                 if self._legacy_db:
@@ -361,9 +308,10 @@ class SQLAlchemyDatabaseManager:
             else:
                 raise RuntimeError("数据库管理器未启动，engine不存在")
 
-        # ⚠️ 记录调试信息，帮助诊断问题
+        # DatabaseEngine.get_session() 自动适配当前 event loop，
+        # 跨线程调用时会创建独立引擎，无需手动处理
         if not self._started:
-            logger.warning(f"[SQLAlchemyDBManager] get_session被调用但_started=False（engine存在），继续执行...")
+            logger.debug("[SQLAlchemyDBManager] get_session: _started=False 但 engine 存在，继续执行")
 
         session = self.engine.get_session()
         try:
@@ -1132,6 +1080,195 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}")
             raise RuntimeError(f"无法获取消息统计: {e}") from e
 
+    # ============================================================
+    # 强化学习 / 人格融合 / 策略优化 / 性能记录（ORM 实现）
+    # ============================================================
+
+    async def get_learning_history_for_reinforcement(self, group_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取用于强化学习的历史数据（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ..models.orm.performance import LearningPerformanceHistory
+
+                stmt = (
+                    select(LearningPerformanceHistory)
+                    .where(LearningPerformanceHistory.group_id == group_id)
+                    .order_by(desc(LearningPerformanceHistory.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [
+                    {
+                        'timestamp': row.timestamp,
+                        'quality_score': row.quality_score or 0.0,
+                        'success': bool(row.success),
+                        'successful_pattern': row.successful_pattern or '',
+                        'failed_pattern': row.failed_pattern or ''
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取强化学习历史数据失败: {e}")
+            return []
+
+    async def save_reinforcement_learning_result(self, group_id: str, result_data: Dict[str, Any]) -> bool:
+        """保存强化学习结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = ReinforcementLearningRepository(session)
+                return await repo.save_reinforcement_result(group_id, result_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存强化学习结果失败: {e}")
+            return False
+
+    async def get_persona_fusion_history(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取人格融合历史（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = PersonaFusionRepository(session)
+                return await repo.get_fusion_history(group_id, limit)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取人格融合历史失败: {e}")
+            return []
+
+    async def save_persona_fusion_result(self, group_id: str, fusion_data: Dict[str, Any]) -> bool:
+        """保存人格融合结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = PersonaFusionRepository(session)
+                return await repo.save_fusion_result(group_id, fusion_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存人格融合结果失败: {e}")
+            return False
+
+    async def get_learning_performance_history(self, group_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """获取学习性能历史数据（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ..models.orm.performance import LearningPerformanceHistory
+
+                stmt = (
+                    select(LearningPerformanceHistory)
+                    .where(LearningPerformanceHistory.group_id == group_id)
+                    .order_by(desc(LearningPerformanceHistory.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [
+                    {
+                        'session_id': row.session_id,
+                        'timestamp': row.timestamp,
+                        'quality_score': row.quality_score or 0.0,
+                        'learning_time': row.learning_time or 0.0,
+                        'success': bool(row.success)
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取学习性能历史失败: {e}")
+            return []
+
+    async def save_strategy_optimization_result(self, group_id: str, optimization_data: Dict[str, Any]) -> bool:
+        """保存策略优化结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = StrategyOptimizationRepository(session)
+                return await repo.save_optimization_result(group_id, optimization_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存策略优化结果失败: {e}")
+            return False
+
+    async def get_messages_for_replay(self, group_id: str, days: int = 30, limit: int = 100) -> List[Dict[str, Any]]:
+        """获取用于记忆重放的消息（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc, and_
+                from ..models.orm import RawMessage
+
+                cutoff_time = time.time() - (days * 24 * 3600)
+
+                stmt = (
+                    select(RawMessage)
+                    .where(and_(
+                        RawMessage.group_id == group_id,
+                        RawMessage.timestamp > cutoff_time,
+                        RawMessage.processed == True
+                    ))
+                    .order_by(desc(RawMessage.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                messages = result.scalars().all()
+
+                return [
+                    {
+                        'message_id': msg.id,
+                        'message': msg.message,
+                        'sender_id': msg.sender_id,
+                        'group_id': msg.group_id,
+                        'timestamp': msg.timestamp
+                    }
+                    for msg in messages
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取记忆重放消息失败: {e}")
+            return []
+
+    async def get_message_statistics(self, group_id: str = None) -> Dict[str, Any]:
+        """获取消息统计信息（ORM，兼容 webui.py 的调用）"""
+        if not group_id:
+            return await self.get_messages_statistics()
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func, and_
+                from ..models.orm import RawMessage, FilteredMessage
+
+                # 总消息数
+                total_stmt = select(func.count()).select_from(RawMessage).where(
+                    RawMessage.group_id == group_id
+                )
+                total_result = await session.execute(total_stmt)
+                total_messages = total_result.scalar() or 0
+
+                # 未处理消息数
+                unprocessed_stmt = select(func.count()).select_from(RawMessage).where(and_(
+                    RawMessage.group_id == group_id,
+                    RawMessage.processed == False
+                ))
+                unprocessed_result = await session.execute(unprocessed_stmt)
+                unprocessed_messages = unprocessed_result.scalar() or 0
+
+                # 筛选消息数
+                filtered_stmt = select(func.count()).select_from(FilteredMessage).where(
+                    FilteredMessage.group_id == group_id
+                )
+                filtered_result = await session.execute(filtered_stmt)
+                filtered_messages = filtered_result.scalar() or 0
+
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'filtered_messages': filtered_messages,
+                    'raw_messages': total_messages,
+                    'group_id': group_id
+                }
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}")
+            return {
+                'total_messages': 0,
+                'unprocessed_messages': 0,
+                'filtered_messages': 0,
+                'raw_messages': 0,
+                'group_id': group_id
+            }
+
     async def get_all_expression_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """
         获取所有群组的表达模式
@@ -1666,6 +1803,11 @@ class SQLAlchemyDatabaseManager:
                 import time
 
                 # 创建学习性能记录
+                def _ser(v):
+                    if isinstance(v, (dict, list)):
+                        return json.dumps(v, ensure_ascii=False)
+                    return v
+
                 record = LearningPerformanceHistory(
                     group_id=group_id,
                     session_id=performance_data.get('session_id', ''),
@@ -1673,8 +1815,8 @@ class SQLAlchemyDatabaseManager:
                     quality_score=float(performance_data.get('quality_score', 0.0)),
                     learning_time=float(performance_data.get('learning_time', 0.0)),
                     success=bool(performance_data.get('success', False)),
-                    successful_pattern=performance_data.get('successful_pattern', ''),
-                    failed_pattern=performance_data.get('failed_pattern', ''),
+                    successful_pattern=_ser(performance_data.get('successful_pattern', '')),
+                    failed_pattern=_ser(performance_data.get('failed_pattern', '')),
                     created_at=int(time.time())
                 )
 
@@ -1733,6 +1875,136 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[SQLAlchemy] 获取群组消息统计失败: {e}", exc_info=True)
             raise RuntimeError(f"无法获取群组 {group_id} 的消息统计: {e}") from e
+
+    # ==================== 黑话 CRUD (ORM) ====================
+
+    async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
+        """查询指定黑话（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, and_
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(and_(
+                    Jargon.chat_id == chat_id,
+                    Jargon.content == content
+                ))
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    return None
+
+                return record.to_dict()
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询黑话失败: {e}", exc_info=True)
+            return None
+
+    async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
+        """插入新的黑话记录（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from ..models.orm.jargon import Jargon
+
+                now_ts = int(time.time())
+
+                # 处理 created_at / updated_at - 统一转为 int 时间戳
+                created_at = jargon_data.get('created_at')
+                updated_at = jargon_data.get('updated_at')
+                if created_at and not isinstance(created_at, (int, float)):
+                    created_at = now_ts
+                elif created_at:
+                    created_at = int(created_at)
+                else:
+                    created_at = now_ts
+
+                if updated_at and not isinstance(updated_at, (int, float)):
+                    updated_at = now_ts
+                elif updated_at:
+                    updated_at = int(updated_at)
+                else:
+                    updated_at = now_ts
+
+                record = Jargon(
+                    content=jargon_data.get('content', ''),
+                    raw_content=jargon_data.get('raw_content', '[]'),
+                    meaning=jargon_data.get('meaning'),
+                    is_jargon=jargon_data.get('is_jargon'),
+                    count=jargon_data.get('count', 1),
+                    last_inference_count=jargon_data.get('last_inference_count', 0),
+                    is_complete=jargon_data.get('is_complete', False),
+                    is_global=jargon_data.get('is_global', False),
+                    chat_id=jargon_data.get('chat_id', ''),
+                    created_at=created_at,
+                    updated_at=updated_at
+                )
+
+                session.add(record)
+                await session.commit()
+                await session.refresh(record)
+
+                logger.info(f"[SQLAlchemy] 插入黑话成功: id={record.id}, content={record.content}")
+                return record.id
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 插入黑话失败: {e}", exc_info=True)
+            return None
+
+    async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
+        """更新现有黑话记录（ORM）"""
+        jargon_id = jargon_data.get('id')
+        if not jargon_id:
+            logger.error("[SQLAlchemy] 更新黑话失败: 缺少 id")
+            return False
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(Jargon.id == jargon_id)
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    logger.warning(f"[SQLAlchemy] 更新黑话失败: 未找到 id={jargon_id}")
+                    return False
+
+                # 更新字段
+                if 'content' in jargon_data:
+                    record.content = jargon_data['content']
+                if 'raw_content' in jargon_data:
+                    record.raw_content = jargon_data['raw_content']
+                if 'meaning' in jargon_data:
+                    record.meaning = jargon_data['meaning']
+                if 'is_jargon' in jargon_data:
+                    record.is_jargon = jargon_data['is_jargon']
+                if 'count' in jargon_data:
+                    record.count = jargon_data['count']
+                if 'last_inference_count' in jargon_data:
+                    record.last_inference_count = jargon_data['last_inference_count']
+                if 'is_complete' in jargon_data:
+                    record.is_complete = jargon_data['is_complete']
+                if 'is_global' in jargon_data:
+                    record.is_global = jargon_data['is_global']
+
+                # updated_at 统一为 int 时间戳
+                updated_at = jargon_data.get('updated_at')
+                if updated_at and not isinstance(updated_at, (int, float)):
+                    record.updated_at = int(time.time())
+                elif updated_at:
+                    record.updated_at = int(updated_at)
+                else:
+                    record.updated_at = int(time.time())
+
+                await session.commit()
+                logger.debug(f"[SQLAlchemy] 更新黑话成功: id={jargon_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 更新黑话失败: {e}", exc_info=True)
+            return False
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         """
@@ -2961,47 +3233,20 @@ class SQLAlchemyDatabaseManager:
         """
         魔法方法：自动降级未实现的方法到传统数据库管理器
 
-        ⚠️ 跨线程调用限制：
-        - 如果是跨线程调用未实现的 ORM 方法，将抛出 NotImplementedError
-        - 建议为所有跨线程调用的方法实现真正的 ORM 版本
-        - 同线程调用可以降级到传统数据库管理器
-
         当访问 SQLAlchemyDatabaseManager 中不存在的属性/方法时：
         1. 检查传统数据库管理器是否可用
-        2. 如果是跨线程调用，抛出 NotImplementedError（禁止降级）
-        3. 如果是同线程调用，返回传统管理器的对应方法
-        4. 如果不可用，抛出 AttributeError
+        2. 如果可用，返回传统管理器的对应方法
+        3. 如果不可用，抛出 AttributeError
         """
-        # 避免无限递归：_legacy_db 本身不应该触发 __getattr__
-        if name in ('_legacy_db', '_main_loop', '_main_thread_id', '_started', 'config', 'context', 'engine'):
+        # 避免无限递归
+        if name in ('_legacy_db', '_started', 'config', 'context', 'engine'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
         # 如果传统数据库管理器可用，尝试从它获取属性
         if self._legacy_db and hasattr(self._legacy_db, name):
             attr = getattr(self._legacy_db, name)
-
-            # 如果是异步方法，需要检查跨线程场景
-            if asyncio.iscoroutinefunction(attr):
-                # 检查当前是否在跨线程场景
-                is_cross_thread = self._is_cross_thread_call()
-
-                if is_cross_thread:
-                    # ⚠️ 跨线程场景：禁止降级，要求实现 ORM 版本
-                    logger.error(
-                        f"[SQLAlchemy] 禁止跨线程调用未实现的方法 '{name}'。"
-                        f"请为此方法实现真正的 ORM 版本，使用 NullPool 支持跨线程调用。"
-                    )
-                    raise NotImplementedError(
-                        f"方法 '{name}' 尚未实现 ORM 版本，无法进行跨线程调用。\n"
-                        f"提示：需要在 SQLAlchemyDatabaseManager 中使用 SQLAlchemy ORM 实现此方法。"
-                    )
-                else:
-                    # ✅ 同一事件循环：允许降级到传统管理器
-                    logger.debug(f"[SQLAlchemy] 方法 '{name}' 未实现 ORM 版本，降级到传统数据库管理器（同线程）")
-                    return attr
-            else:
-                # 非异步方法，直接返回
-                return attr
+            logger.debug(f"[SQLAlchemy] 方法 '{name}' 未实现 ORM 版本，降级到传统数据库管理器")
+            return attr
 
         # 如果传统数据库管理器也没有这个属性，抛出 AttributeError
         raise AttributeError(

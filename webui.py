@@ -3190,24 +3190,28 @@ async def get_style_learning_content_text():
                                         pattern_count += 1
                             logger.info(f"成功添加 {pattern_count} 个表达模式特征")
                         else:
-                            # 回退到传统方法
-                            logger.debug("表达模式学习器不支持get_all_group_patterns方法，使用传统SQL查询")
-                            async with db_manager.get_db_connection() as conn:
-                                cursor = await conn.cursor()
+                            # 回退到 ORM 查询
+                            logger.debug("表达模式学习器不支持get_all_group_patterns方法，使用ORM查询")
+                            from sqlalchemy import select
+                            from .models.orm import ExpressionPattern as ExprPatternModel
 
-                                await cursor.execute('SELECT * FROM expression_patterns ORDER BY last_active_time DESC LIMIT 10')
-                                expression_patterns = await cursor.fetchall()
+                            async with db_manager.get_session() as session:
+                                stmt = select(ExprPatternModel).order_by(
+                                    ExprPatternModel.last_active_time.desc()
+                                ).limit(10)
+                                result = await session.execute(stmt)
+                                expression_patterns = result.scalars().all()
 
-                                if expression_patterns:
-                                    logger.info(f"从数据库直接查询到 {len(expression_patterns)} 个表达模式")
-                                    for pattern in expression_patterns:
-                                        content_data['features'].append({
-                                            'timestamp': datetime.fromtimestamp(pattern[4]).strftime('%Y-%m-%d %H:%M:%S'), # last_active_time
-                                            'text': f"场景: {pattern[1]}\n表达: {pattern[2]}", # situation, expression
-                                            'metadata': f"权重: {pattern[3]:.2f}, 群组: {pattern[6]}" # weight, group_id
-                                        })
-                                else:
-                                    logger.warning("数据库中未找到表达模式记录")
+                            if expression_patterns:
+                                logger.info(f"从数据库直接查询到 {len(expression_patterns)} 个表达模式")
+                                for pattern in expression_patterns:
+                                    content_data['features'].append({
+                                        'timestamp': datetime.fromtimestamp(pattern.last_active_time).strftime('%Y-%m-%d %H:%M:%S'),
+                                        'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
+                                        'metadata': f"权重: {pattern.weight:.2f}, 群组: {pattern.group_id}"
+                                    })
+                            else:
+                                logger.warning("数据库中未找到表达模式记录")
 
                     except Exception as e:
                         logger.warning(f"获取表达模式失败，将尝试其他数据源: {e}")
@@ -3520,13 +3524,16 @@ async def get_style_learning_stats():
 
         try:
             # 先统计数据库中的原始消息总数(用于前端显示)
-            async with db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                await cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE sender_id != "bot"')
-                row = await cursor.fetchone()
-                if row:
-                    stats['total_samples'] = row[0]  # 使用原始消息总数
-                await cursor.close()
+            from sqlalchemy import select, func
+            from .models.orm import RawMessage as RawMsgModel
+
+            async with db_manager.get_session() as session:
+                stmt = select(func.count()).select_from(RawMsgModel).where(
+                    RawMsgModel.sender_id != 'bot'
+                )
+                result = await session.execute(stmt)
+                total_samples = result.scalar() or 0
+                stats['total_samples'] = total_samples
 
             # 获取所有群组的表达模式(用于其他统计)
             # 优先使用 SQLAlchemy 数据库管理器，失败时自动降级到传统实现
@@ -3822,113 +3829,116 @@ async def get_groups_info():
         if not database_manager:
             return jsonify({'error': '数据库管理器不可用'}), 500
         
-        # 获取数据库连接
-        async with database_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
-            
-            try:
-                # 1. 检查数据库总体状态
-                logger.debug("检查数据库总体状态...")
-                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
-                total_raw_messages = (await cursor.fetchone())[0]
-                
-                await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-                total_filtered_messages = (await cursor.fetchone())[0]
-                
-                groups_info['database_status'] = {
-                    'total_raw_messages': total_raw_messages,
-                    'total_filtered_messages': total_filtered_messages,
-                    'tables_exist': True
-                }
-                
-                logger.info(f"数据库状态: 原始消息 {total_raw_messages} 条, 筛选消息 {total_filtered_messages} 条")
-                
-                # 2. 获取所有群组的详细信息
-                if total_raw_messages > 0:
-                    logger.debug("获取所有群组的详细统计...")
-                    await cursor.execute('''
-                    SELECT 
-                        group_id,
-                        COUNT(*) as message_count,
-                        MIN(timestamp) as earliest_message,
-                        MAX(timestamp) as latest_message,
-                        COUNT(DISTINCT sender_id) as unique_senders
-                    FROM raw_messages 
-                    WHERE group_id IS NOT NULL AND group_id != ''
-                    GROUP BY group_id 
-                    ORDER BY message_count DESC
-                ''')
-                
-                for row in await cursor.fetchall():
-                    group_id, message_count, earliest_ts, latest_ts, unique_senders = row
-                    
-                    # 获取该群组的筛选消息统计
-                    await cursor.execute('SELECT COUNT(*) FROM filtered_messages WHERE group_id = ?', (group_id,))
-                    filtered_count = (await cursor.fetchone())[0]
-                    
-                    # 计算时间范围
-                    import datetime
-                    earliest_date = datetime.datetime.fromtimestamp(earliest_ts).strftime('%Y-%m-%d %H:%M:%S') if earliest_ts else 'N/A'
-                    latest_date = datetime.datetime.fromtimestamp(latest_ts).strftime('%Y-%m-%d %H:%M:%S') if latest_ts else 'N/A'
-                    
-                    # 计算活跃度
-                    days_span = (latest_ts - earliest_ts) / 86400 if earliest_ts and latest_ts else 0
-                    avg_messages_per_day = message_count / max(1, days_span) if days_span > 0 else 0
-                    
-                    group_info = {
-                        'group_id': group_id,
-                        'message_count': message_count,
-                        'filtered_count': filtered_count,
-                        'unique_senders': unique_senders,
-                        'earliest_message': earliest_date,
-                        'latest_message': latest_date,
-                        'days_span': round(days_span, 1),
-                        'avg_messages_per_day': round(avg_messages_per_day, 1),
-                        'learning_potential': 'high' if message_count > 100 and filtered_count > 10 else 'medium' if message_count > 20 else 'low'
-                    }
-                    
-                    groups_info['groups'].append(group_info)
-                    logger.debug(f"群组 {group_id}: {message_count} 条消息, {filtered_count} 条筛选, {unique_senders} 个用户")
-                
-                groups_info['total_groups'] = len(groups_info['groups'])
-                logger.info(f"找到 {groups_info['total_groups']} 个有消息记录的群组")
-            except Exception as e:
-                logger.error(e)
+        # 使用 ORM 查询（支持跨线程 event loop）
+        from sqlalchemy import select, func, and_
+        from .models.orm import RawMessage as RawMsgORM, FilteredMessage as FilteredMsgORM
 
-            else:
-                try:
-                    logger.warning("数据库中没有任何原始消息记录")
-                    groups_info['recommendations'] = [
-                        "数据库中没有消息记录，这可能是因为:",
-                        "1. 插件刚刚安装，还没有收集到消息",
-                        "2. 消息收集功能未启用或配置错误",
-                        "3. 群聊中没有足够的消息活动",
-                        "建议: 在群聊中发送一些消息，然后重新检查"
-                    ]
-                
-                    # 3. 添加学习建议 - 修改为推荐所有群组都进行分析
-                    if groups_info['total_groups'] > 0:
-                        groups_info['recommendations'] = [
-                            f"发现 {groups_info['total_groups']} 个群组，建议对所有群组进行完整的关系分析和风格学习:",
-                            "• 使用 /groups/analyze_all 对所有群组进行关系分析",
-                            "• 使用 /groups/style_learning_all 对所有群组进行表达模式和风格分析",
-                            f"• 总计可分析原始消息: {total_raw_messages} 条"
-                        ]
+        # 1. 检查数据库总体状态
+        logger.debug("检查数据库总体状态...")
+        stats = await database_manager.get_messages_statistics()
+        total_raw_messages = stats.get('total_messages', 0)
+        total_filtered_messages = stats.get('filtered_messages', 0)
+
+        groups_info['database_status'] = {
+            'total_raw_messages': total_raw_messages,
+            'total_filtered_messages': total_filtered_messages,
+            'tables_exist': True
+        }
+
+        logger.info(f"数据库状态: 原始消息 {total_raw_messages} 条, 筛选消息 {total_filtered_messages} 条")
+
+        # 2. 获取所有群组的详细信息
+        if total_raw_messages > 0:
+            logger.debug("获取所有群组的详细统计...")
+            async with database_manager.get_session() as session:
+                # 查询各群组的统计信息
+                stmt = select(
+                    RawMsgORM.group_id,
+                    func.count().label('message_count'),
+                    func.min(RawMsgORM.timestamp).label('earliest_message'),
+                    func.max(RawMsgORM.timestamp).label('latest_message'),
+                    func.count(func.distinct(RawMsgORM.sender_id)).label('unique_senders')
+                ).where(
+                    and_(
+                        RawMsgORM.group_id.isnot(None),
+                        RawMsgORM.group_id != ''
+                    )
+                ).group_by(
+                    RawMsgORM.group_id
+                ).order_by(
+                    func.count().desc()
+                )
+                result = await session.execute(stmt)
+                group_rows = result.all()
+
+            for row in group_rows:
+                group_id, message_count, earliest_ts, latest_ts, unique_senders = row
+
+                # 获取该群组的筛选消息统计
+                async with database_manager.get_session() as session:
+                    filtered_stmt = select(func.count()).select_from(FilteredMsgORM).where(
+                        FilteredMsgORM.group_id == group_id
+                    )
+                    filtered_result = await session.execute(filtered_stmt)
+                    filtered_count = filtered_result.scalar() or 0
+
+                # 计算时间范围
+                import datetime
+                earliest_date = datetime.datetime.fromtimestamp(earliest_ts).strftime('%Y-%m-%d %H:%M:%S') if earliest_ts else 'N/A'
+                latest_date = datetime.datetime.fromtimestamp(latest_ts).strftime('%Y-%m-%d %H:%M:%S') if latest_ts else 'N/A'
+
+                # 计算活跃度
+                days_span = (latest_ts - earliest_ts) / 86400 if earliest_ts and latest_ts else 0
+                avg_messages_per_day = message_count / max(1, days_span) if days_span > 0 else 0
+
+                group_info = {
+                    'group_id': group_id,
+                    'message_count': message_count,
+                    'filtered_count': filtered_count,
+                    'unique_senders': unique_senders,
+                    'earliest_message': earliest_date,
+                    'latest_message': latest_date,
+                    'days_span': round(days_span, 1),
+                    'avg_messages_per_day': round(avg_messages_per_day, 1),
+                    'learning_potential': 'high' if message_count > 100 and filtered_count > 10 else 'medium' if message_count > 20 else 'low'
+                }
                     
-                    # 为每个群组添加分析状态
-                    for group in groups_info['groups']:
-                        if group['message_count'] > 50:
-                            group['analysis_ready'] = True
-                            group['analysis_recommendation'] = "可进行完整分析"
-                        elif group['message_count'] > 10:
-                            group['analysis_ready'] = True
-                            group['analysis_recommendation'] = "可进行基础分析"
-                        else:
-                            group['analysis_ready'] = False
-                            group['analysis_recommendation'] = "消息数量较少，建议积累更多消息"
-                
-                finally:
-                    await cursor.close()
+                groups_info['groups'].append(group_info)
+                logger.debug(f"群组 {group_id}: {message_count} 条消息, {filtered_count} 条筛选, {unique_senders} 个用户")
+
+            groups_info['total_groups'] = len(groups_info['groups'])
+            logger.info(f"找到 {groups_info['total_groups']} 个有消息记录的群组")
+
+        else:
+            logger.warning("数据库中没有任何原始消息记录")
+            groups_info['recommendations'] = [
+                "数据库中没有消息记录，这可能是因为:",
+                "1. 插件刚刚安装，还没有收集到消息",
+                "2. 消息收集功能未启用或配置错误",
+                "3. 群聊中没有足够的消息活动",
+                "建议: 在群聊中发送一些消息，然后重新检查"
+            ]
+
+        # 3. 添加学习建议 - 修改为推荐所有群组都进行分析
+        if groups_info['total_groups'] > 0:
+            groups_info['recommendations'] = [
+                f"发现 {groups_info['total_groups']} 个群组，建议对所有群组进行完整的关系分析和风格学习:",
+                "• 使用 /groups/analyze_all 对所有群组进行关系分析",
+                "• 使用 /groups/style_learning_all 对所有群组进行表达模式和风格分析",
+                f"• 总计可分析原始消息: {total_raw_messages} 条"
+            ]
+
+        # 为每个群组添加分析状态
+        for group in groups_info['groups']:
+            if group['message_count'] > 50:
+                group['analysis_ready'] = True
+                group['analysis_recommendation'] = "可进行完整分析"
+            elif group['message_count'] > 10:
+                group['analysis_ready'] = True
+                group['analysis_recommendation'] = "可进行基础分析"
+            else:
+                group['analysis_ready'] = False
+                group['analysis_recommendation'] = "消息数量较少，建议积累更多消息"
         
         logger.info("群组信息获取完成")
         return jsonify(groups_info)
@@ -3954,21 +3964,28 @@ async def analyze_all_groups():
         expression_learner = component_factory.create_expression_pattern_learner()
         db_manager = service_factory.create_database_manager()
         
-        # 获取所有群组
-        async with db_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
-        
-        await cursor.execute('''
-            SELECT DISTINCT group_id, COUNT(*) as message_count 
-            FROM raw_messages 
-            WHERE group_id IS NOT NULL AND group_id != ''
-            GROUP BY group_id 
-            HAVING message_count >= 10
-            ORDER BY message_count DESC
-        ''')
-        all_groups = await cursor.fetchall()
-        await cursor.close()
-        await conn.close()
+        # 获取所有群组（ORM 查询，支持跨线程 event loop）
+        from sqlalchemy import select, func, and_
+        from .models.orm import RawMessage as RawMsgGroupQuery
+
+        async with db_manager.get_session() as session:
+            stmt = select(
+                RawMsgGroupQuery.group_id,
+                func.count().label('message_count')
+            ).where(
+                and_(
+                    RawMsgGroupQuery.group_id.isnot(None),
+                    RawMsgGroupQuery.group_id != ''
+                )
+            ).group_by(
+                RawMsgGroupQuery.group_id
+            ).having(
+                func.count() >= 10
+            ).order_by(
+                func.count().desc()
+            )
+            result = await session.execute(stmt)
+            all_groups = result.all()
         
         if not all_groups:
             return jsonify({
@@ -4136,21 +4153,28 @@ async def style_learning_all_groups():
         expression_learner = component_factory.create_expression_pattern_learner()
         db_manager = service_factory.create_database_manager()
         
-        # 获取所有群组
-        async with db_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
-        
-        await cursor.execute('''
-            SELECT DISTINCT group_id, COUNT(*) as message_count 
-            FROM raw_messages 
-            WHERE group_id IS NOT NULL AND group_id != ''
-            GROUP BY group_id 
-            HAVING message_count >= 10
-            ORDER BY message_count DESC
-        ''')
-        all_groups = await cursor.fetchall()
-        await cursor.close()
-        await conn.close()
+        # 获取所有群组（ORM 查询，支持跨线程 event loop）
+        from sqlalchemy import select, func, and_
+        from .models.orm import RawMessage as RawMsgGroupQuery
+
+        async with db_manager.get_session() as session:
+            stmt = select(
+                RawMsgGroupQuery.group_id,
+                func.count().label('message_count')
+            ).where(
+                and_(
+                    RawMsgGroupQuery.group_id.isnot(None),
+                    RawMsgGroupQuery.group_id != ''
+                )
+            ).group_by(
+                RawMsgGroupQuery.group_id
+            ).having(
+                func.count() >= 10
+            ).order_by(
+                func.count().desc()
+            )
+            result = await session.execute(stmt)
+            all_groups = result.all()
         
         if not all_groups:
             return jsonify({
@@ -4444,63 +4468,58 @@ async def relearn_all():
         
         # 如果没有指定群组ID，自动检测有消息记录的群组
         if not group_id or group_id == 'default':
-            # 获取所有有消息记录的群组，包括所有群组
-            async with db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                # 检查数据库中是否有任何消息记录
-                logger.info("正在检查数据库中的所有消息记录...")
-                await cursor.execute('SELECT COUNT(*) FROM raw_messages')
-                total_count = (await cursor.fetchone())[0]
-                logger.info(f"raw_messages表中总共有 {total_count} 条记录")
-                
-                if total_count > 0:
-                    # 首先检查所有群组的消息统计
-                    await cursor.execute('''
-                        SELECT DISTINCT group_id, COUNT(*) as message_count 
-                        FROM raw_messages 
-                        WHERE group_id IS NOT NULL AND group_id != ''
-                        GROUP BY group_id 
-                        ORDER BY message_count DESC
-                    ''')
-                    all_results = await cursor.fetchall()
-                    
-                    logger.info(f"数据库中发现的所有群组: {[(r[0], r[1]) for r in all_results] if all_results else '无'}")
-                    
-                    # 选择消息数最多的群组
-                    if all_results:
-                        group_id = all_results[0][0]
-                        message_count = all_results[0][1] 
-                        logger.info(f"自动选择群组ID: {group_id} (共有{message_count}条原始消息)")
-                    else:
-                        logger.warning("虽然有消息记录，但没有有效的群组ID")
-                        group_id = 'default'  # 兜底使用default
+            # 使用 ORM 查询（支持跨线程 event loop）
+            logger.info("正在检查数据库中的所有消息记录...")
+            stats = await db_manager.get_messages_statistics()
+            total_count = stats.get('total_messages', 0)
+            logger.info(f"raw_messages表中总共有 {total_count} 条记录")
+
+            if total_count > 0:
+                # 通过 ORM session 查询各群组的消息统计
+                from sqlalchemy import select, func, and_
+                from .models.orm import RawMessage
+
+                async with db_manager.get_session() as session:
+                    stmt = select(
+                        RawMessage.group_id,
+                        func.count().label('message_count')
+                    ).where(
+                        and_(
+                            RawMessage.group_id.isnot(None),
+                            RawMessage.group_id != ''
+                        )
+                    ).group_by(
+                        RawMessage.group_id
+                    ).order_by(
+                        func.count().desc()
+                    )
+                    result = await session.execute(stmt)
+                    all_results = result.all()
+
+                logger.info(f"数据库中发现的所有群组: {[(r[0], r[1]) for r in all_results] if all_results else '无'}")
+
+                # 选择消息数最多的群组
+                if all_results:
+                    group_id = all_results[0][0]
+                    message_count = all_results[0][1]
+                    logger.info(f"自动选择群组ID: {group_id} (共有{message_count}条原始消息)")
                 else:
-                    # 没有任何消息，检查系统状态
-                    logger.warning("数据库中没有任何原始消息记录")
-                    
-                    # 检查是否有其他相关表的数据
-                    await cursor.execute('SELECT name FROM sqlite_master WHERE type="table" AND name LIKE "%message%"')
-                    tables = await cursor.fetchall()
-                    logger.info(f"数据库中的消息相关表: {[t[0] for t in tables] if tables else '无'}")
-                    
-                    # 检查filtered_messages表
-                    try:
-                        await cursor.execute('SELECT COUNT(*) FROM filtered_messages')
-                        filtered_count = (await cursor.fetchone())[0]
-                        logger.info(f"filtered_messages表中有 {filtered_count} 条记录")
-                    except:
-                        logger.info("filtered_messages表不存在或无法访问")
-                    
-                    # 提供解决建议
-                    logger.warning("建议解决方案:")
-                    logger.warning("1. 检查消息收集功能是否正常工作")
-                    logger.warning("2. 确认群聊中有足够的消息")
-                    logger.warning("3. 检查插件的消息捕获配置")
-                    
+                    logger.warning("虽然有消息记录，但没有有效的群组ID")
                     group_id = 'default'  # 兜底使用default
-                
-                await cursor.close()
+            else:
+                # 没有任何消息，检查系统状态
+                logger.warning("数据库中没有任何原始消息记录")
+
+                filtered_count = stats.get('filtered_messages', 0)
+                logger.info(f"filtered_messages表中有 {filtered_count} 条记录")
+
+                # 提供解决建议
+                logger.warning("建议解决方案:")
+                logger.warning("1. 检查消息收集功能是否正常工作")
+                logger.warning("2. 确认群聊中有足够的消息")
+                logger.warning("3. 检查插件的消息捕获配置")
+
+                group_id = 'default'  # 兜底使用default
         
         results = {
             'success': True,
@@ -4525,33 +4544,15 @@ async def relearn_all():
             # 检查消息数量（但不强制要求） - 添加连接重试逻辑
             logger.debug(f"开始获取群组 {group_id} 的消息统计...")
             try:
-                stats = await db_manager.get_message_statistics(group_id)
+                stats = await db_manager.get_group_messages_statistics(group_id)
                 total_messages = stats.get('total_messages', 0)
                 results['total_messages'] = total_messages
                 logger.info(f"群组 {group_id} 消息统计: {total_messages} 条总消息")
             except Exception as stats_error:
                 logger.warning(f"获取群组 {group_id} 消息统计失败: {stats_error}")
-                # 如果是连接问题，尝试重新创建数据库连接
-                if "no active connection" in str(stats_error).lower():
-                    logger.info("检测到数据库连接问题，尝试重新初始化连接...")
-                    try:
-                        # 使用新的重置方法
-                        await db_manager.reset_messages_db_connection()
-                        
-                        # 重新获取统计数据
-                        stats = await db_manager.get_message_statistics(group_id)
-                        total_messages = stats.get('total_messages', 0)
-                        results['total_messages'] = total_messages
-                        logger.info(f"重新连接成功，群组 {group_id} 消息统计: {total_messages} 条总消息")
-                    except Exception as retry_error:
-                        logger.error(f"重试获取消息统计也失败: {retry_error}")
-                        total_messages = 0
-                        results['total_messages'] = 0
-                        results['errors'].append(f"无法获取消息统计: {str(retry_error)}")
-                else:
-                    total_messages = 0
-                    results['total_messages'] = 0
-                    results['errors'].append(f"获取消息统计失败: {str(stats_error)}")
+                total_messages = 0
+                results['total_messages'] = 0
+                results['errors'].append(f"获取消息统计失败: {str(stats_error)}")
             
             # 执行渐进式学习批次
             try:
@@ -4880,25 +4881,29 @@ async def relearn_all():
                     else:
                         # 当没有找到原始消息时，提供更详细的调试信息
                         total_stats = await db_manager.get_messages_statistics()
-                        group_stats = await db_manager.get_message_statistics(group_id)
-                        
-                        # 检查原始消息表的情况
-                        async with db_manager.get_db_connection() as conn:
-                            cursor = await conn.cursor()
-                        
-                        # 检查所有群组的原始消息
-                        await cursor.execute('''
-                            SELECT DISTINCT group_id, COUNT(*) as raw_count 
-                            FROM raw_messages 
-                            WHERE group_id IS NOT NULL AND group_id != ''
-                            GROUP BY group_id 
-                            ORDER BY raw_count DESC
-                        ''')
-                        raw_results = await cursor.fetchall()
-                        
-                        await cursor.close()
-                        await conn.close()
-                        
+                        group_stats = await db_manager.get_group_messages_statistics(group_id)
+
+                        # 通过 ORM 查询所有群组的原始消息统计
+                        from sqlalchemy import select, func, and_
+                        from .models.orm import RawMessage as RawMessageModel
+
+                        async with db_manager.get_session() as session:
+                            stmt = select(
+                                RawMessageModel.group_id,
+                                func.count().label('raw_count')
+                            ).where(
+                                and_(
+                                    RawMessageModel.group_id.isnot(None),
+                                    RawMessageModel.group_id != ''
+                                )
+                            ).group_by(
+                                RawMessageModel.group_id
+                            ).order_by(
+                                func.count().desc()
+                            )
+                            result = await session.execute(stmt)
+                            raw_results = result.all()
+
                         error_msg = f"群组 {group_id} 没有找到原始消息，跳过风格学习。\n" \
                                   f"全局统计: {total_stats}\n" \
                                   f"当前群组统计: {group_stats}\n" \
@@ -5251,25 +5256,24 @@ async def clear_group_social_relations(group_id: str):
         # 统计要删除的记录数
         deleted_count = 0
 
-        # 使用新的 ORM 表：user_social_relation_components
-        async with db_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
+        # 使用 ORM 查询和删除（支持跨线程 event loop）
+        from sqlalchemy import select, func, delete
+        from .models.orm import UserSocialRelationComponent
 
-            # 先统计数量（使用新表名）
-            await cursor.execute('''
-                SELECT COUNT(*) FROM user_social_relation_components WHERE group_id = ?
-            ''', (group_id,))
-            result = await cursor.fetchone()
-            if result:
-                deleted_count = result[0]
+        async with db_manager.get_session() as session:
+            # 先统计数量
+            count_stmt = select(func.count()).select_from(UserSocialRelationComponent).where(
+                UserSocialRelationComponent.group_id == group_id
+            )
+            count_result = await session.execute(count_stmt)
+            deleted_count = count_result.scalar() or 0
 
-            # 执行删除（使用新表名）
-            await cursor.execute('''
-                DELETE FROM user_social_relation_components WHERE group_id = ?
-            ''', (group_id,))
-
-            await conn.commit()
-            await cursor.close()
+            # 执行删除
+            delete_stmt = delete(UserSocialRelationComponent).where(
+                UserSocialRelationComponent.group_id == group_id
+            )
+            await session.execute(delete_stmt)
+            await session.commit()
 
         logger.info(f"成功清空群组 {group_id} 的 {deleted_count} 条社交关系数据")
 
@@ -5738,26 +5742,27 @@ async def toggle_jargon_global(jargon_id: int):
                 "error": "数据库管理器未初始化"
             }), 500
 
-        # 先获取当前记录
-        async with database_manager.get_db_connection() as conn:
-            cursor = await conn.cursor()
-            await cursor.execute('SELECT is_global FROM jargon WHERE id = ?', (jargon_id,))
-            row = await cursor.fetchone()
+        # 使用 ORM 查询和更新（支持跨线程 event loop）
+        from sqlalchemy import select
+        from .models.orm import Jargon as JargonModel
+        import time as _time
 
-            if not row:
+        async with database_manager.get_session() as session:
+            stmt = select(JargonModel).where(JargonModel.id == jargon_id)
+            result = await session.execute(stmt)
+            jargon_record = result.scalar_one_or_none()
+
+            if not jargon_record:
                 return jsonify({
                     "success": False,
                     "error": f"未找到黑话记录 {jargon_id}"
                 }), 404
 
             # 切换状态
-            new_status = not bool(row[0])
-            await cursor.execute(
-                'UPDATE jargon SET is_global = ?, updated_at = ? WHERE id = ?',
-                (new_status, datetime.now(), jargon_id)
-            )
-            await conn.commit()
-            await cursor.close()
+            new_status = not bool(jargon_record.is_global)
+            jargon_record.is_global = new_status
+            jargon_record.updated_at = int(_time.time())
+            await session.commit()
 
         return jsonify({
             "success": True,
