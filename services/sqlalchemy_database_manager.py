@@ -2240,37 +2240,51 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取详细指标失败: {e}", exc_info=True)
             return {'affection': {}, 'conversations': {}, 'expressions': {}}
 
-    async def get_style_progress_data(self, group_id: str = None) -> Dict[str, Any]:
+    async def get_style_progress_data(self, group_id: str = None) -> List[Dict[str, Any]]:
         """
-        获取风格进度数据
+        获取风格进度数据（从 learning_batches 表）
 
         Args:
             group_id: 群组ID（可选）
 
         Returns:
-            Dict: 风格进度数据
+            List[Dict]: 风格进度数据列表
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ..repositories.learning_repository import StyleLearningReviewRepository
+                from sqlalchemy import select, desc
+                from ..models.orm.learning import LearningBatch
 
-                repo = StyleLearningReviewRepository(session)
+                query = select(LearningBatch).where(
+                    LearningBatch.quality_score.isnot(None),
+                    LearningBatch.processed_messages > 0
+                ).order_by(desc(LearningBatch.start_time)).limit(30)
 
-                # 获取审核状态统计
-                stats = await repo.get_statistics()
+                if group_id:
+                    query = query.where(LearningBatch.group_id == group_id)
 
-                return {
-                    'total_reviews': stats.get('total', 0),
-                    'approved': stats.get('approved', 0),
-                    'rejected': stats.get('rejected', 0),
-                    'pending': stats.get('pending', 0),
-                    'group_id': group_id
-                }
+                result = await session.execute(query)
+                batches = result.scalars().all()
+
+                progress_data = []
+                for batch in batches:
+                    progress_data.append({
+                        'group_id': batch.group_id,
+                        'timestamp': batch.start_time or 0,
+                        'quality_score': batch.quality_score or 0,
+                        'success': batch.success if batch.success is not None else True,
+                        'processed_messages': batch.processed_messages or 0,
+                        'filtered_count': batch.filtered_count or 0,
+                        'batch_name': batch.batch_name or '',
+                        'message_count': batch.message_count or 0
+                    })
+
+                logger.debug(f"[SQLAlchemy] get_style_progress_data 获取到 {len(progress_data)} 行数据")
+                return progress_data
 
         except Exception as e:
             logger.error(f"[SQLAlchemy] 获取风格进度数据失败: {e}", exc_info=True)
-            return {'total_reviews': 0, 'approved': 0, 'rejected': 0, 'pending': 0, 'group_id': group_id}
+            return []
 
     async def save_raw_message(self, message_data) -> int:
         """

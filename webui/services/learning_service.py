@@ -60,7 +60,7 @@ class LearningService:
 
                 # 获取进度数据（保持原有逻辑）
                 real_progress = await self.db_manager.get_style_progress_data()
-                if real_progress:
+                if real_progress and isinstance(real_progress, list):
                     results_data['style_progress'] = real_progress
             except Exception as e:
                 logger.warning(f"无法从数据库获取风格学习数据: {e}", exc_info=True)
