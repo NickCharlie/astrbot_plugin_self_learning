@@ -8,6 +8,49 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-1.2.0] - 2026-02-18
+
+### 🔥 关键修复
+
+#### WebUI 跨线程数据库访问崩溃 (Critical)
+- **根因**：WebUI 运行在独立线程的独立事件循环中，调用 legacy `get_db_connection()` 时触发 `RuntimeError: Task got Future attached to a different loop`
+- **修复**：为 `DatabaseEngine` 实现按事件循环隔离的引擎池，非主线程自动创建独立 SQLAlchemy 引擎（NullPool），WebUI 的所有数据库操作改用 ORM
+
+#### 强化学习保存 TypeError (Critical)
+- **根因**：ORM Repository 层将 dict/list 直接赋给 Text 列，触发 `TypeError: dict can not be used as parameter`
+- **修复**：在 `ReinforcementLearningRepository`、`PersonaFusionRepository`、`StrategyOptimizationRepository` 中添加 `json.dumps()` 序列化
+
+#### 黑话学习无法保存数据
+- **根因**：`insert_jargon`/`update_jargon`/`get_jargon` 未在 `SQLAlchemyDatabaseManager` 中实现，通过 `__getattr__` 委托给 legacy 代码，datetime 对象与 BigInteger 列类型不兼容导致静默失败
+- **修复**：在 `SQLAlchemyDatabaseManager` 中实现 ORM 版本的三个黑话 CRUD 方法，自动处理时间戳类型转换
+
+### 🔧 重构
+
+#### WebUI 全面 ORM 迁移
+- 替换 `webui.py` 中全部 10 处 `get_db_connection()` 原始 SQL 为 ORM 查询
+- 涉及路由：`relearn_all`、`get_groups_info`、`analyze_all_groups`、`style_learning_all`、`expression_patterns`、`clear_group_social_relations`、`toggle_jargon_global` 等
+
+#### ML 分析器 ORM 迁移
+- 替换 `ml_analyzer.py` 中 3 处 `get_db_connection()` 为 ORM 查询
+- `_get_user_messages`、`_get_recent_group_messages`、`_get_most_active_users` 改用 `RawMessage` ORM 模型
+
+#### 强化学习方法 ORM 实现
+- 在 `SQLAlchemyDatabaseManager` 新增 10 个 ORM 方法，拦截原本会委托给 legacy 的调用
+- 包括：`get_learning_history_for_reinforcement`、`save_reinforcement_learning_result`、`get_persona_fusion_history`、`save_persona_fusion_result`、`get_learning_performance_history`、`save_learning_performance_record`、`save_strategy_optimization_result`、`get_messages_for_replay`、`get_message_statistics`
+
+### 📝 其他
+- 新增 `CONTRIBUTING.md`，规范 Conventional Commits 提交格式
+- 新增 PR 提交信息 lint CI
+- 登录界面适配移动端（@Radiant303）
+- 精简 metadata.yaml 描述
+- 更新版本号至 Next-1.2.0
+
+### 📊 统计
+- **变更文件**：main.py、webui.py、ml_analyzer.py、sqlalchemy_database_manager.py、reinforcement_repository.py、engine.py
+- **新增约 500 行 ORM 代码**，替代 legacy raw SQL 调用
+
+---
+
 ## [Next-1.1.9] - 2026-02-17
 
 ### 🔥 关键修复
