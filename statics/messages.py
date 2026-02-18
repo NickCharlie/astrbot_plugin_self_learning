@@ -360,6 +360,75 @@ class SQLQueries:
     '''
 
 
+# ============================================================
+# 更新类型常量和辅助函数（用于人格审查服务的统一类型标准化）
+# ============================================================
+
+UPDATE_TYPE_STYLE_LEARNING = 'style_learning'
+UPDATE_TYPE_PERSONA_LEARNING = 'persona_learning'
+UPDATE_TYPE_PROGRESSIVE_LEARNING = 'progressive_learning'
+UPDATE_TYPE_EXPRESSION_LEARNING = 'expression_learning'
+
+
+def normalize_update_type(raw_type: str) -> str:
+    """
+    标准化更新类型名称
+
+    Args:
+        raw_type: 原始更新类型字符串
+
+    Returns:
+        标准化后的更新类型
+    """
+    if not raw_type:
+        return 'unknown'
+
+    raw_lower = raw_type.lower().strip()
+
+    # 风格学习相关
+    if any(k in raw_lower for k in ['style', 'few_shot', 'few-shot', 'fewshot']):
+        return UPDATE_TYPE_STYLE_LEARNING
+
+    # 表达学习相关
+    if any(k in raw_lower for k in ['expression', '表达']):
+        return UPDATE_TYPE_EXPRESSION_LEARNING
+
+    # 渐进式学习相关
+    if any(k in raw_lower for k in ['progressive', '渐进']):
+        return UPDATE_TYPE_PROGRESSIVE_LEARNING
+
+    # 人格学习相关（兜底）
+    if any(k in raw_lower for k in ['persona', 'learning', '人格', '学习']):
+        return UPDATE_TYPE_PERSONA_LEARNING
+
+    return raw_type
+
+
+def get_review_source_from_update_type(raw_type: str) -> str:
+    """
+    根据更新类型获取审查来源分类
+
+    Args:
+        raw_type: 原始更新类型字符串
+
+    Returns:
+        审查来源: 'style_learning', 'persona_learning', 或 'traditional'
+    """
+    normalized = normalize_update_type(raw_type)
+
+    if normalized == UPDATE_TYPE_STYLE_LEARNING:
+        return 'style_learning'
+
+    if normalized in (
+        UPDATE_TYPE_PERSONA_LEARNING,
+        UPDATE_TYPE_PROGRESSIVE_LEARNING,
+        UPDATE_TYPE_EXPRESSION_LEARNING,
+    ):
+        return 'persona_learning'
+
+    return 'traditional'
+
+
 class TerminateMessages:
     """插件卸载相关消息"""
     LEARNING_SCHEDULER_STOP = "停止学习调度器"
