@@ -31,6 +31,11 @@ from ..repositories import (
     SocialRelationComponentRepository,
     SocialRelationHistoryRepository,
 )
+from ..repositories.reinforcement_repository import (
+    ReinforcementLearningRepository,
+    PersonaFusionRepository,
+    StrategyOptimizationRepository,
+)
 
 
 class SQLAlchemyDatabaseManager:
@@ -1073,6 +1078,219 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}")
             raise RuntimeError(f"无法获取消息统计: {e}") from e
+
+    # ============================================================
+    # 强化学习 / 人格融合 / 策略优化 / 性能记录（ORM 实现）
+    # ============================================================
+
+    async def get_learning_history_for_reinforcement(self, group_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取用于强化学习的历史数据（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ..models.orm.performance import LearningPerformanceHistory
+
+                stmt = (
+                    select(LearningPerformanceHistory)
+                    .where(LearningPerformanceHistory.group_id == group_id)
+                    .order_by(desc(LearningPerformanceHistory.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [
+                    {
+                        'timestamp': row.timestamp,
+                        'quality_score': row.quality_score or 0.0,
+                        'success': bool(row.success),
+                        'successful_pattern': row.successful_pattern or '',
+                        'failed_pattern': row.failed_pattern or ''
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取强化学习历史数据失败: {e}")
+            return []
+
+    async def save_reinforcement_learning_result(self, group_id: str, result_data: Dict[str, Any]) -> bool:
+        """保存强化学习结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = ReinforcementLearningRepository(session)
+                return await repo.save_reinforcement_result(group_id, result_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存强化学习结果失败: {e}")
+            return False
+
+    async def get_persona_fusion_history(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """获取人格融合历史（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = PersonaFusionRepository(session)
+                return await repo.get_fusion_history(group_id, limit)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取人格融合历史失败: {e}")
+            return []
+
+    async def save_persona_fusion_result(self, group_id: str, fusion_data: Dict[str, Any]) -> bool:
+        """保存人格融合结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = PersonaFusionRepository(session)
+                return await repo.save_fusion_result(group_id, fusion_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存人格融合结果失败: {e}")
+            return False
+
+    async def get_learning_performance_history(self, group_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+        """获取学习性能历史数据（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ..models.orm.performance import LearningPerformanceHistory
+
+                stmt = (
+                    select(LearningPerformanceHistory)
+                    .where(LearningPerformanceHistory.group_id == group_id)
+                    .order_by(desc(LearningPerformanceHistory.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [
+                    {
+                        'session_id': row.session_id,
+                        'timestamp': row.timestamp,
+                        'quality_score': row.quality_score or 0.0,
+                        'learning_time': row.learning_time or 0.0,
+                        'success': bool(row.success)
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取学习性能历史失败: {e}")
+            return []
+
+    async def save_learning_performance_record(self, group_id: str, performance_data: Dict[str, Any]) -> bool:
+        """保存学习性能记录（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from ..models.orm.performance import LearningPerformanceHistory
+
+                record = LearningPerformanceHistory(
+                    group_id=group_id,
+                    session_id=performance_data.get('session_id', ''),
+                    timestamp=int(performance_data.get('timestamp', time.time())),
+                    quality_score=performance_data.get('quality_score', 0.0),
+                    learning_time=performance_data.get('learning_time', 0.0),
+                    success=performance_data.get('success', False),
+                    successful_pattern=performance_data.get('successful_pattern', ''),
+                    failed_pattern=performance_data.get('failed_pattern', ''),
+                    created_at=int(time.time())
+                )
+                session.add(record)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存学习性能记录失败: {e}")
+            return False
+
+    async def save_strategy_optimization_result(self, group_id: str, optimization_data: Dict[str, Any]) -> bool:
+        """保存策略优化结果（ORM）"""
+        try:
+            async with self.get_session() as session:
+                repo = StrategyOptimizationRepository(session)
+                return await repo.save_optimization_result(group_id, optimization_data)
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 保存策略优化结果失败: {e}")
+            return False
+
+    async def get_messages_for_replay(self, group_id: str, days: int = 30, limit: int = 100) -> List[Dict[str, Any]]:
+        """获取用于记忆重放的消息（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc, and_
+                from ..models.orm import RawMessage
+
+                cutoff_time = time.time() - (days * 24 * 3600)
+
+                stmt = (
+                    select(RawMessage)
+                    .where(and_(
+                        RawMessage.group_id == group_id,
+                        RawMessage.timestamp > cutoff_time,
+                        RawMessage.processed == True
+                    ))
+                    .order_by(desc(RawMessage.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                messages = result.scalars().all()
+
+                return [
+                    {
+                        'message_id': msg.id,
+                        'message': msg.message,
+                        'sender_id': msg.sender_id,
+                        'group_id': msg.group_id,
+                        'timestamp': msg.timestamp
+                    }
+                    for msg in messages
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取记忆重放消息失败: {e}")
+            return []
+
+    async def get_message_statistics(self, group_id: str = None) -> Dict[str, Any]:
+        """获取消息统计信息（ORM，兼容 webui.py 的调用）"""
+        if not group_id:
+            return await self.get_messages_statistics()
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func, and_
+                from ..models.orm import RawMessage, FilteredMessage
+
+                # 总消息数
+                total_stmt = select(func.count()).select_from(RawMessage).where(
+                    RawMessage.group_id == group_id
+                )
+                total_result = await session.execute(total_stmt)
+                total_messages = total_result.scalar() or 0
+
+                # 未处理消息数
+                unprocessed_stmt = select(func.count()).select_from(RawMessage).where(and_(
+                    RawMessage.group_id == group_id,
+                    RawMessage.processed == False
+                ))
+                unprocessed_result = await session.execute(unprocessed_stmt)
+                unprocessed_messages = unprocessed_result.scalar() or 0
+
+                # 筛选消息数
+                filtered_stmt = select(func.count()).select_from(FilteredMessage).where(
+                    FilteredMessage.group_id == group_id
+                )
+                filtered_result = await session.execute(filtered_stmt)
+                filtered_messages = filtered_result.scalar() or 0
+
+                return {
+                    'total_messages': total_messages,
+                    'unprocessed_messages': unprocessed_messages,
+                    'filtered_messages': filtered_messages,
+                    'raw_messages': total_messages,
+                    'group_id': group_id
+                }
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取消息统计失败: {e}")
+            return {
+                'total_messages': 0,
+                'unprocessed_messages': 0,
+                'filtered_messages': 0,
+                'raw_messages': 0,
+                'group_id': group_id
+            }
 
     async def get_all_expression_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         """
