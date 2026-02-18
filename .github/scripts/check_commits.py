@@ -51,7 +51,8 @@ def github_api(endpoint: str, method: str = "GET", data: dict | None = None):
         method=method,
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read())
+        body = resp.read()
+        return json.loads(body) if body else None
 
 
 def get_pr_commits() -> list[dict]:
