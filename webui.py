@@ -1471,6 +1471,27 @@ async def review_persona_update(update_id: str):
                                     if success_apply:
                                         logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已成功应用到人格（使用框架API方式）")
                                         message = f"人格学习审查 {persona_learning_review_id} 已批准并应用到人格"
+
+                                        # 自动应用到框架默认人格
+                                        if plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False) and persona_manager:
+                                            try:
+                                                group_id = review_data.get('group_id', 'default')
+                                                umo = _resolve_umo(group_id)
+                                                current_persona = await persona_manager.get_default_persona_v3(umo)
+                                                if current_persona:
+                                                    p_name = current_persona.get('name', 'default')
+                                                    logger.info(f"[自动应用] 准备更新默认人格 [{p_name}]，内容长度: {len(content_to_apply)}")
+                                                    await persona_manager.update_persona(
+                                                        persona_id=p_name,
+                                                        system_prompt=content_to_apply
+                                                    )
+                                                    logger.info(f"[自动应用] 已将人格学习审查内容应用到默认人格 [{p_name}]")
+                                                    message += f"，已自动应用到默认人格 [{p_name}]"
+                                                else:
+                                                    logger.warning("[自动应用] 无法获取当前默认人格")
+                                            except Exception as auto_err:
+                                                logger.error(f"[自动应用] 应用到默认人格失败: {auto_err}", exc_info=True)
+                                                message += f"，但自动应用到默认人格失败: {str(auto_err)}"
                                     else:
                                         logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但应用失败")
                                         message = f"人格学习审查 {persona_learning_review_id} 已批准，但人格应用失败"
@@ -2807,6 +2828,27 @@ async def approve_style_learning_review(review_id: int):
                         if success_apply:
                             logger.info(f"✅ 风格学习审查 {review_id} 已成功应用到人格（使用框架API方式，包含备份）")
                             message = f'风格学习审查 {review_id} 已批准并应用到人格'
+
+                            # 自动应用到框架默认人格
+                            if plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False) and persona_manager:
+                                try:
+                                    group_id = target_review.get('group_id', 'default')
+                                    umo = _resolve_umo(group_id)
+                                    current_persona = await persona_manager.get_default_persona_v3(umo)
+                                    if current_persona:
+                                        p_name = current_persona.get('name', 'default')
+                                        logger.info(f"[自动应用] 准备更新默认人格 [{p_name}]，内容长度: {len(persona_update_content)}")
+                                        await persona_manager.update_persona(
+                                            persona_id=p_name,
+                                            system_prompt=persona_update_content
+                                        )
+                                        logger.info(f"[自动应用] 已将风格学习审查内容应用到默认人格 [{p_name}]")
+                                        message += f'，已自动应用到默认人格 [{p_name}]'
+                                    else:
+                                        logger.warning("[自动应用] 无法获取当前默认人格")
+                                except Exception as auto_err:
+                                    logger.error(f"[自动应用] 应用到默认人格失败: {auto_err}", exc_info=True)
+                                    message += f'，但自动应用到默认人格失败: {str(auto_err)}'
                         else:
                             logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但应用失败")
                             message = f'风格学习审查 {review_id} 已批准，但人格应用失败'
