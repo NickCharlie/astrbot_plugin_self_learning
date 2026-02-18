@@ -21,7 +21,7 @@
     </div>
 
     <div class="login-page">
-        <div class="login-card" id="login-container" style="display:flex;flex-direction:column;align-items:center;">
+        <div class="login-card" id="login-container" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;">
             <!-- Logo -->
             <div class="logo-section">
                 <div class="logo-icon">
@@ -32,7 +32,7 @@
             </div>
 
             <!-- Card form area -->
-            <div class="card card-blurred" style="padding:24px;">
+            <div class="card card-blurred" style="padding:24px;width:100%;box-sizing:border-box;">
                 <!-- Messages -->
                 <div id="errorMessage" class="error-message" style="display:none;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:13px;"></div>
                 <div id="successMessage" class="success-message" style="display:none;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:13px;"></div>
@@ -50,7 +50,7 @@
                                placeholder="请输入登录密码" required autocomplete="current-password">
                     </div>
 
-                    <button type="submit" class="btn btn-default btn-lg" id="submitBtn"
+                    <button type="submit" class="btn btn-default" id="submitBtn"
                             style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
                         <div class="loading-spinner" id="loadingSpinner" style="display:none;width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>
                         <span id="btnText">登录</span>
@@ -62,15 +62,6 @@
                     <i class="material-icons" style="font-size:16px;color:var(--modder-text-tertiary-label);">shield</i>
                     <span>请确保在安全环境中使用</span>
                 </div>
-            </div>
-
-            <!-- Footer -->
-            <div class="login-footer">
-                <a href="#" style="color:var(--modder-text-accent-primary);font-size:13px;">帮助文档</a>
-                <span style="color:var(--modder-text-tertiary-label);margin:0 8px;">·</span>
-                <a href="#" style="color:var(--modder-text-accent-primary);font-size:13px;">技术支持</a>
-                <span style="color:var(--modder-text-tertiary-label);margin:0 8px;">·</span>
-                <a href="#" style="color:var(--modder-text-accent-primary);font-size:13px;">安全中心</a>
             </div>
         </div>
     </div>
