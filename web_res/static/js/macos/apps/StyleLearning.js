@@ -517,7 +517,11 @@ window.AppStyleLearning = {
       if (!chart) return;
 
       var data = this.styleResults;
-      if (!data.style_progress || data.style_progress.length === 0) {
+      if (
+        !data.style_progress ||
+        !Array.isArray(data.style_progress) ||
+        data.style_progress.length === 0
+      ) {
         chart.setOption(this.emptyOption("暂无风格学习数据"), true);
         return;
       }
