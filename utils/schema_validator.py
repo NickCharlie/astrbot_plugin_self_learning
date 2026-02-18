@@ -428,7 +428,9 @@ class SchemaValidator:
 
         # SQLAlchemy类型 -> SQL类型
         if self.db_type == 'sqlite':
-            if 'INTEGER' in col_type_str or 'INT' in col_type_str:
+            if 'BOOLEAN' in col_type_str:
+                return 'INTEGER'
+            elif 'INTEGER' in col_type_str or 'INT' in col_type_str:
                 return 'INTEGER'
             elif 'FLOAT' in col_type_str or 'REAL' in col_type_str:
                 return 'REAL'
@@ -442,7 +444,9 @@ class SchemaValidator:
                 return 'TEXT'
 
         elif self.db_type == 'mysql':
-            if 'INTEGER' in col_type_str:
+            if 'BOOLEAN' in col_type_str:
+                return 'TINYINT(1)'
+            elif 'INTEGER' in col_type_str:
                 return 'INT'
             elif 'BIGINT' in col_type_str:
                 return 'BIGINT'
@@ -471,10 +475,10 @@ class SchemaValidator:
 
         if isinstance(default_value, str):
             return f" DEFAULT '{default_value}'"
-        elif isinstance(default_value, (int, float)):
-            return f" DEFAULT {default_value}"
         elif isinstance(default_value, bool):
             return f" DEFAULT {1 if default_value else 0}"
+        elif isinstance(default_value, (int, float)):
+            return f" DEFAULT {default_value}"
 
         return ""
 
