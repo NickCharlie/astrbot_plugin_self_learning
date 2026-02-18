@@ -1,0 +1,447 @@
+/*
+ * ModderUI - iOS Mode Styles
+ * This file overrides/augments modder-ui.css for a distinct iOS aesthetic.
+ * Version: 1.0.0
+ * Author: Your Name/Modder
+ * License: MIT
+ */
+
+/* ========================================= */
+/* Overrides for iOS Mode                    */
+/* Applied when body[data-mode="ios"]        */
+/* ========================================= */
+
+body[data-mode="ios"] {
+    /* Base colors for iOS mode */
+    --modder-text-label: #000000;
+    --modder-text-secondary-label: #3c3c4399; /* rgba(60,60,67,0.6) */
+    --modder-text-tertiary-label: #3c3c434d;  /* rgba(60,60,67,0.3) */
+    --modder-text-accent-primary: #007aff;
+    --modder-text-accent-red: #ff3b30;
+
+    --modder-bg-page: #f2f2f7; /* iOS System Background (Light) */
+    --modder-bg-card: #ffffff; /* Card/grouped section background */
+    --modder-bg-separator: #c6c6c8; /* iOS System Separator */
+    --modder-bg-input-fill: #ffffff; /* Input background often white in iOS */
+    --modder-bg-accent-primary: #007aff;
+    --modder-bg-accent-red: #ff3b30;
+
+    --modder-border-color: #ededed; /* Default border color for thin lines */
+
+    /* Blurring overrides */
+    --modder-backdrop-light-base: rgba(255, 255, 255, 0.9);
+    --modder-backdrop-dark-base: rgba(18, 18, 18, 0.75); /* Not typically used in iOS light mode, but for consistency */
+
+    /* Apply base colors */
+    color: var(--modder-text-label);
+    background-color: var(--modder-bg-page);
+}
+
+/* Dark mode overrides for iOS mode */
+body[data-mode="ios"][data-theme='dark'] {
+    --modder-text-label: #f0f0f0;
+    --modder-text-secondary-label: #ebebf599;
+    --modder-text-tertiary-label: #ebebf54d;
+    --modder-text-accent-primary: #0a84ff; /* Lighter blue for dark mode iOS */
+    --modder-text-accent-red: #ff453a;     /* Lighter red for dark mode iOS */
+
+    --modder-bg-page: #000000; /* True black background in dark mode iOS */
+    --modder-bg-card: #1c1c1e; /* Darker card background */
+    --modder-bg-separator: #48484a; /* Dark separator */
+    --modder-bg-input-fill: #2c2c2e; /* Dark input fill */
+    --modder-bg-accent-primary: #0a84ff;
+    --modder-bg-accent-red: #ff453a;
+
+    --modder-border-color: #333333;
+}
+
+
+/* Apply theme colors using variables */
+.text-label { color: var(--modder-text-label); }
+.text-secondary-label { color: var(--modder-text-secondary-label); }
+.text-tertiary-label { color: var(--modder-text-tertiary-label); }
+.text-accent-primary { color: var(--modder-text-accent-primary); }
+.text-accent-red { color: var(--modder-text-accent-red); }
+.text-link { color: var(--modder-text-accent-primary); }
+
+.bg-page { background-color: var(--modder-bg-page); }
+.bg-card { background-color: var(--modder-bg-card); }
+.bg-separator { background-color: var(--modder-bg-separator); }
+.bg-input-fill { background-color: var(--modder-bg-input-fill); }
+.bg-accent-primary { background-color: var(--modder-bg-accent-primary); }
+.bg-accent-red { background-color: var(--modder-bg-accent-red); }
+
+.border-thin { border-color: var(--modder-border-color); }
+.border { border-color: var(--modder-border-color); }
+
+/* Transparent backgrounds for blur effects in iOS mode */
+.backdrop-light-base { background-color: var(--modder-backdrop-light-base); }
+.backdrop-dark-base { background-color: var(--modder-backdrop-dark-base); }
+
+
+/* Component Overrides for iOS Mode */
+
+/* Buttons */
+body[data-mode="ios"] .btn {
+    border-radius: 0.625rem; /* 10px, more rounded iOS */
+    font-weight: 400; /* Normal weight for default text buttons */
+    box-shadow: none; /* No default shadow */
+    min-height: 2.75rem; /* 44px standard iOS button height */
+    padding: 0.5rem 1rem;
+}
+body[data-mode="ios"] .btn:hover {
+    transform: none; /* No lift on hover in iOS */
+    filter: brightness(1.05); /* Subtle brightness change */
+    box-shadow: none;
+}
+body[data-mode="ios"] .btn:active {
+    filter: brightness(0.9);
+    transform: none; /* No translation on active */
+}
+
+body[data-mode="ios"] .btn-default { /* iOS Filled Button (Primary) */
+    background-color: var(--modder-bg-accent-primary);
+    color: #ffffff;
+    border: none;
+    box-shadow: none;
+}
+body[data-mode="ios"] .btn-default:hover { background-color: var(--modder-text-accent-primary); filter: brightness(1.05); }
+body[data-mode="ios"][data-theme='dark'] .btn-default:hover { background-color: var(--modder-text-accent-primary); filter: brightness(1.05); }
+
+body[data-mode="ios"] .btn-outline { /* iOS Bordered Button */
+    background-color: transparent;
+    border: 1px solid var(--modder-text-accent-primary);
+    color: var(--modder-text-accent-primary);
+    box-shadow: none;
+}
+body[data-mode="ios"] .btn-outline:hover { background-color: rgba(0, 122, 255, 0.05); filter: none; }
+body[data-mode="ios"][data-theme='dark'] .btn-outline:hover { background-color: rgba(72, 138, 255, 0.08); }
+
+
+body[data-mode="ios"] .btn-secondary { /* iOS Gray Button */
+    background-color: #e0e0e0; /* Fixed light gray for consistent look */
+    color: var(--modder-text-label);
+    border: none;
+    box-shadow: none;
+}
+body[data-mode="ios"][data-theme='dark'] .btn-secondary { background-color: #3a3a3c; color: var(--modder-text-label); } /* Dark gray for dark mode */
+body[data-mode="ios"] .btn-secondary:hover { background-color: #d1d1d6; filter: none; }
+body[data-mode="ios"][data-theme='dark'] .btn-secondary:hover { background-color: #48484a; }
+
+
+body[data-mode="ios"] .btn-ghost { /* iOS Tinted Button (Text-only) */
+    background-color: transparent;
+    border: none;
+    color: var(--modder-text-accent-primary);
+    padding: 0.5rem 0.75rem; /* Match iOS touch target more closely */
+    min-height: auto;
+    font-weight: 400;
+    box-shadow: none;
+    text-decoration: none;
+}
+body[data-mode="ios"] .btn-ghost:hover { text-decoration: underline; background-color: transparent; transform: none; filter: none; }
+body[data-mode="ios"] .btn-ghost:active { color: var(--modder-text-accent-primary); filter: brightness(0.8); }
+
+body[data-mode="ios"] .btn-link { /* Remove link specific styles if not needed, use btn-ghost */
+    text-decoration: none;
+    font-weight: 400;
+    color: var(--modder-text-accent-primary);
+    padding: 0;
+    min-height: auto;
+}
+body[data-mode="ios"] .btn-link:hover { text-decoration: underline; }
+body[data-mode="ios"] .btn-link:active { filter: brightness(0.8); }
+
+
+body[data-mode="ios"] .btn-destructive {
+    background-color: var(--modder-bg-accent-red);
+    color: #ffffff;
+    border: none;
+    box-shadow: none;
+}
+body[data-mode="ios"] .btn-destructive:hover { background-color: var(--modder-text-accent-red); filter: brightness(1.05); }
+
+
+/* Card Components */
+body[data-mode="ios"] .card {
+    border-radius: 0.625rem; /* 10px, iOS default */
+    box-shadow: none; /* No shadow by default in iOS for cards */
+    border: none; /* No default border */
+    background-color: var(--modder-bg-card);
+}
+body[data-mode="ios"] .card-blurred {
+    background-color: rgba(255, 255, 255, 0.8); /* Stronger blur transparency */
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: none;
+    box-shadow: none;
+}
+body[data-mode="ios"][data-theme='dark'] .card-blurred {
+    background-color: rgba(30, 30, 30, 0.8);
+}
+body[data-mode="ios"] .card-dark-blurred {
+    background-color: rgba(0, 0, 0, 0.6); /* More transparent black */
+    color: #ffffff;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: none;
+    box-shadow: none;
+}
+
+/* Form Input */
+body[data-mode="ios"] .form-input-group {
+    border-radius: 0.625rem; /* 10px, more rounded */
+    border: 1px solid var(--modder-bg-separator); /* iOS style separator border */
+    background-color: var(--modder-bg-input-fill);
+}
+body[data-mode="ios"] .form-input-group:focus-within {
+    border-color: var(--modder-text-accent-primary);
+    box-shadow: none; /* No shadow on focus, just border */
+}
+body[data-mode="ios"] .form-input-group .form-input {
+    color: var(--modder-text-label);
+}
+body[data-mode="ios"] .form-input-group .form-input::placeholder {
+    color: var(--modder-text-tertiary-label);
+}
+body[data-mode="ios"] .form-input-icon {
+    color: var(--modder-text-tertiary-label);
+}
+body[data-mode="ios"] .form-input-clear-btn {
+    color: var(--modder-text-tertiary-label);
+}
+
+
+/* Toggle Switch */
+body[data-mode="ios"] .modder-switch {
+    width: 50px;
+    height: 30px;
+}
+body[data-mode="ios"] .modder-switch .slider {
+    background-color: #e5e5ea; /* iOS default gray off */
+}
+body[data-mode="ios"][data-theme='dark'] .modder-switch .slider { background-color: #3a3a3c; } /* Dark iOS gray off */
+
+body[data-mode="ios"] .modder-switch .slider:before {
+    height: 26px;
+    width: 26px;
+    left: 2px;
+    bottom: 2px;
+}
+body[data-mode="ios"] .modder-switch input:checked + .slider {
+    background-color: #34c759; /* iOS Green on */
+}
+body[data-mode="ios"] .modder-switch input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+
+/* Navigation Bar */
+body[data-mode="ios"] .navbar {
+    height: 44px; /* Standard iOS height */
+    padding: 0 1rem;
+    border-bottom: 0.5px solid var(--modder-bg-separator);
+    background-color: var(--modder-backdrop-light-base); /* Blurred */
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+body[data-mode="ios"][data-theme='dark'] .navbar {
+    background-color: var(--modder-backdrop-dark-base);
+    border-bottom-color: rgba(255,255,255,0.08);
+}
+
+body[data-mode="ios"] .navbar-title {
+    color: var(--modder-text-label);
+    font-weight: 600; /* Semibold */
+}
+body[data-mode="ios"] .navbar .btn-ghost {
+    color: var(--modder-text-accent-primary);
+    font-weight: 400;
+    padding: 0.5rem; /* Larger tap target area */
+}
+body[data-mode="ios"] .navbar .btn-ghost:hover { background-color: rgba(0,0,0,0.03); }
+body[data-mode="ios"][data-theme='dark'] .navbar .btn-ghost:hover { background-color: rgba(255,255,255,0.05); }
+
+
+/* Large Title Navigation Bar */
+body[data-mode="ios"] .navbar-large-title {
+    padding: 0.5rem 1.25rem 0.5rem; /* 8px 20px 8px */
+    background-color: var(--modder-bg-page);
+    border-bottom: none; /* iOS large titles often don't have bottom border */
+}
+body[data-mode="ios"] .navbar-large-title .large-title {
+    font-size: 2.75rem; /* 44px, true iOS Large Title */
+    font-weight: 700;
+    color: var(--modder-text-label);
+}
+
+/* Alert Component */
+body[data-mode="ios"] .alert {
+    border-radius: 0.8125rem; /* 13px, iOS default */
+    text-align: center; /* Center text in alerts */
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    background-color: rgba(255, 255, 255, 0.95); /* Near opaque white */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+}
+body[data-mode="ios"][data-theme='dark'] .alert { background-color: rgba(30, 30, 30, 0.95); }
+
+body[data-mode="ios"] .alert-title {
+    font-weight: 600; /* Semibold */
+    color: var(--modder-text-label);
+}
+body[data-mode="ios"] .alert-message {
+    font-size: 0.8125rem; /* Footnote */
+    color: var(--modder-text-secondary-label);
+}
+body[data-mode="ios"] .alert-buttons {
+    border-top: 0.5px solid rgba(0, 0, 0, 0.1);
+}
+body[data-mode="ios"][data-theme='dark'] .alert-buttons { border-top-color: rgba(255,255,255,0.1); }
+
+body[data-mode="ios"] .alert-button {
+    font-weight: 400;
+    color: var(--modder-text-accent-primary);
+}
+body[data-mode="ios"] .alert-button:first-child:not(:last-child) { border-right: 0.5px solid rgba(0,0,0,0.1); }
+body[data-mode="ios"][data-theme='dark'] .alert-button:first-child:not(:last-child) { border-right-color: rgba(255,255,255,0.1); }
+
+
+body[data-mode="ios"] .alert-button.destructive { color: var(--modder-text-accent-red); }
+body[data-mode="ios"] .alert-button.bold { font-weight: 600; }
+
+/* Action Sheet */
+body[data-mode="ios"] .action-sheet {
+    border-top-left-radius: 1.5rem; /* 24px */
+    border-top-right-radius: 1.5rem;
+    padding: 1.5rem;
+    background-color: var(--modder-bg-page);
+}
+body[data-mode="ios"][data-theme='dark'] .action-sheet { background-color: var(--modder-bg-card); } /* Dark mode has action sheet on bg-card */
+
+body[data-mode="ios"] .action-sheet-group {
+    background-color: var(--modder-bg-card);
+    border-radius: 0.625rem; /* 10px */
+    box-shadow: none; /* No shadow for groups */
+}
+body[data-mode="ios"] .action-sheet-item {
+    font-weight: 400;
+    color: var(--modder-text-accent-primary);
+    border-bottom: 0.5px solid rgba(0, 0, 0, 0.08);
+}
+body[data-mode="ios"][data-theme='dark'] .action-sheet-item { border-bottom-color: rgba(255,255,255,0.08); }
+
+body[data-mode="ios"] .action-sheet-item.destructive { color: var(--modder-text-accent-red); }
+body[data-mode="ios"] .action-sheet-item.bold { font-weight: 600; }
+body[data-mode="ios"] .action-sheet-cancel {
+    background-color: var(--modder-bg-card);
+    font-weight: 600;
+    box-shadow: none;
+}
+
+
+/* List Rows */
+body[data-mode="ios"] .list-row {
+    min-height: 44px;
+    padding: 0.8125rem 1.25rem; /* 13px 20px */
+    background-color: var(--modder-bg-card);
+    border-bottom: 0.5px solid var(--modder-bg-separator);
+    color: var(--modder-text-label);
+}
+body[data-mode="ios"] .list-row-title { font-size: 1.0625rem; }
+body[data-mode="ios"] .list-row-detail { color: var(--modder-text-secondary-label); font-size: 1.0625rem; }
+body[data-mode="ios"] .list-row-accessory { color: var(--modder-text-tertiary-label); }
+
+body[data-mode="ios"] .list-group {
+    border-radius: 0.625rem; /* 10px */
+    box-shadow: none; /* No shadow */
+    border: none; /* No border */
+}
+body[data-mode="ios"] .list-group-title {
+    color: var(--modder-text-secondary-label);
+    padding: 0.5rem 1.25rem 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+
+/* Segmented Control */
+body[data-mode="ios"] .segmented-control {
+    background-color: #ededed; /* Fixed light gray for consistent look */
+    border-radius: 0.625rem; /* 10px */
+    box-shadow: none; /* No inner shadow */
+}
+body[data-mode="ios"][data-theme='dark'] .segmented-control { background-color: #3a3a3c; }
+
+body[data-mode="ios"] .segmented-control-item {
+    font-size: 0.9375rem; /* 15px */
+    font-weight: 400;
+    color: var(--modder-text-label);
+    border-radius: 0.5rem; /* 8px */
+}
+body[data-mode="ios"] .segmented-control-item.active {
+    background-color: #ffffff; /* White background for active segment */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); /* Subtle shadow for active segment */
+    font-weight: 500;
+}
+body[data-mode="ios"][data-theme='dark'] .segmented-control-item.active { background-color: #1e1e1e; }
+
+
+/* Progress Indicators */
+body[data-mode="ios"] .progress-bar-linear-fill { background-color: #34c759; } /* iOS Green for progress */
+body[data-mode="ios"] .progress-bar-circular { border-top-color: #34c759; }
+
+
+/* Search Bar (Specific to iOS Nav Bar search) */
+body[data-mode="ios"] .search-bar {
+    background-color: #e5e5ea; /* iOS search bar default light gray */
+    border-radius: 0.625rem; /* 10px */
+}
+body[data-mode="ios"][data-theme='dark'] .search-bar { background-color: #2c2c2e; }
+
+body[data-mode="ios"] .search-bar-input { color: var(--modder-text-label); }
+body[data-mode="ios"] .search-bar-input::placeholder { color: var(--modder-text-tertiary-label); }
+body[data-mode="ios"] .search-bar-icon { color: var(--modder-text-tertiary-label); }
+
+
+/* Context Menu */
+body[data-mode="ios"] .context-menu {
+    border-radius: 0.75rem; /* 12px */
+    background-color: rgba(255, 255, 255, 0.9);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+body[data-mode="ios"][data-theme='dark'] .context-menu { background-color: rgba(30, 30, 30, 0.9); }
+
+body[data-mode="ios"] .context-menu-item { color: var(--modder-text-label); }
+body[data-mode="ios"] .context-menu-item i { color: var(--modder-text-secondary-label); }
+body[data-mode="ios"] .context-menu-item:hover { background-color: rgba(0, 0, 0, 0.05); }
+body[data-mode="ios"][data-theme='dark'] .context-menu-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+body[data-mode="ios"] .context-menu-item.destructive { color: var(--modder-text-accent-red); }
+
+
+/* Collection View Cell */
+body[data-mode="ios"] .collection-cell {
+    border-radius: 0.625rem; /* 10px */
+    box-shadow: none; /* No shadow */
+    background-color: var(--modder-bg-card);
+    border: none;
+}
+body[data-mode="ios"] .collection-cell:hover { transform: none; box-shadow: none; }
+body[data-mode="ios"] .collection-cell-icon {
+    background-color: #ededed; /* Light gray fill */
+    color: var(--modder-text-accent-primary);
+}
+body[data-mode="ios"][data-theme='dark'] .collection-cell-icon { background-color: #3a3a3c; }
+
+body[data-mode="ios"] .collection-cell-title { color: var(--modder-text-label); }
+
+/* Remove specific Shadcn shadows */
+body[data-mode="ios"] .shadow-xs,
+body[data-mode="ios"] .shadow-sm,
+body[data-mode="ios"] .shadow-md,
+body[data-mode="ios"] .shadow-lg,
+body[data-mode="ios"] .shadow-xl {
+    box-shadow: none !important; /* Remove Shadcn shadows for iOS mode */
+}

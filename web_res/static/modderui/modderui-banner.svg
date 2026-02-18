@@ -1,0 +1,64 @@
+<svg width="1600" height="450" viewBox="0 0 1600 450" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1600" y2="450">
+      <stop offset="0%" stop-color="#02010a"/>
+      <stop offset="50%" stop-color="#0d00a4"/>
+      <stop offset="100%" stop-color="#22007c"/>
+    </linearGradient>
+
+    <!-- Electric glow -->
+    <radialGradient id="glow" cx="75%" cy="30%" r="60%">
+      <stop offset="0%" stop-color="#0d00a4" stop-opacity="1"/>
+      <stop offset="60%" stop-color="transparent"/>
+    </radialGradient>
+
+    <!-- Text gradient -->
+    <linearGradient id="text" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#b8c3ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1600" height="450" fill="url(#bg)"/>
+
+  <!-- Glow ball -->
+  <circle cx="1200" cy="150" r="260" fill="url(#glow)" opacity="0.45"/>
+
+  <!-- Glass card -->
+  <rect x="150" y="80" width="1300" height="300" rx="28"
+        fill="rgba(255,255,255,0.06)"
+        stroke="rgba(255,255,255,0.15)"
+        stroke-width="2"
+        style="backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px);"/>
+
+  <!-- Title -->
+  <text x="230" y="210"
+        font-family="SF Pro Display, Poppins, sans-serif"
+        font-size="64"
+        font-weight="900"
+        fill="url(#text)">
+    MODDERUI ULTIMATE
+  </text>
+
+  <!-- Subtitle -->
+  <text x="230" y="265"
+        font-family="SF Pro Display, Poppins, sans-serif"
+        font-size="28"
+        fill="#c9c9ff"
+        opacity="0.75">
+    Deep Blue Liquid Glass • Version 3.0 • macOS/iOS UI Kit
+  </text>
+
+  <!-- Glow underline -->
+  <rect x="230" y="285" width="480" height="6" rx="3" fill="#0d00a4" opacity="0.8"/>
+
+  <!-- Right side floating orb -->
+  <circle cx="1350" cy="250" r="110"
+          fill="rgba(255,255,255,0.15)"
+          stroke="rgba(255,255,255,0.3)"
+          stroke-width="2"
+          opacity="0.15"/>
+
+</svg>

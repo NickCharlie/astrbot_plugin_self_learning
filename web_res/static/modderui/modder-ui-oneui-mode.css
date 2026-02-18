@@ -1,0 +1,461 @@
+/*
+ * ModderUI - Samsung One UI Mode Styles
+ * This file overrides/augments modder-ui.css for a distinct Samsung One UI aesthetic.
+ * Version: 1.0.0
+ * Author: Your Name/Modder
+ * License: MIT
+ */
+
+/* ========================================= */
+/* Overrides for One UI Mode                 */
+/* Applied when body[data-mode="oneui"]      */
+/* ========================================= */
+
+body[data-mode="oneui"] {
+    /* Base colors for One UI mode (often brighter than iOS but similar concepts) */
+    --modder-text-label: #000000; /* Black */
+    --modder-text-secondary-label: #5f6368; /* Google-like dark grey */
+    --modder-text-tertiary-label: #9aa0a6; /* Lighter grey */
+    --modder-text-accent-primary: #1a73e8; /* Samsung/Google blue */
+    --modder-text-accent-red: #d93025; /* Red */
+
+    --modder-bg-page: #f8f9fa; /* Very light background */
+    --modder-bg-card: #ffffff; /* Pure white cards */
+    --modder-bg-separator: #e0e0e0; /* Light gray separator */
+    --modder-bg-input-fill: #f0f0f0; /* Light input fill */
+    --modder-bg-accent-primary: #1a73e8;
+    --modder-bg-accent-red: #d93025;
+    --modder-bg-overlay: rgba(0,0,0,0.6);
+
+    --modder-border-color: #e0e0e0;
+    --modder-border-thin-color: #e0e0e0;
+
+    --modder-backdrop-light-base: rgba(255, 255, 255, 0.95); /* Less blur, more opaque */
+    --modder-backdrop-dark-base: rgba(32, 33, 36, 0.95); /* Darker, less blur */
+
+    /* Apply base colors */
+    color: var(--modder-text-label);
+    background-color: var(--modder-bg-page);
+}
+
+/* Dark mode overrides for One UI mode */
+body[data-mode="oneui"][data-theme='dark'] {
+    --modder-text-label: #e8eaed; /* Light text for dark mode */
+    --modder-text-secondary-label: #bdc1c6;
+    --modder-text-tertiary-label: #9aa0a6;
+    --modder-text-accent-primary: #8ab4f8; /* Lighter blue for dark mode */
+    --modder-text-accent-red: #f28b82;
+
+    --modder-bg-page: #202124; /* Dark background */
+    --modder-bg-card: #303134; /* Darker cards */
+    --modder-bg-separator: #5f6368; /* Dark separator */
+    --modder-bg-input-fill: #404144; /* Dark input fill */
+    --modder-bg-accent-primary: #8ab4f8;
+    --modder-bg-accent-red: #f28b82;
+    --modder-bg-overlay: rgba(0,0,0,0.8); /* Stronger dark overlay */
+
+    --modder-border-color: #5f6368;
+    --modder-border-thin-color: #5f6368;
+}
+
+
+/* Component Overrides for One UI Mode */
+
+/* Buttons */
+body[data-mode="oneui"] .btn {
+    border-radius: 0.625rem; /* 10px, slightly more rounded than default ModderUI, but less than iOS */
+    font-weight: 500; /* Medium weight */
+    min-height: 2.75rem; /* 44px, standard tap target */
+    padding: 0.75rem 1rem; /* More padding */
+    box-shadow: none; /* One UI buttons usually flat */
+}
+body[data-mode="oneui"] .btn:hover {
+    transform: none;
+    box-shadow: none;
+    filter: brightness(0.95); /* Subtle darken on hover */
+}
+body[data-mode="oneui"] .btn:active {
+    transform: none;
+    filter: brightness(0.9);
+}
+
+body[data-mode="oneui"] .btn-default { /* One UI Filled Button */
+    background-color: var(--modder-bg-accent-primary);
+    color: #ffffff;
+    border: none;
+}
+body[data-mode="oneui"][data-theme='dark'] .btn-default {
+    color: #000000; /* Black text on lighter blue for dark mode */
+}
+
+body[data-mode="oneui"] .btn-outline { /* One UI Outline Button */
+    background-color: transparent;
+    border: 1px solid var(--modder-border-color); /* Subtle border color */
+    color: var(--modder-text-label);
+}
+body[data-mode="oneui"] .btn-outline:hover { background-color: rgba(0, 0, 0, 0.05); } /* Light overlay on hover */
+body[data-mode="oneui"][data-theme='dark'] .btn-outline:hover { background-color: rgba(255, 255, 255, 0.05); }
+
+
+body[data-mode="oneui"] .btn-secondary { /* One UI Secondary (often ghost-like or light fill) */
+    background-color: var(--modder-bg-input-fill);
+    color: var(--modder-text-label);
+    border: none;
+}
+body[data-mode="oneui"] .btn-secondary:hover { background-color: var(--modder-bg-separator); }
+
+
+body[data-mode="oneui"] .btn-ghost { /* One UI Ghost (Text-only) */
+    background-color: transparent;
+    border: none;
+    color: var(--modder-text-label);
+    font-weight: 500;
+}
+body[data-mode="oneui"] .btn-ghost:hover { background-color: rgba(0, 0, 0, 0.03); }
+
+
+body[data-mode="oneui"] .btn-link { /* One UI Link */
+    color: var(--modder-text-accent-primary);
+    text-decoration: none; /* No underline by default */
+}
+body[data-mode="oneui"] .btn-link:hover { text-decoration: underline; }
+
+
+body[data-mode="oneui"] .btn-destructive {
+    background-color: var(--modder-bg-accent-red);
+    color: #ffffff;
+    border: none;
+}
+
+/* Card Components */
+body[data-mode="oneui"] .card {
+    border-radius: 1.25rem; /* 20px, very rounded for One UI */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); /* Stronger shadows than iOS */
+    border: none; /* No explicit border, just shadow */
+    background-color: var(--modder-bg-card);
+}
+body[data-mode="oneui"] .card-blurred { /* One UI typically avoids blur, but keeps functionality */
+    background-color: var(--modder-bg-card); /* Less transparent */
+    backdrop-filter: none; /* Remove blur for One UI style */
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+body[data-mode="oneui"] .card-dark-blurred {
+    background-color: var(--modder-bg-card);
+    color: var(--modder-text-label);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+/* Form Input */
+body[data-mode="oneui"] .form-input-group {
+    border-radius: 0.625rem; /* 10px, more rounded */
+    border: 1px solid var(--modder-border-color);
+    background-color: var(--modder-bg-card); /* Input background is usually card bg */
+}
+body[data-mode="oneui"] .form-input-group:focus-within {
+    border-color: var(--modder-text-accent-primary);
+    box-shadow: none; /* No shadow on focus, just border */
+}
+body[data-mode="oneui"] .form-input-group .form-input {
+    color: var(--modder-text-label);
+}
+body[data-mode="oneui"] .form-input-group .form-input::placeholder {
+    color: var(--modder-text-tertiary-label);
+}
+body[data-mode="oneui"] .form-input-icon {
+    color: var(--modder-text-tertiary-label);
+}
+body[data-mode="oneui"] .form-input-clear-btn {
+    color: var(--modder-text-tertiary-label);
+}
+
+
+/* Toggle Switch */
+body[data-mode="oneui"] .modder-switch {
+    width: 48px; /* Slightly different width */
+    height: 28px; /* Slightly different height */
+}
+body[data-mode="oneui"] .modder-switch .slider {
+    background-color: var(--modder-bg-separator); /* Gray off state */
+    border-radius: 28px;
+}
+body[data-mode="oneui"] .modder-switch .slider:before {
+    height: 24px;
+    width: 24px;
+    left: 2px;
+    bottom: 2px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+body[data-mode="oneui"] .modder-switch input:checked + .slider {
+    background-color: #0d6efd; /* Brighter blue for One UI switch active */
+}
+body[data-mode="oneui"][data-theme='dark'] .modder-switch input:checked + .slider { background-color: var(--modder-bg-accent-primary); } /* Use theme accent */
+
+body[data-mode="oneui"] .modder-switch input:checked + .slider:before {
+    transform: translateX(20px); /* Adjust based on new width/height */
+}
+
+
+/* Navigation Bar (Often larger for One UI) */
+body[data-mode="oneui"] .navbar {
+    height: 56px; /* Larger height for standard One UI top bars */
+    padding: 0 1.5rem; /* 24px horizontal padding */
+    background-color: var(--modder-bg-card); /* Solid background */
+    backdrop-filter: none; /* No blur */
+    -webkit-backdrop-filter: none;
+    border-bottom: none; /* No border for main nav bar */
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05); /* Subtle shadow */
+}
+body[data-mode="oneui"] .navbar-title {
+    color: var(--modder-text-label);
+    font-weight: 600;
+    font-size: 1.125rem; /* Larger title */
+}
+body[data-mode="oneui"] .navbar .btn-ghost {
+    color: var(--modder-text-accent-primary);
+    font-size: 1.125rem;
+    padding: 0.75rem; /* Larger touch target */
+}
+
+/* Large Title Navigation Bar (Very prominent in One UI) */
+body[data-mode="oneui"] .navbar-large-title {
+    padding: 1.5rem; /* 24px padding everywhere */
+    padding-bottom: 0.5rem; /* Less padding at bottom */
+    background-color: var(--modder-bg-card); /* Solid background */
+    border-bottom: none; /* No border */
+    box-shadow: 0 1px 4px rgba(0,0,0,0.05); /* Subtle shadow */
+}
+body[data-mode="oneui"] .navbar-large-title .large-title {
+    font-size: 2.25rem; /* 36px, smaller than iOS, but still large */
+    font-weight: 700;
+    color: var(--modder-text-label);
+    margin-bottom: 0.75rem; /* 12px */
+}
+body[data-mode="oneui"] .search-bar-container {
+    padding: 0; /* Remove extra padding from container */
+    background-color: transparent;
+}
+body[data-mode="oneui"] .search-bar {
+    background-color: var(--modder-bg-input-fill); /* Specific fill for search bar */
+    border-radius: 0.75rem; /* 12px, more rounded */
+    min-height: 48px; /* Taller search bar */
+    padding: 0.75rem 1rem; /* 12px 16px */
+}
+body[data-mode="oneui"] .search-bar-icon {
+    color: var(--modder-text-tertiary-label);
+    font-size: 1.25rem;
+}
+body[data-mode="oneui"] .search-bar-input {
+    color: var(--modder-text-label);
+    font-size: 1rem;
+}
+body[data-mode="oneui"] .search-bar-input::placeholder {
+    color: var(--modder-text-tertiary-label);
+}
+
+
+/* Alert Component (Modal - One UI style) */
+body[data-mode="oneui"] .alert {
+    border-radius: 1.25rem; /* 20px, very rounded */
+    background-color: var(--modder-bg-card);
+    backdrop-filter: none; /* No blur */
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15); /* Stronger shadow */
+    text-align: center; /* Center text */
+    width: 22rem; /* Wider */
+}
+body[data-mode="oneui"] .alert-header {
+    padding: 2rem 1.5rem 1rem; /* More top padding */
+}
+body[data-mode="oneui"] .alert-title {
+    font-size: 1.375rem; /* Text-title-2 for alert title */
+    font-weight: 600;
+    color: var(--modder-text-label);
+}
+body[data-mode="oneui"] .alert-message {
+    font-size: 1rem; /* text-callout */
+    color: var(--modder-text-secondary-label);
+    padding: 0 1.5rem 2rem; /* More bottom padding */
+}
+body[data-mode="oneui"] .alert-buttons {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.5rem 1rem; /* Less padding in button section */
+    gap: 0.5rem;
+    border-top: none; /* No border for buttons */
+}
+body[data-mode="oneui"] .alert-button {
+    min-height: 2.5rem; /* Standard button height */
+    padding: 0.5rem 1rem;
+    border-radius: 0.625rem; /* 10px, rounded */
+    font-size: 1rem;
+    font-weight: 500;
+    background-color: var(--modder-bg-input-fill); /* Light fill for alert buttons */
+    color: var(--modder-text-label);
+}
+body[data-mode="oneui"][data-theme='dark'] .alert-button { background-color: var(--modder-bg-separator); }
+body[data-mode="oneui"] .alert-button.btn-default {
+    background-color: var(--modder-bg-accent-primary);
+    color: #ffffff;
+}
+body[data-mode="oneui"] .alert-button.btn-outline { /* Unused here, use default styles */ }
+body[data-mode="oneui"] .alert-button.btn-destructive {
+    background-color: var(--modder-bg-accent-red);
+    color: #ffffff;
+}
+
+
+/* Action Sheet (Bottom Sheet - One UI style) */
+body[data-mode="oneui"] .action-sheet-overlay {
+    background-color: var(--modder-bg-overlay);
+}
+body[data-mode="oneui"] .action-sheet {
+    border-top-left-radius: 1.5rem; /* 24px */
+    border-top-right-radius: 1.5rem;
+    padding: 1.5rem;
+    padding-bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
+    background-color: var(--modder-bg-card);
+    box-shadow: 0 -4px 10px rgba(0,0,0,0.1);
+}
+body[data-mode="oneui"] .action-sheet-header {
+    margin-bottom: 1.5rem;
+}
+body[data-mode="oneui"] .action-sheet-title {
+    font-size: 1.375rem; /* text-title-2 */
+    font-weight: 600;
+    color: var(--modder-text-label);
+    text-align: center; /* Center title */
+}
+body[data-mode="oneui"] .action-sheet-description {
+    font-size: 1rem; /* text-callout */
+    color: var(--modder-text-secondary-label);
+    text-align: center; /* Center description */
+}
+body[data-mode="oneui"] .action-sheet-content {
+    gap: 0.75rem; /* 12px gap between items */
+}
+body[data-mode="oneui"] .action-sheet-item {
+    min-height: 3rem; /* 48px height */
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 0.625rem; /* 10px rounded */
+    background-color: var(--modder-bg-input-fill); /* Light fill */
+    color: var(--modder-text-label);
+    justify-content: center; /* Center item text */
+}
+body[data-mode="oneui"] .action-sheet-item i {
+    margin-right: 0.75rem;
+    font-size: 1.25rem;
+}
+body[data-mode="oneui"] .action-sheet-item:hover { background-color: var(--modder-bg-separator); }
+body[data-mode="oneui"] .action-sheet-item.destructive { color: var(--modder-text-accent-red); }
+body[data-mode="oneui"] .action-sheet-cancel {
+    margin-top: 1rem; /* More space */
+    background-color: var(--modder-bg-input-fill);
+    color: var(--modder-text-label);
+    font-weight: 500;
+    border-radius: 0.625rem;
+    box-shadow: none;
+}
+
+
+/* List Rows (One UI style - often grouped as cards) */
+body[data-mode="oneui"] .list-row {
+  min-height: 56px; /* Taller rows */
+  padding: 1rem 1.5rem; /* 16px 24px padding */
+  background-color: var(--modder-bg-card);
+  border-bottom: none; /* No separator, if using card-like groups */
+  box-shadow: none; /* Remove shadows here */
+  border-radius: 0; /* Remove border-radius on individual rows */
+}
+body[data-mode="oneui"] .list-row-title {
+  font-size: 1.125rem; /* Larger text-lg */
+}
+body[data-mode="oneui"] .list-row-detail {
+  font-size: 1.125rem;
+  color: var(--modder-text-secondary-label);
+}
+body[data-mode="oneui"] .list-row-accessory {
+  font-size: 1.5rem; /* Larger icons */
+}
+
+body[data-mode="oneui"] .list-group {
+    margin: 1.5rem 0;
+    border-radius: 1.25rem; /* 20px, very rounded for One UI groups */
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); /* Shadow for the whole group */
+    border: none; /* No explicit border */
+}
+body[data-mode="oneui"] .list-group-title {
+    padding: 1rem 1.5rem 0.5rem; /* 16px 24px 8px */
+    font-size: 1rem; /* text-callout */
+    font-weight: 600; /* Semibold */
+    color: var(--modder-text-label); /* Darker label */
+    letter-spacing: normal; /* No letter spacing for One UI */
+}
+
+
+/* Segmented Control */
+body[data-mode="oneui"] .segmented-control {
+    background-color: var(--modder-bg-input-fill);
+    border-radius: 0.75rem; /* 12px, more rounded */
+    padding: 4px; /* More padding */
+    box-shadow: none;
+}
+body[data-mode="oneui"] .segmented-control-item {
+    font-size: 1rem; /* text-callout */
+    font-weight: 500;
+    border-radius: 0.5rem; /* 8px */
+    min-height: 40px; /* Taller segments */
+}
+body[data-mode="oneui"] .segmented-control-item.active {
+    background-color: var(--modder-bg-card); /* White active */
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08); /* More prominent shadow */
+}
+
+
+/* Progress Indicators */
+body[data-mode="oneui"] .progress-bar-linear-fill { background-color: var(--modder-bg-accent-primary); }
+body[data-mode="oneui"] .progress-bar-circular { border-top-color: var(--modder-bg-accent-primary); }
+
+
+/* Page Control */
+body[data-mode="oneui"] .page-control-dot.active { background-color: var(--modder-bg-accent-primary); }
+
+
+/* Context Menu */
+body[data-mode="oneui"] .context-menu {
+    border-radius: 1rem; /* 16px, more rounded */
+    background-color: var(--modder-bg-card);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+body[data-mode="oneui"] .context-menu-item {
+    font-size: 1.125rem; /* text-lg */
+    padding: 0.75rem 1.25rem; /* 12px 20px */
+}
+body[data-mode="oneui"] .context-menu-item i {
+    font-size: 1.25rem;
+}
+body[data-mode="oneui"] .context-menu-separator {
+    background-color: var(--modder-bg-separator);
+}
+
+/* Collection View Cell */
+body[data-mode="oneui"] .collection-cell {
+    border-radius: 1.25rem; /* 20px, very rounded */
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08); /* Card-like shadow */
+    background-color: var(--modder-bg-card);
+}
+body[data-mode="oneui"] .collection-cell-icon {
+    background-color: var(--modder-bg-input-fill);
+    border-radius: 0.75rem; /* 12px, more rounded */
+}
+body[data-mode="oneui"] .collection-cell-title {
+    font-size: 0.9375rem; /* text-subheadline */
+    font-weight: 500;
+}
