@@ -21,7 +21,7 @@ window.MacOSRoot = {
      */
     var checkAuth = async function () {
       try {
-        var resp = await fetch('/api/config', { credentials: 'same-origin' });
+        var resp = await fetch("/api/config", { credentials: "same-origin" });
         return resp.status !== 401;
       } catch (e) {
         return false;
@@ -36,14 +36,16 @@ window.MacOSRoot = {
     var boot = async function () {
       var authed = await checkAuth();
       if (authed) {
-        // Already authenticated - skip loading and login
+        // Already authenticated - go straight to desktop
         isBg.value = true;
         isLoading.value = false;
         isLogin.value = false;
         isDeskTop.value = true;
       } else {
-        // Not authenticated - show boot loading screen
-        isLoading.value = true;
+        // Not authenticated - go straight to login (no loading animation)
+        isBg.value = true;
+        isLoading.value = false;
+        isLogin.value = true;
       }
     };
 
@@ -78,14 +80,14 @@ window.MacOSRoot = {
      */
     var logout = async function () {
       try {
-        await fetch('/api/logout', {
-          method: 'POST',
-          credentials: 'same-origin'
+        await fetch("/api/logout", {
+          method: "POST",
+          credentials: "same-origin",
         });
       } catch (e) {
         // ignore network errors during logout
       }
-      localStorage.removeItem('user_name');
+      localStorage.removeItem("user_name");
       isDeskTop.value = false;
       isLaunchPad.value = false;
       isLogin.value = true;
@@ -95,7 +97,7 @@ window.MacOSRoot = {
      * Shutdown - hide everything.
      */
     var shutdown = function () {
-      localStorage.removeItem('user_name');
+      localStorage.removeItem("user_name");
       isDeskTop.value = false;
       isLaunchPad.value = false;
       isLogin.value = false;
@@ -126,7 +128,7 @@ window.MacOSRoot = {
       lockScreen: lockScreen,
       logout: logout,
       shutdown: shutdown,
-      launchpad: launchpad
+      launchpad: launchpad,
     };
   },
   template: `
@@ -153,5 +155,5 @@ window.MacOSRoot = {
         <MacOSLaunchPad v-if="isLaunchPad"></MacOSLaunchPad>
       </transition>
     </div>
-  `
+  `,
 };
