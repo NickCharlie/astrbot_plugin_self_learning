@@ -1876,6 +1876,136 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取群组消息统计失败: {e}", exc_info=True)
             raise RuntimeError(f"无法获取群组 {group_id} 的消息统计: {e}") from e
 
+    # ==================== 黑话 CRUD (ORM) ====================
+
+    async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
+        """查询指定黑话（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, and_
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(and_(
+                    Jargon.chat_id == chat_id,
+                    Jargon.content == content
+                ))
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    return None
+
+                return record.to_dict()
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 查询黑话失败: {e}", exc_info=True)
+            return None
+
+    async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
+        """插入新的黑话记录（ORM）"""
+        try:
+            async with self.get_session() as session:
+                from ..models.orm.jargon import Jargon
+
+                now_ts = int(time.time())
+
+                # 处理 created_at / updated_at - 统一转为 int 时间戳
+                created_at = jargon_data.get('created_at')
+                updated_at = jargon_data.get('updated_at')
+                if created_at and not isinstance(created_at, (int, float)):
+                    created_at = now_ts
+                elif created_at:
+                    created_at = int(created_at)
+                else:
+                    created_at = now_ts
+
+                if updated_at and not isinstance(updated_at, (int, float)):
+                    updated_at = now_ts
+                elif updated_at:
+                    updated_at = int(updated_at)
+                else:
+                    updated_at = now_ts
+
+                record = Jargon(
+                    content=jargon_data.get('content', ''),
+                    raw_content=jargon_data.get('raw_content', '[]'),
+                    meaning=jargon_data.get('meaning'),
+                    is_jargon=jargon_data.get('is_jargon'),
+                    count=jargon_data.get('count', 1),
+                    last_inference_count=jargon_data.get('last_inference_count', 0),
+                    is_complete=jargon_data.get('is_complete', False),
+                    is_global=jargon_data.get('is_global', False),
+                    chat_id=jargon_data.get('chat_id', ''),
+                    created_at=created_at,
+                    updated_at=updated_at
+                )
+
+                session.add(record)
+                await session.commit()
+                await session.refresh(record)
+
+                logger.info(f"[SQLAlchemy] 插入黑话成功: id={record.id}, content={record.content}")
+                return record.id
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 插入黑话失败: {e}", exc_info=True)
+            return None
+
+    async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
+        """更新现有黑话记录（ORM）"""
+        jargon_id = jargon_data.get('id')
+        if not jargon_id:
+            logger.error("[SQLAlchemy] 更新黑话失败: 缺少 id")
+            return False
+
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(Jargon.id == jargon_id)
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    logger.warning(f"[SQLAlchemy] 更新黑话失败: 未找到 id={jargon_id}")
+                    return False
+
+                # 更新字段
+                if 'content' in jargon_data:
+                    record.content = jargon_data['content']
+                if 'raw_content' in jargon_data:
+                    record.raw_content = jargon_data['raw_content']
+                if 'meaning' in jargon_data:
+                    record.meaning = jargon_data['meaning']
+                if 'is_jargon' in jargon_data:
+                    record.is_jargon = jargon_data['is_jargon']
+                if 'count' in jargon_data:
+                    record.count = jargon_data['count']
+                if 'last_inference_count' in jargon_data:
+                    record.last_inference_count = jargon_data['last_inference_count']
+                if 'is_complete' in jargon_data:
+                    record.is_complete = jargon_data['is_complete']
+                if 'is_global' in jargon_data:
+                    record.is_global = jargon_data['is_global']
+
+                # updated_at 统一为 int 时间戳
+                updated_at = jargon_data.get('updated_at')
+                if updated_at and not isinstance(updated_at, (int, float)):
+                    record.updated_at = int(time.time())
+                elif updated_at:
+                    record.updated_at = int(updated_at)
+                else:
+                    record.updated_at = int(time.time())
+
+                await session.commit()
+                logger.debug(f"[SQLAlchemy] 更新黑话成功: id={jargon_id}")
+                return True
+
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 更新黑话失败: {e}", exc_info=True)
+            return False
+
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         """
         获取俚语统计信息
