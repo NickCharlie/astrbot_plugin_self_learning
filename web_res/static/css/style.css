@@ -1,8 +1,35 @@
 /* ================================================================
    Self-Learning Plugin — Custom Styles (ModderUI Override)
-   Uses ModderUI CSS variables for automatic dark/light theming.
+   macOS-style theme overrides on top of ModderUI iOS mode.
    Body must have: data-mode="ios" data-theme="light|dark"
    ================================================================ */
+
+/* ===== macOS Theme Overrides ===== */
+body[data-mode="ios"][data-theme="light"] {
+  --modder-bg-page: #f5f5f7;
+  --modder-bg-card: #ffffff;
+  --modder-bg-separator: #d1d1d6;
+  --modder-bg-input-fill: #f0f0f0;
+  --modder-bg-accent-primary: #007aff;
+  --modder-border-color: #d5d5d9;
+  --modder-text-label: #1d1d1f;
+  --modder-text-secondary-label: #86868b;
+  --modder-text-tertiary-label: #aeaeb2;
+  --modder-text-accent-primary: #007aff;
+}
+
+body[data-mode="ios"][data-theme="dark"] {
+  --modder-bg-page: #1e1e1e;
+  --modder-bg-card: #2c2c2e;
+  --modder-bg-separator: #3a3a3c;
+  --modder-bg-input-fill: #3a3a3c;
+  --modder-bg-accent-primary: #0a84ff;
+  --modder-border-color: #424244;
+  --modder-text-label: #f5f5f7;
+  --modder-text-secondary-label: #98989d;
+  --modder-text-tertiary-label: #636366;
+  --modder-text-accent-primary: #0a84ff;
+}
 
 /* ===== Brand & Legacy Variables ===== */
 :root {
@@ -66,7 +93,9 @@ a:hover { opacity: .85; }
 /* ===== Sidebar ===== */
 .sidebar {
   width: var(--sl-sidebar-width);
-  background: var(--modder-bg-card);
+  background: rgba(246, 246, 246, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border-right: .5px solid var(--modder-border-color);
   display: flex;
   flex-direction: column;
@@ -75,6 +104,10 @@ a:hover { opacity: .85; }
   z-index: 100;
   overflow-y: auto;
   transition: transform var(--sl-transition);
+}
+
+body[data-theme="dark"] .sidebar {
+  background: rgba(30, 30, 30, 0.78);
 }
 
 .sidebar-header {
@@ -125,15 +158,23 @@ a:hover { opacity: .85; }
 }
 
 .menu-item:hover {
-  background: var(--modder-bg-input-fill);
+  background: rgba(0, 0, 0, 0.04);
   color: var(--modder-text-accent-primary);
 }
 
+body[data-theme="dark"] .menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
 .menu-item.active {
-  background: var(--modder-bg-input-fill);
+  background: rgba(0, 122, 255, 0.1);
   color: var(--modder-text-accent-primary);
   border-left-color: var(--modder-text-accent-primary);
   font-weight: 600;
+}
+
+body[data-theme="dark"] .menu-item.active {
+  background: rgba(10, 132, 255, 0.15);
 }
 
 .menu-item .material-icons { font-size: 20px; }
@@ -146,7 +187,7 @@ a:hover { opacity: .85; }
 /* ===== Navbar ===== */
 .navbar {
   height: var(--sl-navbar-height);
-  background: var(--modder-bg-card);
+  background: rgba(246, 246, 246, 0.72);
   border-bottom: .5px solid var(--modder-border-color);
   display: flex;
   justify-content: space-between;
@@ -155,8 +196,12 @@ a:hover { opacity: .85; }
   position: sticky;
   top: 0;
   z-index: 99;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+}
+
+body[data-theme="dark"] .navbar {
+  background: rgba(30, 30, 30, 0.72);
 }
 
 .navbar-left {
@@ -292,15 +337,16 @@ a:hover { opacity: .85; }
 .stat-card {
   background: var(--modder-bg-card);
   border: .5px solid var(--modder-border-color);
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 20px;
   transition: all var(--sl-transition);
   position: relative;
   overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
 }
 
 .stat-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0,0,0,.08);
 }
 
@@ -377,13 +423,14 @@ a:hover { opacity: .85; }
 .chart-container {
   background: var(--modder-bg-card);
   border: .5px solid var(--modder-border-color);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   transition: all var(--sl-transition);
+  box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
 }
 
 .chart-container:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,.06);
+  box-shadow: 0 4px 12px rgba(0,0,0,.08);
 }
 
 .chart-container.wide { grid-column: 1 / -1; }
@@ -900,6 +947,7 @@ select:focus {
 }
 .content-editor {
   margin-bottom: 12px;
+  width: 100%;
 }
 .content-editor label {
   font-size: 13px;
@@ -1333,8 +1381,8 @@ select:focus {
 .modal-content,
 .review-detail-content {
   background: var(--modder-bg-card);
-  border-radius: 14px;
-  max-width: 600px;
+  border-radius: 12px;
+  max-width: 720px;
   width: 100%;
   max-height: 85vh;
   overflow: hidden;
@@ -1496,9 +1544,10 @@ select:focus {
 .config-section {
   background: var(--modder-bg-card);
   border: .5px solid var(--modder-border-color);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
 
 .config-section h2 {
@@ -1858,15 +1907,17 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 /* ===== Button Size Override (compact) ===== */
-.btn {
-  min-height: 32px;
-  padding: 5px 12px;
-  font-size: 13px;
+.btn,
+body[data-mode="ios"] .btn {
+  min-height: 32px !important;
+  padding: 5px 12px !important;
+  font-size: 13px !important;
 }
-.btn-lg {
-  min-height: 40px;
-  padding: 8px 18px;
-  font-size: 15px;
+.btn-lg,
+body[data-mode="ios"] .btn-lg {
+  min-height: 40px !important;
+  padding: 8px 18px !important;
+  font-size: 15px !important;
 }
 
 /* ===== Custom Buttons ===== */
@@ -2178,9 +2229,11 @@ input[type="range"]::-webkit-slider-thumb {
   margin-bottom: 6px;
 }
 .editor-section textarea,
-.content-editor textarea {
-  width: 100%;
-  box-sizing: border-box;
+.content-editor textarea,
+.dialog-content textarea,
+.persona-edit-dialog textarea {
+  width: 100% !important;
+  box-sizing: border-box !important;
   padding: 10px 12px;
   border: .5px solid var(--modder-border-color);
   border-radius: 8px;
