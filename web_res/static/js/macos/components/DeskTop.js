@@ -9,7 +9,7 @@ window.MacOSDeskTop = {
       <div class="top">
         <el-dropdown trigger="click">
           <div class="logo">
-            <i class="iconfont icon-apple1"></i>
+            <img src="/static/img/logo.png" alt="Logo" style="height:16px;width:16px;object-fit:contain;border-radius:50%;" />
           </div>
           <template #dropdown>
             <el-dropdown-menu>
