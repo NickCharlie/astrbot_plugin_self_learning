@@ -133,18 +133,17 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.info(f"人格prompt已更新，长度: {len(enhanced_prompt)} for group {group_id}")
 
                 # 自动应用到框架默认人格（需配置开启）
-                if getattr(self.config, 'auto_apply_approved_persona', False):
-                    if persona_name and persona_name != 'default':
-                        try:
-                            await self.context.persona_manager.update_persona(
-                                persona_id=persona_name,
-                                system_prompt=enhanced_prompt
-                            )
-                            self._logger.info(f"已自动将批准内容应用到默认人格 [{persona_name}]（群组 {group_id}）")
-                        except Exception as auto_apply_err:
-                            self._logger.error(f"自动应用到默认人格失败: {auto_apply_err}", exc_info=True)
-                    elif persona_name == 'default':
-                        self._logger.warning("默认人格为系统内置default，跳过自动应用（避免覆盖内置人格）")
+                auto_apply = getattr(self.config, 'auto_apply_approved_persona', False)
+                self._logger.info(f"[自动应用] 配置状态: auto_apply_approved_persona={auto_apply}, persona_name={persona_name}")
+                if auto_apply:
+                    try:
+                        await self.context.persona_manager.update_persona(
+                            persona_id=persona_name,
+                            system_prompt=enhanced_prompt
+                        )
+                        self._logger.info(f"[自动应用] 已将批准内容应用到默认人格 [{persona_name}]（群组 {group_id}），内容长度: {len(enhanced_prompt)}")
+                    except Exception as auto_apply_err:
+                        self._logger.error(f"[自动应用] 应用到默认人格失败: {auto_apply_err}", exc_info=True)
 
             # 3. 更新对话风格特征（使用MaiBot的表达模式学习而不是直接保存对话）
             if filtered_messages:
