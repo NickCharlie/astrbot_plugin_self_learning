@@ -210,22 +210,134 @@ class LearningService:
         获取风格学习模式
 
         Returns:
-            Dict: 学习模式数据
+            Dict: 学习模式数据，包含 emotion_patterns, language_patterns, topic_patterns
         """
-        # 初始化空模式数据
         patterns_data = {
             'emotion_patterns': [],
             'language_patterns': [],
-            'topic_preferences': []
+            'topic_patterns': [],
         }
 
-        if self.db_manager:
-            try:
-                # 尝试从数据库获取真实模式数据
-                real_patterns = await self.db_manager.get_learning_patterns_data()
-                if real_patterns:
-                    patterns_data.update(real_patterns)
-            except Exception as e:
-                logger.warning(f"无法从数据库获取学习模式数据: {e}")
+        if not self.db_manager:
+            return patterns_data
+
+        try:
+            if hasattr(self.db_manager, 'get_session'):
+                import json
+                from sqlalchemy import select, desc
+                from ...models.orm.learning import StyleLearningPattern, StyleLearningReview
+
+                pattern_type_map = {
+                    'emotion': 'emotion_patterns',
+                    'sentiment': 'emotion_patterns',
+                    'language': 'language_patterns',
+                    'expression': 'language_patterns',
+                    'vocabulary': 'language_patterns',
+                    'habit': 'language_patterns',
+                    'topic': 'topic_patterns',
+                    'interest': 'topic_patterns',
+                    'theme': 'topic_patterns',
+                }
+
+                async with self.db_manager.get_session() as session:
+                    # 1. 从 style_learning_patterns 表获取已确认的模式
+                    try:
+                        stmt = select(StyleLearningPattern).order_by(
+                            desc(StyleLearningPattern.usage_count)
+                        ).limit(100)
+                        result = await session.execute(stmt)
+                        db_patterns = result.scalars().all()
+
+                        for p in db_patterns:
+                            pt = (p.pattern_type or '').lower()
+                            target_key = pattern_type_map.get(pt)
+                            if target_key:
+                                patterns_data[target_key].append({
+                                    'name': p.pattern,
+                                    'confidence': p.confidence or 0.5,
+                                    'count': p.usage_count or 1,
+                                })
+                    except Exception as e:
+                        logger.debug(f"查询 StyleLearningPattern 表失败: {e}")
+
+                    # 2. 从 style_learning_reviews 的 learned_patterns JSON 中提取
+                    try:
+                        stmt = select(StyleLearningReview.learned_patterns).where(
+                            StyleLearningReview.learned_patterns.isnot(None)
+                        ).order_by(
+                            desc(StyleLearningReview.timestamp)
+                        ).limit(20)
+                        result = await session.execute(stmt)
+                        rows = result.scalars().all()
+
+                        for raw in rows:
+                            if not raw:
+                                continue
+                            try:
+                                parsed = json.loads(raw) if isinstance(raw, str) else raw
+                            except (json.JSONDecodeError, TypeError):
+                                continue
+
+                            if isinstance(parsed, list):
+                                for item in parsed:
+                                    self._classify_pattern(item, patterns_data, pattern_type_map)
+                            elif isinstance(parsed, dict):
+                                for key, val in parsed.items():
+                                    target = pattern_type_map.get(key.lower())
+                                    if target and isinstance(val, list):
+                                        for item in val:
+                                            entry = self._to_pattern_entry(item)
+                                            if entry:
+                                                patterns_data[target].append(entry)
+                                    elif not target:
+                                        self._classify_pattern(parsed, patterns_data, pattern_type_map)
+                                        break
+                    except Exception as e:
+                        logger.debug(f"查询 StyleLearningReview.learned_patterns 失败: {e}")
+
+                # 3. 去重并限制数量
+                for key in ['emotion_patterns', 'language_patterns', 'topic_patterns']:
+                    seen = set()
+                    unique = []
+                    for item in patterns_data[key]:
+                        name = item.get('name', '')
+                        if name and name not in seen:
+                            seen.add(name)
+                            unique.append(item)
+                    patterns_data[key] = unique[:20]
+
+        except Exception as e:
+            logger.warning(f"获取学习模式数据失败: {e}", exc_info=True)
 
         return patterns_data
+
+    @staticmethod
+    def _to_pattern_entry(item):
+        """将各种格式的模式数据转为标准格式"""
+        if isinstance(item, str):
+            return {'name': item, 'confidence': 0.5, 'count': 1}
+        elif isinstance(item, dict):
+            name = item.get('name') or item.get('pattern') or item.get('text') or item.get('label', '')
+            if not name:
+                return None
+            return {
+                'name': name,
+                'confidence': item.get('confidence') or item.get('score') or item.get('weight', 0.5),
+                'count': item.get('count') or item.get('usage_count', 1),
+            }
+        return None
+
+    @staticmethod
+    def _classify_pattern(item, patterns_data, type_map):
+        """根据模式的 type 字段分类到对应的列表"""
+        entry = LearningService._to_pattern_entry(item)
+        if not entry:
+            return
+        if isinstance(item, dict):
+            pt = (item.get('type') or item.get('category') or item.get('pattern_type') or '').lower()
+            target = type_map.get(pt)
+            if target:
+                patterns_data[target].append(entry)
+                return
+        # 默认放到 language_patterns
+        patterns_data['language_patterns'].append(entry)

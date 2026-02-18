@@ -37,12 +37,16 @@ class PersonaReviewService:
         """将group_id解析为unified_msg_origin以支持多配置文件"""
         return self.group_id_to_unified_origin.get(group_id, group_id)
 
-    async def get_pending_persona_updates(self) -> Dict[str, Any]:
+    async def get_pending_persona_updates(self, limit: int = 0, offset: int = 0) -> Dict[str, Any]:
         """
-        获取所有待审查的人格更新 (整合三种数据源)
+        获取所有待审查的人格更新 (整合三种数据源，支持分页)
+
+        Args:
+            limit: 每页数量，0 表示返回全部
+            offset: 偏移量
 
         Returns:
-            Dict: 包含所有待审查更新的字典
+            Dict: 包含待审查更新的字典，含 total 字段
         """
         all_updates = []
 
@@ -222,14 +226,23 @@ class PersonaReviewService:
         # 按时间倒序排列
         all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
 
-        logger.info(f"返回 {len(all_updates)} 条人格更新记录 (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, "
+        total = len(all_updates)
+
+        logger.info(f"共 {total} 条人格更新记录 (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, "
                     f"人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, "
                     f"风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
 
+        # 应用分页
+        if limit > 0:
+            paged_updates = all_updates[offset:offset + limit]
+            logger.info(f"分页返回: offset={offset}, limit={limit}, 本页 {len(paged_updates)} 条")
+        else:
+            paged_updates = all_updates
+
         return {
             "success": True,
-            "updates": all_updates,
-            "total": len(all_updates)
+            "updates": paged_updates,
+            "total": total
         }
 
     async def review_persona_update(

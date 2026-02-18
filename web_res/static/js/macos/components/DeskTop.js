@@ -112,7 +112,7 @@ window.MacOSDeskTop = {
           <template v-for="item in deskTopAppList" :key="item.key">
             <div
               class="app-item"
-              v-on:dblclick="$store.commit('openApp', item)"
+              v-on:click="$store.commit('openApp', item)"
               v-if="!item.hideInDesktop"
             >
               <div class="icon">

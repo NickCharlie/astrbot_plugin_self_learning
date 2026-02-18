@@ -15,11 +15,14 @@ persona_reviews_bp = Blueprint('persona_reviews', __name__, url_prefix='/api')
 @persona_reviews_bp.route("/persona_updates", methods=["GET"])
 @require_auth
 async def get_pending_persona_updates():
-    """获取所有待审查的人格更新 (整合三种数据源)"""
+    """获取所有待审查的人格更新 (整合三种数据源，支持分页)"""
     try:
+        limit = int(request.args.get('limit', 0))  # 0 = 返回全部
+        offset = int(request.args.get('offset', 0))
+
         container = get_container()
         review_service = PersonaReviewService(container)
-        result = await review_service.get_pending_persona_updates()
+        result = await review_service.get_pending_persona_updates(limit=limit, offset=offset)
 
         return jsonify(result), 200
 

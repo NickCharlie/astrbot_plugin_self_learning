@@ -48,6 +48,11 @@ window.SystemSetting = {
       localStorage.setItem("macos-wallpaper", url);
       window.EventBus.emit("wallpaper-change", url);
     },
+    triggerUpload() {
+      if (this.$refs.fileInput) {
+        this.$refs.fileInput.click();
+      }
+    },
     uploadWallpaper(event) {
       var file = event.target.files[0];
       if (!file) return;
@@ -80,10 +85,8 @@ window.SystemSetting = {
 
       <h3 style="margin:0 0 20px 0;font-size:16px;font-weight:600;">桌面壁纸</h3>
       <div style="margin-bottom:16px;">
-        <label style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:#007aff;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;">
-          <span>上传壁纸</span>
-          <input type="file" accept="image/*" @change="uploadWallpaper" style="display:none;" />
-        </label>
+        <button type="button" @click="triggerUpload" style="display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:#007aff;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;border:none;font-family:inherit;">上传壁纸</button>
+        <input type="file" accept="image/*" ref="fileInput" @change="uploadWallpaper" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none;" />
       </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;">
         <div v-for="wp in presetWallpapers" :key="wp" @click="setWallpaper(wp)"

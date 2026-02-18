@@ -216,8 +216,9 @@ class SocialService:
             service_factory = factory_manager.get_service_factory()
             db_manager = service_factory.create_database_manager()
             llm_adapter = service_factory.create_framework_llm_adapter()
+            plugin_config = getattr(self.container, 'plugin_config', None)
 
-            analyzer = SocialRelationAnalyzer(db_manager, llm_adapter)
+            analyzer = SocialRelationAnalyzer(plugin_config, llm_adapter, db_manager)
 
             import asyncio
             asyncio.create_task(analyzer.analyze_group_relations(group_id))

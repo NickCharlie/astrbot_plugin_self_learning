@@ -199,13 +199,13 @@ window.AppStyleLearning = {
       styleResults: {},
       patterns: {},
       contentData: {},
-      contentTab: 'dialogues',
-      contentSearch: '',
-      timeRange: '30d',
+      contentTab: "dialogues",
+      contentSearch: "",
+      timeRange: "30d",
       timeRanges: [
-        { label: '7天', value: '7d' },
-        { label: '30天', value: '30d' },
-        { label: '90天', value: '90d' },
+        { label: "7天", value: "7d" },
+        { label: "30天", value: "30d" },
+        { label: "90天", value: "90d" },
       ],
       chartInstances: {},
       resizeObserver: null,
@@ -218,22 +218,23 @@ window.AppStyleLearning = {
     currentContentList() {
       var tab = this.contentTab;
       if (!this.contentData) return [];
-      if (tab === 'dialogues') return this.contentData.dialogues || [];
-      if (tab === 'analysis') return this.contentData.analysis || [];
-      if (tab === 'features') return this.contentData.features || [];
-      if (tab === 'history') return this.contentData.history || [];
+      if (tab === "dialogues") return this.contentData.dialogues || [];
+      if (tab === "analysis") return this.contentData.analysis || [];
+      if (tab === "features") return this.contentData.features || [];
+      if (tab === "history") return this.contentData.history || [];
       return [];
     },
 
     /** Filter content by search keyword */
     filteredContentList() {
       var list = this.currentContentList;
-      var keyword = (this.contentSearch || '').trim().toLowerCase();
+      var keyword = (this.contentSearch || "").trim().toLowerCase();
       if (!keyword) return list;
       return list.filter(function (item) {
-        var text = typeof item === 'string'
-          ? item
-          : (item.content || item.text || item.summary || JSON.stringify(item));
+        var text =
+          typeof item === "string"
+            ? item
+            : item.content || item.text || item.summary || JSON.stringify(item);
         return text.toLowerCase().indexOf(keyword) !== -1;
       });
     },
@@ -242,58 +243,64 @@ window.AppStyleLearning = {
   methods: {
     /* ---------- 工具函数 ---------- */
     formatNum(n) {
-      if (n == null) return '0';
+      if (n == null) return "0";
       n = Number(n);
-      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+      if (n >= 1000) return (n / 1000).toFixed(1) + "K";
       return String(n);
     },
 
     formatPercent(v) {
-      if (v == null) return '0%';
+      if (v == null) return "0%";
       var num = Number(v);
       // If value is already 0-1 range, convert to percentage
       if (num > 0 && num <= 1) num = num * 100;
-      return num.toFixed(1) + '%';
+      return num.toFixed(1) + "%";
     },
 
     formatTime(ts) {
-      if (!ts) return '暂无';
+      if (!ts) return "暂无";
       try {
         var d;
-        if (typeof ts === 'number') {
+        if (typeof ts === "number") {
           // Unix timestamp (seconds or milliseconds)
           d = new Date(ts > 1e12 ? ts : ts * 1000);
         } else {
           d = new Date(ts);
         }
         if (isNaN(d.getTime())) return String(ts);
-        var month = String(d.getMonth() + 1).padStart(2, '0');
-        var day = String(d.getDate()).padStart(2, '0');
-        var hours = String(d.getHours()).padStart(2, '0');
-        var minutes = String(d.getMinutes()).padStart(2, '0');
-        return month + '-' + day + ' ' + hours + ':' + minutes;
+        var month = String(d.getMonth() + 1).padStart(2, "0");
+        var day = String(d.getDate()).padStart(2, "0");
+        var hours = String(d.getHours()).padStart(2, "0");
+        var minutes = String(d.getMinutes()).padStart(2, "0");
+        return month + "-" + day + " " + hours + ":" + minutes;
       } catch (e) {
         return String(ts);
       }
     },
 
     highlightText(text) {
-      var keyword = (this.contentSearch || '').trim();
-      if (!keyword || !text) return this.escapeHtml(text || '');
+      var keyword = (this.contentSearch || "").trim();
+      if (!keyword || !text) return this.escapeHtml(text || "");
       var escaped = this.escapeHtml(text);
       var escapedKeyword = this.escapeHtml(keyword);
-      var regex = new RegExp('(' + escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
-      return escaped.replace(regex, '<mark style="background:#fff3cd;padding:0 2px;border-radius:2px;">$1</mark>');
+      var regex = new RegExp(
+        "(" + escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")",
+        "gi",
+      );
+      return escaped.replace(
+        regex,
+        '<mark style="background:#fff3cd;padding:0 2px;border-radius:2px;">$1</mark>',
+      );
     },
 
     escapeHtml(str) {
-      if (!str) return '';
+      if (!str) return "";
       return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     },
 
     /* ---------- 注册 ECharts 主题 ---------- */
@@ -305,34 +312,56 @@ window.AppStyleLearning = {
       var echarts = window.echarts;
       if (!echarts) return;
       try {
-        echarts.registerTheme('material', {
-          color: ['#1976d2', '#4caf50', '#ff9800', '#f44336', '#9c27b0', '#00bcd4', '#795548', '#607d8b'],
-          backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 12, color: '#424242' },
+        echarts.registerTheme("material", {
+          color: [
+            "#1976d2",
+            "#4caf50",
+            "#ff9800",
+            "#f44336",
+            "#9c27b0",
+            "#00bcd4",
+            "#795548",
+            "#607d8b",
+          ],
+          backgroundColor: "transparent",
+          textStyle: {
+            fontFamily: "Roboto, sans-serif",
+            fontSize: 12,
+            color: "#424242",
+          },
           title: {
-            textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 16, fontWeight: 500, color: '#212121' },
+            textStyle: {
+              fontFamily: "Roboto, sans-serif",
+              fontSize: 16,
+              fontWeight: 500,
+              color: "#212121",
+            },
           },
           legend: {
-            textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 12, color: '#757575' },
+            textStyle: {
+              fontFamily: "Roboto, sans-serif",
+              fontSize: 12,
+              color: "#757575",
+            },
           },
           categoryAxis: {
-            axisLine: { lineStyle: { color: '#e0e0e0' } },
-            axisTick: { lineStyle: { color: '#e0e0e0' } },
-            axisLabel: { color: '#757575' },
-            splitLine: { lineStyle: { color: '#f5f5f5' } },
+            axisLine: { lineStyle: { color: "#e0e0e0" } },
+            axisTick: { lineStyle: { color: "#e0e0e0" } },
+            axisLabel: { color: "#757575" },
+            splitLine: { lineStyle: { color: "#f5f5f5" } },
           },
           valueAxis: {
-            axisLine: { lineStyle: { color: '#e0e0e0' } },
-            axisTick: { lineStyle: { color: '#e0e0e0' } },
-            axisLabel: { color: '#757575' },
-            splitLine: { lineStyle: { color: '#f5f5f5' } },
+            axisLine: { lineStyle: { color: "#e0e0e0" } },
+            axisTick: { lineStyle: { color: "#e0e0e0" } },
+            axisLabel: { color: "#757575" },
+            splitLine: { lineStyle: { color: "#f5f5f5" } },
           },
-          grid: { borderColor: '#e0e0e0' },
+          grid: { borderColor: "#e0e0e0" },
         });
         this.themeRegistered = true;
         window._materialThemeRegistered = true;
       } catch (e) {
-        console.warn('[StyleLearning] registerTheme failed', e);
+        console.warn("[StyleLearning] registerTheme failed", e);
       }
     },
 
@@ -343,8 +372,10 @@ window.AppStyleLearning = {
       var dom = this.$refs[refName];
       if (!dom) return null;
       var existing = echarts.getInstanceByDom(dom);
-      if (existing) { existing.dispose(); }
-      var chart = echarts.init(dom, 'material');
+      if (existing) {
+        existing.dispose();
+      }
+      var chart = echarts.init(dom, "material");
       this.chartInstances[refName] = chart;
       return chart;
     },
@@ -353,10 +384,10 @@ window.AppStyleLearning = {
     emptyOption(msg) {
       return {
         title: {
-          text: msg || '暂无数据',
-          left: 'center',
-          top: 'middle',
-          textStyle: { fontSize: 14, color: '#999' },
+          text: msg || "暂无数据",
+          left: "center",
+          top: "middle",
+          textStyle: { fontSize: 14, color: "#999" },
         },
         xAxis: { show: false },
         yAxis: { show: false },
@@ -367,34 +398,52 @@ window.AppStyleLearning = {
     /* ---------- 数据获取 ---------- */
     async loadStyleData() {
       try {
-        var resp = await fetch('/api/style_learning/results');
+        var resp = await fetch("/api/style_learning/results", {
+          credentials: "include",
+        });
         var data = await resp.json();
+        // Normalize: backend returns { statistics: {...}, style_progress: [...] }
+        // Flatten statistics into top-level for stat cards
+        if (data && data.statistics) {
+          data.style_types_count = data.statistics.unique_styles || 0;
+          data.avg_confidence = data.statistics.avg_confidence || 0;
+          data.total_samples = data.statistics.total_samples || 0;
+          data.latest_update = data.statistics.latest_update || null;
+        }
         this.styleResults = data || {};
       } catch (e) {
-        console.error('[StyleLearning] loadStyleData error:', e);
+        console.error("[StyleLearning] loadStyleData error:", e);
         this.styleResults = {};
       }
     },
 
     async loadPatterns() {
       try {
-        var resp = await fetch('/api/style_learning/patterns');
+        var resp = await fetch("/api/style_learning/patterns", {
+          credentials: "include",
+        });
         var data = await resp.json();
+        // Normalize: backend returns topic_preferences, frontend expects topic_patterns
+        if (data && data.topic_preferences && !data.topic_patterns) {
+          data.topic_patterns = data.topic_preferences;
+        }
         this.patterns = data || {};
       } catch (e) {
-        console.error('[StyleLearning] loadPatterns error:', e);
+        console.error("[StyleLearning] loadPatterns error:", e);
         this.patterns = {};
       }
     },
 
     async loadContent(forceRefresh) {
       try {
-        var url = '/api/style_learning/content_text?force_refresh=' + (forceRefresh ? 'true' : 'false');
-        var resp = await fetch(url);
+        var url =
+          "/api/style_learning/content_text?force_refresh=" +
+          (forceRefresh ? "true" : "false");
+        var resp = await fetch(url, { credentials: "include" });
         var data = await resp.json();
         this.contentData = data || {};
       } catch (e) {
-        console.error('[StyleLearning] loadContent error:', e);
+        console.error("[StyleLearning] loadContent error:", e);
         this.contentData = {};
       }
     },
@@ -407,31 +456,45 @@ window.AppStyleLearning = {
     exportContent() {
       var lines = [];
       var self = this;
-      var tabs = ['dialogues', 'analysis', 'features', 'history'];
-      var tabNames = { dialogues: '对话记录', analysis: '分析结果', features: '风格特征', history: '学习历史' };
+      var tabs = ["dialogues", "analysis", "features", "history"];
+      var tabNames = {
+        dialogues: "对话记录",
+        analysis: "分析结果",
+        features: "风格特征",
+        history: "学习历史",
+      };
 
       tabs.forEach(function (tab) {
         var list = self.contentData[tab] || [];
         if (list.length === 0) return;
-        lines.push('===== ' + tabNames[tab] + ' =====');
+        lines.push("===== " + tabNames[tab] + " =====");
         list.forEach(function (item, idx) {
-          var text = typeof item === 'string'
-            ? item
-            : (item.content || item.text || item.summary || JSON.stringify(item));
-          lines.push((idx + 1) + '. ' + text);
+          var text =
+            typeof item === "string"
+              ? item
+              : item.content ||
+                item.text ||
+                item.summary ||
+                JSON.stringify(item);
+          lines.push(idx + 1 + ". " + text);
         });
-        lines.push('');
+        lines.push("");
       });
 
       if (lines.length === 0) {
-        lines.push('暂无学习内容数据');
+        lines.push("暂无学习内容数据");
       }
 
-      var blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+      var blob = new Blob([lines.join("\n")], {
+        type: "text/plain;charset=utf-8",
+      });
       var url = URL.createObjectURL(blob);
-      var a = document.createElement('a');
+      var a = document.createElement("a");
       a.href = url;
-      a.download = 'style_learning_content_' + new Date().toISOString().slice(0, 10) + '.txt';
+      a.download =
+        "style_learning_content_" +
+        new Date().toISOString().slice(0, 10) +
+        ".txt";
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -448,87 +511,120 @@ window.AppStyleLearning = {
 
     /* ---------- 1. 风格学习进度 - 水平条形图 ---------- */
     initStyleProgress() {
-      var chart = this.chartInstances['styleProgressChart'] || this.initChart('styleProgressChart');
+      var chart =
+        this.chartInstances["styleProgressChart"] ||
+        this.initChart("styleProgressChart");
       if (!chart) return;
 
       var data = this.styleResults;
       if (!data.style_progress || data.style_progress.length === 0) {
-        chart.setOption(this.emptyOption('暂无风格学习数据'), true);
+        chart.setOption(this.emptyOption("暂无风格学习数据"), true);
         return;
       }
 
       var styleProgress = data.style_progress;
       var labels = styleProgress.map(function (item) {
-        if (item.group_id) return '群组' + item.group_id;
-        if (item.timestamp) return new Date(item.timestamp * 1000).toLocaleDateString();
-        return '未知';
+        if (item.group_id) return "群组" + item.group_id;
+        if (item.timestamp)
+          return new Date(item.timestamp * 1000).toLocaleDateString();
+        return "未知";
       });
       var scores = styleProgress.map(function (item) {
         return Math.round((item.quality_score || 0) * 100);
       });
       var samples = styleProgress.map(function (item) {
-        return item.filtered_count || item.message_count || item.total_samples || 0;
+        return (
+          item.filtered_count || item.message_count || item.total_samples || 0
+        );
       });
 
-      chart.setOption({
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-          formatter: function (params) {
-            var tip = params[0].name + '<br/>';
-            params.forEach(function (p) {
-              tip += p.marker + ' ' + p.seriesName + ': ' + p.value + (p.seriesIndex === 0 ? '%' : '') + '<br/>';
-            });
-            return tip;
+      chart.setOption(
+        {
+          tooltip: {
+            trigger: "axis",
+            axisPointer: { type: "shadow" },
+            formatter: function (params) {
+              var tip = params[0].name + "<br/>";
+              params.forEach(function (p) {
+                tip +=
+                  p.marker +
+                  " " +
+                  p.seriesName +
+                  ": " +
+                  p.value +
+                  (p.seriesIndex === 0 ? "%" : "") +
+                  "<br/>";
+              });
+              return tip;
+            },
           },
+          legend: { data: ["质量分数(%)", "样本数量"] },
+          grid: {
+            left: "3%",
+            right: "8%",
+            bottom: "3%",
+            top: "14%",
+            containLabel: true,
+          },
+          xAxis: {
+            type: "value",
+            max: function (value) {
+              return Math.max(100, value.max);
+            },
+          },
+          yAxis: { type: "category", data: labels, inverse: true },
+          series: [
+            {
+              name: "质量分数(%)",
+              type: "bar",
+              data: scores,
+              itemStyle: {
+                color: window.echarts
+                  ? new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                      { offset: 0, color: "#667eea" },
+                      { offset: 1, color: "#764ba2" },
+                    ])
+                  : "#667eea",
+                borderRadius: [0, 4, 4, 0],
+              },
+              label: {
+                show: true,
+                position: "right",
+                formatter: "{c}%",
+                fontSize: 11,
+              },
+            },
+            {
+              name: "样本数量",
+              type: "bar",
+              data: samples,
+              itemStyle: {
+                color: window.echarts
+                  ? new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                      { offset: 0, color: "#43e97b" },
+                      { offset: 1, color: "#38f9d7" },
+                    ])
+                  : "#43e97b",
+                borderRadius: [0, 4, 4, 0],
+              },
+              label: { show: true, position: "right", fontSize: 11 },
+            },
+          ],
         },
-        legend: { data: ['质量分数(%)', '样本数量'] },
-        grid: { left: '3%', right: '8%', bottom: '3%', top: '14%', containLabel: true },
-        xAxis: { type: 'value', max: function (value) { return Math.max(100, value.max); } },
-        yAxis: { type: 'category', data: labels, inverse: true },
-        series: [
-          {
-            name: '质量分数(%)',
-            type: 'bar',
-            data: scores,
-            itemStyle: {
-              color: window.echarts
-                ? new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                    { offset: 0, color: '#667eea' },
-                    { offset: 1, color: '#764ba2' },
-                  ])
-                : '#667eea',
-              borderRadius: [0, 4, 4, 0],
-            },
-            label: { show: true, position: 'right', formatter: '{c}%', fontSize: 11 },
-          },
-          {
-            name: '样本数量',
-            type: 'bar',
-            data: samples,
-            itemStyle: {
-              color: window.echarts
-                ? new window.echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                    { offset: 0, color: '#43e97b' },
-                    { offset: 1, color: '#38f9d7' },
-                  ])
-                : '#43e97b',
-              borderRadius: [0, 4, 4, 0],
-            },
-            label: { show: true, position: 'right', fontSize: 11 },
-          },
-        ],
-      }, true);
+        true,
+      );
     },
 
     /* ---------- 2. 情感模式分析 - 雷达图 ---------- */
     initEmotionPatterns() {
-      var chart = this.chartInstances['emotionPatternsChart'] || this.initChart('emotionPatternsChart');
+      var chart =
+        this.chartInstances["emotionPatternsChart"] ||
+        this.initChart("emotionPatternsChart");
       if (!chart) return;
 
       var emotionPatterns = this.patterns.emotion_patterns || [];
       if (emotionPatterns.length === 0) {
-        chart.setOption(this.emptyOption('暂无情感模式数据'), true);
+        chart.setOption(this.emptyOption("暂无情感模式数据"), true);
         return;
       }
 
@@ -537,10 +633,12 @@ window.AppStyleLearning = {
       var values = [];
 
       emotionPatterns.forEach(function (item) {
-        var name = typeof item === 'string' ? item : (item.name || item.pattern || '未知');
+        var name =
+          typeof item === "string" ? item : item.name || item.pattern || "未知";
         var value = 0;
-        if (typeof item === 'object' && item !== null) {
-          value = item.score || item.confidence || item.value || item.weight || 0;
+        if (typeof item === "object" && item !== null) {
+          value =
+            item.score || item.confidence || item.value || item.weight || 0;
           if (value > 0 && value <= 1) value = value * 100;
         } else {
           value = 50; // Default for string-only patterns
@@ -549,42 +647,55 @@ window.AppStyleLearning = {
         values.push(Math.round(value));
       });
 
-      chart.setOption({
-        tooltip: {
-          trigger: 'item',
+      chart.setOption(
+        {
+          tooltip: {
+            trigger: "item",
+          },
+          radar: {
+            indicator: indicators,
+            center: ["50%", "55%"],
+            radius: "60%",
+            shape: "polygon",
+            splitArea: {
+              areaStyle: {
+                color: ["rgba(25,118,210,0.02)", "rgba(25,118,210,0.05)"],
+              },
+            },
+            axisName: { color: "#757575", fontSize: 11 },
+          },
+          series: [
+            {
+              name: "情感模式",
+              type: "radar",
+              data: [
+                {
+                  value: values,
+                  name: "情感维度",
+                  symbol: "circle",
+                  symbolSize: 6,
+                  itemStyle: { color: "#9c27b0" },
+                  lineStyle: { color: "#9c27b0", width: 2 },
+                  areaStyle: { color: "rgba(156, 39, 176, 0.2)" },
+                },
+              ],
+            },
+          ],
         },
-        radar: {
-          indicator: indicators,
-          center: ['50%', '55%'],
-          radius: '60%',
-          shape: 'polygon',
-          splitArea: { areaStyle: { color: ['rgba(25,118,210,0.02)', 'rgba(25,118,210,0.05)'] } },
-          axisName: { color: '#757575', fontSize: 11 },
-        },
-        series: [{
-          name: '情感模式',
-          type: 'radar',
-          data: [{
-            value: values,
-            name: '情感维度',
-            symbol: 'circle',
-            symbolSize: 6,
-            itemStyle: { color: '#9c27b0' },
-            lineStyle: { color: '#9c27b0', width: 2 },
-            areaStyle: { color: 'rgba(156, 39, 176, 0.2)' },
-          }],
-        }],
-      }, true);
+        true,
+      );
     },
 
     /* ---------- 3. 语言风格分析 - 柱状图 ---------- */
     initLanguageStyle() {
-      var chart = this.chartInstances['languageStyleChart'] || this.initChart('languageStyleChart');
+      var chart =
+        this.chartInstances["languageStyleChart"] ||
+        this.initChart("languageStyleChart");
       if (!chart) return;
 
       var languagePatterns = this.patterns.language_patterns || [];
       if (languagePatterns.length === 0) {
-        chart.setOption(this.emptyOption('暂无语言风格数据'), true);
+        chart.setOption(this.emptyOption("暂无语言风格数据"), true);
         return;
       }
 
@@ -592,10 +703,12 @@ window.AppStyleLearning = {
       var values = [];
 
       languagePatterns.forEach(function (item) {
-        var name = typeof item === 'string' ? item : (item.name || item.pattern || '未知');
+        var name =
+          typeof item === "string" ? item : item.name || item.pattern || "未知";
         var value = 0;
-        if (typeof item === 'object' && item !== null) {
-          value = item.score || item.confidence || item.value || item.count || 0;
+        if (typeof item === "object" && item !== null) {
+          value =
+            item.score || item.confidence || item.value || item.count || 0;
           if (value > 0 && value <= 1) value = value * 100;
         } else {
           value = 50;
@@ -604,55 +717,74 @@ window.AppStyleLearning = {
         values.push(Math.round(value));
       });
 
-      chart.setOption({
-        tooltip: {
-          trigger: 'axis',
-          axisPointer: { type: 'shadow' },
-        },
-        grid: { left: '3%', right: '4%', bottom: '3%', top: '10%', containLabel: true },
-        xAxis: {
-          type: 'category',
-          data: names,
-          axisLabel: { rotate: names.length > 5 ? 30 : 0, fontSize: 11 },
-        },
-        yAxis: { type: 'value', name: '特征值' },
-        series: [{
-          name: '语言特征',
-          type: 'bar',
-          data: values,
-          barMaxWidth: 40,
-          itemStyle: {
-            color: window.echarts
-              ? new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                  { offset: 0, color: '#4caf50' },
-                  { offset: 1, color: '#81c784' },
-                ])
-              : '#4caf50',
-            borderRadius: [4, 4, 0, 0],
+      chart.setOption(
+        {
+          tooltip: {
+            trigger: "axis",
+            axisPointer: { type: "shadow" },
           },
-          emphasis: {
-            itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.3)' },
+          grid: {
+            left: "3%",
+            right: "4%",
+            bottom: "3%",
+            top: "10%",
+            containLabel: true,
           },
-        }],
-      }, true);
+          xAxis: {
+            type: "category",
+            data: names,
+            axisLabel: { rotate: names.length > 5 ? 30 : 0, fontSize: 11 },
+          },
+          yAxis: { type: "value", name: "特征值" },
+          series: [
+            {
+              name: "语言特征",
+              type: "bar",
+              data: values,
+              barMaxWidth: 40,
+              itemStyle: {
+                color: window.echarts
+                  ? new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                      { offset: 0, color: "#4caf50" },
+                      { offset: 1, color: "#81c784" },
+                    ])
+                  : "#4caf50",
+                borderRadius: [4, 4, 0, 0],
+              },
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowOffsetX: 0,
+                  shadowColor: "rgba(0,0,0,0.3)",
+                },
+              },
+            },
+          ],
+        },
+        true,
+      );
     },
 
     /* ---------- 4. 话题偏好 - 饼图 ---------- */
     initTopicPreferences() {
-      var chart = this.chartInstances['topicPreferencesChart'] || this.initChart('topicPreferencesChart');
+      var chart =
+        this.chartInstances["topicPreferencesChart"] ||
+        this.initChart("topicPreferencesChart");
       if (!chart) return;
 
       var topicPatterns = this.patterns.topic_patterns || [];
       if (topicPatterns.length === 0) {
-        chart.setOption(this.emptyOption('暂无话题偏好数据'), true);
+        chart.setOption(this.emptyOption("暂无话题偏好数据"), true);
         return;
       }
 
       var pieData = topicPatterns.map(function (item) {
-        var name = typeof item === 'string' ? item : (item.name || item.pattern || '未知');
+        var name =
+          typeof item === "string" ? item : item.name || item.pattern || "未知";
         var value = 0;
-        if (typeof item === 'object' && item !== null) {
-          value = item.score || item.confidence || item.value || item.count || 1;
+        if (typeof item === "object" && item !== null) {
+          value =
+            item.score || item.confidence || item.value || item.count || 1;
           if (value > 0 && value <= 1) value = Math.round(value * 100);
         } else {
           value = 1;
@@ -660,23 +792,41 @@ window.AppStyleLearning = {
         return { name: name, value: value };
       });
 
-      chart.setOption({
-        tooltip: { trigger: 'item', formatter: '{a} <br/>{b}: {c} ({d}%)' },
-        legend: { bottom: '5%', left: 'center', type: 'scroll', textStyle: { fontSize: 11 } },
-        series: [{
-          name: '话题偏好',
-          type: 'pie',
-          radius: ['35%', '65%'],
-          center: ['50%', '45%'],
-          data: pieData,
-          emphasis: {
-            itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' },
+      chart.setOption(
+        {
+          tooltip: { trigger: "item", formatter: "{a} <br/>{b}: {c} ({d}%)" },
+          legend: {
+            bottom: "5%",
+            left: "center",
+            type: "scroll",
+            textStyle: { fontSize: 11 },
           },
-          label: { show: true, formatter: '{b}: {d}%', fontSize: 11 },
-          labelLine: { show: true },
-          itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
-        }],
-      }, true);
+          series: [
+            {
+              name: "话题偏好",
+              type: "pie",
+              radius: ["35%", "65%"],
+              center: ["50%", "45%"],
+              data: pieData,
+              emphasis: {
+                itemStyle: {
+                  shadowBlur: 10,
+                  shadowOffsetX: 0,
+                  shadowColor: "rgba(0,0,0,0.5)",
+                },
+              },
+              label: { show: true, formatter: "{b}: {d}%", fontSize: 11 },
+              labelLine: { show: true },
+              itemStyle: {
+                borderRadius: 4,
+                borderColor: "#fff",
+                borderWidth: 2,
+              },
+            },
+          ],
+        },
+        true,
+      );
     },
 
     /* ---------- 调整所有图表尺寸 ---------- */
@@ -727,7 +877,7 @@ window.AppStyleLearning = {
         self.initTopicPreferences();
 
         // Set up ResizeObserver
-        if (self.$refs.rootEl && typeof ResizeObserver !== 'undefined') {
+        if (self.$refs.rootEl && typeof ResizeObserver !== "undefined") {
           self.resizeObserver = new ResizeObserver(function () {
             self.resizeAllCharts();
           });

@@ -167,8 +167,8 @@ window.AppPersonaReview = {
           </div>
 
           <!-- Pagination -->
-          <div v-if="filteredPendingUpdates.length > 0" class="pagination-bar">
-            <span>显示 {{ paginationStart }}-{{ paginationEnd }} / 共 {{ filteredPendingUpdates.length }} 项</span>
+          <div v-if="totalPending > 0" class="pagination-bar">
+            <span>显示 {{ paginationStart }}-{{ paginationEnd }} / 共 {{ totalPending }} 项</span>
             <div style="display:flex;align-items:center;gap:8px;">
               <el-select v-model="pageSize" size="small" style="width:90px;" @change="onPageSizeChange">
                 <el-option :label="'10条/页'" :value="10" />
@@ -176,9 +176,9 @@ window.AppPersonaReview = {
                 <el-option :label="'50条/页'" :value="50" />
                 <el-option :label="'100条/页'" :value="100" />
               </el-select>
-              <el-button size="small" :disabled="currentPage <= 1" @click="currentPage--">上一页</el-button>
+              <el-button size="small" :disabled="currentPage <= 1" @click="prevPage">上一页</el-button>
               <span style="font-size:12px;color:#1d1d1f;">{{ currentPage }} / {{ totalPages }}</span>
-              <el-button size="small" :disabled="currentPage >= totalPages" @click="currentPage++">下一页</el-button>
+              <el-button size="small" :disabled="currentPage >= totalPages" @click="nextPage">下一页</el-button>
             </div>
           </div>
 
@@ -336,24 +336,24 @@ window.AppPersonaReview = {
       loading: true,
       refreshing: false,
 
-      // Data
-      allUpdates: [],       // all pending updates (loaded progressively)
-      reviewedUpdates: [],   // reviewed updates
-      totalPending: 0,       // total from server
+      // Data - current page only (server-side pagination)
+      pageUpdates: [], // current page updates from server
+      reviewedUpdates: [], // reviewed updates
+      totalPending: 0, // total count from server
 
       // Tabs
-      activeTab: 'pending',
+      activeTab: "pending",
 
-      // Filters (pending tab)
+      // Filters (pending tab) - not used for server pagination currently
       filters: {
-        type: '',
-        group: '',
-        confidence: '',
-        time: '',
+        type: "",
+        group: "",
+        confidence: "",
+        time: "",
       },
 
       // Reviewed tab filter
-      reviewedFilter: 'all',
+      reviewedFilter: "all",
 
       // Pagination
       currentPage: 1,
@@ -370,14 +370,10 @@ window.AppPersonaReview = {
       editDialogVisible: false,
       editItem: null,
       editForm: {
-        proposed_content: '',
-        comment: '',
+        proposed_content: "",
+        comment: "",
       },
       editSubmitting: false,
-
-      // Background loading
-      backgroundLoading: false,
-      backgroundLoaded: false,
 
       // Refresh timer
       refreshTimer: null,
@@ -387,19 +383,19 @@ window.AppPersonaReview = {
   computed: {
     /* ---------- Stats ---------- */
     pendingCount() {
-      return this.allUpdates.length;
+      return this.totalPending;
     },
     approvedCount() {
       var count = 0;
       for (var i = 0; i < this.reviewedUpdates.length; i++) {
-        if (this.reviewedUpdates[i].status === 'approved') count++;
+        if (this.reviewedUpdates[i].status === "approved") count++;
       }
       return count;
     },
     rejectedCount() {
       var count = 0;
       for (var i = 0; i < this.reviewedUpdates.length; i++) {
-        if (this.reviewedUpdates[i].status === 'rejected') count++;
+        if (this.reviewedUpdates[i].status === "rejected") count++;
       }
       return count;
     },
@@ -407,17 +403,17 @@ window.AppPersonaReview = {
     /* ---------- Available groups (from data) ---------- */
     availableGroups() {
       var groups = {};
-      for (var i = 0; i < this.allUpdates.length; i++) {
-        var g = this.allUpdates[i].group_id;
+      for (var i = 0; i < this.pageUpdates.length; i++) {
+        var g = this.pageUpdates[i].group_id;
         if (g) groups[g] = true;
       }
       return Object.keys(groups).sort();
     },
 
-    /* ---------- Client-side filtered pending ---------- */
+    /* ---------- Client-side filtered (current page only) ---------- */
     filteredPendingUpdates() {
       var self = this;
-      var result = this.allUpdates;
+      var result = this.pageUpdates;
 
       // Type filter
       if (self.filters.type) {
@@ -437,9 +433,10 @@ window.AppPersonaReview = {
       if (self.filters.confidence) {
         result = result.filter(function (u) {
           var score = u.confidence_score || 0;
-          if (self.filters.confidence === 'high') return score >= 0.8;
-          if (self.filters.confidence === 'medium') return score >= 0.5 && score < 0.8;
-          if (self.filters.confidence === 'low') return score < 0.5;
+          if (self.filters.confidence === "high") return score >= 0.8;
+          if (self.filters.confidence === "medium")
+            return score >= 0.5 && score < 0.8;
+          if (self.filters.confidence === "low") return score < 0.5;
           return true;
         });
       }
@@ -448,13 +445,13 @@ window.AppPersonaReview = {
       if (self.filters.time) {
         var now = Date.now() / 1000;
         var cutoff = 0;
-        if (self.filters.time === 'today') {
+        if (self.filters.time === "today") {
           var todayStart = new Date();
           todayStart.setHours(0, 0, 0, 0);
           cutoff = todayStart.getTime() / 1000;
-        } else if (self.filters.time === '7days') {
+        } else if (self.filters.time === "7days") {
           cutoff = now - 7 * 86400;
-        } else if (self.filters.time === '30days') {
+        } else if (self.filters.time === "30days") {
           cutoff = now - 30 * 86400;
         }
         if (cutoff > 0) {
@@ -467,28 +464,25 @@ window.AppPersonaReview = {
       return result;
     },
 
-    /* ---------- Pagination ---------- */
+    /* ---------- Pagination (server-side) ---------- */
     totalPages() {
-      return Math.max(1, Math.ceil(this.filteredPendingUpdates.length / this.pageSize));
+      return Math.max(1, Math.ceil(this.totalPending / this.pageSize));
     },
     paginatedUpdates() {
-      var start = (this.currentPage - 1) * this.pageSize;
-      var end = start + this.pageSize;
-      return this.filteredPendingUpdates.slice(start, end);
+      return this.filteredPendingUpdates;
     },
     paginationStart() {
-      if (this.filteredPendingUpdates.length === 0) return 0;
+      if (this.totalPending === 0) return 0;
       return (this.currentPage - 1) * this.pageSize + 1;
     },
     paginationEnd() {
-      var end = this.currentPage * this.pageSize;
-      return Math.min(end, this.filteredPendingUpdates.length);
+      return Math.min(this.currentPage * this.pageSize, this.totalPending);
     },
 
     /* ---------- Reviewed filtered ---------- */
     filteredReviewedUpdates() {
       var self = this;
-      if (self.reviewedFilter === 'all') return self.reviewedUpdates;
+      if (self.reviewedFilter === "all") return self.reviewedUpdates;
       return self.reviewedUpdates.filter(function (u) {
         return u.status === self.reviewedFilter;
       });
@@ -496,94 +490,58 @@ window.AppPersonaReview = {
   },
 
   watch: {
-    filteredPendingUpdates: function () {
-      // Reset page if current page exceeds total
-      if (this.currentPage > this.totalPages) {
-        this.currentPage = Math.max(1, this.totalPages);
-      }
-      // Clear selection when filter changes
-      this.selectedIds = [];
-      this.selectAll = false;
+    filters: {
+      handler: function () {
+        this.selectedIds = [];
+        this.selectAll = false;
+      },
+      deep: true,
     },
   },
 
   methods: {
     /* ========== Data Loading ========== */
-    async loadFirstPage() {
+    async loadPage(page) {
+      var offset = (page - 1) * this.pageSize;
       try {
-        var resp = await fetch('/api/persona_updates?limit=50&offset=0', {
-          credentials: 'include',
-        });
+        var resp = await fetch(
+          "/api/persona_updates?limit=" + this.pageSize + "&offset=" + offset,
+          { credentials: "include" },
+        );
         var data = await resp.json();
         if (data && data.success) {
-          this.allUpdates = data.updates || [];
+          this.pageUpdates = data.updates || [];
           this.totalPending = data.total || 0;
         }
       } catch (e) {
-        console.error('[PersonaReview] Failed to load first page:', e);
-        ElementPlus.ElMessage.error('加载审查列表失败: ' + (e.message || '网络错误'));
-      }
-    },
-
-    async loadRemainingInBackground() {
-      if (this.backgroundLoaded || this.backgroundLoading) return;
-      if (this.allUpdates.length >= this.totalPending) {
-        this.backgroundLoaded = true;
-        return;
-      }
-
-      this.backgroundLoading = true;
-      var offset = this.allUpdates.length;
-      var batchSize = 50;
-
-      try {
-        while (offset < this.totalPending) {
-          var resp = await fetch('/api/persona_updates?limit=' + batchSize + '&offset=' + offset, {
-            credentials: 'include',
-          });
-          var data = await resp.json();
-          if (data && data.success && data.updates && data.updates.length > 0) {
-            for (var i = 0; i < data.updates.length; i++) {
-              this.allUpdates.push(data.updates[i]);
-            }
-            offset += data.updates.length;
-            // Update total in case it changed
-            if (data.total !== undefined) {
-              this.totalPending = data.total;
-            }
-          } else {
-            break;
-          }
-        }
-        this.backgroundLoaded = true;
-      } catch (e) {
-        console.error('[PersonaReview] Background loading failed:', e);
-      } finally {
-        this.backgroundLoading = false;
+        console.error("[PersonaReview] Failed to load page:", e);
+        ElementPlus.ElMessage.error(
+          "加载审查列表失败: " + (e.message || "网络错误"),
+        );
       }
     },
 
     async loadReviewedUpdates() {
       try {
-        var resp = await fetch('/api/persona_updates/reviewed', {
-          credentials: 'include',
+        var resp = await fetch("/api/persona_updates/reviewed", {
+          credentials: "include",
         });
         var data = await resp.json();
         if (data && data.success) {
           this.reviewedUpdates = data.updates || [];
         }
       } catch (e) {
-        console.error('[PersonaReview] Failed to load reviewed updates:', e);
+        console.error("[PersonaReview] Failed to load reviewed updates:", e);
       }
     },
 
     async refreshAll() {
       this.refreshing = true;
-      this.backgroundLoaded = false;
       try {
-        await Promise.all([this.loadFirstPage(), this.loadReviewedUpdates()]);
-        // Background load remaining
-        this.loadRemainingInBackground();
+        await Promise.all([
+          this.loadPage(this.currentPage),
+          this.loadReviewedUpdates(),
+        ]);
       } finally {
         this.refreshing = false;
       }
@@ -591,58 +549,58 @@ window.AppPersonaReview = {
 
     /* ========== Formatting & Display ========== */
     formatTime(timestamp) {
-      if (!timestamp) return '未知时间';
+      if (!timestamp) return "未知时间";
       return new Date(timestamp * 1000).toLocaleString();
     },
 
     formatConfidence(score) {
-      if (score == null) return '0.0%';
-      return (score * 100).toFixed(1) + '%';
+      if (score == null) return "0.0%";
+      return (score * 100).toFixed(1) + "%";
     },
 
     shortId(id) {
-      if (!id) return '';
+      if (!id) return "";
       if (id.length <= 12) return id;
-      return id.substring(0, 8) + '...';
+      return id.substring(0, 8) + "...";
     },
 
     truncateText(text, maxLen) {
-      if (!text) return '';
+      if (!text) return "";
       if (text.length <= maxLen) return text;
-      return text.substring(0, maxLen) + '...';
+      return text.substring(0, maxLen) + "...";
     },
 
     getTypeLabel(source) {
-      if (source === 'style_learning') return '风格学习';
-      if (source === 'persona_learning') return '人格学习';
-      if (source === 'traditional') return '常规更新';
-      return source || '未知';
+      if (source === "style_learning") return "风格学习";
+      if (source === "persona_learning") return "人格学习";
+      if (source === "traditional") return "常规更新";
+      return source || "未知";
     },
 
     getTypeBadgeClass(source) {
-      if (source === 'style_learning') return 'badge-style';
-      if (source === 'persona_learning') return 'badge-persona';
-      return 'badge-general';
+      if (source === "style_learning") return "badge-style";
+      if (source === "persona_learning") return "badge-persona";
+      return "badge-general";
     },
 
     getStatusLabel(status) {
-      if (status === 'approved') return '已批准';
-      if (status === 'rejected') return '已拒绝';
-      return '未知';
+      if (status === "approved") return "已批准";
+      if (status === "rejected") return "已拒绝";
+      return "未知";
     },
 
     getStatusBadgeClass(status) {
       // Inline styles via computed, but we return a class and style
-      if (status === 'approved') return 'badge-persona';  // green
-      if (status === 'rejected') return 'badge-style';     // use red-ish inline
-      return 'badge-general';
+      if (status === "approved") return "badge-persona"; // green
+      if (status === "rejected") return "badge-style"; // use red-ish inline
+      return "badge-general";
     },
 
     getConfidenceStyle(score) {
       var pct = (score || 0) * 100;
-      if (pct >= 80) return { background: '#d1e7dd', color: '#0f5132' };
-      if (pct >= 50) return { background: '#fff3cd', color: '#856404' };
-      return { background: '#f8d7da', color: '#842029' };
+      if (pct >= 80) return { background: "#d1e7dd", color: "#0f5132" };
+      if (pct >= 50) return { background: "#fff3cd", color: "#856404" };
+      return { background: "#f8d7da", color: "#842029" };
     },
 
     /* ========== Content Expansion ========== */
@@ -651,11 +609,11 @@ window.AppPersonaReview = {
     },
 
     isExpanded(itemId, field) {
-      return !!this.expandedMap[itemId + '_' + field];
+      return !!this.expandedMap[itemId + "_" + field];
     },
 
     toggleExpand(itemId, field) {
-      var key = itemId + '_' + field;
+      var key = itemId + "_" + field;
       if (this.expandedMap[key]) {
         delete this.expandedMap[key];
       } else {
@@ -666,77 +624,104 @@ window.AppPersonaReview = {
     },
 
     getContentPreview(item, field) {
-      var content = field === 'original' ? item.original_content : item.proposed_content;
-      if (!content) return '(空)';
+      var content =
+        field === "original" ? item.original_content : item.proposed_content;
+      if (!content) return "(空)";
       if (this.isExpanded(item.id, field) || content.length <= 200) {
         return content;
       }
-      return content.substring(0, 200) + '...';
+      return content.substring(0, 200) + "...";
     },
 
     /* ========== Diff Highlighting ========== */
     getProposedPreviewHtml(item) {
       var proposed = item.proposed_content;
       var original = item.original_content;
-      if (!proposed) return '(\u7A7A)';
+      if (!proposed) return "(\u7A7A)";
 
       var displayText = proposed;
-      var expanded = this.isExpanded(item.id, 'proposed');
+      var expanded = this.isExpanded(item.id, "proposed");
       var needsTruncation = proposed.length > 200 && !expanded;
 
       // Check if proposed starts with original (append case)
-      if (original && proposed.startsWith(original) && proposed.length > original.length) {
+      if (
+        original &&
+        proposed.startsWith(original) &&
+        proposed.length > original.length
+      ) {
         var existingPart = original;
         var newPart = proposed.substring(original.length);
 
         if (needsTruncation) {
           // Truncate intelligently
           if (existingPart.length >= 200) {
-            displayText = this.escapeHtml(existingPart.substring(0, 200)) + '...';
+            displayText =
+              this.escapeHtml(existingPart.substring(0, 200)) + "...";
           } else {
             var remaining = 200 - existingPart.length;
-            displayText = this.escapeHtml(existingPart)
-              + '<span class="text-diff-new">'
-              + this.escapeHtml(newPart.substring(0, remaining))
-              + '</span>...';
+            displayText =
+              this.escapeHtml(existingPart) +
+              '<span class="text-diff-new">' +
+              this.escapeHtml(newPart.substring(0, remaining)) +
+              "</span>...";
           }
         } else {
-          displayText = this.escapeHtml(existingPart)
-            + '<span class="text-diff-new">'
-            + this.escapeHtml(newPart)
-            + '</span>';
+          displayText =
+            this.escapeHtml(existingPart) +
+            '<span class="text-diff-new">' +
+            this.escapeHtml(newPart) +
+            "</span>";
         }
 
         // Add toggle link
         if (this.shouldShowToggle(proposed)) {
-          var toggleLabel = expanded ? '收起内容' : '展开完整内容';
-          displayText += '<span data-toggle-id="' + this.escapeHtml(item.id) + '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' + toggleLabel + '</span>';
+          var toggleLabel = expanded ? "收起内容" : "展开完整内容";
+          displayText +=
+            '<span data-toggle-id="' +
+            this.escapeHtml(item.id) +
+            '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' +
+            toggleLabel +
+            "</span>";
         }
         return displayText;
       }
 
       // Simple word-level diff for other cases
       if (original && proposed !== original) {
-        var diffHtml = this.computeWordDiff(original, proposed, needsTruncation ? 200 : 0);
+        var diffHtml = this.computeWordDiff(
+          original,
+          proposed,
+          needsTruncation ? 200 : 0,
+        );
 
         // Add toggle link
         if (this.shouldShowToggle(proposed)) {
-          var toggleLabel2 = expanded ? '收起内容' : '展开完整内容';
-          diffHtml += '<span data-toggle-id="' + this.escapeHtml(item.id) + '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' + toggleLabel2 + '</span>';
+          var toggleLabel2 = expanded ? "收起内容" : "展开完整内容";
+          diffHtml +=
+            '<span data-toggle-id="' +
+            this.escapeHtml(item.id) +
+            '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' +
+            toggleLabel2 +
+            "</span>";
         }
         return diffHtml;
       }
 
       // No diff needed
       if (needsTruncation) {
-        displayText = this.escapeHtml(proposed.substring(0, 200)) + '...';
+        displayText = this.escapeHtml(proposed.substring(0, 200)) + "...";
       } else {
         displayText = this.escapeHtml(proposed);
       }
 
       if (this.shouldShowToggle(proposed)) {
-        var toggleLabel3 = expanded ? '收起内容' : '展开完整内容';
-        displayText += '<span data-toggle-id="' + this.escapeHtml(item.id) + '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' + toggleLabel3 + '</span>';
+        var toggleLabel3 = expanded ? "收起内容" : "展开完整内容";
+        displayText +=
+          '<span data-toggle-id="' +
+          this.escapeHtml(item.id) +
+          '" data-toggle-field="proposed" style="color:#007aff;cursor:pointer;font-size:11px;margin-left:4px;" onclick="this.dispatchEvent(new CustomEvent(\'toggle-expand\', {bubbles:true}))">' +
+          toggleLabel3 +
+          "</span>";
       }
       return displayText;
     },
@@ -744,7 +729,7 @@ window.AppPersonaReview = {
     computeWordDiff(original, proposed, truncateAt) {
       var origWords = original.split(/(\s+)/);
       var propWords = proposed.split(/(\s+)/);
-      var html = '';
+      var html = "";
       var charCount = 0;
       var truncated = false;
       var maxLen = propWords.length;
@@ -752,7 +737,8 @@ window.AppPersonaReview = {
       for (var i = 0; i < maxLen; i++) {
         var word = propWords[i];
         if (truncateAt > 0 && charCount + word.length > truncateAt) {
-          html += this.escapeHtml(word.substring(0, truncateAt - charCount)) + '...';
+          html +=
+            this.escapeHtml(word.substring(0, truncateAt - charCount)) + "...";
           truncated = true;
           break;
         }
@@ -760,7 +746,8 @@ window.AppPersonaReview = {
         if (i < origWords.length && origWords[i] === word) {
           html += this.escapeHtml(word);
         } else {
-          html += '<span class="text-diff-new">' + this.escapeHtml(word) + '</span>';
+          html +=
+            '<span class="text-diff-new">' + this.escapeHtml(word) + "</span>";
         }
         charCount += word.length;
       }
@@ -769,18 +756,20 @@ window.AppPersonaReview = {
     },
 
     escapeHtml(text) {
-      if (!text) return '';
+      if (!text) return "";
       return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     },
 
     /* ========== Selection ========== */
     toggleSelectAll(val) {
       if (val) {
-        this.selectedIds = this.paginatedUpdates.map(function (u) { return u.id; });
+        this.selectedIds = this.paginatedUpdates.map(function (u) {
+          return u.id;
+        });
       } else {
         this.selectedIds = [];
       }
@@ -798,127 +787,164 @@ window.AppPersonaReview = {
         }
       }
       // Update selectAll state
-      this.selectAll = this.paginatedUpdates.length > 0
-        && this.selectedIds.length === this.paginatedUpdates.length;
+      this.selectAll =
+        this.paginatedUpdates.length > 0 &&
+        this.selectedIds.length === this.paginatedUpdates.length;
     },
 
     /* ========== Filters ========== */
     resetFilters() {
-      this.filters = { type: '', group: '', confidence: '', time: '' };
+      this.filters = { type: "", group: "", confidence: "", time: "" };
       this.currentPage = 1;
+      this.loadPage(1);
     },
 
     onPageSizeChange() {
       this.currentPage = 1;
+      this.loadPage(1);
+    },
+
+    prevPage() {
+      if (this.currentPage > 1) {
+        this.currentPage--;
+        this.loadPage(this.currentPage);
+      }
+    },
+
+    nextPage() {
+      if (this.currentPage < this.totalPages) {
+        this.currentPage++;
+        this.loadPage(this.currentPage);
+      }
     },
 
     /* ========== Single Item Actions ========== */
     async approveItem(id) {
       try {
-        var resp = await fetch('/api/persona_updates/' + encodeURIComponent(id) + '/review', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'approve' }),
-        });
+        var resp = await fetch(
+          "/api/persona_updates/" + encodeURIComponent(id) + "/review",
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "approve" }),
+          },
+        );
         var data = await resp.json();
         if (resp.ok) {
-          ElementPlus.ElMessage.success('已批准更新');
+          ElementPlus.ElMessage.success("已批准更新");
           this.removeFromPending(id);
           this.loadReviewedUpdates();
         } else {
-          ElementPlus.ElMessage.error((data && data.error) || '操作失败');
+          ElementPlus.ElMessage.error((data && data.error) || "操作失败");
         }
       } catch (e) {
-        console.error('[PersonaReview] Approve failed:', e);
-        ElementPlus.ElMessage.error('批准失败: ' + (e.message || '网络错误'));
+        console.error("[PersonaReview] Approve failed:", e);
+        ElementPlus.ElMessage.error("批准失败: " + (e.message || "网络错误"));
       }
     },
 
     async rejectItem(id) {
       try {
-        var resp = await fetch('/api/persona_updates/' + encodeURIComponent(id) + '/review', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'reject' }),
-        });
+        var resp = await fetch(
+          "/api/persona_updates/" + encodeURIComponent(id) + "/review",
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "reject" }),
+          },
+        );
         var data = await resp.json();
         if (resp.ok) {
-          ElementPlus.ElMessage.success('已拒绝更新');
+          ElementPlus.ElMessage.success("已拒绝更新");
           this.removeFromPending(id);
           this.loadReviewedUpdates();
         } else {
-          ElementPlus.ElMessage.error((data && data.error) || '操作失败');
+          ElementPlus.ElMessage.error((data && data.error) || "操作失败");
         }
       } catch (e) {
-        console.error('[PersonaReview] Reject failed:', e);
-        ElementPlus.ElMessage.error('拒绝失败: ' + (e.message || '网络错误'));
+        console.error("[PersonaReview] Reject failed:", e);
+        ElementPlus.ElMessage.error("拒绝失败: " + (e.message || "网络错误"));
       }
     },
 
     deleteItem(id) {
       var self = this;
       ElementPlus.ElMessageBox.confirm(
-        '确定要删除此更新吗？此操作不可撤销。',
-        '删除更新',
+        "确定要删除此更新吗？此操作不可撤销。",
+        "删除更新",
         {
-          confirmButtonText: '确认删除',
-          cancelButtonText: '取消',
-          type: 'warning',
-        }
-      ).then(async function () {
-        try {
-          var resp = await fetch('/api/persona_updates/' + encodeURIComponent(id) + '/delete', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          var data = await resp.json();
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('已删除更新');
-            self.removeFromPending(id);
-          } else {
-            ElementPlus.ElMessage.error((data && data.error) || '删除失败');
+          confirmButtonText: "确认删除",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      )
+        .then(async function () {
+          try {
+            var resp = await fetch(
+              "/api/persona_updates/" + encodeURIComponent(id) + "/delete",
+              {
+                method: "POST",
+                credentials: "include",
+              },
+            );
+            var data = await resp.json();
+            if (resp.ok) {
+              ElementPlus.ElMessage.success("已删除更新");
+              self.removeFromPending(id);
+            } else {
+              ElementPlus.ElMessage.error((data && data.error) || "删除失败");
+            }
+          } catch (e) {
+            console.error("[PersonaReview] Delete failed:", e);
+            ElementPlus.ElMessage.error(
+              "删除失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[PersonaReview] Delete failed:', e);
-          ElementPlus.ElMessage.error('删除失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {
-        // User cancelled
-      });
+        })
+        .catch(function () {
+          // User cancelled
+        });
     },
 
     async revertItem(id) {
       var self = this;
       ElementPlus.ElMessageBox.confirm(
-        '确定要撤销此审查决定吗？该更新将回到待审查状态。',
-        '撤销审查',
+        "确定要撤销此审查决定吗？该更新将回到待审查状态。",
+        "撤销审查",
         {
-          confirmButtonText: '确认撤销',
-          cancelButtonText: '取消',
-          type: 'info',
-        }
-      ).then(async function () {
-        try {
-          var resp = await fetch('/api/persona_updates/' + encodeURIComponent(id) + '/revert', {
-            method: 'POST',
-            credentials: 'include',
-          });
-          var data = await resp.json();
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('已撤销审查');
-            self.refreshAll();
-          } else {
-            ElementPlus.ElMessage.error((data && data.error) || '撤销失败');
+          confirmButtonText: "确认撤销",
+          cancelButtonText: "取消",
+          type: "info",
+        },
+      )
+        .then(async function () {
+          try {
+            var resp = await fetch(
+              "/api/persona_updates/" + encodeURIComponent(id) + "/revert",
+              {
+                method: "POST",
+                credentials: "include",
+              },
+            );
+            var data = await resp.json();
+            if (resp.ok) {
+              ElementPlus.ElMessage.success("已撤销审查");
+              self.refreshAll();
+            } else {
+              ElementPlus.ElMessage.error((data && data.error) || "撤销失败");
+            }
+          } catch (e) {
+            console.error("[PersonaReview] Revert failed:", e);
+            ElementPlus.ElMessage.error(
+              "撤销失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[PersonaReview] Revert failed:', e);
-          ElementPlus.ElMessage.error('撤销失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {
-        // User cancelled
-      });
+        })
+        .catch(function () {
+          // User cancelled
+        });
     },
 
     /* ========== Batch Actions ========== */
@@ -926,123 +952,149 @@ window.AppPersonaReview = {
       if (this.selectedIds.length === 0) return;
       var self = this;
       ElementPlus.ElMessageBox.confirm(
-        '确定要批量批准选中的 ' + this.selectedIds.length + ' 项更新吗？',
-        '批量批准',
+        "确定要批量批准选中的 " + this.selectedIds.length + " 项更新吗？",
+        "批量批准",
         {
-          confirmButtonText: '确认批准',
-          cancelButtonText: '取消',
-          type: 'info',
-        }
-      ).then(async function () {
-        try {
-          var resp = await fetch('/api/persona_updates/batch_review', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              update_ids: self.selectedIds.slice(),
-              action: 'approve',
-              comment: '',
-            }),
-          });
-          var data = await resp.json();
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('已批量批准 ' + self.selectedIds.length + ' 项更新');
-            self.removeManyFromPending(self.selectedIds.slice());
-            self.selectedIds = [];
-            self.selectAll = false;
-            self.loadReviewedUpdates();
-          } else {
-            ElementPlus.ElMessage.error((data && data.error) || '批量批准失败');
+          confirmButtonText: "确认批准",
+          cancelButtonText: "取消",
+          type: "info",
+        },
+      )
+        .then(async function () {
+          try {
+            var resp = await fetch("/api/persona_updates/batch_review", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                update_ids: self.selectedIds.slice(),
+                action: "approve",
+                comment: "",
+              }),
+            });
+            var data = await resp.json();
+            if (resp.ok) {
+              ElementPlus.ElMessage.success(
+                "已批量批准 " + self.selectedIds.length + " 项更新",
+              );
+              self.removeManyFromPending(self.selectedIds.slice());
+              self.selectedIds = [];
+              self.selectAll = false;
+              self.loadReviewedUpdates();
+            } else {
+              ElementPlus.ElMessage.error(
+                (data && data.error) || "批量批准失败",
+              );
+            }
+          } catch (e) {
+            console.error("[PersonaReview] Batch approve failed:", e);
+            ElementPlus.ElMessage.error(
+              "批量批准失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[PersonaReview] Batch approve failed:', e);
-          ElementPlus.ElMessage.error('批量批准失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {});
+        })
+        .catch(function () {});
     },
 
     async batchReject() {
       if (this.selectedIds.length === 0) return;
       var self = this;
       ElementPlus.ElMessageBox.confirm(
-        '确定要批量拒绝选中的 ' + this.selectedIds.length + ' 项更新吗？',
-        '批量拒绝',
+        "确定要批量拒绝选中的 " + this.selectedIds.length + " 项更新吗？",
+        "批量拒绝",
         {
-          confirmButtonText: '确认拒绝',
-          cancelButtonText: '取消',
-          type: 'warning',
-        }
-      ).then(async function () {
-        try {
-          var resp = await fetch('/api/persona_updates/batch_review', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              update_ids: self.selectedIds.slice(),
-              action: 'reject',
-              comment: '',
-            }),
-          });
-          var data = await resp.json();
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('已批量拒绝 ' + self.selectedIds.length + ' 项更新');
-            self.removeManyFromPending(self.selectedIds.slice());
-            self.selectedIds = [];
-            self.selectAll = false;
-            self.loadReviewedUpdates();
-          } else {
-            ElementPlus.ElMessage.error((data && data.error) || '批量拒绝失败');
+          confirmButtonText: "确认拒绝",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      )
+        .then(async function () {
+          try {
+            var resp = await fetch("/api/persona_updates/batch_review", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                update_ids: self.selectedIds.slice(),
+                action: "reject",
+                comment: "",
+              }),
+            });
+            var data = await resp.json();
+            if (resp.ok) {
+              ElementPlus.ElMessage.success(
+                "已批量拒绝 " + self.selectedIds.length + " 项更新",
+              );
+              self.removeManyFromPending(self.selectedIds.slice());
+              self.selectedIds = [];
+              self.selectAll = false;
+              self.loadReviewedUpdates();
+            } else {
+              ElementPlus.ElMessage.error(
+                (data && data.error) || "批量拒绝失败",
+              );
+            }
+          } catch (e) {
+            console.error("[PersonaReview] Batch reject failed:", e);
+            ElementPlus.ElMessage.error(
+              "批量拒绝失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[PersonaReview] Batch reject failed:', e);
-          ElementPlus.ElMessage.error('批量拒绝失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {});
+        })
+        .catch(function () {});
     },
 
     async batchDelete() {
       if (this.selectedIds.length === 0) return;
       var self = this;
       ElementPlus.ElMessageBox.confirm(
-        '确定要批量删除选中的 ' + this.selectedIds.length + ' 项更新吗？此操作不可撤销。',
-        '批量删除',
+        "确定要批量删除选中的 " +
+          this.selectedIds.length +
+          " 项更新吗？此操作不可撤销。",
+        "批量删除",
         {
-          confirmButtonText: '确认删除',
-          cancelButtonText: '取消',
-          type: 'warning',
-        }
-      ).then(async function () {
-        try {
-          var resp = await fetch('/api/persona_updates/batch_delete', {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ update_ids: self.selectedIds.slice() }),
-          });
-          var data = await resp.json();
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('已批量删除 ' + self.selectedIds.length + ' 项更新');
-            self.removeManyFromPending(self.selectedIds.slice());
-            self.selectedIds = [];
-            self.selectAll = false;
-          } else {
-            ElementPlus.ElMessage.error((data && data.error) || '批量删除失败');
+          confirmButtonText: "确认删除",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      )
+        .then(async function () {
+          try {
+            var resp = await fetch("/api/persona_updates/batch_delete", {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ update_ids: self.selectedIds.slice() }),
+            });
+            var data = await resp.json();
+            if (resp.ok) {
+              ElementPlus.ElMessage.success(
+                "已批量删除 " + self.selectedIds.length + " 项更新",
+              );
+              self.removeManyFromPending(self.selectedIds.slice());
+              self.selectedIds = [];
+              self.selectAll = false;
+            } else {
+              ElementPlus.ElMessage.error(
+                (data && data.error) || "批量删除失败",
+              );
+            }
+          } catch (e) {
+            console.error("[PersonaReview] Batch delete failed:", e);
+            ElementPlus.ElMessage.error(
+              "批量删除失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[PersonaReview] Batch delete failed:', e);
-          ElementPlus.ElMessage.error('批量删除失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {});
+        })
+        .catch(function () {});
     },
 
     /* ========== Edit Dialog ========== */
     openEditDialog(item) {
       this.editItem = item;
       this.editForm = {
-        proposed_content: item.proposed_content || '',
-        comment: '',
+        proposed_content: item.proposed_content || "",
+        comment: "",
       };
       this.editDialogVisible = true;
     },
@@ -1059,24 +1111,31 @@ window.AppPersonaReview = {
           payload.modified_content = this.editForm.proposed_content;
         }
 
-        var resp = await fetch('/api/persona_updates/' + encodeURIComponent(this.editItem.id) + '/review', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        var resp = await fetch(
+          "/api/persona_updates/" +
+            encodeURIComponent(this.editItem.id) +
+            "/review",
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          },
+        );
         var data = await resp.json();
         if (resp.ok) {
-          ElementPlus.ElMessage.success(action === 'approve' ? '已批准更新' : '已拒绝更新');
+          ElementPlus.ElMessage.success(
+            action === "approve" ? "已批准更新" : "已拒绝更新",
+          );
           this.editDialogVisible = false;
           this.removeFromPending(this.editItem.id);
           this.loadReviewedUpdates();
         } else {
-          ElementPlus.ElMessage.error((data && data.error) || '操作失败');
+          ElementPlus.ElMessage.error((data && data.error) || "操作失败");
         }
       } catch (e) {
-        console.error('[PersonaReview] Edit review failed:', e);
-        ElementPlus.ElMessage.error('操作失败: ' + (e.message || '网络错误'));
+        console.error("[PersonaReview] Edit review failed:", e);
+        ElementPlus.ElMessage.error("操作失败: " + (e.message || "网络错误"));
       } finally {
         this.editSubmitting = false;
       }
@@ -1084,15 +1143,17 @@ window.AppPersonaReview = {
 
     /* ========== Helpers ========== */
     removeFromPending(id) {
-      for (var i = 0; i < this.allUpdates.length; i++) {
-        if (this.allUpdates[i].id === id) {
-          this.allUpdates.splice(i, 1);
-          break;
-        }
-      }
-      // Also remove from selection
+      this.pageUpdates = this.pageUpdates.filter(function (u) {
+        return u.id !== id;
+      });
+      this.totalPending = Math.max(0, this.totalPending - 1);
       var idx = this.selectedIds.indexOf(id);
       if (idx !== -1) this.selectedIds.splice(idx, 1);
+      // If current page is empty but there are more items, reload
+      if (this.pageUpdates.length === 0 && this.totalPending > 0) {
+        if (this.currentPage > 1) this.currentPage--;
+        this.loadPage(this.currentPage);
+      }
     },
 
     removeManyFromPending(ids) {
@@ -1100,9 +1161,15 @@ window.AppPersonaReview = {
       for (var j = 0; j < ids.length; j++) {
         idSet[ids[j]] = true;
       }
-      this.allUpdates = this.allUpdates.filter(function (u) {
+      this.pageUpdates = this.pageUpdates.filter(function (u) {
         return !idSet[u.id];
       });
+      this.totalPending = Math.max(0, this.totalPending - ids.length);
+      // If current page is empty but there are more items, reload
+      if (this.pageUpdates.length === 0 && this.totalPending > 0) {
+        if (this.currentPage > 1) this.currentPage--;
+        this.loadPage(this.currentPage);
+      }
     },
   },
 
@@ -1111,20 +1178,15 @@ window.AppPersonaReview = {
 
     // Initial load: first page + reviewed in parallel
     try {
-      await Promise.all([this.loadFirstPage(), this.loadReviewedUpdates()]);
+      await Promise.all([this.loadPage(1), this.loadReviewedUpdates()]);
     } catch (e) {
-      console.error('[PersonaReview] Initial load failed:', e);
+      console.error("[PersonaReview] Initial load failed:", e);
     } finally {
       this.loading = false;
     }
 
-    // Background load remaining data
-    this.$nextTick(function () {
-      self.loadRemainingInBackground();
-    });
-
     // Handle toggle-expand events from v-html content
-    this.$el.addEventListener('toggle-expand', function (e) {
+    this.$el.addEventListener("toggle-expand", function (e) {
       var target = e.target;
       if (target && target.dataset) {
         var id = target.dataset.toggleId;
@@ -1137,7 +1199,7 @@ window.AppPersonaReview = {
 
     // Auto-refresh every 60 seconds
     this.refreshTimer = setInterval(function () {
-      self.loadFirstPage();
+      self.loadPage(self.currentPage);
       self.loadReviewedUpdates();
     }, 60000);
   },
