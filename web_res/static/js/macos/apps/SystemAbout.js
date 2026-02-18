@@ -6,8 +6,8 @@ window.SystemAbout = {
   props: { app: Object },
   template: `
     <div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px;box-sizing:border-box;text-shadow:none;color:#333;background:#f5f5f7;">
-      <div style="width:80px;height:80px;border-radius:20px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
-        <i class="iconfont icon-apple-fill" style="font-size:48px;color:#fff;"></i>
+      <div style="width:80px;height:80px;border-radius:20px;overflow:hidden;display:flex;align-items:center;justify-content:center;margin-bottom:16px;">
+        <img src="/static/img/logo.png" alt="Logo" style="width:100%;height:100%;object-fit:cover;" />
       </div>
       <h2 style="margin:0 0 4px 0;font-size:18px;font-weight:600;">AstrBot 自学习插件</h2>
       <p style="margin:0 0 4px 0;font-size:12px;color:#86868b;">Self Learning Plugin for AstrBot</p>
@@ -35,5 +35,5 @@ window.SystemAbout = {
         </a>
       </div>
     </div>
-  `
+  `,
 };
