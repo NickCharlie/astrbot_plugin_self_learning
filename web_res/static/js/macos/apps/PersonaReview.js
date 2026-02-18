@@ -559,9 +559,10 @@ window.AppPersonaReview = {
     },
 
     shortId(id) {
-      if (!id) return "";
-      if (id.length <= 12) return id;
-      return id.substring(0, 8) + "...";
+      if (!id && id !== 0) return "";
+      var s = String(id);
+      if (s.length <= 12) return s;
+      return s.substring(0, 8) + "...";
     },
 
     truncateText(text, maxLen) {
