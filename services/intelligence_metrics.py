@@ -55,9 +55,10 @@ class ConfidenceMetrics:
 class IntelligenceMetricsService:
     """智能化指标计算服务"""
 
-    def __init__(self, config: PluginConfig, db_manager=None):
+    def __init__(self, config: PluginConfig, db_manager=None, llm_adapter=None):
         self.config = config
         self.db_manager = db_manager
+        self.llm_adapter = llm_adapter
         self._logger = logger  # 添加 logger 属性
         self.logger = logger
 
