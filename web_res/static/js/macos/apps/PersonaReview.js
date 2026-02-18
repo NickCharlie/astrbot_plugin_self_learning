@@ -566,9 +566,10 @@ window.AppPersonaReview = {
     },
 
     truncateText(text, maxLen) {
-      if (!text) return "";
-      if (text.length <= maxLen) return text;
-      return text.substring(0, maxLen) + "...";
+      if (!text && text !== 0) return "";
+      var s = String(text);
+      if (s.length <= maxLen) return s;
+      return s.substring(0, maxLen) + "...";
     },
 
     getTypeLabel(source) {
@@ -628,6 +629,7 @@ window.AppPersonaReview = {
       var content =
         field === "original" ? item.original_content : item.proposed_content;
       if (!content) return "(空)";
+      content = String(content);
       if (this.isExpanded(item.id, field) || content.length <= 200) {
         return content;
       }
@@ -636,8 +638,8 @@ window.AppPersonaReview = {
 
     /* ========== Diff Highlighting ========== */
     getProposedPreviewHtml(item) {
-      var proposed = item.proposed_content;
-      var original = item.original_content;
+      var proposed = item.proposed_content ? String(item.proposed_content) : "";
+      var original = item.original_content ? String(item.original_content) : "";
       if (!proposed) return "(\u7A7A)";
 
       var displayText = proposed;
@@ -757,8 +759,8 @@ window.AppPersonaReview = {
     },
 
     escapeHtml(text) {
-      if (!text) return "";
-      return text
+      if (!text && text !== 0) return "";
+      return String(text)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
