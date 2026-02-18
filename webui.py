@@ -1851,8 +1851,28 @@ async def batch_review_persona_updates():
                             )
 
                             if success and action == 'approve':
-                                # 如果批准，还需要应用人格更新
                                 content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                                group_id = review_data.get('group_id', 'default')
+
+                                # ===== 自动应用到框架默认人格 =====
+                                auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                                logger.info(f"[自动应用-批量] 检查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}, content={len(content_to_apply) if content_to_apply else 0}")
+                                if content_to_apply and auto_apply_enabled and persona_manager:
+                                    try:
+                                        umo = _resolve_umo(group_id)
+                                        current_persona = await persona_manager.get_default_persona_v3(umo)
+                                        if current_persona:
+                                            p_name = current_persona.get('name', 'default')
+                                            logger.info(f"[自动应用-批量] 准备更新默认人格 [{p_name}]，内容长度: {len(content_to_apply)}")
+                                            await persona_manager.update_persona(
+                                                persona_id=p_name,
+                                                system_prompt=content_to_apply
+                                            )
+                                            logger.info(f"[自动应用-批量] ✅ 已将 {update_id} 内容应用到默认人格 [{p_name}]")
+                                    except Exception as auto_err:
+                                        logger.error(f"[自动应用-批量] ❌ 应用失败: {auto_err}", exc_info=True)
+
+                                # 原有的update_persona_with_style逻辑
                                 if persona_updater and content_to_apply:
                                     try:
                                         style_analysis = {
@@ -1862,18 +1882,11 @@ async def batch_review_persona_updates():
                                             'confidence': 0.8,
                                             'source': f'批量审查{update_id}'
                                         }
-
                                         success_apply = await persona_updater.update_persona_with_style(
-                                            review_data.get('group_id', 'default'),
-                                            style_analysis,
-                                            []
+                                            group_id, style_analysis, []
                                         )
-
                                         if success_apply:
-                                            logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
-                                        else:
-                                            logger.warning(f"批量审查 {update_id} 应用失败")
-
+                                            logger.info(f"批量审查 {update_id} 备份和内存更新完成")
                                     except Exception as apply_error:
                                         logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
 
@@ -1889,11 +1902,42 @@ async def batch_review_persona_updates():
                         # 风格学习审查记录
                         numeric_id = int(update_id.replace("style_", ""))
                         status = 'approved' if action == 'approve' else 'rejected'
+
+                        if action == 'approve':
+                            # 获取审查详情用于auto-apply
+                            pending_reviews = await database_manager.get_pending_style_reviews()
+                            target_review = None
+                            for rev in pending_reviews:
+                                if rev['id'] == numeric_id:
+                                    target_review = rev
+                                    break
+
                         success = await database_manager.update_style_review_status(numeric_id, status)
 
                         if success:
                             success_count += 1
                             logger.info(f"风格学习审查 {update_id} 已{status}")
+
+                            # ===== 自动应用到框架默认人格 =====
+                            if action == 'approve' and target_review and target_review.get('few_shots_content'):
+                                auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                                logger.info(f"[自动应用-批量] 风格审查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}")
+                                if auto_apply_enabled and persona_manager:
+                                    try:
+                                        group_id = target_review.get('group_id', 'default')
+                                        umo = _resolve_umo(group_id)
+                                        current_persona = await persona_manager.get_default_persona_v3(umo)
+                                        if current_persona:
+                                            p_name = current_persona.get('name', 'default')
+                                            content = target_review['few_shots_content']
+                                            logger.info(f"[自动应用-批量] 准备更新默认人格 [{p_name}]，风格内容长度: {len(content)}")
+                                            await persona_manager.update_persona(
+                                                persona_id=p_name,
+                                                system_prompt=content
+                                            )
+                                            logger.info(f"[自动应用-批量] ✅ 已将风格 {update_id} 内容应用到默认人格 [{p_name}]")
+                                    except Exception as auto_err:
+                                        logger.error(f"[自动应用-批量] ❌ 风格应用失败: {auto_err}", exc_info=True)
                         else:
                             failed_count += 1
                             logger.warning(f"未找到风格学习审查记录: {numeric_id}")
@@ -1924,6 +1968,26 @@ async def batch_review_persona_updates():
                         if success and action == 'approve':
                             # 如果批准，还需要应用人格更新
                             content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                            group_id = review_data.get('group_id', 'default')
+
+                            # ===== 自动应用到框架默认人格 =====
+                            auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                            logger.info(f"[自动应用-批量-数字ID] 检查配置: auto_apply={auto_apply_enabled}, content={len(content_to_apply) if content_to_apply else 0}")
+                            if content_to_apply and auto_apply_enabled and persona_manager:
+                                try:
+                                    umo = _resolve_umo(group_id)
+                                    current_persona = await persona_manager.get_default_persona_v3(umo)
+                                    if current_persona:
+                                        p_name = current_persona.get('name', 'default')
+                                        logger.info(f"[自动应用-批量-数字ID] 准备更新默认人格 [{p_name}]")
+                                        await persona_manager.update_persona(
+                                            persona_id=p_name,
+                                            system_prompt=content_to_apply
+                                        )
+                                        logger.info(f"[自动应用-批量-数字ID] ✅ 已应用到默认人格 [{p_name}]")
+                                except Exception as auto_err:
+                                    logger.error(f"[自动应用-批量-数字ID] ❌ 失败: {auto_err}", exc_info=True)
+
                             if persona_updater and content_to_apply:
                                 try:
                                     style_analysis = {
