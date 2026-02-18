@@ -5,7 +5,7 @@
 window.MacOSLoading = {
   template: `
     <div class="macos-loading" @click="fullScreen">
-      <div class="logo"><i class="iconfont icon-apple-fill"></i></div>
+      <div class="logo"><img src="/static/img/logo.png" alt="Logo" style="width:120px;height:120px;object-fit:contain;border-radius:50%;" /></div>
       <div class="progress" :style="{ width: showProgress ? '300px' : '0px' }">
         <div :style="{ width: progress + '%' }"></div>
       </div>
@@ -14,7 +14,7 @@ window.MacOSLoading = {
   data() {
     return {
       progress: 0,
-      showProgress: false
+      showProgress: false,
     };
   },
   created() {
@@ -41,10 +41,10 @@ window.MacOSLoading = {
       if (this.progress >= 100) {
         this.progress = 100;
         this.showProgress = false;
-        setTimeout(() => this.$emit('loaded'), 1000);
+        setTimeout(() => this.$emit("loaded"), 1000);
       } else {
         requestAnimationFrame(this.updateProgress);
       }
-    }
-  }
+    },
+  },
 };
