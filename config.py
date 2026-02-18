@@ -66,6 +66,7 @@ class PluginConfig:
     auto_backup_enabled: bool = True        # 启用自动备份
     backup_interval_hours: int = 24         # 备份间隔
     max_backups_per_group: int = 10         # 每群最大备份数
+    auto_apply_approved_persona: bool = False  # 审查批准后自动应用到默认人格（危险功能，默认关闭）
     
     # 高级设置
     debug_mode: bool = False                # 调试模式
@@ -256,6 +257,7 @@ class PluginConfig:
             auto_backup_enabled=persona_backup_settings.get('auto_backup_enabled', True),
             backup_interval_hours=persona_backup_settings.get('backup_interval_hours', 24),
             max_backups_per_group=persona_backup_settings.get('max_backups_per_group', 10),
+            auto_apply_approved_persona=advanced_settings.get('auto_apply_approved_persona', False),
             
             debug_mode=advanced_settings.get('debug_mode', False),
             save_raw_messages=advanced_settings.get('save_raw_messages', True),

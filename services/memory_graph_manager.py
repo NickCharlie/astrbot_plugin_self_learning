@@ -384,6 +384,10 @@ class MemoryGraphManager:
     async def load_memory_graph(self, group_id: str):
         """从数据库加载记忆图"""
         try:
+            if not self.db_manager:
+                logger.warning(f"db_manager 为空，无法加载群组 {group_id} 记忆图")
+                return
+
             memory_graph = self.memory_graphs.get(group_id, MemoryGraph())
             
             with self.db_manager.get_connection() as conn:
@@ -428,7 +432,11 @@ class MemoryGraphManager:
         try:
             if group_id not in self.memory_graphs:
                 return
-            
+
+            if not self.db_manager:
+                logger.warning(f"db_manager 为空，无法保存群组 {group_id} 记忆图")
+                return
+
             memory_graph = self.memory_graphs[group_id]
             
             with self.db_manager.get_connection() as conn:
@@ -484,10 +492,12 @@ class MemoryGraphManager:
             concepts = await self._extract_concepts_from_message(message)
             
             for concept in concepts:
+                # 获取消息文本（兼容 dict 和 MessageData）
+                msg_text = message.get('message', '') if isinstance(message, dict) else getattr(message, 'message', '')
                 # 添加记忆节点
                 await memory_graph.add_memory_node(
                     concept=concept,
-                    memory=message.message,
+                    memory=msg_text,
                     llm_adapter=self.llm_adapter
                 )
                 
@@ -515,23 +525,32 @@ class MemoryGraphManager:
         """
         try:
             from ..statics.prompts import ENTITY_EXTRACTION_PROMPT
-            
-            prompt = ENTITY_EXTRACTION_PROMPT.format(text=message.message)
-            
+
+            # 兼容 dict 和 MessageData 对象
+            if isinstance(message, dict):
+                text = message.get('message', '') or message.get('content', '')
+            else:
+                text = getattr(message, 'message', '') or getattr(message, 'content', '')
+
+            if not text:
+                return []
+
+            prompt = ENTITY_EXTRACTION_PROMPT.format(text=text)
+
             response = await self.llm_adapter.generate_response(
                 prompt,
                 temperature=0.1,
                 model_type="filter"  # 使用过滤模型进行快速提取
             )
-            
+
             # 解析JSON响应
             concepts = safe_parse_llm_json(response)
-            
+
             if isinstance(concepts, list):
                 return [str(concept).strip() for concept in concepts if concept]
             else:
                 return []
-                
+
         except Exception as e:
             logger.error(f"提取概念失败: {e}")
             return []

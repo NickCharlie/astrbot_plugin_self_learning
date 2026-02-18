@@ -1,579 +1,89 @@
 <!DOCTYPE html>
-<html lang="zh-CN" class="modern-ui pc">
+<html lang="zh-CN">
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>登录 - 自主学习控制台</title>
-    <link rel="stylesheet" href="https://at.alicdn.com/t/c/font_4700424_4h2ezfk91jk.css">
-    <style>
-        /* 引入现代化设计系统 - 深蓝色主题 */
-        :root {
-            --color-brand1-6: #1e3a8a;
-            --color-brand1-1: #dbeafe;
-            --color-brand1-9: #1e40af;
-            --color-brand1-8: #1d4ed8;
-            --color-brand1-5: #3b82f6;
-            --color-white: #fff;
-            --color-text1-5: #181818;
-            --color-text1-4: #3d3d3d;
-            --color-text1-3: #575757;
-            --color-text1-2: #717171;
-            --color-text1-1: #999;
-            --color-line1-2: #d8d8d8;
-            --color-line1-1: #e9e9e9;
-            --color-line1-4: #b3b3b3;
-            --color-fill1-1: #fafafa;
-            --color-fill1-2: #f4f4f4;
-            --color-fill1-3: rgba(17, 0, 0, 0.1);
-            --color-error-4: #d6260b;
-            --color-error-3: #fa6b55;
-            --color-error-1: #ffe9e5;
-            --color-success-3: #35b056;
-            --color-success-1: #d8f3e0;
-            --font-family-base: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", sans-serif;
-            --font-size-body-2: 14px;
-            --font-size-body-1: 12px;
-            --font-size-subhead: 18px;
-            --font-size-title: 20px;
-            --font-size-caption: 12px;
-            --form-element-large-height: 40px;
-            --form-element-large-font-size: 14px;
-            --input-l-padding: 16px;
-            --input-placeholder-color: var(--color-text1-1);
-            --input-bg-color: var(--color-white);
-            --input-border-color: var(--color-line1-2);
-            --input-hover-border-color: var(--color-line1-4);
-            --input-focus-border-color: var(--color-brand1-6);
-            --btn-size-l-height: 40px;
-            --btn-pure-primary-bg: var(--color-brand1-6);
-            --btn-pure-primary-bg-hover: var(--color-brand1-8);
-            --shadow-2-down: 0px 4px 16px 0px rgba(0, 0, 0, 0.1);
-            --shadow-1-down: 0px 2px 4px 0px rgba(0, 0, 0, 0.1);
-            --corner-1: 0px;
-            --s-4: 16px;
-            --s-3: 12px;
-            --s-2: 8px;
-            --s-5: 20px;
-            --s-6: 24px;
-            --s-10: 40px;
-            --s-13: 52px;
-            --s-16: 64px;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: var(--font-family-base);
-            background: #ffffff;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            position: relative;
-            -webkit-font-smoothing: antialiased;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .login-container {
-            width: 100%;
-            max-width: 800px;
-            padding: 0 var(--s-6);
-            position: relative;
-        }
-
-        .login-card {
-            background: var(--color-white);
-            border-radius: 8px;
-            border: 1px solid var(--color-line1-1);
-            box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.15), 0 2px 4px 0 rgba(0, 0, 0, 0.12);
-            padding: var(--s-6) var(--s-10);
-            text-align: left;
-            position: relative;
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            display: grid;
-            grid-template-columns: 320px 350px;
-            gap: var(--s-6);
-            justify-content: center;
-            align-items: center;
-            min-height: 400px;
-        }
-
-        .login-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, #1e3a8a 0%, #1d4ed8 100%);
-            border-radius: 8px 8px 0 0;
-        }
-
-        .logo-section {
-            margin-bottom: 0;
-            text-align: center;
-        }
-
-        .logo-icon {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 100%);
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto var(--s-4);
-            box-shadow: 0 8px 24px rgba(30, 58, 138, 0.3), 0 4px 12px rgba(30, 58, 138, 0.2);
-            position: relative;
-        }
-
-        .logo-icon::after {
-            content: '';
-            position: absolute;
-            top: 6px;
-            left: 6px;
-            right: 6px;
-            bottom: 6px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-        }
-
-        .logo-icon .iconfont {
-            font-size: 32px;
-            color: var(--color-white);
-            position: relative;
-            z-index: 1;
-        }
-
-        .login-title {
-            font-size: 24px;
-            font-weight: 600;
-            color: var(--color-text1-5);
-            margin-bottom: var(--s-2);
-            line-height: 1.3;
-        }
-
-        .login-subtitle {
-            font-size: var(--font-size-body-2);
-            color: var(--color-text1-3);
-            margin-bottom: var(--s-6);
-        }
-
-        .brand-info {
-            font-size: var(--font-size-caption);
-            color: var(--color-text1-2);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            margin-bottom: var(--s-4);
-            padding: 8px 16px;
-            background: #dbeafe;
-            border-radius: 20px;
-            border: 1px solid rgba(30, 58, 138, 0.2);
-        }
-
-        .brand-info .iconfont {
-            font-size: 14px;
-            color: #1e3a8a;
-        }
-
-        .form-section {
-            margin-bottom: var(--s-4);
-        }
-
-        .input-group {
-            position: relative;
-            margin-bottom: var(--s-5);
-            text-align: left;
-        }
-
-        .input-group label {
-            display: block;
-            font-size: var(--font-size-body-2);
-            font-weight: 500;
-            color: var(--color-text1-5);
-            margin-bottom: var(--s-2);
-        }
-
-        .input-wrapper {
-            position: relative;
-        }
-
-        .input-group input {
-            width: 100%;
-            height: var(--form-element-large-height);
-            padding: 0 var(--input-l-padding) 0 48px;
-            border: 1px solid var(--input-border-color);
-            border-radius: 8px;
-            font-size: var(--form-element-large-font-size);
-            background: var(--input-bg-color);
-            transition: all 0.2s cubic-bezier(0.645, 0.045, 0.355, 1);
-            color: var(--color-text1-4);
-            font-family: var(--font-family-base);
-        }
-
-        .input-group input::placeholder {
-            color: var(--input-placeholder-color);
-            font-family: var(--font-family-base);
-        }
-
-        .input-group input:hover {
-            border-color: var(--input-hover-border-color);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.06);
-        }
-
-        .input-group input:focus {
-            outline: none;
-            border-color: var(--input-focus-border-color);
-            background: var(--input-bg-color);
-            box-shadow: 0 0 0 3px rgba(19, 102, 236, 0.12);
-        }
-
-        .input-icon {
-            position: absolute;
-            left: var(--input-l-padding);
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--color-text1-2);
-            font-size: 16px;
-            transition: color 0.3s ease;
-        }
-
-        .input-group input:focus+.input-icon {
-            color: var(--color-brand1-6);
-        }
-
-        .login-btn {
-            width: 100%;
-            height: var(--btn-size-l-height);
-            background: var(--btn-pure-primary-bg);
-            color: var(--color-white);
-            border: none;
-            border-radius: var(--corner-1);
-            font-size: var(--font-size-body-2);
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: var(--font-family-base);
-        }
-
-        .login-btn:hover {
-            background: var(--btn-pure-primary-bg-hover);
-        }
-
-        .login-btn:active {
-            background: var(--color-brand1-9);
-        }
-
-        .login-btn:disabled {
-            background: var(--color-fill1-2);
-            color: var(--color-text1-1);
-            cursor: not-allowed;
-        }
-
-        .btn-content {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
-
-        .loading-spinner {
-            display: none;
-            width: 18px;
-            height: 18px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
-            border-top: 2px solid white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% {
-                transform: rotate(0deg);
-            }
-
-            100% {
-                transform: rotate(360deg);
-            }
-        }
-
-        .message-container {
-            margin-bottom: var(--s-6);
-        }
-
-        .error-message {
-            background: var(--color-error-1);
-            border: 1px solid var(--color-error-3);
-            color: var(--color-error-4);
-            padding: var(--s-3) var(--input-l-padding);
-            border-radius: var(--corner-1);
-            font-size: var(--font-size-caption);
-            display: none;
-            position: relative;
-            font-family: var(--font-family-base);
-        }
-
-        .error-message::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: var(--color-error-4);
-            border-radius: 3px 0 0 3px;
-        }
-
-        .success-message {
-            background: var(--color-success-1);
-            border: 1px solid var(--color-success-3);
-            color: var(--color-success-3);
-            padding: var(--s-3) var(--input-l-padding);
-            border-radius: var(--corner-1);
-            font-size: var(--font-size-caption);
-            display: none;
-            position: relative;
-            font-family: var(--font-family-base);
-        }
-
-        .success-message::before {
-            content: '';
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 3px;
-            background: var(--color-success-3);
-            border-radius: 3px 0 0 3px;
-        }
-
-        .footer-section {
-            margin-top: var(--s-4);
-            padding-top: var(--s-4);
-            border-top: 1px solid var(--color-line1-1);
-        }
-
-        .footer-links {
-            display: flex;
-            justify-content: center;
-            gap: var(--s-6);
-            margin-bottom: var(--input-l-padding);
-        }
-
-        .footer-link {
-            font-size: var(--font-size-caption);
-            color: var(--color-text1-3);
-            text-decoration: none;
-            transition: color 0.3s ease;
-            font-family: var(--font-family-base);
-        }
-
-        .footer-link:hover {
-            color: var(--color-brand1-6);
-        }
-
-        .copyright {
-            font-size: 11px;
-            color: var(--color-text1-2);
-            text-align: center;
-            font-family: var(--font-family-base);
-        }
-
-        /* 安全提示 */
-        .security-tip {
-            background: var(--color-brand1-1);
-            border: 1px solid var(--color-brand1-6);
-            border-radius: var(--corner-1);
-            padding: var(--s-3) var(--input-l-padding);
-            margin-top: var(--s-5);
-            font-size: var(--font-size-caption);
-            color: var(--color-brand1-6);
-            display: flex;
-            align-items: center;
-            gap: var(--s-2);
-            font-family: var(--font-family-base);
-        }
-
-        .security-tip .iconfont {
-            font-size: 16px;
-        }
-
-        /* 响应式设计 */
-        @media (max-width: 480px) {
-            .login-container {
-                padding: 0 var(--input-l-padding);
-            }
-
-            .login-card {
-                padding: var(--s-10) var(--s-6);
-            }
-
-            .footer-links {
-                flex-direction: column;
-                gap: var(--s-3);
-            }
-        }
-    </style>
-    <style>
-        /* 移动端适配适配增强 */
-        @media screen and (max-width: 850px) {
-            body {
-                height: auto;
-                min-height: 100vh;
-                padding: 20px 10px;
-            }
-
-            .login-container {
-                padding: 0;
-                height: auto;
-            }
-
-            .login-card {
-                display: flex;
-                flex-direction: column;
-                grid-template-columns: 1fr;
-                width: 100%;
-                max-width: 500px;
-                height: auto;
-                min-height: auto;
-                padding: 30px 20px;
-                margin: 0 auto;
-                gap: 20px;
-            }
-
-            .login-card::before {
-                height: 4px;
-            }
-
-            .logo-section,
-            .message-container,
-            .form-section,
-            .footer-section {
-                width: 100%;
-                margin: 0;
-            }
-
-            .logo-section {
-                margin-bottom: 20px;
-            }
-
-            .form-section {
-                margin-bottom: 20px;
-            }
-
-            .footer-section {
-                margin-top: 10px;
-                padding-top: 20px;
-            }
-
-            /* 调整字体和尺寸以适应触控 */
-            .logo-icon {
-                width: 64px;
-                height: 64px;
-            }
-
-            .logo-icon .iconfont {
-                font-size: 28px;
-            }
-
-            .login-title {
-                font-size: 22px;
-            }
-
-            .input-group input {
-                height: 44px;
-                /* 增大触控区域 */
-                font-size: 16px;
-                /* 防止缩放 */
-            }
-
-            .login-btn {
-                height: 44px;
-                font-size: 15px;
-            }
-        }
-
-        @media screen and (max-width: 480px) {
-            .footer-links {
-                flex-direction: row;
-                flex-wrap: wrap;
-                justify-content: center;
-            }
-
-            .security-tip {
-                font-size: 12px;
-            }
-        }
-    </style>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet" href="/static/modderui/modder-ui.css">
+    <link rel="stylesheet" href="/static/modderui/modder-ui-ios-mode.css">
+    <link rel="stylesheet" href="/static/css/style.css">
 </head>
 
-<body>
-    <div class="login-container" id="login-container">
-        <div class="login-card">
-            <!-- Logo 部分 -->
+<body data-mode="ios" data-theme="light">
+
+    <!-- Theme toggle -->
+    <div class="theme-toggle-corner">
+        <button class="btn btn-ghost" id="themeToggle" style="width:40px;height:40px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;">
+            <i class="material-icons" id="themeIcon">dark_mode</i>
+        </button>
+    </div>
+
+    <div class="login-page">
+        <div class="login-card" id="login-container" style="display:flex;flex-direction:column;align-items:center;width:100%;max-width:380px;">
+            <!-- Logo -->
             <div class="logo-section">
                 <div class="logo-icon">
-                    <i class="iconfont">&#xe611;</i>
+                    <i class="material-icons">psychology</i>
                 </div>
-                <h1 class="login-title">控制台登录</h1>
-                <p class="login-subtitle">自学习插件管理系统</p>
+                <h1>控制台登录</h1>
+                <p class="subtitle">自学习插件管理系统</p>
             </div>
 
-            <!-- 消息提示 -->
-            <div class="message-container">
-                <div id="errorMessage" class="error-message"></div>
-                <div id="successMessage" class="success-message"></div>
-            </div>
+            <!-- Card form area -->
+            <div class="card card-blurred" style="padding:24px;width:100%;box-sizing:border-box;">
+                <!-- Messages -->
+                <div id="errorMessage" class="error-message" style="display:none;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:13px;"></div>
+                <div id="successMessage" class="success-message" style="display:none;margin-bottom:16px;padding:10px 14px;border-radius:10px;font-size:13px;"></div>
 
-            <!-- 表单部分 -->
-            <form class="form-section" id="loginForm">
-                <div class="input-group">
-                    <label for="password">登录密码</label>
-                    <div class="input-wrapper">
-                        <input type="password" id="password" name="password" placeholder="请输入登录密码" required
-                            autocomplete="current-password">
-                        <i class="iconfont input-icon">&#xe617;</i>
+                <!-- Form -->
+                <form id="loginForm" autocomplete="off">
+                    <div style="margin-bottom:6px;">
+                        <label style="display:block;font-size:13px;font-weight:500;color:var(--modder-text-secondary-label);margin-bottom:6px;">登录密码</label>
                     </div>
-                </div>
+                    <div class="form-input-group" style="margin-bottom:20px;">
+                        <span class="form-input-icon">
+                            <i class="material-icons" style="font-size:18px;">lock</i>
+                        </span>
+                        <input type="password" id="password" name="password" class="form-input"
+                               placeholder="请输入登录密码" required autocomplete="current-password">
+                    </div>
 
-                <button type="submit" class="login-btn" id="submitBtn">
-                    <div class="btn-content">
-                        <div class="loading-spinner" id="loadingSpinner"></div>
+                    <button type="submit" class="btn btn-default" id="submitBtn"
+                            style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;">
+                        <div class="loading-spinner" id="loadingSpinner" style="display:none;width:18px;height:18px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin 1s linear infinite;"></div>
                         <span id="btnText">登录</span>
-                    </div>
-                </button>
+                    </button>
+                </form>
 
-                <!-- 安全提示 -->
-                <div class="security-tip">
-                    <i class="iconfont">&#xe61c;</i>
+                <!-- Security tip -->
+                <div class="security-tip" style="margin-top:16px;">
+                    <i class="material-icons" style="font-size:16px;color:var(--modder-text-tertiary-label);">shield</i>
                     <span>请确保在安全环境中使用</span>
-                </div>
-            </form>
-
-            <!-- 页脚 -->
-            <div class="footer-section">
-                <div class="footer-links">
-                    <a href="#" class="footer-link">帮助文档</a>
-                    <a href="#" class="footer-link">技术支持</a>
-                    <a href="#" class="footer-link">安全中心</a>
-                </div>
-                <div class="copyright">
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // Theme toggle
+        (function() {
+            const saved = localStorage.getItem('sl-theme');
+            if (saved) {
+                document.body.setAttribute('data-theme', saved);
+                const icon = document.getElementById('themeIcon');
+                if (icon) icon.textContent = saved === 'dark' ? 'light_mode' : 'dark_mode';
+            }
+            document.getElementById('themeToggle').addEventListener('click', function() {
+                const current = document.body.getAttribute('data-theme');
+                const next = current === 'dark' ? 'light' : 'dark';
+                document.body.setAttribute('data-theme', next);
+                localStorage.setItem('sl-theme', next);
+                document.getElementById('themeIcon').textContent = next === 'dark' ? 'light_mode' : 'dark_mode';
+            });
+        })();
+
         document.addEventListener('DOMContentLoaded', function () {
             const loginContainer = document.getElementById('login-container');
             const loginButton = document.getElementById('submitBtn');
@@ -583,24 +93,21 @@
             const loadingSpinner = document.getElementById('loadingSpinner');
             const btnText = document.getElementById('btnText');
 
-            // 焦点到密码输入框
+            // Focus password input
             passwordInput.focus();
 
             function showError(message) {
-                loginMessage.innerHTML = `<i class="iconfont" style="font-size: 14px; margin-right: 6px;">&#xe60d;</i>${message}`;
+                loginMessage.innerHTML = '<i class="material-icons" style="font-size:14px;margin-right:6px;vertical-align:middle;">error_outline</i>' + message;
                 loginMessage.style.display = 'flex';
                 loginMessage.style.alignItems = 'center';
                 successMessage.style.display = 'none';
 
-                // 添加震动效果
                 loginMessage.style.animation = 'shake 0.5s ease-in-out';
-                setTimeout(() => {
-                    loginMessage.style.animation = '';
-                }, 500);
+                setTimeout(function() { loginMessage.style.animation = ''; }, 500);
             }
 
             function showSuccess(message) {
-                successMessage.innerHTML = `<i class="iconfont" style="font-size: 14px; margin-right: 6px;">&#xe60a;</i>${message}`;
+                successMessage.innerHTML = '<i class="material-icons" style="font-size:14px;margin-right:6px;vertical-align:middle;">check_circle</i>' + message;
                 successMessage.style.display = 'flex';
                 successMessage.style.alignItems = 'center';
                 loginMessage.style.display = 'none';
@@ -618,17 +125,17 @@
                 }
             }
 
-            // 检查URL参数，如果有强制更改密码标记则直接跳转
+            // Check URL params for forced password change
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('must_change') === 'true') {
                 window.location.href = '/api/plugin_change_password';
                 return;
             }
 
-            // 显示登录页面
-            loginContainer.style.display = 'flex';
+            // Show login page
+            loginContainer.style.display = '';
 
-            loginButton.addEventListener('click', async (e) => {
+            loginButton.addEventListener('click', async function(e) {
                 e.preventDefault();
                 const password = passwordInput.value.trim();
 
@@ -643,9 +150,7 @@
                 try {
                     const response = await fetch('/api/login', {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ password: password })
                     });
 
@@ -654,36 +159,33 @@
                     if (response.ok) {
                         if (data.must_change) {
                             showSuccess('登录成功，需要更改默认密码');
-                            setTimeout(() => {
+                            setTimeout(function() {
                                 window.location.href = '/api/plugin_change_password';
                             }, 1500);
                         } else {
                             showSuccess('登录成功，正在跳转...');
-                            setTimeout(() => {
+                            setTimeout(function() {
                                 window.location.href = data.redirect || '/api/index';
                             }, 1000);
                         }
                     } else if (response.status === 429) {
-                        // 账户被锁定
                         showError(data.error || '登录尝试次数过多，请稍后重试');
                         loginButton.disabled = true;
-                        btnText.textContent = `已锁定 (${data.remaining_time}秒)`;
+                        btnText.textContent = '已锁定 (' + (data.remaining_time || 300) + '秒)';
 
-                        // 倒计时
-                        let remaining = data.remaining_time || 300;
-                        const countdownInterval = setInterval(() => {
+                        var remaining = data.remaining_time || 300;
+                        var countdownInterval = setInterval(function() {
                             remaining--;
                             if (remaining <= 0) {
                                 clearInterval(countdownInterval);
                                 loginButton.disabled = false;
                                 btnText.textContent = '登录';
                             } else {
-                                btnText.textContent = `已锁定 (${remaining}秒)`;
+                                btnText.textContent = '已锁定 (' + remaining + '秒)';
                             }
                         }, 1000);
                     } else {
-                        // 显示剩余尝试次数
-                        let errorMsg = data.error || '登录失败，请检查密码';
+                        var errorMsg = data.error || '登录失败，请检查密码';
                         showError(errorMsg);
                         passwordInput.value = '';
                         passwordInput.focus();
@@ -696,23 +198,12 @@
                 }
             });
 
-            // 回车键提交
+            // Enter key submit
             passwordInput.addEventListener('keypress', function (e) {
                 if (e.key === 'Enter') {
                     loginButton.click();
                 }
             });
-
-            // 添加震动动画
-            const style = document.createElement('style');
-            style.textContent = `
-                @keyframes shake {
-                    0%, 100% { transform: translateX(0); }
-                    10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
-                    20%, 40%, 60%, 80% { transform: translateX(5px); }
-                }
-            `;
-            document.head.appendChild(style);
         });
     </script>
 </body>

@@ -8,6 +8,76 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-1.2.5] - 2026-02-19
+
+### 🎯 新功能
+
+#### MacOS-Web-UI 桌面框架迁移
+- 前端从 ModderUI 整体重写为 macOS 风格桌面模拟器
+- 每个管理页面变为独立 macOS「应用窗口」，支持拖拽、缩放、最小化、最大化、层叠
+- 基于 Vue 3 + Element Plus + Vuex 4 自托管加载（无 Node.js 构建步骤）
+- 9 个业务应用：仪表盘、系统设置、学习状态、人格审查、人格管理、对话风格、社交关系、黑话学习、Bug反馈
+- macOS 风格 Dock 栏、启动台、菜单栏、启动动画、登录界面
+
+#### 状态栏实时指标
+- 菜单栏实时显示消息总数和学习效率
+- 每 30 秒自动刷新
+
+#### 人格审查服务端分页
+- 后端接受 `limit`/`offset` 参数，返回分页数据和 `total` 总数
+- 前端仅加载当前页数据，翻页时按需加载
+- 消除一次性加载全部记录的性能问题
+
+#### 多配置人格支持
+- 支持多份人格配置并行管理，可选自动应用
+- 审批流程和批量审查接口中集成自动应用逻辑
+
+### 🔧 Bug 修复
+
+#### 前端运行时错误
+- 修复 `styleProgress.map is not a function`：SQLAlchemy `get_style_progress_data()` 错误返回 Dict 而非 List，重写为通过 ORM 查询 `learning_batches` 表
+- 修复 `id.substring is not a function`：`shortId()`、`escapeHtml()`、`truncateText()`、`getContentPreview()`、`getProposedPreviewHtml()` 统一增加 `String()` 类型转换
+- 修复 `SocialRelationAnalyzer.analyze_group_relations` 方法名错误，改为 `analyze_group_social_relations`
+- 修复 `get_jargon_statistics()` 传入无效 `chat_id` 参数
+- 在 StyleLearning.js 和 Dashboard.js 中增加 `Array.isArray()` 防御检查
+
+#### 后端与数据库
+- 解决跨线程数据库访问时的 asyncio 事件循环冲突
+- 处理 MySQL Boolean 列类型和默认值兼容问题
+- 将 `kg_relations` VARCHAR 缩短至 191 以适配 MySQL utf8mb4 索引限制
+- WebUI 数据库方法委托到 ORM 版本
+- 修复知识图谱、记忆图谱、WebUI 服务器初始化错误
+- 所有入口路由统一指向 `macos.html`
+
+#### WebUI 界面修复
+- 修复登录卡片大小和布局溢出
+- 修复人格审查、风格学习、社交关系数据获取
+- 修复深色模式切换、壁纸上传、Bug反馈图标
+- 全局替换 Apple 图标为项目 Logo
+- 跳过启动动画直接进入登录页
+- Dock 添加计算器、修复启动台图标
+
+### 📱 移动端适配
+- Dock 图标增大（768px 下 40px，480px 下 36px）
+- 关闭/最小化/最大化按钮增大（768px 下 18px，480px 下 16px）
+- 菜单栏和标题栏高度增加，改善触控体验
+- 桌面和启动台改为单击打开应用（原为双击）
+
+### 🔧 重构
+- WebUI 中全部 legacy raw SQL 替换为 ORM 查询
+- 新增强化学习和 ML 分析器的 ORM 方法
+- 实现基于 ORM 的黑话 CRUD 方法
+- Repository 层 dict/list 自动 JSON 序列化
+- WebUI 蓝图拆分为模块化包（原为单体 webui.py）
+- ModderUI CSS 框架（iOS 液态玻璃主题，迁移过渡阶段）
+
+### 📝 其他
+- 版本号更新至 Next-1.2.5
+- 移除废弃的注册装饰器（@SXP-Simon）
+- CI 提交信息长度限制提升至 128 字符
+
+---
+
 ## [Next-1.2.0] - 2026-02-18
 
 ### 🔥 关键修复

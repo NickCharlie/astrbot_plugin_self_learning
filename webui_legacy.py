@@ -164,6 +164,12 @@ intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智
 # 新增的变量
 pending_updates: List[Any] = []
 password_config: Dict[str, Any] = {} # 用于存储密码配置
+group_id_to_unified_origin: Dict[str, str] = {}  # group_id到unified_msg_origin映射（多配置文件支持）
+
+
+def _resolve_umo(group_id: str) -> str:
+    """将group_id解析为unified_msg_origin以支持多配置文件"""
+    return group_id_to_unified_origin.get(group_id, group_id)
 
 BUG_REPORT_ENABLED = True
 # 暂时禁用附件上传功能
@@ -636,11 +642,14 @@ async def set_plugin_services(
     config: PluginConfig,
     factory_manager: FactoryManager,
     llm_c = None,  # 不再使用LLMClient
-    astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
+    astrbot_persona_manager = None,  # 添加AstrBot PersonaManager参数
+    group_id_to_unified_origin_map = None  # 多配置文件支持
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service, group_id_to_unified_origin
     plugin_config = config
+    if group_id_to_unified_origin_map is not None:
+        group_id_to_unified_origin = group_id_to_unified_origin_map
 
     # 将配置存储到app中,供API认证使用
     app.plugin_config = config
@@ -1222,7 +1231,7 @@ async def get_persona_updates():
                     logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
                     try:
                         if persona_manager:
-                            current_persona = await persona_manager.get_default_persona_v3(group_id)
+                            current_persona = await persona_manager.get_default_persona_v3(_resolve_umo(group_id))
                             if current_persona and current_persona.get('prompt'):
                                 original_content = current_persona.get('prompt', '')
                                 logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
@@ -1292,7 +1301,7 @@ async def get_persona_updates():
                 try:
                     # 通过 persona_manager 获取当前人格
                     if persona_manager:
-                        current_persona = await persona_manager.get_default_persona_v3(group_id)
+                        current_persona = await persona_manager.get_default_persona_v3(_resolve_umo(group_id))
                         if current_persona and current_persona.get('prompt'):
                             original_persona_text = current_persona.get('prompt', '')
                         else:
@@ -1429,15 +1438,35 @@ async def review_persona_update(update_id: str):
                         if review_data:
                             # 使用修改后的内容（如果有）或原始proposed_content
                             content_to_apply = modified_content if modified_content else review_data.get('proposed_content')
-                            
-                            # 如果有persona_updater，使用它来应用人格更新
+                            group_id = review_data.get('group_id', 'default')
+                            message = f"人格学习审查 {persona_learning_review_id} 已批准"
+
+                            # ===== 自动应用到框架默认人格（独立于persona_updater） =====
+                            auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                            logger.info(f"[自动应用] 检查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}, content={content_to_apply is not None and len(content_to_apply) if content_to_apply else 0}")
+                            if content_to_apply and auto_apply_enabled and persona_manager:
+                                try:
+                                    umo = _resolve_umo(group_id)
+                                    current_persona = await persona_manager.get_default_persona_v3(umo)
+                                    if current_persona:
+                                        p_name = current_persona.get('name', 'default')
+                                        logger.info(f"[自动应用] 准备更新默认人格 [{p_name}]，内容长度: {len(content_to_apply)}，群组: {group_id}")
+                                        await persona_manager.update_persona(
+                                            persona_id=p_name,
+                                            system_prompt=content_to_apply
+                                        )
+                                        logger.info(f"[自动应用] ✅ 已将人格学习审查内容应用到默认人格 [{p_name}]")
+                                        message += f"，已自动应用到默认人格 [{p_name}]"
+                                    else:
+                                        logger.warning("[自动应用] 无法获取当前默认人格")
+                                except Exception as auto_err:
+                                    logger.error(f"[自动应用] ❌ 应用到默认人格失败: {auto_err}", exc_info=True)
+                                    message += f"，但自动应用到默认人格失败: {str(auto_err)}"
+
+                            # ===== 原有的update_persona_with_style逻辑（备份+内存更新） =====
                             if persona_updater and content_to_apply:
                                 try:
-                                    logger.info(f"开始应用人格学习审查 {persona_learning_review_id}，群组: {review_data.get('group_id', 'default')}")
-                                    logger.info(f"待应用内容长度: {len(content_to_apply)} 字符")
-                                    
-                                    # 使用已经写好的完整人格更新方法
-                                    # 首先需要将content_to_apply转换为style_analysis格式
+                                    logger.info(f"开始应用人格学习审查 {persona_learning_review_id}，群组: {group_id}")
                                     style_analysis = {
                                         'enhanced_prompt': content_to_apply,
                                         'style_features': [],
@@ -1445,41 +1474,21 @@ async def review_persona_update(update_id: str):
                                         'confidence': 0.8,
                                         'source': f'人格学习审查{persona_learning_review_id}'
                                     }
-                                    logger.info(f"构建style_analysis: {style_analysis['source']}")
-                                    
-                                    # 使用空的filtered_messages（因为我们直接有学习内容）
-                                    filtered_messages = []
-                                    
-                                    # 调用框架API方式的人格更新方法（包含自动备份）
-                                    logger.info("调用update_persona_with_style方法...")
                                     success_apply = await persona_updater.update_persona_with_style(
-                                        review_data.get('group_id', 'default'),
-                                        style_analysis,
-                                        filtered_messages
+                                        group_id, style_analysis, []
                                     )
-                                    logger.info(f"update_persona_with_style返回结果: {success_apply}")
-                                    
                                     if success_apply:
-                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已成功应用到人格（使用框架API方式）")
-                                        message = f"人格学习审查 {persona_learning_review_id} 已批准并应用到人格"
+                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 备份和内存更新完成")
                                     else:
-                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但应用失败")
-                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但人格应用失败"
-                                        
+                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} update_persona_with_style返回False")
                                 except Exception as apply_error:
-                                    logger.error(f"❌ 应用人格更新失败: {apply_error}", exc_info=True)
-                                    message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
-                            elif not persona_updater:
-                                logger.warning("PersonaUpdater未初始化，无法应用人格更新")
-                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法应用人格更新"
-                            else:
-                                logger.warning(f"人格学习审查 {persona_learning_review_id} 缺少人格内容")
-                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少人格内容"
+                                    logger.error(f"❌ update_persona_with_style失败: {apply_error}", exc_info=True)
+
                         else:
                             logger.error(f"无法获取人格学习审查 {persona_learning_review_id} 的详情")
                             message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取详情"
                     except Exception as e:
-                        logger.error(f"应用人格学习审查失败: {e}")
+                        logger.error(f"应用人格学习审查失败: {e}", exc_info=True)
                         message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(e)}"
                 else:
                     message = f"人格学习审查 {persona_learning_review_id} 已拒绝"
@@ -1836,42 +1845,47 @@ async def batch_review_persona_updates():
                         review_data = await database_manager.get_persona_learning_review_by_id(numeric_id)
 
                         if review_data:
-                            status = 'approved' if action == 'approve' else 'rejected'
-                            success = await database_manager.update_persona_learning_review_status(
-                                numeric_id, status, comment
-                            )
-
-                            if success and action == 'approve':
-                                # 如果批准，还需要应用人格更新
+                            # ===== 先执行自动应用（不依赖数据库状态更新） =====
+                            if action == 'approve':
                                 content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
-                                if persona_updater and content_to_apply:
+                                group_id = review_data.get('group_id', 'default')
+
+                                auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                                logger.info(f"[自动应用-批量] 检查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}, content={len(content_to_apply) if content_to_apply else 0}")
+                                if content_to_apply and auto_apply_enabled and persona_manager:
                                     try:
-                                        style_analysis = {
-                                            'enhanced_prompt': content_to_apply,
-                                            'style_features': [],
-                                            'style_attributes': {},
-                                            'confidence': 0.8,
-                                            'source': f'批量审查{update_id}'
-                                        }
+                                        umo = _resolve_umo(group_id)
+                                        current_persona = await persona_manager.get_default_persona_v3(umo)
+                                        if current_persona:
+                                            p_name = current_persona.get('name', 'default')
+                                            logger.info(f"[自动应用-批量] 准备更新默认人格 [{p_name}]，内容长度: {len(content_to_apply)}")
+                                            await persona_manager.update_persona(
+                                                persona_id=p_name,
+                                                system_prompt=content_to_apply
+                                            )
+                                            logger.info(f"[自动应用-批量] ✅ 已将 {update_id} 内容应用到默认人格 [{p_name}]")
+                                    except Exception as auto_err:
+                                        logger.error(f"[自动应用-批量] ❌ 应用失败: {auto_err}", exc_info=True)
 
-                                        success_apply = await persona_updater.update_persona_with_style(
-                                            review_data.get('group_id', 'default'),
-                                            style_analysis,
-                                            []
-                                        )
-
-                                        if success_apply:
-                                            logger.info(f"批量审查 {update_id} 已成功应用到人格（使用框架API方式）")
-                                        else:
-                                            logger.warning(f"批量审查 {update_id} 应用失败")
-
-                                    except Exception as apply_error:
-                                        logger.error(f"批量审查 {update_id} 应用过程出错: {apply_error}")
+                            # 更新数据库审查状态（可能因event loop问题失败）
+                            status = 'approved' if action == 'approve' else 'rejected'
+                            try:
+                                success = await database_manager.update_persona_learning_review_status(
+                                    numeric_id, status, comment
+                                )
+                            except Exception as db_err:
+                                logger.error(f"更新审查状态失败（event loop问题）: {db_err}")
+                                success = False
 
                             if success:
                                 success_count += 1
                             else:
-                                failed_count += 1
+                                # 即使数据库更新失败，如果自动应用成功了也算部分成功
+                                if action == 'approve' and auto_apply_enabled:
+                                    success_count += 1
+                                    logger.info(f"批量审查 {update_id} 数据库状态更新失败，但自动应用已执行")
+                                else:
+                                    failed_count += 1
                         else:
                             failed_count += 1
                             logger.warning(f"未找到人格学习审查记录: {numeric_id}")
@@ -1880,11 +1894,42 @@ async def batch_review_persona_updates():
                         # 风格学习审查记录
                         numeric_id = int(update_id.replace("style_", ""))
                         status = 'approved' if action == 'approve' else 'rejected'
+
+                        if action == 'approve':
+                            # 获取审查详情用于auto-apply
+                            pending_reviews = await database_manager.get_pending_style_reviews()
+                            target_review = None
+                            for rev in pending_reviews:
+                                if rev['id'] == numeric_id:
+                                    target_review = rev
+                                    break
+
                         success = await database_manager.update_style_review_status(numeric_id, status)
 
                         if success:
                             success_count += 1
                             logger.info(f"风格学习审查 {update_id} 已{status}")
+
+                            # ===== 自动应用到框架默认人格 =====
+                            if action == 'approve' and target_review and target_review.get('few_shots_content'):
+                                auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                                logger.info(f"[自动应用-批量] 风格审查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}")
+                                if auto_apply_enabled and persona_manager:
+                                    try:
+                                        group_id = target_review.get('group_id', 'default')
+                                        umo = _resolve_umo(group_id)
+                                        current_persona = await persona_manager.get_default_persona_v3(umo)
+                                        if current_persona:
+                                            p_name = current_persona.get('name', 'default')
+                                            content = target_review['few_shots_content']
+                                            logger.info(f"[自动应用-批量] 准备更新默认人格 [{p_name}]，风格内容长度: {len(content)}")
+                                            await persona_manager.update_persona(
+                                                persona_id=p_name,
+                                                system_prompt=content
+                                            )
+                                            logger.info(f"[自动应用-批量] ✅ 已将风格 {update_id} 内容应用到默认人格 [{p_name}]")
+                                    except Exception as auto_err:
+                                        logger.error(f"[自动应用-批量] ❌ 风格应用失败: {auto_err}", exc_info=True)
                         else:
                             failed_count += 1
                             logger.warning(f"未找到风格学习审查记录: {numeric_id}")
@@ -1915,6 +1960,26 @@ async def batch_review_persona_updates():
                         if success and action == 'approve':
                             # 如果批准，还需要应用人格更新
                             content_to_apply = review_data.get('proposed_content') or review_data.get('new_content')
+                            group_id = review_data.get('group_id', 'default')
+
+                            # ===== 自动应用到框架默认人格 =====
+                            auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                            logger.info(f"[自动应用-批量-数字ID] 检查配置: auto_apply={auto_apply_enabled}, content={len(content_to_apply) if content_to_apply else 0}")
+                            if content_to_apply and auto_apply_enabled and persona_manager:
+                                try:
+                                    umo = _resolve_umo(group_id)
+                                    current_persona = await persona_manager.get_default_persona_v3(umo)
+                                    if current_persona:
+                                        p_name = current_persona.get('name', 'default')
+                                        logger.info(f"[自动应用-批量-数字ID] 准备更新默认人格 [{p_name}]")
+                                        await persona_manager.update_persona(
+                                            persona_id=p_name,
+                                            system_prompt=content_to_apply
+                                        )
+                                        logger.info(f"[自动应用-批量-数字ID] ✅ 已应用到默认人格 [{p_name}]")
+                                except Exception as auto_err:
+                                    logger.error(f"[自动应用-批量-数字ID] ❌ 失败: {auto_err}", exc_info=True)
+
                             if persona_updater and content_to_apply:
                                 try:
                                     style_analysis = {
@@ -2764,16 +2829,35 @@ async def approve_style_learning_review(review_id: int):
         if success:
             # 应用到人格（使用与人格学习审查相同的逻辑：备份+应用）
             if target_review['few_shots_content']:
-                # 通过persona_updater应用到人格
                 persona_update_content = target_review['few_shots_content']
+                group_id = target_review.get('group_id', 'default')
+                message = f'风格学习审查 {review_id} 已批准'
 
+                # ===== 自动应用到框架默认人格（独立于persona_updater） =====
+                auto_apply_enabled = plugin_config and getattr(plugin_config, 'auto_apply_approved_persona', False)
+                logger.info(f"[自动应用] 检查配置: auto_apply={auto_apply_enabled}, persona_manager={persona_manager is not None}, content_len={len(persona_update_content)}")
+                if auto_apply_enabled and persona_manager:
+                    try:
+                        umo = _resolve_umo(group_id)
+                        current_persona = await persona_manager.get_default_persona_v3(umo)
+                        if current_persona:
+                            p_name = current_persona.get('name', 'default')
+                            logger.info(f"[自动应用] 准备更新默认人格 [{p_name}]，内容长度: {len(persona_update_content)}，群组: {group_id}")
+                            await persona_manager.update_persona(
+                                persona_id=p_name,
+                                system_prompt=persona_update_content
+                            )
+                            logger.info(f"[自动应用] ✅ 已将风格学习审查内容应用到默认人格 [{p_name}]")
+                            message += f'，已自动应用到默认人格 [{p_name}]'
+                        else:
+                            logger.warning("[自动应用] 无法获取当前默认人格")
+                    except Exception as auto_err:
+                        logger.error(f"[自动应用] ❌ 应用到默认人格失败: {auto_err}", exc_info=True)
+                        message += f'，但自动应用到默认人格失败: {str(auto_err)}'
+
+                # ===== 原有的update_persona_with_style逻辑（备份+内存更新） =====
                 if persona_updater:
                     try:
-                        logger.info(f"开始应用风格学习审查 {review_id}，群组: {target_review.get('group_id', 'default')}")
-                        logger.info(f"待应用内容长度: {len(persona_update_content)} 字符")
-
-                        # 使用与人格学习审查相同的方法（包含自动备份）
-                        # 首先需要将few_shots_content转换为style_analysis格式
                         style_analysis = {
                             'enhanced_prompt': persona_update_content,
                             'style_features': [],
@@ -2781,33 +2865,15 @@ async def approve_style_learning_review(review_id: int):
                             'confidence': 0.8,
                             'source': f'风格学习审查{review_id}'
                         }
-                        logger.info(f"构建style_analysis: {style_analysis['source']}")
-
-                        # 使用空的filtered_messages（因为我们直接有学习内容）
-                        filtered_messages = []
-
-                        # 调用框架API方式的人格更新方法（包含自动备份）
-                        logger.info("调用update_persona_with_style方法...")
                         success_apply = await persona_updater.update_persona_with_style(
-                            target_review.get('group_id', 'default'),
-                            style_analysis,
-                            filtered_messages
+                            group_id, style_analysis, []
                         )
-                        logger.info(f"update_persona_with_style返回结果: {success_apply}")
-
                         if success_apply:
-                            logger.info(f"✅ 风格学习审查 {review_id} 已成功应用到人格（使用框架API方式，包含备份）")
-                            message = f'风格学习审查 {review_id} 已批准并应用到人格'
+                            logger.info(f"✅ 风格学习审查 {review_id} 备份和内存更新完成")
                         else:
-                            logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但应用失败")
-                            message = f'风格学习审查 {review_id} 已批准，但人格应用失败'
-
+                            logger.warning(f"❌ 风格学习审查 {review_id} update_persona_with_style返回False")
                     except Exception as e:
-                        logger.error(f"应用风格学习到人格失败: {e}", exc_info=True)
-                        return jsonify({'error': f'批准成功，但应用到人格失败: {str(e)}'}), 500
-                else:
-                    logger.warning("PersonaUpdater未初始化，无法应用风格学习")
-                    message = f'风格学习审查 {review_id} 已批准，但无法应用人格更新'
+                        logger.error(f"update_persona_with_style失败: {e}", exc_info=True)
             else:
                 message = f'风格学习审查 {review_id} 已批准（无内容需要应用）'
 

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>SELF LEARNING 管理后台</title>
+
+  <!-- CDN 模式配置: "local" / "cn" / "global" -->
+  <script>
+    var CDN_MODE = "local";
+    var CDN_SOURCES = {
+      local: {
+        elementPlusCss: "/static/vendor/element-plus/index.css",
+        iconfont: "/static/vendor/iconfont/iconfont.css",
+        materialIcons: "https://fonts.googleapis.com/icon?family=Material+Icons",
+        vue: "/static/vendor/vue.global.prod.js",
+        vuex: "/static/vendor/vuex.global.prod.js",
+        elementPlusJs: "/static/vendor/element-plus/index.full.min.js",
+        elementPlusLocale: "/static/vendor/element-plus/locale/zh-cn.min.js",
+        axios: "/static/vendor/axios.min.js",
+        echarts: "/static/vendor/echarts.min.js"
+      },
+      cn: {
+        elementPlusCss: "https://cdn.bootcdn.net/ajax/libs/element-plus/2.2.18/index.css",
+        iconfont: "/static/vendor/iconfont/iconfont.css",
+        materialIcons: "https://fonts.loli.net/icon?family=Material+Icons",
+        vue: "https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/vue/3.2.31/vue.global.prod.js",
+        vuex: "https://lf26-cdn-tos.bytecdntp.com/cdn/expire-1-M/vuex/4.0.2/vuex.global.prod.js",
+        elementPlusJs: "https://cdn.bootcdn.net/ajax/libs/element-plus/2.2.18/index.full.min.js",
+        elementPlusLocale: "/static/vendor/element-plus/locale/zh-cn.min.js",
+        axios: "https://cdn.bootcdn.net/ajax/libs/axios/1.6.0/axios.min.js",
+        echarts: "https://cdn.bootcdn.net/ajax/libs/echarts/5.4.3/echarts.min.js"
+      },
+      global: {
+        elementPlusCss: "https://unpkg.com/element-plus@2.2.18/dist/index.css",
+        iconfont: "/static/vendor/iconfont/iconfont.css",
+        materialIcons: "https://fonts.googleapis.com/icon?family=Material+Icons",
+        vue: "https://unpkg.com/vue@3.2.47/dist/vue.global.prod.js",
+        vuex: "https://unpkg.com/vuex@4.1.0/dist/vuex.global.prod.js",
+        elementPlusJs: "https://unpkg.com/element-plus@2.2.18/dist/index.full.min.js",
+        elementPlusLocale: "/static/vendor/element-plus/locale/zh-cn.min.js",
+        axios: "https://unpkg.com/axios@1.6.0/dist/axios.min.js",
+        echarts: "https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"
+      }
+    };
+    var cdn = CDN_SOURCES[CDN_MODE] || CDN_SOURCES.local;
+
+    // 动态写入 CSS
+    document.write('<link rel="stylesheet" href="' + cdn.elementPlusCss + '">');
+    document.write('<link rel="stylesheet" href="' + cdn.iconfont + '">');
+    document.write('<link rel="stylesheet" href="' + cdn.materialIcons + '">');
+  </script>
+
+  <!-- 框架样式 -->
+  <link rel="stylesheet" href="/static/css/macos/framework.css">
+
+  <style>
+    [v-cloak] { display: none !important; }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak></div>
+
+  <!-- === Vendor JS（同步加载，保证顺序）=== -->
+  <script>
+    // 动态写入 vendor JS with fallback
+    function loadScript(src, fallback) {
+      document.write('<script src="' + src + '"' + (fallback ? ' onerror="this.src=\'' + fallback + '\'"' : '') + '><\/script>');
+    }
+    var fb = CDN_SOURCES.local; // fallback 到本地
+    loadScript(cdn.vue, CDN_MODE !== 'local' ? fb.vue : null);
+    loadScript(cdn.vuex, CDN_MODE !== 'local' ? fb.vuex : null);
+    loadScript(cdn.elementPlusJs, CDN_MODE !== 'local' ? fb.elementPlusJs : null);
+    loadScript(cdn.elementPlusLocale, null);
+    loadScript(cdn.axios, CDN_MODE !== 'local' ? fb.axios : null);
+    loadScript(cdn.echarts, CDN_MODE !== 'local' ? fb.echarts : null);
+  </script>
+
+  <!-- === 框架基础工具 === -->
+  <script src="/static/js/macos/event-bus.js"></script>
+  <script src="/static/js/macos/api.js"></script>
+  <script src="/static/js/macos/app-model.js"></script>
+  <script src="/static/js/macos/tool.js"></script>
+  <script src="/static/js/macos/store.js"></script>
+
+  <!-- === 框架组件 === -->
+  <script src="/static/js/macos/components/Bg.js"></script>
+  <script src="/static/js/macos/components/Loading.js"></script>
+  <script src="/static/js/macos/components/Widget.js"></script>
+  <script src="/static/js/macos/components/Login.js"></script>
+  <script src="/static/js/macos/components/AppWindow.js"></script>
+  <script src="/static/js/macos/components/Dock.js"></script>
+  <script src="/static/js/macos/components/LaunchPad.js"></script>
+  <script src="/static/js/macos/components/DeskTop.js"></script>
+  <script src="/static/js/macos/components/MacOS.js"></script>
+
+  <!-- === 系统应用 === -->
+  <script src="/static/js/macos/apps/SystemAbout.js"></script>
+  <script src="/static/js/macos/apps/SystemSetting.js"></script>
+  <script src="/static/js/macos/apps/SystemTask.js"></script>
+  <script src="/static/js/macos/apps/SystemCalculator.js"></script>
+
+  <!-- === 业务应用 === -->
+  <script src="/static/js/macos/apps/Dashboard.js"></script>
+  <script src="/static/js/macos/apps/PersonaReview.js"></script>
+  <script src="/static/js/macos/apps/PersonaManagement.js"></script>
+  <script src="/static/js/macos/apps/LearningStatus.js"></script>
+  <script src="/static/js/macos/apps/StyleLearning.js"></script>
+  <script src="/static/js/macos/apps/SocialRelations.js"></script>
+  <script src="/static/js/macos/apps/JargonLearning.js"></script>
+  <script src="/static/js/macos/apps/BugReport.js"></script>
+
+  <!-- === 入口 === -->
+  <script src="/static/js/macos/main.js"></script>
+</body>
+</html>

@@ -29,11 +29,17 @@ class PersonaBackupManager:
         
         logger.info("人格备份管理器初始化完成")
 
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if hasattr(self, 'group_id_to_unified_origin'):
+            return self.group_id_to_unified_origin.get(group_id, group_id)
+        return group_id
+
     async def create_backup_before_update(self, group_id: str, reason: str = "Auto backup before update") -> int:
         """在更新前创建备份"""
         try:
             # 获取当前人格设置
-            current_persona = await self._get_current_persona_data()
+            current_persona = await self._get_current_persona_data(group_id)
             
             # 获取当前模仿对话列表
             imitation_dialogues = await self._get_current_imitation_dialogues()
@@ -59,7 +65,7 @@ class PersonaBackupManager:
             logger.error(f"创建人格备份失败: {e}")
             raise BackupError(f"创建人格备份失败: {str(e)}")
 
-    async def _get_current_persona_data(self) -> Dict[str, Any]:
+    async def _get_current_persona_data(self, group_id: str = None) -> Dict[str, Any]:
         """获取当前人格数据"""
         try:
             # 从AstrBot框架获取当前人格设置
@@ -76,7 +82,8 @@ class PersonaBackupManager:
                 # 如果无法获取provider，尝试从context.persona_manager获取
                 if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                     try:
-                        default_persona = await self.context.persona_manager.get_default_persona_v3()
+                        umo = self._resolve_umo(group_id) if group_id else None
+                        default_persona = await self.context.persona_manager.get_default_persona_v3(umo)
                         if default_persona:
                             return {
                                 'name': default_persona.get('name', '默认人格'),

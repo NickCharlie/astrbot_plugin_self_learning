@@ -59,6 +59,12 @@ class TemporaryPersonaUpdater:
         # 人格更新文件路径
         self.persona_updates_file = os.path.join(config.data_dir, "persona_updates.txt")
 
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if hasattr(self, 'group_id_to_unified_origin'):
+            return self.group_id_to_unified_origin.get(group_id, group_id)
+        return group_id
+
         # ✅ 会话级增量更新存储 - 修复会话串流bug
         # key: group_id, value: List[str] 存储该会话的所有增量更新
         self.session_updates: Dict[str, List[str]] = {}
@@ -76,7 +82,7 @@ class TemporaryPersonaUpdater:
         try:
             # 优先使用新版PersonaManager
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
-                persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+                persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                 if persona:
                     return dict(persona) if isinstance(persona, dict) else persona
 

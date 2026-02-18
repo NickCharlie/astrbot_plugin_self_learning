@@ -2,7 +2,7 @@
 Quart 应用工厂
 """
 import secrets
-from quart import Quart
+from quart import Quart, redirect
 from quart_cors import cors
 from astrbot.api import logger
 
@@ -40,6 +40,11 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
 
     # 注册错误处理
     register_error_handlers(app)
+
+    # 根路由重定向到 /api/
+    @app.route("/")
+    async def root_redirect():
+        return redirect("/api/")
 
     logger.info("✅ [WebUI] Quart 应用创建成功")
 

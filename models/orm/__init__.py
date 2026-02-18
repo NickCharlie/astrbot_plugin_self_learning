@@ -71,6 +71,11 @@ from .reinforcement import (
     PersonaFusionHistory,
     StrategyOptimizationResult
 )
+from .knowledge_graph import (
+    KGEntity,
+    KGRelation,
+    KGParagraphHash
+)
 
 __all__ = [
     'Base',
@@ -131,4 +136,8 @@ __all__ = [
     'ReinforcementLearningResult',
     'PersonaFusionHistory',
     'StrategyOptimizationResult',
+    # 知识图谱系统
+    'KGEntity',
+    'KGRelation',
+    'KGParagraphHash',
 ]
