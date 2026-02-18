@@ -43,6 +43,7 @@ async def get_available_groups_for_social_analysis():
         groups = await social_service.get_available_groups()
 
         return jsonify({
+            "success": True,
             "groups": groups,
             "total": len(groups)
         }), 200

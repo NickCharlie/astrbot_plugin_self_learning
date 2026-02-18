@@ -17,8 +17,8 @@ class LearningService:
         """
         self.container = container
         self.database_manager = container.database_manager
-        self.db_manager = container.db_manager  # 兼容别名
-        self.persona_updater = container.persona_updater
+        self.db_manager = container.database_manager  # 兼容别名
+        self.persona_updater = getattr(container, 'persona_updater', None)
 
     async def get_style_learning_results(self) -> Dict[str, Any]:
         """

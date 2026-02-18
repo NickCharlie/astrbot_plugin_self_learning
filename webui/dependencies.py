@@ -25,6 +25,7 @@ class ServiceContainer:
 
         # 核心服务
         self.persona_manager: Optional[Any] = None
+        self.persona_updater: Optional[Any] = None
         self.database_manager: Optional[Any] = None
         self.llm_adapter: Optional[Any] = None
         self.progressive_learning: Optional[Any] = None
@@ -83,6 +84,14 @@ class ServiceContainer:
         self.database_manager = service_factory.create_database_manager()
         self.llm_adapter = service_factory.create_framework_llm_adapter()
         self.progressive_learning = service_factory.create_progressive_learning()
+
+        # 获取人格更新器
+        try:
+            self.persona_updater = service_factory.get_persona_updater()
+            logger.info(f"✅ [WebUI] persona_updater 获取成功: {type(self.persona_updater)}")
+        except Exception as e:
+            logger.warning(f"获取 persona_updater 失败: {e}")
+            self.persona_updater = None
 
         # 创建 WebUI 配置
         from .config import WebUIConfig
