@@ -1,9 +1,17 @@
 """强化学习相关的Repository层"""
+import json
 import time
 from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from astrbot.api import logger
+
+
+def _serialize(value):
+    """将dict/list序列化为JSON字符串，其他类型原样返回"""
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return value
 
 from ..models.orm.reinforcement import (
     ReinforcementLearningResult,
@@ -37,10 +45,10 @@ class ReinforcementLearningRepository:
             result = ReinforcementLearningResult(
                 group_id=group_id,
                 timestamp=result_data.get('timestamp', time.time()),
-                replay_analysis=result_data.get('replay_analysis'),
-                optimization_strategy=result_data.get('optimization_strategy'),
-                reinforcement_feedback=result_data.get('reinforcement_feedback'),
-                next_action=result_data.get('next_action')
+                replay_analysis=_serialize(result_data.get('replay_analysis')),
+                optimization_strategy=_serialize(result_data.get('optimization_strategy')),
+                reinforcement_feedback=_serialize(result_data.get('reinforcement_feedback')),
+                next_action=_serialize(result_data.get('next_action'))
             )
 
             self.session.add(result)
@@ -114,7 +122,7 @@ class PersonaFusionRepository:
                 timestamp=fusion_data.get('timestamp', time.time()),
                 base_persona_hash=fusion_data.get('base_persona_hash'),
                 incremental_hash=fusion_data.get('incremental_hash'),
-                fusion_result=fusion_data.get('fusion_result'),
+                fusion_result=_serialize(fusion_data.get('fusion_result')),
                 compatibility_score=fusion_data.get('compatibility_score')
             )
 
@@ -188,8 +196,8 @@ class StrategyOptimizationRepository:
                 group_id=group_id,
                 timestamp=optimization_data.get('timestamp', time.time()),
                 strategy_type=optimization_data.get('strategy_type'),
-                optimization_details=optimization_data.get('optimization_details'),
-                performance_metrics=optimization_data.get('performance_metrics')
+                optimization_details=_serialize(optimization_data.get('optimization_details')),
+                performance_metrics=_serialize(optimization_data.get('performance_metrics'))
             )
 
             self.session.add(result)

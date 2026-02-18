@@ -644,29 +644,31 @@ class LightweightMLAnalyzer:
     async def _get_user_messages(self, group_id: str, user_id: str, limit: int) -> List[Dict[str, Any]]:
         """获取用户消息（限制数量）"""
         try:
-            # 从全局消息数据库获取连接
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                await cursor.execute('''
-                    SELECT message, timestamp, sender_name, sender_id, group_id
-                    FROM raw_messages 
-                    WHERE sender_id = ? AND group_id = ? AND timestamp > ?
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (user_id, group_id, time.time() - 86400 * 7, limit))  # 最近7天
-                
-                messages = []
-                for row in await cursor.fetchall():
-                    messages.append({
-                        'message': row[0],
-                        'timestamp': row[1],
-                        'sender_name': row[2],
-                        'sender_id': row[3],
-                        'group_id': row[4]
-                    })
-                
-                return messages
+            from sqlalchemy import select, desc, and_
+            from ..models.orm import RawMessage
+
+            async with self.db_manager.get_session() as session:
+                cutoff_time = time.time() - 86400 * 7  # 最近7天
+                stmt = (
+                    select(RawMessage)
+                    .where(and_(
+                        RawMessage.sender_id == user_id,
+                        RawMessage.group_id == group_id,
+                        RawMessage.timestamp > cutoff_time
+                    ))
+                    .order_by(desc(RawMessage.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [{
+                    'message': r.message,
+                    'timestamp': r.timestamp,
+                    'sender_name': r.sender_name,
+                    'sender_id': r.sender_id,
+                    'group_id': r.group_id
+                } for r in rows]
             
         except Exception as e:
             logger.error(f"获取用户消息失败: {e}")
@@ -830,28 +832,29 @@ class LightweightMLAnalyzer:
     async def _get_recent_group_messages(self, group_id: str, limit: int) -> List[Dict[str, Any]]:
         """获取群聊最近消息"""
         try:
-            # 从全局消息数据库获取连接
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                await cursor.execute('''
-                    SELECT message, timestamp, sender_id, group_id
-                    FROM raw_messages 
-                    WHERE group_id = ? AND timestamp > ?
-                    ORDER BY timestamp DESC 
-                    LIMIT ?
-                ''', (group_id, time.time() - 3600 * 6, limit))  # 最近6小时
-                
-                messages = []
-                for row in await cursor.fetchall():
-                    messages.append({
-                        'message': row[0],
-                        'timestamp': row[1],
-                        'sender_id': row[2],
-                        'group_id': row[3]
-                    })
-                
-                return messages
+            from sqlalchemy import select, desc, and_
+            from ..models.orm import RawMessage
+
+            async with self.db_manager.get_session() as session:
+                cutoff_time = time.time() - 3600 * 6  # 最近6小时
+                stmt = (
+                    select(RawMessage)
+                    .where(and_(
+                        RawMessage.group_id == group_id,
+                        RawMessage.timestamp > cutoff_time
+                    ))
+                    .order_by(desc(RawMessage.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+
+                return [{
+                    'message': r.message,
+                    'timestamp': r.timestamp,
+                    'sender_id': r.sender_id,
+                    'group_id': r.group_id
+                } for r in rows]
             
         except Exception as e:
             logger.error(f"获取群聊最近消息失败: {e}")
@@ -1010,28 +1013,33 @@ class LightweightMLAnalyzer:
     async def _get_most_active_users(self, group_id: str, limit: int) -> List[Dict[str, Any]]:
         """获取最活跃用户"""
         try:
-            # 从全局消息数据库获取连接
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
-                await cursor.execute('''
-                    SELECT sender_id, sender_name, COUNT(*) as message_count
-                    FROM raw_messages 
-                    WHERE group_id = ? AND timestamp > ?
-                    GROUP BY sender_id, sender_name
-                    ORDER BY message_count DESC
-                    LIMIT ?
-                ''', (group_id, time.time() - 86400, limit))  # 最近24小时
-                
-                users = []
-                for row in await cursor.fetchall():
-                    users.append({
-                        'user_id': row[0],
-                        'user_name': row[1],
-                        'message_count': row[2]
-                    })
-                
-                return users
+            from sqlalchemy import select, desc, func, and_
+            from ..models.orm import RawMessage
+
+            async with self.db_manager.get_session() as session:
+                cutoff_time = time.time() - 86400  # 最近24小时
+                stmt = (
+                    select(
+                        RawMessage.sender_id,
+                        RawMessage.sender_name,
+                        func.count().label('message_count')
+                    )
+                    .where(and_(
+                        RawMessage.group_id == group_id,
+                        RawMessage.timestamp > cutoff_time
+                    ))
+                    .group_by(RawMessage.sender_id, RawMessage.sender_name)
+                    .order_by(desc('message_count'))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                return [{
+                    'user_id': row[0],
+                    'user_name': row[1],
+                    'message_count': row[2]
+                } for row in rows]
             
         except Exception as e:
             logger.error(f"获取最活跃用户失败: {e}")

@@ -3,6 +3,7 @@
 与现有 DatabaseManager 接口兼容，可通过配置切换
 """
 import time
+import json
 import asyncio
 
 from typing import Dict, List, Optional, Any
@@ -1173,30 +1174,6 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取学习性能历史失败: {e}")
             return []
 
-    async def save_learning_performance_record(self, group_id: str, performance_data: Dict[str, Any]) -> bool:
-        """保存学习性能记录（ORM）"""
-        try:
-            async with self.get_session() as session:
-                from ..models.orm.performance import LearningPerformanceHistory
-
-                record = LearningPerformanceHistory(
-                    group_id=group_id,
-                    session_id=performance_data.get('session_id', ''),
-                    timestamp=int(performance_data.get('timestamp', time.time())),
-                    quality_score=performance_data.get('quality_score', 0.0),
-                    learning_time=performance_data.get('learning_time', 0.0),
-                    success=performance_data.get('success', False),
-                    successful_pattern=performance_data.get('successful_pattern', ''),
-                    failed_pattern=performance_data.get('failed_pattern', ''),
-                    created_at=int(time.time())
-                )
-                session.add(record)
-                await session.commit()
-                return True
-        except Exception as e:
-            logger.error(f"[SQLAlchemy] 保存学习性能记录失败: {e}")
-            return False
-
     async def save_strategy_optimization_result(self, group_id: str, optimization_data: Dict[str, Any]) -> bool:
         """保存策略优化结果（ORM）"""
         try:
@@ -1826,6 +1803,11 @@ class SQLAlchemyDatabaseManager:
                 import time
 
                 # 创建学习性能记录
+                def _ser(v):
+                    if isinstance(v, (dict, list)):
+                        return json.dumps(v, ensure_ascii=False)
+                    return v
+
                 record = LearningPerformanceHistory(
                     group_id=group_id,
                     session_id=performance_data.get('session_id', ''),
@@ -1833,8 +1815,8 @@ class SQLAlchemyDatabaseManager:
                     quality_score=float(performance_data.get('quality_score', 0.0)),
                     learning_time=float(performance_data.get('learning_time', 0.0)),
                     success=bool(performance_data.get('success', False)),
-                    successful_pattern=performance_data.get('successful_pattern', ''),
-                    failed_pattern=performance_data.get('failed_pattern', ''),
+                    successful_pattern=_ser(performance_data.get('successful_pattern', '')),
+                    failed_pattern=_ser(performance_data.get('failed_pattern', '')),
                     created_at=int(time.time())
                 )
 
