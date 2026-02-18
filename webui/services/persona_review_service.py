@@ -111,8 +111,8 @@ class PersonaReviewService:
                     if not original_content or original_content.strip() == '':
                         logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
                         try:
-                            if self.persona_manager:
-                                current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                            if self.astrbot_persona_manager:
+                                current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                                 if current_persona and current_persona.get('prompt'):
                                     original_content = current_persona.get('prompt', '')
                                     logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
@@ -175,8 +175,8 @@ class PersonaReviewService:
 
                     try:
                         # 通过 persona_manager 获取当前人格
-                        if self.persona_manager:
-                            current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                        if self.astrbot_persona_manager:
+                            current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                             if current_persona and current_persona.get('prompt'):
                                 original_persona_text = current_persona.get('prompt', '')
                             else:
@@ -399,8 +399,8 @@ class PersonaReviewService:
                     # 获取当前使用的原人格名称
                     base_persona_name = "default"
                     try:
-                        if self.persona_manager:
-                            current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                        if self.astrbot_persona_manager:
+                            current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                             if current_persona and hasattr(current_persona, 'persona_id'):
                                 base_persona_name = current_persona.persona_id
                             elif isinstance(current_persona, dict) and 'persona_id' in current_persona:

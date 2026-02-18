@@ -1658,3 +1658,287 @@ audio {
         grid-template-columns: 1fr;
     }
 }
+
+/* ============================================================
+   15. Dark Mode (body[data-theme="dark"])
+   ============================================================ */
+
+body[data-theme="dark"] .macos-desktop .top {
+    background-color: rgba(0, 0, 0, 0.6);
+}
+
+body[data-theme="dark"] .macos-desktop .top .status .datetime .el-calendar {
+    color: #e0e0e0;
+    background: rgba(40, 40, 42, 0.98);
+}
+
+/* Element Plus dropdowns */
+body[data-theme="dark"] .el-dropdown__popper.el-popper[role=tooltip] {
+    background: rgba(40, 40, 42, 0.9);
+    backdrop-filter: blur(20px);
+}
+
+body[data-theme="dark"] .el-dropdown-menu__item {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-dropdown-menu__item span {
+    color: #999;
+}
+
+body[data-theme="dark"] .el-dropdown-menu__item.line {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Context menu */
+body[data-theme="dark"] .macos-desktop .body .contextmenu {
+    background: rgba(40, 40, 42, 0.95);
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.5);
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .macos-desktop .body .contextmenu hr {
+    border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+body[data-theme="dark"] .macos-desktop .body .contextmenu div {
+    color: #e0e0e0;
+}
+
+/* App window */
+body[data-theme="dark"] .macos-movebg .box .box-center-center {
+    background: rgba(30, 30, 32, 0.9);
+    box-shadow: 0px 0px 3px #000;
+}
+
+body[data-theme="dark"] .macos-movebg .box .box-center-center .app-bar {
+    background: rgba(50, 50, 52, 0.8);
+}
+
+body[data-theme="dark"] .macos-movebg .box .box-center-center .app-bar .title {
+    color: #e0e0e0;
+}
+
+/* Dock */
+body[data-theme="dark"] .macos-dock {
+    background-color: rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.05);
+}
+
+body[data-theme="dark"] .macos-dock .dot {
+    background: rgba(255, 255, 255, 0.7);
+}
+
+/* App content area */
+body[data-theme="dark"] .app-content {
+    background: #1c1c1e;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .app-content .section-card {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .section-card h3 {
+    color: #f0f0f0;
+}
+
+body[data-theme="dark"] .app-content .stat-card {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .stat-card .stat-number {
+    color: #f0f0f0;
+}
+
+body[data-theme="dark"] .app-content .stat-card .stat-label {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .app-content .chart-box {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .chart-box h4 {
+    color: #f0f0f0;
+}
+
+body[data-theme="dark"] .app-content .form-group {
+    border-bottom-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .form-group label {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .app-content .form-group .hint {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .app-content .review-item {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .tab-bar {
+    border-bottom-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .tab-bar .tab-item {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .app-content .tab-bar .tab-item.active {
+    color: #0a84ff;
+    border-bottom-color: #0a84ff;
+}
+
+body[data-theme="dark"] .app-content .filter-bar {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .app-content .loading-center {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .app-content .empty-state {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .app-content .pagination-bar {
+    color: #98989d;
+}
+
+/* Scrollbar in dark mode */
+body[data-theme="dark"] ::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Element Plus dark overrides */
+body[data-theme="dark"] .el-input__wrapper {
+    background-color: #3a3a3c;
+    box-shadow: 0 0 0 1px #48484a inset;
+}
+
+body[data-theme="dark"] .el-input__inner {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-textarea__inner {
+    background-color: #3a3a3c;
+    box-shadow: 0 0 0 1px #48484a inset;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-select .el-input__wrapper {
+    background-color: #3a3a3c;
+    box-shadow: 0 0 0 1px #48484a inset;
+}
+
+body[data-theme="dark"] .el-switch__core {
+    background-color: #48484a;
+    border-color: #48484a;
+}
+
+body[data-theme="dark"] .el-button--default {
+    background-color: #3a3a3c;
+    border-color: #48484a;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-dialog {
+    background: #2c2c2e;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-dialog__title {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-dialog__header {
+    border-bottom-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .el-table {
+    background-color: #2c2c2e;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-table th.el-table__cell {
+    background-color: #3a3a3c;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-table tr {
+    background-color: #2c2c2e;
+}
+
+body[data-theme="dark"] .el-table--enable-row-hover .el-table__body tr:hover > td {
+    background-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .el-table td.el-table__cell {
+    border-bottom-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .el-table__inner-wrapper::before {
+    background-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .el-pagination {
+    color: #98989d;
+}
+
+body[data-theme="dark"] .el-pagination button {
+    background-color: #3a3a3c;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-pager li {
+    background-color: #3a3a3c;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-tag {
+    background-color: #3a3a3c;
+    border-color: #48484a;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-card {
+    background-color: #2c2c2e;
+    border-color: #3a3a3c;
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-form-item__label {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-upload-dragger {
+    background-color: #2c2c2e;
+    border-color: #48484a;
+}
+
+body[data-theme="dark"] .el-message-box {
+    background: #2c2c2e;
+    border-color: #3a3a3c;
+}
+
+body[data-theme="dark"] .el-message-box__title {
+    color: #e0e0e0;
+}
+
+body[data-theme="dark"] .el-message-box__content {
+    color: #e0e0e0;
+}
+
+/* Text diff in dark mode */
+body[data-theme="dark"] .text-diff-new {
+    background: #1e3a2e;
+    color: #6ee7b7;
+}

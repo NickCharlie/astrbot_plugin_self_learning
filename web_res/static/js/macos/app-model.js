@@ -237,14 +237,14 @@
       {
         key: "app_bug",
         component: "AppBugReport",
-        icon: "icon-store",
+        icon: "icon-bug",
         title: "Bug 反馈",
         iconColor: "#fff",
         iconBgColor: "#ff2d55",
         width: Math.min(W, 700),
         height: H,
         hideInDesktop: false,
-        keepInDock: false,
+        keepInDock: true,
         menu: [
           { key: "bug", title: "反馈", sub: [{ key: "close", title: "关闭" }] },
         ],

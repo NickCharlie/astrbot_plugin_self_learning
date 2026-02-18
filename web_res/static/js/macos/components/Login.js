@@ -12,7 +12,7 @@
 window.MacOSLogin = {
   template: `
     <div class="macos-login">
-      <div class="head"></div>
+      <div class="head"><img src="/static/img/logo.png" alt="Logo" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" /></div>
       <div class="message">自学习管理后台</div>
       <div class="form">
         <div class="item" :class="isError ? 'error' : ''">
@@ -38,13 +38,13 @@ window.MacOSLogin = {
   `,
   data() {
     return {
-      password: '',
+      password: "",
       isError: false,
-      errorMsg: '',
+      errorMsg: "",
       isLocked: false,
       lockCountdown: 0,
       lockTimer: null,
-      placeholderText: '请输入密码...'
+      placeholderText: "请输入密码...",
     };
   },
   mounted() {
@@ -64,42 +64,47 @@ window.MacOSLogin = {
     async login() {
       if (this.isLocked) return;
       if (!this.password) {
-        this.shakeError('请输入密码');
+        this.shakeError("请输入密码");
         return;
       }
 
       try {
-        var resp = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ password: this.password })
+        var resp = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ password: this.password }),
         });
 
         if (resp.ok) {
           var data = await resp.json();
           if (data && data.must_change) {
-            window.location.href = '/api/plugin_change_password';
+            window.location.href = "/api/plugin_change_password";
             return;
           }
-          var userName = (data && data.user_name) ? data.user_name : 'Admin';
-          localStorage.setItem('user_name', userName);
-          this.errorMsg = '';
-          this.password = '';
-          this.$emit('logined');
+          var userName = data && data.user_name ? data.user_name : "Admin";
+          localStorage.setItem("user_name", userName);
+          this.errorMsg = "";
+          this.password = "";
+          this.$emit("logined");
         } else if (resp.status === 401) {
-          this.shakeError('密码错误，请重试');
-          this.password = '';
+          this.shakeError("密码错误，请重试");
+          this.password = "";
         } else if (resp.status === 429) {
           var retryData = null;
-          try { retryData = await resp.json(); } catch (e) { /* ignore */ }
-          var waitSeconds = (retryData && retryData.retry_after) ? retryData.retry_after : 30;
+          try {
+            retryData = await resp.json();
+          } catch (e) {
+            /* ignore */
+          }
+          var waitSeconds =
+            retryData && retryData.retry_after ? retryData.retry_after : 30;
           this.startLockCountdown(waitSeconds);
         } else {
-          this.shakeError('登录失败 (' + resp.status + ')');
+          this.shakeError("登录失败 (" + resp.status + ")");
         }
       } catch (err) {
-        this.shakeError('网络错误，请检查连接');
+        this.shakeError("网络错误，请检查连接");
       }
     },
     shakeError(msg) {
@@ -112,8 +117,8 @@ window.MacOSLogin = {
     startLockCountdown(seconds) {
       this.isLocked = true;
       this.lockCountdown = seconds;
-      this.errorMsg = '登录过于频繁，请等待 ' + this.lockCountdown + ' 秒';
-      this.password = '';
+      this.errorMsg = "登录过于频繁，请等待 " + this.lockCountdown + " 秒";
+      this.password = "";
 
       if (this.lockTimer) clearInterval(this.lockTimer);
       this.lockTimer = setInterval(() => {
@@ -122,12 +127,12 @@ window.MacOSLogin = {
           clearInterval(this.lockTimer);
           this.lockTimer = null;
           this.isLocked = false;
-          this.errorMsg = '';
-          this.placeholderText = '请输入密码...';
+          this.errorMsg = "";
+          this.placeholderText = "请输入密码...";
         } else {
-          this.errorMsg = '登录过于频繁，请等待 ' + this.lockCountdown + ' 秒';
+          this.errorMsg = "登录过于频繁，请等待 " + this.lockCountdown + " 秒";
         }
       }, 1000);
-    }
-  }
+    },
+  },
 };
