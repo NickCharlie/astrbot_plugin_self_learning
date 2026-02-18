@@ -24,7 +24,7 @@ COMMIT_PATTERN = re.compile(
     r"^(?P<type>" + "|".join(VALID_TYPES) + r")"
     r"(?:\([\w\-]+\))?"  # optional scope
     r"!?"                 # optional breaking change marker
-    r": .{1,72}$",        # colon + space + description (≤72 chars first line)
+    r": .{1,128}$",        # colon + space + description (≤128 chars first line)
     re.MULTILINE,
 )
 
@@ -90,8 +90,8 @@ def validate_commit(message: str) -> str | None:
         type_part = parts[0].strip().split("(")[0]
         if type_part not in VALID_TYPES:
             return f"Invalid type `{type_part}`. Must be one of: {', '.join(f'`{t}`' for t in VALID_TYPES)}"
-        if len(first_line) > 72:
-            return f"First line is {len(first_line)} characters (max 72)"
+        if len(first_line) > 128:
+            return f"First line is {len(first_line)} characters (max 128)"
         return "Does not match Conventional Commits format: `type(scope): description`"
 
     return None
