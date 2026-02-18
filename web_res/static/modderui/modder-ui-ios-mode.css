@@ -86,8 +86,9 @@ body[data-mode="ios"] .btn {
     border-radius: 0.625rem; /* 10px, more rounded iOS */
     font-weight: 400; /* Normal weight for default text buttons */
     box-shadow: none; /* No default shadow */
-    min-height: 2.75rem; /* 44px standard iOS button height */
-    padding: 0.5rem 1rem;
+    min-height: 2rem; /* 32px compact button height */
+    padding: 5px 12px;
+    font-size: 13px;
 }
 body[data-mode="ios"] .btn:hover {
     transform: none; /* No lift on hover in iOS */
