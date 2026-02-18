@@ -61,6 +61,20 @@ window.MacOSDeskTop = {
         </div>
         <div class="space"></div>
         <div class="status">
+          <div class="status-metrics" v-if="metricsLoaded" style="display:flex;align-items:center;gap:12px;margin-right:8px;font-size:11px;color:rgba(255,255,255,0.85);font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;">
+            <el-tooltip content="总消息数" placement="bottom" :show-after="300">
+              <div style="display:flex;align-items:center;gap:3px;cursor:default;">
+                <i class="iconfont icon-icon_message_fill" style="font-size:13px;"></i>
+                <span>{{ formatNumber(totalMessages) }}</span>
+              </div>
+            </el-tooltip>
+            <el-tooltip content="学习效率 (已筛选/总消息)" placement="bottom" :show-after="300">
+              <div style="display:flex;align-items:center;gap:3px;cursor:default;">
+                <i class="iconfont icon-smallscreen_fill" style="font-size:13px;"></i>
+                <span>{{ learningEfficiency }}%</span>
+              </div>
+            </el-tooltip>
+          </div>
           <div class="audio">
             <i
               class="iconfont icon-changyongtubiao-xianxingdaochu-zhuanqu-39"
@@ -165,42 +179,52 @@ window.MacOSDeskTop = {
       rightMenuVisible: false,
       rightMenuLeft: 0,
       rightMenuTop: 0,
-      userName: '',
+      userName: "",
       menu: [],
-      timeString: '',
+      timeString: "",
       deskTopAppList: [],
       deskTopMenu: [],
-      isWidgetShow: false
+      isWidgetShow: false,
+      metricsLoaded: false,
+      totalMessages: 0,
+      filteredMessages: 0,
+      learningEfficiency: 0,
+      metricsTimer: null,
     };
   },
   watch: {
     volumn() {
-      this.$store.commit('setVolumn', this.volumn);
+      this.$store.commit("setVolumn", this.volumn);
       clearTimeout(this.volumnDelayTimer);
       this.volumnDelayTimer = setTimeout(() => {
         this.isVolumnShow = false;
       }, 3000);
     },
-    '$store.state.volumn'() {
+    "$store.state.volumn"() {
       // sync volume from store if changed externally
     },
-    '$store.state.nowApp'() {
+    "$store.state.nowApp"() {
       if (this.$store.state.nowApp && this.$store.state.nowApp.menu) {
         this.menu = this.$store.state.nowApp.menu;
       } else {
         this.menu = this.deskTopMenu;
       }
     },
-    '$store.state.launchpad'() {
-      this.$emit('launchpad', this.$store.state.launchpad);
-    }
+    "$store.state.launchpad"() {
+      this.$emit("launchpad", this.$store.state.launchpad);
+    },
   },
   created() {
     this.menu = this.deskTopMenu;
-    this.userName = localStorage.getItem('user_name') || '';
+    this.userName = localStorage.getItem("user_name") || "";
     this.deskTopAppList = window.MacOSTool.getDeskTopApp();
     this.startTimer();
-    this.$store.commit('getDockAppList');
+    this.$store.commit("getDockAppList");
+    this.fetchMetrics();
+    this.metricsTimer = setInterval(() => this.fetchMetrics(), 30000);
+  },
+  beforeUnmount() {
+    if (this.metricsTimer) clearInterval(this.metricsTimer);
   },
   methods: {
     showOrHideCalendar() {
@@ -238,23 +262,50 @@ window.MacOSDeskTop = {
     },
     startTimer() {
       setInterval(() => {
-        this.timeString = window.MacOSTool.formatTime(new Date(), 'MM-dd HH:mm');
+        this.timeString = window.MacOSTool.formatTime(
+          new Date(),
+          "MM-dd HH:mm",
+        );
       }, 1000);
     },
     openAppByKey(key) {
-      this.$store.commit('openAppByKey', key);
+      this.$store.commit("openAppByKey", key);
     },
     lockScreen() {
-      this.$emit('lockScreen');
+      this.$emit("lockScreen");
     },
     shutdown() {
-      this.$emit('shutdown');
+      this.$emit("shutdown");
     },
     logout() {
-      this.$emit('logout');
+      this.$emit("logout");
     },
     showOrHideWidget() {
       this.isWidgetShow = !this.isWidgetShow;
-    }
-  }
+    },
+    async fetchMetrics() {
+      try {
+        var resp = await window.MacOSApi.get("/api/metrics");
+        if (resp && resp.ok && resp.data) {
+          this.totalMessages = resp.data.total_messages_collected || 0;
+          this.filteredMessages = resp.data.filtered_messages || 0;
+          if (this.totalMessages > 0) {
+            this.learningEfficiency = Math.round(
+              (this.filteredMessages / this.totalMessages) * 100,
+            );
+          } else {
+            this.learningEfficiency = 0;
+          }
+          this.metricsLoaded = true;
+        }
+      } catch (e) {
+        // 静默失败，不影响桌面使用
+      }
+    },
+    formatNumber(n) {
+      if (n >= 10000) return (n / 10000).toFixed(1) + "w";
+      if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+      return String(n);
+    },
+  },
 };
