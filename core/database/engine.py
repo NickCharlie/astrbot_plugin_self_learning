@@ -1,11 +1,18 @@
 """
 SQLAlchemy 数据库引擎封装
 提供异步数据库引擎和会话工厂
+
+支持跨线程/跨事件循环使用：
+当 WebUI 等组件在独立线程中运行自己的 event loop 时，
+引擎会自动为每个 event loop 创建独立的 async engine，
+避免 "Task got Future attached to a different loop" 错误。
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool, QueuePool
 from astrbot.api import logger
 from typing import Optional
+import asyncio
+import threading
 import os
 
 from ...models.orm import Base
@@ -19,7 +26,7 @@ class DatabaseEngine:
     1. 自动识别数据库类型 (SQLite/MySQL)
     2. 创建异步引擎和会话工厂
     3. 支持表结构创建和清理
-    4. 连接池管理
+    4. 跨线程/跨事件循环安全（per-loop engine）
     """
 
     def __init__(self, database_url: str, echo: bool = False):
@@ -34,30 +41,39 @@ class DatabaseEngine:
         """
         self.database_url = database_url
         self.echo = echo
-        self.engine: Optional[create_async_engine] = None
+
+        # 主引擎（在构造时创建，用于 create_tables / health_check 等管理操作）
+        self.engine = None
         self.session_factory: Optional[async_sessionmaker] = None
+
+        # 跨线程支持：per-loop 引擎和会话工厂
+        self._loop_engines: dict[int, object] = {}
+        self._loop_session_factories: dict[int, async_sessionmaker] = {}
+        self._lock = threading.Lock()
+        self._main_loop_id: Optional[int] = None
 
         self._initialize_engine()
 
     def _initialize_engine(self):
-        """初始化数据库引擎"""
+        """初始化主数据库引擎"""
         try:
-            # 判断数据库类型
-            if 'sqlite' in self.database_url.lower():
-                self._init_sqlite_engine()
-            elif 'mysql' in self.database_url.lower():
-                self._init_mysql_engine()
-            else:
-                raise ValueError(f"不支持的数据库类型: {self.database_url}")
-
-            logger.info(f"✅ [DatabaseEngine] 数据库引擎初始化成功")
-
+            self.engine = self._create_engine()
+            logger.info("[DatabaseEngine] 数据库引擎初始化成功")
         except Exception as e:
-            logger.error(f"❌ [DatabaseEngine] 引擎初始化失败: {e}")
+            logger.error(f"[DatabaseEngine] 引擎初始化失败: {e}")
             raise
 
-    def _init_sqlite_engine(self):
-        """初始化 SQLite 引擎"""
+    def _create_engine(self):
+        """根据数据库类型创建一个新的 async engine"""
+        if 'sqlite' in self.database_url.lower():
+            return self._create_sqlite_engine()
+        elif 'mysql' in self.database_url.lower():
+            return self._create_mysql_engine()
+        else:
+            raise ValueError(f"不支持的数据库类型: {self.database_url}")
+
+    def _create_sqlite_engine(self):
+        """创建 SQLite 引擎实例"""
         # 转换为 aiosqlite 驱动
         if not self.database_url.startswith('sqlite+aiosqlite'):
             db_path = self.database_url.replace('sqlite:///', '')
@@ -70,28 +86,24 @@ class DatabaseEngine:
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
-            logger.info(f"✅ [DatabaseEngine] 创建数据库目录: {db_dir}")
+            logger.info(f"[DatabaseEngine] 创建数据库目录: {db_dir}")
 
         # SQLite 配置
-        self.engine = create_async_engine(
+        engine = create_async_engine(
             db_url,
             echo=self.echo,
-            # SQLite 不需要连接池
             poolclass=NullPool,
-            # SQLite 特定参数
             connect_args={
-                'check_same_thread': False,  # 允许多线程
-                'timeout': 30,  # 连接超时
+                'check_same_thread': False,
+                'timeout': 30,
             }
         )
 
-        # 配置 SQLite 为 WAL 模式以支持并发读写，避免数据库锁定
+        # 配置 SQLite 为 WAL 模式以支持并发读写
         from sqlalchemy import event
-        from sqlalchemy.pool import Pool
 
-        @event.listens_for(self.engine.sync_engine, "connect")
+        @event.listens_for(engine.sync_engine, "connect")
         def set_sqlite_pragma(dbapi_conn, connection_record):
-            """在每个连接建立时设置 SQLite PRAGMA"""
             cursor = dbapi_conn.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
@@ -100,13 +112,12 @@ class DatabaseEngine:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-        logger.info(f"✅ [DatabaseEngine] SQLite 引擎创建成功 (WAL模式): {db_path}")
+        logger.debug(f"[DatabaseEngine] SQLite 引擎创建成功 (WAL模式): {db_path}")
+        return engine
 
-    def _init_mysql_engine(self):
-        """初始化 MySQL 引擎"""
-        # 确保使用 aiomysql 驱动
+    def _create_mysql_engine(self):
+        """创建 MySQL 引擎实例"""
         if not self.database_url.startswith('mysql+aiomysql'):
-            # 尝试转换
             if self.database_url.startswith('mysql://'):
                 db_url = self.database_url.replace('mysql://', 'mysql+aiomysql://')
             else:
@@ -114,33 +125,92 @@ class DatabaseEngine:
         else:
             db_url = self.database_url
 
-        # MySQL 配置
-        # 使用 NullPool 避免跨线程/跨事件循环问题
-        # NullPool 不缓存连接，每次请求都创建新连接，适合多线程环境
-        self.engine = create_async_engine(
+        engine = create_async_engine(
             db_url,
             echo=self.echo,
-            # 使用 NullPool 避免连接池在不同事件循环间共享的问题
             poolclass=NullPool,
-            # MySQL 特定参数
             connect_args={
-                'connect_timeout': 10,  # 连接超时
-                'charset': 'utf8mb4',  # 字符集
+                'connect_timeout': 10,
+                'charset': 'utf8mb4',
             }
         )
 
-        logger.info(f"✅ [DatabaseEngine] MySQL 引擎创建成功 (使用 NullPool 支持多线程)")
+        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (NullPool)")
+        return engine
 
+    def _get_engine_for_current_loop(self):
+        """
+        获取当前 event loop 对应的引擎。
+
+        - 主线程（首次调用时记录）：使用 self.engine
+        - 其他线程的 event loop：自动创建独立引擎
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # 没有运行中的 loop，返回主引擎
+            return self.engine
+
+        loop_id = id(loop)
+
+        # 首次调用时记录主 loop
+        if self._main_loop_id is None:
+            self._main_loop_id = loop_id
+            return self.engine
+
+        # 主 loop 直接返回
+        if loop_id == self._main_loop_id:
+            return self.engine
+
+        # 其他 loop：获取或创建独立引擎
+        if loop_id not in self._loop_engines:
+            with self._lock:
+                if loop_id not in self._loop_engines:
+                    engine = self._create_engine()
+                    self._loop_engines[loop_id] = engine
+                    logger.info(f"[DatabaseEngine] 为 event loop {loop_id} 创建了独立引擎（跨线程访问）")
+        return self._loop_engines[loop_id]
+
+    def _get_session_factory_for_engine(self, engine) -> async_sessionmaker:
+        """获取指定引擎对应的会话工厂"""
+        engine_id = id(engine)
+
+        # 主引擎用 self.session_factory
+        if engine is self.engine:
+            if not self.session_factory:
+                self.session_factory = async_sessionmaker(
+                    self.engine,
+                    class_=AsyncSession,
+                    expire_on_commit=False,
+                    autoflush=False,
+                    autocommit=False,
+                )
+                logger.debug("[DatabaseEngine] 主会话工厂创建成功")
+            return self.session_factory
+
+        # 其他引擎用 per-loop 工厂
+        if engine_id not in self._loop_session_factories:
+            with self._lock:
+                if engine_id not in self._loop_session_factories:
+                    self._loop_session_factories[engine_id] = async_sessionmaker(
+                        engine,
+                        class_=AsyncSession,
+                        expire_on_commit=False,
+                        autoflush=False,
+                        autocommit=False,
+                    )
+                    logger.debug(f"[DatabaseEngine] 为引擎 {engine_id} 创建会话工厂")
+        return self._loop_session_factories[engine_id]
 
     def _create_session_factory(self):
-        """创建会话工厂"""
+        """创建主会话工厂（保持向后兼容）"""
         if not self.session_factory:
             self.session_factory = async_sessionmaker(
                 self.engine,
                 class_=AsyncSession,
-                expire_on_commit=False,  # 提交后不过期对象
-                autoflush=False,  # 手动控制 flush
-                autocommit=False,  # 手动控制 commit
+                expire_on_commit=False,
+                autoflush=False,
+                autocommit=False,
             )
             logger.debug("[DatabaseEngine] 会话工厂创建成功")
 
@@ -155,64 +225,75 @@ class DatabaseEngine:
             enable_auto_migration: 是否启用自动迁移（默认禁用）
         """
         if not enable_auto_migration:
-            logger.info("⏭️ [DatabaseEngine] 数据库自动迁移已禁用，跳过表创建")
+            logger.info("[DatabaseEngine] 数据库自动迁移已禁用，跳过表创建")
             return
 
         try:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("✅ [DatabaseEngine] 数据库表结构创建完成")
+            logger.info("[DatabaseEngine] 数据库表结构创建完成")
 
         except Exception as e:
-            # 检查是否是索引已存在的错误（这是正常情况，可以忽略）
             error_msg = str(e).lower()
             if 'index' in error_msg and 'already exists' in error_msg:
-                logger.info("✅ [DatabaseEngine] 数据库表和索引已存在，跳过创建")
+                logger.info("[DatabaseEngine] 数据库表和索引已存在，跳过创建")
             else:
-                logger.error(f"❌ [DatabaseEngine] 创建表失败: {e}")
+                logger.error(f"[DatabaseEngine] 创建表失败: {e}")
                 raise
 
     async def drop_tables(self):
         """
         删除所有表
 
-        ⚠️ 危险操作！会删除所有数据
-        仅用于测试环境
+        危险操作！会删除所有数据，仅用于测试环境
         """
         try:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.drop_all)
-            logger.warning("⚠️ [DatabaseEngine] 所有表已删除")
+            logger.warning("[DatabaseEngine] 所有表已删除")
         except Exception as e:
-            logger.error(f"❌ [DatabaseEngine] 删除表失败: {e}")
+            logger.error(f"[DatabaseEngine] 删除表失败: {e}")
             raise
 
     def get_session(self) -> AsyncSession:
         """
-        获取数据库会话
+        获取数据库会话（自动适配当前 event loop）
+
+        跨线程调用时会自动使用该线程对应的引擎，
+        避免 event loop 冲突。
 
         Returns:
             AsyncSession: 异步数据库会话
 
         用法:
             async with engine.get_session() as session:
-                # 执行数据库操作
                 result = await session.execute(...)
                 await session.commit()
         """
-        if not self.session_factory:
-            self._create_session_factory()
-        return self.session_factory()
+        engine = self._get_engine_for_current_loop()
+        factory = self._get_session_factory_for_engine(engine)
+        return factory()
 
     async def close(self):
         """
-        关闭数据库引擎
+        关闭所有数据库引擎（包括跨线程创建的）
 
         释放所有连接池资源
         """
+        # 关闭主引擎
         if self.engine:
             await self.engine.dispose()
-            logger.info("✅ [DatabaseEngine] 数据库引擎已关闭")
+
+        # 关闭所有 per-loop 引擎
+        for loop_id, engine in list(self._loop_engines.items()):
+            try:
+                await engine.dispose()
+            except Exception as e:
+                logger.debug(f"[DatabaseEngine] 关闭 loop {loop_id} 引擎时忽略错误: {e}")
+
+        self._loop_engines.clear()
+        self._loop_session_factories.clear()
+        logger.info("[DatabaseEngine] 所有数据库引擎已关闭")
 
     async def health_check(self) -> bool:
         """
@@ -225,12 +306,11 @@ class DatabaseEngine:
             from sqlalchemy import text
 
             async with self.get_session() as session:
-                # 执行简单查询
                 result = await session.execute(text("SELECT 1"))
                 result.fetchone()
             return True
         except Exception as e:
-            logger.error(f"❌ [DatabaseEngine] 健康检查失败: {e}")
+            logger.error(f"[DatabaseEngine] 健康检查失败: {e}")
             return False
 
     def get_engine_info(self) -> dict:
@@ -246,13 +326,13 @@ class DatabaseEngine:
             'echo': self.echo,
             'pool_size': getattr(self.engine.pool, 'size', 'N/A'),
             'max_overflow': getattr(self.engine.pool, 'overflow', 'N/A'),
+            'active_loops': len(self._loop_engines) + 1,
         }
 
     @staticmethod
     def _mask_password(url: str) -> str:
         """隐藏数据库 URL 中的密码"""
         if '@' in url:
-            # mysql+aiomysql://user:password@host:port/db
             parts = url.split('@')
             if ':' in parts[0]:
                 prefix = parts[0].rsplit(':', 1)[0]
