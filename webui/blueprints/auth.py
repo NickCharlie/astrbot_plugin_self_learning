@@ -14,27 +14,14 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api')
 
 @auth_bp.route("/")
 async def read_root():
-    """根目录重定向"""
-    container = get_container()
-    auth_service = AuthService(container)
-
-    # 如果用户已认证，检查是否需要强制更改密码
-    if is_authenticated():
-        if auth_service.check_must_change_password():
-            return redirect("/api/plugin_change_password")
-        return redirect(url_for("auth.read_root_index"))
-
-    # 未认证用户重定向到登录页
-    return redirect(url_for("auth.login_page"))
+    """根目录 - 渲染 MacOS UI（前端自行判断登录状态）"""
+    return await render_template("macos.html")
 
 
 @auth_bp.route("/login", methods=["GET"])
 async def login_page():
-    """显示登录页面"""
-    # 如果已登录，重定向到主页
-    if is_authenticated():
-        return redirect("/api/")
-    return await render_template("login.html")
+    """登录页面 - 渲染 MacOS UI（前端 Login 组件处理登录）"""
+    return await render_template("macos.html")
 
 
 @auth_bp.route("/login", methods=["POST"])
@@ -81,9 +68,8 @@ async def login():
 
 
 @auth_bp.route("/index")
-@require_auth
 async def read_root_index():
-    """主页面"""
+    """主页面 - 渲染 MacOS UI"""
     return await render_template("macos.html")
 
 
