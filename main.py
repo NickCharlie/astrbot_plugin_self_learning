@@ -214,8 +214,9 @@ class SelfLearningPlugin(star.Star):
                 await set_plugin_services(
                     self.plugin_config,
                     self.factory_manager,
-                    None,  # 不再传递已弃用的 LLMClient
-                    astrbot_persona_manager  # 传递框架PersonaManager
+                    None,
+                    astrbot_persona_manager,
+                    self.group_id_to_unified_origin
                 )
                 logger.info("Debug: 插件服务设置完成")
             except Exception as e:
@@ -330,7 +331,9 @@ class SelfLearningPlugin(star.Star):
             # ✅ 传递group_id到unified_origin映射表的引用
             if hasattr(self, 'group_id_to_unified_origin'):
                 self.temporary_persona_updater.group_id_to_unified_origin = self.group_id_to_unified_origin
-                logger.info("已将group_id映射表传递给temporary_persona_updater")
+                if hasattr(self, 'progressive_learning') and self.progressive_learning:
+                    self.progressive_learning.group_id_to_unified_origin = self.group_id_to_unified_origin
+                logger.info("已将group_id映射表传递给服务组件")
 
             # 创建并保存LLM适配器实例，用于状态报告
             self.llm_adapter = self.service_factory.create_framework_llm_adapter()
@@ -365,6 +368,11 @@ class SelfLearningPlugin(star.Star):
         # PersonaUpdater 的创建现在需要 backup_manager，它是一个服务，也应该通过 ServiceFactory 获取
         persona_backup_manager_instance = self.service_factory.create_persona_backup_manager()
         self.persona_updater = self.component_factory.create_persona_updater(self.context, persona_backup_manager_instance)
+
+        # ✅ 传递group_id到unified_origin映射表（多配置文件支持）
+        if hasattr(self, 'group_id_to_unified_origin'):
+            self.persona_updater.group_id_to_unified_origin = self.group_id_to_unified_origin
+            persona_backup_manager_instance.group_id_to_unified_origin = self.group_id_to_unified_origin
         
         # 学习调度器
         self.learning_scheduler = self.component_factory.create_learning_scheduler(self)
@@ -469,9 +477,10 @@ class SelfLearningPlugin(star.Star):
                 
                 await set_plugin_services(
                     self.plugin_config,
-                    self.factory_manager, # 传递 factory_manager
-                    None,  # 不再传递已弃用的 LLMClient
-                    astrbot_persona_manager  # 传递框架PersonaManager
+                    self.factory_manager,
+                    None,
+                    astrbot_persona_manager,
+                    self.group_id_to_unified_origin
                 )
                 logger.info("Web服务器插件服务设置完成")
             except Exception as e:

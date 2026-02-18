@@ -45,6 +45,9 @@ class ServiceContainer:
         # 待审核更新
         self.pending_updates: List[Any] = []
 
+        # group_id到unified_msg_origin映射表（多配置文件支持）
+        self.group_id_to_unified_origin: Dict[str, str] = {}
+
         # 智能指标服务
         self.intelligence_metrics_service: Optional[Any] = None
 
@@ -55,7 +58,8 @@ class ServiceContainer:
         plugin_config,
         factory_manager,
         llm_client=None,
-        astrbot_persona_manager=None
+        astrbot_persona_manager=None,
+        group_id_to_unified_origin=None
     ):
         """
         初始化服务容器
@@ -65,10 +69,13 @@ class ServiceContainer:
             factory_manager: 工厂管理器
             llm_client: LLM 客户端（废弃，保留兼容性）
             astrbot_persona_manager: AstrBot 人格管理器
+            group_id_to_unified_origin: group_id到unified_msg_origin映射表
         """
         self.plugin_config = plugin_config
         self.factory_manager = factory_manager
         self.astrbot_persona_manager = astrbot_persona_manager
+        if group_id_to_unified_origin is not None:
+            self.group_id_to_unified_origin = group_id_to_unified_origin
 
         # 从工厂获取服务
         service_factory = factory_manager.get_service_factory()
@@ -141,7 +148,8 @@ async def set_plugin_services(
     plugin_config,
     factory_manager,
     llm_client,
-    astrbot_persona_manager
+    astrbot_persona_manager,
+    group_id_to_unified_origin=None
 ):
     """
     设置插件服务（兼容原有接口）
@@ -151,12 +159,14 @@ async def set_plugin_services(
         factory_manager: 工厂管理器
         llm_client: LLM 客户端（废弃）
         astrbot_persona_manager: AstrBot 人格管理器
+        group_id_to_unified_origin: group_id到unified_msg_origin映射表
     """
     _container.initialize(
         plugin_config=plugin_config,
         factory_manager=factory_manager,
         llm_client=llm_client,
-        astrbot_persona_manager=astrbot_persona_manager
+        astrbot_persona_manager=astrbot_persona_manager,
+        group_id_to_unified_origin=group_id_to_unified_origin
     )
 
     logger.info("✅ [WebUI] 插件服务设置完成")

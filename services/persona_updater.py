@@ -56,6 +56,12 @@ class PersonaUpdater(IPersonaUpdater):
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
         
         self._logger.info("PersonaUpdater初始化完成，已集成MaiBot功能模块和PersonaManager更新器")
+
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if hasattr(self, 'group_id_to_unified_origin'):
+            return self.group_id_to_unified_origin.get(group_id, group_id)
+        return group_id
         
     async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
         """根据风格分析和筛选过的消息更新人格"""
@@ -66,7 +72,7 @@ class PersonaUpdater(IPersonaUpdater):
                 return False
 
             # 获取当前人格（传递group_id以支持多会话多人格）
-            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            current_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if not current_persona:
                 self._logger.error(f"无法获取群组 {group_id} 的当前人格")
                 return False
@@ -238,7 +244,7 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.warning("无法获取PersonaManager，跳过备份")
                 return False
 
-            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            current_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if not current_persona:
                 self._logger.warning(f"无法获取群组 {group_id} 的当前人格信息，跳过备份")
                 return False
@@ -407,7 +413,7 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.error("无法获取PersonaManager")
                 return None
 
-            persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if persona:
                 if isinstance(persona, dict):
                     return persona.get('prompt', '')
@@ -424,7 +430,7 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.error("无法获取PersonaManager")
                 return None
 
-            persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if persona and isinstance(persona, dict):
                 return dict(persona)
             return None
@@ -713,7 +719,7 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.warning("无法获取PersonaManager，跳过备份")
                 return False
 
-            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            current_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if not current_persona:
                 self._logger.warning("无法获取当前人格信息，跳过备份")
                 return False
@@ -1113,7 +1119,7 @@ class PersonaAnalyzer:
                 self._logger.error("无法获取PersonaManager")
                 return False
 
-            current_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            current_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if not current_persona:
                 self._logger.error("无法获取当前人格")
                 return False

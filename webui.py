@@ -164,6 +164,12 @@ intelligence_metrics_service: Optional[IntelligenceMetricsService] = None  # 智
 # 新增的变量
 pending_updates: List[Any] = []
 password_config: Dict[str, Any] = {} # 用于存储密码配置
+group_id_to_unified_origin: Dict[str, str] = {}  # group_id到unified_msg_origin映射（多配置文件支持）
+
+
+def _resolve_umo(group_id: str) -> str:
+    """将group_id解析为unified_msg_origin以支持多配置文件"""
+    return group_id_to_unified_origin.get(group_id, group_id)
 
 BUG_REPORT_ENABLED = True
 # 暂时禁用附件上传功能
@@ -636,11 +642,14 @@ async def set_plugin_services(
     config: PluginConfig,
     factory_manager: FactoryManager,
     llm_c = None,  # 不再使用LLMClient
-    astrbot_persona_manager = None  # 添加AstrBot PersonaManager参数
+    astrbot_persona_manager = None,  # 添加AstrBot PersonaManager参数
+    group_id_to_unified_origin_map = None  # 多配置文件支持
 ):
     """设置插件服务实例"""
-    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service
+    global plugin_config, persona_manager, persona_updater, database_manager, db_manager, llm_client, llm_adapter_instance, pending_updates, intelligence_metrics_service, group_id_to_unified_origin
     plugin_config = config
+    if group_id_to_unified_origin_map is not None:
+        group_id_to_unified_origin = group_id_to_unified_origin_map
 
     # 将配置存储到app中,供API认证使用
     app.plugin_config = config
@@ -1222,7 +1231,7 @@ async def get_persona_updates():
                     logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
                     try:
                         if persona_manager:
-                            current_persona = await persona_manager.get_default_persona_v3(group_id)
+                            current_persona = await persona_manager.get_default_persona_v3(_resolve_umo(group_id))
                             if current_persona and current_persona.get('prompt'):
                                 original_content = current_persona.get('prompt', '')
                                 logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
@@ -1292,7 +1301,7 @@ async def get_persona_updates():
                 try:
                     # 通过 persona_manager 获取当前人格
                     if persona_manager:
-                        current_persona = await persona_manager.get_default_persona_v3(group_id)
+                        current_persona = await persona_manager.get_default_persona_v3(_resolve_umo(group_id))
                         if current_persona and current_persona.get('prompt'):
                             original_persona_text = current_persona.get('prompt', '')
                         else:

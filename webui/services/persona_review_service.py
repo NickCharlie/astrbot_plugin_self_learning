@@ -28,6 +28,14 @@ class PersonaReviewService:
         self.database_manager = container.database_manager
         self.persona_manager = container.persona_manager
         self.persona_web_manager = getattr(container, 'persona_web_manager', None)
+        self.plugin_config = getattr(container, 'plugin_config', None)
+        self.group_id_to_unified_origin = getattr(container, 'group_id_to_unified_origin', {})
+        # AstrBot框架PersonaManager（用于直接更新默认人格）
+        self.astrbot_persona_manager = getattr(container, 'astrbot_persona_manager', None)
+
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        return self.group_id_to_unified_origin.get(group_id, group_id)
 
     async def get_pending_persona_updates(self) -> Dict[str, Any]:
         """
@@ -104,7 +112,7 @@ class PersonaReviewService:
                         logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
                         try:
                             if self.persona_manager:
-                                current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                                current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                                 if current_persona and current_persona.get('prompt'):
                                     original_content = current_persona.get('prompt', '')
                                     logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
@@ -168,7 +176,7 @@ class PersonaReviewService:
                     try:
                         # 通过 persona_manager 获取当前人格
                         if self.persona_manager:
-                            current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                            current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                             if current_persona and current_persona.get('prompt'):
                                 original_persona_text = current_persona.get('prompt', '')
                             else:
@@ -293,7 +301,7 @@ class PersonaReviewService:
                                     base_persona_name = "default"
                                     try:
                                         if self.persona_manager:
-                                            current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                                            current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                                             if current_persona and hasattr(current_persona, 'persona_id'):
                                                 base_persona_name = current_persona.persona_id
                                             elif isinstance(current_persona, dict) and 'persona_id' in current_persona:
@@ -315,8 +323,15 @@ class PersonaReviewService:
                                     })
 
                                     if create_result.get('success'):
-                                        logger.info(f"✅ 人格学习审查 {persona_learning_review_id} 已批准，成功创建新人格: {new_persona_id}")
+                                        logger.info(f"人格学习审查 {persona_learning_review_id} 已批准，成功创建新人格: {new_persona_id}")
                                         message = f"人格学习审查 {persona_learning_review_id} 已批准，成功创建新人格: {new_persona_id}"
+
+                                        # 自动应用到默认人格
+                                        auto_apply_msg = await self._auto_apply_to_default_persona(
+                                            group_id, base_persona_name, content_to_apply
+                                        )
+                                        if auto_apply_msg:
+                                            message += f"；{auto_apply_msg}"
                                     else:
                                         error_msg = create_result.get('error', '未知错误')
                                         logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但创建新人格失败: {error_msg}")
@@ -385,7 +400,7 @@ class PersonaReviewService:
                     base_persona_name = "default"
                     try:
                         if self.persona_manager:
-                            current_persona = await self.persona_manager.get_default_persona_v3(group_id)
+                            current_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                             if current_persona and hasattr(current_persona, 'persona_id'):
                                 base_persona_name = current_persona.persona_id
                             elif isinstance(current_persona, dict) and 'persona_id' in current_persona:
@@ -407,8 +422,17 @@ class PersonaReviewService:
                     })
 
                     if create_result.get('success'):
-                        logger.info(f"✅ 风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}")
-                        return True, f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}"
+                        logger.info(f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}")
+                        msg = f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}"
+
+                        # 自动应用到默认人格
+                        auto_apply_msg = await self._auto_apply_to_default_persona(
+                            group_id, base_persona_name, target_review['few_shots_content']
+                        )
+                        if auto_apply_msg:
+                            msg += f"；{auto_apply_msg}"
+
+                        return True, msg
                     else:
                         error_msg = create_result.get('error', '未知错误')
                         logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但创建新人格失败: {error_msg}")
@@ -422,6 +446,59 @@ class PersonaReviewService:
                 return True, f"风格学习审查 {review_id} 已批准，但PersonaWebManager未初始化"
         else:
             return True, f"风格学习审查 {review_id} 已批准"
+
+    async def _auto_apply_to_default_persona(
+        self, group_id: str, base_persona_name: str, content: str
+    ) -> Optional[str]:
+        """
+        自动将批准内容应用到默认人格（危险功能，需配置开启）
+
+        流程：先创建副本（已在调用方完成），再更新默认人格的system_prompt。
+
+        Args:
+            group_id: 群组ID
+            base_persona_name: 当前默认人格的persona_id/name
+            content: 要应用的人格内容
+
+        Returns:
+            成功/失败消息，如果功能未启用则返回None
+        """
+        # 检查是否启用自动应用
+        if not self.plugin_config or not getattr(self.plugin_config, 'auto_apply_approved_persona', False):
+            return None
+
+        if not content or not content.strip():
+            return None
+
+        pm = self.astrbot_persona_manager
+        if not pm:
+            logger.warning("AstrBot PersonaManager不可用，无法自动应用到默认人格")
+            return "自动应用失败：PersonaManager不可用"
+
+        try:
+            # 获取当前默认人格
+            umo = self._resolve_umo(group_id)
+            current_persona = await pm.get_default_persona_v3(umo)
+            if not current_persona:
+                return "自动应用失败：无法获取当前默认人格"
+
+            persona_name = current_persona.get('name', 'default')
+            if persona_name == 'default':
+                logger.warning("默认人格为系统内置default，跳过自动应用（避免覆盖内置人格）")
+                return "自动应用跳过：当前为系统内置default人格，无法覆盖"
+
+            # 更新默认人格的system_prompt
+            await pm.update_persona(
+                persona_id=persona_name,
+                system_prompt=content
+            )
+
+            logger.info(f"已自动将批准内容应用到默认人格 [{persona_name}]（群组 {group_id}）")
+            return f"已自动应用到默认人格 [{persona_name}]"
+
+        except Exception as e:
+            logger.error(f"自动应用到默认人格失败: {e}", exc_info=True)
+            return f"自动应用失败: {str(e)}"
 
     async def _reject_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
         """拒绝风格学习审查（内部方法）"""

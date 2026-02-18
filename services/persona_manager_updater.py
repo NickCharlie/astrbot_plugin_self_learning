@@ -41,6 +41,12 @@ class PersonaManagerUpdater(IPersonaManagerUpdater):
         self.update_history: Dict[str, List[Dict]] = {}  # group_id -> [update_record]
         
         logger.info("PersonaManager增量更新服务初始化完成")
+
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if hasattr(self, 'group_id_to_unified_origin'):
+            return self.group_id_to_unified_origin.get(group_id, group_id)
+        return group_id
     
     def _init_persona_manager(self):
         """初始化PersonaManager"""
@@ -97,8 +103,8 @@ class PersonaManagerUpdater(IPersonaManagerUpdater):
             base_persona = await self.persona_manager.get_persona(base_persona_id)
             if not base_persona:
                 logger.warning(f"基础persona {base_persona_id} 不存在，使用默认persona")
-                base_persona = await self.persona_manager.get_default_persona_v3()
-            
+                base_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+
             # 生成新的persona ID
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             new_persona_id = f"group_{group_id}_incremental_{timestamp}"
@@ -166,8 +172,8 @@ class PersonaManagerUpdater(IPersonaManagerUpdater):
                 base_persona = await self.persona_manager.get_persona(base_persona_id)
             except:
                 # 如果指定的基础persona不存在，使用默认
-                base_persona = await self.persona_manager.get_default_persona_v3()
-            
+                base_persona = await self.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+
             if not base_persona:
                 logger.error("无法获取基础persona")
                 return ""

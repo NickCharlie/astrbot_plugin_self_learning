@@ -63,6 +63,12 @@ class ProgressiveLearningService:
         
         # 增量更新回调函数，降低耦合性
         self.update_system_prompt_callback = None
+
+    def _resolve_umo(self, group_id: str) -> str:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if hasattr(self, 'group_id_to_unified_origin'):
+            return self.group_id_to_unified_origin.get(group_id, group_id)
+        return group_id
         self.current_session: Optional[LearningSession] = None
         self.learning_sessions: List[LearningSession] = [] # 历史学习会话，可以从数据库加载
         self.learning_lock = asyncio.Lock()  # 添加异步锁防止竞态条件
@@ -801,7 +807,7 @@ class ProgressiveLearningService:
             # 如果没有特定群组的人格，尝试从框架获取默认人格
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                 try:
-                    default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+                    default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
                     if default_persona:
                         return {
                             'prompt': default_persona.get('prompt', '默认人格'),
@@ -831,7 +837,7 @@ class ProgressiveLearningService:
                 logger.warning(f"无法获取PersonaManager for group {group_id}")
                 return current_persona
 
-            default_persona = await self.context.persona_manager.get_default_persona_v3(group_id)
+            default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
             if not default_persona:
                 logger.warning(f"无法获取当前人格 for group {group_id}")
                 return current_persona
