@@ -500,6 +500,7 @@ select {
   border: .5px solid var(--modder-border-color);
   border-radius: 8px;
   font-size: 13px;
+  height: 32px;
   background: var(--modder-bg-input-fill);
   color: var(--modder-text-label);
   cursor: pointer;
@@ -1361,11 +1362,25 @@ select:focus {
   margin: 0;
 }
 
+.dialog-content,
 .dialog-body,
 .modal-body {
   padding: 20px;
   overflow-y: auto;
   flex: 1;
+}
+
+.dialog-content .update-info {
+  background: var(--modder-bg-input-fill);
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+.dialog-content .update-info p {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--modder-text-secondary-label);
+  line-height: 1.5;
 }
 
 .dialog-footer,
@@ -1842,6 +1857,18 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12px;
 }
 
+/* ===== Button Size Override (compact) ===== */
+.btn {
+  min-height: 32px;
+  padding: 5px 12px;
+  font-size: 13px;
+}
+.btn-lg {
+  min-height: 40px;
+  padding: 8px 18px;
+  font-size: 15px;
+}
+
 /* ===== Custom Buttons ===== */
 .btn-success,
 .btn-success-custom {
@@ -2131,12 +2158,44 @@ input[type="range"]::-webkit-slider-thumb {
 .editor-section {
   margin-bottom: 12px;
 }
+.editor-section h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--modder-text-label);
+  margin: 0 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.editor-section h4 .material-icons {
+  font-size: 16px;
+}
 .editor-section label {
   font-size: 13px;
   font-weight: 600;
   color: var(--modder-text-label);
   display: block;
   margin-bottom: 6px;
+}
+.editor-section textarea,
+.content-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: .5px solid var(--modder-border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--modder-bg-input-fill);
+  color: var(--modder-text-label);
+  font-family: inherit;
+  transition: border-color var(--sl-transition);
+}
+.editor-section textarea:focus,
+.content-editor textarea:focus {
+  outline: none;
+  border-color: var(--modder-text-accent-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--modder-bg-accent-primary) 15%, transparent);
 }
 
 .no-data {
@@ -2261,6 +2320,16 @@ mark.highlight {
 .password-card {
   width: 100%;
   max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.login-card > .card,
+.password-card > .card {
+  width: 100%;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 .login-card .logo-section,
