@@ -221,7 +221,7 @@ class SocialService:
             analyzer = SocialRelationAnalyzer(plugin_config, llm_adapter, db_manager)
 
             import asyncio
-            asyncio.create_task(analyzer.analyze_group_relations(group_id))
+            asyncio.create_task(analyzer.analyze_group_social_relations(group_id))
 
             logger.info(f"群组 {group_id} 的社交关系分析已触发")
             return True, f"群组 {group_id} 的社交关系分析已开始"
