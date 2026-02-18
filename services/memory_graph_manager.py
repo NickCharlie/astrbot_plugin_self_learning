@@ -487,7 +487,7 @@ class MemoryGraphManager:
                 # 添加记忆节点
                 await memory_graph.add_memory_node(
                     concept=concept,
-                    memory=message.content,
+                    memory=message.message,
                     llm_adapter=self.llm_adapter
                 )
                 
@@ -516,7 +516,7 @@ class MemoryGraphManager:
         try:
             from ..statics.prompts import ENTITY_EXTRACTION_PROMPT
             
-            prompt = ENTITY_EXTRACTION_PROMPT.format(text=message.content)
+            prompt = ENTITY_EXTRACTION_PROMPT.format(text=message.message)
             
             response = await self.llm_adapter.generate_response(
                 prompt,

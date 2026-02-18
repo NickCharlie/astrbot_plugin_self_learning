@@ -155,7 +155,7 @@ class PersonaUpdater(IPersonaUpdater):
             return True
             
         except Exception as e:
-            self._logger.error(f"人格更新失败 for group {group_id}: {e}")
+            self._logger.error(f"人格更新失败 for group {group_id}: {e}", exc_info=True)
             raise SelfLearningError(f"人格更新失败: {str(e)}")
     
     async def record_persona_update_for_review(self, record: PersonaUpdateRecord) -> int:
@@ -413,7 +413,7 @@ class PersonaUpdater(IPersonaUpdater):
                     return persona.get('prompt', '')
             return None
         except Exception as e:
-            self._logger.error(f"获取当前人格描述失败 for group {group_id}: {e}")
+            self._logger.error(f"获取当前人格描述失败 for group {group_id}: {e}", exc_info=True)
             return None
 
     async def get_current_persona(self, group_id: str) -> Optional[Dict[str, Any]]:
@@ -430,7 +430,7 @@ class PersonaUpdater(IPersonaUpdater):
             return None
 
         except Exception as e:
-            self._logger.error(f"获取当前人格失败 for group {group_id}: {e}")
+            self._logger.error(f"获取当前人格失败 for group {group_id}: {e}", exc_info=True)
             return None
     
     def _merge_prompts(self, original: str, enhancement: str) -> str:
@@ -580,14 +580,9 @@ class PersonaUpdater(IPersonaUpdater):
 
             # 2. 更新记忆图谱
             if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
+                group_id = current_persona.get('group_id', 'default') if isinstance(current_persona, dict) else 'default'
                 for msg in filtered_messages:
-                    await self.memory_graph_manager.add_memory_node(
-                        memory_id=f"msg_{msg.timestamp}",
-                        content=msg.message,
-                        memory_type="dialogue_style",
-                        tags=['style_learning'],
-                        metadata={'sender': msg.sender_name, 'group_id': msg.group_id}
-                    )
+                    await self.memory_graph_manager.add_memory_from_message(msg, group_id)
                 self._logger.info(f"向记忆图谱添加了 {len(filtered_messages)} 个风格记忆节点")
 
             # 3. 更新知识图谱
