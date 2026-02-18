@@ -2295,6 +2295,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_pending_style_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取待审查的风格学习记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_pending_style_reviews_orm(limit)
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
             
@@ -2342,6 +2345,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的风格学习记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_reviewed_style_learning_updates_orm(limit, offset, status_filter)
         async with self.get_db_connection() as conn:
             cursor = await conn.cursor()
             
@@ -4558,6 +4564,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_pending_persona_learning_reviews(self, limit: int = 50) -> List[Dict[str, Any]]:
         """获取待审查的人格学习记录（质量不达标的学习结果）"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_pending_persona_learning_reviews_orm(limit)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -4654,45 +4663,31 @@ class DatabaseManager(AsyncServiceBase):
             return []
 
     async def update_persona_learning_review_status(self, review_id: int, status: str, comment: str = None, modified_content: str = None) -> bool:
-        """更新人格学习审查状态"""
+        """更新人格学习审查状态（使用 ORM，支持跨事件循环）"""
         try:
-            async with self.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            if not self.db_engine:
+                self._logger.warning("DatabaseEngine 未初始化，无法更新人格学习审查状态")
+                return False
 
-                # 根据数据库类型使用不同的占位符
-                placeholder = '%s' if self.config.db_type.lower() == 'mysql' else '?'
+            from ..models.orm.learning import PersonaLearningReview
 
-                # 如果有修改后的内容，也要更新proposed_content字段
+            async with self.db_engine.get_session() as session:
+                review = await session.get(PersonaLearningReview, review_id)
+                if not review:
+                    self._logger.warning(f"未找到人格学习审查记录，ID: {review_id}")
+                    return False
+
+                review.status = status
+                review.reviewer_comment = comment
+                review.review_time = time.time()
+
                 if modified_content:
-                    if self.config.db_type.lower() == 'mysql':
-                        await cursor.execute(f'''
-                            UPDATE persona_update_reviews
-                            SET status = {placeholder}, reviewer_comment = {placeholder}, review_time = {placeholder},
-                                proposed_content = {placeholder}, new_content = {placeholder}
-                            WHERE id = {placeholder}
-                        ''', (status, comment, time.time(), modified_content, modified_content, review_id))
-                    else:
-                        await cursor.execute('''
-                            UPDATE persona_update_reviews
-                            SET status = ?, reviewer_comment = ?, review_time = ?, proposed_content = ?, new_content = ?
-                            WHERE id = ?
-                        ''', (status, comment, time.time(), modified_content, modified_content, review_id))
-                else:
-                    if self.config.db_type.lower() == 'mysql':
-                        await cursor.execute(f'''
-                            UPDATE persona_update_reviews
-                            SET status = {placeholder}, reviewer_comment = {placeholder}, review_time = {placeholder}
-                            WHERE id = {placeholder}
-                        ''', (status, comment, time.time(), review_id))
-                    else:
-                        await cursor.execute('''
-                            UPDATE persona_update_reviews
-                            SET status = ?, reviewer_comment = ?, review_time = ?
-                            WHERE id = ?
-                        ''', (status, comment, time.time(), review_id))
+                    review.proposed_content = modified_content
+                    review.new_content = modified_content
 
-                await conn.commit()
-                return cursor.rowcount > 0
+                await session.commit()
+                self._logger.info(f"人格学习审查状态已更新，ID: {review_id}, 状态: {status}")
+                return True
 
         except Exception as e:
             self._logger.error(f"更新人格学习审查状态失败: {e}")
@@ -4700,6 +4695,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         """删除指定ID的人格学习审查记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.delete_persona_learning_review_by_id_orm(review_id)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -4737,6 +4735,25 @@ class DatabaseManager(AsyncServiceBase):
             int: 删除的记录数量
         """
         try:
+            # 优先使用 ORM（支持跨事件循环）
+            if self.db_engine:
+                from ..models.orm.learning import PersonaLearningReview
+                from sqlalchemy import delete as sa_delete
+
+                async with self.db_engine.get_session() as session:
+                    if group_id:
+                        stmt = sa_delete(PersonaLearningReview).where(PersonaLearningReview.group_id == group_id)
+                        self._logger.info(f"删除群组 {group_id} 的所有人格学习审查记录")
+                    else:
+                        stmt = sa_delete(PersonaLearningReview)
+                        self._logger.info("删除所有人格学习审查记录")
+
+                    result = await session.execute(stmt)
+                    await session.commit()
+                    deleted_count = result.rowcount
+                    self._logger.info(f"成功删除 {deleted_count} 条人格学习审查记录")
+                    return deleted_count
+
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
@@ -4768,6 +4785,9 @@ class DatabaseManager(AsyncServiceBase):
     
     async def get_persona_learning_review_by_id(self, review_id: int) -> Optional[Dict[str, Any]]:
         """获取指定ID的人格学习审查记录详情"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_persona_learning_review_by_id_orm(review_id)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -4877,6 +4897,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_reviewed_persona_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的人格学习更新记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_reviewed_persona_learning_updates_orm(limit, offset, status_filter)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -4970,6 +4993,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def get_reviewed_style_learning_updates(self, limit: int = 50, offset: int = 0, status_filter: str = None) -> List[Dict[str, Any]]:
         """获取已审查的风格学习更新记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.get_reviewed_style_learning_updates_orm(limit, offset, status_filter)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -5099,6 +5125,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def update_style_review_status(self, review_id: int, status: str, group_id: str = None) -> bool:
         """更新风格学习审查状态"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.update_style_review_status_orm(review_id, status, group_id)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
@@ -5124,6 +5153,9 @@ class DatabaseManager(AsyncServiceBase):
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:
         """删除指定ID的风格学习审查记录"""
+        # 优先使用 ORM（支持跨事件循环）
+        if self.db_engine:
+            return await self.delete_style_review_by_id_orm(review_id)
         try:
             async with self.get_db_connection() as conn:
                 cursor = await conn.cursor()
