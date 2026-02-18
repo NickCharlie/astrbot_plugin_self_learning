@@ -37,7 +37,7 @@ class JargonService:
 
         try:
             # 调用数据库方法获取全局统计（不传chat_id）
-            stats = await self.database_manager.get_jargon_statistics(chat_id=None)
+            stats = await self.database_manager.get_jargon_statistics()
 
             # 数据库返回的字段：total_candidates, confirmed_jargon, completed_inference, total_occurrences, average_count, active_groups
             # WebUI需要的字段：total_jargons, confirmed_jargon, total_candidates, active_groups, ...
