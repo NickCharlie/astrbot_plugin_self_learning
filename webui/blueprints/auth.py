@@ -84,7 +84,7 @@ async def login():
 @require_auth
 async def read_root_index():
     """主页面"""
-    return await render_template("index.html")
+    return await render_template("macos.html")
 
 
 @auth_bp.route("/plugin_change_password", methods=["GET"])

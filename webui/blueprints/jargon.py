@@ -171,3 +171,56 @@ async def sync_global_jargon_to_group():
     except Exception as e:
         logger.error(f"同步全局黑话失败: {e}", exc_info=True)
         return error_response(str(e), 500)
+
+
+@jargon_bp.route("/jargon/global", methods=["GET"])
+@require_auth
+async def get_global_jargon_list():
+    """获取全局共享的黑话列表"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+
+        container = get_container()
+        database_manager = container.database_manager
+        if not database_manager:
+            return jsonify({"success": False, "error": "数据库管理器未初始化"}), 500
+
+        jargon_list = await database_manager.get_global_jargon_list(limit=limit)
+
+        return jsonify({
+            "success": True,
+            "data": jargon_list,
+            "total": len(jargon_list)
+        }), 200
+    except Exception as e:
+        logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@jargon_bp.route("/jargon/<int:jargon_id>/set_global", methods=["POST"])
+@require_auth
+async def set_jargon_global_status(jargon_id: int):
+    """设置黑话的全局共享状态"""
+    try:
+        container = get_container()
+        database_manager = container.database_manager
+        if not database_manager:
+            return jsonify({"success": False, "error": "数据库管理器未初始化"}), 500
+
+        data = await request.get_json()
+        is_global = data.get('is_global', True)
+
+        result = await database_manager.set_jargon_global(jargon_id, is_global)
+
+        if result:
+            status_text = "全局共享" if is_global else "取消全局共享"
+            return jsonify({
+                "success": True,
+                "message": f"黑话已{status_text}",
+                "is_global": is_global
+            }), 200
+        else:
+            return jsonify({"success": False, "error": "操作失败"}), 500
+    except Exception as e:
+        logger.error(f"设置黑话全局状态失败: {e}", exc_info=True)
+        return error_response(str(e), 500)

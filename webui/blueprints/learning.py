@@ -110,3 +110,139 @@ async def get_style_learning_patterns():
     except Exception as e:
         logger.error(f"获取学习模式失败: {e}", exc_info=True)
         return error_response(str(e), 500)
+
+
+@learning_bp.route("/style_learning/content_text", methods=["GET"])
+@require_auth
+async def get_style_learning_content_text():
+    """获取对话风格学习的内容文本"""
+    try:
+        container = get_container()
+        database_manager = container.database_manager
+
+        content_data = {
+            'dialogues': [],
+            'analysis': [],
+            'features': [],
+            'history': []
+        }
+
+        if database_manager:
+            try:
+                # Get recent raw messages for dialogues
+                if hasattr(database_manager, 'get_session'):
+                    from sqlalchemy import select, desc
+                    from ...models.orm import RawMessage
+
+                    async with database_manager.get_session() as session:
+                        stmt = select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(20)
+                        result = await session.execute(stmt)
+                        raw_messages = result.scalars().all()
+
+                        for msg in raw_messages:
+                            message_text = msg.message if msg.message else ''
+                            if len(message_text.strip()) < 5:
+                                continue
+                            from datetime import datetime
+                            import time as time_module
+                            content_data['dialogues'].append({
+                                'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time_module.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                                'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
+                                'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
+                            })
+            except Exception as e:
+                logger.warning(f"获取学习内容文本失败: {e}")
+
+        return jsonify(content_data), 200
+    except Exception as e:
+        logger.error(f"获取学习内容文本失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@learning_bp.route("/relearn", methods=["POST"])
+@require_auth
+async def relearn_all():
+    """重新学习 - 重新处理所有历史消息"""
+    try:
+        container = get_container()
+        database_manager = container.database_manager
+        factory_manager = container.factory_manager
+
+        if not factory_manager:
+            return jsonify({"success": False, "error": "工厂管理器未初始化"}), 500
+
+        # Get request data
+        data = {}
+        try:
+            if request.is_json:
+                data = await request.get_json()
+        except Exception:
+            data = {}
+
+        group_id = data.get('group_id')
+
+        # Auto-detect group with most messages if not specified
+        if not group_id or group_id == 'default':
+            if database_manager:
+                try:
+                    stats = await database_manager.get_messages_statistics()
+                    total_count = stats.get('total_messages', 0)
+
+                    if total_count > 0 and hasattr(database_manager, 'get_session'):
+                        from sqlalchemy import select, func, and_
+                        from ...models.orm import RawMessage
+
+                        async with database_manager.get_session() as session:
+                            stmt = select(
+                                RawMessage.group_id,
+                                func.count().label('message_count')
+                            ).where(
+                                and_(
+                                    RawMessage.group_id.isnot(None),
+                                    RawMessage.group_id != ''
+                                )
+                            ).group_by(
+                                RawMessage.group_id
+                            ).order_by(
+                                func.count().desc()
+                            )
+                            result = await session.execute(stmt)
+                            all_results = result.all()
+
+                        if all_results:
+                            group_id = all_results[0][0]
+                except Exception as e:
+                    logger.warning(f"自动检测群组失败: {e}")
+
+        if not group_id:
+            return jsonify({"success": False, "error": "没有可用的群组数据"}), 400
+
+        # Get message count
+        total_messages = 0
+        if database_manager:
+            try:
+                stats = await database_manager.get_messages_statistics()
+                total_messages = stats.get('total_messages', 0)
+            except Exception:
+                pass
+
+        # Trigger relearning via progressive_learning service
+        progressive_learning = container.progressive_learning
+        if progressive_learning:
+            try:
+                import asyncio
+                asyncio.create_task(progressive_learning.trigger_learning(group_id))
+                return jsonify({
+                    "success": True,
+                    "message": f"重新学习已启动，群组: {group_id}",
+                    "group_id": group_id,
+                    "total_messages": total_messages
+                }), 200
+            except Exception as e:
+                logger.error(f"触发重新学习失败: {e}", exc_info=True)
+                return jsonify({"success": False, "error": f"启动失败: {str(e)}"}), 500
+        else:
+            return jsonify({"success": False, "error": "学习服务未初始化"}), 500
+    except Exception as e:
+        logger.error(f"重新学习失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
