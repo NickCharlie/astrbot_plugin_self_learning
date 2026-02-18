@@ -31,9 +31,9 @@ class KGRelation(Base):
     __tablename__ = 'kg_relations'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    subject = Column(String(255), nullable=False, index=True)
-    predicate = Column(String(255), nullable=False)
-    object = Column(String(255), nullable=False, index=True)
+    subject = Column(String(191), nullable=False, index=True)
+    predicate = Column(String(191), nullable=False)
+    object = Column(String(191), nullable=False, index=True)
     confidence = Column(Float, default=1.0)
     created_time = Column(Float, nullable=False)
     group_id = Column(String(100), nullable=False, index=True)
