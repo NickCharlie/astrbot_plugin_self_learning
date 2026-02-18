@@ -64,22 +64,23 @@ class ProgressiveLearningService:
         # 增量更新回调函数，降低耦合性
         self.update_system_prompt_callback = None
 
+        self.current_session: Optional[LearningSession] = None
+        self.learning_sessions: List[LearningSession] = [] # 历史学习会话，可以从数据库加载
+        self.learning_lock = asyncio.Lock()  # 添加异步锁防止竞态条件
+
+        # 学习控制参数
+        self.batch_size = config.max_messages_per_batch
+        self.learning_interval = config.learning_interval_hours * 3600  # 转换为秒
+        self.quality_threshold = config.style_update_threshold
+
+        logger.info("渐进式学习服务初始化完成")
+
     def _resolve_umo(self, group_id: str) -> str:
         """将group_id解析为unified_msg_origin以支持多配置文件"""
         if hasattr(self, 'group_id_to_unified_origin'):
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
-        self.current_session: Optional[LearningSession] = None
-        self.learning_sessions: List[LearningSession] = [] # 历史学习会话，可以从数据库加载
-        self.learning_lock = asyncio.Lock()  # 添加异步锁防止竞态条件
-        
-        # 学习控制参数
-        self.batch_size = config.max_messages_per_batch
-        self.learning_interval = config.learning_interval_hours * 3600  # 转换为秒
-        self.quality_threshold = config.style_update_threshold
-        
-        logger.info("渐进式学习服务初始化完成")
-    
+
     def set_update_system_prompt_callback(self, callback):
         """
         设置增量更新回调函数

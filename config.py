@@ -257,7 +257,7 @@ class PluginConfig:
             auto_backup_enabled=persona_backup_settings.get('auto_backup_enabled', True),
             backup_interval_hours=persona_backup_settings.get('backup_interval_hours', 24),
             max_backups_per_group=persona_backup_settings.get('max_backups_per_group', 10),
-            auto_apply_approved_persona=persona_backup_settings.get('auto_apply_approved_persona', False),
+            auto_apply_approved_persona=advanced_settings.get('auto_apply_approved_persona', False),
             
             debug_mode=advanced_settings.get('debug_mode', False),
             save_raw_messages=advanced_settings.get('save_raw_messages', True),
