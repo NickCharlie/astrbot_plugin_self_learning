@@ -231,7 +231,7 @@ async def relearn_all():
         if progressive_learning:
             try:
                 import asyncio
-                asyncio.create_task(progressive_learning.trigger_learning(group_id))
+                asyncio.create_task(progressive_learning.start_learning(group_id))
                 return jsonify({
                     "success": True,
                     "message": f"重新学习已启动，群组: {group_id}",
