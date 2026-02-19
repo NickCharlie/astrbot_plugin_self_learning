@@ -8,6 +8,34 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-1.2.8] - 2026-02-19
+
+### 🔧 Bug 修复
+
+#### WebUI 服务器端口占用
+- 将 WebUI 服务器从 `asyncio.create_task` 改为独立守护线程模式运行 Hypercorn
+- 采用旧版经过验证的线程方案，确保 Windows/macOS/CentOS/Ubuntu 等系统上重启时端口可靠释放
+- 使用 `SecureConfig` 创建带 `SO_REUSEADDR` + `SO_REUSEPORT` + `set_inheritable(False)` 的 socket
+- 保留跨平台端口清理（Windows `taskkill` / Linux `lsof` + `kill -9`）
+
+#### 单例重启问题
+- 插件 `terminate()` 时重置 `MemoryGraphManager` 单例状态，防止重启后使用失效的 LLM 适配器
+- `Server.stop()` 重置单例状态，确保重新初始化
+
+#### WebUI 学习按钮异常
+- 修复 `trigger_learning` 方法不存在的错误，改为正确的 `start_learning` 方法
+
+#### MemoryGraphManager 空指针
+- 为 `llm_adapter` 增加二次空值检查，防止并发场景下 `generate_response` 调用失败
+
+### 📝 其他
+
+- README（中英文）重写为卖点导向，突出功能价值，移除技术实现细节
+- `persona_web_manager` 常规日志从 INFO 降级为 DEBUG，减少日志噪音
+- 版本号更新至 Next-1.2.8
+
+---
+
 ## [Next-1.2.5] - 2026-02-19
 
 ### 🎯 新功能
