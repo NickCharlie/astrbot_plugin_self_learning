@@ -396,7 +396,7 @@ class MemoryGraphManager:
         """从数据库加载记忆图"""
         try:
             if not self.db_manager:
-                logger.warning(f"db_manager 为空，无法加载群组 {group_id} 记忆图")
+                logger.debug(f"db_manager 为空，无法加载群组 {group_id} 记忆图")
                 return
 
             memory_graph = self.memory_graphs.get(group_id, MemoryGraph())
@@ -445,7 +445,7 @@ class MemoryGraphManager:
                 return
 
             if not self.db_manager:
-                logger.warning(f"db_manager 为空，无法保存群组 {group_id} 记忆图")
+                logger.debug(f"db_manager 为空，无法保存群组 {group_id} 记忆图")
                 return
 
             memory_graph = self.memory_graphs[group_id]

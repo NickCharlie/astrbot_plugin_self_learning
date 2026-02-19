@@ -154,7 +154,7 @@ class KnowledgeGraphManager:
             context: 上下文描述
         """
         if not self.db_manager or not hasattr(self.db_manager, 'get_session'):
-            logger.warning("db_manager 为空或不支持 ORM，无法添加实体")
+            logger.debug("db_manager 为空或不支持 ORM，无法添加实体")
             return
 
         try:
