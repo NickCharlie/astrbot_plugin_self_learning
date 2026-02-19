@@ -2060,6 +2060,15 @@ class SelfLearningPlugin(star.Star):
                     logger.info("服务工厂已清理")
                 except Exception as e:
                     logger.error(f"清理服务工厂失败: {e}")
+
+            # 4.5 重置单例管理器，确保重启时重新初始化
+            try:
+                from .services.memory_graph_manager import MemoryGraphManager
+                MemoryGraphManager._instance = None
+                MemoryGraphManager._initialized = False
+                logger.info("MemoryGraphManager 单例已重置")
+            except Exception:
+                pass
             
             # 5. 清理临时人格
             if hasattr(self, 'temporary_persona_updater'):

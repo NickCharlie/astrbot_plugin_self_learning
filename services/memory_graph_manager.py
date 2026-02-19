@@ -552,7 +552,12 @@ class MemoryGraphManager:
 
             prompt = ENTITY_EXTRACTION_PROMPT.format(text=text)
 
-            response = await self.llm_adapter.generate_response(
+            # 二次检查：防止并发场景下 llm_adapter 被重置
+            adapter = self.llm_adapter
+            if not adapter:
+                return []
+
+            response = await adapter.generate_response(
                 prompt,
                 temperature=0.1,
                 model_type="filter"  # 使用过滤模型进行快速提取
