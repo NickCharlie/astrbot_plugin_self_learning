@@ -251,7 +251,7 @@ class PersonaManagerExtension:
         try:
             # 尝试调用原有方法
             if hasattr(self.persona_manager, 'get_current_persona'):
-                result = await self.persona_manager.get_current_persona()
+                result = await self.persona_manager.get_current_persona(group_id)
                 if isinstance(result, dict):
                     return result
             
@@ -279,7 +279,7 @@ class PersonaManagerExtension:
         """获取当前人格描述"""
         try:
             if hasattr(self.persona_manager, 'get_current_persona_description'):
-                result = await self.persona_manager.get_current_persona_description()
+                result = await self.persona_manager.get_current_persona_description(group_id)
                 if result:
                     return result
             

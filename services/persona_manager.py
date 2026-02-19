@@ -21,6 +21,14 @@ class PersonaManagerService(IPersonaManager):
         self._persona_updater = persona_updater
         self._persona_backup_manager = persona_backup_manager
         self._status = ServiceLifecycle.CREATED
+        # group_id到unified_msg_origin映射（多配置文件支持）
+        self.group_id_to_unified_origin: Dict[str, str] = {}
+
+    def _resolve_umo(self, group_id: str = None) -> Optional[str]:
+        """将group_id解析为unified_msg_origin以支持多配置文件"""
+        if not group_id:
+            return None
+        return self.group_id_to_unified_origin.get(group_id, group_id)
 
     @property
     def status(self) -> ServiceLifecycle:
@@ -102,10 +110,11 @@ class PersonaManagerService(IPersonaManager):
             self._logger.error(f"PersonaManagerService: Failed to restore persona for group {group_id}: {e}")
             raise SelfLearningError(f"人格恢复失败: {str(e)}") from e
 
-    async def get_current_persona_description(self) -> Optional[str]:
+    async def get_current_persona_description(self, group_id: str = None) -> Optional[str]:
         """获取当前人格的描述"""
         try:
-            persona = await self.context.persona_manager.get_default_persona_v3()
+            umo = self._resolve_umo(group_id)
+            persona = await self.context.persona_manager.get_default_persona_v3(umo)
             if persona:
                 return persona.get('prompt', '') if isinstance(persona, dict) else getattr(persona, 'prompt', '')
             return None
@@ -116,7 +125,8 @@ class PersonaManagerService(IPersonaManager):
     async def get_current_persona(self, group_id: str = None) -> Optional[Dict[str, Any]]:
         """获取当前人格信息"""
         try:
-            persona = await self.context.persona_manager.get_default_persona_v3()
+            umo = self._resolve_umo(group_id)
+            persona = await self.context.persona_manager.get_default_persona_v3(umo)
             if persona:
                 return dict(persona) if isinstance(persona, dict) else {'prompt': getattr(persona, 'prompt', '')}
             return None
