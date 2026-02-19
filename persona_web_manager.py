@@ -26,6 +26,8 @@ class PersonaWebManager:
         self._cache_updated = None
         # 主事件循环引用，initialize() 时捕获
         self._main_loop: Optional[asyncio.AbstractEventLoop] = None
+        # group_id到unified_msg_origin映射（多配置文件支持，由外部注入引用）
+        self.group_id_to_unified_origin: Dict[str, str] = {}
 
     async def _run_on_main_loop(self, coro):
         """
@@ -139,7 +141,11 @@ class PersonaWebManager:
             return []
 
     async def get_default_persona_for_web(self) -> Dict[str, Any]:
-        """获取默认人格，格式化为Web界面需要的格式"""
+        """获取默认人格，格式化为Web界面需要的格式
+
+        使用 group_id_to_unified_origin 映射中的 UMO 来获取当前活跃配置的人格，
+        而非始终返回 default 配置的人格。
+        """
         fallback = {
             "persona_id": "default",
             "system_prompt": "You are a helpful assistant.",
@@ -151,13 +157,20 @@ class PersonaWebManager:
             return fallback
 
         try:
+            # 尝试从映射中获取一个 UMO，以加载当前活跃配置的人格
+            umo = None
+            if self.group_id_to_unified_origin:
+                # 取任意一个 UMO（通常同一配置文件下的群组共享同一配置）
+                umo = next(iter(self.group_id_to_unified_origin.values()), None)
+
             default_persona = await self._run_on_main_loop(
-                self.persona_manager.get_default_persona_v3()
+                self.persona_manager.get_default_persona_v3(umo)
             )
 
             if default_persona:
+                persona_name = default_persona.get("name", "default")
                 return {
-                    "persona_id": "default",
+                    "persona_id": persona_name,
                     "system_prompt": default_persona.get("prompt", ""),
                     "begin_dialogs": default_persona.get("begin_dialogs", []),
                     "tools": default_persona.get("tools", [])

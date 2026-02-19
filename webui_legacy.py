@@ -681,6 +681,9 @@ async def set_plugin_services(
         
         # 总是初始化人格Web管理器（即使PersonaManager为None）
         persona_web_mgr = set_persona_web_manager(astrbot_persona_manager)
+        # 传递 group_id_to_unified_origin 映射引用（多配置文件支持）
+        if group_id_to_unified_origin_map is not None:
+            persona_web_mgr.group_id_to_unified_origin = group_id_to_unified_origin_map
         logger.info(f"创建PersonaWebManager: {persona_web_mgr}")
         await persona_web_mgr.initialize()
         logger.info("PersonaWebManager初始化成功")
