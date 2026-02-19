@@ -557,17 +557,38 @@ window.AppSocialRelations = {
 
     /** Build nodes and links from members and relations */
     buildDisplayData(members, relations) {
-      // Build a user_id -> nickname map
-      var nameMap = {};
-      members.forEach(function (m) {
-        nameMap[m.user_id] = m.nickname || String(m.user_id);
+      // Collect user_ids that are involved in relations
+      var involvedInRelation = {};
+      relations.forEach(function (r) {
+        var src = String(r.source || r.source_id || "");
+        var tgt = String(r.target || r.target_id || "");
+        if (src) involvedInRelation[src] = true;
+        if (tgt) involvedInRelation[tgt] = true;
       });
 
-      var nodes = members.map(function (m) {
+      // Only show nodes involved in relations (avoid 494 nodes with 48 links)
+      var relevantMembers = members.filter(function (m) {
+        return involvedInRelation[String(m.user_id)];
+      });
+
+      // If no relations at all, show top 20 active members
+      if (relevantMembers.length === 0) {
+        relevantMembers = members
+          .slice()
+          .sort(function (a, b) {
+            return (b.message_count || 0) - (a.message_count || 0);
+          })
+          .slice(0, 20);
+      }
+
+      var nodes = relevantMembers.map(function (m) {
         return {
           name: m.nickname || String(m.user_id),
           id: String(m.user_id),
-          symbolSize: Math.max(20, Math.min(80, (m.message_count || 0) / 5)),
+          symbolSize: Math.max(
+            20,
+            Math.min(60, 10 + (m.message_count || 0) / 10),
+          ),
           value: m.message_count || 0,
           category: 0,
           itemStyle: {
@@ -576,22 +597,15 @@ window.AppSocialRelations = {
         };
       });
 
+      // Use node id (user_id) for link source/target to ensure matching
       var links = relations.map(function (r) {
-        var sourceName =
-          nameMap[r.source] ||
-          nameMap[r.source_id] ||
-          String(r.source || r.source_id);
-        var targetName =
-          nameMap[r.target] ||
-          nameMap[r.target_id] ||
-          String(r.target || r.target_id);
         return {
-          source: sourceName,
-          target: targetName,
+          source: String(r.source || r.source_id),
+          target: String(r.target || r.target_id),
           value: r.strength || r.weight || 1,
           lineStyle: {
-            width: Math.max(1, Math.min(10, (r.strength || r.weight || 1) * 2)),
-            opacity: 0.6,
+            width: Math.max(1, Math.min(8, (r.strength || r.weight || 1) * 4)),
+            opacity: 0.7,
           },
         };
       });
