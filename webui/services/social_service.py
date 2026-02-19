@@ -220,11 +220,10 @@ class SocialService:
 
             analyzer = SocialRelationAnalyzer(plugin_config, llm_adapter, db_manager)
 
-            import asyncio
-            asyncio.create_task(analyzer.analyze_group_social_relations(group_id))
+            result = await analyzer.analyze_group_social_relations(group_id)
 
-            logger.info(f"群组 {group_id} 的社交关系分析已触发")
-            return True, f"群组 {group_id} 的社交关系分析已开始"
+            logger.info(f"群组 {group_id} 的社交关系分析已完成")
+            return True, f"群组 {group_id} 的社交关系分析已完成"
 
         except ImportError:
             return False, "社交关系分析器模块未找到"
