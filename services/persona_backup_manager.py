@@ -68,39 +68,28 @@ class PersonaBackupManager:
     async def _get_current_persona_data(self, group_id: str = None) -> Dict[str, Any]:
         """获取当前人格数据"""
         try:
-            # 从AstrBot框架获取当前人格设置
-            provider = self.context.get_using_provider()
-            if provider and hasattr(provider, 'curr_personality'):
-                personality = provider.curr_personality
-                return {
-                    'name': getattr(personality, 'name', '默认人格'),
-                    'prompt': getattr(personality, 'prompt', ''),
-                    'settings': getattr(personality, 'settings', {}),
-                    'created_time': datetime.now().isoformat()
-                }
-            else:
-                # 如果无法获取provider，尝试从context.persona_manager获取
-                if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
-                    try:
-                        umo = self._resolve_umo(group_id) if group_id else None
-                        default_persona = await self.context.persona_manager.get_default_persona_v3(umo)
-                        if default_persona:
-                            return {
-                                'name': default_persona.get('name', '默认人格'),
-                                'prompt': default_persona.get('prompt', ''),
-                                'settings': {},
-                                'created_time': datetime.now().isoformat()
-                            }
-                    except Exception as e:
-                        logger.warning(f"从persona_manager获取默认人格失败: {e}")
+            # 从 persona_manager 获取当前人格
+            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
+                try:
+                    umo = self._resolve_umo(group_id) if group_id else None
+                    default_persona = await self.context.persona_manager.get_default_persona_v3(umo)
+                    if default_persona:
+                        return {
+                            'name': default_persona.get('name', '默认人格') if isinstance(default_persona, dict) else getattr(default_persona, 'name', '默认人格'),
+                            'prompt': default_persona.get('prompt', '') if isinstance(default_persona, dict) else getattr(default_persona, 'prompt', ''),
+                            'settings': {},
+                            'created_time': datetime.now().isoformat()
+                        }
+                except Exception as e:
+                    logger.warning(f"从persona_manager获取默认人格失败: {e}")
 
-                # 如果都失败，返回默认值
-                return {
-                    'name': '默认人格',
-                    'prompt': '',
-                    'settings': {},
-                    'created_time': datetime.now().isoformat()
-                }
+            # 如果都失败，返回默认值
+            return {
+                'name': '默认人格',
+                'prompt': '',
+                'settings': {},
+                'created_time': datetime.now().isoformat()
+            }
                 
         except Exception as e:
             logger.error(f"获取当前人格数据失败: {e}")
@@ -179,31 +168,13 @@ class PersonaBackupManager:
                     logger.info(f"人格数据恢复成功: {persona_name}")
                     return True
                 except Exception as e:
-                    logger.warning(f"使用PersonaManager恢复失败: {e}, 尝试旧方法")
+                    raise BackupError(f"恢复人格数据失败: {e}")
 
-            # 回退到旧方法（兼容性）
-            provider = self.context.get_using_provider()
-            if provider and hasattr(provider, 'curr_personality'):
-                # Personality是TypedDict，使用字典方式
-                if isinstance(provider.curr_personality, dict):
-                    provider.curr_personality['name'] = persona_data.get('name', '恢复的人格')
-                    provider.curr_personality['prompt'] = persona_data.get('prompt', '')
-                else:
-                    # 如果是对象，尝试属性设置
-                    if hasattr(provider.curr_personality, 'name'):
-                        provider.curr_personality.name = persona_data.get('name', '恢复的人格')
-                    if hasattr(provider.curr_personality, 'prompt'):
-                        provider.curr_personality.prompt = persona_data.get('prompt', '')
-
-                logger.info("人格数据恢复成功（使用旧方法）")
-                return True
-            else:
-                logger.warning("无法访问人格设置接口")
-                return False
-
+        except BackupError:
+            raise
         except Exception as e:
             logger.error(f"恢复人格数据失败: {e}")
-            return False
+            raise BackupError(f"恢复人格数据失败: {str(e)}")
 
     async def _restore_imitation_dialogues(self, dialogues: List[str]) -> bool:
         """恢复模仿对话列表"""

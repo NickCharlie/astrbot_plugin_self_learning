@@ -105,9 +105,9 @@ class PersonaManagerService(IPersonaManager):
     async def get_current_persona_description(self) -> Optional[str]:
         """获取当前人格的描述"""
         try:
-            provider = self.context.get_using_provider()
-            if provider and provider.curr_personality:
-                return provider.curr_personality.get('prompt', '')
+            persona = await self.context.persona_manager.get_default_persona_v3()
+            if persona:
+                return persona.get('prompt', '') if isinstance(persona, dict) else getattr(persona, 'prompt', '')
             return None
         except Exception as e:
             self._logger.error(f"获取当前人格描述失败: {e}")
@@ -116,10 +116,9 @@ class PersonaManagerService(IPersonaManager):
     async def get_current_persona(self, group_id: str = None) -> Optional[Dict[str, Any]]:
         """获取当前人格信息"""
         try:
-            # group_id 参数用于未来扩展，当前版本仍使用全局人格
-            provider = self.context.get_using_provider()
-            if provider and provider.curr_personality:
-                return dict(provider.curr_personality)
+            persona = await self.context.persona_manager.get_default_persona_v3()
+            if persona:
+                return dict(persona) if isinstance(persona, dict) else {'prompt': getattr(persona, 'prompt', '')}
             return None
         except Exception as e:
             self._logger.error(f"获取当前人格失败 for group {group_id}: {e}")

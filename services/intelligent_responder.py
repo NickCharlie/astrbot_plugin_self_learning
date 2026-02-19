@@ -329,11 +329,14 @@ class IntelligentResponder:
         """
         try:
             # 1. 获取基础人格设定（原有的SYSTEM_PROMPT）
-            provider = self.context.get_using_provider()
             base_system_prompt = "你是一个友好、智能的助手。"  # 默认
-            
-            if provider and hasattr(provider, 'curr_personality') and provider.curr_personality:
-                base_system_prompt = provider.curr_personality.get('prompt', base_system_prompt)
+
+            try:
+                persona = await self.context.persona_manager.get_default_persona_v3()
+                if persona:
+                    base_system_prompt = persona.get('prompt', base_system_prompt) if isinstance(persona, dict) else getattr(persona, 'prompt', base_system_prompt)
+            except Exception:
+                pass
             
             logger.debug(f"原有系统提示词长度: {len(base_system_prompt)} 字符")
             
@@ -585,12 +588,17 @@ class IntelligentResponder:
             prompt_parts.append("你正在参与一个真实的群聊对话，需要基于以下详细上下文信息进行自然、智能的回复：")
             
             # 2. 当前人格状态 - 获取完整的人格信息（包含增量更新）
-            provider = self.context.get_using_provider()
             current_persona = "你是一个友好、智能的助手。"  # 默认人格
             persona_updates_info = ""
-            
-            if provider and hasattr(provider, 'curr_personality') and provider.curr_personality:
-                current_persona = provider.curr_personality.get('prompt', current_persona)
+
+            try:
+                persona = await self.context.persona_manager.get_default_persona_v3()
+                if persona:
+                    current_persona = persona.get('prompt', current_persona) if isinstance(persona, dict) else getattr(persona, 'prompt', current_persona)
+            except Exception:
+                pass
+
+            if current_persona != "你是一个友好、智能的助手。":
                 
                 # 检查并提取增量更新信息
                 if "【增量更新" in current_persona:
