@@ -59,16 +59,15 @@ class TemporaryPersonaUpdater:
         # 人格更新文件路径
         self.persona_updates_file = os.path.join(config.data_dir, "persona_updates.txt")
 
+        # 会话级增量更新存储 - 修复会话串流bug
+        # key: group_id, value: List[str] 存储该会话的所有增量更新
+        self.session_updates: Dict[str, List[str]] = {}
+
     def _resolve_umo(self, group_id: str) -> str:
         """将group_id解析为unified_msg_origin以支持多配置文件"""
         if hasattr(self, 'group_id_to_unified_origin'):
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
-
-        # ✅ 会话级增量更新存储 - 修复会话串流bug
-        # key: group_id, value: List[str] 存储该会话的所有增量更新
-        self.session_updates: Dict[str, List[str]] = {}
-        
         # 初始化PersonaManager更新器
         self.persona_manager_updater = PersonaManagerUpdater(config, context)
         
@@ -76,21 +75,13 @@ class TemporaryPersonaUpdater:
 
     async def _get_framework_persona(self, group_id: str = None) -> Optional[Dict[str, Any]]:
         """
-        获取框架当前人格的辅助方法 - 兼容新旧框架API
+        获取框架当前人格
         返回: Personality的字典表示
         """
         try:
-            # 优先使用新版PersonaManager
-            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
-                persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
-                if persona:
-                    return dict(persona) if isinstance(persona, dict) else persona
-
-            # 回退到旧方法（兼容性）
-            provider = self.context.get_using_provider()
-            if provider and hasattr(provider, 'curr_personality') and provider.curr_personality:
-                return dict(provider.curr_personality) if isinstance(provider.curr_personality, dict) else provider.curr_personality
-
+            persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+            if persona:
+                return dict(persona) if isinstance(persona, dict) else persona
             return None
         except Exception as e:
             logger.warning(f"获取框架人格失败: {e}")
@@ -98,37 +89,19 @@ class TemporaryPersonaUpdater:
 
     async def _update_framework_persona(self, persona_id: str, system_prompt: str, begin_dialogs: List[str] = None, tools: List[str] = None) -> bool:
         """
-        更新框架人格的辅助方法 - 兼容新旧框架API
+        更新框架人格
         """
         try:
-            # 优先使用新版PersonaManager
-            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
-                await self.context.persona_manager.update_persona(
-                    persona_id=persona_id,
-                    system_prompt=system_prompt,
-                    begin_dialogs=begin_dialogs,
-                    tools=tools
-                )
-                return True
-
-            # 回退到旧方法（兼容性）- 直接修改provider.curr_personality
-            provider = self.context.get_using_provider()
-            if provider and hasattr(provider, 'curr_personality'):
-                if isinstance(provider.curr_personality, dict):
-                    provider.curr_personality['prompt'] = system_prompt
-                    if begin_dialogs is not None:
-                        provider.curr_personality['begin_dialogs'] = begin_dialogs
-                else:
-                    if hasattr(provider.curr_personality, 'prompt'):
-                        provider.curr_personality.prompt = system_prompt
-                    if begin_dialogs is not None and hasattr(provider.curr_personality, 'begin_dialogs'):
-                        provider.curr_personality.begin_dialogs = begin_dialogs
-                return True
-
-            return False
+            await self.context.persona_manager.update_persona(
+                persona_id=persona_id,
+                system_prompt=system_prompt,
+                begin_dialogs=begin_dialogs,
+                tools=tools
+            )
+            return True
         except Exception as e:
             logger.error(f"更新框架人格失败: {e}")
-            return False
+            raise
 
     def _ensure_backup_directory(self):
         """确保备份目录存在"""
@@ -775,39 +748,30 @@ class TemporaryPersonaUpdater:
             bool: 是否应用成功
         """
         try:
-            # 获取provider
-            provider = self.context.get_using_provider()
-            if not provider:
-                logger.warning("无法获取provider，无法直接更新system prompt")
+            # 获取当前人格
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
-            
-            # 检查是否有当前人格
-            if not hasattr(provider, 'curr_personality'):
-                logger.warning("Provider没有curr_personality属性")
-                return False
-                
-            if not provider.curr_personality:
-                logger.warning("当前没有设置人格，无法直接更新")
-                return False
-            
-            # 获取当前的prompt
-            current_prompt = provider.curr_personality.get('prompt', '')
-            
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
+
             # 彻底清理所有重复的历史内容
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
-            
+
             # 构建情绪更新文本
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             mood_update_text = f"\n\n【当前情绪状态 - {timestamp}】\n• 情绪描述: {mood_description}\n• 请根据此情绪调整回复的语气和风格，保持语言与心情对应"
-            
+
             # 添加新的情绪状态更新
             updated_prompt = cleaned_prompt + mood_update_text
-            provider.curr_personality['prompt'] = updated_prompt
-            
+            await self._update_framework_persona(persona_name, updated_prompt)
+
             logger.info(f"成功将情绪状态直接更新到system prompt")
-            logger.info(f"情绪描述: {mood_description}")
-            logger.info(f"更新后prompt长度: {len(updated_prompt)}")
-            
+            logger.debug(f"情绪描述: {mood_description}")
+            logger.debug(f"更新后prompt长度: {len(updated_prompt)}")
+
             return True
             
         except Exception as e:
@@ -948,47 +912,34 @@ class TemporaryPersonaUpdater:
     async def apply_temporary_style_update(self, group_id: str, style_content: str) -> bool:
         """临时应用风格更新到当前prompt（不修改人格文件）"""
         try:
-            # 直接更新到当前使用的prompt中
-            provider = self.context.get_using_provider()
-
-            # 检查provider是否存在以及是否有curr_personality属性
-            if not provider:
-                logger.warning("无法获取当前provider，临时风格更新失败")
+            # 获取当前人格
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，临时风格更新失败")
                 return False
 
-            if not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                logger.warning("Provider没有curr_personality属性或为空，临时风格更新失败")
-                return False
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
 
-            current_prompt = provider.curr_personality.get('prompt', '') if isinstance(provider.curr_personality, dict) else (provider.curr_personality.prompt if hasattr(provider.curr_personality, 'prompt') else '')
-            
             # 检查是否已经有临时风格特征，如果有则替换
             lines = current_prompt.split('\n')
             filtered_lines = []
             in_temp_style_section = False
-            
+
             for line in lines:
                 if '【临时表达风格特征】' in line:
                     in_temp_style_section = True
                     continue
                 elif in_temp_style_section and line.startswith('【') and '临时表达风格特征' not in line:
-                    # 遇到新的【标记，结束临时风格部分
                     in_temp_style_section = False
                     filtered_lines.append(line)
                 elif not in_temp_style_section:
                     filtered_lines.append(line)
-            
+
             # 在prompt末尾添加新的临时风格特征
             updated_prompt = '\n'.join(filtered_lines).strip() + '\n\n' + style_content
 
-            # 应用到当前人格（兼容dict和对象两种形式）
-            if isinstance(provider.curr_personality, dict):
-                provider.curr_personality['prompt'] = updated_prompt
-            elif hasattr(provider.curr_personality, 'prompt'):
-                provider.curr_personality.prompt = updated_prompt
-            else:
-                logger.warning("无法更新prompt，curr_personality格式不支持")
-                return False
+            await self._update_framework_persona(persona_name, updated_prompt)
 
             logger.info(f"群组 {group_id} 临时风格更新已应用到当前prompt")
             return True
@@ -1086,74 +1037,54 @@ class TemporaryPersonaUpdater:
         self.expiry_tasks.clear()
 
     async def _apply_social_relationship_update_to_system_prompt(self, group_id: str, relationship_info: dict) -> bool:
-        """
-        直接将社交关系更新应用到系统的 system prompt
-        
-        Args:
-            group_id: 群组ID
-            relationship_info: 社交关系信息 (包含用户关系、群体氛围等)
-            
-        Returns:
-            bool: 是否应用成功
-        """
+        """直接将社交关系更新应用到系统的 system prompt"""
         try:
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                logger.warning("无法获取provider或当前人格，无法直接更新system prompt")
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
-            
-            current_prompt = provider.curr_personality.get('prompt', '')
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
-            
-            # 构建社交关系更新文本
+
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             relationship_text = f"\n\n【当前社交关系状态 - {timestamp}】\n"
-            
+
             if 'user_relationships' in relationship_info:
                 relationship_text += "• 用户关系: " + relationship_info['user_relationships'] + "\n"
             if 'group_atmosphere' in relationship_info:
                 relationship_text += "• 群体氛围: " + relationship_info['group_atmosphere'] + "\n"
             if 'interaction_style' in relationship_info:
                 relationship_text += "• 互动风格: " + relationship_info['interaction_style'] + "\n"
-                
+
             relationship_text += "• 请根据当前社交关系状态调整回复方式和互动风格"
-            
+
             updated_prompt = cleaned_prompt + relationship_text
-            provider.curr_personality['prompt'] = updated_prompt
-            
-            logger.info(f"成功将社交关系状态直接更新到system prompt")
-            logger.info(f"关系信息: {relationship_info}")
-            
+            await self._update_framework_persona(persona_name, updated_prompt)
+
+            logger.debug(f"成功将社交关系状态直接更新到system prompt")
             return True
-            
+
         except Exception as e:
             logger.error(f"直接更新社交关系到system prompt失败: {e}")
             return False
 
     async def _apply_user_profile_update_to_system_prompt(self, group_id: str, profile_info: dict) -> bool:
-        """
-        直接将用户档案更新应用到系统的 system prompt
-        
-        Args:
-            group_id: 群组ID
-            profile_info: 用户档案信息 (包含用户偏好、兴趣等)
-            
-        Returns:
-            bool: 是否应用成功
-        """
+        """直接将用户档案更新应用到系统的 system prompt"""
         try:
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                logger.warning("无法获取provider或当前人格，无法直接更新system prompt")
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
-            
-            current_prompt = provider.curr_personality.get('prompt', '')
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
-            
-            # 构建用户档案更新文本
+
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             profile_text = f"\n\n【当前用户档案 - {timestamp}】\n"
-            
+
             if 'preferences' in profile_info:
                 profile_text += "• 用户偏好: " + profile_info['preferences'] + "\n"
             if 'interests' in profile_info:
@@ -1162,45 +1093,34 @@ class TemporaryPersonaUpdater:
                 profile_text += "• 沟通风格: " + profile_info['communication_style'] + "\n"
             if 'personality_traits' in profile_info:
                 profile_text += "• 性格特征: " + profile_info['personality_traits'] + "\n"
-                
+
             profile_text += "• 请根据用户档案信息调整回复内容和方式以更好地适应用户"
-            
+
             updated_prompt = cleaned_prompt + profile_text
-            provider.curr_personality['prompt'] = updated_prompt
-            
-            logger.info(f"成功将用户档案直接更新到system prompt")
-            logger.info(f"档案信息: {profile_info}")
-            
+            await self._update_framework_persona(persona_name, updated_prompt)
+
+            logger.debug(f"成功将用户档案直接更新到system prompt")
             return True
-            
+
         except Exception as e:
             logger.error(f"直接更新用户档案到system prompt失败: {e}")
             return False
 
     async def _apply_learning_insights_update_to_system_prompt(self, group_id: str, insights_info: dict) -> bool:
-        """
-        直接将学习洞察更新应用到系统的 system prompt
-        
-        Args:
-            group_id: 群组ID
-            insights_info: 学习洞察信息 (包含交互模式、改进建议等)
-            
-        Returns:
-            bool: 是否应用成功
-        """
+        """直接将学习洞察更新应用到系统的 system prompt"""
         try:
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                logger.warning("无法获取provider或当前人格，无法直接更新system prompt")
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
-            
-            current_prompt = provider.curr_personality.get('prompt', '')
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
-            
-            # 构建学习洞察更新文本
+
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             insights_text = f"\n\n【当前学习洞察 - {timestamp}】\n"
-            
+
             if 'interaction_patterns' in insights_info:
                 insights_text += "• 交互模式: " + insights_info['interaction_patterns'] + "\n"
             if 'improvement_suggestions' in insights_info:
@@ -1209,45 +1129,34 @@ class TemporaryPersonaUpdater:
                 insights_text += "• 有效策略: " + insights_info['effective_strategies'] + "\n"
             if 'learning_focus' in insights_info:
                 insights_text += "• 学习重点: " + insights_info['learning_focus'] + "\n"
-                
+
             insights_text += "• 请根据学习洞察调整回复策略和改进交互质量"
-            
+
             updated_prompt = cleaned_prompt + insights_text
-            provider.curr_personality['prompt'] = updated_prompt
-            
-            logger.info(f"成功将学习洞察直接更新到system prompt")
-            logger.info(f"洞察信息: {insights_info}")
-            
+            await self._update_framework_persona(persona_name, updated_prompt)
+
+            logger.debug(f"成功将学习洞察直接更新到system prompt")
             return True
-            
+
         except Exception as e:
             logger.error(f"直接更新学习洞察到system prompt失败: {e}")
             return False
 
     async def _apply_context_awareness_update_to_system_prompt(self, group_id: str, context_info: dict) -> bool:
-        """
-        直接将上下文感知更新应用到系统的 system prompt
-        
-        Args:
-            group_id: 群组ID
-            context_info: 上下文感知信息 (包含当前话题、对话状态等)
-            
-        Returns:
-            bool: 是否应用成功
-        """
+        """直接将上下文感知更新应用到系统的 system prompt"""
         try:
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
-                logger.warning("无法获取provider或当前人格，无法直接更新system prompt")
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
-            
-            current_prompt = provider.curr_personality.get('prompt', '')
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
-            
-            # 构建上下文感知更新文本
+
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
             context_text = f"\n\n【当前上下文状态 - {timestamp}】\n"
-            
+
             if 'current_topic' in context_info:
                 context_text += "• 当前话题: " + context_info['current_topic'] + "\n"
             if 'conversation_state' in context_info:
@@ -1256,17 +1165,15 @@ class TemporaryPersonaUpdater:
                 context_text += "• 近期关注: " + context_info['recent_focus'] + "\n"
             if 'dialogue_flow' in context_info:
                 context_text += "• 对话流向: " + context_info['dialogue_flow'] + "\n"
-                
+
             context_text += "• 请根据当前上下文状态保持话题连贯性并提供相关回复"
-            
+
             updated_prompt = cleaned_prompt + context_text
-            provider.curr_personality['prompt'] = updated_prompt
-            
-            logger.info(f"成功将上下文感知直接更新到system prompt")
-            logger.info(f"上下文信息: {context_info}")
-            
+            await self._update_framework_persona(persona_name, updated_prompt)
+
+            logger.debug(f"成功将上下文感知直接更新到system prompt")
             return True
-            
+
         except Exception as e:
             logger.error(f"直接更新上下文感知到system prompt失败: {e}")
             return False
@@ -1326,24 +1233,13 @@ class TemporaryPersonaUpdater:
     async def _create_mood_backup_persona(self, group_id: str, mood_type: str) -> bool:
         """为情绪更新创建备份persona"""
         try:
-            # 获取当前人格信息
-            provider = self.context.get_using_provider()
-            if not provider or not hasattr(provider, 'curr_personality') or not provider.curr_personality:
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
                 logger.warning("无法获取当前人格信息，跳过情绪备份")
                 return False
-            
-            current_persona = provider.curr_personality
-            
-            # 提取原人格信息
-            if hasattr(current_persona, 'prompt'):
-                original_prompt = current_persona.prompt
-                original_name = getattr(current_persona, 'name', '默认人格')
-            elif isinstance(current_persona, dict):
-                original_prompt = current_persona.get('prompt', '')
-                original_name = current_persona.get('name', '默认人格')
-            else:
-                logger.warning("无法解析当前人格数据")
-                return False
+
+            original_prompt = persona.get('prompt', '')
+            original_name = persona.get('name', '默认人格')
             
             # 生成情绪备份persona名称：原人格名_年月日时间_情绪备份_情绪类型
             timestamp = datetime.now().strftime('%Y%m%d%H%M%S')

@@ -758,7 +758,13 @@ class MessageFilter:
         
         # 使用 LLM 进行初步筛选
         try:
-            current_persona = self.context.get_using_provider().curr_personality.prompt if self.context.get_using_provider() else "默认人格"
+            current_persona = "默认人格"
+            try:
+                persona = await self.context.persona_manager.get_default_persona_v3()
+                if persona:
+                    current_persona = persona.get('prompt', '默认人格') if isinstance(persona, dict) else getattr(persona, 'prompt', '默认人格')
+            except Exception:
+                pass
             
             prompt = self.prompts.MESSAGE_FILTER_SUITABLE_FOR_LEARNING_PROMPT.format(
                 current_persona=current_persona,

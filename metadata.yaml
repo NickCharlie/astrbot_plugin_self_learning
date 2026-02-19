@@ -2,7 +2,7 @@ name: "astrbot_plugin_self_learning"
 author: "NickMo"
 display_name: "self-learning"
 description: "SELF LEARNING 自主学习插件 — 让 AI 聊天机器人自主学习对话风格、理解群组黑话、管理社交关系与好感度、自适应人格演化，像真人一样自然对话。(使用前必须手动备份人格数据)"
-version: "Next-1.2.8"
+version: "Next-1.2.9"
 repo: "https://github.com/NickCharlie/astrbot_plugin_self_learning"
 tags:
   - "自学习"

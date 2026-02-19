@@ -331,6 +331,8 @@ class SelfLearningPlugin(star.Star):
                 self.temporary_persona_updater.group_id_to_unified_origin = self.group_id_to_unified_origin
                 if hasattr(self, 'progressive_learning') and self.progressive_learning:
                     self.progressive_learning.group_id_to_unified_origin = self.group_id_to_unified_origin
+                if hasattr(self, 'persona_manager') and self.persona_manager:
+                    self.persona_manager.group_id_to_unified_origin = self.group_id_to_unified_origin
                 logger.info("已将group_id映射表传递给服务组件")
 
             # 创建并保存LLM适配器实例，用于状态报告
@@ -1136,7 +1138,7 @@ class SelfLearningPlugin(star.Star):
                 self.plugin_config.filtered_messages = self.learning_stats.filtered_messages
             
             # 如果启用LLM筛选，则获取当前人格描述并进行筛选
-            current_persona_description = await self.persona_manager.get_current_persona_description()
+            current_persona_description = await self.persona_manager.get_current_persona_description(group_id)
             
             # 删除了智能回复相关处理
             # 原智能回复功能已移除

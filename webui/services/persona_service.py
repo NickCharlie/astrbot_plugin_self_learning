@@ -18,7 +18,7 @@ class PersonaService:
         """
         self.container = container
         self.persona_web_mgr = container.persona_web_manager
-        self.persona_manager = container.persona_manager
+        self.persona_manager = container.astrbot_persona_manager
 
     async def get_all_personas(self) -> List[Dict[str, Any]]:
         """
@@ -28,15 +28,15 @@ class PersonaService:
             List[Dict]: 人格列表
         """
         try:
-            logger.info("开始获取人格列表...")
+            logger.debug("开始获取人格列表...")
 
             if not self.persona_web_mgr:
                 logger.warning("PersonaWebManager未初始化，返回空列表")
                 return []
 
-            logger.info("调用get_all_personas_for_web...")
+            logger.debug("调用get_all_personas_for_web...")
             personas = await self.persona_web_mgr.get_all_personas_for_web()
-            logger.info(f"获取到 {len(personas)} 个人格")
+            logger.debug(f"获取到 {len(personas)} 个人格")
 
             return personas
 
@@ -59,20 +59,20 @@ class PersonaService:
 
         try:
             persona = await self.persona_manager.get_persona(persona_id)
-            if not persona:
-                return None
 
             persona_dict = {
                 "persona_id": persona.persona_id,
                 "system_prompt": persona.system_prompt,
                 "begin_dialogs": persona.begin_dialogs,
                 "tools": persona.tools,
-                "created_at": persona.created_at.isoformat() if persona.created_at else None,
-                "updated_at": persona.updated_at.isoformat() if persona.updated_at else None,
+                "created_at": persona.created_at.isoformat() if hasattr(persona, 'created_at') and persona.created_at else None,
+                "updated_at": persona.updated_at.isoformat() if hasattr(persona, 'updated_at') and persona.updated_at else None,
             }
 
             return persona_dict
 
+        except ValueError:
+            return None
         except Exception as e:
             logger.error(f"获取人格详情失败: {e}")
             raise
@@ -195,8 +195,6 @@ class PersonaService:
 
         try:
             persona = await self.persona_manager.get_persona(persona_id)
-            if not persona:
-                raise ValueError("人格不存在")
 
             persona_export = {
                 "persona_id": persona.persona_id,
@@ -240,7 +238,10 @@ class PersonaService:
 
             # 检查是否覆盖现有人格
             overwrite = data.get("overwrite", False)
-            existing_persona = await self.persona_manager.get_persona(persona_id)
+            try:
+                existing_persona = await self.persona_manager.get_persona(persona_id)
+            except ValueError:
+                existing_persona = None
 
             if existing_persona and not overwrite:
                 return False, "人格已存在，如要覆盖请设置overwrite=true", None

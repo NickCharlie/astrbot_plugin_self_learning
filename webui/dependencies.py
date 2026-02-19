@@ -113,6 +113,8 @@ class ServiceContainer:
             try:
                 from ..persona_web_manager import PersonaWebManager
                 self.persona_web_manager = PersonaWebManager(astrbot_persona_manager)
+                # 传递 group_id_to_unified_origin 映射引用（多配置文件支持）
+                self.persona_web_manager.group_id_to_unified_origin = self.group_id_to_unified_origin
                 logger.info("✅ [WebUI] PersonaWebManager 初始化成功")
             except Exception as e:
                 logger.warning(f"初始化 PersonaWebManager 失败: {e}")
