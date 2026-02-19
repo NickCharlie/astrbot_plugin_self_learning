@@ -312,10 +312,21 @@ class MemoryGraphManager:
         self._initialized = True
     
     @classmethod
-    def get_instance(cls) -> 'MemoryGraphManager':
+    def get_instance(cls, config: PluginConfig = None, db_manager = None,
+                     llm_adapter = None, decay_manager = None) -> 'MemoryGraphManager':
         """获取单例实例"""
         if cls._instance is None:
-            cls._instance = cls()
+            cls._instance = cls(config, db_manager, llm_adapter, decay_manager)
+        else:
+            # 已有实例但字段为 None 时补充注入
+            if llm_adapter is not None and cls._instance.llm_adapter is None:
+                cls._instance.llm_adapter = llm_adapter
+            if config is not None and cls._instance.config is None:
+                cls._instance.config = config
+            if db_manager is not None and cls._instance.db_manager is None:
+                cls._instance.db_manager = db_manager
+            if decay_manager is not None and cls._instance.decay_manager is None:
+                cls._instance.decay_manager = decay_manager
         return cls._instance
     
     def _init_memory_graph_tables(self):
@@ -525,6 +536,10 @@ class MemoryGraphManager:
         """
         try:
             from ..statics.prompts import ENTITY_EXTRACTION_PROMPT
+
+            if not self.llm_adapter:
+                logger.debug("llm_adapter 未初始化，跳过概念提取")
+                return []
 
             # 兼容 dict 和 MessageData 对象
             if isinstance(message, dict):

@@ -222,16 +222,16 @@ window.AppSocialRelations = {
 
       // Stage 2: group detail
       currentGroupId: null,
-      currentGroupName: '',
+      currentGroupName: "",
       stats: {},
       members: [],
       relations: [],
       displayData: { nodes: [], links: [] },
 
       // UI state
-      graphLayout: 'force',
-      selectedUserId: '',
-      memberSearch: '',
+      graphLayout: "force",
+      selectedUserId: "",
+      memberSearch: "",
       analyzing: false,
 
       // Chart
@@ -250,10 +250,10 @@ window.AppSocialRelations = {
   computed: {
     /** Filter members list by search keyword */
     filteredMembers() {
-      var keyword = (this.memberSearch || '').trim().toLowerCase();
+      var keyword = (this.memberSearch || "").trim().toLowerCase();
       if (!keyword) return this.members;
       return this.members.filter(function (m) {
-        var name = (m.nickname || m.user_id || '').toLowerCase();
+        var name = (m.nickname || m.user_id || "").toLowerCase();
         return name.indexOf(keyword) !== -1;
       });
     },
@@ -263,23 +263,31 @@ window.AppSocialRelations = {
     /* ========== Utility Functions ========== */
 
     formatStrength(v) {
-      if (v == null || v === undefined) return '0';
+      if (v == null || v === undefined) return "0";
       var num = Number(v);
-      if (isNaN(num)) return '0';
+      if (isNaN(num)) return "0";
       return num.toFixed(2);
     },
 
     getSelectedUserName() {
-      if (!this.selectedUserId) return '';
-      var found = this.members.find(function (m) { return m.user_id === this.selectedUserId; }.bind(this));
-      return found ? (found.nickname || found.user_id) : this.selectedUserId;
+      if (!this.selectedUserId) return "";
+      var found = this.members.find(
+        function (m) {
+          return m.user_id === this.selectedUserId;
+        }.bind(this),
+      );
+      return found ? found.nickname || found.user_id : this.selectedUserId;
     },
 
     getMemberRelationCount(userId) {
       var count = 0;
       this.relations.forEach(function (r) {
-        if (r.source === userId || r.target === userId ||
-            r.source_id === userId || r.target_id === userId) {
+        if (
+          r.source === userId ||
+          r.target === userId ||
+          r.source_id === userId ||
+          r.target_id === userId
+        ) {
           count++;
         }
       });
@@ -305,34 +313,56 @@ window.AppSocialRelations = {
       var echarts = window.echarts;
       if (!echarts) return;
       try {
-        echarts.registerTheme('material', {
-          color: ['#1976d2', '#4caf50', '#ff9800', '#f44336', '#9c27b0', '#00bcd4', '#795548', '#607d8b'],
-          backgroundColor: 'transparent',
-          textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 12, color: '#424242' },
+        echarts.registerTheme("material", {
+          color: [
+            "#1976d2",
+            "#4caf50",
+            "#ff9800",
+            "#f44336",
+            "#9c27b0",
+            "#00bcd4",
+            "#795548",
+            "#607d8b",
+          ],
+          backgroundColor: "transparent",
+          textStyle: {
+            fontFamily: "Roboto, sans-serif",
+            fontSize: 12,
+            color: "#424242",
+          },
           title: {
-            textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 16, fontWeight: 500, color: '#212121' },
+            textStyle: {
+              fontFamily: "Roboto, sans-serif",
+              fontSize: 16,
+              fontWeight: 500,
+              color: "#212121",
+            },
           },
           legend: {
-            textStyle: { fontFamily: 'Roboto, sans-serif', fontSize: 12, color: '#757575' },
+            textStyle: {
+              fontFamily: "Roboto, sans-serif",
+              fontSize: 12,
+              color: "#757575",
+            },
           },
           categoryAxis: {
-            axisLine: { lineStyle: { color: '#e0e0e0' } },
-            axisTick: { lineStyle: { color: '#e0e0e0' } },
-            axisLabel: { color: '#757575' },
-            splitLine: { lineStyle: { color: '#f5f5f5' } },
+            axisLine: { lineStyle: { color: "#e0e0e0" } },
+            axisTick: { lineStyle: { color: "#e0e0e0" } },
+            axisLabel: { color: "#757575" },
+            splitLine: { lineStyle: { color: "#f5f5f5" } },
           },
           valueAxis: {
-            axisLine: { lineStyle: { color: '#e0e0e0' } },
-            axisTick: { lineStyle: { color: '#e0e0e0' } },
-            axisLabel: { color: '#757575' },
-            splitLine: { lineStyle: { color: '#f5f5f5' } },
+            axisLine: { lineStyle: { color: "#e0e0e0" } },
+            axisTick: { lineStyle: { color: "#e0e0e0" } },
+            axisLabel: { color: "#757575" },
+            splitLine: { lineStyle: { color: "#f5f5f5" } },
           },
-          grid: { borderColor: '#e0e0e0' },
+          grid: { borderColor: "#e0e0e0" },
         });
         this.themeRegistered = true;
         window._materialThemeRegistered = true;
       } catch (e) {
-        console.warn('[SocialRelations] registerTheme failed', e);
+        console.warn("[SocialRelations] registerTheme failed", e);
       }
     },
 
@@ -344,8 +374,10 @@ window.AppSocialRelations = {
       var dom = this.$refs.relationChart;
       if (!dom) return null;
       var existing = echarts.getInstanceByDom(dom);
-      if (existing) { existing.dispose(); }
-      var chart = echarts.init(dom, 'material');
+      if (existing) {
+        existing.dispose();
+      }
+      var chart = echarts.init(dom, "material");
       this.chartInstance = chart;
       return chart;
     },
@@ -369,12 +401,14 @@ window.AppSocialRelations = {
     async loadGroups() {
       var ctrl = this.newAbortController();
       try {
-        var resp = await fetch('/api/social_relations/groups', { signal: ctrl.signal });
+        var resp = await fetch("/api/social_relations/groups", {
+          signal: ctrl.signal,
+        });
         var data = await resp.json();
-        this.groups = Array.isArray(data) ? data : (data.groups || []);
+        this.groups = Array.isArray(data) ? data : data.groups || [];
       } catch (e) {
-        if (e.name === 'AbortError') return;
-        console.error('[SocialRelations] loadGroups error:', e);
+        if (e.name === "AbortError") return;
+        console.error("[SocialRelations] loadGroups error:", e);
         this.groups = [];
       }
     },
@@ -382,31 +416,66 @@ window.AppSocialRelations = {
     /** Stage 2: Load group detail (relations, members, stats) */
     async loadGroupRelations(groupId, groupName) {
       this.currentGroupId = groupId;
-      this.currentGroupName = groupName || '';
-      this.selectedUserId = '';
-      this.memberSearch = '';
+      this.currentGroupName = groupName || "";
+      this.selectedUserId = "";
+      this.memberSearch = "";
       this.loading = true;
 
       var ctrl = this.newAbortController();
       try {
-        var resp = await fetch('/api/social_relations/' + encodeURIComponent(groupId), { signal: ctrl.signal });
+        var resp = await fetch(
+          "/api/social_relations/" + encodeURIComponent(groupId),
+          { signal: ctrl.signal },
+        );
         var data = await resp.json();
 
         this.members = data.members || [];
         this.relations = data.relations || [];
-        this.stats = data.stats || {};
+
+        // Build stats from flat response fields
+        var totalMembers = data.member_count || this.members.length;
+        var totalRelations = data.relation_count || this.relations.length;
+
+        // Calculate most active member
+        var mostActive = "暂无";
+        var maxMsg = 0;
+        this.members.forEach(function (m) {
+          if ((m.message_count || 0) > maxMsg) {
+            maxMsg = m.message_count;
+            mostActive = m.nickname || m.user_id;
+          }
+        });
+
+        // Calculate average relation strength
+        var avgStrength = 0;
+        if (this.relations.length > 0) {
+          var totalStrength = 0;
+          this.relations.forEach(function (r) {
+            totalStrength += r.strength || r.weight || 0;
+          });
+          avgStrength = totalStrength / this.relations.length;
+        }
+
+        this.stats = data.stats || {
+          total_members: totalMembers,
+          total_relations: totalRelations,
+          most_active: mostActive,
+          avg_strength: avgStrength,
+        };
 
         // Build display data from full dataset
         this.buildDisplayData(this.members, this.relations);
       } catch (e) {
-        if (e.name === 'AbortError') return;
-        console.error('[SocialRelations] loadGroupRelations error:', e);
+        if (e.name === "AbortError") return;
+        console.error("[SocialRelations] loadGroupRelations error:", e);
         this.members = [];
         this.relations = [];
         this.stats = {};
         this.displayData = { nodes: [], links: [] };
-        if (typeof ElementPlus !== 'undefined') {
-          ElementPlus.ElMessage.error('加载群组关系失败: ' + (e.message || '网络错误'));
+        if (typeof ElementPlus !== "undefined") {
+          ElementPlus.ElMessage.error(
+            "加载群组关系失败: " + (e.message || "网络错误"),
+          );
         }
       } finally {
         this.loading = false;
@@ -430,12 +499,45 @@ window.AppSocialRelations = {
       if (!this.currentGroupId) return;
       var ctrl = this.newAbortController();
       try {
-        var resp = await fetch('/api/social_relations/' + encodeURIComponent(this.currentGroupId), { signal: ctrl.signal });
+        var resp = await fetch(
+          "/api/social_relations/" + encodeURIComponent(this.currentGroupId),
+          { signal: ctrl.signal },
+        );
         var data = await resp.json();
 
         this.members = data.members || [];
         this.relations = data.relations || [];
-        this.stats = data.stats || {};
+
+        // Build stats from flat response fields
+        var totalMembers = data.member_count || this.members.length;
+        var totalRelations = data.relation_count || this.relations.length;
+
+        // Calculate most active member
+        var mostActive = "暂无";
+        var maxMsg = 0;
+        this.members.forEach(function (m) {
+          if ((m.message_count || 0) > maxMsg) {
+            maxMsg = m.message_count;
+            mostActive = m.nickname || m.user_id;
+          }
+        });
+
+        // Calculate average relation strength
+        var avgStrength = 0;
+        if (this.relations.length > 0) {
+          var totalStrength = 0;
+          this.relations.forEach(function (r) {
+            totalStrength += r.strength || r.weight || 0;
+          });
+          avgStrength = totalStrength / this.relations.length;
+        }
+
+        this.stats = data.stats || {
+          total_members: totalMembers,
+          total_relations: totalRelations,
+          most_active: mostActive,
+          avg_strength: avgStrength,
+        };
 
         // If a user filter is active, re-apply it
         if (this.selectedUserId) {
@@ -446,8 +548,8 @@ window.AppSocialRelations = {
 
         this.renderRelationChart();
       } catch (e) {
-        if (e.name === 'AbortError') return;
-        console.error('[SocialRelations] reloadCurrentGroup error:', e);
+        if (e.name === "AbortError") return;
+        console.error("[SocialRelations] reloadCurrentGroup error:", e);
       }
     },
 
@@ -455,35 +557,91 @@ window.AppSocialRelations = {
 
     /** Build nodes and links from members and relations */
     buildDisplayData(members, relations) {
-      // Build a user_id -> nickname map
-      var nameMap = {};
-      members.forEach(function (m) {
-        nameMap[m.user_id] = m.nickname || String(m.user_id);
+      // Collect user_ids that are involved in relations
+      var involvedInRelation = {};
+      relations.forEach(function (r) {
+        var src = String(r.source || r.source_id || "");
+        var tgt = String(r.target || r.target_id || "");
+        if (src) involvedInRelation[src] = true;
+        if (tgt) involvedInRelation[tgt] = true;
       });
 
-      var nodes = members.map(function (m) {
+      // Only show nodes involved in relations (avoid 494 nodes with 48 links)
+      var relevantMembers = members.filter(function (m) {
+        return involvedInRelation[String(m.user_id)];
+      });
+
+      // If no relations at all, show top 20 active members
+      if (relevantMembers.length === 0) {
+        relevantMembers = members
+          .slice()
+          .sort(function (a, b) {
+            return (b.message_count || 0) - (a.message_count || 0);
+          })
+          .slice(0, 20);
+      }
+
+      var nodes = relevantMembers.map(function (m) {
         return {
           name: m.nickname || String(m.user_id),
           id: String(m.user_id),
-          symbolSize: Math.max(20, Math.min(80, (m.message_count || 0) / 5)),
+          symbolSize: Math.max(
+            20,
+            Math.min(60, 10 + (m.message_count || 0) / 10),
+          ),
           value: m.message_count || 0,
           category: 0,
           itemStyle: {
-            color: '#1976d2',
+            color: "#1976d2",
           },
         };
       });
 
+      // Color map for relation types
+      var typeColors = {
+        // 正常社交关系
+        frequent_interaction: "#1976d2",
+        mention: "#ff9800",
+        reply: "#4caf50",
+        topic_discussion: "#00bcd4",
+        question_answer: "#8bc34a",
+        agreement: "#03a9f4",
+        debate: "#ff5722",
+        best_friend: "#e91e63",
+        colleague: "#607d8b",
+        classmate: "#795548",
+        teacher_student: "#9c27b0",
+        // 亲属关系
+        parent_child: "#ff4081",
+        siblings: "#f06292",
+        relatives: "#ce93d8",
+        // 亲密关系
+        couple: "#e91e63",
+        spouse: "#d81b60",
+        ambiguous: "#ab47bc",
+        affair: "#880e4f",
+        // 其他特殊关系
+        enemy: "#f44336",
+        rival: "#ef5350",
+        admiration: "#7c4dff",
+        idol_fan: "#651fff",
+      };
+
+      // Use node id (user_id) for link source/target to ensure matching
       var links = relations.map(function (r) {
-        var sourceName = nameMap[r.source] || nameMap[r.source_id] || String(r.source || r.source_id);
-        var targetName = nameMap[r.target] || nameMap[r.target_id] || String(r.target || r.target_id);
+        var relType = r.type || "interaction";
+        var relTypeText = r.type_text || relType;
         return {
-          source: sourceName,
-          target: targetName,
-          value: r.weight || 1,
+          source: String(r.source || r.source_id),
+          target: String(r.target || r.target_id),
+          value: r.strength || r.weight || 1,
+          relationType: relType,
+          relationTypeText: relTypeText,
+          frequency: r.frequency || 1,
           lineStyle: {
-            width: Math.max(1, Math.min(10, (r.weight || 1) * 2)),
-            opacity: 0.6,
+            width: Math.max(1, Math.min(8, (r.strength || r.weight || 1) * 4)),
+            opacity: 0.7,
+            color: typeColors[relType] || "#607d8b",
           },
         };
       });
@@ -501,42 +659,45 @@ window.AppSocialRelations = {
       var links = this.displayData.links || [];
 
       if (nodes.length === 0) {
-        chart.setOption({
-          title: {
-            text: '暂无关系数据',
-            subtext: '点击"分析关系"按钮开始分析',
-            left: 'center',
-            top: 'middle',
-            textStyle: { fontSize: 14, color: '#999' },
-            subtextStyle: { fontSize: 12, color: '#bbb' },
+        chart.setOption(
+          {
+            title: {
+              text: "暂无关系数据",
+              subtext: '点击"分析关系"按钮开始分析',
+              left: "center",
+              top: "middle",
+              textStyle: { fontSize: 14, color: "#999" },
+              subtextStyle: { fontSize: 12, color: "#bbb" },
+            },
+            series: [],
           },
-          series: [],
-        }, true);
+          true,
+        );
         return;
       }
 
-      var isCircular = this.graphLayout === 'circular';
+      var isCircular = this.graphLayout === "circular";
 
       var seriesConfig = {
-        type: 'graph',
-        layout: isCircular ? 'circular' : 'force',
+        type: "graph",
+        layout: isCircular ? "circular" : "force",
         roam: true,
         draggable: true,
         data: nodes,
         links: links,
         label: {
           show: true,
-          position: 'right',
+          position: "right",
           fontSize: 10,
-          color: '#333',
-          formatter: '{b}',
+          color: "#333",
+          formatter: "{b}",
         },
         emphasis: {
-          focus: 'adjacency',
+          focus: "adjacency",
           label: {
             show: true,
             fontSize: 13,
-            fontWeight: 'bold',
+            fontWeight: "bold",
           },
           lineStyle: {
             width: 4,
@@ -544,7 +705,7 @@ window.AppSocialRelations = {
           },
         },
         lineStyle: {
-          color: 'source',
+          color: "source",
           curveness: 0.2,
         },
       };
@@ -562,21 +723,48 @@ window.AppSocialRelations = {
         };
       }
 
+      // Build a lookup from user_id to nickname for tooltip display
+      var idToName = {};
+      nodes.forEach(function (n) {
+        idToName[n.id] = n.name;
+      });
+
       var option = {
         tooltip: {
-          trigger: 'item',
+          trigger: "item",
           formatter: function (params) {
-            if (params.dataType === 'node') {
-              return '<b>' + params.name + '</b><br/>消息数: ' + (params.value || 0);
+            if (params.dataType === "node") {
+              return (
+                "<b>" + params.name + "</b><br/>消息数: " + (params.value || 0)
+              );
             }
-            if (params.dataType === 'edge') {
-              return params.data.source + ' <-> ' + params.data.target + '<br/>关系强度: ' + (params.data.value || 0);
+            if (params.dataType === "edge") {
+              var srcName = idToName[params.data.source] || params.data.source;
+              var tgtName = idToName[params.data.target] || params.data.target;
+              var typeText = params.data.relationTypeText || "互动";
+              var strength = params.data.value || 0;
+              var freq = params.data.frequency || 1;
+              return (
+                "<b>" +
+                srcName +
+                "</b> <-> <b>" +
+                tgtName +
+                "</b>" +
+                "<br/>关系类型: " +
+                typeText +
+                "<br/>关系强度: " +
+                (typeof strength === "number"
+                  ? strength.toFixed(2)
+                  : strength) +
+                "<br/>互动次数: " +
+                freq
+              );
             }
-            return '';
+            return "";
           },
         },
         animationDuration: 1000,
-        animationEasingUpdate: 'quinticInOut',
+        animationEasingUpdate: "quinticInOut",
         series: [seriesConfig],
       };
 
@@ -602,35 +790,19 @@ window.AppSocialRelations = {
       }
     },
 
-    async filterByUser(userId) {
+    filterByUser(userId) {
       this.selectedUserId = userId;
-
-      var ctrl = this.newAbortController();
-      try {
-        var resp = await fetch(
-          '/api/social_relations/' + encodeURIComponent(this.currentGroupId) + '/user/' + encodeURIComponent(userId),
-          { signal: ctrl.signal }
-        );
-        var data = await resp.json();
-
-        // Build filtered display data from user-specific relations
-        var userRelations = data.relations || [];
-        this.applyUserFilter(userId, userRelations);
-        this.renderRelationChart();
-      } catch (e) {
-        if (e.name === 'AbortError') return;
-        console.error('[SocialRelations] filterByUser error:', e);
-        // Fall back to local filtering
-        this.applyUserFilter(userId);
-        this.renderRelationChart();
-      }
+      // Use local filtering from this.relations (already has correct source/target format)
+      this.applyUserFilter(userId);
+      this.renderRelationChart();
     },
 
     /** Apply user filter locally from existing data */
-    applyUserFilter(userId, userRelations) {
-      var relations = userRelations || this.relations.filter(function (r) {
-        return r.source === userId || r.target === userId ||
-               r.source_id === userId || r.target_id === userId;
+    applyUserFilter(userId) {
+      var relations = this.relations.filter(function (r) {
+        var src = String(r.source || r.source_id || "");
+        var tgt = String(r.target || r.target_id || "");
+        return src === String(userId) || tgt === String(userId);
       });
 
       // Collect involved user IDs
@@ -658,30 +830,37 @@ window.AppSocialRelations = {
 
       this.analyzing = true;
       try {
-        var resp = await fetch('/api/social_relations/' + encodeURIComponent(this.currentGroupId) + '/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message_limit: 200, force_refresh: true }),
-        });
+        var resp = await fetch(
+          "/api/social_relations/" +
+            encodeURIComponent(this.currentGroupId) +
+            "/analyze",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message_limit: 200, force_refresh: true }),
+          },
+        );
 
         var result = await resp.json();
 
         if (resp.ok) {
-          if (typeof ElementPlus !== 'undefined') {
-            ElementPlus.ElMessage.success('关系分析已完成');
+          if (typeof ElementPlus !== "undefined") {
+            ElementPlus.ElMessage.success("关系分析已完成");
           }
           // Reload data
           await this.reloadCurrentGroup();
         } else {
-          var errMsg = (result && result.error) || '分析失败，请重试';
-          if (typeof ElementPlus !== 'undefined') {
+          var errMsg = (result && result.error) || "分析失败，请重试";
+          if (typeof ElementPlus !== "undefined") {
             ElementPlus.ElMessage.error(errMsg);
           }
         }
       } catch (e) {
-        console.error('[SocialRelations] analyzeGroup error:', e);
-        if (typeof ElementPlus !== 'undefined') {
-          ElementPlus.ElMessage.error('分析请求失败: ' + (e.message || '网络错误'));
+        console.error("[SocialRelations] analyzeGroup error:", e);
+        if (typeof ElementPlus !== "undefined") {
+          ElementPlus.ElMessage.error(
+            "分析请求失败: " + (e.message || "网络错误"),
+          );
         }
       } finally {
         this.analyzing = false;
@@ -696,45 +875,59 @@ window.AppSocialRelations = {
       var groupName = this.currentGroupName || this.currentGroupId;
 
       ElementPlus.ElMessageBox.confirm(
-        '确定要清除群组"' + groupName + '"的所有社交关系数据吗？此操作不可撤销。',
-        '清除关系数据',
+        '确定要清除群组"' +
+          groupName +
+          '"的所有社交关系数据吗？此操作不可撤销。',
+        "清除关系数据",
         {
-          confirmButtonText: '确认清除',
-          cancelButtonText: '取消',
-          type: 'warning',
-        }
-      ).then(function () {
-        // Second confirmation
-        return ElementPlus.ElMessageBox.confirm(
-          '请再次确认：清除后所有关系分析数据将被永久删除，需要重新分析才能恢复。',
-          '二次确认',
-          {
-            confirmButtonText: '我确定要清除',
-            cancelButtonText: '算了',
-            type: 'error',
-          }
-        );
-      }).then(async function () {
-        try {
-          var resp = await fetch('/api/social_relations/' + encodeURIComponent(self.currentGroupId) + '/clear', {
-            method: 'DELETE',
-          });
-          var result = await resp.json();
+          confirmButtonText: "确认清除",
+          cancelButtonText: "取消",
+          type: "warning",
+        },
+      )
+        .then(function () {
+          // Second confirmation
+          return ElementPlus.ElMessageBox.confirm(
+            "请再次确认：清除后所有关系分析数据将被永久删除，需要重新分析才能恢复。",
+            "二次确认",
+            {
+              confirmButtonText: "我确定要清除",
+              cancelButtonText: "算了",
+              type: "error",
+            },
+          );
+        })
+        .then(async function () {
+          try {
+            var resp = await fetch(
+              "/api/social_relations/" +
+                encodeURIComponent(self.currentGroupId) +
+                "/clear",
+              {
+                method: "DELETE",
+              },
+            );
+            var result = await resp.json();
 
-          if (resp.ok) {
-            ElementPlus.ElMessage.success('关系数据已清除');
-            // Reload to show empty state
-            await self.reloadCurrentGroup();
-          } else {
-            ElementPlus.ElMessage.error((result && result.error) || '清除失败');
+            if (resp.ok) {
+              ElementPlus.ElMessage.success("关系数据已清除");
+              // Reload to show empty state
+              await self.reloadCurrentGroup();
+            } else {
+              ElementPlus.ElMessage.error(
+                (result && result.error) || "清除失败",
+              );
+            }
+          } catch (e) {
+            console.error("[SocialRelations] clearGroupRelations error:", e);
+            ElementPlus.ElMessage.error(
+              "清除请求失败: " + (e.message || "网络错误"),
+            );
           }
-        } catch (e) {
-          console.error('[SocialRelations] clearGroupRelations error:', e);
-          ElementPlus.ElMessage.error('清除请求失败: ' + (e.message || '网络错误'));
-        }
-      }).catch(function () {
-        // User cancelled, do nothing
-      });
+        })
+        .catch(function () {
+          // User cancelled, do nothing
+        });
     },
 
     /* ========== Navigation ========== */
@@ -745,14 +938,14 @@ window.AppSocialRelations = {
       this.disconnectResizeObserver();
 
       this.currentGroupId = null;
-      this.currentGroupName = '';
+      this.currentGroupName = "";
       this.stats = {};
       this.members = [];
       this.relations = [];
       this.displayData = { nodes: [], links: [] };
-      this.selectedUserId = '';
-      this.memberSearch = '';
-      this.graphLayout = 'force';
+      this.selectedUserId = "";
+      this.memberSearch = "";
+      this.graphLayout = "force";
 
       // Reload groups in case they changed
       this.loadGroups();
@@ -780,7 +973,7 @@ window.AppSocialRelations = {
     setupResizeObserver() {
       this.disconnectResizeObserver();
       var self = this;
-      if (self.$refs.rootEl && typeof ResizeObserver !== 'undefined') {
+      if (self.$refs.rootEl && typeof ResizeObserver !== "undefined") {
         self.resizeObserver = new ResizeObserver(function () {
           self.resizeChart();
         });
