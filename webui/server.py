@@ -159,6 +159,10 @@ class Server:
                         pass
                 self.server_task = None
 
+            # 重置单例状态，确保下次重启可以重新初始化
+            Server._instance = None
+            self._initialized = False
+
             gc.collect()
             logger.info("✅ [WebUI] 服务器已停止")
 
@@ -217,5 +221,27 @@ class Server:
                                     stderr=asyncio.subprocess.DEVNULL
                                 )
                                 await asyncio.sleep(1.0)
+            else:
+                # macOS / Linux: 使用 lsof 查找占用端口的进程
+                cmd_find = f'lsof -ti tcp:{port}'
+                process = await asyncio.create_subprocess_shell(
+                    cmd_find,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, _ = await process.communicate()
+                if stdout:
+                    pids = stdout.decode().strip().split('\n')
+                    current_pid = str(os.getpid())
+                    for pid in pids:
+                        pid = pid.strip()
+                        if pid and pid != current_pid:
+                            logger.warning(f"🔫 [WebUI] 清理占用进程 PID={pid}")
+                            await asyncio.create_subprocess_shell(
+                                f'kill -9 {pid}',
+                                stdout=asyncio.subprocess.DEVNULL,
+                                stderr=asyncio.subprocess.DEVNULL
+                            )
+                    await asyncio.sleep(0.5)
         except Exception:
             pass
