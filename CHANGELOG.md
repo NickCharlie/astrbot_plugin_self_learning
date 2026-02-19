@@ -8,6 +8,45 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-1.2.9] - 2026-02-19
+
+### 🔧 Bug 修复
+
+#### 多配置文件人格加载失败
+- `PersonaManagerService` 调用 `get_default_persona_v3()` 未传入 `umo` 参数，导致始终返回 default 配置的人格
+- 新增 `_resolve_umo()` 方法和 `group_id_to_unified_origin` 映射，正确解析当前活跃配置
+- `main.py` 将映射表引用传递给 `PersonaManagerService`
+- `compatibility_extensions.py` 透传 `group_id` 参数
+
+#### WebUI 人格不随配置切换更新
+- `PersonaWebManager.get_default_persona_for_web()` 硬编码 `get_default_persona_v3()` 无 UMO，切换配置后仍显示旧人格
+- 改为从 `group_id_to_unified_origin` 映射中获取 UMO，加载当前活跃配置的人格
+- 同步修复 `dependencies.py` 和 `webui_legacy.py` 的映射注入
+
+#### PersonaWebManager 跨线程 DB 访问
+- WebUI 运行在守护线程（独立事件循环），直接调用框架 PersonaManager 的异步 DB 方法会失败
+- 新增 `_run_on_main_loop()` 将协程调度到主事件循环执行
+- 缓存优先从 PersonaManager 内存列表同步（无需跨线程 DB 调用）
+
+#### WebUI 人格详情查询错误
+- `PersonaService` 使用了插件的 `PersonaManagerService` 而非框架的 `PersonaManager`，导致 `get_persona` 方法不存在
+- 改为使用 `container.astrbot_persona_manager`
+
+#### 框架移除 `curr_personality` 属性
+- AstrBot 框架已完全移除 `provider.curr_personality`，5 个文件共约 40 处引用报 `AttributeError`
+- 全部改为通过 `context.persona_manager` API 访问人格
+
+#### `session_updates` 初始化不可达
+- `TemporaryPersonaUpdater.session_updates` 初始化代码位于 `return` 语句之后，永远不会执行
+- 移至 `__init__` 方法
+
+### 📝 其他
+
+- `memory_graph_manager` 和 `knowledge_graph_manager` 的 `db_manager` 空值检查日志从 WARNING 降级为 DEBUG
+- 版本号更新至 Next-1.2.9
+
+---
+
 ## [Next-1.2.8] - 2026-02-19
 
 ### 🔧 Bug 修复
