@@ -97,11 +97,29 @@ class SocialService:
             # 构建关系列表
             group_edges = []
             relation_type_map = {
-                'mention': '提及(@)',
-                'reply': '回复',
-                'conversation': '对话',
                 'frequent_interaction': '频繁互动',
-                'topic_discussion': '话题讨论'
+                'mention': '提及(@)',
+                'reply': '回复对话',
+                'topic_discussion': '话题讨论',
+                'question_answer': '问答互动',
+                'agreement': '观点认同',
+                'debate': '辩论讨论',
+                'best_friend': '好友/闺蜜',
+                'colleague': '同事/工作伙伴',
+                'classmate': '同学',
+                'teacher_student': '师生关系',
+                'parent_child': '父母子女',
+                'siblings': '兄弟姐妹',
+                'relatives': '亲戚',
+                'couple': '情侣/恋人',
+                'spouse': '夫妻',
+                'ambiguous': '暧昧关系',
+                'affair': '不正当关系',
+                'enemy': '敌对/仇人',
+                'rival': '竞争对手',
+                'admiration': '崇拜/仰慕',
+                'idol_fan': '偶像粉丝',
+                'conversation': '对话',
             }
 
             for relation in saved_relations:

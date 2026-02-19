@@ -597,15 +597,51 @@ window.AppSocialRelations = {
         };
       });
 
+      // Color map for relation types
+      var typeColors = {
+        // 正常社交关系
+        frequent_interaction: "#1976d2",
+        mention: "#ff9800",
+        reply: "#4caf50",
+        topic_discussion: "#00bcd4",
+        question_answer: "#8bc34a",
+        agreement: "#03a9f4",
+        debate: "#ff5722",
+        best_friend: "#e91e63",
+        colleague: "#607d8b",
+        classmate: "#795548",
+        teacher_student: "#9c27b0",
+        // 亲属关系
+        parent_child: "#ff4081",
+        siblings: "#f06292",
+        relatives: "#ce93d8",
+        // 亲密关系
+        couple: "#e91e63",
+        spouse: "#d81b60",
+        ambiguous: "#ab47bc",
+        affair: "#880e4f",
+        // 其他特殊关系
+        enemy: "#f44336",
+        rival: "#ef5350",
+        admiration: "#7c4dff",
+        idol_fan: "#651fff",
+      };
+
       // Use node id (user_id) for link source/target to ensure matching
       var links = relations.map(function (r) {
+        var relType = r.type || "interaction";
+        var relTypeText = r.type_text || relType;
         return {
           source: String(r.source || r.source_id),
           target: String(r.target || r.target_id),
           value: r.strength || r.weight || 1,
+          relationType: relType,
+          relationTypeText: relTypeText,
+          frequency: r.frequency || 1,
           lineStyle: {
             width: Math.max(1, Math.min(8, (r.strength || r.weight || 1) * 4)),
             opacity: 0.7,
+            color: typeColors[relType] || "#607d8b",
           },
         };
       });
@@ -687,6 +723,12 @@ window.AppSocialRelations = {
         };
       }
 
+      // Build a lookup from user_id to nickname for tooltip display
+      var idToName = {};
+      nodes.forEach(function (n) {
+        idToName[n.id] = n.name;
+      });
+
       var option = {
         tooltip: {
           trigger: "item",
@@ -697,12 +739,25 @@ window.AppSocialRelations = {
               );
             }
             if (params.dataType === "edge") {
+              var srcName = idToName[params.data.source] || params.data.source;
+              var tgtName = idToName[params.data.target] || params.data.target;
+              var typeText = params.data.relationTypeText || "互动";
+              var strength = params.data.value || 0;
+              var freq = params.data.frequency || 1;
               return (
-                params.data.source +
-                " <-> " +
-                params.data.target +
+                "<b>" +
+                srcName +
+                "</b> <-> <b>" +
+                tgtName +
+                "</b>" +
+                "<br/>关系类型: " +
+                typeText +
                 "<br/>关系强度: " +
-                (params.data.value || 0)
+                (typeof strength === "number"
+                  ? strength.toFixed(2)
+                  : strength) +
+                "<br/>互动次数: " +
+                freq
               );
             }
             return "";
@@ -735,45 +790,20 @@ window.AppSocialRelations = {
       }
     },
 
-    async filterByUser(userId) {
+    filterByUser(userId) {
       this.selectedUserId = userId;
-
-      var ctrl = this.newAbortController();
-      try {
-        var resp = await fetch(
-          "/api/social_relations/" +
-            encodeURIComponent(this.currentGroupId) +
-            "/user/" +
-            encodeURIComponent(userId),
-          { signal: ctrl.signal },
-        );
-        var data = await resp.json();
-
-        // Build filtered display data from user-specific relations
-        var userRelations = data.relations || [];
-        this.applyUserFilter(userId, userRelations);
-        this.renderRelationChart();
-      } catch (e) {
-        if (e.name === "AbortError") return;
-        console.error("[SocialRelations] filterByUser error:", e);
-        // Fall back to local filtering
-        this.applyUserFilter(userId);
-        this.renderRelationChart();
-      }
+      // Use local filtering from this.relations (already has correct source/target format)
+      this.applyUserFilter(userId);
+      this.renderRelationChart();
     },
 
     /** Apply user filter locally from existing data */
-    applyUserFilter(userId, userRelations) {
-      var relations =
-        userRelations ||
-        this.relations.filter(function (r) {
-          return (
-            r.source === userId ||
-            r.target === userId ||
-            r.source_id === userId ||
-            r.target_id === userId
-          );
-        });
+    applyUserFilter(userId) {
+      var relations = this.relations.filter(function (r) {
+        var src = String(r.source || r.source_id || "");
+        var tgt = String(r.target || r.target_id || "");
+        return src === String(userId) || tgt === String(userId);
+      });
 
       // Collect involved user IDs
       var involvedIds = {};
