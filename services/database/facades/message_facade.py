@@ -349,7 +349,10 @@ class MessageFacade(BaseFacade):
                 repo = RawMessageRepository(session)
                 stats = await repo.get_sender_statistics(group_id, limit=50)
                 return {
-                    s['sender_id']: {'message_count': s['count']}
+                    s['sender_id']: {
+                        'message_count': s['count'],
+                        'sender_name': s.get('sender_name', s['sender_id']),
+                    }
                     for s in stats
                 }
         except Exception as e:

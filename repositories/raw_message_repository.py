@@ -239,16 +239,17 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             stmt = (
                 select(
                     RawMessage.sender_id,
+                    RawMessage.sender_name,
                     func.count().label('count')
                 )
                 .where(RawMessage.group_id == group_id)
-                .group_by(RawMessage.sender_id)
+                .group_by(RawMessage.sender_id, RawMessage.sender_name)
                 .order_by(desc('count'))
                 .limit(limit)
             )
             result = await self.session.execute(stmt)
             return [
-                {"sender_id": row.sender_id, "count": row.count}
+                {"sender_id": row.sender_id, "sender_name": row.sender_name or row.sender_id, "count": row.count}
                 for row in result.fetchall()
             ]
         except Exception as e:
