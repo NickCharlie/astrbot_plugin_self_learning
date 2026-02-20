@@ -110,19 +110,22 @@ class JargonService:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            jargons = await self.database_manager.get_recent_jargon_list(
+            # 获取真实总数
+            total = await self.database_manager.get_jargon_count(
                 chat_id=group_id,
-                limit=page_size * page,
                 only_confirmed=confirmed,
             )
 
-            # 手动实现分页
-            total = len(jargons)
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            page_jargons = jargons[start_idx:end_idx] if start_idx < total else []
+            # DB 层分页
+            offset = (page - 1) * page_size
+            jargons = await self.database_manager.get_recent_jargon_list(
+                chat_id=group_id,
+                limit=page_size,
+                offset=offset,
+                only_confirmed=confirmed,
+            )
 
-            formatted = [self._format_jargon_for_frontend(j) for j in page_jargons]
+            formatted = [self._format_jargon_for_frontend(j) for j in jargons]
 
             return {
                 'jargon_list': formatted,
@@ -157,12 +160,8 @@ class JargonService:
 
         try:
             results = await self.database_manager.search_jargon(
-                keyword, chat_id=chat_id
+                keyword, chat_id=chat_id, confirmed_only=confirmed_only
             )
-            # 按 confirmed_only 过滤
-            if confirmed_only:
-                results = [r for r in results if r.get('is_jargon')]
-
             return [self._format_jargon_for_frontend(r) for r in results]
         except Exception as e:
             logger.error(f"搜索黑话失败: {e}", exc_info=True)

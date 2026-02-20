@@ -133,6 +133,15 @@ async def get_metrics():
             except Exception:
                 pass
 
+        # Hook performance timing
+        hook_performance = {}
+        perf_collector = container.perf_collector
+        if perf_collector and hasattr(perf_collector, 'get_perf_data'):
+            try:
+                hook_performance = perf_collector.get_perf_data(recent_limit=50)
+            except Exception as e:
+                logger.warning(f"获取Hook性能数据失败: {e}")
+
         import time
         metrics = {
             "llm_calls": llm_stats,
@@ -140,6 +149,7 @@ async def get_metrics():
             "filtered_messages": filtered_messages,
             "system_metrics": system_metrics,
             "learning_sessions": learning_sessions,
+            "hook_performance": hook_performance,
             "last_updated": time.time()
         }
 

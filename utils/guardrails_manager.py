@@ -8,9 +8,7 @@ from guardrails import Guard
 from astrbot.api import logger
 
 
-# ============================================================
 # Pydantic 模型定义 - 用于心理状态分析
-# ============================================================
 
 class PsychologicalStateTransition(BaseModel):
     """
@@ -39,9 +37,7 @@ class PsychologicalStateTransition(BaseModel):
         return v.strip()
 
 
-# ============================================================
 # Pydantic 模型定义 - 用于对话目标分析
-# ============================================================
 
 class GoalAnalysisResult(BaseModel):
     """
@@ -130,9 +126,7 @@ class ConversationIntentAnalysis(BaseModel):
     )
 
 
-# ============================================================
 # Pydantic 模型定义 - 用于社交关系分析
-# ============================================================
 
 class RelationChange(BaseModel):
     """
@@ -184,9 +178,7 @@ class SocialRelationAnalysis(BaseModel):
         return v
 
 
-# ============================================================
 # Guardrails 管理器
-# ============================================================
 
 class GuardrailsManager:
     """
@@ -288,14 +280,14 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                logger.debug(f"✅ [Guardrails] 心理状态解析成功: {result.validated_output.new_state}")
+                logger.debug(f" [Guardrails] 心理状态解析成功: {result.validated_output.new_state}")
                 return result.validated_output
             else:
-                logger.warning(f"⚠️ [Guardrails] 心理状态验证失败: {result.validation_summaries}")
+                logger.warning(f" [Guardrails] 心理状态验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] 心理状态解析失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] 心理状态解析失败: {e}", exc_info=True)
             return None
 
     async def parse_relation_analysis(
@@ -346,14 +338,14 @@ class GuardrailsManager:
 
             if result.validation_passed:
                 relation_count = len(result.validated_output.relations)
-                logger.debug(f"✅ [Guardrails] 社交关系解析成功: {relation_count}个关系")
+                logger.debug(f" [Guardrails] 社交关系解析成功: {relation_count}个关系")
                 return result.validated_output
             else:
-                logger.warning(f"⚠️ [Guardrails] 社交关系验证失败: {result.validation_summaries}")
+                logger.warning(f" [Guardrails] 社交关系验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] 社交关系解析失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] 社交关系解析失败: {e}", exc_info=True)
             return None
 
     def get_goal_analysis_guard(self) -> Guard:
@@ -432,24 +424,24 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
                 validated_data = result.validated_output
                 if isinstance(validated_data, dict):
                     goal_result = GoalAnalysisResult(**validated_data)
-                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {goal_result.goal_type}")
+                    logger.debug(f" [Guardrails] 对话目标解析成功: {goal_result.goal_type}")
                     return goal_result
                 elif isinstance(validated_data, GoalAnalysisResult):
-                    logger.debug(f"✅ [Guardrails] 对话目标解析成功: {validated_data.goal_type}")
+                    logger.debug(f" [Guardrails] 对话目标解析成功: {validated_data.goal_type}")
                     return validated_data
                 else:
-                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
                     return None
             else:
-                logger.warning(f"⚠️ [Guardrails] 对话目标验证失败: {result.validation_summaries}")
+                logger.warning(f" [Guardrails] 对话目标验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] 对话目标解析失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] 对话目标解析失败: {e}", exc_info=True)
             return None
 
     async def parse_intent_analysis(
@@ -505,24 +497,24 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
                 validated_data = result.validated_output
                 if isinstance(validated_data, dict):
                     intent_result = ConversationIntentAnalysis(**validated_data)
-                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    logger.debug(f" [Guardrails] 对话意图解析成功")
                     return intent_result
                 elif isinstance(validated_data, ConversationIntentAnalysis):
-                    logger.debug(f"✅ [Guardrails] 对话意图解析成功")
+                    logger.debug(f" [Guardrails] 对话意图解析成功")
                     return validated_data
                 else:
-                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
                     return None
             else:
-                logger.warning(f"⚠️ [Guardrails] 对话意图验证失败: {result.validation_summaries}")
+                logger.warning(f" [Guardrails] 对话意图验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] 对话意图解析失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] 对话意图解析失败: {e}", exc_info=True)
             return None
 
     def parse_json_direct(
@@ -545,7 +537,7 @@ class GuardrailsManager:
             result = guard.parse(response_text)
 
             if result.validation_passed:
-                # ⚠️ 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
+                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
                 validated_data = result.validated_output
                 if isinstance(validated_data, dict):
                     # 将 dict 转换为 Pydantic 模型实例
@@ -554,14 +546,14 @@ class GuardrailsManager:
                     # 已经是模型实例，直接返回
                     return validated_data
                 else:
-                    logger.warning(f"⚠️ [Guardrails] 意外的输出类型: {type(validated_data)}")
+                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
                     return None
             else:
-                logger.warning(f"⚠️ [Guardrails] JSON 验证失败: {result.validation_summaries}")
+                logger.warning(f" [Guardrails] JSON 验证失败: {result.validation_summaries}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] JSON 解析失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] JSON 解析失败: {e}", exc_info=True)
             return None
 
     def validate_and_clean_json(
@@ -585,14 +577,14 @@ class GuardrailsManager:
         try:
             # 检查输入是否为空
             if not response_text:
-                logger.error(f"❌ [Guardrails] 输入为空，无法解析 JSON")
+                logger.error(f" [Guardrails] 输入为空，无法解析 JSON")
                 return None
 
             # 1. 移除 Markdown 代码块标记
             cleaned_text = response_text.strip()
 
             # 记录原始响应长度用于调试
-            logger.debug(f"🔍 [Guardrails] 原始响应长度: {len(response_text)}, 清理后长度: {len(cleaned_text)}")
+            logger.debug(f" [Guardrails] 原始响应长度: {len(response_text)}, 清理后长度: {len(cleaned_text)}")
 
             # 移除 ```json 和 ``` 标记
             if cleaned_text.startswith("```json"):
@@ -607,7 +599,7 @@ class GuardrailsManager:
 
             # 检查清理后是否为空
             if not cleaned_text:
-                logger.warning(f"⚠️ [Guardrails] 清理后的响应为空")
+                logger.warning(f" [Guardrails] 清理后的响应为空")
                 return None
 
             # 2. 尝试提取 JSON 部分（处理 LLM 可能在 JSON 前后加说明的情况）
@@ -627,20 +619,20 @@ class GuardrailsManager:
 
             # 再次检查提取后是否为空
             if not cleaned_text:
-                logger.warning(f"⚠️ [Guardrails] 提取JSON后内容为空")
+                logger.warning(f" [Guardrails] 提取JSON后内容为空")
                 return None
 
             # 3. 尝试解析 JSON
             parsed = json.loads(cleaned_text)
 
-            logger.debug(f"✅ [Guardrails] JSON 验证成功，类型: {type(parsed).__name__}")
+            logger.debug(f" [Guardrails] JSON 验证成功，类型: {type(parsed).__name__}")
             return parsed
 
         except json.JSONDecodeError as e:
             # 显示响应预览用于调试
             preview = cleaned_text[:200] if len(cleaned_text) > 200 else cleaned_text
-            logger.warning(f"⚠️ [Guardrails] JSON 解析失败: {e}，尝试修复...")
-            logger.debug(f"🔍 [Guardrails] 响应预览: {preview}")
+            logger.warning(f" [Guardrails] JSON 解析失败: {e}，尝试修复...")
+            logger.debug(f" [Guardrails] 响应预览: {preview}")
 
             # 尝试修复常见的 JSON 错误
             try:
@@ -652,15 +644,15 @@ class GuardrailsManager:
                 fixed_text = re.sub(r',\s*]', ']', fixed_text)
 
                 parsed = json.loads(fixed_text)
-                logger.info(f"✅ [Guardrails] JSON 修复成功")
+                logger.info(f" [Guardrails] JSON 修复成功")
                 return parsed
 
             except Exception as fix_error:
-                logger.error(f"❌ [Guardrails] JSON 修复失败: {fix_error}")
+                logger.error(f" [Guardrails] JSON 修复失败: {fix_error}")
                 return None
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] JSON 验证异常: {e}")
+            logger.error(f" [Guardrails] JSON 验证异常: {e}")
             return None
 
     async def validate_llm_response(
@@ -705,7 +697,7 @@ class GuardrailsManager:
             response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
 
             if not response_text:
-                logger.warning("⚠️ [Guardrails] LLM 返回为空")
+                logger.warning(" [Guardrails] LLM 返回为空")
                 return None
 
             # 根据期望格式验证
@@ -720,13 +712,11 @@ class GuardrailsManager:
                 return response_text.strip()
 
         except Exception as e:
-            logger.error(f"❌ [Guardrails] LLM 响应验证失败: {e}", exc_info=True)
+            logger.error(f" [Guardrails] LLM 响应验证失败: {e}", exc_info=True)
             return None
 
 
-# ============================================================
 # 全局单例
-# ============================================================
 
 # 使用 max_reasks=1 保持高性能
 _guardrails_manager: Optional[GuardrailsManager] = None

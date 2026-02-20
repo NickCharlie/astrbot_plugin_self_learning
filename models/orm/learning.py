@@ -11,18 +11,18 @@ class PersonaLearningReview(Base):
     __tablename__ = 'persona_update_reviews'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(Float, nullable=False)  # 使用 REAL/Float 以匹配传统数据库
+    timestamp = Column(Float, nullable=False) # 使用 REAL/Float 以匹配传统数据库
     group_id = Column(String(255), nullable=False, index=True)
-    update_type = Column(String(255), nullable=False)  # personality_trait, background_story, speaking_style, etc.
+    update_type = Column(String(255), nullable=False) # personality_trait, background_story, speaking_style, etc.
     original_content = Column(Text)
     new_content = Column(Text)
-    proposed_content = Column(Text)  # 建议的新内容（兼容字段）
-    confidence_score = Column(Float)  # 置信度得分
-    reason = Column(Text)  # 学习原因
-    status = Column(String(50), default='pending', nullable=False)  # pending/approved/rejected
+    proposed_content = Column(Text) # 建议的新内容（兼容字段）
+    confidence_score = Column(Float) # 置信度得分
+    reason = Column(Text) # 学习原因
+    status = Column(String(50), default='pending', nullable=False) # pending/approved/rejected
     reviewer_comment = Column(Text)
-    review_time = Column(Float)  # 使用 REAL/Float 以匹配传统数据库
-    metadata_ = Column('metadata', Text)  # JSON格式的元数据，使用 metadata_ 避免与 SQLAlchemy 保留字冲突
+    review_time = Column(Float) # 使用 REAL/Float 以匹配传统数据库
+    metadata_ = Column('metadata', Text) # JSON格式的元数据，使用 metadata_ 避免与 SQLAlchemy 保留字冲突
 
     __table_args__ = (
         Index('idx_group_persona_review', 'group_id', 'status'),
@@ -36,19 +36,19 @@ class StyleLearningReview(Base):
     __tablename__ = 'style_learning_reviews'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    type = Column(String(100), nullable=False)  # 学习类型
+    type = Column(String(100), nullable=False) # 学习类型
     group_id = Column(String(255), nullable=False, index=True)
-    timestamp = Column(Float, nullable=False)  # 使用 REAL/Float 以匹配传统数据库
-    learned_patterns = Column(Text)  # JSON格式存储学习的模式
-    few_shots_content = Column(Text)  # Few-shot 示例内容
-    status = Column(String(50), default='pending')  # pending/approved/rejected
-    description = Column(Text)  # 描述信息
-    reviewer_comment = Column(Text)  # 审查评论
-    review_time = Column(Float)  # 审查时间
-    # ✅ 修改为 DateTime 类型以兼容 MySQL 的 DATETIME
+    timestamp = Column(Float, nullable=False) # 使用 REAL/Float 以匹配传统数据库
+    learned_patterns = Column(Text) # JSON格式存储学习的模式
+    few_shots_content = Column(Text) # Few-shot 示例内容
+    status = Column(String(50), default='pending') # pending/approved/rejected
+    description = Column(Text) # 描述信息
+    reviewer_comment = Column(Text) # 审查评论
+    review_time = Column(Float) # 审查时间
+    # 修改为 DateTime 类型以兼容 MySQL 的 DATETIME
     # SQLite 使用 TIMESTAMP，MySQL 使用 DATETIME，SQLAlchemy 的 DateTime 可以自动适配
-    created_at = Column(DateTime)  # 创建时间
-    updated_at = Column(DateTime)  # 更新时间
+    created_at = Column(DateTime) # 创建时间
+    updated_at = Column(DateTime) # 更新时间
 
     __table_args__ = (
         Index('idx_status', 'status'),
@@ -65,9 +65,9 @@ class StyleLearningPattern(Base):
     group_id = Column(String(100), nullable=False, index=True)
     pattern_type = Column(String(50), nullable=False)
     pattern = Column(Text, nullable=False)
-    usage_count = Column(Integer, default=0)  # 使用次数
-    confidence = Column(Float, default=1.0)  # 置信度
-    last_used = Column(BigInteger)  # 最后使用时间
+    usage_count = Column(Integer, default=0) # 使用次数
+    confidence = Column(Float, default=1.0) # 置信度
+    last_used = Column(BigInteger) # 最后使用时间
     created_at = Column(BigInteger, nullable=False)
     updated_at = Column(BigInteger, nullable=False)
 
@@ -85,7 +85,7 @@ class InteractionRecord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(100), nullable=False, index=True)
     user_id = Column(String(100), nullable=False, index=True)
-    interaction_type = Column(String(50), nullable=False)  # message, reaction, mention, etc.
+    interaction_type = Column(String(50), nullable=False) # message, reaction, mention, etc.
     content_preview = Column(String(200))
     timestamp = Column(BigInteger, nullable=False)
 
@@ -148,7 +148,7 @@ class LearningSession(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(255), unique=True, nullable=False, index=True)
     group_id = Column(String(255), nullable=False, index=True)
-    batch_id = Column(String(255), nullable=True)  # 外键到 learning_batches.batch_id
+    batch_id = Column(String(255), nullable=True) # 外键到 learning_batches.batch_id
     start_time = Column(Float, nullable=False)
     end_time = Column(Float, nullable=True)
     message_count = Column(Integer, default=0)
@@ -184,10 +184,10 @@ class LearningReinforcementFeedback(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
-    feedback_type = Column(String(100), nullable=False)  # positive, negative, neutral
-    feedback_content = Column(Text, nullable=True)  # 详细反馈内容
-    effectiveness_score = Column(Float, nullable=True)  # 反馈有效性评分
-    applied_at = Column(Float, nullable=False)  # 应用时间戳
+    feedback_type = Column(String(100), nullable=False) # positive, negative, neutral
+    feedback_content = Column(Text, nullable=True) # 详细反馈内容
+    effectiveness_score = Column(Float, nullable=True) # 反馈有效性评分
+    applied_at = Column(Float, nullable=False) # 应用时间戳
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -215,12 +215,12 @@ class LearningOptimizationLog(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
-    optimization_type = Column(String(100), nullable=False)  # parameter_tuning, strategy_adjustment, etc.
-    parameters = Column(Text, nullable=True)  # JSON格式的参数配置
-    before_metrics = Column(Text, nullable=True)  # JSON格式的优化前指标
-    after_metrics = Column(Text, nullable=True)  # JSON格式的优化后指标
-    improvement_rate = Column(Float, nullable=True)  # 改进率
-    applied_at = Column(Float, nullable=False)  # 应用时间戳
+    optimization_type = Column(String(100), nullable=False) # parameter_tuning, strategy_adjustment, etc.
+    parameters = Column(Text, nullable=True) # JSON格式的参数配置
+    before_metrics = Column(Text, nullable=True) # JSON格式的优化前指标
+    after_metrics = Column(Text, nullable=True) # JSON格式的优化后指标
+    improvement_rate = Column(Float, nullable=True) # 改进率
+    applied_at = Column(Float, nullable=False) # 应用时间戳
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

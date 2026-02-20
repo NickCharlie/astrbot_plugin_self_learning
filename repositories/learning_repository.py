@@ -311,7 +311,7 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             # 3. 获取原始消息总数 (total_samples)
             # 从 style_learning_reviews 表获取累计的消息数量
             # 注意：这个字段可能不存在，需要根据实际情况调整
-            total_samples = total_patterns  # 暂时用总模式数代替
+            total_samples = total_patterns # 暂时用总模式数代替
 
             # 4. 最后更新时间 (latest_update)
             # 使用 timestamp 而不是 updated_at，因为 timestamp 是数值类型
@@ -319,7 +319,7 @@ class StyleLearningReviewRepository(BaseRepository[StyleLearningReview]):
             last_update_result = await self.session.execute(last_update_stmt)
             latest_timestamp = last_update_result.scalar()
 
-            # ✅ 转换 Unix 时间戳为可读格式
+            # 转换 Unix 时间戳为可读格式
             latest_update = None
             if latest_timestamp:
                 latest_update = datetime.fromtimestamp(latest_timestamp).strftime('%Y-%m-%d %H:%M:%S')

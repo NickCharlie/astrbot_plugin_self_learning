@@ -100,13 +100,13 @@ STYLE_ANALYZER_EXTRACT_STYLE_PROFILE_PROMPT = """
 
 请返回以下格式的JSON，每个维度给出0-1的评分：
 {{
-    "vocabulary_richness": 0.0,  // 词汇丰富度
-    "sentence_complexity": 0.0,  // 句式复杂度
-    "emotional_expression": 0.0,  // 情感表达度
-    "interaction_tendency": 0.0,  // 互动倾向
-    "topic_diversity": 0.0,       // 话题多样性
-    "formality_level": 0.0,       // 正式程度
-    "creativity_score": 0.0       // 创造性得分
+    "vocabulary_richness": 0.0, // 词汇丰富度
+    "sentence_complexity": 0.0, // 句式复杂度
+    "emotional_expression": 0.0, // 情感表达度
+    "interaction_tendency": 0.0, // 互动倾向
+    "topic_diversity": 0.0, // 话题多样性
+    "formality_level": 0.0, // 正式程度
+    "creativity_score": 0.0 // 创造性得分
 }}
 """
 
@@ -170,11 +170,11 @@ MULTIDIMENSIONAL_ANALYZER_EVALUATE_MESSAGE_QUALITY_PROMPT = """
 
 请评估以下维度并以JSON格式返回结果：
 {{
-    "content_quality": 0.0-1.0,  // 消息的深度、信息量、原创性、表达清晰度
-    "relevance": 0.0-1.0,        // 与当前对话主题或人格的相关性
+    "content_quality": 0.0-1.0, // 消息的深度、信息量、原创性、表达清晰度
+    "relevance": 0.0-1.0, // 与当前对话主题或人格的相关性
     "emotional_positivity": 0.0-1.0, // 消息的情感倾向（积极程度）
-    "interactivity": 0.0-1.0,    // 消息是否引发或回应了互动（如提问、回应、@他人）
-    "learning_value": 0.0-1.0    // 消息对模型学习当前人格对话模式和知识的潜在贡献
+    "interactivity": 0.0-1.0, // 消息是否引发或回应了互动（如提问、回应、@他人）
+    "learning_value": 0.0-1.0 // 消息对模型学习当前人格对话模式和知识的潜在贡献
 }}
 
 请确保返回有效的JSON格式，并且只包含JSON对象，不需要其他说明。
@@ -269,11 +269,11 @@ MULTIDIMENSIONAL_ANALYZER_PERSONALITY_TRAITS_PROMPT = """
 
 请返回以下格式的JSON：
 {{
-    "openness": 0.0-1.0,  // 开放性
-    "conscientiousness": 0.0-1.0,  // 尽责性  
-    "extraversion": 0.0-1.0,  // 外向性
-    "agreeableness": 0.0-1.0,  // 宜人性
-    "neuroticism": 0.0-1.0  // 神经质
+    "openness": 0.0-1.0, // 开放性
+    "conscientiousness": 0.0-1.0, // 尽责性 
+    "extraversion": 0.0-1.0, // 外向性
+    "agreeableness": 0.0-1.0, // 宜人性
+    "neuroticism": 0.0-1.0 // 神经质
 }}
 """
 
@@ -307,11 +307,11 @@ LEARNING_QUALITY_MONITOR_EMOTIONAL_BALANCE_PROMPT = """
 
 请以JSON格式返回分析结果：
 {{
-    "emotional_diversity": 0.0-1.0,  // 情感多样性得分
-    "intensity_balance": 0.0-1.0,    // 强度平衡得分
-    "emotional_stability": 0.0-1.0,   // 情感稳定性得分
-    "learning_value": 0.0-1.0,       // 学习价值得分
-    "overall_balance": 0.0-1.0,      // 总体情感平衡得分
+    "emotional_diversity": 0.0-1.0, // 情感多样性得分
+    "intensity_balance": 0.0-1.0, // 强度平衡得分
+    "emotional_stability": 0.0-1.0, // 情感稳定性得分
+    "learning_value": 0.0-1.0, // 学习价值得分
+    "overall_balance": 0.0-1.0, // 总体情感平衡得分
     "analysis_summary": "分析总结"
 }}
 """
@@ -405,7 +405,7 @@ EXPRESSION_PATTERN_LEARNING_PROMPT = """
 {chat_content}
 
 请从上面这段群聊中概括除了人名为"SELF"之外的人的语言风格
-1. 只考虑文字，不要考虑表情包和图片  
+1. 只考虑文字，不要考虑表情包和图片 
 2. 不要涉及具体的人名，但是可以涉及具体名词
 3. 思考有没有特殊的梗，一并总结成语言风格
 4. 例子仅供参考，请严格根据群聊内容总结!!!
@@ -415,7 +415,7 @@ EXPRESSION_PATTERN_LEARNING_PROMPT = """
 
 例如：
 当"对某件事表示十分惊叹"时，使用"我嘞个xxxx"
-当"表示讽刺的赞同，不讲道理"时，使用"对对对"  
+当"表示讽刺的赞同，不讲道理"时，使用"对对对" 
 当"想说明某个具体的事实观点，但懒得明说"时，使用"懂的都懂"
 当"涉及游戏相关时，夸赞，略带戏谑意味"时，使用"这么强！"
 
@@ -564,13 +564,13 @@ REINFORCEMENT_LEARNING_INCREMENTAL_TUNING_PROMPT = """
 **要使用"你应该xxx"、"要xxx"、"记得xxx"、"多用xxx"、"少说xxx"这类直接告诉LLM该怎么做的命令！**
 
 示例（错误）：
-- "强化幽默与毒舌语言表达的灵活性与协调性"  ❌
-- "优化与陌生用户交流方式，保持坦率直接但降低机械感"  ❌
+- "强化幽默与毒舌语言表达的灵活性与协调性" 
+- "优化与陌生用户交流方式，保持坦率直接但降低机械感" 
 
 示例（正确）：
-- "你要多用重庆方言和网络梗,说话带点毒舌和幽默感"  ✅
-- "和陌生人聊天时要坦率直接,但别太机械,要自然点"  ✅
-- "讨论技术问题时记得保持专业,但也要有点趣味性"  ✅
+- "你要多用重庆方言和网络梗,说话带点毒舌和幽默感" 
+- "和陌生人聊天时要坦率直接,但别太机械,要自然点" 
+- "讨论技术问题时记得保持专业,但也要有点趣味性" 
 
 请以JSON格式返回增量微调结果：
 {{

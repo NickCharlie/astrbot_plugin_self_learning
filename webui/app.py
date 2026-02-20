@@ -46,7 +46,7 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
     async def root_redirect():
         return redirect("/api/")
 
-    logger.info("✅ [WebUI] Quart 应用创建成功")
+    logger.info(" [WebUI] Quart 应用创建成功")
 
     return app
 
@@ -64,6 +64,6 @@ def register_blueprints(app: Quart):
 
     for bp in blueprints:
         app.register_blueprint(bp)
-        logger.info(f"✅ [WebUI] 已注册蓝图: {bp.name}")
+        logger.info(f" [WebUI] 已注册蓝图: {bp.name}")
 
-    logger.info(f"✅ [WebUI] 共注册 {len(blueprints)} 个蓝图")
+    logger.info(f" [WebUI] 共注册 {len(blueprints)} 个蓝图")

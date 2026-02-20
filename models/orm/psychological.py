@@ -14,8 +14,8 @@ class CompositePsychologicalState(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True, unique=True)
     state_id = Column(String(255), nullable=False, unique=True)
-    triggering_events = Column(Text)  # JSON 格式
-    context = Column(Text)  # JSON 格式
+    triggering_events = Column(Text) # JSON 格式
+    context = Column(Text) # JSON 格式
     created_at = Column(BigInteger, nullable=False)
     last_updated = Column(BigInteger, nullable=False)
 
@@ -32,7 +32,7 @@ class PsychologicalStateComponent(Base):
     __tablename__ = 'psychological_state_components'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    composite_state_id = Column(Integer, ForeignKey('composite_psychological_states.id'), nullable=True)  # ✅ 允许 NULL 兼容传统数据
+    composite_state_id = Column(Integer, ForeignKey('composite_psychological_states.id'), nullable=True) # 允许 NULL 兼容传统数据
     group_id = Column(String(255), nullable=False, index=True)
     state_id = Column(String(255), nullable=False, index=True)
     category = Column(String(50), nullable=False)
@@ -80,9 +80,9 @@ class PersonaDiversityScore(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
     persona_id = Column(String(255), nullable=False, index=True)
-    diversity_dimension = Column(String(100), nullable=False)  # emotion, topic, style, etc.
-    score = Column(Float, nullable=False)  # 多样性分数 0-1
-    calculated_at = Column(Float, nullable=False)  # 计算时间戳
+    diversity_dimension = Column(String(100), nullable=False) # emotion, topic, style, etc.
+    score = Column(Float, nullable=False) # 多样性分数 0-1
+    calculated_at = Column(Float, nullable=False) # 计算时间戳
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -112,10 +112,10 @@ class PersonaAttributeWeight(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
     persona_id = Column(String(255), nullable=False, index=True)
-    attribute_name = Column(String(100), nullable=False)  # 属性名称
-    weight = Column(Float, nullable=False)  # 权重值 0-1
-    adjustment_reason = Column(Text, nullable=True)  # 调整原因
-    updated_at = Column(Float, nullable=False)  # 更新时间戳
+    attribute_name = Column(String(100), nullable=False) # 属性名称
+    weight = Column(Float, nullable=False) # 权重值 0-1
+    adjustment_reason = Column(Text, nullable=True) # 调整原因
+    updated_at = Column(Float, nullable=False) # 更新时间戳
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -146,10 +146,10 @@ class PersonaEvolutionSnapshot(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
     persona_id = Column(String(255), nullable=False, index=True)
-    snapshot_data = Column(Text, nullable=False)  # JSON格式的完整人格状态
-    version = Column(Integer, nullable=False)  # 版本号
-    snapshot_timestamp = Column(Float, nullable=False)  # 快照时间戳
-    trigger_event = Column(Text, nullable=True)  # 触发事件描述
+    snapshot_data = Column(Text, nullable=False) # JSON格式的完整人格状态
+    version = Column(Integer, nullable=False) # 版本号
+    snapshot_timestamp = Column(Float, nullable=False) # 快照时间戳
+    trigger_event = Column(Text, nullable=True) # 触发事件描述
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -171,3 +171,60 @@ class PersonaEvolutionSnapshot(Base):
             'trigger_event': self.trigger_event,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class EmotionProfile(Base):
+    """Emotion profile per user per group."""
+    __tablename__ = 'emotion_profiles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), nullable=False, index=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    dominant_emotions = Column(Text) # JSON
+    emotion_patterns = Column(Text) # JSON
+    empathy_level = Column(Float, default=0.5)
+    emotional_stability = Column(Float, default=0.5)
+    last_updated = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_emotion_user_group', 'user_id', 'group_id', unique=True),
+    )
+
+
+class BotMood(Base):
+    """Bot mood state per group."""
+    __tablename__ = 'bot_mood'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    mood_type = Column(String(100), nullable=False)
+    mood_intensity = Column(Float, default=0.5)
+    mood_description = Column(Text)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float)
+    is_active = Column(Integer, default=1) # Boolean as int for SQLite compat
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_mood_group_active', 'group_id', 'is_active'),
+    )
+
+
+class PersonaBackup(Base):
+    """Persona configuration backup."""
+    __tablename__ = 'persona_backups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    backup_name = Column(String(255), nullable=False)
+    timestamp = Column(Float, nullable=False)
+    reason = Column(Text)
+    persona_config = Column(Text) # JSON
+    original_persona = Column(Text) # JSON
+    imitation_dialogues = Column(Text) # JSON
+    backup_reason = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_backup_timestamp', 'timestamp'),
+    )

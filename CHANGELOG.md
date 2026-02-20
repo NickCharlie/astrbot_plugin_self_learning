@@ -1,12 +1,111 @@
-# 🧧 新年快乐！Happy Lunar New Year!
-
-> 祝所有用户和社区贡献者马年大吉、万事如意！
-
----
-
 # Changelog
 
 所有重要更改都将记录在此文件中。
+
+## [Next-2.0.0] - 2026-02-21
+
+### 🏗️ 架构重构
+
+#### 全量 ORM 迁移（消除所有硬编码 SQL）
+- 将 7 个服务文件中残留的硬编码 raw SQL 全部迁移至 SQLAlchemy ORM
+- `expression_pattern_learner`：`_apply_time_decay`、`_limit_max_expressions`、`get_expression_patterns` 改用 `ExpressionPatternORM` 模型
+- `time_decay_manager`：完全重写，消除 f-string SQL 注入风险，用显式 ORM 模型处理器替代动态表名拼接，移除对不存在表的引用
+- `enhanced_social_relation_manager`：4 个方法改用 `UserSocialProfile`、`UserSocialRelationComponent`、`SocialRelationHistory` 模型
+- `intelligent_responder`：3 个方法改用 `FilteredMessage`、`RawMessage` 模型及 `func.count`/`func.avg` 聚合
+- `multidimensional_analyzer`：2 个 GROUP BY/HAVING 查询改用 ORM `select().group_by().having()`
+- `affection_manager`：3 层级联查询改用 `RawMessage`、`FilteredMessage`、`LearningBatch` 模型
+- `dialog_analyzer`：`get_pending_style_reviews` 改用 `StyleLearningReview` 模型
+- `progressive_learning`、`message_facade`、`webui/learning` 蓝图同步迁移
+
+#### 遗留数据库层清理（-7600 行）
+- 删除 `services/database/database_manager.py`（6035 行硬编码 SQL 单体）
+- 删除 `core/database/` 下 5 个遗留后端文件：`backend_interface.py`、`sqlite_backend.py`、`mysql_backend.py`、`postgresql_backend.py`、`factory.py`（共 1530 行）
+- DomainRouter 移除 `_legacy_db` 回退、`get_db_connection()`/`get_connection()` shim、`__getattr__` 安全网
+- `core/database/__init__.py` 精简为仅导出 `DatabaseEngine`
+- `services/database/__init__.py` 移除 `DatabaseManager` 导出
+
+#### 未使用资源清理
+- 删除 `web_res/static/MacOS-Web-UI/` 源码目录（已迁移至 `static/js/macos/` 和 `static/css/macos/`）
+
+#### 服务层重组
+- 将 `services/` 下 51 个平铺文件重组为 14 个领域子包，提升内聚性和可维护性
+- 每个子包职责明确：`learning/`、`social/`、`jargon/`、`persona/`、`expression/`、`affection/`、`psychological/`、`reinforcement/`、`message/` 等
+
+#### 主模块瘦身
+- 将 `main.py` 业务逻辑提取至独立生命周期模块（`initializer`、`event_handler`、`learning_scheduler` 等）
+- 代码量从 2518 行精简至 207 行（减少 92%）
+
+#### 数据库单体拆分
+- 将 4308 行的 `SQLAlchemyDatabaseManager` 重写为约 800 行的薄路由层（DomainRouter）
+- 引入 `BaseFacade` 基类和 11 个领域 Facade，实现关注点分离
+- 所有 62 个消费者方法显式路由到对应 Facade，消除隐式回退
+
+#### 领域 Facade 清单
+| Facade | 职责 | 方法数 |
+|--------|------|--------|
+| `MessageFacade` | 消息存储、查询、统计 | 17 |
+| `LearningFacade` | 学习记录、审查、批次、风格学习 | 29 |
+| `JargonFacade` | 黑话 CRUD、搜索、统计、全局同步 | 14 |
+| `SocialFacade` | 社交关系、用户画像、偏好 | 9 |
+| `PersonaFacade` | 人格备份、恢复、更新历史 | 4 |
+| `AffectionFacade` | 好感度、Bot 情绪状态 | 6 |
+| `PsychologicalFacade` | 情绪画像 | 2 |
+| `ExpressionFacade` | 表达模式、风格画像 | 8 |
+| `ReinforcementFacade` | 强化学习、人格融合、策略优化 | 6 |
+| `MetricsFacade` | 跨域统计聚合 | 3 |
+| `AdminFacade` | 数据清理与导出 | 2 |
+
+#### Repository 层扩展
+- 新增 10 个类型化 Repository 类，总数从 29 增至 39
+- 新增：`RawMessageRepository`、`FilteredMessageRepository`、`BotMessageRepository`、`UserProfileRepository`、`UserPreferencesRepository`、`EmotionProfileRepository`、`StyleProfileRepository`、`BotMoodRepository`、`PersonaBackupRepository`、`KnowledgeGraphRepository`
+
+### 🔧 重构
+
+#### PluginConfig 迁移
+- 从 `dataclass` 迁移至 pydantic `BaseModel`
+- 采用 `ConfigDict(extra="ignore", populate_by_name=True)` 实现健壮验证和未知字段容忍
+
+#### 服务缓存优化
+- 新增 `@cached_service` 装饰器，消除冗余服务实例化
+- 替换手工单例模式，减少样板代码
+
+#### 数据库连接清理
+- 移除旧版 `DatabaseConnectionPool`，改用 SQLAlchemy 异步引擎内置连接池管理
+- 移除未使用的 `EventBus`、`EventType`、`EventManager` 等事件基础设施
+
+### ⚡ 性能优化
+
+#### LLM 缓存命中率提升
+- 上下文注入从 `system_prompt` 拼接改为 AstrBot 框架 `extra_user_content_parts` API
+- 动态上下文（社交关系、黑话、多样性、V2 学习）作为额外内容块附加在用户消息之后，不再修改系统提示词
+- **system_prompt 保持稳定不变**，最大化 LLM API 前缀缓存（prefix caching）命中率，显著降低 token 消耗和响应延迟
+- 旧版 AstrBot 自动回退到 system_prompt 注入（附带缓存命中率下降警告）
+
+#### 上下文检索并行化
+- LLM Hook 的 4 个上下文提供者（社交、V2 学习、多样性、黑话）通过 `asyncio.gather` 并行执行
+- Hook 总延迟降低约 60-70%（从串行累加改为取最慢单项）
+- 每个提供者独立计时，便于识别性能瓶颈
+
+#### 服务实例化缓存
+- 29 个服务方法通过 `@cached_service` 装饰器缓存，避免重复创建服务实例
+- `ServiceFactory` 和 `ComponentFactory` 共享同一缓存字典，跨工厂复用
+
+#### 数据处理流水线优化
+- 消息批量写入改为 `asyncio.gather` 并发插入
+- 渐进式学习中消息筛选与人格检索并行执行
+- 强化学习与风格分析并行执行
+- DomainRouter 显式方法路由消除 `__getattr__` 运行时属性查找开销
+
+### 📊 统计
+- **净代码减少**：约 21,700 行（ORM 迁移 + 遗留层删除 + 未使用资源清理）
+- **遗留 SQL 层**：6035 + 1530 = 7565 行硬编码 SQL 代码删除
+- **ORM 迁移**：7 个服务文件、约 800 行 raw SQL 替换为类型安全的 ORM 查询
+- **安全修复**：`time_decay_manager` f-string SQL 注入漏洞已消除
+- **新增文件**：11 个 Facade + 10 个 Repository + 1 个 BaseFacade = 22 个文件
+- **`SQLAlchemyDatabaseManager`**：4308 行 → ~777 行（减少 82%），零遗留回退
+- **变更文件**：51+ 个服务文件重组、`main.py` 重构、数据库层完全重写
+
+---
 
 ## [Next-1.2.9] - 2026-02-19
 

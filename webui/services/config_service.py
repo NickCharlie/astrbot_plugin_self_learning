@@ -1,7 +1,6 @@
 """
 配置服务 - 处理插件配置相关业务逻辑
 """
-from dataclasses import asdict
 from typing import Dict, Any, Tuple
 from astrbot.api import logger
 
@@ -27,7 +26,7 @@ class ConfigService:
             Dict: 插件配置字典
         """
         if self.plugin_config:
-            return asdict(self.plugin_config)
+            return self.plugin_config.to_dict()
         else:
             raise ValueError("Plugin config not initialized")
 
@@ -55,4 +54,4 @@ class ConfigService:
         # TODO: 保存配置到文件
         # 需要实现配置持久化逻辑
 
-        return True, "Config updated successfully", asdict(self.plugin_config)
+        return True, "Config updated successfully", self.plugin_config.to_dict()

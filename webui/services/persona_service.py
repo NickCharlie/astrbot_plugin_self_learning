@@ -54,24 +54,14 @@ class PersonaService:
         Returns:
             Optional[Dict]: 人格详情,如果不存在返回None
         """
-        if not self.persona_manager:
-            raise ValueError("PersonaManager未初始化")
+        if not self.persona_web_mgr:
+            raise ValueError("PersonaWebManager未初始化")
 
         try:
-            persona = await self.persona_manager.get_persona(persona_id)
-
-            persona_dict = {
-                "persona_id": persona.persona_id,
-                "system_prompt": persona.system_prompt,
-                "begin_dialogs": persona.begin_dialogs,
-                "tools": persona.tools,
-                "created_at": persona.created_at.isoformat() if hasattr(persona, 'created_at') and persona.created_at else None,
-                "updated_at": persona.updated_at.isoformat() if hasattr(persona, 'updated_at') and persona.updated_at else None,
-            }
-
-            return persona_dict
-
-        except ValueError:
+            all_personas = await self.persona_web_mgr.get_all_personas_for_web()
+            for persona in all_personas:
+                if persona.get('persona_id') == persona_id:
+                    return persona
             return None
         except Exception as e:
             logger.error(f"获取人格详情失败: {e}")
@@ -190,17 +180,19 @@ class PersonaService:
         Returns:
             Dict: 导出的人格配置
         """
-        if not self.persona_manager:
-            raise ValueError("PersonaManager未初始化")
+        if not self.persona_web_mgr:
+            raise ValueError("PersonaWebManager未初始化")
 
         try:
-            persona = await self.persona_manager.get_persona(persona_id)
+            persona = await self.get_persona_details(persona_id)
+            if not persona:
+                raise ValueError(f"人格 {persona_id} 不存在")
 
             persona_export = {
-                "persona_id": persona.persona_id,
-                "system_prompt": persona.system_prompt,
-                "begin_dialogs": persona.begin_dialogs,
-                "tools": persona.tools,
+                "persona_id": persona.get("persona_id", ""),
+                "system_prompt": persona.get("system_prompt", ""),
+                "begin_dialogs": persona.get("begin_dialogs", []),
+                "tools": persona.get("tools", []),
                 "export_time": datetime.now().isoformat(),
                 "export_version": "1.0"
             }
@@ -221,8 +213,8 @@ class PersonaService:
         Returns:
             Tuple[bool, str, Optional[str]]: (是否成功, 消息, 人格ID)
         """
-        if not self.persona_manager:
-            raise ValueError("PersonaManager未初始化")
+        if not self.persona_web_mgr:
+            raise ValueError("PersonaWebManager未初始化")
 
         try:
             # 验证导入数据格式
@@ -238,37 +230,36 @@ class PersonaService:
 
             # 检查是否覆盖现有人格
             overwrite = data.get("overwrite", False)
-            try:
-                existing_persona = await self.persona_manager.get_persona(persona_id)
-            except ValueError:
-                existing_persona = None
+            existing_persona = await self.get_persona_details(persona_id)
 
             if existing_persona and not overwrite:
                 return False, "人格已存在，如要覆盖请设置overwrite=true", None
 
             # 创建或更新人格
             if existing_persona:
-                success = await self.persona_manager.update_persona(
-                    persona_id=persona_id,
-                    system_prompt=system_prompt,
-                    begin_dialogs=begin_dialogs,
-                    tools=tools
+                result = await self.persona_web_mgr.update_persona_via_web(
+                    persona_id,
+                    {
+                        "system_prompt": system_prompt,
+                        "begin_dialogs": begin_dialogs,
+                        "tools": tools,
+                    }
                 )
                 action = "更新"
             else:
-                success = await self.persona_manager.create_persona(
-                    persona_id=persona_id,
-                    system_prompt=system_prompt,
-                    begin_dialogs=begin_dialogs,
-                    tools=tools
-                )
+                result = await self.persona_web_mgr.create_persona_via_web({
+                    "persona_id": persona_id,
+                    "system_prompt": system_prompt,
+                    "begin_dialogs": begin_dialogs,
+                    "tools": tools,
+                })
                 action = "创建"
 
-            if success:
+            if result.get('success'):
                 logger.info(f"成功导入人格: {persona_id} ({action})")
                 return True, f"人格{action}成功", persona_id
             else:
-                return False, f"人格{action}失败", None
+                return False, result.get('error', f"人格{action}失败"), None
 
         except Exception as e:
             logger.error(f"导入人格失败: {e}")

@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 import time
 
 
-# ==================== 核心联结基础类关系 ====================
+# 核心联结基础类关系
 
 class BloodRelationType(Enum):
     """血缘关系类型"""
@@ -155,7 +155,7 @@ class InterestRelationType(Enum):
     COMPANION = "搭子关系"
 
 
-# ==================== 按亲密度与情感深度分类 ====================
+# 按亲密度与情感深度分类
 
 class IntimacyLevel(Enum):
     """亲密度等级"""
@@ -175,7 +175,7 @@ class IntimacyLevel(Enum):
     AVOIDANT = "回避型疏远"  # 有矛盾、刻意保持距离
 
 
-# ==================== 按社会功能与互动场景分类 ====================
+# 按社会功能与互动场景分类
 
 class FamilyRelationType(Enum):
     """家庭关系类型"""
@@ -216,7 +216,7 @@ class PublicRelationType(Enum):
     STRANGER_INTERACTION = "陌生人互动"  # 超市收银员、公交司机
 
 
-# ==================== 按法律与契约属性分类 ====================
+# 按法律与契约属性分类
 
 class LegalRelationType(Enum):
     """法定关系类型"""
@@ -239,7 +239,7 @@ class NonContractualRelationType(Enum):
     TEMPORARY_RELATION = "临时类"  # 同车乘客、活动参与者
 
 
-# ==================== 按其他关键维度分类 ====================
+# 按其他关键维度分类
 
 class RelationDuration(Enum):
     """关系存续时间"""
@@ -271,7 +271,7 @@ class CrossDimensional(Enum):
     CONFLICT = "冲突型关系"  # 仇人
 
 
-# ==================== 社交关系数值化数据模型 ====================
+# 社交关系数值化数据模型
 
 @dataclass
 class SocialRelationComponent:
@@ -378,7 +378,7 @@ class UserSocialProfile:
         return "\n".join(prompt_parts)
 
 
-# ==================== 社交关系变化规则 ====================
+# 社交关系变化规则
 
 @dataclass
 class RelationChangeRule:

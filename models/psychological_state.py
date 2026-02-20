@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 import time
 
 
-# ==================== 情绪情感类心理状态 ====================
+# 情绪情感类心理状态
 
 class EmotionPositiveType(Enum):
     """积极情绪类型"""
@@ -133,7 +133,7 @@ class EmotionSpecialType(Enum):
     MIXED_FEELINGS = "百感交集"
 
 
-# ==================== 认知类心理状态 ====================
+# 认知类心理状态
 
 class AttentionState(Enum):
     """注意力状态"""
@@ -243,7 +243,7 @@ class DecisionState(Enum):
     FOLLOWING_CROWD = "随波逐流"
 
 
-# ==================== 意志与行为倾向类心理状态 ====================
+# 意志与行为倾向类心理状态
 
 class WillStrengthState(Enum):
     """意志强度状态"""
@@ -320,7 +320,7 @@ class GoalOrientationState(Enum):
     UTILITARIAN = "功利性"
 
 
-# ==================== 自我认知与人格倾向类心理状态 ====================
+# 自我认知与人格倾向类心理状态
 
 class SelfAcceptanceState(Enum):
     """自我接纳状态"""
@@ -404,7 +404,7 @@ class PersonalityTendencyState(Enum):
     ADAPTABLE = "灵活应变"
 
 
-# ==================== 社交互动类心理状态 ====================
+# 社交互动类心理状态
 
 class SocialAttitudeState(Enum):
     """社交态度状态"""
@@ -492,7 +492,7 @@ class InterpersonalRoleState(Enum):
     EQUAL_DIALOGUE = "平等对话"
 
 
-# ==================== 适应与应激类心理状态 ====================
+# 适应与应激类心理状态
 
 class EnvironmentalAdaptationState(Enum):
     """环境适应状态"""
@@ -559,7 +559,7 @@ class BodyMindCoordinationState(Enum):
     PSYCHOSOMATIC = "心因性躯体症状"
 
 
-# ==================== 其他维度心理状态 ====================
+# 其他维度心理状态
 
 class EnergyState(Enum):
     """精力状态"""
@@ -611,7 +611,7 @@ class TimePerceptionState(Enum):
     STEADY_PACE = "按部就班"
 
 
-# ==================== 复合心理状态 ====================
+# 复合心理状态
 
 @dataclass
 class PsychologicalStateComponent:
@@ -720,7 +720,7 @@ class CompositePsychologicalState:
         return "\n".join(prompt_parts)
 
 
-# ==================== 状态转换规则 ====================
+# 状态转换规则
 
 @dataclass
 class StateTransitionRule:

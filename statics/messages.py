@@ -38,95 +38,95 @@ class StatusMessages:
 
 class CommandMessages:
     """命令响应消息"""
-    LEARNING_STARTED = "✅ 自动学习已启动 for group {group_id}"
-    LEARNING_RUNNING = "📚 自动学习已在运行中 for group {group_id}"
-    LEARNING_STOPPED = "⏹️ 自动学习已停止 for group {group_id}"
-    FORCE_LEARNING_START = "🔄 开始强制学习周期 for group {group_id}..."
-    FORCE_LEARNING_COMPLETE = "✅ 强制学习周期完成 for group {group_id}"
-    DATA_CLEARED = "🗑️ 所有学习数据已清空"
-    DATA_EXPORTED = "📤 学习数据已导出到: {filepath}"
+    LEARNING_STARTED = " 自动学习已启动 for group {group_id}"
+    LEARNING_RUNNING = " 自动学习已在运行中 for group {group_id}"
+    LEARNING_STOPPED = " 自动学习已停止 for group {group_id}"
+    FORCE_LEARNING_START = " 开始强制学习周期 for group {group_id}..."
+    FORCE_LEARNING_COMPLETE = " 强制学习周期完成 for group {group_id}"
+    DATA_CLEARED = " 所有学习数据已清空"
+    DATA_EXPORTED = " 学习数据已导出到: {filepath}"
     
     # 状态报告模板
-    STATUS_REPORT_HEADER = "📚 自学习插件状态报告 (会话ID: {group_id}):"
+    STATUS_REPORT_HEADER = " 自学习插件状态报告 (会话ID: {group_id}):"
     STATUS_BASIC_CONFIG = """
-🔧 基础配置:
+ 基础配置:
 - 消息抓取: {message_capture}
 - 自主学习: {auto_learning}
 - 实时学习: {realtime_learning}
 - Web界面: {web_interface}"""
     
     STATUS_CAPTURE_SETTINGS = """
-👥 抓取设置:
+ 抓取设置:
 - 目标QQ: {target_qq}
 - 当前人格: {current_persona}"""
     
     STATUS_MODEL_CONFIG = """
-🤖 模型配置:
+ 模型配置:
 - 筛选模型: {filter_model}
 - 提炼模型: {refine_model}"""
     
     STATUS_LEARNING_STATS = """
-📊 学习统计 (当前会话):
+ 学习统计 (当前会话):
 - 总收集消息: {total_messages}
 - 筛选消息: {filtered_messages}
 - 风格更新次数: {style_updates}
 - 最后学习时间: {last_learning_time}"""
     
     STATUS_STORAGE_STATS = """
-💾 存储统计 (当前会话):
+ 存储统计 (当前会话):
 - 原始消息: {raw_messages} 条
 - 待处理消息: {unprocessed_messages} 条
 - 筛选过的消息: {filtered_messages} 条"""
     
-    STATUS_SCHEDULER = "⏰ 调度状态 (当前会话): {status}"
+    STATUS_SCHEDULER = " 调度状态 (当前会话): {status}"
     
     # 好感度系统消息
-    AFFECTION_DISABLED = "❌ 好感度系统未启用"
-    AFFECTION_STATUS_HEADER = "💝 好感度系统状态 (群组: {group_id}):"
-    AFFECTION_USER_LEVEL = "👤 您的好感度: {user_level}/{max_affection}"
-    AFFECTION_TOTAL_STATUS = "📊 总好感度: {total_affection}/{max_total_affection}"
-    AFFECTION_USER_COUNT = "👥 用户数量: {user_count}"
-    AFFECTION_CURRENT_MOOD = "🎭 当前情绪:"
+    AFFECTION_DISABLED = " 好感度系统未启用"
+    AFFECTION_STATUS_HEADER = " 好感度系统状态 (群组: {group_id}):"
+    AFFECTION_USER_LEVEL = " 您的好感度: {user_level}/{max_affection}"
+    AFFECTION_TOTAL_STATUS = " 总好感度: {total_affection}/{max_total_affection}"
+    AFFECTION_USER_COUNT = " 用户数量: {user_count}"
+    AFFECTION_CURRENT_MOOD = " 当前情绪:"
     AFFECTION_MOOD_TYPE = "- 类型: {mood_type}"
     AFFECTION_MOOD_INTENSITY = "- 强度: {intensity:.2f}"
     AFFECTION_MOOD_DESCRIPTION = "- 描述: {description}"
     AFFECTION_NO_MOOD = "- 无当前情绪状态"
-    AFFECTION_TOP_USERS = "🏆 好感度排行榜:"
+    AFFECTION_TOP_USERS = " 好感度排行榜:"
     AFFECTION_USER_RANK = "{rank}. 用户 {user_id}: {affection_level}点"
     
     # 设置情绪命令
     SET_MOOD_USAGE = "请指定情绪类型，如: /set_mood happy"
     SET_MOOD_INVALID = "无效的情绪类型。有效选项: {valid_moods}"
-    SET_MOOD_SUCCESS = "🎭 已设置新的情绪状态:\n类型: {mood_type}\n强度: {intensity:.2f}\n描述: {description}"
+    SET_MOOD_SUCCESS = " 已设置新的情绪状态:\n类型: {mood_type}\n强度: {intensity:.2f}\n描述: {description}"
     
     # 分析报告消息
-    ANALYTICS_GENERATING = "📊 正在生成数据分析报告..."
-    ANALYTICS_REPORT_HEADER = "📈 数据分析报告 (群组: {group_id}):"
+    ANALYTICS_GENERATING = " 正在生成数据分析报告..."
+    ANALYTICS_REPORT_HEADER = " 数据分析报告 (群组: {group_id}):"
     ANALYTICS_LEARNING_STATS = """
-📚 学习统计:
+ 学习统计:
 - 处理消息数: {total_messages}
 - 学习会话数: {learning_sessions}
 - 平均质量分: {avg_quality:.2f}"""
     
     ANALYTICS_USER_BEHAVIOR = """
-👥 用户行为模式:
+ 用户行为模式:
 - 活跃用户数: {active_users}
 - 主要话题: {main_topics}
 - 情感倾向: {emotion_tendency}"""
     
-    ANALYTICS_RECOMMENDATIONS = "💡 建议:\n- {recommendations}"
+    ANALYTICS_RECOMMENDATIONS = " 建议:\n- {recommendations}"
     
     # 人格切换消息
     PERSONA_SWITCH_USAGE = "请指定人格名称，如: /persona_switch friendly"
-    PERSONA_SWITCH_SUCCESS = "✅ 已切换到人格: {persona_name}"
-    PERSONA_SWITCH_FAILED = "❌ 人格切换失败，请检查人格名称是否正确"
+    PERSONA_SWITCH_SUCCESS = " 已切换到人格: {persona_name}"
+    PERSONA_SWITCH_FAILED = " 人格切换失败，请检查人格名称是否正确"
     
     # 人格更新和显示消息
-    PERSONA_UPDATE_HEADER = "🎭 人格更新报告 (群组: {group_id}):"
-    PERSONA_UPDATE_SUCCESS = "✅ 人格更新成功完成"
-    PERSONA_UPDATE_FAILED = "❌ 人格更新失败: {error}"
+    PERSONA_UPDATE_HEADER = " 人格更新报告 (群组: {group_id}):"
+    PERSONA_UPDATE_SUCCESS = " 人格更新成功完成"
+    PERSONA_UPDATE_FAILED = " 人格更新失败: {error}"
     PERSONA_BEFORE_AFTER = """
-📝 人格变化对比:
+ 人格变化对比:
 
 【更新前】
 {before_content}
@@ -134,33 +134,33 @@ class CommandMessages:
 【更新后】
 {after_content}
 
-📊 变化摘要:
+ 变化摘要:
 {change_summary}"""
     
     PERSONA_CURRENT_DISPLAY = """
-🎭 当前人格信息:
+ 当前人格信息:
 
-📛 人格名称: {persona_name}
-📝 人格描述:
+ 人格名称: {persona_name}
+ 人格描述:
 {persona_prompt}
 
-📈 学习统计:
+ 学习统计:
 - 更新次数: {update_count}
 - 最后更新: {last_update}
 - 学习质量: {quality_score:.2f}/10"""
     
     PERSONA_BACKUP_STATUS = """
-💾 备份状态:
+ 备份状态:
 - 总备份数: {total_backups}
 - 最新备份: {latest_backup}
 - 自动备份: {auto_backup_status}"""
     
     PERSONA_STYLE_FEATURES = """
-🎨 学习到的风格特征:
+ 学习到的风格特征:
 {style_features}"""
     
     PERSONA_CHANGE_SUMMARY = """
-📊 本次更新内容:
+ 本次更新内容:
 - Prompt长度: {prompt_length_before} → {prompt_length_after} ({length_change})
 - 新增特征: {new_features_count} 项
 - 风格调整: {style_adjustments}
@@ -184,10 +184,10 @@ class CommandMessages:
     STOP_FAILED = "停止失败: {error}"
     
     # 状态指示符
-    STATUS_ENABLED = "✅ 启用"
-    STATUS_DISABLED = "❌ 禁用"
-    STATUS_RUNNING = "🟢 运行中"
-    STATUS_STOPPED = "🔴 已停止"
+    STATUS_ENABLED = " 启用"
+    STATUS_DISABLED = " 禁用"
+    STATUS_RUNNING = " 运行中"
+    STATUS_STOPPED = " 已停止"
     STATUS_ALL_USERS = "全部用户"
     STATUS_UNKNOWN = "未知"
     STATUS_NEVER_EXECUTED = "从未执行"
@@ -360,9 +360,7 @@ class SQLQueries:
     '''
 
 
-# ============================================================
 # 更新类型常量和辅助函数（用于人格审查服务的统一类型标准化）
-# ============================================================
 
 UPDATE_TYPE_STYLE_LEARNING = 'style_learning'
 UPDATE_TYPE_PERSONA_LEARNING = 'persona_learning'
