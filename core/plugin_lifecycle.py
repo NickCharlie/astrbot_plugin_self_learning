@@ -196,6 +196,7 @@ class PluginLifecycle:
                 temporary_persona_updater=getattr(p, "temporary_persona_updater", None),
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
+                db_manager=getattr(p, "db_manager", None),
             )
 
             # ------ 消息处理流水线 ------

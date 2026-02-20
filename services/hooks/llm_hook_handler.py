@@ -1,6 +1,6 @@
 """LLM Hook handler — parallel context retrieval, prompt injection, performance tracking.
 
-Orchestrates all context providers (social, V2, diversity, jargon, session updates)
+Orchestrates all context providers (social, V2, diversity, jargon, few-shot, session updates)
 in parallel, merges results, and injects them into the LLM request via
 ``extra_user_content_parts`` to preserve system_prompt prefix caching.
 """
@@ -31,6 +31,7 @@ class LLMHookHandler:
         temporary_persona_updater: Session-level persona updater.
         perf_tracker: ``PerfTracker`` for recording timing samples.
         group_id_to_unified_origin: Shared mapping from group_id to UMO.
+        db_manager: Database manager for approved few-shot retrieval.
     """
 
     def __init__(
@@ -43,6 +44,7 @@ class LLMHookHandler:
         temporary_persona_updater: Any,
         perf_tracker: PerfTracker,
         group_id_to_unified_origin: Dict[str, str],
+        db_manager: Any = None,
     ) -> None:
         self._config = plugin_config
         self._diversity_manager = diversity_manager
@@ -52,13 +54,14 @@ class LLMHookHandler:
         self._temporary_persona_updater = temporary_persona_updater
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
+        self._db_manager = db_manager
 
     # Public API
 
     async def handle(self, event: AstrMessageEvent, req: Any) -> None:
         """Process an LLM request hook — inject context into *req*."""
         hook_start = time.time()
-        social_ms = v2_ms = diversity_ms = jargon_ms = 0.0
+        social_ms = v2_ms = diversity_ms = jargon_ms = few_shots_ms = 0.0
 
         try:
             if req is None:
@@ -95,6 +98,7 @@ class LLMHookHandler:
             v2_result: Optional[Dict[str, Any]] = None
             diversity_result: Optional[str] = None
             jargon_result: Optional[str] = None
+            few_shots_result: Optional[str] = None
 
             async def _timed_social() -> None:
                 nonlocal social_result, social_ms
@@ -120,11 +124,18 @@ class LLMHookHandler:
                 jargon_result = await self._fetch_jargon(event, group_id)
                 jargon_ms = (time.time() - t0) * 1000
 
+            async def _timed_few_shots() -> None:
+                nonlocal few_shots_result, few_shots_ms
+                t0 = time.time()
+                few_shots_result = await self._fetch_few_shots(group_id)
+                few_shots_ms = (time.time() - t0) * 1000
+
             await asyncio.gather(
                 _timed_social(),
                 _timed_v2(),
                 _timed_diversity(),
                 _timed_jargon(),
+                _timed_few_shots(),
             )
 
             # Merge results in priority order
@@ -132,6 +143,7 @@ class LLMHookHandler:
             self._collect_v2(v2_result, v2_ms, prompt_injections)
             self._collect_diversity(diversity_result, prompt_injections)
             self._collect_jargon(jargon_result, prompt_injections)
+            self._collect_few_shots(few_shots_result, prompt_injections)
             self._collect_session_updates(group_id, prompt_injections)
 
             # Inject into request
@@ -150,6 +162,7 @@ class LLMHookHandler:
                     "v2_ctx_ms": round(v2_ms, 1),
                     "diversity_ms": round(diversity_ms, 1),
                     "jargon_ms": round(jargon_ms, 1),
+                    "few_shots_ms": round(few_shots_ms, 1),
                     "group_id": group_id,
                 }
             )
@@ -227,6 +240,18 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
             return None
 
+    async def _fetch_few_shots(self, group_id: str) -> Optional[str]:
+        """Fetch approved few-shot dialogue content for the given group."""
+        if not self._db_manager:
+            return None
+        try:
+            contents = await self._db_manager.get_approved_few_shots(group_id, limit=3)
+            if contents:
+                return contents[0]
+        except Exception as e:
+            logger.warning(f"[LLM Hook] Failed to fetch approved few-shots: {e}")
+        return None
+
     # Result collectors
 
     @staticmethod
@@ -273,6 +298,14 @@ class LLMHookHandler:
             logger.info(f"[LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
         else:
             logger.debug("[LLM Hook] 用户消息中未检测到已知黑话")
+
+    @staticmethod
+    def _collect_few_shots(result: Optional[str], out: List[str]) -> None:
+        if result:
+            out.append(f"[Few-Shot Dialogue Examples]\n{result}")
+            logger.info(f"[LLM Hook] Few-shot dialogue injected (len={len(result)})")
+        else:
+            logger.debug("[LLM Hook] No approved few-shot dialogues available")
 
     def _collect_session_updates(
         self, group_id: str, out: List[str]
