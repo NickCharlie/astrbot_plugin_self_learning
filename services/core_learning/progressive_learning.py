@@ -64,7 +64,7 @@ class ProgressiveLearningService:
         # 增量更新回调函数，降低耦合性
         self.update_system_prompt_callback = None
 
-        self.current_session: Optional[LearningSession] = None
+        self._group_sessions: Dict[str, LearningSession] = {}
         self.learning_sessions: List[LearningSession] = [] # 历史学习会话，可以从数据库加载
         self.learning_lock = asyncio.Lock() # 添加异步锁防止竞态条件
 
@@ -116,12 +116,12 @@ class ProgressiveLearningService:
                 
                 # 创建新的学习会话
                 session_id = f"session_{group_id}_{int(time.time())}"
-                self.current_session = LearningSession(
+                self._group_sessions[group_id] = LearningSession(
                     session_id=session_id,
                     start_time=datetime.now().isoformat()
                 )
                 # 保存新的学习会话到数据库
-                await self.db_manager.save_learning_session_record(group_id, self.current_session.__dict__)
+                await self.db_manager.save_learning_session_record(group_id, self._group_sessions[group_id].__dict__)
                 
                 logger.info(f"开始学习会话: {session_id} for group {group_id}")
                 
@@ -159,15 +159,22 @@ class ProgressiveLearningService:
                 self.learning_active[gid] = False
             logger.info("停止所有群组的学习任务")
         
-        if self.current_session:
-            self.current_session.end_time = datetime.now().isoformat()
-            self.current_session.success = True # 假设正常停止即成功
-            # 保存更新后的学习会话到数据库
-            target_group_id = group_id or "global_learning" # 使用指定的群组ID或默认值
-            await self.db_manager.save_learning_session_record(target_group_id, self.current_session.__dict__)
-            self.learning_sessions.append(self.current_session) # 仍然添加到内存列表
-            logger.info(f"学习会话结束: {self.current_session.session_id}")
-            self.current_session = None
+        if group_id:
+            session = self._group_sessions.pop(group_id, None)
+            if session:
+                session.end_time = datetime.now().isoformat()
+                session.success = True
+                await self.db_manager.save_learning_session_record(group_id, session.__dict__)
+                self.learning_sessions.append(session)
+                logger.info(f"学习会话结束: {session.session_id}")
+        else:
+            for gid, session in list(self._group_sessions.items()):
+                session.end_time = datetime.now().isoformat()
+                session.success = True
+                await self.db_manager.save_learning_session_record(gid, session.__dict__)
+                self.learning_sessions.append(session)
+                logger.info(f"学习会话结束: {session.session_id}")
+            self._group_sessions.clear()
 
     async def _learning_loop_safe(self, group_id: str):
         """安全的学习循环 - 在后台线程执行，包含完整错误处理"""
@@ -195,9 +202,10 @@ class ProgressiveLearningService:
                     await asyncio.sleep(60) # 异常时等待1分钟
         finally:
             # 确保清理资源
-            if self.current_session:
-                self.current_session.end_time = datetime.now().isoformat()
-                await self.db_manager.save_learning_session_record(group_id, self.current_session.__dict__)
+            session = self._group_sessions.pop(group_id, None)
+            if session:
+                session.end_time = datetime.now().isoformat()
+                await self.db_manager.save_learning_session_record(group_id, session.__dict__)
             logger.info(f"学习循环结束 for group {group_id}")
 
     async def _execute_learning_batch(self, group_id: str, relearn_mode: bool = False):
@@ -354,7 +362,7 @@ class ProgressiveLearningService:
             # 正确处理 AnalysisResult 对象进行序列化
             style_analysis_for_db = style_analysis.data if hasattr(style_analysis, 'data') else style_analysis
             await self.db_manager.save_learning_performance_record(group_id, {
-                'session_id': self.current_session.session_id if self.current_session else '',
+                'session_id': self._group_sessions[group_id].session_id if group_id in self._group_sessions else '',
                 'timestamp': time.time(),
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
@@ -367,13 +375,13 @@ class ProgressiveLearningService:
             await self._mark_messages_processed(unprocessed_messages)
             
             # 12. 更新学习会话统计并持久化
-            if self.current_session:
-                self.current_session.messages_processed += len(unprocessed_messages)
-                self.current_session.filtered_messages += len(filtered_messages)
-                self.current_session.quality_score = quality_metrics.consistency_score
-                self.current_session.success = success
-                # 每次批次结束都保存当前会话状态
-                await self.db_manager.save_learning_session_record(group_id, self.current_session.__dict__)
+            group_session = self._group_sessions.get(group_id)
+            if group_session:
+                group_session.messages_processed += len(unprocessed_messages)
+                group_session.filtered_messages += len(filtered_messages)
+                group_session.quality_score = quality_metrics.consistency_score
+                group_session.success = success
+                await self.db_manager.save_learning_session_record(group_id, group_session.__dict__)
             
             # 13. 【新增】学习成功后更新增量内容到system_prompt
             if success:
@@ -387,8 +395,8 @@ class ProgressiveLearningService:
                 except Exception as e:
                     logger.error(f"定时增量内容更新失败: {e}")
             
-            # 14. 【新增】定期执行策略优化
-            if success and self.current_session and self.current_session.messages_processed % 500 == 0:
+            # 14. 定期执行策略优化
+            if success and group_session and group_session.messages_processed % 500 == 0:
                 try:
                     await self.ml_analyzer.reinforcement_strategy_optimization(group_id)
                     logger.info("执行了策略优化检查")
@@ -600,7 +608,7 @@ class ProgressiveLearningService:
             
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
-                'session_id': self.current_session.session_id if self.current_session else '',
+                'session_id': self._group_sessions[group_id].session_id if group_id in self._group_sessions else '',
                 'timestamp': time.time(),
                 'quality_score': quality_metrics.consistency_score,
                 'learning_time': end_time - start_time,
@@ -613,15 +621,16 @@ class ProgressiveLearningService:
             await self._mark_messages_processed(unprocessed_messages)
             
             # 更新会话统计
-            if self.current_session:
-                self.current_session.messages_processed += len(unprocessed_messages)
-                self.current_session.filtered_messages += len(filtered_messages)
-                self.current_session.quality_score = quality_metrics.consistency_score
-                self.current_session.success = success
-                await self.db_manager.save_learning_session_record(group_id, self.current_session.__dict__)
-            
+            bg_session = self._group_sessions.get(group_id)
+            if bg_session:
+                bg_session.messages_processed += len(unprocessed_messages)
+                bg_session.filtered_messages += len(filtered_messages)
+                bg_session.quality_score = quality_metrics.consistency_score
+                bg_session.success = success
+                await self.db_manager.save_learning_session_record(group_id, bg_session.__dict__)
+
             # 定期执行策略优化 - 不阻塞主流程
-            if success and self.current_session and self.current_session.messages_processed % 500 == 0:
+            if success and bg_session and bg_session.messages_processed % 500 == 0:
                 asyncio.create_task(self._execute_strategy_optimization_background(group_id))
             
             batch_duration = end_time - start_time
@@ -1108,8 +1117,8 @@ class ProgressiveLearningService:
                 logger.debug(f"人格未变化或缺少必要参数，跳过审查记录创建")
 
             # 3. 记录学习更新
-            if self.current_session:
-                self.current_session.style_updates += 1
+            if group_id in self._group_sessions:
+                self._group_sessions[group_id].style_updates += 1
 
         except Exception as e:
             logger.error(f"应用学习更新失败 for group {group_id}: {e}")
@@ -1127,18 +1136,17 @@ class ProgressiveLearningService:
             return {
                 'learning_active': self.learning_active.get(group_id, False),
                 'group_id': group_id,
-                'current_session': self.current_session.__dict__ if self.current_session else None,
+                'current_session': self._group_sessions[group_id].__dict__ if group_id in self._group_sessions else None,
                 'total_sessions': len(self.learning_sessions),
                 'statistics': await self.message_collector.get_statistics(),
                 'quality_report': await self.quality_monitor.get_quality_report(),
                 'last_update': datetime.now().isoformat()
             }
         else:
-            # 获取所有群组的状态
             return {
                 'learning_active_groups': {gid: active for gid, active in self.learning_active.items()},
                 'active_groups_count': sum(1 for active in self.learning_active.values() if active),
-                'current_session': self.current_session.__dict__ if self.current_session else None,
+                'group_sessions': {gid: s.__dict__ for gid, s in self._group_sessions.items()},
                 'total_sessions': len(self.learning_sessions),
                 'statistics': await self.message_collector.get_statistics(),
                 'quality_report': await self.quality_monitor.get_quality_report(),
