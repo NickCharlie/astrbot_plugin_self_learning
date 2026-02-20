@@ -36,8 +36,8 @@ class MaiBotEnhancedLearningManager:
         return cls._instance
     
     def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None):
-        # 防止重复初始化
-        if self._initialized:
+        # Allow re-init when first created without config (e.g. via get_instance())
+        if self._initialized and self.config is not None:
             return
             
         self.config = config
@@ -73,7 +73,21 @@ class MaiBotEnhancedLearningManager:
         self.MIN_MESSAGES_FOR_LEARNING = 25  # 触发学习的最小消息数
         self.LEARNING_COOLDOWN = 300  # 学习冷却时间（秒）
         self.BATCH_LEARNING_SIZE = 50  # 批量学习大小
-        
+
+        # V2 integration (conditional on engine config)
+        self.v2_integration = None
+        if config and (config.knowledge_engine != "legacy" or config.memory_engine != "legacy"):
+            try:
+                from .v2_learning_integration import V2LearningIntegration
+                self.v2_integration = V2LearningIntegration(
+                    config=config,
+                    llm_adapter=self.llm_adapter,
+                    db_manager=db_manager,
+                    context=context,
+                )
+            except Exception as exc:
+                logger.warning(f"V2LearningIntegration init failed, using legacy only: {exc}")
+
         self._initialized = True
     
     @classmethod
@@ -100,7 +114,11 @@ class MaiBotEnhancedLearningManager:
             
             if self.time_decay_manager:
                 await self.time_decay_manager.start()
-            
+
+            # V2 integration
+            if self.v2_integration:
+                await self.v2_integration.start()
+
             # 启动定期维护任务
             asyncio.create_task(self._periodic_maintenance())
             
@@ -128,7 +146,11 @@ class MaiBotEnhancedLearningManager:
             
             if self.time_decay_manager:
                 await self.time_decay_manager.stop()
-            
+
+            # V2 integration
+            if self.v2_integration:
+                await self.v2_integration.stop()
+
             logger.info("MaiBotEnhancedLearningManager及所有子服务已停止")
             return True
             
@@ -211,59 +233,72 @@ class MaiBotEnhancedLearningManager:
             results = {
                 'expression_learning': False,
                 'memory_update': False,
-                'knowledge_update': False
+                'knowledge_update': False,
+                'v2_learning': False
             }
-            
+
             # 添加到消息缓冲区
             if group_id not in self.message_buffers:
                 self.message_buffers[group_id] = []
-            
+
             self.message_buffers[group_id].append(message)
-            
+
             # 限制缓冲区大小
             if len(self.message_buffers[group_id]) > self.BATCH_LEARNING_SIZE:
                 self.message_buffers[group_id] = self.message_buffers[group_id][-self.BATCH_LEARNING_SIZE:]
-            
+
             state = self._get_group_learning_state(group_id)
             state['message_count_since_last_learning'] += 1
             state['total_messages_processed'] += 1
-            
-            # 异步处理各个学习任务
-            tasks = []
-            
-            # 1. 表达模式学习（批量触发）
+
+            # 构建异步任务列表 (result_key, coroutine)
+            named_tasks = []
+
+            # V2 handles memory, knowledge, jargon, social, exemplar
+            if self.v2_integration:
+                named_tasks.append(('v2_learning', self._trigger_v2_processing(message, group_id)))
+
+            # Expression learning always via legacy (no v2 replacement)
             if self.expression_learner and self._should_trigger_expression_learning(group_id, self.message_buffers[group_id]):
-                tasks.append(self._trigger_expression_learning(group_id))
-            
-            # 2. 记忆图更新（实时）
-            if self.memory_graph_manager and self._should_trigger_memory_update(group_id):
-                tasks.append(self._trigger_memory_update(message, group_id))
-            
-            # 3. 知识图谱更新（准实时）
-            if self.knowledge_graph_manager and self._should_trigger_knowledge_update(group_id):
-                tasks.append(self._trigger_knowledge_update(message, group_id))
-            
+                named_tasks.append(('expression_learning', self._trigger_expression_learning(group_id)))
+
+            # Legacy memory only when v2 doesn't handle it
+            if not (self.v2_integration and self.config.memory_engine != "legacy"):
+                if self.memory_graph_manager and self._should_trigger_memory_update(group_id):
+                    named_tasks.append(('memory_update', self._trigger_memory_update(message, group_id)))
+
+            # Legacy knowledge only when v2 doesn't handle it
+            if not (self.v2_integration and self.config.knowledge_engine != "legacy"):
+                if self.knowledge_graph_manager and self._should_trigger_knowledge_update(group_id):
+                    named_tasks.append(('knowledge_update', self._trigger_knowledge_update(message, group_id)))
+
             # 并发执行所有任务
-            if tasks:
-                task_results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                for i, result in enumerate(task_results):
+            if named_tasks:
+                keys = [k for k, _ in named_tasks]
+                coros = [c for _, c in named_tasks]
+                task_results = await asyncio.gather(*coros, return_exceptions=True)
+
+                for key, result in zip(keys, task_results):
                     if isinstance(result, Exception):
-                        logger.error(f"学习任务 {i} 执行失败: {result}")
+                        logger.error(f"学习任务 '{key}' 执行失败: {result}")
                     elif isinstance(result, bool):
-                        if i == 0:  # 表达学习
-                            results['expression_learning'] = result
-                        elif i == 1:  # 记忆更新
-                            results['memory_update'] = result
-                        elif i == 2:  # 知识更新
-                            results['knowledge_update'] = result
-            
+                        results[key] = result
+
             return results
             
         except Exception as e:
             logger.error(f"处理消息失败: {e}")
             return {}
     
+    async def _trigger_v2_processing(self, message: MessageData, group_id: str) -> bool:
+        """Trigger V2 tiered learning pipeline."""
+        try:
+            await self.v2_integration.process_message(message, group_id)
+            return True
+        except Exception as exc:
+            logger.error(f"V2 processing failed: {exc}")
+            return False
+
     async def _trigger_expression_learning(self, group_id: str) -> bool:
         """触发表达模式学习"""
         try:
@@ -433,23 +468,41 @@ class MaiBotEnhancedLearningManager:
                 'related_memories': [],
                 'knowledge_graph_context': ''
             }
-            
-            # 1. 获取表达模式
+
+            # 1. Expression patterns — always legacy
             if self.expression_learner:
                 patterns_text = await self.expression_learner.format_expression_patterns_for_prompt(group_id)
                 context['expression_patterns'] = patterns_text
-            
-            # 2. 获取相关记忆
-            if self.memory_graph_manager:
-                memories = await self.memory_graph_manager.get_related_memories(query, group_id)
-                context['related_memories'] = memories
-            
-            # 3. 获取知识图谱上下文
-            if self.knowledge_graph_manager:
-                kg_answer = await self.knowledge_graph_manager.answer_question_with_knowledge_graph(query, group_id)
-                if kg_answer != "我不知道":
-                    context['knowledge_graph_context'] = kg_answer
-            
+
+            # 2. V2 context (knowledge, memory, few-shot, social graph)
+            v2_context_ok = False
+            if self.v2_integration:
+                try:
+                    v2_ctx = await self.v2_integration.get_enhanced_context(query, group_id)
+                    v2_context_ok = True
+                    if 'knowledge_context' in v2_ctx:
+                        context['knowledge_graph_context'] = v2_ctx['knowledge_context']
+                    if 'related_memories' in v2_ctx:
+                        context['related_memories'] = v2_ctx['related_memories']
+                    if 'few_shot_examples' in v2_ctx:
+                        context['few_shot_examples'] = v2_ctx['few_shot_examples']
+                    if 'graph_stats' in v2_ctx:
+                        context['graph_stats'] = v2_ctx['graph_stats']
+                except Exception as exc:
+                    logger.warning(f"V2 context retrieval failed, falling through to legacy: {exc}")
+
+            # 3. Legacy fallbacks (when v2 not active, not handling this engine, or v2 failed)
+            if not (self.v2_integration and v2_context_ok and self.config.memory_engine != "legacy"):
+                if self.memory_graph_manager:
+                    memories = await self.memory_graph_manager.get_related_memories(query, group_id)
+                    context['related_memories'] = memories
+
+            if not (self.v2_integration and v2_context_ok and self.config.knowledge_engine != "legacy"):
+                if self.knowledge_graph_manager:
+                    kg_answer = await self.knowledge_graph_manager.answer_question_with_knowledge_graph(query, group_id)
+                    if kg_answer and kg_answer != "我不知道":
+                        context['knowledge_graph_context'] = kg_answer
+
             return context
             
         except Exception as e:

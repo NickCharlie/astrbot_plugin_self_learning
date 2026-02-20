@@ -30,7 +30,7 @@ class MaiBotIntegrationFactory:
         return cls._instance
 
     def __init__(self, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None):
-        if self._initialized:
+        if self._initialized and self.config is not None:
             return
 
         self.config = config
@@ -41,7 +41,7 @@ class MaiBotIntegrationFactory:
 
         # 初始化子管理器（如果还没有初始化）
         if config and db_manager:
-            self.enhanced_manager.__init__(config, db_manager)
+            self.enhanced_manager.__init__(config, db_manager, context)
 
             # 确保子管理器也被正确初始化，传递所有必要参数
             ExpressionPatternLearner.get_instance(
