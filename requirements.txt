@@ -16,6 +16,7 @@ seaborn==0.13.2
 wordcloud==1.9.4
 aiomysql
 guardrails-ai
+pydantic>=2.0.0
 sqlalchemy[asyncio]>=2.0.0
 cachetools>=5.3.0
 apscheduler>=3.10.0
