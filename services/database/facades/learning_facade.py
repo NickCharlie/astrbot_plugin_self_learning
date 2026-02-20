@@ -211,13 +211,14 @@ class LearningFacade(BaseFacade):
             return None
 
     async def get_reviewed_persona_update_records(
-        self, group_id: str = None, limit: int = 50
+        self, limit: int = 50, offset: int = 0, status_filter: str = None
     ) -> List[Dict[str, Any]]:
         """获取已审核的人格更新记录
 
         Args:
-            group_id: 可选的群组 ID 过滤
             limit: 返回数量限制
+            offset: 偏移量
+            status_filter: 状态过滤
 
         Returns:
             已审核记录列表
@@ -227,14 +228,22 @@ class LearningFacade(BaseFacade):
                 from sqlalchemy import select, desc
                 from ....models.orm.learning import PersonaLearningReview
 
-                stmt = (
-                    select(PersonaLearningReview)
-                    .where(PersonaLearningReview.status.in_(['approved', 'rejected']))
-                    .order_by(desc(PersonaLearningReview.review_time))
-                    .limit(limit)
-                )
-                if group_id:
-                    stmt = stmt.where(PersonaLearningReview.group_id == group_id)
+                if status_filter:
+                    stmt = (
+                        select(PersonaLearningReview)
+                        .where(PersonaLearningReview.status == status_filter)
+                        .order_by(desc(PersonaLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
+                else:
+                    stmt = (
+                        select(PersonaLearningReview)
+                        .where(PersonaLearningReview.status.in_(['approved', 'rejected']))
+                        .order_by(desc(PersonaLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
 
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
@@ -413,23 +422,46 @@ class LearningFacade(BaseFacade):
         return await self.get_persona_update_record_by_id(review_id)
 
     async def update_persona_learning_review_status(
-        self, review_id, new_status, reviewer_comment=''
+        self, review_id, new_status, reviewer_comment='',
+        modified_content=None,
     ) -> bool:
-        """更新人格学习审核记录状态（update_persona_update_record_status 的别名）
+        """更新人格学习审核记录状态
 
         Args:
             review_id: 审核记录 ID
             new_status: 新状态
             reviewer_comment: 审核评论
+            modified_content: 用户修改后的内容（可选）
 
         Returns:
             是否更新成功
         """
-        return await self.update_persona_update_record_status(
-            record_id=review_id,
-            new_status=new_status,
-            reviewer_comment=reviewer_comment,
-        )
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ....models.orm.learning import PersonaLearningReview
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.id == review_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+                if not record:
+                    return False
+
+                record.status = new_status
+                record.reviewer_comment = reviewer_comment
+                record.review_time = time.time()
+
+                if modified_content:
+                    record.proposed_content = modified_content
+                    record.new_content = modified_content
+
+                await session.commit()
+                return True
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 更新人格学习审核记录状态失败: {e}")
+            return False
 
     # Style Learning Review methods
 
@@ -506,6 +538,7 @@ class LearningFacade(BaseFacade):
                         'description': r.description,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
+                        'created_at': r.created_at,
                     }
                     for r in rows
                 ]
@@ -514,13 +547,14 @@ class LearningFacade(BaseFacade):
             return []
 
     async def get_reviewed_style_learning_updates(
-        self, group_id=None, limit=50
+        self, limit=50, offset=0, status_filter=None
     ) -> List[Dict]:
         """获取已审核的风格学习更新记录
 
         Args:
-            group_id: 可选的群组 ID 过滤
             limit: 返回数量限制
+            offset: 偏移量
+            status_filter: 状态过滤
 
         Returns:
             已审核记录列表
@@ -530,14 +564,22 @@ class LearningFacade(BaseFacade):
                 from sqlalchemy import select, desc
                 from ....models.orm.learning import StyleLearningReview
 
-                stmt = (
-                    select(StyleLearningReview)
-                    .where(StyleLearningReview.status.in_(['approved', 'rejected']))
-                    .order_by(desc(StyleLearningReview.review_time))
-                    .limit(limit)
-                )
-                if group_id:
-                    stmt = stmt.where(StyleLearningReview.group_id == group_id)
+                if status_filter:
+                    stmt = (
+                        select(StyleLearningReview)
+                        .where(StyleLearningReview.status == status_filter)
+                        .order_by(desc(StyleLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
+                else:
+                    stmt = (
+                        select(StyleLearningReview)
+                        .where(StyleLearningReview.status.in_(['approved', 'rejected']))
+                        .order_by(desc(StyleLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
 
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
@@ -930,41 +972,43 @@ class LearningFacade(BaseFacade):
     async def get_style_progress_data(
         self, group_id=None
     ) -> List[Dict]:
-        """获取风格学习进度数据
+        """获取风格学习进度数据（从 learning_batches 表查询）
 
         Args:
             group_id: 可选的群组 ID 过滤
 
         Returns:
-            风格学习审核记录列表（按时间排序）
+            学习批次进度列表
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, asc
-                from ....models.orm.learning import StyleLearningReview
+                from sqlalchemy import select, desc
+                from ....models.orm.learning import LearningBatch
 
-                stmt = select(StyleLearningReview).order_by(
-                    asc(StyleLearningReview.timestamp)
+                stmt = (
+                    select(LearningBatch)
+                    .where(
+                        LearningBatch.quality_score.isnot(None),
+                        LearningBatch.processed_messages > 0,
+                    )
+                    .order_by(desc(LearningBatch.start_time))
+                    .limit(30)
                 )
                 if group_id:
-                    stmt = stmt.where(StyleLearningReview.group_id == group_id)
+                    stmt = stmt.where(LearningBatch.group_id == group_id)
 
                 result = await session.execute(stmt)
                 rows = result.scalars().all()
                 return [
                     {
-                        'id': r.id,
-                        'type': r.type,
                         'group_id': r.group_id,
-                        'timestamp': r.timestamp,
-                        'learned_patterns': json.loads(r.learned_patterns)
-                        if r.learned_patterns
-                        else [],
-                        'few_shots_content': r.few_shots_content,
-                        'status': r.status,
-                        'description': r.description,
-                        'reviewer_comment': r.reviewer_comment,
-                        'review_time': r.review_time,
+                        'timestamp': r.start_time or 0,
+                        'quality_score': r.quality_score or 0,
+                        'success': bool(r.success),
+                        'processed_messages': r.processed_messages or 0,
+                        'filtered_count': r.filtered_count or 0,
+                        'message_count': r.message_count or 0,
+                        'batch_name': r.batch_name or '',
                     }
                     for r in rows
                 ]

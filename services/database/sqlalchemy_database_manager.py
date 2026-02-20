@@ -364,10 +364,8 @@ class SQLAlchemyDatabaseManager:
     async def add_persona_learning_review(self, review_data: Dict[str, Any]) -> int:
         return await self._learning.add_persona_learning_review(review_data)
 
-    async def get_pending_persona_update_records(
-        self, group_id: str = None,
-    ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_update_records(group_id)
+    async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
+        return await self._learning.get_pending_persona_update_records()
 
     async def save_persona_update_record(self, record_data: Dict[str, Any]) -> int:
         return await self._learning.save_persona_update_record(record_data)
@@ -381,9 +379,11 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.get_persona_update_record_by_id(record_id)
 
     async def get_reviewed_persona_update_records(
-        self, group_id: str = None,
+        self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_update_records(group_id)
+        return await self._learning.get_reviewed_persona_update_records(
+            limit=limit, offset=offset, status_filter=status_filter,
+        )
 
     async def update_persona_update_record_status(
         self, record_id: int, status: str, comment: str = None,
@@ -403,15 +403,17 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.get_pending_style_reviews(limit)
 
     async def get_reviewed_style_learning_updates(
-        self, group_id: str = None,
+        self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_style_learning_updates(group_id)
+        return await self._learning.get_reviewed_style_learning_updates(
+            limit=limit, offset=offset, status_filter=status_filter,
+        )
 
     async def update_style_review_status(
-        self, review_id: int, status: str, comment: str = None,
+        self, review_id: int, status: str, reviewer_comment: str = '',
     ) -> bool:
         return await self._learning.update_style_review_status(
-            review_id, status, comment,
+            review_id, status, reviewer_comment,
         )
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:
@@ -439,9 +441,10 @@ class SQLAlchemyDatabaseManager:
 
     async def update_persona_learning_review_status(
         self, review_id: int, status: str, comment: str = None,
+        modified_content: str = None,
     ) -> bool:
         return await self._learning.update_persona_learning_review_status(
-            review_id, status, comment,
+            review_id, status, comment, modified_content,
         )
 
     async def get_learning_batch_history(
@@ -483,10 +486,8 @@ class SQLAlchemyDatabaseManager:
     async def count_refined_messages(self) -> int:
         return await self._learning.count_refined_messages()
 
-    async def get_style_learning_statistics(
-        self, group_id: str = None,
-    ) -> Dict[str, Any]:
-        return await self._learning.get_style_learning_statistics(group_id)
+    async def get_style_learning_statistics(self) -> Dict[str, Any]:
+        return await self._learning.get_style_learning_statistics()
 
     async def get_style_progress_data(
         self, group_id: str = None,
@@ -530,7 +531,8 @@ class SQLAlchemyDatabaseManager:
         confirmed_only: bool = False, limit: int = 50,
     ) -> List[Dict[str, Any]]:
         return await self._jargon.search_jargon(
-            keyword, chat_id, confirmed_only, limit,
+            keyword=keyword, chat_id=chat_id,
+            confirmed_only=confirmed_only, limit=limit,
         )
 
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
