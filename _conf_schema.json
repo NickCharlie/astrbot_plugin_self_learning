@@ -559,18 +559,16 @@
     "hint": "高级功能配置：Embedding向量化、Reranker重排序、知识引擎和记忆引擎。需要先在AstrBot中配置对应类型的Provider",
     "items": {
       "embedding_provider_id": {
-        "description": "Embedding 提供商",
+        "description": "Embedding 提供商 ID",
         "type": "string",
-        "hint": "用于文本向量化的Embedding提供商。需要先在AstrBot中配置Embedding类型的Provider（支持OpenAI Embedding、Gemini Embedding等），然后在此选择。支持SiliconFlow的Qwen3-Embedding、BGE-M3等模型",
-        "default": null,
-        "_special": "select_provider"
+        "hint": "填写Embedding提供商的完整ID（如 'openai/text-embedding-3-large'）。需要先在AstrBot的Provider管理中创建Embedding类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'",
+        "default": ""
       },
       "rerank_provider_id": {
-        "description": "Reranker 提供商",
+        "description": "Reranker 提供商 ID",
         "type": "string",
-        "hint": "用于文档重排序的Reranker提供商。需要先在AstrBot中配置Reranker类型的Provider（支持vLLM Reranker、百炼Reranker等），然后在此选择",
-        "default": null,
-        "_special": "select_provider"
+        "hint": "填写Reranker提供商的完整ID（如 'openai/qwen3-rerank'）。需要先在AstrBot的Provider管理中创建Reranker类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'",
+        "default": ""
       },
       "rerank_top_k": {
         "description": "重排序保留结果数",
