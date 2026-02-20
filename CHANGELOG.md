@@ -6,13 +6,34 @@
 
 ### 🏗️ 架构重构
 
+#### 全量 ORM 迁移（消除所有硬编码 SQL）
+- 将 7 个服务文件中残留的硬编码 raw SQL 全部迁移至 SQLAlchemy ORM
+- `expression_pattern_learner`：`_apply_time_decay`、`_limit_max_expressions`、`get_expression_patterns` 改用 `ExpressionPatternORM` 模型
+- `time_decay_manager`：完全重写，消除 f-string SQL 注入风险，用显式 ORM 模型处理器替代动态表名拼接，移除对不存在表的引用
+- `enhanced_social_relation_manager`：4 个方法改用 `UserSocialProfile`、`UserSocialRelationComponent`、`SocialRelationHistory` 模型
+- `intelligent_responder`：3 个方法改用 `FilteredMessage`、`RawMessage` 模型及 `func.count`/`func.avg` 聚合
+- `multidimensional_analyzer`：2 个 GROUP BY/HAVING 查询改用 ORM `select().group_by().having()`
+- `affection_manager`：3 层级联查询改用 `RawMessage`、`FilteredMessage`、`LearningBatch` 模型
+- `dialog_analyzer`：`get_pending_style_reviews` 改用 `StyleLearningReview` 模型
+- `progressive_learning`、`message_facade`、`webui/learning` 蓝图同步迁移
+
+#### 遗留数据库层清理（-7600 行）
+- 删除 `services/database/database_manager.py`（6035 行硬编码 SQL 单体）
+- 删除 `core/database/` 下 5 个遗留后端文件：`backend_interface.py`、`sqlite_backend.py`、`mysql_backend.py`、`postgresql_backend.py`、`factory.py`（共 1530 行）
+- DomainRouter 移除 `_legacy_db` 回退、`get_db_connection()`/`get_connection()` shim、`__getattr__` 安全网
+- `core/database/__init__.py` 精简为仅导出 `DatabaseEngine`
+- `services/database/__init__.py` 移除 `DatabaseManager` 导出
+
+#### 未使用资源清理
+- 删除 `web_res/static/MacOS-Web-UI/` 源码目录（已迁移至 `static/js/macos/` 和 `static/css/macos/`）
+
 #### 服务层重组
 - 将 `services/` 下 51 个平铺文件重组为 14 个领域子包，提升内聚性和可维护性
 - 每个子包职责明确：`learning/`、`social/`、`jargon/`、`persona/`、`expression/`、`affection/`、`psychological/`、`reinforcement/`、`message/` 等
 
 #### 主模块瘦身
 - 将 `main.py` 业务逻辑提取至独立生命周期模块（`initializer`、`event_handler`、`learning_scheduler` 等）
-- 代码量从 2518 行精简至 1435 行（减少 43%）
+- 代码量从 2518 行精简至 207 行（减少 92%）
 
 #### 数据库单体拆分
 - 将 4308 行的 `SQLAlchemyDatabaseManager` 重写为约 800 行的薄路由层（DomainRouter）
@@ -76,9 +97,12 @@
 - DomainRouter 显式方法路由消除 `__getattr__` 运行时属性查找开销
 
 ### 📊 统计
-- **净代码减少**：约 5800 行（两个数据库单体从 ~10,345 行降至 ~4,500 行，分布在 25 个小文件中）
+- **净代码减少**：约 21,700 行（ORM 迁移 + 遗留层删除 + 未使用资源清理）
+- **遗留 SQL 层**：6035 + 1530 = 7565 行硬编码 SQL 代码删除
+- **ORM 迁移**：7 个服务文件、约 800 行 raw SQL 替换为类型安全的 ORM 查询
+- **安全修复**：`time_decay_manager` f-string SQL 注入漏洞已消除
 - **新增文件**：11 个 Facade + 10 个 Repository + 1 个 BaseFacade = 22 个文件
-- **`SQLAlchemyDatabaseManager`**：4308 行 → ~800 行（减少 82%）
+- **`SQLAlchemyDatabaseManager`**：4308 行 → ~777 行（减少 82%），零遗留回退
 - **变更文件**：51+ 个服务文件重组、`main.py` 重构、数据库层完全重写
 
 ---
