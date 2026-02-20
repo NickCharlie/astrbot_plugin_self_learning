@@ -97,6 +97,12 @@ window.AppDashboard = {
             <div ref="systemRadarChart" class="chart-area"></div>
           </div>
 
+          <!-- 5.5 Hook注入耗时分析 - 堆叠柱状图 -->
+          <div class="chart-box">
+            <h4>Hook注入耗时分析</h4>
+            <div ref="hookPerfChart" class="chart-area"></div>
+          </div>
+
           <!-- 6. 对话风格学习进度 - 混合柱线图 -->
           <div class="chart-box">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
@@ -289,6 +295,7 @@ window.AppDashboard = {
       this.updateResponseTime();
       this.updateLearningGauge();
       this.updateSystemRadar();
+      this.updateHookPerf();
       this.updateStyleChart();
       this.updateHeatmap();
     },
@@ -606,6 +613,115 @@ window.AppDashboard = {
       );
     },
 
+    /* ---------- 5.5 Hook注入耗时分析 - 堆叠柱状图 ---------- */
+    updateHookPerf() {
+      var chart =
+        this.chartInstances["hookPerfChart"] || this.initChart("hookPerfChart");
+      if (!chart) return;
+
+      var perf = this.metrics.hook_performance || {};
+      var samples = perf.recent_samples || [];
+
+      if (samples.length === 0) {
+        chart.setOption(this.emptyOption("暂无Hook耗时数据"), true);
+        return;
+      }
+
+      // 取最近30条
+      var recent = samples.slice(-30);
+      var labels = recent.map(function (s, i) {
+        var d = new Date(s.ts * 1000);
+        return (
+          d.getHours() +
+          ":" +
+          ("0" + d.getMinutes()).slice(-2) +
+          ":" +
+          ("0" + d.getSeconds()).slice(-2)
+        );
+      });
+      var socialData = recent.map(function (s) {
+        return Math.round(s.social_ctx_ms || 0);
+      });
+      var v2Data = recent.map(function (s) {
+        return Math.round(s.v2_ctx_ms || 0);
+      });
+      var diversityData = recent.map(function (s) {
+        return Math.round(s.diversity_ms || 0);
+      });
+      var jargonData = recent.map(function (s) {
+        return Math.round(s.jargon_ms || 0);
+      });
+
+      chart.setOption(
+        {
+          tooltip: {
+            trigger: "axis",
+            axisPointer: { type: "shadow" },
+            formatter: function (params) {
+              var tip = params[0].axisValue + "<br/>";
+              var total = 0;
+              params.forEach(function (p) {
+                tip +=
+                  p.marker + " " + p.seriesName + ": " + p.value + "ms<br/>";
+                total += p.value;
+              });
+              tip += "<b>总计: " + total + "ms</b>";
+              return tip;
+            },
+          },
+          legend: {
+            data: ["社交上下文", "V2上下文", "多样性", "黑话"],
+            bottom: 0,
+            textStyle: { fontSize: 10 },
+          },
+          grid: {
+            left: "3%",
+            right: "4%",
+            bottom: "15%",
+            top: "8%",
+            containLabel: true,
+          },
+          xAxis: {
+            type: "category",
+            data: labels,
+            axisLabel: { rotate: 45, fontSize: 9 },
+          },
+          yAxis: { type: "value", name: "ms" },
+          series: [
+            {
+              name: "社交上下文",
+              type: "bar",
+              stack: "hook",
+              data: socialData,
+              itemStyle: { color: "#1976d2" },
+            },
+            {
+              name: "V2上下文",
+              type: "bar",
+              stack: "hook",
+              data: v2Data,
+              itemStyle: { color: "#43a047" },
+            },
+            {
+              name: "多样性",
+              type: "bar",
+              stack: "hook",
+              data: diversityData,
+              itemStyle: { color: "#ff9800" },
+            },
+            {
+              name: "黑话",
+              type: "bar",
+              stack: "hook",
+              data: jargonData,
+              itemStyle: { color: "#7b1fa2" },
+            },
+          ],
+        },
+        true,
+      );
+    },
+
     /* ---------- 6. 对话风格学习进度 - 混合柱线图 ---------- */
     updateStyleChart() {
       var echarts = window.echarts;
@@ -816,6 +932,7 @@ window.AppDashboard = {
         self.updateResponseTime();
         self.updateLearningGauge();
         self.updateSystemRadar();
+        self.updateHookPerf();
         self.updateStyleChart();
         self.updateHeatmap();
 

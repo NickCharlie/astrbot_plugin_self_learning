@@ -52,6 +52,9 @@ class ServiceContainer:
         # 智能指标服务
         self.intelligence_metrics_service: Optional[Any] = None
 
+        # 性能计时收集器（指向插件实例的 get_perf_data 方法）
+        self.perf_collector: Optional[Any] = None
+
         self._initialized = True
 
     def initialize(

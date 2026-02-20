@@ -6,6 +6,7 @@ import json # 导入 json 模块
 import asyncio
 import time
 import re # 导入正则表达式模块
+from collections import deque
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ from .core.factory import FactoryManager
 from .core.interfaces import MessageData
 from .exceptions import SelfLearningError
 from .webui import Server, set_plugin_services # 导入 FastAPI 服务器相关
+from .webui.dependencies import get_container as _get_webui_container
 from .statics.messages import StatusMessages, CommandMessages, LogMessages, FileNames, DefaultValues
 
 server_instance: Optional[Server] = None # 全局服务器实例
@@ -111,6 +113,19 @@ class SelfLearningPlugin(star.Star):
 
         # 设置增量更新回调 - 在服务初始化前设置，避免AttributeError
         self.update_system_prompt_callback = None
+
+        # ⚡ 性能计时收集器 — 供 WebUI 展示
+        self._perf_samples: deque = deque(maxlen=200)
+        self._perf_stats: Dict[str, Any] = {
+            "total_requests": 0,
+            "avg_total_ms": 0,
+            "avg_social_ctx_ms": 0,
+            "avg_v2_ctx_ms": 0,
+            "avg_diversity_ms": 0,
+            "avg_jargon_ms": 0,
+            "max_total_ms": 0,
+            "last_updated": 0,
+        }
 
         # 初始化服务层
         self._initialize_services()
@@ -216,6 +231,7 @@ class SelfLearningPlugin(star.Star):
                     astrbot_persona_manager,
                     self.group_id_to_unified_origin
                 )
+                _get_webui_container().perf_collector = self
                 logger.info("Debug: 插件服务设置完成")
             except Exception as e:
                 logger.error(f"设置插件服务失败: {e}", exc_info=True)
@@ -520,6 +536,7 @@ class SelfLearningPlugin(star.Star):
                     astrbot_persona_manager,
                     self.group_id_to_unified_origin
                 )
+                _get_webui_container().perf_collector = self
                 logger.info("Web服务器插件服务设置完成")
             except Exception as e:
                 logger.error(f"设置Web服务器插件服务失败: {e}", exc_info=True)
@@ -1918,6 +1935,10 @@ class SelfLearningPlugin(star.Star):
         4. 会话级增量更新（临时人格调整）
         """
         _hook_start = time.time()
+        _social_ms = 0.0
+        _v2_ms = 0.0
+        _diversity_ms = 0.0
+        _jargon_ms = 0.0
         try:
             # 检查 req 参数是否存在
             if req is None:
@@ -1963,6 +1984,7 @@ class SelfLearningPlugin(star.Star):
             # - 行为模式指导（整合自 PsychologicalSocialContextInjector）
 
             if hasattr(self, 'social_context_injector') and self.social_context_injector:
+                _t = time.time()
                 try:
                     social_context = await self.social_context_injector.format_complete_context(
                         group_id=group_id,
@@ -1983,6 +2005,7 @@ class SelfLearningPlugin(star.Star):
                         logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
                 except Exception as e:
                     logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
+                _social_ms = (time.time() - _t) * 1000
             else:
                 logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
 
@@ -2009,8 +2032,10 @@ class SelfLearningPlugin(star.Star):
                         logger.debug(f"[LLM Hook] V2 context empty ({time.time() - _v2_start:.3f}s)")
                 except Exception as e:
                     logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
+                _v2_ms = (time.time() - _v2_start) * 1000
 
             # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容) - 注入到 prompt
+            _t = time.time()
             diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
                 "",  # 传空字符串，只生成注入内容
                 group_id=group_id,  # 传入group_id以获取历史消息
@@ -2025,8 +2050,10 @@ class SelfLearningPlugin(star.Star):
             if diversity_content:
                 prompt_injections.append(diversity_content)
                 logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(diversity_content)})")
+            _diversity_ms = (time.time() - _t) * 1000
 
             # ✅ 3. 注入黑话理解（如果用户消息中包含黑话）- 注入到 prompt
+            _t = time.time()
             if hasattr(self, 'jargon_query_service') and self.jargon_query_service:
                 try:
                     # 获取用户消息文本
@@ -2047,6 +2074,7 @@ class SelfLearningPlugin(star.Star):
                     logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
             else:
                 logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
+            _jargon_ms = (time.time() - _t) * 1000
 
             # ✅ 4. 注入会话级增量更新 (修复会话串流bug) - 注入到 prompt
             if hasattr(self, 'temporary_persona_updater') and self.temporary_persona_updater:
@@ -2106,8 +2134,45 @@ class SelfLearningPlugin(star.Star):
             else:
                 logger.debug("[LLM Hook] 没有可注入的增量内容")
 
+            # ⚡ 记录性能数据到环形缓冲区
+            _total_ms = (time.time() - _hook_start) * 1000
+            sample = {
+                "ts": time.time(),
+                "total_ms": round(_total_ms, 1),
+                "social_ctx_ms": round(_social_ms, 1),
+                "v2_ctx_ms": round(_v2_ms, 1),
+                "diversity_ms": round(_diversity_ms, 1),
+                "jargon_ms": round(_jargon_ms, 1),
+                "group_id": group_id,
+            }
+            self._perf_samples.append(sample)
+            self._update_perf_stats(sample)
+
         except Exception as e:
             logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Performance metrics helpers
+    # ------------------------------------------------------------------
+
+    def _update_perf_stats(self, sample: dict):
+        """Update rolling average performance statistics."""
+        s = self._perf_stats
+        n = s["total_requests"] + 1
+        for key in ("total_ms", "social_ctx_ms", "v2_ctx_ms", "diversity_ms", "jargon_ms"):
+            avg_key = f"avg_{key}"
+            s[avg_key] = s[avg_key] + (sample[key] - s[avg_key]) / n
+        if sample["total_ms"] > s["max_total_ms"]:
+            s["max_total_ms"] = sample["total_ms"]
+        s["total_requests"] = n
+        s["last_updated"] = time.time()
+
+    def get_perf_data(self, recent_limit: int = 50) -> dict:
+        """Return performance stats + recent samples for the WebUI API."""
+        samples = list(self._perf_samples)[-recent_limit:]
+        stats = {k: round(v, 1) if isinstance(v, float) else v for k, v in self._perf_stats.items()}
+        stats["recent_samples"] = samples
+        return stats
 
     async def terminate(self):
         """插件卸载时的清理工作 - 增强后台任务管理"""
