@@ -360,43 +360,57 @@ class MessageFacade(BaseFacade):
         """获取有消息记录的群组列表（用于社交分析）
 
         返回每个群组的消息数、成员数和社交关系数，供 SocialService 消费。
+        使用两个独立查询避免 LEFT JOIN 子查询的兼容性问题。
         """
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select, func, distinct
                 from ....models.orm.message import RawMessage
-                from ....models.orm.social_relation import SocialRelation
 
-                relation_sub = (
-                    select(
-                        SocialRelation.group_id,
-                        func.count().label('relation_count'),
-                    )
-                    .group_by(SocialRelation.group_id)
-                    .subquery()
-                )
-
-                stmt = (
+                # 查询 1: 从 RawMessage 获取群组列表、消息数、成员数
+                msg_stmt = (
                     select(
                         RawMessage.group_id,
                         func.count().label('message_count'),
                         func.count(distinct(RawMessage.sender_id)).label('member_count'),
-                        func.coalesce(relation_sub.c.relation_count, 0).label('relation_count'),
                     )
-                    .outerjoin(relation_sub, RawMessage.group_id == relation_sub.c.group_id)
                     .group_by(RawMessage.group_id)
                     .order_by(func.count().desc())
                 )
-                result = await session.execute(stmt)
-                return [
-                    {
+                msg_result = await session.execute(msg_stmt)
+                groups = []
+                for row in msg_result.fetchall():
+                    groups.append({
                         'group_id': row.group_id,
                         'message_count': row.message_count,
                         'member_count': row.member_count,
-                        'relation_count': row.relation_count,
-                    }
-                    for row in result.fetchall()
-                ]
+                        'relation_count': 0,
+                    })
+
+                # 查询 2: 从 SocialRelation 获取每个群组的关系数（可选）
+                if groups:
+                    try:
+                        from ....models.orm.social_relation import SocialRelation
+                        rel_stmt = (
+                            select(
+                                SocialRelation.group_id,
+                                func.count().label('relation_count'),
+                            )
+                            .group_by(SocialRelation.group_id)
+                        )
+                        rel_result = await session.execute(rel_stmt)
+                        rel_map = {
+                            row.group_id: row.relation_count
+                            for row in rel_result.fetchall()
+                        }
+                        for g in groups:
+                            g['relation_count'] = rel_map.get(g['group_id'], 0)
+                    except Exception as rel_err:
+                        self._logger.debug(
+                            f"[MessageFacade] 获取社交关系计数失败（不影响群组列表）: {rel_err}"
+                        )
+
+                return groups
         except Exception as e:
             self._logger.error(f"[MessageFacade] 获取分析群组列表失败: {e}")
             return []

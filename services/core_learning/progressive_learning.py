@@ -563,49 +563,32 @@ class ProgressiveLearningService:
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
             success = True # 对话风格学习总是成功
 
-            # 【新增】记录学习批次到数据库，供webui查询使用
-            # 增强错误处理，如果表不存在则跳过记录
+            # 记录学习批次到数据库（使用 ORM）
             try:
                 batch_name = f"batch_{group_id}_{int(time.time())}"
                 start_time = batch_start_time.timestamp()
                 end_time = time.time()
 
-                # 连接到全局消息数据库记录学习批次
-                async with self.db_manager.get_db_connection() as conn:
-                    cursor = await conn.cursor()
-
-                    try:
-                        await cursor.execute('''
-                            INSERT INTO learning_batches
-                            (batch_id, group_id, batch_name, start_time, end_time, quality_score, processed_messages,
-                             message_count, filtered_count, success, error_message)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ''', (
-                            batch_name,
-                            group_id,
-                            batch_name,
-                            start_time,
-                            end_time,
-                            quality_metrics.consistency_score,
-                            len(unprocessed_messages),
-                            len(unprocessed_messages),
-                            len(filtered_messages),
-                            success,
-                            None # 对话风格学习总是成功，不记录错误
-                        ))
-                        await conn.commit()
-                        logger.debug(f"学习批次记录已保存: {batch_name}")
-                    except Exception as e:
-                        error_str = str(e)
-                        if "no such table" in error_str.lower() or "doesn't exist" in error_str.lower() or "unknown column" in error_str.lower():
-                            logger.debug(f"学习批次表不存在或结构过旧，跳过保存（这不影响学习功能）: {e}")
-                        else:
-                            logger.error(f"保存学习批次记录失败: {e}")
-                    finally:
-                        await cursor.close()
+                async with self.db_manager.get_session() as session:
+                    from ...models.orm.learning import LearningBatch
+                    batch_record = LearningBatch(
+                        batch_id=batch_name,
+                        batch_name=batch_name,
+                        group_id=group_id,
+                        start_time=start_time,
+                        end_time=end_time,
+                        quality_score=quality_metrics.consistency_score,
+                        processed_messages=len(unprocessed_messages),
+                        message_count=len(unprocessed_messages),
+                        filtered_count=len(filtered_messages),
+                        success=success,
+                    )
+                    session.add(batch_record)
+                    await session.commit()
+                    logger.debug(f"学习批次记录已保存: {batch_name}")
             except Exception as e:
-                logger.debug(f"无法记录学习批次（这不影响学习功能）: {e}")
-            
+                logger.debug(f"无法记录学习批次（不影响学习功能）: {e}")
+
             # 保存学习性能记录
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self._group_sessions[group_id].session_id if group_id in self._group_sessions else '',
@@ -732,67 +715,6 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.warning(f"JSON序列化对象时出现错误: {e}, 对象类型: {type(obj)}, 转换为字符串")
             return str(obj)
-
-    # async def _execute_learning_batch(self):
-    # """执行一个学习批次"""
-    # try:
-    # batch_start_time = datetime.now()
-            
-    # # 1. 获取未处理的消息
-    # unprocessed_messages = await self.message_collector.get_unprocessed_messages(
-    # limit=self.batch_size
-    # )
-            
-    # if not unprocessed_messages:
-    # logger.debug("没有未处理的消息，跳过此批次")
-    # return
-            
-    # logger.info(f"开始处理 {len(unprocessed_messages)} 条消息")
-            
-    # # 2. 使用多维度分析器筛选消息
-    # filtered_messages = await self._filter_messages_with_context(unprocessed_messages)
-            
-    # if not filtered_messages:
-    # logger.debug("没有通过筛选的消息")
-    # await self._mark_messages_processed(unprocessed_messages)
-    # return
-            
-    # # 3. 使用风格分析器深度分析
-    # style_analysis = await self.style_analyzer.analyze_conversation_style(filtered_messages)
-            
-    # # 4. 获取当前人格设置
-    # current_persona = await self._get_current_persona()
-            
-    # # 5. 质量监控评估
-    # quality_metrics = await self.quality_monitor.evaluate_learning_batch(
-    # current_persona, 
-    # await self._generate_updated_persona(current_persona, style_analysis),
-    # filtered_messages
-    # )
-            
-    # # 6. 根据质量评估决定是否应用更新
-    # if quality_metrics.consistency_score >= self.quality_threshold:
-    # await self._apply_learning_updates(style_analysis, filtered_messages)
-    # logger.info(f"学习更新已应用，质量得分: {quality_metrics.consistency_score:.3f}")
-    # else:
-    # logger.warning(f"学习质量不达标，跳过更新，得分: {quality_metrics.consistency_score:.3f}")
-            
-    # # 7. 标记消息为已处理
-    # await self._mark_messages_processed(unprocessed_messages)
-            
-    # # 8. 更新学习会话统计
-    # if self.current_session:
-    # self.current_session.messages_processed += len(unprocessed_messages)
-    # self.current_session.filtered_messages += len(filtered_messages)
-    # self.current_session.quality_score = quality_metrics.consistency_score
-            
-    # # 记录批次耗时
-    # batch_duration = (datetime.now() - batch_start_time).total_seconds()
-    # logger.info(f"学习批次完成，耗时: {batch_duration:.2f}秒")
-            
-    # except Exception as e:
-    # logger.error(f"学习批次执行失败: {e}")
-    # raise LearningError(f"学习批次执行失败: {str(e)}")
 
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """对话风格学习不需要筛选，直接返回所有消息"""
@@ -1196,122 +1118,6 @@ class ProgressiveLearningService:
             return True
         except Exception as e:
             logger.error(f"停止渐进式学习服务失败: {e}")
-            return False
-
-    async def _create_persona_review_for_low_quality(self, group_id: str, current_persona: str, 
-                                                   updated_persona: str, quality_metrics, filtered_messages):
-        """为质量不达标的学习结果创建审查记录"""
-        try:
-            from ...core.interfaces import PersonaUpdateRecord
-            import time
-            
-            # 将字典类型的人格数据转换为字符串
-            if isinstance(current_persona, dict):
-                current_persona_str = json.dumps(current_persona, ensure_ascii=False, indent=2)
-            else:
-                current_persona_str = str(current_persona) if current_persona else ""
-                
-            if isinstance(updated_persona, dict):
-                updated_persona_str = json.dumps(updated_persona, ensure_ascii=False, indent=2)
-            else:
-                updated_persona_str = str(updated_persona) if updated_persona else ""
-            
-            # 计算变化内容摘要
-            current_length = len(current_persona_str)
-            updated_length = len(updated_persona_str)
-            
-            # 构建详细的审查说明
-            reason = f"""学习质量评估结果 (得分: {quality_metrics.consistency_score:.3f} < 阈值: {self.quality_threshold})
-
-质量分析详情:
-- 一致性得分: {quality_metrics.consistency_score:.3f}
-- 处理消息数: {len(filtered_messages)}
-- 原人格长度: {current_length} 字符
-- 新人格长度: {updated_length} 字符
-
-系统建议: 由于学习质量不达标，建议手动审查内容质量后决定是否应用。
-可能的问题包括：内容冗余、逻辑不连贯、与现有人格风格差异过大等。
-
-请仔细检查新人格内容是否合理，决定是否应用此次学习结果。"""
-
-            # 保存完整内容，不进行截断（移除之前的500字符限制）
-            original_content_full = current_persona_str
-            new_content_full = updated_persona_str
-
-            # 创建审查记录
-            review_record = PersonaUpdateRecord(
-                timestamp=time.time(),
-                group_id=group_id,
-                update_type="persona_learning_review", 
-                original_content=original_content_full,
-                new_content=new_content_full,
-                reason=reason,
-                confidence_score=quality_metrics.consistency_score, # 使用实际的质量得分
-                status='pending'
-            )
-            
-            # 直接保存到数据库 - 不依赖persona_updater
-            try:
-                async with self.db_manager.get_db_connection() as conn:
-                    cursor = await conn.cursor()
-                    
-                    # 确保审查表存在
-                    await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS persona_update_reviews (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            timestamp REAL NOT NULL,
-                            group_id TEXT NOT NULL,
-                            update_type TEXT NOT NULL,
-                            original_content TEXT,
-                            new_content TEXT,
-                            proposed_content TEXT,
-                            confidence_score REAL,
-                            reason TEXT,
-                            status TEXT NOT NULL DEFAULT 'pending',
-                            reviewer_comment TEXT,
-                            review_time REAL
-                        )
-                    ''')
-                    
-                    # 为旧表添加缺失的列（如果不存在）
-                    try:
-                        await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN proposed_content TEXT')
-                    except Exception:
-                        pass # 列已存在
-                    try:
-                        await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN confidence_score REAL')
-                    except Exception:
-                        pass # 列已存在
-                    
-                    # 插入审查记录
-                    await cursor.execute('''
-                        INSERT INTO persona_update_reviews 
-                        (timestamp, group_id, update_type, original_content, new_content, proposed_content, confidence_score, reason, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        review_record.timestamp,
-                        review_record.group_id,
-                        review_record.update_type,
-                        review_record.original_content,
-                        review_record.new_content,
-                        review_record.new_content, # proposed_content使用相同内容
-                        review_record.confidence_score,
-                        review_record.reason,
-                        review_record.status
-                    ))
-                    
-                    await conn.commit()
-                    record_id = cursor.lastrowid
-                    await cursor.close()
-                    logger.info(f"质量不达标的人格学习审查记录已创建，ID: {record_id}")
-                    return True
-                    
-            except Exception as db_error:
-                logger.error(f"保存审查记录到数据库失败: {db_error}")
-                return False
-
-        except Exception as e:
-            logger.error(f"创建质量不达标审查记录失败: {e}")
             return False
 
     async def _save_style_learning_record(self, group_id: str, style_analysis: Dict[str, Any],
