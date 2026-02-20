@@ -272,12 +272,13 @@ class LearningFacade(BaseFacade):
             return []
 
     async def get_pending_persona_learning_reviews(
-        self, limit: int = None
+        self, limit: int = None, offset: int = 0
     ) -> List[Dict[str, Any]]:
-        """获取待审核的人格学习审核记录（支持 limit 参数）
+        """获取待审核的人格学习审核记录
 
         Args:
             limit: 可选的返回数量限制
+            offset: 分页偏移量
 
         Returns:
             待审核记录列表
@@ -292,6 +293,8 @@ class LearningFacade(BaseFacade):
                     .where(PersonaLearningReview.status == 'pending')
                     .order_by(desc(PersonaLearningReview.timestamp))
                 )
+                if offset > 0:
+                    stmt = stmt.offset(offset)
                 if limit is not None:
                     stmt = stmt.limit(limit)
 
@@ -504,11 +507,12 @@ class LearningFacade(BaseFacade):
             self._logger.error(f"[LearningFacade] 创建风格学习审核记录失败: {e}")
             return 0
 
-    async def get_pending_style_reviews(self, limit=None) -> List[Dict]:
+    async def get_pending_style_reviews(self, limit=None, offset=0) -> List[Dict]:
         """获取待审核的风格学习记录
 
         Args:
             limit: 可选的返回数量限制
+            offset: 分页偏移量
 
         Returns:
             待审核记录列表
@@ -523,6 +527,8 @@ class LearningFacade(BaseFacade):
                     .where(StyleLearningReview.status == 'pending')
                     .order_by(desc(StyleLearningReview.timestamp))
                 )
+                if offset > 0:
+                    stmt = stmt.offset(offset)
                 if limit is not None:
                     stmt = stmt.limit(limit)
 
@@ -548,6 +554,40 @@ class LearningFacade(BaseFacade):
                 ]
         except Exception as e:
             self._logger.error(f"[LearningFacade] 获取待审核风格学习记录失败: {e}")
+            return []
+
+    async def get_approved_few_shots(
+        self, group_id: str, limit: int = 3
+    ) -> List[str]:
+        """获取指定群组已审批的 few-shot 对话内容
+
+        Args:
+            group_id: 群组 ID
+            limit: 返回条数上限
+
+        Returns:
+            few_shots_content 文本列表，按时间倒序
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ....models.orm.learning import StyleLearningReview
+
+                stmt = (
+                    select(StyleLearningReview.few_shots_content)
+                    .where(
+                        StyleLearningReview.status == 'approved',
+                        StyleLearningReview.group_id == group_id,
+                        StyleLearningReview.few_shots_content.isnot(None),
+                        StyleLearningReview.few_shots_content != '',
+                    )
+                    .order_by(desc(StyleLearningReview.timestamp))
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                return [row[0] for row in result.fetchall()]
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 获取已审批 few-shots 失败: {e}")
             return []
 
     async def get_reviewed_style_learning_updates(

@@ -398,9 +398,9 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.create_style_learning_review(review_data)
 
     async def get_pending_style_reviews(
-        self, limit: int = 50,
+        self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_style_reviews(limit)
+        return await self._learning.get_pending_style_reviews(limit, offset)
 
     async def get_reviewed_style_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
@@ -419,10 +419,15 @@ class SQLAlchemyDatabaseManager:
     async def delete_style_review_by_id(self, review_id: int) -> bool:
         return await self._learning.delete_style_review_by_id(review_id)
 
+    async def get_approved_few_shots(
+        self, group_id: str, limit: int = 3,
+    ) -> List[str]:
+        return await self._learning.get_approved_few_shots(group_id, limit)
+
     async def get_pending_persona_learning_reviews(
-        self, limit: int = 50,
+        self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_learning_reviews(limit)
+        return await self._learning.get_pending_persona_learning_reviews(limit, offset)
 
     async def get_reviewed_persona_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,

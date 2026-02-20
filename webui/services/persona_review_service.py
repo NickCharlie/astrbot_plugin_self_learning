@@ -94,7 +94,7 @@ class PersonaReviewService:
         if self.database_manager:
             try:
                 logger.info("正在获取人格学习审查...")
-                persona_learning_reviews = await self.database_manager.get_pending_persona_learning_reviews(limit=999999)
+                persona_learning_reviews = await self.database_manager.get_pending_persona_learning_reviews()
                 logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
 
                 for review in persona_learning_reviews:
@@ -170,7 +170,7 @@ class PersonaReviewService:
         if self.database_manager:
             try:
                 logger.info("正在获取风格学习审查...")
-                style_reviews = await self.database_manager.get_pending_style_reviews(limit=999999)
+                style_reviews = await self.database_manager.get_pending_style_reviews()
                 logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
 
                 for review in style_reviews:
