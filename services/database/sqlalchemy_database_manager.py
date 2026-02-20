@@ -569,7 +569,8 @@ class SQLAlchemyDatabaseManager:
 
     # Domain delegates: PersonaFacade
 
-    async def backup_persona(self, backup_data: Dict[str, Any]) -> bool:
+    async def backup_persona(self, group_id: str, backup_data: Dict[str, Any]) -> bool:
+        backup_data.setdefault('group_id', group_id)
         return await self._persona.backup_persona(backup_data)
 
     async def get_persona_backups(self, limit: int = 10) -> List[Dict[str, Any]]:
