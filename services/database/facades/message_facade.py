@@ -357,23 +357,44 @@ class MessageFacade(BaseFacade):
             return {}
 
     async def get_groups_for_social_analysis(self) -> List[Dict[str, Any]]:
-        """获取有消息记录的群组列表（用于社交分析）"""
+        """获取有消息记录的群组列表（用于社交分析）
+
+        返回每个群组的消息数、成员数和社交关系数，供 SocialService 消费。
+        """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
+                from sqlalchemy import select, func, distinct
                 from ....models.orm.message import RawMessage
+                from ....models.orm.social_relation import SocialRelation
+
+                relation_sub = (
+                    select(
+                        SocialRelation.group_id,
+                        func.count().label('relation_count'),
+                    )
+                    .group_by(SocialRelation.group_id)
+                    .subquery()
+                )
 
                 stmt = (
                     select(
                         RawMessage.group_id,
-                        func.count().label('message_count')
+                        func.count().label('message_count'),
+                        func.count(distinct(RawMessage.sender_id)).label('member_count'),
+                        func.coalesce(relation_sub.c.relation_count, 0).label('relation_count'),
                     )
+                    .outerjoin(relation_sub, RawMessage.group_id == relation_sub.c.group_id)
                     .group_by(RawMessage.group_id)
                     .order_by(func.count().desc())
                 )
                 result = await session.execute(stmt)
                 return [
-                    {'group_id': row.group_id, 'message_count': row.message_count}
+                    {
+                        'group_id': row.group_id,
+                        'message_count': row.message_count,
+                        'member_count': row.member_count,
+                        'relation_count': row.relation_count,
+                    }
                     for row in result.fetchall()
                 ]
         except Exception as e:
