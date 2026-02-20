@@ -102,7 +102,7 @@ class ServiceContainer:
 
         # 初始化智能指标服务
         try:
-            from ..services.intelligence_metrics import IntelligenceMetricsService
+            from ..services.analysis import IntelligenceMetricsService
             self.intelligence_metrics_service = IntelligenceMetricsService(
                 plugin_config,
                 self.database_manager,

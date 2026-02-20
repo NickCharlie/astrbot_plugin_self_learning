@@ -1,0 +1,155 @@
+body, html {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #000;
+}
+
+.space {
+    flex-grow: 1;
+}
+
+.el-dropdown-menu__item {
+    font-size: 13px!important;
+    color: #333;
+    margin: 3px 5px;
+    border-radius: 5px;
+    padding: 0px 12px;
+    display: flex;
+    align-items: center;
+    line-height: 2;
+}
+
+.el-scrollbar {
+    width: 200px;
+}
+
+.el-dropdown__popper.el-popper[role=tooltip] {
+    top: 32px !important;
+}
+
+.el-dropdown-menu__item:hover {
+    background-color: #4b9efb!important;
+    color: white!important;
+}
+
+.el-dropdown-menu__item span:hover {
+    color: white!important;
+}
+
+.el-dropdown-menu {
+    padding: 0!important;
+    background: transparent!important;
+}
+
+.el-dropdown__popper.el-popper[role=tooltip] {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(20px);
+}
+
+.el-dropdown-menu__item.line {
+    height: 1px;
+    background: rgba(0, 0, 0, 0.1);
+    margin: 0px 15px;
+}
+
+.el-dropdown-menu__item span {
+    color: #aaa;
+}
+
+.el-popper__arrow, .el-popper__arrow::before {
+    content: '' !important;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    display: none !important;
+}
+
+.el-tag__close {
+    position: absolute!important;
+    right: 3px!important;
+    top: 6px!important;
+}
+
+audio {
+    position: relative;
+    z-index: 99;
+}
+
+[v-cloak] {
+    visibility: hidden !important;
+}
+
+body {
+    display: flex;
+    align-items: center;
+    /*定义body的元素垂直居中*/
+    justify-content: center;
+    /*定义body的里的元素水平居中*/
+}
+
+@font-face {
+    font-family: 'Gotham-Book';
+    src: url('../fonts/Gotham-Book.woff2');
+}
+
+* {
+    font-family: 'Gotham-Book';
+    background-attachment: fixed;
+    outline: none;
+    -webkit-text-size-adjust: none;
+    -moz-text-size-adjust: none;
+    -ms-text-size-adjust: none;
+    text-size-adjust: none;
+    -moz-user-select: none;
+    /*火狐*/
+    -webkit-user-select: none;
+    /*webkit浏览器*/
+    -ms-user-select: none;
+    /*IE10*/
+    -khtml-user-select: none;
+    /*早期浏览器*/
+    user-select: none;
+}
+
+input, textarea {
+    -moz-user-select: text;
+    -webkit-user-select: text;
+    -ms-user-select: text;
+    -khtml-user-select: text;
+    user-select: text;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+    /*对垂直流动条有效*/
+    height: 5px;
+    /*对水平流动条有效*/
+}
+
+/*定义滚动条的轨道颜色、内阴影及圆角*/
+
+::-webkit-scrollbar-track {
+    background-color: transparent;
+    border-radius: 5px;
+}
+
+/*定义滑块颜色、内阴影及圆角*/
+
+::-webkit-scrollbar-thumb {
+    border-radius: 5px;
+    background-color: rgba(0, 0, 0, 0.2);
+}
+
+/*定义两端按钮的样式*/
+
+::-webkit-scrollbar-button {
+    background-color: transparent;
+}
+
+/*定义右下角汇合处的样式*/
+
+::-webkit-scrollbar-corner {
+    background: transparent;
+}

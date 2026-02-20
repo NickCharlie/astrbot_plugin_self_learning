@@ -134,7 +134,7 @@ class SQLiteConnectionPool(ConnectionPool):
                 logger.warning(f"[SQLite] 连接已损坏，关闭连接: {e}")
                 try:
                     await conn.close()
-                except:
+                except Exception:
                     pass
                 self.total_connections -= 1
                 self.active_connections -= 1

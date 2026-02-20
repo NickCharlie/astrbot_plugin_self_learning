@@ -166,7 +166,6 @@ class PluginConfig:
     # 重构功能配置（新增）
     # ⚠️ 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
     use_sqlalchemy: bool = True  # ✨ 硬编码为 True，确保所有数据库操作使用 ORM 模型
-    use_enhanced_managers: bool = False  # 使用增强型管理器（False=使用原始实现）
     enable_memory_cleanup: bool = True  # 启用记忆自动清理（每天凌晨3点）
     memory_cleanup_days: int = 30  # 记忆保留天数（低于阈值的旧记忆会被清理）
     memory_importance_threshold: float = 0.3  # 记忆重要性阈值（低于此值的会被清理）
@@ -327,7 +326,6 @@ class PluginConfig:
             # 重构功能配置
             # ⚠️ 强制使用 SQLAlchemy ORM，忽略配置文件中的设置
             use_sqlalchemy=True,  # 硬编码为 True
-            use_enhanced_managers=advanced_settings.get('use_enhanced_managers', False),
             enable_memory_cleanup=advanced_settings.get('enable_memory_cleanup', True),
             memory_cleanup_days=advanced_settings.get('memory_cleanup_days', 30),
             memory_importance_threshold=advanced_settings.get('memory_importance_threshold', 0.3),

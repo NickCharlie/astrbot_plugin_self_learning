@@ -89,7 +89,7 @@ class ServiceFactory(IServiceFactory):
         
         try:
             # 单例模式动态导入避免循环依赖
-            from ..services.message_collector import MessageCollectorService
+            from ..services.core_learning import MessageCollectorService
             
             service = MessageCollectorService(self.config, self.context, self.create_database_manager()) # 传递 DatabaseManager
             self._service_cache[cache_key] = service
@@ -113,7 +113,7 @@ class ServiceFactory(IServiceFactory):
             # 如果启用了MaiBot增强功能，使用MaiBot适配器
             if getattr(self.config, 'enable_maibot_features', False):
                 try:
-                    from ..services.maibot_adapters import MaiBotStyleAnalyzer
+                    from ..services.integration import MaiBotStyleAnalyzer
                     service = MaiBotStyleAnalyzer(
                         self.config, 
                         self.create_database_manager(),
@@ -128,7 +128,7 @@ class ServiceFactory(IServiceFactory):
                     self._logger.warning(f"MaiBot适配器不可用，回退到默认实现: {e}")
             
             # 回退到默认实现
-            from ..services.style_analyzer import StyleAnalyzerService
+            from ..services.response import StyleAnalyzerService
             
             # 传递 DatabaseManager 和框架适配器
             service = StyleAnalyzerService(
@@ -156,7 +156,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.message_relationship_analyzer import MessageRelationshipAnalyzer
+            from ..services.social import MessageRelationshipAnalyzer
             
             service = MessageRelationshipAnalyzer(
                 self.config,
@@ -179,7 +179,7 @@ class ServiceFactory(IServiceFactory):
             # 如果启用了MaiBot增强功能，使用MaiBot学习策略
             if getattr(self.config, 'enable_maibot_features', False):
                 try:
-                    from ..services.maibot_adapters import MaiBotLearningStrategy
+                    from ..services.integration import MaiBotLearningStrategy
                     strategy = MaiBotLearningStrategy(self.config, self.create_database_manager())
                     self._logger.info("创建MaiBot学习策略成功")
                     return strategy
@@ -219,7 +219,7 @@ class ServiceFactory(IServiceFactory):
             # 如果启用了MaiBot增强功能，使用MaiBot质量监控器
             if getattr(self.config, 'enable_maibot_features', False):
                 try:
-                    from ..services.maibot_adapters import MaiBotQualityMonitor
+                    from ..services.integration import MaiBotQualityMonitor
                     service = MaiBotQualityMonitor(self.config, self.create_database_manager())
                     self._service_cache[cache_key] = service
                     self._registry.register_service("quality_monitor", service)
@@ -229,7 +229,7 @@ class ServiceFactory(IServiceFactory):
                     self._logger.warning(f"MaiBot质量监控器不可用，回退到默认实现: {e}")
             
             # 回退到默认实现
-            from ..services.learning_quality_monitor import LearningQualityMonitor
+            from ..services.quality import LearningQualityMonitor
             
             service = LearningQualityMonitor(
                 self.config, 
@@ -255,16 +255,13 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
 
         try:
-            # 使用数据库工厂创建管理器（根据配置选择实现）
-            from ..services.database_factory import create_database_manager
+            from ..services.database import SQLAlchemyDatabaseManager
 
-            service = create_database_manager(self.config, self.context)
+            service = SQLAlchemyDatabaseManager(self.config, self.context)
             self._service_cache[cache_key] = service
             self._registry.register_service("database_manager", service)
 
-            # 记录使用的实现类型
-            impl_type = type(service).__name__
-            self._logger.info(f"创建数据库管理器成功 (实现: {impl_type})")
+            self._logger.info(f"创建数据库管理器成功 (实现: SQLAlchemyDatabaseManager)")
             return service
 
         except ImportError as e:
@@ -279,7 +276,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.ml_analyzer import LightweightMLAnalyzer
+            from ..services.analysis import LightweightMLAnalyzer
             
             # 需要数据库管理器
             db_manager = self.create_database_manager()
@@ -311,7 +308,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
 
         try:
-            from ..services.intelligent_responder import IntelligentResponder
+            from ..services.response import IntelligentResponder
 
             # 需要数据库管理器
             db_manager = self.create_database_manager()
@@ -352,7 +349,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.persona_manager import PersonaManagerService # 导入 PersonaManagerService
+            from ..services.persona import PersonaManagerService # 导入 PersonaManagerService
             
             # 创建依赖的服务
             persona_updater = self.create_persona_updater()
@@ -377,7 +374,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.persona_manager_updater import PersonaManagerUpdater
+            from ..services.persona import PersonaManagerUpdater
             
             service = PersonaManagerUpdater(self.config, self.context)
             self._service_cache[cache_key] = service
@@ -398,7 +395,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.multidimensional_analyzer import MultidimensionalAnalyzer
+            from ..services.analysis import MultidimensionalAnalyzer
             
             db_manager = self.create_database_manager() # 获取 DatabaseManager 实例
             
@@ -433,7 +430,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.progressive_learning import ProgressiveLearningService
+            from ..services.core_learning import ProgressiveLearningService
             
             # Directly pass the database manager
             db_manager = self.create_database_manager()
@@ -469,7 +466,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.persona_backup_manager import PersonaBackupManager
+            from ..services.persona import PersonaBackupManager
             db_manager = self.create_database_manager()
             service = PersonaBackupManager(self.config, self.context, db_manager)
             self._service_cache[cache_key] = service
@@ -488,7 +485,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.temporary_persona_updater import TemporaryPersonaUpdater
+            from ..services.persona import TemporaryPersonaUpdater
             
             # 获取依赖的服务
             persona_updater = self.create_persona_updater()
@@ -520,7 +517,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
         
         try:
-            from ..services.persona_updater import PersonaUpdater
+            from ..services.persona import PersonaUpdater
             backup_manager = self.create_persona_backup_manager()
             service = PersonaUpdater(
                 self.config, 
@@ -642,7 +639,7 @@ class ServiceFactory(IServiceFactory):
             return self._service_cache[cache_key]
 
         try:
-            from ..services.response_diversity_manager import ResponseDiversityManager
+            from ..services.response import ResponseDiversityManager
 
             service = ResponseDiversityManager(
                 config=self.config,
@@ -844,7 +841,7 @@ class ComponentFactory:
     
     def create_persona_updater(self, context: Context, backup_manager):
         """创建人格更新器"""
-        from ..services.persona_updater import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
+        from ..services.persona import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
         prompts = self.service_factory.get_prompts() # 获取 prompts
         return ActualPersonaUpdater(self.config, context, backup_manager, None, prompts)
 
@@ -856,7 +853,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            from ..services.data_analytics import DataAnalyticsService
+            from ..services.analysis import DataAnalyticsService
             
             service = DataAnalyticsService(
                 self.config,
@@ -880,7 +877,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            from ..services.advanced_learning import AdvancedLearningService
+            from ..services.core_learning import AdvancedLearningService
             
             service = AdvancedLearningService(
                 self.config,
@@ -906,7 +903,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            from ..services.enhanced_interaction import EnhancedInteractionService
+            from ..services.state import EnhancedInteractionService
             
             service = EnhancedInteractionService(
                 self.config,
@@ -931,7 +928,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
         
         try:
-            from ..services.intelligence_enhancement import IntelligenceEnhancementService
+            from ..services.analysis import IntelligenceEnhancementService
             
             service = IntelligenceEnhancementService(
                 self.config,
@@ -958,7 +955,7 @@ class ComponentFactory:
 
         try:
             # 使用管理器工厂创建好感度管理器（根据配置选择实现）
-            from ..services.manager_factory import get_manager_factory
+            from ..services.database import get_manager_factory
 
             # 获取或创建管理器工厂
             manager_factory = get_manager_factory(self.config)
@@ -989,7 +986,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
 
         try:
-            from ..services.expression_pattern_learner import ExpressionPatternLearner
+            from ..services.analysis import ExpressionPatternLearner
 
             # 使用单例模式获取实例
             service = ExpressionPatternLearner.get_instance(
@@ -1017,8 +1014,8 @@ class ComponentFactory:
             return self._service_cache[cache_key]
 
         try:
-            from ..services.social_context_injector import SocialContextInjector
-            from ..services.manager_factory import ManagerFactory
+            from ..services.social import SocialContextInjector
+            from ..services.database import ManagerFactory
 
             db_manager = self.service_factory.create_database_manager()
             llm_adapter = self.service_factory.create_framework_llm_adapter()
@@ -1085,7 +1082,7 @@ class ComponentFactory:
             return self._service_cache[cache_key]
 
         try:
-            from ..services.conversation_goal_manager import ConversationGoalManager
+            from ..services.quality import ConversationGoalManager
 
             service = ConversationGoalManager(
                 database_manager=self.service_factory.create_database_manager(),
@@ -1111,8 +1108,8 @@ class ComponentFactory:
             return self._service_cache[cache_key]
 
         try:
-            from ..services.intelligent_chat_service import IntelligentChatService
-            from ..services.manager_factory import ManagerFactory
+            from ..services.response import IntelligentChatService
+            from ..services.database import ManagerFactory
 
             # 创建必要的依赖
             db_manager = self.service_factory.create_database_manager()
@@ -1156,72 +1153,6 @@ class ComponentFactory:
             self._logger.error(f"导入智能对话服务失败: {e}", exc_info=True)
             raise ServiceError(f"创建智能对话服务失败: {str(e)}")
 
-    def create_psychological_social_context_injector(self):
-        """
-        创建心理社交上下文注入器
-
-        该注入器整合了心理状态、社交关系、好感度等多维度信息,
-        并使用LLM动态生成行为指导prompt
-        """
-        cache_key = "psychological_social_context_injector"
-
-        if cache_key in self._service_cache:
-            return self._service_cache[cache_key]
-
-        try:
-            from ..services.psychological_social_context_injector import PsychologicalSocialContextInjector
-            from ..services.manager_factory import ManagerFactory
-
-            # 获取必要的依赖
-            db_manager = self.service_factory.create_database_manager()
-            llm_adapter = self.service_factory.create_framework_llm_adapter()
-
-            # 使用ManagerFactory创建心理状态和社交关系管理器
-            manager_factory = ManagerFactory(self.config)
-
-            # 创建心理状态管理器(传递affection_manager=None避免循环依赖)
-            psychological_state_manager = manager_factory.create_psychological_manager(
-                database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
-                llm_adapter=llm_adapter,
-                affection_manager=None
-            )
-
-            # 创建社交关系管理器
-            social_relation_manager = manager_factory.create_social_relation_manager(
-                database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
-                llm_adapter=llm_adapter
-            )
-
-            # 获取好感度管理器(如果已创建)
-            affection_manager = self._service_cache.get("affection_manager")
-
-            # 获取响应多样性管理器(如果已创建)
-            diversity_manager = self._service_cache.get("response_diversity_manager")
-
-            # 创建注入器实例
-            service = PsychologicalSocialContextInjector(
-                database_manager=db_manager,
-                psychological_state_manager=psychological_state_manager,
-                social_relation_manager=social_relation_manager,
-                affection_manager=affection_manager,
-                diversity_manager=diversity_manager,
-                llm_adapter=llm_adapter,
-                config=self.config
-            )
-
-            # 缓存和注册
-            self._service_cache[cache_key] = service
-            self._registry.register_service("psychological_social_context_injector", service)
-
-            self._logger.info("✅ 创建心理社交上下文注入器成功")
-            return service
-
-        except ImportError as e:
-            self._logger.error(f"❌ 导入心理社交上下文注入器失败: {e}", exc_info=True)
-            raise ServiceError(f"创建心理社交上下文注入器失败: {str(e)}")
-        except Exception as e:
-            self._logger.error(f"❌ 创建心理社交上下文注入器异常: {e}", exc_info=True)
-            raise ServiceError(f"创建心理社交上下文注入器失败: {str(e)}")
 
 
 # 全局工厂实例管理器

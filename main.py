@@ -344,7 +344,7 @@ class SelfLearningPlugin(star.Star):
             self.social_context_injector = component_factory.create_social_context_injector()
 
             # ✅ 创建黑话查询服务 - 用于在LLM请求时注入黑话理解
-            from .services.jargon_query import JargonQueryService
+            from .services.jargon import JargonQueryService
             self.jargon_query_service = JargonQueryService(
                 db_manager=self.db_manager,
                 cache_ttl=60  # 60秒缓存TTL
@@ -352,7 +352,7 @@ class SelfLearningPlugin(star.Star):
             logger.info("黑话查询服务已初始化（带60秒缓存）")
 
             # ✅ 创建黑话挖掘管理器 - 用于后台学习黑话
-            from .services.jargon_miner import JargonMinerManager
+            from .services.jargon import JargonMinerManager
             self.jargon_miner_manager = JargonMinerManager(
                 llm_adapter=self.service_factory.create_framework_llm_adapter(),
                 db_manager=self.db_manager,
@@ -361,7 +361,7 @@ class SelfLearningPlugin(star.Star):
             logger.info("黑话挖掘管理器已初始化")
 
             # ✅ 创建黑话统计预筛器 - 零成本统计每条消息，减少LLM调用
-            from .services.jargon_statistical_filter import JargonStatisticalFilter
+            from .services.jargon import JargonStatisticalFilter
             self.jargon_statistical_filter = JargonStatisticalFilter()
             logger.info("黑话统计预筛器已初始化")
 
@@ -373,7 +373,7 @@ class SelfLearningPlugin(star.Star):
             )
             if self.plugin_config.knowledge_engine != "legacy" or self.plugin_config.memory_engine != "legacy":
                 try:
-                    from .services.v2_learning_integration import V2LearningIntegration
+                    from .services.core_learning import V2LearningIntegration
                     llm_adapter = self.service_factory.create_framework_llm_adapter()
                     self.v2_integration = V2LearningIntegration(
                         config=self.plugin_config,
@@ -1275,7 +1275,7 @@ class SelfLearningPlugin(star.Star):
             )
             
             # 同时在affection_manager中记录情绪状态（但不重复添加到prompt）
-            from .services.affection_manager import MoodType
+            from .services.state import MoodType
             try:
                 mood_enum = MoodType(mood_type)
                 # 只记录到affection_manager的数据库，不更新prompt（避免重复）
@@ -1284,7 +1284,7 @@ class SelfLearningPlugin(star.Star):
                     self.plugin_config.mood_persistence_hours or 24
                 )
                 # 更新内存缓存
-                from .services.affection_manager import BotMood
+                from .services.state import BotMood
                 import time
                 mood_obj = BotMood(
                     mood_type=mood_enum,
@@ -1367,9 +1367,9 @@ class SelfLearningPlugin(star.Star):
 
             # 4.6 重置单例管理器，确保重启时重新初始化
             try:
-                from .services.memory_graph_manager import MemoryGraphManager
-                MemoryGraphManager._instance = None
-                MemoryGraphManager._initialized = False
+                from .services.state import EnhancedMemoryGraphManager
+                EnhancedMemoryGraphManager._instance = None
+                EnhancedMemoryGraphManager._initialized = False
                 logger.info("MemoryGraphManager 单例已重置")
             except Exception:
                 pass

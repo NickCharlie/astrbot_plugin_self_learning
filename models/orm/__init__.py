@@ -19,13 +19,18 @@ from .psychological import (
     PsychologicalStateHistory,
     PersonaDiversityScore,
     PersonaAttributeWeight,
-    PersonaEvolutionSnapshot
+    PersonaEvolutionSnapshot,
+    EmotionProfile,
+    BotMood,
+    PersonaBackup,
 )
 from .social_relation import (
     SocialRelation,
     UserSocialProfile,
     UserSocialRelationComponent,
-    SocialRelationHistory
+    SocialRelationHistory,
+    UserProfile,
+    UserPreferences,
 )
 from .social_analysis import (
     SocialRelationAnalysisResult,
@@ -45,7 +50,10 @@ from .learning import (
 from .expression import (
     ExpressionPattern,
     ExpressionGenerationResult,
-    AdaptiveResponseTemplate
+    AdaptiveResponseTemplate,
+    StyleProfile,
+    StyleLearningRecord,
+    LanguageStylePattern,
 )
 from .performance import (
     LearningPerformanceHistory
@@ -82,32 +90,37 @@ from .exemplar import (
 
 __all__ = [
     'Base',
-    # 好感度系统
+    # Affection
     'UserAffection',
     'AffectionInteraction',
     'UserConversationHistory',
     'UserDiversity',
-    # 记忆系统
+    # Memory
     'Memory',
     'MemoryEmbedding',
     'MemorySummary',
-    # 心理状态系统
+    # Psychological
     'CompositePsychologicalState',
     'PsychologicalStateComponent',
     'PsychologicalStateHistory',
     'PersonaDiversityScore',
     'PersonaAttributeWeight',
     'PersonaEvolutionSnapshot',
-    # 社交关系系统
+    'EmotionProfile',
+    'BotMood',
+    'PersonaBackup',
+    # Social
     'SocialRelation',
     'UserSocialProfile',
     'UserSocialRelationComponent',
     'SocialRelationHistory',
-    # 社交分析
+    'UserProfile',
+    'UserPreferences',
+    # Social analysis
     'SocialRelationAnalysisResult',
     'SocialNetworkNode',
     'SocialNetworkEdge',
-    # 学习系统
+    # Learning
     'PersonaLearningReview',
     'StyleLearningReview',
     'StyleLearningPattern',
@@ -116,13 +129,16 @@ __all__ = [
     'LearningSession',
     'LearningReinforcementFeedback',
     'LearningOptimizationLog',
-    # 表达模式
+    # Expression
     'ExpressionPattern',
     'ExpressionGenerationResult',
     'AdaptiveResponseTemplate',
-    # 性能记录
+    'StyleProfile',
+    'StyleLearningRecord',
+    'LanguageStylePattern',
+    # Performance
     'LearningPerformanceHistory',
-    # 消息系统
+    # Message
     'RawMessage',
     'FilteredMessage',
     'BotMessage',
@@ -130,19 +146,19 @@ __all__ = [
     'ConversationTopicClustering',
     'ConversationQualityMetrics',
     'ContextSimilarityCache',
-    # 黑话系统
+    # Jargon
     'Jargon',
     'JargonUsageFrequency',
-    # 对话目标系统
+    # Conversation goal
     'ConversationGoal',
-    # 强化学习系统
+    # Reinforcement learning
     'ReinforcementLearningResult',
     'PersonaFusionHistory',
     'StrategyOptimizationResult',
-    # 知识图谱系统
+    # Knowledge graph
     'KGEntity',
     'KGRelation',
     'KGParagraphHash',
-    # Exemplar library
+    # Exemplar
     'Exemplar',
 ]

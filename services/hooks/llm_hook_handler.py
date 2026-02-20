@@ -1,7 +1,8 @@
 """LLM Hook handler — parallel context retrieval, prompt injection, performance tracking.
 
 Orchestrates all context providers (social, V2, diversity, jargon, session updates)
-in parallel, merges results, and injects them into the LLM request.
+in parallel, merges results, and injects them into the LLM request via
+``extra_user_content_parts`` to preserve system_prompt prefix caching.
 """
 
 import asyncio
@@ -10,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
+from astrbot.core.agent.message import TextPart
 
 from .perf_tracker import PerfTracker
 
@@ -83,7 +85,7 @@ class LLMHookHandler:
 
             original_prompt_length = len(req.prompt)
             logger.info(
-                f"✅ [LLM Hook] 开始注入多样性增强 "
+                f"[LLM Hook] 开始注入多样性增强 "
                 f"(group: {group_id}, 原prompt长度: {original_prompt_length})"
             )
 
@@ -161,7 +163,7 @@ class LLMHookHandler:
             )
 
         except Exception as e:
-            logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
+            logger.error(f"[LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
 
     # ------------------------------------------------------------------
     # Context fetchers
@@ -245,7 +247,7 @@ class LLMHookHandler:
     ) -> None:
         if result:
             out.append(result)
-            logger.info(f"✅ [LLM Hook] 已准备完整社交上下文 (长度: {len(result)})")
+            logger.info(f"[LLM Hook] 已准备完整社交上下文 (长度: {len(result)})")
         else:
             logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
 
@@ -274,13 +276,13 @@ class LLMHookHandler:
     def _collect_diversity(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(result)
-            logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(result)})")
+            logger.info(f"[LLM Hook] 已准备多样性增强内容 (长度: {len(result)})")
 
     @staticmethod
     def _collect_jargon(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(result)
-            logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
+            logger.info(f"[LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
         else:
             logger.debug("[LLM Hook] 用户消息中未检测到已知黑话")
 
@@ -298,7 +300,7 @@ class LLMHookHandler:
                 updates_text = "\n\n".join(session_updates)
                 out.append(updates_text)
                 logger.info(
-                    f"✅ [LLM Hook] 已准备会话级更新 "
+                    f"[LLM Hook] 已准备会话级更新 "
                     f"(会话: {group_id}, 更新数: {len(session_updates)}, "
                     f"长度: {len(updates_text)})"
                 )
@@ -315,38 +317,40 @@ class LLMHookHandler:
         self, req: Any, injections: List[str], hook_start: float
     ) -> None:
         injection_text = "\n\n".join(injections)
-        target = getattr(self._config, "llm_hook_injection_target", "system_prompt")
 
-        if target == "system_prompt":
+        # Use AstrBot's extra_user_content_parts API to inject context.
+        # This keeps system_prompt stable for LLM API prefix caching,
+        # while appending dynamic context as extra content blocks after
+        # the user message.
+        if hasattr(req, "extra_user_content_parts"):
+            req.extra_user_content_parts.append(
+                TextPart(text=f"<context>\n{injection_text}\n</context>")
+            )
+            logger.info(
+                f"[LLM Hook] extra_user_content_parts 注入完成 - "
+                f"新增: {len(injection_text)} chars"
+            )
+        else:
+            # Fallback for older AstrBot versions without extra_user_content_parts
             if not req.system_prompt:
                 req.system_prompt = ""
-            original = len(req.system_prompt)
             req.system_prompt += "\n\n" + injection_text
-            added = len(req.system_prompt) - original
             logger.info(
-                f"✅ [LLM Hook] System Prompt 注入完成 - "
-                f"原长度: {original}, 新增: {added}, 总长度: {len(req.system_prompt)}"
-            )
-            logger.info("💡 [LLM Hook] 注入位置: system_prompt (不会被保存到对话历史)")
-        else:
-            original = len(req.prompt)
-            req.prompt += "\n\n" + injection_text
-            added = len(req.prompt) - original
-            logger.info(
-                f"✅ [LLM Hook] Prompt 注入完成 - "
-                f"原长度: {original}, 新增: {added}, 总长度: {len(req.prompt)}"
+                f"[LLM Hook] system_prompt fallback 注入完成 - "
+                f"新增: {len(injection_text)} chars"
             )
             logger.warning(
-                "⚠️ [LLM Hook] 注入位置: prompt (会被保存到对话历史，可能导致token超限)"
+                "[LLM Hook] 当前 AstrBot 版本不支持 extra_user_content_parts，"
+                "回退到 system_prompt 注入（会影响缓存命中率）"
             )
 
         current_style = self._diversity_manager.get_current_style()
         current_pattern = self._diversity_manager.get_current_pattern()
         logger.info(
-            f"✅ [LLM Hook] 当前语言风格: {current_style}, 回复模式: {current_pattern}"
+            f"[LLM Hook] 当前语言风格: {current_style}, 回复模式: {current_pattern}"
         )
         logger.info(
-            f"✅ [LLM Hook] 注入内容数量: {len(injections)}项, "
+            f"[LLM Hook] 注入内容数量: {len(injections)}项, "
             f"耗时: {time.time() - hook_start:.3f}s"
         )
-        logger.debug(f"✅ [LLM Hook] 注入内容预览: {injection_text[:200]}...")
+        logger.debug(f"[LLM Hook] 注入内容预览: {injection_text[:200]}...")

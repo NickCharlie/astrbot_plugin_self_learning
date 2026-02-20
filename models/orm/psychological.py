@@ -171,3 +171,60 @@ class PersonaEvolutionSnapshot(Base):
             'trigger_event': self.trigger_event,
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
+
+
+class EmotionProfile(Base):
+    """Emotion profile per user per group."""
+    __tablename__ = 'emotion_profiles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), nullable=False, index=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    dominant_emotions = Column(Text)  # JSON
+    emotion_patterns = Column(Text)   # JSON
+    empathy_level = Column(Float, default=0.5)
+    emotional_stability = Column(Float, default=0.5)
+    last_updated = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_emotion_user_group', 'user_id', 'group_id', unique=True),
+    )
+
+
+class BotMood(Base):
+    """Bot mood state per group."""
+    __tablename__ = 'bot_mood'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    mood_type = Column(String(100), nullable=False)
+    mood_intensity = Column(Float, default=0.5)
+    mood_description = Column(Text)
+    start_time = Column(Float, nullable=False)
+    end_time = Column(Float)
+    is_active = Column(Integer, default=1)  # Boolean as int for SQLite compat
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_mood_group_active', 'group_id', 'is_active'),
+    )
+
+
+class PersonaBackup(Base):
+    """Persona configuration backup."""
+    __tablename__ = 'persona_backups'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    backup_name = Column(String(255), nullable=False)
+    timestamp = Column(Float, nullable=False)
+    reason = Column(Text)
+    persona_config = Column(Text)       # JSON
+    original_persona = Column(Text)     # JSON
+    imitation_dialogues = Column(Text)  # JSON
+    backup_reason = Column(Text)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_backup_timestamp', 'timestamp'),
+    )

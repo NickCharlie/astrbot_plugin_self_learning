@@ -229,7 +229,7 @@ class SocialService:
             if not factory_manager:
                 return False, "工厂管理器未初始化"
 
-            from ...services.social_relation_analyzer import SocialRelationAnalyzer
+            from ...services.social import SocialRelationAnalyzer
 
             service_factory = factory_manager.get_service_factory()
             db_manager = service_factory.create_database_manager()

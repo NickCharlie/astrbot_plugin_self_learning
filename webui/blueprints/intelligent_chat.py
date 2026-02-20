@@ -115,7 +115,7 @@ async def get_goal_statistics():
 async def get_goal_templates():
     """获取所有可用的目标类型"""
     try:
-        from ...services.conversation_goal_manager import ConversationGoalManager
+        from ...services.quality import ConversationGoalManager
 
         templates = {
             key: {

@@ -112,3 +112,59 @@ class AdaptiveResponseTemplate(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None
         }
 
+
+class StyleProfile(Base):
+    """Aggregate style profile for a persona or learning context."""
+    __tablename__ = 'style_profiles'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    profile_name = Column(String(255), nullable=False)
+    vocabulary_richness = Column(Float)
+    sentence_complexity = Column(Float)
+    emotional_expression = Column(Float)
+    interaction_tendency = Column(Float)
+    topic_diversity = Column(Float)
+    formality_level = Column(Float)
+    creativity_score = Column(Float)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_style_profile_name', 'profile_name'),
+    )
+
+
+class StyleLearningRecord(Base):
+    """Record of a style learning session."""
+    __tablename__ = 'style_learning_records'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    style_type = Column(String(100), nullable=False)
+    learned_patterns = Column(Text)  # JSON
+    confidence_score = Column(Float)
+    sample_count = Column(Integer)
+    last_updated = Column(Float)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_style_record_type', 'style_type'),
+    )
+
+
+class LanguageStylePattern(Base):
+    """Reusable language style pattern with example phrases."""
+    __tablename__ = 'language_style_patterns'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    language_style = Column(String(255), nullable=False)
+    example_phrases = Column(Text)  # JSON
+    usage_frequency = Column(Integer, default=0)
+    context_type = Column(String(100), default='general')
+    confidence_score = Column(Float)
+    last_updated = Column(Float)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_lang_style', 'language_style'),
+        Index('idx_lang_context', 'context_type'),
+    )
+
