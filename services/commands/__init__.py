@@ -1,0 +1,1 @@
+"""Admin command handlers — learning, affection, mood commands."""

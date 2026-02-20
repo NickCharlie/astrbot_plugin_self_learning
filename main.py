@@ -6,8 +6,6 @@ import json # 导入 json 模块
 import asyncio
 import time
 import re # 导入正则表达式模块
-from collections import deque
-from datetime import datetime
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
@@ -15,7 +13,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.api.event import filter
 from astrbot.api.event.filter import PermissionType
 import astrbot.api.star as star
-from astrbot.api.star import register, Context
+from astrbot.api.star import Context
 from astrbot.api import logger, AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
@@ -25,6 +23,11 @@ from .core.interfaces import MessageData
 from .exceptions import SelfLearningError
 from .webui import Server, set_plugin_services # 导入 FastAPI 服务器相关
 from .webui.dependencies import get_container as _get_webui_container
+from .services.hooks.llm_hook_handler import LLMHookHandler
+from .services.hooks.perf_tracker import PerfTracker
+from .services.learning.dialog_analyzer import DialogAnalyzer
+from .services.learning.group_orchestrator import GroupLearningOrchestrator
+from .services.learning.realtime_processor import RealtimeProcessor
 from .statics.messages import StatusMessages, CommandMessages, LogMessages, FileNames, DefaultValues
 
 server_instance: Optional[Server] = None # 全局服务器实例
@@ -115,20 +118,41 @@ class SelfLearningPlugin(star.Star):
         self.update_system_prompt_callback = None
 
         # ⚡ 性能计时收集器 — 供 WebUI 展示
-        self._perf_samples: deque = deque(maxlen=200)
-        self._perf_stats: Dict[str, Any] = {
-            "total_requests": 0,
-            "avg_total_ms": 0,
-            "avg_social_ctx_ms": 0,
-            "avg_v2_ctx_ms": 0,
-            "avg_diversity_ms": 0,
-            "avg_jargon_ms": 0,
-            "max_total_ms": 0,
-            "last_updated": 0,
-        }
+        self._perf_tracker = PerfTracker(maxlen=200)
 
         # 初始化服务层
         self._initialize_services()
+
+        # 初始化提取的服务模块
+        self._dialog_analyzer = DialogAnalyzer(self.factory_manager, self.db_manager)
+        self._realtime_processor = RealtimeProcessor(
+            plugin_config=self.plugin_config,
+            message_collector=self.message_collector,
+            multidimensional_analyzer=self.multidimensional_analyzer,
+            persona_manager=self.persona_manager,
+            temporary_persona_updater=self.temporary_persona_updater,
+            dialog_analyzer=self._dialog_analyzer,
+            learning_stats=self.learning_stats,
+            factory_manager=self.factory_manager,
+            db_manager=self.db_manager,
+        )
+        self._group_orchestrator = GroupLearningOrchestrator(
+            plugin_config=self.plugin_config,
+            message_collector=self.message_collector,
+            progressive_learning=self.progressive_learning,
+            qq_filter=self.qq_filter,
+            db_manager=self.db_manager,
+        )
+        self._hook_handler = LLMHookHandler(
+            plugin_config=self.plugin_config,
+            diversity_manager=getattr(self, 'diversity_manager', None),
+            social_context_injector=getattr(self, 'social_context_injector', None),
+            v2_integration=getattr(self, 'v2_integration', None),
+            jargon_query_service=getattr(self, 'jargon_query_service', None),
+            temporary_persona_updater=getattr(self, 'temporary_persona_updater', None),
+            perf_tracker=self._perf_tracker,
+            group_id_to_unified_origin=self.group_id_to_unified_origin,
+        )
 
         # 初始化 Web 服务器（但不启动，等待 on_load）
         global server_instance
@@ -231,7 +255,7 @@ class SelfLearningPlugin(star.Star):
                     astrbot_persona_manager,
                     self.group_id_to_unified_origin
                 )
-                _get_webui_container().perf_collector = self
+                _get_webui_container().perf_collector = self._perf_tracker
                 logger.info("Debug: 插件服务设置完成")
             except Exception as e:
                 logger.error(f"设置插件服务失败: {e}", exc_info=True)
@@ -425,12 +449,11 @@ class SelfLearningPlugin(star.Star):
         
         # 异步任务管理 - 增强后台任务管理
         self.background_tasks = set()
-        self.learning_tasks = {}  # 按group_id管理学习任务
-        
+
         # 启动自动学习（如果启用）
         if self.plugin_config.enable_auto_learning:
             # 延迟启动，避免在初始化时启动大量任务
-            asyncio.create_task(self._delayed_auto_start_learning())
+            asyncio.create_task(self._group_orchestrator.delayed_auto_start_learning())
         
         # 添加延迟重新初始化提供商配置，解决重启后配置问题
         asyncio.create_task(self._delayed_provider_reinitialization())
@@ -536,7 +559,7 @@ class SelfLearningPlugin(star.Star):
                     astrbot_persona_manager,
                     self.group_id_to_unified_origin
                 )
-                _get_webui_container().perf_collector = self
+                _get_webui_container().perf_collector = self._perf_tracker
                 logger.info("Web服务器插件服务设置完成")
             except Exception as e:
                 logger.error(f"设置Web服务器插件服务失败: {e}", exc_info=True)
@@ -649,7 +672,7 @@ class SelfLearningPlugin(star.Star):
             # 4. 如果启用实时学习，立即进行深度分析
             if self.plugin_config.enable_realtime_learning:
                 try:
-                    await self._process_message_realtime(group_id, message_text, sender_id)
+                    await self._realtime_processor.process_message_realtime(group_id, message_text, sender_id)
                     logger.debug(f"实时学习处理完成: {group_id}")
                 except Exception as e:
                     logger.error(f"实时学习处理失败: {e}")
@@ -922,10 +945,10 @@ class SelfLearningPlugin(star.Star):
             # 4. 如果启用实时学习，每条消息都学习（完全后台执行，不阻塞）
             if self.plugin_config.enable_realtime_learning:
                 # ⚡ 使用 asyncio.create_task 确保完全后台执行
-                asyncio.create_task(self._process_message_realtime_background(group_id, message_text, sender_id))
+                asyncio.create_task(self._realtime_processor.process_realtime_background(group_id, message_text, sender_id))
 
             # 5. 智能启动学习任务（基于消息活动，添加频率限制）
-            await self._smart_start_learning_for_group(group_id)
+            await self._group_orchestrator.smart_start_learning_for_group(group_id)
 
             # 6. 对话目标管理（如果启用）
             if self.plugin_config.enable_goal_driven_chat:
@@ -948,94 +971,6 @@ class SelfLearningPlugin(star.Star):
 
         except Exception as e:
             logger.error(f"后台学习处理失败: {e}", exc_info=True)
-
-    async def _smart_start_learning_for_group(self, group_id: str):
-        """智能启动群组学习任务 - 不阻塞主线程，添加频率限制"""
-        try:
-            # 检查该群组是否已有学习任务
-            if group_id in self.learning_tasks:
-                return
-            
-            # 添加学习间隔检查：防止频繁启动学习
-            current_time = time.time()
-            last_learning_key = f"last_learning_start_{group_id}"
-            last_learning_start = getattr(self, last_learning_key, 0)
-            learning_interval_seconds = self.plugin_config.learning_interval_hours * 3600
-            
-            if current_time - last_learning_start < learning_interval_seconds:
-                time_remaining = learning_interval_seconds - (current_time - last_learning_start)
-                logger.debug(f"群组 {group_id} 学习间隔未到，剩余时间: {time_remaining/60:.1f}分钟")
-                return
-            
-            # 检查群组消息数量是否达到学习阈值 (确保类型转换)
-            stats = await self.message_collector.get_statistics(group_id)
-
-            # 验证 stats 是否为字典
-            if not isinstance(stats, dict):
-                logger.warning(f"get_statistics 返回了非字典类型: {type(stats)}, 值: {stats}, 跳过学习启动")
-                return
-
-            # 安全获取并转换数值
-            total_messages_raw = stats.get('total_messages', 0)
-            min_messages_raw = self.plugin_config.min_messages_for_learning
-
-            # 类型转换带详细日志
-            try:
-                if isinstance(total_messages_raw, str) and not total_messages_raw.replace('-', '').isdigit():
-                    logger.warning(f"total_messages 是非数字字符串: '{total_messages_raw}', 跳过学习启动")
-                    return
-                total_messages = int(total_messages_raw) if total_messages_raw else 0
-            except (ValueError, TypeError) as e:
-                logger.warning(f"total_messages 转换失败: 原始值={total_messages_raw}, 类型={type(total_messages_raw)}, 错误={e}")
-                return
-
-            try:
-                if isinstance(min_messages_raw, str) and not min_messages_raw.replace('-', '').isdigit():
-                    logger.warning(f"min_messages_for_learning 是非数字字符串: '{min_messages_raw}', 使用默认值10")
-                    min_messages = 10
-                else:
-                    min_messages = int(min_messages_raw) if min_messages_raw else 0
-            except (ValueError, TypeError) as e:
-                logger.warning(f"min_messages 转换失败: 原始值={min_messages_raw}, 类型={type(min_messages_raw)}, 错误={e}, 使用默认值10")
-                min_messages = 10
-
-            if total_messages < min_messages:
-                logger.debug(f"群组 {group_id} 消息数量未达到学习阈值: {total_messages}/{min_messages}")
-                return
-            
-            # 记录学习启动时间
-            setattr(self, last_learning_key, current_time)
-            
-            # 创建学习任务
-            learning_task = asyncio.create_task(self._start_group_learning(group_id))
-            
-            # 设置完成回调
-            def on_learning_task_complete(task):
-                if group_id in self.learning_tasks:
-                    del self.learning_tasks[group_id]
-                if task.exception():
-                    logger.error(f"群组 {group_id} 学习任务异常: {task.exception()}")
-                else:
-                    logger.info(f"群组 {group_id} 学习任务完成")
-            
-            learning_task.add_done_callback(on_learning_task_complete)
-            self.learning_tasks[group_id] = learning_task
-            
-            logger.info(f"为群组 {group_id} 启动了智能学习任务")
-            
-        except Exception as e:
-            logger.error(f"智能启动学习失败: {e}")
-
-    async def _start_group_learning(self, group_id: str):
-        """启动特定群组的学习任务"""
-        try:
-            success = await self.progressive_learning.start_learning(group_id)
-            if success:
-                logger.info(f"群组 {group_id} 学习任务启动成功")
-            else:
-                logger.warning(f"群组 {group_id} 学习任务启动失败")
-        except Exception as e:
-            logger.error(f"群组 {group_id} 学习任务启动异常: {e}")
 
     async def _delayed_provider_reinitialization(self):
         """延迟重新初始化提供商配置，解决重启后配置丢失问题"""
@@ -1060,549 +995,6 @@ class SelfLearningPlugin(star.Star):
             
         except Exception as e:
             logger.error(f"延迟重新初始化提供商配置失败: {e}")
-
-    async def _delayed_auto_start_learning(self):
-        """延迟自动启动学习 - 避免初始化时阻塞"""
-        try:
-            # 等待系统初始化完成
-            await asyncio.sleep(30)
-            
-            # 获取活跃群组列表
-            active_groups = await self._get_active_groups()
-            
-            for group_id in active_groups:
-                try:
-                    await self._smart_start_learning_for_group(group_id)
-                    # 避免同时启动过多任务
-                    await asyncio.sleep(5)
-                except Exception as e:
-                    logger.error(f"延迟启动群组 {group_id} 学习失败: {e}")
-                    
-        except Exception as e:
-            logger.error(f"延迟自动启动学习失败: {e}")
-
-    async def _get_active_groups(self) -> List[str]:
-        """获取活跃群组列表（使用ORM）"""
-        try:
-            # 检查数据库管理器是否可用和已启动
-            if not self.db_manager:
-                logger.warning("数据库管理器未初始化，无法获取活跃群组")
-                return []
-
-            # 对于 SQLAlchemy 数据库管理器，检查是否已启动
-            if hasattr(self.db_manager, '_started') and not self.db_manager._started:
-                logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
-                return []
-
-            # 根据白名单/黑名单配置构建群组过滤条件
-            allowed_groups = self.qq_filter.get_allowed_group_ids()
-            blocked_groups = self.qq_filter.get_blocked_group_ids()
-
-            if allowed_groups:
-                logger.info(f"应用群组白名单过滤，仅查询: {allowed_groups}")
-            if blocked_groups:
-                logger.info(f"应用群组黑名单过滤，排除: {blocked_groups}")
-
-            # 使用 ORM 方式查询活跃群组
-            async with self.db_manager.get_session() as session:
-                from sqlalchemy import select, func
-                from .models.orm import RawMessage
-
-                def _apply_group_filter(stmt):
-                    """对查询语句应用白名单/黑名单过滤"""
-                    if allowed_groups:
-                        stmt = stmt.where(RawMessage.group_id.in_(allowed_groups))
-                    if blocked_groups:
-                        stmt = stmt.where(RawMessage.group_id.notin_(blocked_groups))
-                    return stmt
-
-                # 首先尝试获取最近24小时内有消息的群组
-                cutoff_time = int(time.time() - 86400)
-
-                stmt = select(
-                    RawMessage.group_id,
-                    func.count(RawMessage.id).label('msg_count')
-                ).where(
-                    RawMessage.timestamp > cutoff_time,
-                    RawMessage.group_id.isnot(None),
-                    RawMessage.group_id != ''
-                )
-                stmt = _apply_group_filter(stmt)
-                stmt = stmt.group_by(
-                    RawMessage.group_id
-                ).having(
-                    func.count(RawMessage.id) >= self.plugin_config.min_messages_for_learning
-                ).order_by(
-                    func.count(RawMessage.id).desc()
-                ).limit(10)
-
-                result = await session.execute(stmt)
-                active_groups = [row.group_id for row in result if row.group_id]
-
-                # 如果最近24小时没有活跃群组，扩大时间范围到7天
-                if not active_groups:
-                    logger.warning("最近24小时内没有活跃群组，扩大搜索范围到7天...")
-                    cutoff_time = int(time.time() - (86400 * 7))  # 7天
-
-                    stmt = select(
-                        RawMessage.group_id,
-                        func.count(RawMessage.id).label('msg_count')
-                    ).where(
-                        RawMessage.timestamp > cutoff_time,
-                        RawMessage.group_id.isnot(None),
-                        RawMessage.group_id != ''
-                    )
-                    stmt = _apply_group_filter(stmt)
-                    stmt = stmt.group_by(
-                        RawMessage.group_id
-                    ).having(
-                        func.count(RawMessage.id) >= max(1, self.plugin_config.min_messages_for_learning // 2)
-                    ).order_by(
-                        func.count(RawMessage.id).desc()
-                    ).limit(10)
-
-                    result = await session.execute(stmt)
-                    active_groups = [row.group_id for row in result if row.group_id]
-
-                # 如果还是没有，获取所有有消息的群组（无时间限制）
-                if not active_groups:
-                    logger.warning("7天内也没有活跃群组，获取所有有消息记录的群组...")
-
-                    stmt = select(
-                        RawMessage.group_id,
-                        func.count(RawMessage.id).label('msg_count')
-                    ).where(
-                        RawMessage.group_id.isnot(None),
-                        RawMessage.group_id != ''
-                    )
-                    stmt = _apply_group_filter(stmt)
-                    stmt = stmt.group_by(
-                        RawMessage.group_id
-                    ).order_by(
-                        func.count(RawMessage.id).desc()
-                    ).limit(10)
-
-                    result = await session.execute(stmt)
-                    active_groups = [row.group_id for row in result if row.group_id]
-
-                logger.info(f"发现 {len(active_groups)} 个活跃群组: {active_groups if active_groups else '无'}")
-                return active_groups
-
-        except Exception as e:
-            logger.error(f"获取活跃群组失败: {e}")
-            return []
-
-    async def _process_message_realtime_background(self, group_id: str, message_text: str, sender_id: str):
-        """实时处理消息的后台包装方法 - 完全异步，不阻塞主流程"""
-        try:
-            await self._process_message_realtime(group_id, message_text, sender_id)
-        except Exception as e:
-            logger.error(f"实时学习后台处理失败 (group={group_id}): {e}", exc_info=True)
-
-    async def _process_message_realtime(self, group_id: str, message_text: str, sender_id: str):
-        """实时处理消息 - 优化LLM调用频率，表达风格学习不经过消息筛选"""
-        try:
-            # 先进行基础过滤，避免不必要的LLM调用
-            if len(message_text.strip()) < self.plugin_config.message_min_length:
-                return
-            
-            if len(message_text) > self.plugin_config.message_max_length:
-                return
-            
-            # 简单关键词过滤，避免明显无意义的消息
-            if message_text.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
-                return
-            
-            # 【新增】表达风格学习 - 直接使用原始消息，无需筛选
-            await self._process_expression_style_learning(group_id, message_text, sender_id)
-            
-            # 基于配置的批处理模式：不是每条消息都调用LLM
-            if not self.plugin_config.enable_realtime_llm_filter:
-                # 如果禁用实时LLM筛选，直接添加到筛选消息
-                await self.message_collector.add_filtered_message({
-                    'message': message_text,
-                    'sender_id': sender_id,
-                    'group_id': group_id,
-                    'timestamp': time.time(),
-                    'confidence': 0.6  # 无LLM筛选的置信度较低
-                })
-                self.learning_stats.filtered_messages += 1
-                
-                # 确保配置中的统计也得到更新，用于WebUI显示
-                if not hasattr(self.plugin_config, 'filtered_messages'):
-                    self.plugin_config.filtered_messages = 0
-                self.plugin_config.filtered_messages = self.learning_stats.filtered_messages
-            
-            # 如果启用LLM筛选，则获取当前人格描述并进行筛选
-            current_persona_description = await self.persona_manager.get_current_persona_description(group_id)
-            
-            # 删除了智能回复相关处理
-            # 原智能回复功能已移除
-            
-            if await self.multidimensional_analyzer.filter_message_with_llm(message_text, current_persona_description):
-                await self.message_collector.add_filtered_message({
-                    'message': message_text,
-                    'sender_id': sender_id,
-                    'group_id': group_id,
-                    'timestamp': time.time(),
-                    'confidence': 0.8  # 实时筛选置信度
-                })
-                self.learning_stats.filtered_messages += 1
-                
-                # 确保配置中的统计也得到更新，用于WebUI显示
-                if not hasattr(self.plugin_config, 'filtered_messages'):
-                    self.plugin_config.filtered_messages = 0
-                self.plugin_config.filtered_messages = self.learning_stats.filtered_messages
-                
-        except Exception as e:
-            logger.error(StatusMessages.REALTIME_PROCESSING_ERROR.format(error=e), exc_info=True)
-
-    async def _process_expression_style_learning(self, group_id: str, message_text: str, sender_id: str):
-        """处理表达风格学习 - 直接学习，无需消息筛选"""
-        try:
-            # 检查是否有足够的消息进行学习
-            stats = await self.message_collector.get_statistics(group_id)
-            raw_message_count = stats.get('raw_messages', 0)
-
-            # 需要至少5条消息才开始表达风格学习
-            if raw_message_count < 5:
-                logger.debug(f"群组 {group_id} 原始消息数量不足，当前：{raw_message_count}，需要至少5条")
-                return
-
-            logger.info(f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}")
-            
-            # 获取最近的原始消息用于学习（不使用筛选后的消息）
-            recent_raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=25)
-            
-            if not recent_raw_messages or len(recent_raw_messages) < 3:  # 降低阈值
-                logger.debug(f"群组 {group_id} 原始消息数量不足，数据库中只有 {len(recent_raw_messages) if recent_raw_messages else 0} 条")
-                return
-            
-            # 转换为 MessageData 格式，并应用正则表达式过滤
-            from .core.interfaces import MessageData
-            import re
-            
-            message_data_list = []
-            for msg in recent_raw_messages:
-                if msg.get('sender_id') != sender_id:  # 不学习自己的消息
-                    message_content = msg.get('message', '')
-                    
-                    # 应用与webui.py相同的过滤逻辑
-                    # 1. 基础过滤：长度检查
-                    if len(message_content.strip()) < 5:
-                        continue
-                    if len(message_content) > 500:
-                        continue
-                        
-                    # 2. 关键词过滤：无意义消息
-                    if message_content.strip() in ['', '???', '。。。', '...', '嗯', '哦', '额']:
-                        continue
-                    
-                    # 3. @符号处理：提取@用户名后的消息内容
-                    processed_message = message_content
-                    if '@' in message_content:
-                        # 使用正则表达式匹配 @用户名 后的内容
-                        at_pattern = r'@[^\s]+\s+'
-                        processed_message = re.sub(at_pattern, '', message_content).strip()
-                        
-                        # 如果处理后消息为空或过短，跳过
-                        if len(processed_message.strip()) < 5:
-                            continue
-                    
-                    message_data = MessageData(
-                        sender_id=msg.get('sender_id', ''),
-                        sender_name=msg.get('sender_name', ''),
-                        message=processed_message,  # 使用处理后的消息内容
-                        group_id=group_id,
-                        timestamp=msg.get('timestamp', time.time()),
-                        platform=msg.get('platform', 'default'),
-                        message_id=msg.get('id'),  # 使用id而不是message_id
-                        reply_to=None  # raw_messages表中没有reply_to字段
-                    )
-                    message_data_list.append(message_data)
-            
-            if len(message_data_list) < 3:  # 降低阈值
-                logger.debug(f"群组 {group_id} 有效学习消息不足3条，跳过表达风格学习，当前：{len(message_data_list)}")
-                return
-            
-            logger.info(f"群组 {group_id} 准备进行表达风格学习，有效消息数：{len(message_data_list)}")
-            
-            # 调用表达模式学习器进行学习
-            expression_learner = self.factory_manager.get_component_factory().create_expression_pattern_learner()
-            
-            if expression_learner:
-                learning_success = await expression_learner.trigger_learning_for_group(group_id, message_data_list)
-                
-                if learning_success:
-                    logger.info(f"群组 {group_id} 表达风格学习成功")
-                    
-                    # 获取学习到的表达模式
-                    try:
-                        learned_patterns = await expression_learner.get_expression_patterns(group_id, limit=5)
-                        if learned_patterns:
-                            # 动态临时加入prompt（不加入人格）
-                            await self._apply_style_to_prompt_temporarily(group_id, learned_patterns)
-                            
-                            # 同时生成Few Shots对话格式并创建审查请求（用于正式加入人格）
-                            few_shots_content = await self._generate_few_shots_dialog(group_id, message_data_list)
-                            
-                            if few_shots_content:
-                                # 创建审查请求用于正式加入人格
-                                await self._create_style_learning_review_request(
-                                    group_id, learned_patterns, few_shots_content
-                                )
-                                logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt，并已提交人格审查")
-                            else:
-                                logger.info(f"群组 {group_id} 表达风格学习结果已临时应用到prompt")
-                    except Exception as e:
-                        logger.error(f"处理表达风格学习结果失败: {e}")
-
-                    # 统计更新
-                    self.learning_stats.style_updates += 1
-                    
-                    # 触发增量更新回调（动态临时更新prompt）
-                    if self.update_system_prompt_callback:
-                        await self.update_system_prompt_callback(group_id)
-                        logger.info(f"群组 {group_id} 表达风格学习结果已应用到system_prompt")
-                else:
-                    logger.debug(f"群组 {group_id} 表达风格学习未产生有效结果")
-            else:
-                logger.warning("表达模式学习器未正确初始化")
-                
-        except Exception as e:
-            logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
-
-    async def _apply_style_to_prompt_temporarily(self, group_id: str, learned_patterns: List[Any]):
-        """临时将风格应用到prompt中（不修改人格文件）"""
-        try:
-            if not learned_patterns:
-                return
-            
-            # 构建风格描述
-            style_descriptions = []
-            for pattern in learned_patterns[:3]:  # 只取前3个最重要的
-                situation = pattern.situation if hasattr(pattern, 'situation') else pattern.get('situation', '')
-                expression = pattern.expression if hasattr(pattern, 'expression') else pattern.get('expression', '')
-                
-                if situation and expression:
-                    style_descriptions.append(f"当{situation}时，可以使用\"{expression}\"这样的表达")
-            
-            if style_descriptions:
-                # 构建临时风格提示
-                style_prompt = f"""
-【临时表达风格特征】（基于最近学习）
-在回复时可以参考以下表达方式：
-{chr(10).join(f'• {desc}' for desc in style_descriptions)}
-
-注意：这些是临时学习的风格特征，应自然融入回复，不要刻意模仿。
-"""
-                
-                # 应用到临时prompt（通过临时人格更新器的动态更新功能）
-                success = await self.temporary_persona_updater.apply_temporary_style_update(group_id, style_prompt.strip())
-                
-                if success:
-                    logger.info(f"群组 {group_id} 表达风格已临时应用到prompt，包含 {len(style_descriptions)} 个风格特征")
-                else:
-                    logger.warning(f"群组 {group_id} 表达风格临时应用失败")
-            
-        except Exception as e:
-            logger.error(f"临时应用风格到prompt失败: {e}")
-
-    async def _generate_few_shots_dialog(self, group_id: str, message_data_list: List[Any]) -> str:
-        """生成Few Shots对话格式的内容 - 需要至少10条消息才调用LLM处理"""
-        try:
-            # 要求至少10条消息才进行Few Shots生成
-            if len(message_data_list) < 10:
-                logger.debug(f"群组 {group_id} 消息数量不足10条（当前{len(message_data_list)}条），跳过Few Shots生成")
-                return ""
-
-            # 筛选出有效的对话片段
-            dialog_pairs = []
-
-            # 将消息按时间排序
-            sorted_messages = sorted(message_data_list, key=lambda x: x.timestamp)
-
-            # 使用LLM智能识别真实的对话关系
-            for i in range(len(sorted_messages) - 1):
-                current_msg = sorted_messages[i]
-                next_msg = sorted_messages[i + 1]
-
-                # 1. 确保是不同用户的消息（排除同一人连续发送）
-                if current_msg.sender_id == next_msg.sender_id:
-                    continue
-
-                # 2. 基础过滤：长度检查
-                user_msg = current_msg.message.strip()
-                bot_response = next_msg.message.strip()
-
-                if (len(user_msg) < 5 or len(bot_response) < 5 or
-                    user_msg in ['？', '？？', '...', '。。。'] or
-                    bot_response in ['？', '？？', '...', '。。。']):
-                    continue
-
-                # 3. 过滤重复内容（A重复B的话不算对话）
-                if user_msg == bot_response or user_msg in bot_response or bot_response in user_msg:
-                    logger.debug(f"过滤重复内容: A='{user_msg[:30]}...' B='{bot_response[:30]}...'")
-                    continue
-
-                # 4. 调用专业的消息关系分析器判断两条消息是否构成真实对话关系
-                if await self._is_valid_dialog_pair(current_msg, next_msg, group_id):
-                    dialog_pairs.append({
-                        'user': user_msg,
-                        'assistant': bot_response
-                    })
-
-            # 选择最佳的对话片段（取前5个）
-            if len(dialog_pairs) >= 3:
-                selected_pairs = dialog_pairs[:5]
-
-                # 生成Few Shots格式
-                few_shots_lines = [
-                    "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:"
-                ]
-
-                for pair in selected_pairs:
-                    few_shots_lines.append(f"A: {pair['user']}")
-                    few_shots_lines.append(f"B: {pair['assistant']}")
-
-                logger.info(f"群组 {group_id} 生成了 {len(selected_pairs)} 组Few Shots对话")
-                return '\n'.join(few_shots_lines)
-
-            logger.debug(f"群组 {group_id} 未找到足够的有效对话片段（需要至少3组，当前{len(dialog_pairs)}组）")
-            return ""
-
-        except Exception as e:
-            logger.error(f"生成Few Shots对话失败: {e}")
-            return ""
-
-    async def _is_valid_dialog_pair(self, msg1: Any, msg2: Any, group_id: str) -> bool:
-        """
-        使用专业的消息关系分析器判断两条消息是否构成真实的对话关系
-
-        Args:
-            msg1: 第一条消息（MessageData对象）
-            msg2: 第二条消息（MessageData对象）
-            group_id: 群组ID
-
-        Returns:
-            bool: True表示构成对话关系，False表示不构成
-        """
-        try:
-            # 检查服务工厂是否已初始化
-            if not self.factory_manager or not hasattr(self.factory_manager, '_service_factory') or not self.factory_manager._service_factory:
-                # 服务工厂未初始化，使用简单规则
-                return msg1.message != msg2.message
-
-            # 获取消息关系分析器
-            relationship_analyzer = self.factory_manager.get_service_factory().create_message_relationship_analyzer()
-
-            if not relationship_analyzer:
-                # 降级方案：简单规则
-                return msg1.message != msg2.message
-
-            # 构造分析器需要的消息格式
-            msg1_dict = {
-                'message_id': msg1.message_id or str(hash(f"{msg1.timestamp}{msg1.sender_id}")),
-                'sender_id': msg1.sender_id,
-                'message': msg1.message,
-                'timestamp': msg1.timestamp
-            }
-
-            msg2_dict = {
-                'message_id': msg2.message_id or str(hash(f"{msg2.timestamp}{msg2.sender_id}")),
-                'sender_id': msg2.sender_id,
-                'message': msg2.message,
-                'timestamp': msg2.timestamp
-            }
-
-            # 调用专业分析器
-            relationship = await relationship_analyzer._analyze_message_pair(msg1_dict, msg2_dict, group_id)
-
-            # 判断结果
-            if relationship:
-                # 关系类型为direct_reply或topic_continuation，且置信度>0.5，则认为是有效对话
-                is_valid = (
-                    relationship.relationship_type in ['direct_reply', 'topic_continuation'] and
-                    relationship.confidence > 0.5
-                )
-
-                if is_valid:
-                    logger.debug(f"识别对话关系: {relationship.relationship_type} (置信度: {relationship.confidence:.2f})")
-
-                return is_valid
-
-            return False
-
-        except Exception as e:
-            logger.error(f"消息关系判断失败: {e}", exc_info=True)
-            # 出错时保守判断，返回False
-            return False
-
-    async def _create_style_learning_review_request(self, group_id: str, learned_patterns: List[Any], few_shots_content: str):
-        """创建对话风格学习结果的审查请求 - 包含去重逻辑"""
-        try:
-            # 1. 检查是否有重复的待审查记录（避免重复提交）
-            existing_reviews = await self._get_pending_style_reviews(group_id)
-
-            if existing_reviews:
-                # 检查内容是否相似
-                for existing in existing_reviews:
-                    existing_content = existing.get('few_shots_content', '')
-                    # 如果Few Shots内容完全相同，跳过创建
-                    if existing_content == few_shots_content:
-                        logger.info(f"群组 {group_id} 已存在相同的待审查风格学习记录，跳过重复创建")
-                        return
-
-            # 2. 构建审查内容
-            review_data = {
-                'type': 'style_learning',
-                'group_id': group_id,
-                'timestamp': time.time(),
-                'learned_patterns': [pattern.to_dict() for pattern in learned_patterns],
-                'few_shots_content': few_shots_content,
-                'status': 'pending',  # pending, approved, rejected
-                'description': f'群组 {group_id} 的对话风格学习结果（包含 {len(learned_patterns)} 个表达模式）'
-            }
-
-            # 3. 保存到数据库的审查表
-            await self.db_manager.create_style_learning_review(review_data)
-
-            logger.info(f"对话风格学习审查请求已创建: {group_id}")
-
-        except Exception as e:
-            logger.error(f"创建对话风格学习审查请求失败: {e}")
-
-    async def _get_pending_style_reviews(self, group_id: str) -> List[Dict[str, Any]]:
-        """获取指定群组的待审查风格学习记录"""
-        try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-
-                # 查询该群组的pending状态的风格学习审查记录
-                await cursor.execute('''
-                    SELECT id, group_id, few_shots_content, timestamp
-                    FROM style_learning_reviews
-                    WHERE group_id = ? AND status = 'pending' AND type = 'style_learning'
-                    ORDER BY timestamp DESC
-                    LIMIT 10
-                ''', (group_id,))
-
-                rows = await cursor.fetchall()
-
-                reviews = []
-                for row in rows:
-                    reviews.append({
-                        'id': row[0],
-                        'group_id': row[1],
-                        'few_shots_content': row[2],
-                        'timestamp': row[3]
-                    })
-
-                return reviews
-
-        except Exception as e:
-            logger.error(f"获取待审查风格学习记录失败: {e}")
-            return []
 
     @filter.command("learning_status")
     @filter.permission_type(PermissionType.ADMIN)
@@ -1921,295 +1313,8 @@ class SelfLearningPlugin(star.Star):
 
     @filter.on_llm_request()
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
-        """在所有LLM请求前注入多样性增强prompt - 框架层面Hook (始终生效,不需要开启自动学习)
-
-        重要改进 (v1.1.1):
-        - 将注入内容添加到 req.system_prompt 而不是 req.prompt
-        - 解决对话历史膨胀问题：AstrBot 只保存 req.prompt 到对话历史，不保存 system_prompt
-        - 避免 token 超限：每次对话不再累积注入的人格设定、社交上下文、多样性提示
-
-        注入内容包括：
-        1. 社交上下文（表达模式学习、社交关系、好感度、深度心理状态、行为指导）
-        2. 多样性增强（语言风格、回复模式、表达变化、历史Bot消息避重）
-        3. 黑话理解（如果用户消息中包含黑话）
-        4. 会话级增量更新（临时人格调整）
-        """
-        _hook_start = time.time()
-        _social_ms = 0.0
-        _v2_ms = 0.0
-        _diversity_ms = 0.0
-        _jargon_ms = 0.0
-        try:
-            # 检查 req 参数是否存在
-            if req is None:
-                logger.warning("[LLM Hook] req 参数为 None，跳过注入")
-                return
-
-            # 如果diversity_manager不存在,跳过注入
-            if not hasattr(self, 'diversity_manager') or not self.diversity_manager:
-                logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
-                return
-
-            group_id = event.get_group_id() or event.get_sender_id()
-            user_id = event.get_sender_id()
-
-            # ✅ 维护group_id到unified_msg_origin的映射
-            if hasattr(event, 'unified_msg_origin') and event.unified_msg_origin:
-                self.group_id_to_unified_origin[group_id] = event.unified_msg_origin
-                logger.debug(f"[LLM Hook] 更新映射: {group_id} -> {event.unified_msg_origin}")
-
-            # 检查是否有内容可注入
-            if not req.prompt:
-                logger.debug("[LLM Hook] req.prompt为空,跳过多样性注入")
-                return
-
-            original_prompt_length = len(req.prompt)
-            logger.info(f"✅ [LLM Hook] 开始注入多样性增强 (group: {group_id}, 原prompt长度: {original_prompt_length})")
-
-            # 收集要注入的内容 - 所有增量内容都注入到 req.prompt（用户消息上下文）
-            prompt_injections = []
-
-            # ❌ 移除重复的人格注入 - 框架已经在 req.system_prompt 中注入了 persona["prompt"]
-            # 如果需要查看当前人格，可以通过 req.system_prompt 访问
-            # session_persona_prompt = await self._get_active_persona_prompt(event)
-            logger.debug("[LLM Hook] 跳过基础人格注入（框架已处理），专注于增量内容")
-
-            # ✅ 1-3: 并行执行所有上下文检索（社交、V2、多样性、黑话互不依赖）
-            import asyncio as _aio
-
-            _social_result = None
-            _v2_result = None
-            _diversity_result = None
-            _jargon_result = None
-
-            async def _fetch_social():
-                nonlocal _social_result
-                if not (hasattr(self, 'social_context_injector') and self.social_context_injector):
-                    logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
-                    return
-                try:
-                    _social_result = await self.social_context_injector.format_complete_context(
-                        group_id=group_id,
-                        user_id=user_id,
-                        include_social_relations=self.plugin_config.include_social_relations,
-                        include_affection=self.plugin_config.include_affection_info,
-                        include_mood=False,
-                        include_expression_patterns=True,
-                        include_psychological=True,
-                        include_behavior_guidance=True,
-                        include_conversation_goal=self.plugin_config.enable_goal_driven_chat,
-                        enable_protection=True
-                    )
-                except Exception as e:
-                    logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
-
-            async def _fetch_v2():
-                nonlocal _v2_result
-                if not (hasattr(self, 'v2_integration') and self.v2_integration):
-                    return
-                try:
-                    _v2_result = await self.v2_integration.get_enhanced_context(
-                        req.prompt, group_id
-                    )
-                except Exception as e:
-                    logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
-
-            async def _fetch_diversity():
-                nonlocal _diversity_result
-                try:
-                    content = await self.diversity_manager.build_diversity_prompt_injection(
-                        "",
-                        group_id=group_id,
-                        inject_style=True,
-                        inject_pattern=True,
-                        inject_variation=True,
-                        inject_history=True
-                    )
-                    _diversity_result = content.strip() if content else None
-                except Exception as e:
-                    logger.warning(f"[LLM Hook] 多样性增强失败: {e}")
-
-            async def _fetch_jargon():
-                nonlocal _jargon_result
-                if not (hasattr(self, 'jargon_query_service') and self.jargon_query_service):
-                    logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
-                    return
-                try:
-                    user_message = event.message_str if hasattr(event, 'message_str') else str(event.get_message())
-                    _jargon_result = await self.jargon_query_service.check_and_explain_jargon(
-                        text=user_message,
-                        chat_id=group_id
-                    )
-                except Exception as e:
-                    logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
-
-            # --- 并行执行，分别计时 ---
-            _t_social = time.time()
-            _t_v2 = time.time()
-            _t_div = time.time()
-            _t_jar = time.time()
-
-            async def _timed_social():
-                nonlocal _social_ms, _t_social
-                _t_social = time.time()
-                await _fetch_social()
-                _social_ms = (time.time() - _t_social) * 1000
-
-            async def _timed_v2():
-                nonlocal _v2_ms, _t_v2
-                _t_v2 = time.time()
-                await _fetch_v2()
-                _v2_ms = (time.time() - _t_v2) * 1000
-
-            async def _timed_diversity():
-                nonlocal _diversity_ms, _t_div
-                _t_div = time.time()
-                await _fetch_diversity()
-                _diversity_ms = (time.time() - _t_div) * 1000
-
-            async def _timed_jargon():
-                nonlocal _jargon_ms, _t_jar
-                _t_jar = time.time()
-                await _fetch_jargon()
-                _jargon_ms = (time.time() - _t_jar) * 1000
-
-            await _aio.gather(
-                _timed_social(),
-                _timed_v2(),
-                _timed_diversity(),
-                _timed_jargon(),
-            )
-
-            # --- 按顺序收集结果到 prompt_injections ---
-            if _social_result:
-                prompt_injections.append(_social_result)
-                logger.info(f"✅ [LLM Hook] 已准备完整社交上下文 (长度: {len(_social_result)})")
-            else:
-                logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
-
-            if _v2_result:
-                v2_parts = []
-                if _v2_result.get('knowledge_context'):
-                    v2_parts.append(f"[Related Knowledge]\n{_v2_result['knowledge_context']}")
-                if _v2_result.get('related_memories'):
-                    memories_text = "\n".join(_v2_result['related_memories'][:5])
-                    v2_parts.append(f"[Related Memories]\n{memories_text}")
-                if _v2_result.get('few_shot_examples'):
-                    examples_text = "\n".join(_v2_result['few_shot_examples'][:3])
-                    v2_parts.append(f"[Style Examples]\n{examples_text}")
-                if v2_parts:
-                    prompt_injections.append("\n\n".join(v2_parts))
-                    logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {_v2_ms:.0f}ms)")
-                else:
-                    logger.debug(f"[LLM Hook] V2 context empty ({_v2_ms:.0f}ms)")
-
-            if _diversity_result:
-                prompt_injections.append(_diversity_result)
-                logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(_diversity_result)})")
-
-            if _jargon_result:
-                prompt_injections.append(_jargon_result)
-                logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(_jargon_result)})")
-            else:
-                logger.debug(f"[LLM Hook] 用户消息中未检测到已知黑话")
-
-            # ✅ 4. 注入会话级增量更新 (修复会话串流bug) - 注入到 prompt
-            if hasattr(self, 'temporary_persona_updater') and self.temporary_persona_updater:
-                try:
-                    session_updates = self.temporary_persona_updater.session_updates.get(group_id, [])
-                    if session_updates:
-                        updates_text = '\n\n'.join(session_updates)
-                        prompt_injections.append(updates_text)
-                        logger.info(f"✅ [LLM Hook] 已准备会话级更新 (会话: {group_id}, 更新数: {len(session_updates)}, 长度: {len(updates_text)})")
-                    else:
-                        logger.debug(f"[LLM Hook] 会话 {group_id} 暂无增量更新")
-                except Exception as e:
-                    logger.warning(f"[LLM Hook] 注入会话级更新失败: {e}")
-            else:
-                logger.debug("[LLM Hook] temporary_persona_updater未初始化，跳过会话级更新注入")
-
-            # ✅ 5. 注入所有增量内容（根据配置选择注入位置）
-            # 关键改进 (v1.1.1)：支持将注入内容添加到 system_prompt 或 prompt
-            # - system_prompt: 不会被 AstrBot 保存到对话历史，避免历史膨胀 (推荐)
-            # - prompt: 会被保存到对话历史，导致 token 累积和超限 (旧版行为)
-            if prompt_injections:
-                prompt_injection_text = '\n\n'.join(prompt_injections)
-
-                # 根据配置决定注入位置
-                injection_target = getattr(self.plugin_config, 'llm_hook_injection_target', 'system_prompt')
-
-                if injection_target == 'system_prompt':
-                    # 注入到 system_prompt（推荐，不会被保存到对话历史）
-                    if not req.system_prompt:
-                        req.system_prompt = ""
-
-                    original_length = len(req.system_prompt)
-                    req.system_prompt += '\n\n' + prompt_injection_text
-                    final_length = len(req.system_prompt)
-                    injected_length = final_length - original_length
-
-                    logger.info(f"✅ [LLM Hook] System Prompt 注入完成 - 原长度: {original_length}, 新增: {injected_length}, 总长度: {final_length}")
-                    logger.info(f"💡 [LLM Hook] 注入位置: system_prompt (不会被保存到对话历史)")
-
-                else:
-                    # 注入到 prompt（旧版行为，会导致对话历史膨胀）
-                    original_length = len(req.prompt)
-                    req.prompt += '\n\n' + prompt_injection_text
-                    final_length = len(req.prompt)
-                    injected_length = final_length - original_length
-
-                    logger.info(f"✅ [LLM Hook] Prompt 注入完成 - 原长度: {original_length}, 新增: {injected_length}, 总长度: {final_length}")
-                    logger.warning(f"⚠️ [LLM Hook] 注入位置: prompt (会被保存到对话历史，可能导致token超限)")
-
-                # 统计和日志
-                current_language_style = self.diversity_manager.get_current_style()
-                current_response_pattern = self.diversity_manager.get_current_pattern()
-
-                logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
-                logger.info(f"✅ [LLM Hook] 注入内容数量: {len(prompt_injections)}项, 耗时: {time.time() - _hook_start:.3f}s")
-                logger.debug(f"✅ [LLM Hook] 注入内容预览: {prompt_injection_text[:200]}...")
-            else:
-                logger.debug("[LLM Hook] 没有可注入的增量内容")
-
-            # ⚡ 记录性能数据到环形缓冲区
-            _total_ms = (time.time() - _hook_start) * 1000
-            sample = {
-                "ts": time.time(),
-                "total_ms": round(_total_ms, 1),
-                "social_ctx_ms": round(_social_ms, 1),
-                "v2_ctx_ms": round(_v2_ms, 1),
-                "diversity_ms": round(_diversity_ms, 1),
-                "jargon_ms": round(_jargon_ms, 1),
-                "group_id": group_id,
-            }
-            self._perf_samples.append(sample)
-            self._update_perf_stats(sample)
-
-        except Exception as e:
-            logger.error(f"❌ [LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
-
-    # ------------------------------------------------------------------
-    # Performance metrics helpers
-    # ------------------------------------------------------------------
-
-    def _update_perf_stats(self, sample: dict):
-        """Update rolling average performance statistics."""
-        s = self._perf_stats
-        n = s["total_requests"] + 1
-        for key in ("total_ms", "social_ctx_ms", "v2_ctx_ms", "diversity_ms", "jargon_ms"):
-            avg_key = f"avg_{key}"
-            s[avg_key] = s[avg_key] + (sample[key] - s[avg_key]) / n
-        if sample["total_ms"] > s["max_total_ms"]:
-            s["max_total_ms"] = sample["total_ms"]
-        s["total_requests"] = n
-        s["last_updated"] = time.time()
-
-    def get_perf_data(self, recent_limit: int = 50) -> dict:
-        """Return performance stats + recent samples for the WebUI API."""
-        samples = list(self._perf_samples)[-recent_limit:]
-        stats = {k: round(v, 1) if isinstance(v, float) else v for k, v in self._perf_stats.items()}
-        stats["recent_samples"] = samples
-        return stats
+        """LLM Hook — inject diversity, social context, V2, jargon into request."""
+        await self._hook_handler.handle(event, req)
 
     async def terminate(self):
         """插件卸载时的清理工作 - 增强后台任务管理"""
@@ -2218,24 +1323,7 @@ class SelfLearningPlugin(star.Star):
             
             # 1. 停止所有学习任务
             logger.info("停止所有学习任务...")
-            for group_id, task in list(self.learning_tasks.items()):
-                try:
-                    # 先停止学习流程
-                    await self.progressive_learning.stop_learning()
-                    
-                    # 取消学习任务
-                    if not task.done():
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                    
-                    logger.info(f"群组 {group_id} 学习任务已停止")
-                except Exception as e:
-                    logger.error(f"停止群组 {group_id} 学习任务失败: {e}")
-            
-            self.learning_tasks.clear()
+            await self._group_orchestrator.cancel_all()
             
             # 2. 停止学习调度器
             if hasattr(self, 'learning_scheduler'):
@@ -2345,174 +1433,3 @@ class SelfLearningPlugin(star.Star):
         except Exception as e:
             logger.error(LogMessages.PLUGIN_UNLOAD_CLEANUP_FAILED.format(error=e), exc_info=True)
 
-    async def _get_active_persona_prompt(self, event: AstrMessageEvent) -> Optional[str]:
-        """
-        获取当前会话配置的人格提示词
-
-        优先读取 AstrBot 框架中的会话 -> 人格映射，回退到默认人格
-        """
-        try:
-            if not event or not hasattr(self, "context"):
-                return None
-
-            conv_manager = getattr(self.context, "conversation_manager", None)
-            astr_persona_manager = getattr(self.context, "persona_manager", None)
-            if not conv_manager or not astr_persona_manager:
-                return None
-
-            unified_origin = getattr(event, "unified_msg_origin", None)
-            if not unified_origin:
-                return None
-
-            conv_id = await conv_manager.get_curr_conversation_id(unified_origin)
-            if not conv_id:
-                conv_id = await conv_manager.new_conversation(unified_origin)
-
-            conv = await conv_manager.get_conversation(
-                unified_msg_origin=unified_origin,
-                conversation_id=conv_id,
-                create_if_not_exists=True,
-            )
-
-            persona_id = None
-            if conv:
-                conv_persona_id = getattr(conv, "persona_id", None)
-                if conv_persona_id and conv_persona_id != "[%None]":
-                    persona_id = conv_persona_id
-
-            persona_data = None
-            if persona_id:
-                persona_data = await astr_persona_manager.get_persona(persona_id)
-            else:
-                persona_data = await astr_persona_manager.get_default_persona_v3(umo=unified_origin)
-
-            if not persona_data:
-                return None
-
-            if isinstance(persona_data, dict):
-                return persona_data.get("system_prompt") or persona_data.get("prompt")
-
-            return getattr(persona_data, "system_prompt", None)
-
-        except Exception as exc:
-            logger.warning(f"获取会话人格失败: {exc}")
-            return None
-    
-    def _format_communication_style(self, communication_style: dict) -> str:
-        """
-        将沟通风格字典转换为可读描述
-        
-        Args:
-            communication_style: 沟通风格字典
-            
-        Returns:
-            str: 可读的描述文本
-        """
-        try:
-            if not communication_style or not isinstance(communication_style, dict):
-                return ""
-            
-            descriptions = []
-            
-            # 解析各种沟通风格特征
-            if 'formality' in communication_style:
-                formality = communication_style['formality']
-                if formality > 0.7:
-                    descriptions.append("正式礼貌")
-                elif formality < 0.3:
-                    descriptions.append("随意轻松")
-                else:
-                    descriptions.append("适中得体")
-            
-            if 'enthusiasm' in communication_style:
-                enthusiasm = communication_style['enthusiasm']
-                if enthusiasm > 0.7:
-                    descriptions.append("热情活跃")
-                elif enthusiasm < 0.3:
-                    descriptions.append("冷静内敛")
-            
-            if 'directness' in communication_style:
-                directness = communication_style['directness']
-                if directness > 0.7:
-                    descriptions.append("直接坦率")
-                elif directness < 0.3:
-                    descriptions.append("委婉含蓄")
-            
-            if 'humor_usage' in communication_style:
-                humor = communication_style['humor_usage']
-                if humor > 0.6:
-                    descriptions.append("幽默风趣")
-            
-            if 'emoji_usage' in communication_style:
-                emoji = communication_style['emoji_usage']
-                if emoji > 0.6:
-                    descriptions.append("表情丰富")
-            
-            return "，".join(descriptions) if descriptions else "普通交流风格"
-            
-        except Exception as e:
-            logger.debug(f"格式化沟通风格失败: {e}")
-            return ""
-    
-    def _format_emotional_tendency(self, emotional_tendency: dict) -> str:
-        """
-        将情感倾向字典转换为可读描述
-        
-        Args:
-            emotional_tendency: 情感倾向字典
-            
-        Returns:
-            str: 可读的描述文本
-        """
-        try:
-            if not emotional_tendency or not isinstance(emotional_tendency, dict):
-                return ""
-            
-            descriptions = []
-            
-            # 解析情感倾向特征
-            if 'positivity' in emotional_tendency:
-                positivity = emotional_tendency['positivity']
-                if positivity > 0.7:
-                    descriptions.append("积极乐观")
-                elif positivity < 0.3:
-                    descriptions.append("情绪较低")
-            
-            if 'stability' in emotional_tendency:
-                stability = emotional_tendency['stability']
-                if stability > 0.7:
-                    descriptions.append("情绪稳定")
-                elif stability < 0.3:
-                    descriptions.append("情绪波动")
-            
-            if 'empathy' in emotional_tendency:
-                empathy = emotional_tendency['empathy']
-                if empathy > 0.6:
-                    descriptions.append("善解人意")
-            
-            if 'expressiveness' in emotional_tendency:
-                expressiveness = emotional_tendency['expressiveness']
-                if expressiveness > 0.6:
-                    descriptions.append("表达丰富")
-                elif expressiveness < 0.3:
-                    descriptions.append("表达内敛")
-            
-            if 'dominant_emotion' in emotional_tendency:
-                dominant = emotional_tendency['dominant_emotion']
-                emotion_map = {
-                    'happy': '快乐',
-                    'calm': '平静',
-                    'excited': '兴奋',
-                    'serious': '严肃',
-                    'playful': '活泼',
-                    'thoughtful': '深思',
-                    'caring': '关怀'
-                }
-                if dominant in emotion_map:
-                    descriptions.append(f"偏向{emotion_map[dominant]}")
-            
-            return "，".join(descriptions) if descriptions else "情感表达平和"
-            
-        except Exception as e:
-            logger.debug(f"格式化情感倾向失败: {e}")
-            return ""
