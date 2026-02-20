@@ -1,8 +1,10 @@
 """
 Facade 基类 — 提供会话管理和通用工具方法
 """
+import time
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Union
 
 from astrbot.api import logger
 
@@ -53,3 +55,37 @@ class BaseFacade:
         if hasattr(obj, '__table__'):
             return {c.name: getattr(obj, c.name, None) for c in obj.__table__.columns}
         return {}
+
+    @staticmethod
+    def _to_float_ts(
+        value: Union[None, int, float, str, datetime],
+        default: Optional[float] = None,
+    ) -> Optional[float]:
+        """将各类时间表示统一转换为 float 时间戳
+
+        支持 float/int 直通、ISO 8601 字符串、datetime 对象。
+        调用方传入 default=time.time() 可在 value 为 None 时使用当前时间。
+
+        Args:
+            value: 原始时间值
+            default: value 为 None 时的回退值
+
+        Returns:
+            UNIX 时间戳 (float)，或 None
+        """
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, datetime):
+            return value.timestamp()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value).timestamp()
+            except (ValueError, TypeError):
+                pass
+            try:
+                return float(value)
+            except (ValueError, TypeError):
+                pass
+        return default

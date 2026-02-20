@@ -30,7 +30,9 @@ class LearningFacade(BaseFacade):
 
                 metadata = review_data.get('metadata', {})
                 record = PersonaLearningReview(
-                    timestamp=review_data.get('timestamp', time.time()),
+                    timestamp=self._to_float_ts(
+                        review_data.get('timestamp'), default=time.time()
+                    ),
                     group_id=review_data.get('group_id', ''),
                     update_type=review_data.get('update_type', ''),
                     original_content=review_data.get('original_content', ''),
@@ -484,7 +486,9 @@ class LearningFacade(BaseFacade):
                 record = StyleLearningReview(
                     type=review_data.get('type', ''),
                     group_id=review_data.get('group_id', ''),
-                    timestamp=review_data.get('timestamp', time.time()),
+                    timestamp=self._to_float_ts(
+                        review_data.get('timestamp'), default=time.time()
+                    ),
                     learned_patterns=json.dumps(learned_patterns, ensure_ascii=False)
                     if isinstance(learned_patterns, (list, dict))
                     else learned_patterns,
@@ -807,8 +811,10 @@ class LearningFacade(BaseFacade):
                     session_id=session_data.get('session_id', ''),
                     group_id=group_id,
                     batch_id=session_data.get('batch_id'),
-                    start_time=session_data.get('start_time', time.time()),
-                    end_time=session_data.get('end_time'),
+                    start_time=self._to_float_ts(
+                        session_data.get('start_time'), default=time.time()
+                    ),
+                    end_time=self._to_float_ts(session_data.get('end_time')),
                     message_count=session_data.get('message_count', 0),
                     learning_quality=session_data.get('learning_quality'),
                     status=session_data.get('status', 'active'),
@@ -840,7 +846,12 @@ class LearningFacade(BaseFacade):
                 record = LearningPerformanceHistory(
                     group_id=group_id,
                     session_id=performance_data.get('session_id', ''),
-                    timestamp=performance_data.get('timestamp', int(time.time())),
+                    timestamp=int(
+                        self._to_float_ts(
+                            performance_data.get('timestamp'),
+                            default=time.time(),
+                        )
+                    ),
                     quality_score=performance_data.get('quality_score'),
                     learning_time=performance_data.get('learning_time'),
                     success=performance_data.get('success', True),
