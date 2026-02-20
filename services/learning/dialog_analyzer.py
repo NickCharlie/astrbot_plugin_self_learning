@@ -216,28 +216,30 @@ class DialogAnalyzer:
     ) -> List[Dict[str, Any]]:
         """Retrieve pending style-learning review records for a group."""
         try:
-            async with self._db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                await cursor.execute(
-                    """
-                    SELECT id, group_id, few_shots_content, timestamp
-                    FROM style_learning_reviews
-                    WHERE group_id = ? AND status = 'pending'
-                      AND type = 'style_learning'
-                    ORDER BY timestamp DESC
-                    LIMIT 10
-                    """,
-                    (group_id,),
+            async with self._db_manager.get_session() as session:
+                from sqlalchemy import select, desc
+                from ...models.orm.learning import StyleLearningReview
+
+                stmt = (
+                    select(StyleLearningReview)
+                    .where(
+                        StyleLearningReview.group_id == group_id,
+                        StyleLearningReview.status == 'pending',
+                        StyleLearningReview.type == 'style_learning',
+                    )
+                    .order_by(desc(StyleLearningReview.timestamp))
+                    .limit(10)
                 )
-                rows = await cursor.fetchall()
+                result = await session.execute(stmt)
+                reviews = result.scalars().all()
                 return [
                     {
-                        "id": row[0],
-                        "group_id": row[1],
-                        "few_shots_content": row[2],
-                        "timestamp": row[3],
+                        "id": r.id,
+                        "group_id": r.group_id,
+                        "few_shots_content": r.few_shots_content,
+                        "timestamp": r.timestamp,
                     }
-                    for row in rows
+                    for r in reviews
                 ]
 
         except Exception as e:
