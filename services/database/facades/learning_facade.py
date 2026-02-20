@@ -309,20 +309,62 @@ class LearningFacade(BaseFacade):
             return []
 
     async def get_reviewed_persona_learning_updates(
-        self, group_id=None, limit=50
+        self, limit=50, offset=0, status_filter=None
     ) -> List[Dict]:
-        """获取已审核的人格学习更新记录（get_reviewed_persona_update_records 的别名）
+        """获取已审核的人格学习更新记录
 
         Args:
-            group_id: 可选的群组 ID 过滤
             limit: 返回数量限制
+            offset: 偏移量
+            status_filter: 状态过滤
 
         Returns:
             已审核记录列表
         """
-        return await self.get_reviewed_persona_update_records(
-            group_id=group_id, limit=limit
-        )
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, desc
+                from ....models.orm.learning import PersonaLearningReview
+
+                if status_filter:
+                    stmt = (
+                        select(PersonaLearningReview)
+                        .where(PersonaLearningReview.status == status_filter)
+                        .order_by(desc(PersonaLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
+                else:
+                    stmt = (
+                        select(PersonaLearningReview)
+                        .where(PersonaLearningReview.status.in_(['approved', 'rejected']))
+                        .order_by(desc(PersonaLearningReview.review_time))
+                        .offset(offset)
+                        .limit(limit)
+                    )
+
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
+                return [
+                    {
+                        'id': r.id,
+                        'timestamp': r.timestamp,
+                        'group_id': r.group_id,
+                        'update_type': r.update_type,
+                        'original_content': r.original_content,
+                        'new_content': r.new_content,
+                        'proposed_content': r.proposed_content,
+                        'confidence_score': r.confidence_score,
+                        'reason': r.reason,
+                        'status': r.status,
+                        'reviewer_comment': r.reviewer_comment,
+                        'review_time': r.review_time,
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 获取已审核人格学习更新记录失败: {e}")
+            return []
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         """根据 ID 删除人格学习审核记录

@@ -418,14 +418,16 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.delete_style_review_by_id(review_id)
 
     async def get_pending_persona_learning_reviews(
-        self, group_id: str = None, limit: int = 50,
+        self, limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_learning_reviews(group_id, limit)
+        return await self._learning.get_pending_persona_learning_reviews(limit)
 
     async def get_reviewed_persona_learning_updates(
-        self, group_id: str = None,
+        self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_learning_updates(group_id)
+        return await self._learning.get_reviewed_persona_learning_updates(
+            limit=limit, offset=offset, status_filter=status_filter,
+        )
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
         return await self._learning.delete_persona_learning_review_by_id(review_id)
@@ -461,9 +463,9 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.get_recent_learning_sessions(days)
 
     async def save_learning_session_record(
-        self, session_data: Dict[str, Any],
+        self, group_id: str, session_data: Dict[str, Any],
     ) -> bool:
-        return await self._learning.save_learning_session_record(session_data)
+        return await self._learning.save_learning_session_record(group_id, session_data)
 
     async def save_learning_performance_record(
         self, group_id: str, performance_data: Dict[str, Any],
