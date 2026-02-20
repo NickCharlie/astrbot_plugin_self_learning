@@ -80,7 +80,7 @@ class PersonaUpdater(IPersonaUpdater):
             persona_name = current_persona.get('name', 'unknown') if isinstance(current_persona, dict) else current_persona['name']
             self._logger.info(f"当前人格: {persona_name} for group {group_id}")
             
-            # ===== 创建备份（如果启用） =====
+            # 创建备份（如果启用）
             backup_id = None
             if self.config.persona_update_backup_enabled:
                 try:
@@ -93,7 +93,7 @@ class PersonaUpdater(IPersonaUpdater):
                     self._logger.error(f"创建备份失败: {backup_error}")
                     # 不阻止更新继续进行
             
-            # ===== 保存更新前的人格状态用于对比 =====
+            # 保存更新前的人格状态用于对比
             def clone_persona_data(persona_data: Any) -> Dict[str, Any]:
                 """临时克隆人格数据用于对比"""
                 try:
@@ -153,7 +153,7 @@ class PersonaUpdater(IPersonaUpdater):
             if 'style_attributes' in style_analysis: # 从 style_analysis 中获取 style_attributes
                 await self._apply_style_attributes(current_persona, style_analysis['style_attributes'])
             
-            # ===== 生成并输出格式化的更新报告 =====
+            # 生成并输出格式化的更新报告
             after_persona = clone_persona_data(current_persona)
             update_details = {
                 'new_features_count': len(style_analysis.get('style_features', [])),
@@ -304,13 +304,13 @@ class PersonaUpdater(IPersonaUpdater):
 
                 if not approved_prompt:
                     self._logger.error(f"✗ 更新记录 {update_id} 中没有新内容(new_content)，且未提供modified_content")
-                    self._logger.error(f"   update_record keys: {list(update_record.keys())}")
+                    self._logger.error(f" update_record keys: {list(update_record.keys())}")
                     return False
 
                 self._logger.info(f"开始创建批准更新人格: {approved_persona_id}")
-                self._logger.info(f"  原人格prompt长度: {len(original_prompt)} 字符")
-                self._logger.info(f"  新人格prompt长度: {len(approved_prompt)} 字符")
-                self._logger.debug(f"  新人格prompt前100字: {approved_prompt[:100]}...")
+                self._logger.info(f" 原人格prompt长度: {len(original_prompt)} 字符")
+                self._logger.info(f" 新人格prompt长度: {len(approved_prompt)} 字符")
+                self._logger.debug(f" 新人格prompt前100字: {approved_prompt[:100]}...")
 
                 self._logger.info(f"调用 PersonaManager.create_persona()...")
                 approved_persona = await persona_manager.create_persona(
@@ -335,17 +335,17 @@ class PersonaUpdater(IPersonaUpdater):
                         return True
                     else:
                         self._logger.error(f"✗ 验证失败: 批准更新人格创建后无法找到")
-                        self._logger.error(f"   尝试列出所有人格...")
+                        self._logger.error(f" 尝试列出所有人格...")
                         try:
                             all_personas = await persona_manager.get_all_personas()
-                            self._logger.error(f"   当前所有人格: {[p.get('name', 'unknown') for p in all_personas] if all_personas else '无法获取'}")
+                            self._logger.error(f" 当前所有人格: {[p.get('name', 'unknown') for p in all_personas] if all_personas else '无法获取'}")
                         except Exception as list_error:
-                            self._logger.error(f"   列出人格失败: {list_error}")
+                            self._logger.error(f" 列出人格失败: {list_error}")
                         return False
                 else:
                     self._logger.error(f"✗ 创建批准更新人格失败: {approved_persona_id}")
-                    self._logger.error(f"   PersonaManager.create_persona() 返回了 None 或 False")
-                    self._logger.error(f"   参数检查: persona_id='{approved_persona_id}', system_prompt长度={len(approved_prompt)}")
+                    self._logger.error(f" PersonaManager.create_persona() 返回了 None 或 False")
+                    self._logger.error(f" 参数检查: persona_id='{approved_persona_id}', system_prompt长度={len(approved_prompt)}")
                     return False
             else:
                 self._logger.error("PersonaManager不可用，无法创建备份")
@@ -370,7 +370,7 @@ class PersonaUpdater(IPersonaUpdater):
                     'original_content': record.get('original_content', ''),
                     'proposed_content': record.get('new_content', ''),
                     'reason': record.get('reason', '传统人格更新'),
-                    'confidence_score': 0.9,  # 传统更新默认较高置信度
+                    'confidence_score': 0.9, # 传统更新默认较高置信度
                     'status': record.get('status'),
                     'reviewer_comment': record.get('reviewer_comment'),
                     'review_time': record.get('review_time'),
@@ -466,7 +466,7 @@ class PersonaUpdater(IPersonaUpdater):
             return f"{original}\n\n{enhancement}"
         elif self.config.persona_merge_strategy == "prepend":
             return f"{enhancement}\n\n{original}"
-        else:  # smart merge
+        else: # smart merge
             return self._smart_merge_prompts(original, enhancement)
     
     def _smart_merge_prompts(self, original: str, enhancement: str) -> str:
@@ -483,9 +483,9 @@ class PersonaUpdater(IPersonaUpdater):
 
         overlap_ratio = len(words_original.intersection(words_enhancement)) / max(len(words_original), 1)
 
-        if overlap_ratio > 0.7:  # 高重叠，选择较长的
+        if overlap_ratio > 0.7: # 高重叠，选择较长的
             return enhancement if len(enhancement) > len(original) else original
-        else:  # 低重叠，合并
+        else: # 低重叠，合并
             return f"{original}\n\n补充风格特征：{enhancement}"
     
     async def _update_mood_imitation_dialogs(self, persona: Personality, filtered_messages: List[Dict[str, Any]]):
@@ -495,7 +495,7 @@ class PersonaUpdater(IPersonaUpdater):
             
             # 从过滤后的消息中提取高质量对话特征（不是原始对话）
             new_features = []
-            for msg in filtered_messages[-10:]:  # 取最近10条
+            for msg in filtered_messages[-10:]: # 取最近10条
                 message_text = msg.get('message', '').strip()
                 if message_text and len(message_text) > self.config.message_min_length:
                     if self._is_authentic_message(message_text) and message_text not in current_dialogs:
@@ -534,7 +534,7 @@ class PersonaUpdater(IPersonaUpdater):
             r'.*:\s*你最近.*',
             r'开场对话列表',
             r'情绪模拟对话列表',
-            r'风格特征:.*',  # 避免重复嵌套
+            r'风格特征:.*', # 避免重复嵌套
         ]
         
         import re
@@ -661,7 +661,7 @@ class PersonaUpdater(IPersonaUpdater):
             target_attributes = target_style.get('style_attributes', {})
             
             # 简单的兼容性评分
-            compatibility_score = 0.8  # 基础分数
+            compatibility_score = 0.8 # 基础分数
             
             # 检查风格冲突
             conflicts = []
@@ -942,7 +942,7 @@ class PersonaAnalyzer:
             self._logger.error(f"停止人格更新服务失败: {e}")
             return False
 
-    # ===== 人格格式化输出功能 =====
+    # 人格格式化输出功能
     
     async def format_current_persona_display(self, group_id: str) -> str:
         """
@@ -960,7 +960,7 @@ class PersonaAnalyzer:
             # 获取当前人格信息
             current_persona = await self.get_current_persona(group_id)
             if not current_persona:
-                return "❌ 无法获取当前人格信息"
+                return " 无法获取当前人格信息"
             
             # 获取人格统计信息
             stats = await self._get_persona_statistics(group_id)
@@ -1001,7 +1001,7 @@ class PersonaAnalyzer:
             
         except Exception as e:
             self._logger.error(f"格式化当前人格显示失败: {e}")
-            return f"❌ 获取人格信息失败: {str(e)}"
+            return f" 获取人格信息失败: {str(e)}"
     
     def _get_persona_name(self, persona_data: Any) -> str:
         """获取人格名称"""
@@ -1073,7 +1073,7 @@ class PersonaAnalyzer:
                         features.append(line)
                 
                 if features:
-                    return '\n'.join(features[-10:])  # 显示最近10个特征
+                    return '\n'.join(features[-10:]) # 显示最近10个特征
             
             return "暂无学习到的风格特征"
             
@@ -1081,7 +1081,7 @@ class PersonaAnalyzer:
             self._logger.error(f"获取学习到的风格特征失败: {e}")
             return "获取风格特征失败"
     
-    # ===== 辅助方法 =====
+    # 辅助方法
     
     async def _clone_persona_data(self, persona_data: Any) -> Dict[str, Any]:
         """克隆人格数据用于对比"""

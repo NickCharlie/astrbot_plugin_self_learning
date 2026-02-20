@@ -34,7 +34,7 @@ class MessageCollectorService:
         self._message_cache = []
         self._cache_size_limit = 100
         self._last_flush_time = time.time()
-        self._flush_interval = 30  # 30秒强制刷新一次
+        self._flush_interval = 30 # 30秒强制刷新一次
         
         logger.info("消息收集服务初始化完成")
 
@@ -63,7 +63,7 @@ class MessageCollectorService:
             )
 
             await self.database_manager.save_raw_message(message_obj)
-            logger.info(f"✅ 消息已保存: group={message_data.get('group_id')}, sender={message_data.get('sender_name')}, msg_preview={message_data.get('message', '')[:30]}...")
+            logger.info(f" 消息已保存: group={message_data.get('group_id')}, sender={message_data.get('sender_name')}, msg_preview={message_data.get('message', '')[:30]}...")
 
             return True
 

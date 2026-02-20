@@ -21,7 +21,7 @@ class JargonQueryService:
         """
         self.db = db_manager
 
-        # ⚡ 使用 cachetools.TTLCache - 自动过期管理
+        # 使用 cachetools.TTLCache - 自动过期管理
         self._cache = TTLCache(maxsize=500, ttl=cache_ttl)
         logger.info(f"[黑话查询] 使用 TTLCache (maxsize=500, ttl={cache_ttl}s)")
 
@@ -68,7 +68,7 @@ class JargonQueryService:
             if include_global and len(results) < limit:
                 global_results = await self.db.search_jargon(
                     keyword=keyword,
-                    chat_id=None,  # 搜索全局黑话
+                    chat_id=None, # 搜索全局黑话
                     limit=limit - len(results)
                 )
                 # 去重
@@ -111,7 +111,7 @@ class JargonQueryService:
         Returns:
             格式化的黑话列表文本
         """
-        # ⚡ 先检查缓存
+        # 先检查缓存
         cache_key = f"jargon_context_{chat_id}_{limit}"
         cached = self._get_from_cache(cache_key)
         if cached is not None:
@@ -136,7 +136,7 @@ class JargonQueryService:
 
             result = "\n".join(lines)
 
-            # ⚡ 缓存结果
+            # 缓存结果
             self._set_to_cache(cache_key, result)
             return result
 
@@ -160,7 +160,7 @@ class JargonQueryService:
             如果找到黑话则返回解释文本,否则返回None
         """
         try:
-            # ⚡ 先从缓存获取该群组的黑话列表
+            # 先从缓存获取该群组的黑话列表
             cache_key = f"jargon_list_{chat_id}"
             jargon_list = self._get_from_cache(cache_key)
 
@@ -171,7 +171,7 @@ class JargonQueryService:
                     limit=100,
                     only_confirmed=True
                 )
-                # ⚡ 缓存黑话列表
+                # 缓存黑话列表
                 self._set_to_cache(cache_key, jargon_list)
 
             if not jargon_list:

@@ -15,9 +15,7 @@ from datetime import datetime
 import time
 
 
-# ============================================================================
 # Async Test Utilities
-# ============================================================================
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -27,9 +25,7 @@ def event_loop():
     loop.close()
 
 
-# ============================================================================
 # Mock ServiceContainer
-# ============================================================================
 
 @pytest.fixture
 def mock_plugin_config():
@@ -229,9 +225,7 @@ def mock_container(
     return container
 
 
-# ============================================================================
 # Test Data Factories
-# ============================================================================
 
 @pytest.fixture
 def sample_persona_data():
@@ -319,15 +313,13 @@ def sample_chat_message():
     }
 
 
-# ============================================================================
 # Authentication Test Helpers
-# ============================================================================
 
 @pytest.fixture
 def sample_password_config():
     """Sample password configuration"""
     return {
-        'password_hash': '5f4dcc3b5aa765d61d8327deb882cf99',  # MD5 of 'password'
+        'password_hash': '5f4dcc3b5aa765d61d8327deb882cf99', # MD5 of 'password'
         'salt': 'test_salt',
         'algorithm': 'md5',
         'created_at': time.time(),
@@ -345,9 +337,7 @@ def sample_login_attempt():
     }
 
 
-# ============================================================================
 # Async Helper Functions
-# ============================================================================
 
 @pytest.fixture
 def async_return():

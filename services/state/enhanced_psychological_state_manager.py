@@ -127,11 +127,11 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                 minute=0
             )
 
-            self._logger.info("✅ [增强型心理状态] 启动成功")
+            self._logger.info(" [增强型心理状态] 启动成功")
             return True
 
         except Exception as e:
-            self._logger.error(f"❌ [增强型心理状态] 启动失败: {e}", exc_info=True)
+            self._logger.error(f" [增强型心理状态] 启动失败: {e}", exc_info=True)
             return False
 
     async def _do_stop(self) -> bool:
@@ -149,16 +149,14 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
             # 清除缓存
             self.cache.clear('state')
 
-            self._logger.info("✅ [增强型心理状态] 已停止")
+            self._logger.info(" [增强型心理状态] 已停止")
             return True
 
         except Exception as e:
-            self._logger.error(f"❌ [增强型心理状态] 停止失败: {e}")
+            self._logger.error(f" [增强型心理状态] 停止失败: {e}")
             return False
 
-    # ============================================================
     # 使用缓存装饰器的方法
-    # ============================================================
 
     @async_cached(
         cache_name='state',
@@ -198,7 +196,7 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                     for comp in components:
                         state_components[comp.component_name] = PsychologicalStateComponent(
                             dimension=comp.component_name,
-                            state_type=comp.component_name,  # TODO: 需要解析类型
+                            state_type=comp.component_name, # TODO: 需要解析类型
                             value=comp.value,
                             threshold=comp.threshold
                         )
@@ -327,9 +325,7 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
             self._logger.error(f"[增强型心理状态] 生成注入内容失败: {e}")
             return ""
 
-    # ============================================================
     # 任务调度方法
-    # ============================================================
 
     async def _auto_decay_task(self):
         """状态自动衰减任务（由调度器调用）"""
@@ -391,16 +387,14 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                     # TODO: 获取所有状态ID并清理30天前的历史
                     # 示例实现
                     # for state_id in state_ids:
-                    #     deleted = await history_repo.clean_old_history(state_id, days=30)
+                    # deleted = await history_repo.clean_old_history(state_id, days=30)
 
             self._logger.info("[增强型心理状态] 历史清理完成")
 
         except Exception as e:
             self._logger.error(f"[增强型心理状态] 清理历史失败: {e}")
 
-    # ============================================================
     # 辅助方法（保持原有逻辑）
-    # ============================================================
 
     def _init_time_based_rules(self) -> List[Dict[str, Any]]:
         """初始化基于时间的状态变化规则"""
@@ -444,9 +438,7 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"[增强型心理状态] 保存状态失败: {e}")
 
-    # ============================================================
     # 缓存统计方法
-    # ============================================================
 
     def get_cache_stats(self) -> dict:
         """获取缓存统计信息"""

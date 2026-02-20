@@ -3,7 +3,7 @@ mem0-based memory manager.
 
 Replaces the legacy ``MemoryGraphManager`` by using the mem0 library for
 automatic memory extraction, semantic vector search, and contradiction
-detection.  When ``memory_engine`` is set to ``"mem0"`` in the plugin
+detection. When ``memory_engine`` is set to ``"mem0"`` in the plugin
 config, this module is activated instead of the NetworkX-based
 implementation.
 
@@ -39,7 +39,7 @@ try:
 
     _MEM0_AVAILABLE = True
 except ImportError:
-    Mem0Memory = None  # type: ignore[assignment,misc]
+    Mem0Memory = None # type: ignore[assignment,misc]
 
 
 class Mem0MemoryManager:
@@ -51,8 +51,8 @@ class Mem0MemoryManager:
     * ``add_memory_from_message(message, group_id)``
     * ``get_related_memories(query, group_id, limit)``
     * ``get_memory_graph_statistics(group_id)``
-    * ``save_memory_graph(group_id)``  -- no-op (mem0 auto-persists)
-    * ``load_memory_graph(group_id)``  -- no-op (mem0 auto-loads)
+    * ``save_memory_graph(group_id)`` -- no-op (mem0 auto-persists)
+    * ``load_memory_graph(group_id)`` -- no-op (mem0 auto-loads)
     * ``start()`` / ``stop()``
 
     Usage::
@@ -87,9 +87,7 @@ class Mem0MemoryManager:
         # instead of an AttributeError.
         self.memory_graphs: Dict[str, Any] = {}
 
-    # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
 
     async def start(self) -> bool:
         """Initialise the mem0 Memory instance."""
@@ -114,9 +112,7 @@ class Mem0MemoryManager:
         logger.info("[Mem0] Memory manager stopped")
         return True
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def add_memory_from_message(
         self, message: MessageData, group_id: str
@@ -211,13 +207,11 @@ class Mem0MemoryManager:
         """No-op: mem0 auto-loads from Qdrant."""
 
     def get_memory_graph(self, group_id: str) -> None:
-        """Compatibility stub.  Returns ``None`` since mem0 does not
+        """Compatibility stub. Returns ``None`` since mem0 does not
         expose an in-memory graph object."""
         return None
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _extract_text(message: MessageData) -> str:
@@ -233,7 +227,7 @@ class Mem0MemoryManager:
         """Build the mem0 configuration dict.
 
         Attempts to extract LLM and embedding API credentials from the
-        AstrBot framework providers.  Falls back to env variables if
+        AstrBot framework providers. Falls back to env variables if
         extraction fails (mem0 reads ``OPENAI_API_KEY`` by default).
         """
         config: Dict[str, Any] = {"version": "v1.1"}
@@ -252,7 +246,7 @@ class Mem0MemoryManager:
         qdrant_path = os.path.join(self._config.data_dir, "mem0_qdrant")
         os.makedirs(qdrant_path, exist_ok=True)
 
-        embedding_dims = 1536  # default for text-embedding-3-small
+        embedding_dims = 1536 # default for text-embedding-3-small
         if self._embedding_provider:
             try:
                 embedding_dims = self._embedding_provider.get_dim()

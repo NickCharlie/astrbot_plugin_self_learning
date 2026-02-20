@@ -65,25 +65,25 @@ class ServiceFactory(IServiceFactory):
 
                 # 检查是否成功配置了至少一个提供商
                 if self._framework_llm_adapter.providers_configured > 0:
-                    self._logger.info(f"✅ 框架LLM适配器初始化成功，已配置 {self._framework_llm_adapter.providers_configured} 个提供商")
+                    self._logger.info(f" 框架LLM适配器初始化成功，已配置 {self._framework_llm_adapter.providers_configured} 个提供商")
                 else:
-                    # ⚠️ 重要变更：Provider未配置时不抛出异常，允许延迟初始化
+                    # 重要变更：Provider未配置时不抛出异常，允许延迟初始化
                     self._logger.warning(
-                        "⚠️ 框架LLM适配器初始化时未找到可用的Provider。\n"
-                        "   原因可能是：\n"
-                        "   1. AstrBot的Provider系统尚未完全初始化（插件加载时序问题）\n"
-                        "   2. 配置文件中未指定filter_provider_id/refine_provider_id\n"
-                        "   3. 指定的Provider ID不存在\n"
-                        "   插件将继续加载，Provider会在实际使用时自动重试初始化。"
+                        " 框架LLM适配器初始化时未找到可用的Provider。\n"
+                        " 原因可能是：\n"
+                        " 1. AstrBot的Provider系统尚未完全初始化（插件加载时序问题）\n"
+                        " 2. 配置文件中未指定filter_provider_id/refine_provider_id\n"
+                        " 3. 指定的Provider ID不存在\n"
+                        " 插件将继续加载，Provider会在实际使用时自动重试初始化。"
                     )
                     # 标记为需要延迟初始化
                     self._framework_llm_adapter._needs_lazy_init = True
 
             except Exception as e:
                 self._logger.warning(
-                    f"⚠️ 初始化LLM适配器时发生异常: {e}\n"
-                    "   插件将继续加载，LLM功能会在实际调用时重试初始化。",
-                    exc_info=self.config.debug_mode  # 仅在debug模式显示完整堆栈
+                    f" 初始化LLM适配器时发生异常: {e}\n"
+                    " 插件将继续加载，LLM功能会在实际调用时重试初始化。",
+                    exc_info=self.config.debug_mode # 仅在debug模式显示完整堆栈
                 )
                 # 创建一个最小化的适配器实例，允许插件继续加载
                 self._framework_llm_adapter = FrameworkLLMAdapter(self.context)
@@ -140,8 +140,8 @@ class ServiceFactory(IServiceFactory):
                 self.config,
                 self.context,
                 self.create_database_manager(),
-                llm_adapter=self.create_framework_llm_adapter(),  # 使用框架适配器
-                prompts=self.get_prompts()  # 传递 prompts
+                llm_adapter=self.create_framework_llm_adapter(), # 使用框架适配器
+                prompts=self.get_prompts() # 传递 prompts
             )
             self._registry.register_service("style_analyzer", service)
             
@@ -228,8 +228,8 @@ class ServiceFactory(IServiceFactory):
             service = LearningQualityMonitor(
                 self.config,
                 self.context,
-                llm_adapter=self.create_framework_llm_adapter(),  # 使用框架适配器
-                prompts=self.get_prompts()  # 传递 prompts
+                llm_adapter=self.create_framework_llm_adapter(), # 使用框架适配器
+                prompts=self.get_prompts() # 传递 prompts
             )
             self._registry.register_service("quality_monitor", service)
             
@@ -271,7 +271,7 @@ class ServiceFactory(IServiceFactory):
             service = LightweightMLAnalyzer(
                 self.config,
                 db_manager,
-                llm_adapter=self.create_framework_llm_adapter(),  # 使用框架适配器
+                llm_adapter=self.create_framework_llm_adapter(), # 使用框架适配器
                 prompts=self.get_prompts(), # 传递 prompts
                 temporary_persona_updater=temporary_persona_updater # 传递临时人格更新器
             )
@@ -373,7 +373,7 @@ class ServiceFactory(IServiceFactory):
                 self.config,
                 db_manager,
                 self.context,
-                llm_adapter=llm_adapter,  # 传递框架适配器
+                llm_adapter=llm_adapter, # 传递框架适配器
                 prompts=self.get_prompts(), # 传递 prompts
                 temporary_persona_updater=temporary_persona_updater # 传递临时人格更新器
             )
@@ -467,8 +467,8 @@ class ServiceFactory(IServiceFactory):
                 self.config,
                 self.context,
                 backup_manager,
-                None,  # llm_client参数保持为可选
-                self.create_database_manager()  # 传递正确的db_manager
+                None, # llm_client参数保持为可选
+                self.create_database_manager() # 传递正确的db_manager
             )
             self._registry.register_service("persona_updater", service)
             self._logger.info("创建人格更新器成功")
@@ -503,7 +503,7 @@ class ServiceFactory(IServiceFactory):
         try:
             # 按依赖顺序创建服务
             self.create_database_manager()
-            self.create_temporary_persona_updater()  # 临时人格更新器需要优先创建
+            self.create_temporary_persona_updater() # 临时人格更新器需要优先创建
             self.create_message_collector()
             self.create_style_analyzer()
             self.create_quality_monitor()
@@ -511,7 +511,7 @@ class ServiceFactory(IServiceFactory):
 
             # 创建响应多样性管理器（在intelligent_responder之前）- 使用工厂方法
             try:
-                self.create_response_diversity_manager()  # 使用ServiceFactory的方法
+                self.create_response_diversity_manager() # 使用ServiceFactory的方法
             except Exception as e:
                 self._logger.warning(f"创建响应多样性管理器失败（继续使用默认行为）: {e}")
 
@@ -521,7 +521,7 @@ class ServiceFactory(IServiceFactory):
             except Exception as e:
                 self._logger.warning(f"创建社交上下文注入器失败（继续使用默认行为）: {e}")
 
-            self.create_intelligent_responder()  # 重新启用智能回复器
+            self.create_intelligent_responder() # 重新启用智能回复器
             self.create_persona_manager()
             self.create_multidimensional_analyzer()
             self.create_progressive_learning()
@@ -673,7 +673,7 @@ class MessageFilter:
     def __init__(self, config: PluginConfig, context: Context, prompts: Any = None):
         self.config = config
         self.context = context
-        self.prompts = prompts  # 保存 prompts
+        self.prompts = prompts # 保存 prompts
         self._logger = logger
     
     async def is_suitable_for_learning(self, message: str) -> bool:
@@ -703,7 +703,7 @@ class MessageFilter:
             )
             
             # 不再使用LLM进行筛选，返回默认结果
-            return False  # 默认认为不适合学习
+            return False # 默认认为不适合学习
         except Exception as e:
             self._logger.error(f"LLM 筛选消息失败: {e}", exc_info=True)
             return False # LLM 调用失败，认为不适合
@@ -746,7 +746,7 @@ class LearningScheduler:
                 break
             except Exception as e:
                 self._logger.error(f"学习循环异常: {e}", exc_info=True)
-                await asyncio.sleep(60)  # 错误后等待1分钟再重试
+                await asyncio.sleep(60) # 错误后等待1分钟再重试
 
 
 class ComponentFactory:
@@ -808,7 +808,7 @@ class ComponentFactory:
                 self.config,
                 database_manager=self.service_factory.create_database_manager(),
                 persona_manager=self.service_factory.create_persona_manager(),
-                llm_adapter=self.service_factory.create_framework_llm_adapter()  # 使用框架适配器
+                llm_adapter=self.service_factory.create_framework_llm_adapter() # 使用框架适配器
             )
             self._registry.register_service("advanced_learning", service)
             
@@ -828,7 +828,7 @@ class ComponentFactory:
             service = EnhancedInteractionService(
                 self.config,
                 database_manager=self.service_factory.create_database_manager(),
-                llm_adapter=self.service_factory.create_framework_llm_adapter()  # 使用框架适配器
+                llm_adapter=self.service_factory.create_framework_llm_adapter() # 使用框架适配器
             )
             self._registry.register_service("enhanced_interaction", service)
             
@@ -849,7 +849,7 @@ class ComponentFactory:
                 self.config,
                 database_manager=self.service_factory.create_database_manager(),
                 persona_manager=self.service_factory.create_persona_manager(),
-                llm_adapter=self.service_factory.create_framework_llm_adapter()  # 使用框架适配器
+                llm_adapter=self.service_factory.create_framework_llm_adapter() # 使用框架适配器
             )
             self._registry.register_service("intelligence_enhancement", service)
             
@@ -935,30 +935,30 @@ class ComponentFactory:
             try:
                 # 创建心理状态管理器
                 psychological_state_manager = manager_factory.create_psychological_manager(
-                    database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
+                    database_manager=db_manager, # 使用正确的参数名 database_manager
                     llm_adapter=llm_adapter,
-                    affection_manager=None  # 避免循环依赖
+                    affection_manager=None # 避免循环依赖
                 )
 
                 # 创建社交关系管理器
                 social_relation_manager = manager_factory.create_social_relation_manager(
-                    database_manager=db_manager,  # ✅ 使用正确的参数名 database_manager
+                    database_manager=db_manager, # 使用正确的参数名 database_manager
                     llm_adapter=llm_adapter
                 )
 
-                self._logger.info("✅ 成功创建心理状态和社交关系管理器（整合到SocialContextInjector）")
+                self._logger.info(" 成功创建心理状态和社交关系管理器（整合到SocialContextInjector）")
             except Exception as e:
                 self._logger.warning(f"创建心理状态/社交关系管理器失败: {e}，将使用基础功能")
 
             service = SocialContextInjector(
                 database_manager=db_manager,
                 affection_manager=affection_manager,
-                mood_manager=affection_manager,  # AffectionManager同时也管理情绪
-                config=self.config,  # ✅ 传递config以读取expression_patterns_hours配置
-                psychological_state_manager=psychological_state_manager,  # 新增：心理状态管理器
-                social_relation_manager=social_relation_manager,  # 新增：社交关系管理器（但使用原有实现）
-                llm_adapter=llm_adapter,  # 新增：LLM适配器
-                goal_manager=goal_manager  # 新增：对话目标管理器
+                mood_manager=affection_manager, # AffectionManager同时也管理情绪
+                config=self.config, # 传递config以读取expression_patterns_hours配置
+                psychological_state_manager=psychological_state_manager, # 新增：心理状态管理器
+                social_relation_manager=social_relation_manager, # 新增：社交关系管理器（但使用原有实现）
+                llm_adapter=llm_adapter, # 新增：LLM适配器
+                goal_manager=goal_manager # 新增：对话目标管理器
             )
 
             self._registry.register_service("social_context_injector", service)
@@ -1021,7 +1021,7 @@ class ComponentFactory:
                     llm_adapter=llm_adapter,
                     affection_manager=None
                 )
-                self._logger.info("✅ 为智能对话服务创建心理状态管理器成功")
+                self._logger.info(" 为智能对话服务创建心理状态管理器成功")
             except Exception as e:
                 self._logger.warning(f"创建心理状态管理器失败: {e}，智能对话服务将使用基础功能")
 

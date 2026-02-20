@@ -33,9 +33,7 @@ class PluginCommandHandlers:
         self._llm_adapter = llm_adapter
         self._force_learning_in_progress: set = set()
 
-    # ------------------------------------------------------------------
     # learning_status
-    # ------------------------------------------------------------------
 
     async def learning_status(self, event: Any) -> AsyncGenerator:
         """查看学习状态"""
@@ -94,11 +92,11 @@ class PluginCommandHandlers:
                 ),
             )
 
-            status_info += f"\n\n📊 人格更新配置:\n"
+            status_info += f"\n\n 人格更新配置:\n"
             status_info += f"• 更新方式: {persona_update_mode}\n"
             if self._config.use_persona_manager_updates:
                 persona_manager_updater = self._service_factory.create_persona_manager_updater()
-                pm_status = "✅ 可用" if persona_manager_updater.is_available() else "❌ 不可用"
+                pm_status = " 可用" if persona_manager_updater.is_available() else " 不可用"
                 status_info += f"• PersonaManager状态: {pm_status}\n"
                 status_info += f"• 自动应用更新: {'启用' if self._config.auto_apply_persona_updates else '禁用'}\n"
             status_info += f"• 更新前备份: {'启用' if self._config.persona_update_backup_enabled else '禁用'}\n"
@@ -160,9 +158,7 @@ class PluginCommandHandlers:
                 CommandMessages.STATUS_QUERY_FAILED.format(error=str(e))
             )
 
-    # ------------------------------------------------------------------
     # start_learning
-    # ------------------------------------------------------------------
 
     async def start_learning(self, event: Any) -> AsyncGenerator:
         """手动启动学习"""
@@ -174,21 +170,21 @@ class PluginCommandHandlers:
 
             if unprocessed_count < self._config.min_messages_for_learning:
                 yield event.plain_result(
-                    f"❌ 未处理消息数量不足"
+                    f" 未处理消息数量不足"
                     f"（{unprocessed_count}/{self._config.min_messages_for_learning}），"
                     f"无法开始学习"
                 )
                 return
 
             yield event.plain_result(
-                f"🔄 开始执行学习批次，处理 {unprocessed_count} 条未处理消息..."
+                f" 开始执行学习批次，处理 {unprocessed_count} 条未处理消息..."
             )
 
             try:
                 await self._progressive_learning._execute_learning_batch(group_id)
-                yield event.plain_result("✅ 学习批次执行完成")
+                yield event.plain_result(" 学习批次执行完成")
             except Exception as batch_error:
-                yield event.plain_result(f"❌ 学习批次执行失败: {str(batch_error)}")
+                yield event.plain_result(f" 学习批次执行失败: {str(batch_error)}")
 
         except Exception as e:
             logger.error(
@@ -198,9 +194,7 @@ class PluginCommandHandlers:
                 CommandMessages.STARTUP_FAILED.format(error=str(e))
             )
 
-    # ------------------------------------------------------------------
     # stop_learning
-    # ------------------------------------------------------------------
 
     async def stop_learning(self, event: Any) -> AsyncGenerator:
         """停止学习"""
@@ -218,9 +212,7 @@ class PluginCommandHandlers:
                 CommandMessages.STOP_FAILED.format(error=str(e))
             )
 
-    # ------------------------------------------------------------------
     # force_learning
-    # ------------------------------------------------------------------
 
     async def force_learning(self, event: Any) -> AsyncGenerator:
         """强制执行一次学习周期"""
@@ -232,7 +224,7 @@ class PluginCommandHandlers:
 
             if group_id in self._force_learning_in_progress:
                 yield event.plain_result(
-                    f"❌ 群组 {group_id} 的强制学习正在进行中，请等待完成"
+                    f" 群组 {group_id} 的强制学习正在进行中，请等待完成"
                 )
                 return
 
@@ -253,9 +245,7 @@ class PluginCommandHandlers:
                 CommandMessages.ERROR_FORCE_LEARNING.format(error=str(e))
             )
 
-    # ------------------------------------------------------------------
     # affection_status
-    # ------------------------------------------------------------------
 
     async def affection_status(self, event: Any) -> AsyncGenerator:
         """查看好感度状态"""
@@ -325,9 +315,7 @@ class PluginCommandHandlers:
                 CommandMessages.ERROR_GET_AFFECTION_STATUS.format(error=str(e))
             )
 
-    # ------------------------------------------------------------------
     # set_mood
-    # ------------------------------------------------------------------
 
     async def set_mood(self, event: Any) -> AsyncGenerator:
         """手动设置 bot 情绪（通过增量人格更新）"""
@@ -363,7 +351,7 @@ class PluginCommandHandlers:
 
             if mood_type not in valid_moods:
                 yield event.plain_result(
-                    f"❌ 无效的情绪类型。支持的情绪: {', '.join(valid_moods.keys())}"
+                    f" 无效的情绪类型。支持的情绪: {', '.join(valid_moods.keys())}"
                 )
                 return
 
@@ -401,12 +389,12 @@ class PluginCommandHandlers:
                 logger.warning(f"设置 affection_manager 情绪失败: {e}")
 
             if persona_success:
-                status_msg = f"✅ 情绪状态已设置为: {mood_type}\n描述: {mood_description}"
+                status_msg = f" 情绪状态已设置为: {mood_type}\n描述: {mood_description}"
                 if not affection_success:
-                    status_msg += "\n⚠️ 注意：情绪状态可能无法在状态查询中正确显示"
+                    status_msg += "\n 注意：情绪状态可能无法在状态查询中正确显示"
                 yield event.plain_result(status_msg)
             else:
-                yield event.plain_result("❌ 设置情绪状态失败")
+                yield event.plain_result(" 设置情绪状态失败")
 
         except Exception as e:
             logger.error(

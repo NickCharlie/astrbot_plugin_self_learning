@@ -15,7 +15,7 @@ class ConversationGoalManager:
 
     # 预定义目标模板 (30+种类型，实际会动态调整)
     GOAL_TEMPLATES = {
-        # ===== 情感支持类 =====
+        # 情感支持类
         "comfort": {
             "name": "安慰用户",
             "base_stages": ["初步共情", "弱化负面情绪", "给出轻量安慰"],
@@ -41,7 +41,7 @@ class ConversationGoalManager:
             "min_rounds": 3
         },
 
-        # ===== 信息交流类 =====
+        # 信息交流类
         "qa": {
             "name": "解答疑问",
             "base_stages": ["理解问题", "提供答案", "确认满意度"],
@@ -73,7 +73,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 娱乐互动类 =====
+        # 娱乐互动类
         "casual_chat": {
             "name": "闲聊互动",
             "base_stages": ["回应话题", "自然互动"],
@@ -111,7 +111,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 社交互动类 =====
+        # 社交互动类
         "greeting": {
             "name": "问候寒暄",
             "base_stages": ["回应问候", "关心近况", "自然过渡"],
@@ -143,7 +143,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 建议指导类 =====
+        # 建议指导类
         "advise": {
             "name": "提供建议",
             "base_stages": ["理解需求", "分析情况", "给出建议", "补充说明"],
@@ -169,7 +169,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 情绪调节类 =====
+        # 情绪调节类
         "calm_down": {
             "name": "情绪安抚",
             "base_stages": ["承认情绪", "理解原因", "引导冷静", "转移注意"],
@@ -189,7 +189,7 @@ class ConversationGoalManager:
             "min_rounds": 3
         },
 
-        # ===== 兴趣分享类 =====
+        # 兴趣分享类
         "recommend": {
             "name": "推荐分享",
             "base_stages": ["了解偏好", "推荐内容", "说明亮点", "引发兴趣"],
@@ -209,7 +209,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 特殊场景类 =====
+        # 特殊场景类
         "debate": {
             "name": "友好辩论",
             "base_stages": ["阐述观点", "论证立场", "反驳质疑", "求同存异"],
@@ -229,7 +229,7 @@ class ConversationGoalManager:
             "min_rounds": 4
         },
 
-        # ===== 冲突场景类 =====
+        # 冲突场景类
         "argument": {
             "name": "激烈争论",
             "base_stages": ["理解立场", "冷静回应", "寻找共识", "缓和气氛"],
@@ -485,32 +485,32 @@ class ConversationGoalManager:
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
-            # ✅ Debug日志: 输出发送给LLM的prompt
-            logger.debug(f"🔍 [对话目标-分析初始目标] LLM Prompt:\n{prompt}")
+            # Debug日志: 输出发送给LLM的prompt
+            logger.debug(f" [对话目标-分析初始目标] LLM Prompt:\n{prompt}")
 
-            # ✅ 使用提炼模型(refine)进行目标分析
+            # 使用提炼模型(refine)进行目标分析
             response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
                 temperature=0.3,
                 max_tokens=200
             )
 
-            logger.debug(f"🔍 [对话目标-分析初始目标] LLM Response: {response}")
+            logger.debug(f" [对话目标-分析初始目标] LLM Response: {response}")
 
             # 消毒响应
             try:
                 sanitized_response, report = self.prompt_protection.sanitize_response(response)
-                logger.debug(f"🔍 [对话目标-分析初始目标] 消毒后响应: {sanitized_response}")
+                logger.debug(f" [对话目标-分析初始目标] 消毒后响应: {sanitized_response}")
             except Exception as sanitize_error:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
-                sanitized_response = response  # 使用原始响应
+                sanitized_response = response # 使用原始响应
 
-            # ✅ 使用Guardrails Pydantic模型验证和解析JSON
+            # 使用Guardrails Pydantic模型验证和解析JSON
             try:
                 # 直接解析已有的响应文本
                 parsed_result = self.guardrails.parse_json_direct(
                     sanitized_response,
-                    model_class=self.GoalAnalysisResult  # 使用正确的模型引用
+                    model_class=self.GoalAnalysisResult # 使用正确的模型引用
                 )
 
                 if parsed_result:
@@ -521,7 +521,7 @@ class ConversationGoalManager:
                         "confidence": parsed_result.confidence,
                         "reasoning": parsed_result.reasoning
                     }
-                    logger.debug(f"✅ [对话目标] Pydantic验证成功: goal_type={result['goal_type']}")
+                    logger.debug(f" [对话目标] Pydantic验证成功: goal_type={result['goal_type']}")
                 else:
                     result = None
 
@@ -594,25 +594,25 @@ class ConversationGoalManager:
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
-            # ✅ Debug日志: 输出发送给LLM的prompt
-            logger.debug(f"🔍 [对话目标-动态规划阶段] LLM Prompt:\n{prompt}")
+            # Debug日志: 输出发送给LLM的prompt
+            logger.debug(f" [对话目标-动态规划阶段] LLM Prompt:\n{prompt}")
 
-            # ✅ 使用提炼模型(refine)进行阶段规划
+            # 使用提炼模型(refine)进行阶段规划
             response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
                 temperature=0.5,
                 max_tokens=150
             )
 
-            logger.debug(f"🔍 [对话目标-动态规划阶段] LLM Response: {response}")
+            logger.debug(f" [对话目标-动态规划阶段] LLM Response: {response}")
 
             # 消毒响应
             try:
                 sanitized_response, report = self.prompt_protection.sanitize_response(response)
-                logger.debug(f"🔍 [对话目标-动态规划阶段] 消毒后响应: {sanitized_response}")
+                logger.debug(f" [对话目标-动态规划阶段] 消毒后响应: {sanitized_response}")
             except Exception as sanitize_error:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
-                sanitized_response = response  # 使用原始响应
+                sanitized_response = response # 使用原始响应
 
             # 使用guardrails验证和清理JSON
             try:
@@ -798,8 +798,8 @@ Bot: {bot_response}
             # 使用提示词保护包装
             protected_prompt = self.prompt_protection.wrap_prompt(prompt, register_for_filter=True)
 
-            # ✅ Debug日志: 输出发送给LLM的prompt
-            logger.debug(f"🔍 [对话目标-意图分析] LLM Prompt:\n{prompt}")
+            # Debug日志: 输出发送给LLM的prompt
+            logger.debug(f" [对话目标-意图分析] LLM Prompt:\n{prompt}")
 
             response = await self.llm.refine_chat_completion(
                 prompt=protected_prompt,
@@ -807,22 +807,22 @@ Bot: {bot_response}
                 max_tokens=300
             )
 
-            logger.debug(f"🔍 [对话目标-意图分析] LLM Response: {response}")
+            logger.debug(f" [对话目标-意图分析] LLM Response: {response}")
 
             # 消毒响应
             try:
                 sanitized_response, report = self.prompt_protection.sanitize_response(response)
-                logger.debug(f"🔍 [对话目标-意图分析] 消毒后响应: {sanitized_response}")
+                logger.debug(f" [对话目标-意图分析] 消毒后响应: {sanitized_response}")
             except Exception as sanitize_error:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
-                sanitized_response = response  # 使用原始响应
+                sanitized_response = response # 使用原始响应
 
-            # ✅ 使用Guardrails Pydantic模型验证和解析JSON
+            # 使用Guardrails Pydantic模型验证和解析JSON
             try:
                 # 直接解析已有的响应文本
                 parsed_result = self.guardrails.parse_json_direct(
                     sanitized_response,
-                    model_class=self.ConversationIntentAnalysis  # 使用正确的模型引用
+                    model_class=self.ConversationIntentAnalysis # 使用正确的模型引用
                 )
 
                 if parsed_result:
@@ -839,7 +839,7 @@ Bot: {bot_response}
                         "user_engagement": parsed_result.user_engagement,
                         "reasoning": parsed_result.reasoning
                     }
-                    logger.debug(f"✅ [对话目标] 意图分析Pydantic验证成功")
+                    logger.debug(f" [对话目标] 意图分析Pydantic验证成功")
                 else:
                     analysis = None
 

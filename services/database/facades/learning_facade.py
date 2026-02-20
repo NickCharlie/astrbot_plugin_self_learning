@@ -13,9 +13,7 @@ from ._base import BaseFacade
 class LearningFacade(BaseFacade):
     """学习管理 Facade — 包装所有学习相关的数据库方法"""
 
-    # =====================================================================
     # Persona Learning Review methods
-    # =====================================================================
 
     async def add_persona_learning_review(self, review_data: Dict[str, Any]) -> int:
         """创建人格学习审核记录
@@ -391,9 +389,7 @@ class LearningFacade(BaseFacade):
             reviewer_comment=reviewer_comment,
         )
 
-    # =====================================================================
     # Style Learning Review methods
-    # =====================================================================
 
     async def create_style_learning_review(
         self, review_data: Dict[str, Any]
@@ -592,9 +588,7 @@ class LearningFacade(BaseFacade):
             self._logger.error(f"[LearningFacade] 删除风格学习审核记录失败: {e}")
             return False
 
-    # =====================================================================
     # Learning Batch/Session methods
-    # =====================================================================
 
     async def get_learning_batch_history(
         self, group_id=None, limit=20
@@ -787,9 +781,7 @@ class LearningFacade(BaseFacade):
             self._logger.error(f"[LearningFacade] 保存学习性能记录失败: {e}")
             return False
 
-    # =====================================================================
     # Statistics methods
-    # =====================================================================
 
     async def count_pending_persona_updates(self) -> int:
         """统计待审核的人格更新记录数

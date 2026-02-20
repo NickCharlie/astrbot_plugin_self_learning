@@ -64,9 +64,9 @@ class SelfLearningPlugin(star.Star):
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
 
             logger.info(f"[插件初始化] Provider配置已加载：")
-            logger.info(f"  - filter_provider_id: {self.plugin_config.filter_provider_id}")
-            logger.info(f"  - refine_provider_id: {self.plugin_config.refine_provider_id}")
-            logger.info(f"  - reinforce_provider_id: {self.plugin_config.reinforce_provider_id}")
+            logger.info(f" - filter_provider_id: {self.plugin_config.filter_provider_id}")
+            logger.info(f" - refine_provider_id: {self.plugin_config.refine_provider_id}")
+            logger.info(f" - reinforce_provider_id: {self.plugin_config.reinforce_provider_id}")
 
         except Exception as e:
             logger.error(f"初始化插件配置失败: {e}")
@@ -101,9 +101,7 @@ class SelfLearningPlugin(star.Star):
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
-    # ==================================================================
     # 生命周期
-    # ==================================================================
 
     async def on_load(self):
         """插件加载时启动 DB / 服务 / WebUI"""
@@ -113,9 +111,7 @@ class SelfLearningPlugin(star.Star):
         """插件卸载时的清理工作"""
         await self._lifecycle.shutdown()
 
-    # ==================================================================
     # 消息监听
-    # ==================================================================
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):
@@ -159,18 +155,14 @@ class SelfLearningPlugin(star.Star):
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
 
-    # ==================================================================
     # LLM Hook
-    # ==================================================================
 
     @filter.on_llm_request()
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """LLM Hook — inject diversity, social context, V2, jargon into request."""
         await self._hook_handler.handle(event, req)
 
-    # ==================================================================
     # 命令处理器（薄委托）
-    # ==================================================================
 
     @filter.command("learning_status")
     @filter.permission_type(PermissionType.ADMIN)

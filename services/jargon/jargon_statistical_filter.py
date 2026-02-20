@@ -3,14 +3,14 @@ Jargon statistical pre-filter.
 
 Maintains per-group term frequency tables and applies three statistical
 signals (cross-group IDF, burst frequency, user concentration) to identify
-jargon candidates *before* any LLM call.  This reduces LLM cost by 70-80%
+jargon candidates *before* any LLM call. This reduces LLM cost by 70-80%
 by only forwarding high-confidence candidates to the inference engine.
 
 Design notes:
     - All state is held in memory (dict-of-dicts) for O(1) update per message.
     - Tokenisation uses ``jieba`` (already a project dependency).
     - The filter is stateless across restarts — rebuilt implicitly from the
-      message stream.  A future enhancement could persist snapshots to DB.
+      message stream. A future enhancement could persist snapshots to DB.
     - Thread-safe for single-event-loop asyncio usage (no concurrent writes).
 """
 
@@ -83,9 +83,7 @@ class JargonStatisticalFilter:
         # jieba instance (lazy-loaded).
         self._jieba_loaded = False
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     def update_from_message(
         self,
@@ -232,9 +230,7 @@ class JargonStatisticalFilter:
         self._dirty_groups.discard(group_id)
         logger.debug(f"[JargonFilter] Reset statistics for group {group_id}")
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     def _tokenize(self, text: str) -> List[str]:
         """Segment text into tokens using jieba.
@@ -257,7 +253,7 @@ class JargonStatisticalFilter:
         if not self._jieba_loaded:
             try:
                 import jieba
-                jieba.setLogLevel(20)  # Suppress jieba's verbose logging.
+                jieba.setLogLevel(20) # Suppress jieba's verbose logging.
                 self._jieba_loaded = True
             except ImportError:
                 logger.warning(

@@ -27,10 +27,10 @@ class ResponseDiversityManager:
 
         # Temperature动态范围配置
         self.temperature_ranges = {
-            'creative': (0.8, 1.2),      # 创意型回复
-            'normal': (0.6, 0.9),         # 正常对话
-            'precise': (0.3, 0.6),        # 精确分析
-            'stable': (0.2, 0.4)          # 稳定输出
+            'creative': (0.8, 1.2), # 创意型回复
+            'normal': (0.6, 0.9), # 正常对话
+            'precise': (0.3, 0.6), # 精确分析
+            'stable': (0.2, 0.4) # 稳定输出
         }
 
         # 语言风格池（定期轮换）
@@ -51,7 +51,7 @@ class ResponseDiversityManager:
 
         # 提示词保护服务（延迟加载）
         self._prompt_protection = None
-        self._enable_protection = True  # 默认启用保护
+        self._enable_protection = True # 默认启用保护
 
         # 当前使用的风格和模式 (用于保存到数据库)
         self.current_language_style = None
@@ -144,7 +144,7 @@ class ResponseDiversityManager:
 
         except Exception as e:
             logger.error(f"获取动态Temperature失败: {e}")
-            return 0.7  # 默认值
+            return 0.7 # 默认值
 
     def get_random_language_style(self, avoid_recent: bool = True) -> str:
         """
@@ -241,12 +241,12 @@ class ResponseDiversityManager:
 
             if inject_style:
                 style = self.get_random_language_style()
-                self.current_language_style = style  # ✅ 保存当前风格
+                self.current_language_style = style # 保存当前风格
                 raw_prompts.append(f"当前语言风格：{style}")
 
             if inject_pattern:
                 pattern = self.get_random_response_pattern()
-                self.current_response_pattern = pattern  # ✅ 保存当前模式
+                self.current_response_pattern = pattern # 保存当前模式
                 raw_prompts.append(f"推荐回复模式：{pattern}")
 
             if inject_variation:
@@ -278,7 +278,7 @@ class ResponseDiversityManager:
                         history_text += "- 如果观点相似，也要用不同的表达方式，建议用一定的合理的倒装句、省略句等"
 
                         raw_prompts.append(history_text)
-                        logger.info(f"✅ 已注入 {len(recent_responses)} 条历史Bot消息到多样性提示")
+                        logger.info(f" 已注入 {len(recent_responses)} 条历史Bot消息到多样性提示")
                     else:
                         logger.debug(f"群组 {group_id} 暂无历史Bot消息")
                 except Exception as e:
@@ -302,7 +302,7 @@ class ResponseDiversityManager:
                     # 使用元指令包装器包装所有多样性提示词
                     wrapped = protection.wrap_prompts(raw_prompts)
                     enhanced_prompt = base_prompt + "\n\n" + wrapped
-                    logger.info(f"✅ 多样性Prompt已保护包装 - 原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}")
+                    logger.info(f" 多样性Prompt已保护包装 - 原长度: {len(base_prompt)}, 新长度: {len(enhanced_prompt)}")
                 else:
                     # 保护服务不可用，使用原始拼接
                     enhanced_prompt = base_prompt + "\n\n" + "\n\n".join([f"【{i+1}】\n{p}" for i, p in enumerate(raw_prompts)])
@@ -387,7 +387,7 @@ class ResponseDiversityManager:
                     'frequency_penalty': 0.8,
                     'presence_penalty': 0.6
                 }
-            else:  # medium
+            else: # medium
                 params = {
                     'temperature': 0.7,
                     'top_p': 0.9,

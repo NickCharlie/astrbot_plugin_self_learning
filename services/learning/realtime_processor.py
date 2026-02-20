@@ -60,9 +60,7 @@ class RealtimeProcessor:
             Callable[[str], Coroutine[Any, Any, None]]
         ] = None
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def process_realtime_background(
         self, group_id: str, message_text: str, sender_id: str
@@ -141,9 +139,7 @@ class RealtimeProcessor:
                 exc_info=True,
             )
 
-    # ------------------------------------------------------------------
     # Expression-style learning
-    # ------------------------------------------------------------------
 
     async def _process_expression_style_learning(
         self, group_id: str, message_text: str, sender_id: str
@@ -245,9 +241,7 @@ class RealtimeProcessor:
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
 
-    # ------------------------------------------------------------------
     # Temporary style application
-    # ------------------------------------------------------------------
 
     async def _apply_style_to_prompt_temporarily(
         self, group_id: str, learned_patterns: List[Any]
@@ -300,9 +294,7 @@ class RealtimeProcessor:
         except Exception as e:
             logger.error(f"临时应用风格到prompt失败: {e}")
 
-    # ------------------------------------------------------------------
     # Helpers
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _build_message_data_list(

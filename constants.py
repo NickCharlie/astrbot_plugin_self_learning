@@ -3,7 +3,7 @@
 避免字符串匹配混淆，使用明确的枚举常量
 """
 
-# ============= 人格审查更新类型常量 =============
+# 人格审查更新类型常量
 
 # 渐进式人格学习（从对话中学习的人格更新）
 UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING = "progressive_persona_learning"

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ...core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
 
 from ...config import PluginConfig
 
@@ -23,18 +23,18 @@ from ...utils.json_utils import safe_parse_llm_json
 @dataclass
 class PersonaMetrics:
     """人格指标"""
-    consistency_score: float = 0.0      # 一致性得分
-    style_stability: float = 0.0        # 风格稳定性
-    vocabulary_diversity: float = 0.0   # 词汇多样性
-    emotional_balance: float = 0.0      # 情感平衡性
-    coherence_score: float = 0.0        # 逻辑连贯性
+    consistency_score: float = 0.0 # 一致性得分
+    style_stability: float = 0.0 # 风格稳定性
+    vocabulary_diversity: float = 0.0 # 词汇多样性
+    emotional_balance: float = 0.0 # 情感平衡性
+    coherence_score: float = 0.0 # 逻辑连贯性
 
 
 @dataclass
 class LearningAlert:
     """学习警报"""
     alert_type: str
-    severity: str  # low, medium, high, critical
+    severity: str # low, medium, high, critical
     message: str
     timestamp: str
     metrics: Dict[str, float]
@@ -55,9 +55,9 @@ class LearningQualityMonitor:
         self.llm_adapter = llm_adapter
         
         # 监控阈值 - 调整为更合理的值
-        self.consistency_threshold = 0.5    # 一致性阈值 (从0.7降低到0.5)
-        self.stability_threshold = 0.4      # 稳定性阈值 (从0.6降低到0.4)
-        self.drift_threshold = 0.4          # 风格偏移阈值 (从0.3提高到0.4)
+        self.consistency_threshold = 0.5 # 一致性阈值 (从0.7降低到0.5)
+        self.stability_threshold = 0.4 # 稳定性阈值 (从0.6降低到0.4)
+        self.drift_threshold = 0.4 # 风格偏移阈值 (从0.3提高到0.4)
         
         # 历史指标存储
         self.historical_metrics: List[PersonaMetrics] = []
@@ -126,10 +126,10 @@ class LearningQualityMonitor:
             # 增强的空值检查和默认值处理
             if not original_prompt and not updated_prompt:
                 logger.debug("原始和更新人格都为空，返回中等一致性")
-                return 0.7  # 提高默认值，因为两者都空可以认为是一致的
+                return 0.7 # 提高默认值，因为两者都空可以认为是一致的
             elif not original_prompt or not updated_prompt:
                 logger.debug("其中一个人格为空，返回较低一致性")
-                return 0.6  # 提高默认值，避免因数据问题导致的低分
+                return 0.6 # 提高默认值，避免因数据问题导致的低分
             
             # 如果两个prompt完全相同，直接返回高一致性
             if original_prompt.strip() == updated_prompt.strip():
@@ -159,7 +159,7 @@ class LearningQualityMonitor:
                                 r'一致性[：:]\s*([0-9]*\.?[0-9]+)',
                                 r'得分[：:]\s*([0-9]*\.?[0-9]+)',
                                 r'分数[：:]\s*([0-9]*\.?[0-9]+)',
-                                r'([0-9]*\.?[0-9]+)',  # 任何数字
+                                r'([0-9]*\.?[0-9]+)', # 任何数字
                             ]
                             
                             for pattern in score_patterns:
@@ -171,7 +171,7 @@ class LearningQualityMonitor:
                                         if score > 1.0:
                                             score = score / 100.0
                                         # 确保分数在合理范围内
-                                        consistency_score = max(0.1, min(score, 1.0))  # 最低0.1，避免0.0
+                                        consistency_score = max(0.1, min(score, 1.0)) # 最低0.1，避免0.0
                                         logger.debug(f"解析得到一致性得分: {consistency_score}")
                                         return consistency_score
                                     except ValueError:
@@ -190,16 +190,16 @@ class LearningQualityMonitor:
                                 return 0.4
                             else:
                                 logger.debug("无法解析一致性评估，返回中等默认值")
-                                return 0.6  # 提高默认值
+                                return 0.6 # 提高默认值
                         except (ValueError, IndexError) as e:
                             logger.warning(f"解析一致性得分失败: {e}, 响应: {consistency_text}")
-                            return 0.6  # 提高默认值
+                            return 0.6 # 提高默认值
                     else:
                         logger.warning("LLM一致性评估无响应")
-                        return 0.6  # 提高默认值
+                        return 0.6 # 提高默认值
                 except Exception as e:
                     logger.error(f"框架适配器计算人格一致性失败: {e}")
-                    return 0.6  # 提高默认值
+                    return 0.6 # 提高默认值
             else:
                 logger.warning("没有可用的Filter Provider，使用简单文本相似度计算")
                 # 简单的文本相似度计算作为后备方案
@@ -207,7 +207,7 @@ class LearningQualityMonitor:
             
         except Exception as e:
             logger.error(f"计算人格一致性失败: {e}")
-            return 0.6  # 提高默认值，避免阻塞学习
+            return 0.6 # 提高默认值，避免阻塞学习
 
     def _calculate_text_similarity(self, text1: str, text2: str) -> float:
         """计算文本相似度作为后备方案"""
@@ -343,7 +343,7 @@ class LearningQualityMonitor:
                     # 计算情感平衡性：积极情感减去消极情感，再调整到0-1范围
                     positive_score = emotional_scores.get("积极", 0.5)
                     negative_score = emotional_scores.get("消极", 0.5)
-                    balance_score = (positive_score - negative_score + 1.0) / 2.0  # 转换到0-1范围
+                    balance_score = (positive_score - negative_score + 1.0) / 2.0 # 转换到0-1范围
                     return max(0.0, min(balance_score, 1.0))
                 else:
                     return self._simple_emotional_balance(messages)
@@ -369,7 +369,7 @@ class LearningQualityMonitor:
         
         total_emotional = pos_count + neg_count
         if total_emotional == 0:
-            return 0.8  # 中性情感
+            return 0.8 # 中性情感
         
         # 计算平衡性（越接近0.5越平衡）
         pos_ratio = pos_count / total_emotional
@@ -479,7 +479,7 @@ class LearningQualityMonitor:
     def _count_emoji(self, text: str) -> int:
         """统计表情符号数量"""
         # 简单的表情符号检测
-        emoji_patterns = ['😀', '😂', '😊', '🤔', '👍', '❤️', '🎉']
+        emoji_patterns = ['', '', '', '', '', '', '']
         count = 0
         for emoji in emoji_patterns:
             count += text.count(emoji)

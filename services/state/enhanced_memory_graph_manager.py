@@ -29,7 +29,7 @@ from ...repositories import (
 )
 
 
-# ==================== 数据类 ====================
+# 数据类
 
 @dataclass
 class MemoryNode:
@@ -206,7 +206,7 @@ class MemoryGraph:
         }
 
 
-# ==================== 服务类 ====================
+# 服务类
 
 
 class EnhancedMemoryGraphManager:
@@ -292,11 +292,11 @@ class EnhancedMemoryGraphManager:
                 hours=1
             )
 
-            logger.info("✅ [增强型记忆图] 启动成功")
+            logger.info(" [增强型记忆图] 启动成功")
             return True
 
         except Exception as e:
-            logger.error(f"❌ [增强型记忆图] 启动失败: {e}")
+            logger.error(f" [增强型记忆图] 启动失败: {e}")
             return False
 
     async def stop(self) -> bool:
@@ -313,16 +313,14 @@ class EnhancedMemoryGraphManager:
             # 清除缓存
             self.cache.clear('memory')
 
-            logger.info("✅ [增强型记忆图] 已停止")
+            logger.info(" [增强型记忆图] 已停止")
             return True
 
         except Exception as e:
-            logger.error(f"❌ [增强型记忆图] 停止失败: {e}")
+            logger.error(f" [增强型记忆图] 停止失败: {e}")
             return False
 
-    # ============================================================
     # 核心方法（与原接口兼容）
-    # ============================================================
 
     def get_memory_graph(self, group_id: str) -> MemoryGraph:
         """
@@ -412,7 +410,7 @@ class EnhancedMemoryGraphManager:
                             # 创建或更新记忆
                             await memory_repo.create_memory(
                                 group_id=group_id,
-                                user_id='',  # 群组级别记忆
+                                user_id='', # 群组级别记忆
                                 content=memory_items,
                                 memory_type='concept',
                                 importance=node_data.get('weight', 0.5),
@@ -541,9 +539,7 @@ class EnhancedMemoryGraphManager:
             logger.error(f"[增强型记忆图] 获取统计信息失败: {e}")
             return {}
 
-    # ============================================================
     # 辅助方法
-    # ============================================================
 
     async def _extract_concepts_from_message(self, message: MessageData) -> List[str]:
         """从消息提取概念"""
@@ -570,9 +566,7 @@ class EnhancedMemoryGraphManager:
         # CacheManager 不支持模式匹配删除，所以这里只是示例
         logger.debug(f"[增强型记忆图] 清除群组 {group_id} 的相关缓存")
 
-    # ============================================================
     # 任务调度方法
-    # ============================================================
 
     async def _cleanup_old_memories_task(self):
         """清理旧记忆任务（由调度器调用）"""
@@ -615,9 +609,7 @@ class EnhancedMemoryGraphManager:
         except Exception as e:
             logger.error(f"[增强型记忆图] 自动保存失败: {e}")
 
-    # ============================================================
     # 缓存统计方法
-    # ============================================================
 
     def get_cache_stats(self) -> dict:
         """获取缓存统计信息"""

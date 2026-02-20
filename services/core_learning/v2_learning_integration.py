@@ -88,9 +88,7 @@ class V2LearningIntegration:
             f"reranker={'yes' if self._rerank_provider else 'no'}"
         )
 
-    # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
 
     async def start(self) -> None:
         """Start all active v2 modules that expose a ``start`` method."""
@@ -137,16 +135,14 @@ class V2LearningIntegration:
 
         logger.info("[V2Integration] All modules stopped")
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def process_message(
         self, message: MessageData, group_id: str
     ) -> TriggerResult:
         """Process an incoming message through the tiered trigger.
 
-        Tier 1 operations run concurrently on every message.  Tier 2
+        Tier 1 operations run concurrently on every message. Tier 2
         operations fire when their policies are satisfied.
         """
         return await self._trigger.process_message(message, group_id)
@@ -167,7 +163,7 @@ class V2LearningIntegration:
             * ``graph_stats`` (dict): Social graph summary statistics.
 
         When a reranker is available, knowledge and memory candidates are
-        reranked by relevance and only the top-k are returned.  Few-shot
+        reranked by relevance and only the top-k are returned. Few-shot
         exemplars and graph stats are returned unmodified.
 
         All retrieval tasks run concurrently via ``asyncio.gather`` to
@@ -264,9 +260,7 @@ class V2LearningIntegration:
         """Return tiered trigger statistics for a group."""
         return self._trigger.get_group_stats(group_id)
 
-    # ------------------------------------------------------------------
     # Module factories
-    # ------------------------------------------------------------------
 
     def _create_embedding_provider(self) -> Optional[Any]:
         """Resolve embedding provider from the framework."""
@@ -367,9 +361,7 @@ class V2LearningIntegration:
             )
             return None
 
-    # ------------------------------------------------------------------
     # Trigger wiring
-    # ------------------------------------------------------------------
 
     def _register_trigger_operations(self) -> None:
         """Register all available modules with the tiered trigger."""
@@ -494,9 +486,7 @@ class V2LearningIntegration:
                 ),
             )
 
-    # ------------------------------------------------------------------
     # Reranking
-    # ------------------------------------------------------------------
 
     async def _rerank_context(
         self,

@@ -49,7 +49,7 @@ def register_blueprints(app):
     blueprints = get_blueprints()
     for bp in blueprints:
         app.register_blueprint(bp)
-        print(f"✅ [WebUI] 已注册蓝图: {bp.name}")
+        print(f" [WebUI] 已注册蓝图: {bp.name}")
 
 
 __all__ = [

@@ -5,7 +5,7 @@ Stores high-quality message examples and retrieves them via cosine
 similarity for few-shot style imitation in LLM prompts.
 
 When an ``IEmbeddingProvider`` is available, exemplars are embedded and
-similarity search uses vector cosine distance.  Without an embedding
+similarity search uses vector cosine distance. Without an embedding
 provider the library degrades to recency-weighted random sampling.
 
 Design notes:
@@ -46,7 +46,7 @@ class ExemplarLibrary:
         examples = await library.get_few_shot_examples("query", group_id)
     """
 
-    _schema_migrated = False  # class-level flag: run migration once per process
+    _schema_migrated = False # class-level flag: run migration once per process
 
     def __init__(self, db_manager, embedding_provider=None) -> None:
         """Initialise the exemplar library.
@@ -54,15 +54,13 @@ class ExemplarLibrary:
         Args:
             db_manager: SQLAlchemy database manager with ``get_session()``.
             embedding_provider: Optional ``IEmbeddingProvider`` for vector
-                similarity search.  When ``None``, falls back to
+                similarity search. When ``None``, falls back to
                 weight-based random sampling.
         """
         self._db = db_manager
         self._embedding = embedding_provider
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def add_exemplar(
         self,
@@ -233,15 +231,13 @@ class ExemplarLibrary:
             logger.warning(f"[ExemplarLibrary] Delete failed: {exc}")
             return False
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     async def _migrate_embedding_column(self) -> None:
         """Upgrade ``embedding_json`` from TEXT to MEDIUMTEXT on MySQL.
 
         TEXT has a 65 KB limit which is too small for high-dimensional
-        embeddings (e.g. 3072-dim ≈ 69 KB JSON).  This runs once per
+        embeddings (e.g. 3072-dim ≈ 69 KB JSON). This runs once per
         process and is a no-op on SQLite (syntax error caught silently).
         """
         try:

@@ -20,13 +20,13 @@ from ...utils.json_utils import safe_parse_llm_json
 @dataclass
 class SocialRelation:
     """社交关系数据结构"""
-    from_user: str  # 发起方用户ID
-    to_user: str  # 接收方用户ID
-    relation_type: str  # 关系类型: 'frequent_interaction', 'mention', 'reply', 'topic_discussion'
-    strength: float  # 关系强度 0.0-1.0
-    frequency: int  # 互动频率（消息数量）
-    last_interaction: str  # 最后互动时间
-    relation_name: str  # 关系名称（中文描述）
+    from_user: str # 发起方用户ID
+    to_user: str # 接收方用户ID
+    relation_type: str # 关系类型: 'frequent_interaction', 'mention', 'reply', 'topic_discussion'
+    strength: float # 关系强度 0.0-1.0
+    frequency: int # 互动频率（消息数量）
+    last_interaction: str # 最后互动时间
+    relation_name: str # 关系名称（中文描述）
 
 
 class SocialRelationAnalyzer:
@@ -152,7 +152,7 @@ class SocialRelationAnalyzer:
     async def _get_group_messages(self, group_id: str, limit: int) -> List[Dict[str, Any]]:
         """获取群组消息记录（使用 ORM 方法，支持跨线程调用）"""
         try:
-            # ✅ 使用 ORM 方法获取消息（支持跨线程调用）
+            # 使用 ORM 方法获取消息（支持跨线程调用）
             raw_messages = await self.db_manager.get_recent_raw_messages(group_id, limit=limit)
 
             # 过滤掉 bot 消息并转换格式
@@ -204,7 +204,7 @@ class SocialRelationAnalyzer:
             response = await self.llm_adapter.generate_response(
                 prompt=prompt,
                 temperature=0.7,
-                model_type="filter"  # 使用filter模型进行分析
+                model_type="filter" # 使用filter模型进行分析
             )
 
             if not response:
@@ -280,8 +280,8 @@ class SocialRelationAnalyzer:
             "to_user": "用户ID",
             "relation_type": "关系类型(英文key)",
             "relation_name": "关系名称(中文)",
-            "strength": 0.85,  // 关系强度 0.0-1.0
-            "frequency": 12,   // 互动次数
+            "strength": 0.85, // 关系强度 0.0-1.0
+            "frequency": 12, // 互动次数
             "evidence": "识别依据：例如'频繁使用亲密称呼'、'讨论私密话题'、'快速回复'等"
         }}
     ]
@@ -430,8 +430,8 @@ class SocialRelationAnalyzer:
             all_relations = await self.db_manager.get_social_relations_by_group(group_id)
 
             # 筛选与该用户相关的关系
-            outgoing = []  # 该用户发起的关系
-            incoming = []  # 指向该用户的关系
+            outgoing = [] # 该用户发起的关系
+            incoming = [] # 指向该用户的关系
 
             for rel in all_relations:
                 if rel['from_user'] == user_id:
@@ -441,8 +441,8 @@ class SocialRelationAnalyzer:
 
             return {
                 'user_id': user_id,
-                'outgoing_relations': outgoing,  # 我关注的人
-                'incoming_relations': incoming,  # 关注我的人
+                'outgoing_relations': outgoing, # 我关注的人
+                'incoming_relations': incoming, # 关注我的人
                 'total_relations': len(outgoing) + len(incoming)
             }
 

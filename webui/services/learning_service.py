@@ -17,7 +17,7 @@ class LearningService:
         """
         self.container = container
         self.database_manager = container.database_manager
-        self.db_manager = container.database_manager  # 兼容别名
+        self.db_manager = container.database_manager # 兼容别名
         self.persona_updater = getattr(container, 'persona_updater', None)
 
     async def get_style_learning_results(self) -> Dict[str, Any]:
@@ -168,10 +168,10 @@ class LearningService:
                     logger.info(f"update_persona_with_style返回结果: {success_apply}")
 
                     if success_apply:
-                        logger.info(f"✅ 风格学习审查 {review_id} 已成功应用到人格（使用框架API方式，包含备份）")
+                        logger.info(f" 风格学习审查 {review_id} 已成功应用到人格（使用框架API方式，包含备份）")
                         return True, f'风格学习审查 {review_id} 已批准并应用到人格'
                     else:
-                        logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但应用失败")
+                        logger.warning(f" 风格学习审查 {review_id} 批准成功但应用失败")
                         return True, f'风格学习审查 {review_id} 已批准，但人格应用失败'
 
                 except Exception as e:

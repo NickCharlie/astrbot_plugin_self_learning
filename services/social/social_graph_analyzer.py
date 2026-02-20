@@ -12,7 +12,7 @@ Adds graph-level analytics on top of the existing
   members of a group.
 
 All heavy computation is done via ``networkx`` (already a project
-dependency).  Sentiment labelling uses the framework LLM adapter
+dependency). Sentiment labelling uses the framework LLM adapter
 (remote API, no local model).
 
 Design notes:
@@ -34,9 +34,7 @@ from astrbot.api import logger
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 
 
-# ---------------------------------------------------------------------------
 # Pydantic models for guardrails-ai structured output validation.
-# ---------------------------------------------------------------------------
 
 class _SentimentItem(BaseModel):
     """Schema for a single sentiment-labelled interaction pair."""
@@ -101,11 +99,9 @@ class SocialGraphAnalyzer:
 
         # Per-group community cache: group_id -> (timestamp, communities).
         self._community_cache: Dict[str, Tuple[float, List[Set[str]]]] = {}
-        self._cache_ttl = 600  # 10 minutes
+        self._cache_ttl = 600 # 10 minutes
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def build_social_graph(self, group_id: str) -> nx.DiGraph:
         """Build a directed graph from stored social relation components.
@@ -190,7 +186,7 @@ class SocialGraphAnalyzer:
 
         Returns:
             Sorted list of dicts with ``user_id``, ``pagerank``,
-            ``degree`` keys.  Most influential first.
+            ``degree`` keys. Most influential first.
         """
         graph = await self.build_social_graph(group_id)
         if graph.number_of_nodes() == 0:

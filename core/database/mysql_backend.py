@@ -42,11 +42,11 @@ async def retry_on_mysql_error(func: Callable[..., T], max_retries: int = 3, ini
 
     # MySQL 可重试的错误码
     RETRYABLE_ERRORS = {
-        1205,  # Lock wait timeout
-        1213,  # Deadlock
-        2013,  # Lost connection
-        2006,  # MySQL server has gone away
-        2014,  # Command Out of Sync
+        1205, # Lock wait timeout
+        1213, # Deadlock
+        2013, # Lost connection
+        2006, # MySQL server has gone away
+        2014, # Command Out of Sync
     }
 
     for attempt in range(max_retries + 1):
@@ -74,7 +74,7 @@ async def retry_on_mysql_error(func: Callable[..., T], max_retries: int = 3, ini
             if attempt < max_retries:
                 logger.warning(f"[MySQL] 遇到临时错误，第 {attempt + 1}/{max_retries} 次重试（延迟 {delay:.2f}s）: {error_msg}")
                 await asyncio.sleep(delay)
-                delay *= 2  # 指数退避
+                delay *= 2 # 指数退避
             else:
                 logger.error(f"[MySQL] 重试 {max_retries} 次后仍失败: {error_msg}")
 
@@ -88,7 +88,7 @@ class MySQLConnectionPool(ConnectionPool):
     def __init__(self, config: DatabaseConfig):
         self.config = config
         self.pool: Optional[aiomysql.Pool] = None
-        self._is_closed = False  # ✅ 添加关闭状态标记
+        self._is_closed = False # 添加关闭状态标记
 
     async def initialize(self):
         """初始化连接池"""
@@ -111,7 +111,7 @@ class MySQLConnectionPool(ConnectionPool):
 
     async def get_connection(self):
         """获取数据库连接"""
-        # ✅ 添加状态检查，防止使用已关闭的连接池
+        # 添加状态检查，防止使用已关闭的连接池
         if self._is_closed or not self.pool:
             logger.warning("[MySQL] 尝试从已关闭的连接池获取连接，跳过操作")
             raise RuntimeError("连接池已关闭或未初始化，无法获取连接")
@@ -125,7 +125,7 @@ class MySQLConnectionPool(ConnectionPool):
     async def close_all(self):
         """关闭所有连接"""
         if self.pool and not self._is_closed:
-            self._is_closed = True  # ✅ 先设置关闭标记
+            self._is_closed = True # 先设置关闭标记
             self.pool.close()
             await self.pool.wait_closed()
             logger.info("[MySQL] 连接池已关闭")

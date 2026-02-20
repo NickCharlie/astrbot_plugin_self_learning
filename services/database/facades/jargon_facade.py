@@ -15,9 +15,7 @@ from ._base import BaseFacade
 class JargonFacade(BaseFacade):
     """黑话管理 Facade"""
 
-    # ------------------------------------------------------------------
     # 1. get_jargon
-    # ------------------------------------------------------------------
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
         """查询指定黑话（按 chat_id + content 唯一定位）
 
@@ -49,9 +47,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 查询黑话失败: {e}", exc_info=True)
             return None
 
-    # ------------------------------------------------------------------
     # 2. insert_jargon
-    # ------------------------------------------------------------------
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
         """插入新的黑话记录
 
@@ -111,9 +107,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 插入黑话失败: {e}", exc_info=True)
             return None
 
-    # ------------------------------------------------------------------
     # 3. update_jargon
-    # ------------------------------------------------------------------
     async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
         """更新现有黑话记录
 
@@ -176,9 +170,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 更新黑话失败: {e}", exc_info=True)
             return False
 
-    # ------------------------------------------------------------------
     # 4. get_jargon_statistics
-    # ------------------------------------------------------------------
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         """获取黑话学习统计信息
 
@@ -244,9 +236,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 获取黑话统计失败: {e}", exc_info=True)
             return default_stats
 
-    # ------------------------------------------------------------------
     # 5. get_recent_jargon_list
-    # ------------------------------------------------------------------
     async def get_recent_jargon_list(
         self,
         group_id: str = None,
@@ -331,9 +321,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 获取最近黑话列表失败: {e}", exc_info=True)
             return []
 
-    # ------------------------------------------------------------------
     # 6. get_jargon_count
-    # ------------------------------------------------------------------
     async def get_jargon_count(
         self,
         chat_id: Optional[str] = None,
@@ -371,9 +359,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 获取黑话总数失败: {e}", exc_info=True)
             return 0
 
-    # ------------------------------------------------------------------
     # 7. search_jargon
-    # ------------------------------------------------------------------
     async def search_jargon(
         self,
         keyword: str,
@@ -436,9 +422,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 搜索黑话失败: {e}", exc_info=True)
             return []
 
-    # ------------------------------------------------------------------
     # 8. get_jargon_by_id
-    # ------------------------------------------------------------------
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict]:
         """根据 ID 获取黑话记录
 
@@ -468,9 +452,7 @@ class JargonFacade(BaseFacade):
             )
             return None
 
-    # ------------------------------------------------------------------
     # 9. delete_jargon_by_id
-    # ------------------------------------------------------------------
     async def delete_jargon_by_id(self, jargon_id: int) -> bool:
         """根据 ID 删除黑话记录
 
@@ -502,9 +484,7 @@ class JargonFacade(BaseFacade):
             )
             return False
 
-    # ------------------------------------------------------------------
     # 10. set_jargon_global
-    # ------------------------------------------------------------------
     async def set_jargon_global(self, jargon_id: int, is_global: bool) -> bool:
         """设置黑话的全局共享状态
 
@@ -540,9 +520,7 @@ class JargonFacade(BaseFacade):
             )
             return False
 
-    # ------------------------------------------------------------------
     # 11. sync_global_jargon_to_group
-    # ------------------------------------------------------------------
     async def sync_global_jargon_to_group(self, target_chat_id: str) -> int:
         """将全局黑话同步到指定群组
 
@@ -606,9 +584,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 同步全局黑话失败: {e}", exc_info=True)
             return 0
 
-    # ------------------------------------------------------------------
     # 12. save_or_update_jargon
-    # ------------------------------------------------------------------
     async def save_or_update_jargon(
         self,
         chat_id: str,
@@ -698,9 +674,7 @@ class JargonFacade(BaseFacade):
             )
             return None
 
-    # ------------------------------------------------------------------
     # 13. get_global_jargon_list
-    # ------------------------------------------------------------------
     async def get_global_jargon_list(self, limit: int = 50) -> List[Dict]:
         """获取全局共享的黑话列表
 
@@ -751,9 +725,7 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 获取全局黑话列表失败: {e}", exc_info=True)
             return []
 
-    # ------------------------------------------------------------------
     # 14. get_jargon_groups
-    # ------------------------------------------------------------------
     async def get_jargon_groups(self) -> List[Dict]:
         """获取包含黑话的群组列表
 

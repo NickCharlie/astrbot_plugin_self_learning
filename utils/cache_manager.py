@@ -24,10 +24,10 @@ class CacheManager:
         """初始化缓存管理器"""
         # 不同用途的缓存实例
         # TTL 缓存 - 用于有明确过期时间的数据
-        self.affection_cache = TTLCache(maxsize=2000, ttl=300)  # 5分钟
-        self.memory_cache = TTLCache(maxsize=1000, ttl=600)  # 10分钟
-        self.state_cache = TTLCache(maxsize=500, ttl=60)  # 1分钟
-        self.relation_cache = TTLCache(maxsize=1000, ttl=60)  # 1分钟
+        self.affection_cache = TTLCache(maxsize=2000, ttl=300) # 5分钟
+        self.memory_cache = TTLCache(maxsize=1000, ttl=600) # 10分钟
+        self.state_cache = TTLCache(maxsize=500, ttl=60) # 1分钟
+        self.relation_cache = TTLCache(maxsize=1000, ttl=60) # 1分钟
 
         # LRU 缓存 - 用于需要保持热点数据的场景
         self.conversation_cache = LRUCache(maxsize=500)
@@ -136,9 +136,7 @@ class CacheManager:
             return {'size': len(cache)}
 
 
-# ============================================================
 # 装饰器
-# ============================================================
 
 def cached(
     cache_name: str = 'general',
@@ -229,9 +227,7 @@ def async_cached(
     return decorator
 
 
-# ============================================================
 # 全局单例
-# ============================================================
 
 _global_cache_manager: Optional[CacheManager] = None
 

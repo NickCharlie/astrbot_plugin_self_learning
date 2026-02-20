@@ -347,11 +347,11 @@ class PersonaReviewService:
                                             message += f"；{auto_apply_msg}"
                                     else:
                                         error_msg = create_result.get('error', '未知错误')
-                                        logger.warning(f"❌ 人格学习审查 {persona_learning_review_id} 批准成功但创建新人格失败: {error_msg}")
+                                        logger.warning(f" 人格学习审查 {persona_learning_review_id} 批准成功但创建新人格失败: {error_msg}")
                                         message = f"人格学习审查 {persona_learning_review_id} 已批准，但创建新人格失败: {error_msg}"
 
                                 except Exception as apply_error:
-                                    logger.error(f"❌ 创建新人格失败: {apply_error}", exc_info=True)
+                                    logger.error(f" 创建新人格失败: {apply_error}", exc_info=True)
                                     message = f"人格学习审查 {persona_learning_review_id} 已批准，但创建新人格过程出错: {str(apply_error)}"
                             elif not self.persona_web_manager:
                                 logger.warning("PersonaWebManager未初始化，无法创建新人格")
@@ -448,11 +448,11 @@ class PersonaReviewService:
                         return True, msg
                     else:
                         error_msg = create_result.get('error', '未知错误')
-                        logger.warning(f"❌ 风格学习审查 {review_id} 批准成功但创建新人格失败: {error_msg}")
+                        logger.warning(f" 风格学习审查 {review_id} 批准成功但创建新人格失败: {error_msg}")
                         return True, f"风格学习审查 {review_id} 已批准，但创建新人格失败: {error_msg}"
 
                 except Exception as e:
-                    logger.error(f"❌ 创建新人格失败: {e}", exc_info=True)
+                    logger.error(f" 创建新人格失败: {e}", exc_info=True)
                     return True, f"风格学习审查 {review_id} 已批准，但创建新人格过程出错: {str(e)}"
             else:
                 logger.warning("PersonaWebManager未初始化，无法创建新人格")

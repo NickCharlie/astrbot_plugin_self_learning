@@ -123,9 +123,9 @@ class TrainingDataExporter(AsyncServiceBase):
         self.is_remote = is_remote
 
         # 配置参数
-        self.max_time_gap_seconds = 300  # 用户消息和Bot回复的最大时间差 (5分钟)
-        self.min_message_length = 2  # 最小消息长度
-        self.max_message_length = 2000  # 最大消息长度
+        self.max_time_gap_seconds = 300 # 用户消息和Bot回复的最大时间差 (5分钟)
+        self.min_message_length = 2 # 最小消息长度
+        self.max_message_length = 2000 # 最大消息长度
 
     @classmethod
     async def create_from_remote_db(
@@ -170,7 +170,7 @@ class TrainingDataExporter(AsyncServiceBase):
             """远程数据库临时配置"""
             def __init__(self, db_url):
                 self.database_url = db_url
-                self.enable_auto_migration = False  # 远程数据库不自动迁移
+                self.enable_auto_migration = False # 远程数据库不自动迁移
 
         config = RemoteDBConfig(database_url)
         db_manager = SQLAlchemyDatabaseManager.__new__(SQLAlchemyDatabaseManager)
@@ -180,7 +180,7 @@ class TrainingDataExporter(AsyncServiceBase):
 
         # 创建导出器
         exporter = cls(db_manager, is_remote=True)
-        logger.info("✅ 远程数据库连接成功")
+        logger.info(" 远程数据库连接成功")
 
         return exporter
 
@@ -450,7 +450,7 @@ class TrainingDataExporter(AsyncServiceBase):
 
                 # 时间差必须在允许范围内
                 if time_gap > self.max_time_gap_seconds:
-                    break  # bot_responses已按时间排序,后续的都不符合
+                    break # bot_responses已按时间排序,后续的都不符合
 
                 # 选择时间差最小的
                 if time_gap < min_time_gap:
@@ -543,7 +543,7 @@ class TrainingDataExporter(AsyncServiceBase):
             export_duration = time.time() - start_export_time
 
             self._logger.info(
-                f"✅ 导出完成: {len(pairs)} 个对话对, "
+                f" 导出完成: {len(pairs)} 个对话对, "
                 f"耗时 {export_duration:.2f}s, "
                 f"文件: {output_path}"
             )
@@ -589,8 +589,8 @@ class TrainingDataExporter(AsyncServiceBase):
         Returns:
             导出结果
         """
-        end_time = int(time.time() * 1000)  # 当前时间 (毫秒)
-        start_time = end_time - (days_ago * 24 * 60 * 60 * 1000)  # N天前
+        end_time = int(time.time() * 1000) # 当前时间 (毫秒)
+        start_time = end_time - (days_ago * 24 * 60 * 60 * 1000) # N天前
 
         # 生成文件名
         timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")

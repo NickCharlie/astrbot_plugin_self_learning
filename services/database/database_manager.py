@@ -25,7 +25,7 @@ from ...core.database import (
     IDatabaseBackend
 )
 
-# ✨ 导入ORM支持
+# 导入ORM支持
 from ...core.database.engine import DatabaseEngine
 from ...repositories.reinforcement_repository import (
     ReinforcementLearningRepository,
@@ -57,7 +57,7 @@ class DatabaseManager(AsyncServiceBase):
         self.config = config
         self.context = context
         self.group_db_connections: Dict[str, aiosqlite.Connection] = {}
-        self.skip_table_init = skip_table_init  # ✨ 新增：跳过表初始化标志
+        self.skip_table_init = skip_table_init # 新增：跳过表初始化标志
 
         # 安全地构建路径
         if not config.data_dir:
@@ -69,7 +69,7 @@ class DatabaseManager(AsyncServiceBase):
         # 新增: 数据库后端（支持SQLite和MySQL）
         self.db_backend: Optional[IDatabaseBackend] = None
 
-        # ✨ 新增: DatabaseEngine for ORM支持
+        # 新增: DatabaseEngine for ORM支持
         self.db_engine: Optional[DatabaseEngine] = None
 
         # 确保数据目录存在
@@ -80,33 +80,33 @@ class DatabaseManager(AsyncServiceBase):
     async def _do_start(self) -> bool:
         """启动服务时初始化连接池和数据库"""
         try:
-            self._logger.info(f"🚀 [DatabaseManager] 开始启动 (db_type={self.config.db_type}, skip_table_init={self.skip_table_init})")
+            self._logger.info(f" [DatabaseManager] 开始启动 (db_type={self.config.db_type}, skip_table_init={self.skip_table_init})")
 
             # 1. 创建数据库后端（无论 skip_table_init 是否为 True 都需要初始化后端）
             # skip_table_init 只影响表的创建，不影响后端连接的初始化
-            self._logger.info(f"📡 [DatabaseManager] 正在初始化 {self.config.db_type} 数据库后端...")
+            self._logger.info(f" [DatabaseManager] 正在初始化 {self.config.db_type} 数据库后端...")
             backend_success = await self._initialize_database_backend()
 
             # 2. 如果数据库后端初始化失败，直接报错，不回退
             if not backend_success or not self.db_backend:
-                error_msg = f"❌ {self.config.db_type} 数据库后端初始化失败"
+                error_msg = f" {self.config.db_type} 数据库后端初始化失败"
                 self._logger.error(error_msg)
                 raise RuntimeError(error_msg)
 
-            self._logger.info(f"✅ [DatabaseManager] {self.config.db_type} 后端初始化成功")
+            self._logger.info(f" [DatabaseManager] {self.config.db_type} 后端初始化成功")
 
             # 3. 初始化数据库表结构（如果表不存在则自动创建）
             # 如果 skip_table_init=True（由 ORM 管理表），则跳过表创建
             if not self.skip_table_init:
                 await self._init_messages_database()
-                self._logger.info("✅ [DatabaseManager] 全局消息数据库初始化成功")
+                self._logger.info(" [DatabaseManager] 全局消息数据库初始化成功")
             else:
-                self._logger.info("⏭️ [DatabaseManager] 跳过传统数据库表创建（由 SQLAlchemy ORM 管理）")
+                self._logger.info(" [DatabaseManager] 跳过传统数据库表创建（由 SQLAlchemy ORM 管理）")
 
-            self._logger.info(f"🎉 [DatabaseManager] 数据库管理器启动完成 (使用后端: {self.config.db_type})")
+            self._logger.info(f" [DatabaseManager] 数据库管理器启动完成 (使用后端: {self.config.db_type})")
             return True
         except Exception as e:
-            self._logger.error(f"❌ [DatabaseManager] 启动数据库管理器失败: {e}", exc_info=True)
+            self._logger.error(f" [DatabaseManager] 启动数据库管理器失败: {e}", exc_info=True)
             return False
 
     async def _initialize_database_backend(self) -> bool:
@@ -188,13 +188,13 @@ class DatabaseManager(AsyncServiceBase):
         """
         db_type = self.config.db_type.lower()
 
-        # 🔍 调试日志：输出数据库类型和后端状态
+        # 调试日志：输出数据库类型和后端状态
         self._logger.debug(f"[get_db_connection] 配置的数据库类型: {db_type}")
         self._logger.debug(f"[get_db_connection] db_backend 状态: {self.db_backend is not None}")
 
         # 统一通过数据库后端获取连接（SQLite/MySQL/PostgreSQL 共用路径）
         if self.db_backend:
-            self._logger.debug(f"[get_db_connection] ✅ 使用 {db_type.upper()} 后端")
+            self._logger.debug(f"[get_db_connection] 使用 {db_type.upper()} 后端")
             return self._get_backend_connection_manager()
         else:
             raise RuntimeError(
@@ -271,7 +271,7 @@ class DatabaseManager(AsyncServiceBase):
 
                 # 转换参数占位符
                 if is_mysql:
-                    # ✅ MySQL: 转换 INSERT OR REPLACE 为 REPLACE INTO
+                    # MySQL: 转换 INSERT OR REPLACE 为 REPLACE INTO
                     converted_sql = sql.replace('INSERT OR REPLACE', 'REPLACE')
                     # 转换参数占位符 ? -> %s
                     converted_sql = converted_sql.replace('?', '%s')
@@ -480,19 +480,19 @@ class DatabaseManager(AsyncServiceBase):
         """
         初始化全局消息数据库（根据数据库类型选择后端）
 
-        ⚠️ 已废弃：所有表结构由 SQLAlchemy ORM 统一管理
+         已废弃：所有表结构由 SQLAlchemy ORM 统一管理
         此方法保留仅用于向后兼容，不再创建表
         """
-        self._logger.info("⏭️ [传统数据库管理器] 表创建已由 SQLAlchemy ORM 接管，跳过传统表初始化")
+        self._logger.info(" [传统数据库管理器] 表创建已由 SQLAlchemy ORM 接管，跳过传统表初始化")
         # 如果使用MySQL后端，使用db_backend初始化表
         # if self.db_backend and self.config.db_type.lower() == 'mysql':
-        #     await self._init_messages_database_mysql()
-        #     self._logger.info("MySQL数据库表初始化完成。")
+        # await self._init_messages_database_mysql()
+        # self._logger.info("MySQL数据库表初始化完成。")
         # else:
-        #     # 使用旧的SQLite连接池
-        #     async with self.get_db_connection() as conn:
-        #         await self._init_messages_database_tables(conn)
-        #         self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
+        # # 使用旧的SQLite连接池
+        # async with self.get_db_connection() as conn:
+        # await self._init_messages_database_tables(conn)
+        # self._logger.info("全局消息数据库连接池初始化完成并表已初始化。")
 
     def get_group_db_path(self, group_id: str) -> str:
         """获取群数据库文件路径"""
@@ -524,7 +524,7 @@ class DatabaseManager(AsyncServiceBase):
             
             # 设置连接参数，确保数据库可写
             await conn.execute('PRAGMA foreign_keys = ON')
-            await conn.execute('PRAGMA journal_mode = WAL')  
+            await conn.execute('PRAGMA journal_mode = WAL') 
             await conn.execute('PRAGMA synchronous = NORMAL')
             await conn.commit()
             
@@ -848,7 +848,7 @@ class DatabaseManager(AsyncServiceBase):
                 json.dumps(profile_data.get('communication_style', {}), ensure_ascii=False),
                 json.dumps(profile_data.get('topic_preferences', {}), ensure_ascii=False),
                 json.dumps(profile_data.get('emotional_tendency', {}), ensure_ascii=False),
-                profile_data.get('last_active', time.time()),  # 使用profile中的值或当前时间
+                profile_data.get('last_active', time.time()), # 使用profile中的值或当前时间
                 datetime.now().isoformat()
             ))
             
@@ -1079,7 +1079,7 @@ class DatabaseManager(AsyncServiceBase):
                 
                 message_id = cursor.lastrowid
                 await conn.commit()
-                logger.info(f"💾 数据库写入成功: ID={message_id}, timestamp={message_data.timestamp if hasattr(message_data, 'timestamp') else message_data.get('timestamp')}")
+                logger.info(f" 数据库写入成功: ID={message_id}, timestamp={message_data.timestamp if hasattr(message_data, 'timestamp') else message_data.get('timestamp')}")
                 return message_id
                 
             except aiosqlite.Error as e:
@@ -1256,7 +1256,7 @@ class DatabaseManager(AsyncServiceBase):
 
                         quality_scores = {}
                         try:
-                            if row[4]:  # quality_scores
+                            if row[4]: # quality_scores
                                 quality_scores = json.loads(row[4])
                         except (json.JSONDecodeError, TypeError):
                             pass
@@ -1410,7 +1410,7 @@ class DatabaseManager(AsyncServiceBase):
                     'unprocessed_messages': unprocessed_messages,
                     'filtered_messages': filtered_messages,
                     'unused_filtered_messages': unused_filtered_messages,
-                    'raw_messages': total_messages  # 兼容旧接口
+                    'raw_messages': total_messages # 兼容旧接口
                 }
 
                 # 验证返回的统计数据没有表名
@@ -1458,7 +1458,7 @@ class DatabaseManager(AsyncServiceBase):
                 for row in await cursor.fetchall():
                     learned_patterns = []
                     try:
-                        if row[4]:  # learned_patterns
+                        if row[4]: # learned_patterns
                             learned_patterns = json.loads(row[4])
                     except json.JSONDecodeError:
                         pass
@@ -1518,7 +1518,7 @@ class DatabaseManager(AsyncServiceBase):
                 for row in await cursor.fetchall():
                     learned_patterns = []
                     try:
-                        if row[4]:  # learned_patterns
+                        if row[4]: # learned_patterns
                             learned_patterns = json.loads(row[4])
                     except json.JSONDecodeError:
                         pass
@@ -1710,7 +1710,7 @@ class DatabaseManager(AsyncServiceBase):
                     return []
 
                 # 从学习批次中获取进度数据，包含消息数量信息
-                # ✅ 只显示有实际消息的记录（过滤旧的空数据）
+                # 只显示有实际消息的记录（过滤旧的空数据）
                 await cursor.execute('''
                     SELECT group_id, start_time, quality_score, success,
                            processed_messages, filtered_count, batch_name
@@ -1845,7 +1845,7 @@ class DatabaseManager(AsyncServiceBase):
                     'unprocessed_messages': unprocessed_messages,
                     'filtered_messages': filtered_messages,
                     'unused_filtered_messages': unused_filtered_messages,
-                    'raw_messages': total_messages  # 兼容旧接口
+                    'raw_messages': total_messages # 兼容旧接口
                 }
 
                 # 验证返回的统计数据没有表名
@@ -2125,7 +2125,7 @@ class DatabaseManager(AsyncServiceBase):
                             'original_content': row[4],
                             'new_content': row[5],
                             'reason': row[6],
-                            'status': 'pending',  # 强制设置为pending
+                            'status': 'pending', # 强制设置为pending
                             'reviewer_comment': row[8],
                             'review_time': row[9]
                         })
@@ -2216,7 +2216,7 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
-    # ========== 高级功能数据库操作方法 ==========
+    # 高级功能数据库操作方法
 
     async def save_emotion_profile(self, group_id: str, user_id: str, profile_data: Dict[str, Any]) -> bool:
         """保存情感档案"""
@@ -2828,7 +2828,7 @@ class DatabaseManager(AsyncServiceBase):
             self._logger.error(f"获取学习会话记录失败: {e}")
             return []
 
-    # ========== 好感度系统数据库操作方法 ==========
+    # 好感度系统数据库操作方法
 
     async def get_user_affection(self, group_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         """获取用户好感度"""
@@ -3199,7 +3199,7 @@ class DatabaseManager(AsyncServiceBase):
             for row in await cursor.fetchall():
                 quality_scores = {}
                 try:
-                    if row[9]:  # quality_scores
+                    if row[9]: # quality_scores
                         quality_scores = json.loads(row[9])
                 except (json.JSONDecodeError, TypeError):
                     pass
@@ -3335,18 +3335,18 @@ class DatabaseManager(AsyncServiceBase):
             # 如果有表达模式数据，使用它；否则使用默认提示
             if expression_patterns:
                 emotion_patterns = []
-                for pattern in expression_patterns[:10]:  # 显示前10个
+                for pattern in expression_patterns[:10]: # 显示前10个
                     situation = pattern.get('situation', '场景描述').strip()
                     expression = pattern.get('expression', '表达方式').strip()
                     weight = pattern.get('weight', 0)
                     
                     # 确保不显示空的或无意义的数据
                     if situation and expression and situation != '未知' and expression != '未知':
-                        pattern_name = f"情感表达-{situation[:10]}"  # 截取前10个字符作为模式名
+                        pattern_name = f"情感表达-{situation[:10]}" # 截取前10个字符作为模式名
                         emotion_patterns.append({
                             'pattern': pattern_name,
-                            'confidence': round(weight * 20, 2),  # 将权重转换为置信度百分比
-                            'frequency': max(1, int(weight))  # 确保频率至少为1
+                            'confidence': round(weight * 20, 2), # 将权重转换为置信度百分比
+                            'frequency': max(1, int(weight)) # 确保频率至少为1
                         })
                 
                 # 如果没有有效的表达模式，添加一个说明
@@ -3389,10 +3389,10 @@ class DatabaseManager(AsyncServiceBase):
             language_patterns = []
             for row in await cursor.fetchall():
                 language_patterns.append({
-                    'style': row[0],  # 改为style字段以匹配前端
-                    'type': row[0],   # 保留type用于兼容性
+                    'style': row[0], # 改为style字段以匹配前端
+                    'type': row[0], # 保留type用于兼容性
                     'count': row[1],
-                    'frequency': row[1],  # 添加frequency字段用于前端显示
+                    'frequency': row[1], # 添加frequency字段用于前端显示
                     'context': 'general',
                     'environment': 'general'
                 })
@@ -3636,7 +3636,7 @@ class DatabaseManager(AsyncServiceBase):
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             ''')
 
-            # ✅ 数据库迁移：添加缺失的字段（如果表已存在但缺少这些字段）
+            # 数据库迁移：添加缺失的字段（如果表已存在但缺少这些字段）
             try:
                 # 检查并添加 reviewer_comment 字段
                 await cursor.execute('''
@@ -3648,7 +3648,7 @@ class DatabaseManager(AsyncServiceBase):
                 ''')
                 if (await cursor.fetchone())[0] == 0:
                     await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN reviewer_comment TEXT')
-                    self._logger.info("✅ 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表")
+                    self._logger.info(" 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表")
 
                 # 检查并添加 review_time 字段
                 await cursor.execute('''
@@ -3660,7 +3660,7 @@ class DatabaseManager(AsyncServiceBase):
                 ''')
                 if (await cursor.fetchone())[0] == 0:
                     await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN review_time DOUBLE')
-                    self._logger.info("✅ 迁移：已添加 review_time 字段到 style_learning_reviews 表")
+                    self._logger.info(" 迁移：已添加 review_time 字段到 style_learning_reviews 表")
             except Exception as migration_error:
                 self._logger.warning(f"数据库迁移检查失败（可能是非 MySQL 数据库）: {migration_error}")
         else:
@@ -3681,7 +3681,7 @@ class DatabaseManager(AsyncServiceBase):
                 )
             ''')
 
-            # ✅ SQLite 数据库迁移：添加缺失的字段
+            # SQLite 数据库迁移：添加缺失的字段
             try:
                 # 检查表结构
                 await cursor.execute("PRAGMA table_info(style_learning_reviews)")
@@ -3690,12 +3690,12 @@ class DatabaseManager(AsyncServiceBase):
                 # 添加 reviewer_comment 字段（如果不存在）
                 if 'reviewer_comment' not in columns:
                     await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN reviewer_comment TEXT')
-                    self._logger.info("✅ 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表 (SQLite)")
+                    self._logger.info(" 迁移：已添加 reviewer_comment 字段到 style_learning_reviews 表 (SQLite)")
 
                 # 添加 review_time 字段（如果不存在）
                 if 'review_time' not in columns:
                     await cursor.execute('ALTER TABLE style_learning_reviews ADD COLUMN review_time REAL')
-                    self._logger.info("✅ 迁移：已添加 review_time 字段到 style_learning_reviews 表 (SQLite)")
+                    self._logger.info(" 迁移：已添加 review_time 字段到 style_learning_reviews 表 (SQLite)")
             except Exception as migration_error:
                 self._logger.warning(f"SQLite 数据库迁移失败: {migration_error}")
 
@@ -3753,7 +3753,7 @@ class DatabaseManager(AsyncServiceBase):
                 try:
                     await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
                 except Exception:
-                    pass  # 列已存在
+                    pass # 列已存在
 
                 await cursor.execute('''
                     SELECT id, timestamp, group_id, update_type, original_content,
@@ -3769,12 +3769,12 @@ class DatabaseManager(AsyncServiceBase):
                 import json
                 for row in await cursor.fetchall():
                     # 确保有proposed_content字段，如果为空则使用new_content
-                    proposed_content = row[6] if row[6] else row[5]  # proposed_content或new_content
-                    confidence_score = row[7] if row[7] is not None else 0.5  # 使用数据库中的置信度
+                    proposed_content = row[6] if row[6] else row[5] # proposed_content或new_content
+                    confidence_score = row[7] if row[7] is not None else 0.5 # 使用数据库中的置信度
 
                     # 解析metadata JSON
                     metadata = {}
-                    if row[12]:  # metadata字段
+                    if row[12]: # metadata字段
                         try:
                             metadata = json.loads(row[12])
                         except Exception:
@@ -3793,7 +3793,7 @@ class DatabaseManager(AsyncServiceBase):
                         'status': row[9],
                         'reviewer_comment': row[10],
                         'review_time': row[11],
-                        'metadata': metadata  # 添加metadata字段
+                        'metadata': metadata # 添加metadata字段
                     })
 
                 return reviews
@@ -3916,7 +3916,7 @@ class DatabaseManager(AsyncServiceBase):
                 await conn.commit()
                 deleted_count = cursor.rowcount
 
-                self._logger.info(f"✅ 成功删除 {deleted_count} 条人格学习审查记录")
+                self._logger.info(f" 成功删除 {deleted_count} 条人格学习审查记录")
                 return deleted_count
 
         except Exception as e:
@@ -3946,7 +3946,7 @@ class DatabaseManager(AsyncServiceBase):
                     'group_id': row[1],
                     'original_content': row[2],
                     'new_content': row[3],
-                    'proposed_content': row[4] if row[4] else row[3],  # proposed_content或new_content
+                    'proposed_content': row[4] if row[4] else row[3], # proposed_content或new_content
                     'confidence_score': row[5] if row[5] is not None else 0.5,
                     'reason': row[6],
                     'status': row[7],
@@ -4105,9 +4105,9 @@ class DatabaseManager(AsyncServiceBase):
                     'id': f"persona_learning_{row[0]}",
                     'group_id': row[1] or 'default',
                     'original_content': row[2] or '',
-                    'proposed_content': row[3] or '',  # 使用实际存在的字段
+                    'proposed_content': row[3] or '', # 使用实际存在的字段
                     'reason': row[4] or '人格学习更新',
-                    'confidence_score': metadata.get('confidence_score', 0.8),  # 从metadata获取或使用默认值
+                    'confidence_score': metadata.get('confidence_score', 0.8), # 从metadata获取或使用默认值
                     'status': row[5],
                     'reviewer_comment': row[6] or '',
                     'review_time': row[7] if row[7] else 0,
@@ -4172,10 +4172,10 @@ class DatabaseManager(AsyncServiceBase):
                         learned_patterns = json.loads(row[4]) if row[4] else {}
                         reason = learned_patterns.get('reason', '风格学习更新')
                         original_content = learned_patterns.get('original_content', '原始风格特征')
-                        proposed_content = learned_patterns.get('proposed_content', row[4])  # 使用完整的learned_patterns作为proposed_content
+                        proposed_content = learned_patterns.get('proposed_content', row[4]) # 使用完整的learned_patterns作为proposed_content
                         confidence_score = learned_patterns.get('confidence_score', 0.8)
                     except (json.JSONDecodeError, AttributeError):
-                        reason = row[7] if len(row) > 7 and row[7] else '风格学习更新'  # 使用description字段
+                        reason = row[7] if len(row) > 7 and row[7] else '风格学习更新' # 使用description字段
                         original_content = '原始风格特征'
                         proposed_content = row[4] if len(row) > 4 and row[4] else '无内容'
                         confidence_score = 0.8
@@ -4188,8 +4188,8 @@ class DatabaseManager(AsyncServiceBase):
                         'reason': reason,
                         'confidence_score': confidence_score,
                         'status': row[5],
-                        'reviewer_comment': '',  # 风格审查没有备注字段
-                        'review_time': row[6] if len(row) > 6 else None,  # 使用updated_at字段
+                        'reviewer_comment': '', # 风格审查没有备注字段
+                        'review_time': row[6] if len(row) > 6 else None, # 使用updated_at字段
                         'timestamp': row[3],
                         'update_type': f'style_learning_{row[1]}'
                     })
@@ -4328,8 +4328,8 @@ class DatabaseManager(AsyncServiceBase):
                 cursor = await conn.cursor()
             
             # API指标（基于学习批次的执行时间）
-            # ✅ 修复：使用数据库无关的时间格式化方式
-            if self.config.db_type == 'sqlite':  # ✅ 修正：self.db_type → self.config.db_type
+            # 修复：使用数据库无关的时间格式化方式
+            if self.config.db_type == 'sqlite': # 修正：self.db_type → self.config.db_type
                 # SQLite语法
                 await cursor.execute('''
                     SELECT
@@ -4356,7 +4356,7 @@ class DatabaseManager(AsyncServiceBase):
             api_response_times = []
             for row in await cursor.fetchall():
                 api_hours.append(f"{row[0]}:00")
-                api_response_times.append(round(row[1] * 1000, 2))  # 转换为毫秒
+                api_response_times.append(round(row[1] * 1000, 2)) # 转换为毫秒
             
             # 数据库表统计
             tables_to_check = ['raw_messages', 'filtered_messages', 'learning_batches', 'persona_update_records']
@@ -4562,7 +4562,7 @@ class DatabaseManager(AsyncServiceBase):
                 '兴趣爱好': ['摄影', '绘画', '音乐', '电影', '书籍', '旅行', '美食', '运动', '健身', '瑜伽', '跑步', '骑行', '爬山', '游泳', '篮球'],
                 '商务合作': ['合作', '商务', '业务', '客户', '项目', '方案', '报价', '合同', '付款', '发票', '产品', '服务', '市场', '销售', '推广'],
                 '技术支持': ['问题', '故障', '错误', '修复', '解决', '帮助', '支持', '教程', '指导', '操作', '配置', '安装', '更新', '维护', '优化'],
-                '闲聊灌水': ['哈哈', '嘿嘿', '😂', '😄', '笑死', '有趣', '无聊', '随便', '聊天', '扯淡', '吐槽', '搞笑', '段子', '表情', '发呆'],
+                '闲聊灌水': ['哈哈', '嘿嘿', '', '', '笑死', '有趣', '无聊', '随便', '聊天', '扯淡', '吐槽', '搞笑', '段子', '表情', '发呆'],
                 '通知公告': ['通知', '公告', '重要', '注意', '提醒', '截止', '时间', '安排', '活动', '报名', '参加', '会议', '培训', '讲座', '活动']
             }
             
@@ -4577,7 +4577,7 @@ class DatabaseManager(AsyncServiceBase):
             # 获取得分最高的主题
             best_topic = max(topic_scores.items(), key=lambda x: x[1])
             
-            if best_topic[1] == 0:  # 没有匹配到任何关键词
+            if best_topic[1] == 0: # 没有匹配到任何关键词
                 return {'topic': '综合聊天', 'style': '日常对话'}
             
             # 根据主题确定对话风格
@@ -4656,12 +4656,12 @@ class DatabaseManager(AsyncServiceBase):
         self,
         group_id: str,
         proposed_content: str,
-        learning_source: str = UPDATE_TYPE_EXPRESSION_LEARNING,  # ✅ 使用常量作为默认值
+        learning_source: str = UPDATE_TYPE_EXPRESSION_LEARNING, # 使用常量作为默认值
         confidence_score: float = 0.5,
         raw_analysis: str = "",
         metadata: Dict[str, Any] = None,
-        original_content: str = "",  # ✅ 新增：原人格完整文本
-        new_content: str = ""  # ✅ 新增：新人格完整文本（原人格+增量）
+        original_content: str = "", # 新增：原人格完整文本
+        new_content: str = "" # 新增：新人格完整文本（原人格+增量）
     ) -> int:
         """添加人格学习审查记录
 
@@ -4728,13 +4728,13 @@ class DatabaseManager(AsyncServiceBase):
                 try:
                     await cursor.execute('ALTER TABLE persona_update_reviews ADD COLUMN metadata TEXT')
                 except Exception:
-                    pass  # 列已存在
+                    pass # 列已存在
 
                 # 准备元数据JSON
                 import json
                 metadata_json = json.dumps(metadata if metadata else {}, ensure_ascii=False)
 
-                # ✅ 修复：使用传入的 original_content 和 new_content
+                # 修复：使用传入的 original_content 和 new_content
                 # 如果 new_content 为空，则使用 proposed_content（向后兼容）
                 final_new_content = new_content if new_content else proposed_content
 
@@ -4751,12 +4751,12 @@ class DatabaseManager(AsyncServiceBase):
                 ''', (
                     time.time(),
                     group_id,
-                    learning_source,  # update_type就是learning_source
-                    original_content,  # ✅ 使用传入的原人格文本
-                    final_new_content,  # ✅ 使用完整的新人格文本
-                    proposed_content,  # proposed_content保持为增量部分
+                    learning_source, # update_type就是learning_source
+                    original_content, # 使用传入的原人格文本
+                    final_new_content, # 使用完整的新人格文本
+                    proposed_content, # proposed_content保持为增量部分
                     confidence_score,
-                    raw_analysis,  # reason字段存储raw_analysis
+                    raw_analysis, # reason字段存储raw_analysis
                     'pending',
                     metadata_json
                 ))
@@ -4820,14 +4820,14 @@ class DatabaseManager(AsyncServiceBase):
                         'id': row[0],
                         'sender_id': row[1],
                         'sender_name': row[2],
-                        'content': row[3],  # 外部API使用 'content' 字段名
+                        'content': row[3], # 外部API使用 'content' 字段名
                         'group_id': row[4],
                         'platform': row[5],
                         'timestamp': row[6],
                         'processed': row[7]
                     })
 
-                self._logger.info(f"📖 API查询结果: group={group_id}, 返回{len(messages)}条消息, 最新timestamp={messages[0]['timestamp'] if messages else 'N/A'}")
+                self._logger.info(f" API查询结果: group={group_id}, 返回{len(messages)}条消息, 最新timestamp={messages[0]['timestamp'] if messages else 'N/A'}")
                 return messages
 
             except aiosqlite.Error as e:
@@ -4893,7 +4893,7 @@ class DatabaseManager(AsyncServiceBase):
                         'id': row[0],
                         'sender_id': row[1],
                         'sender_name': row[2],
-                        'content': row[3],  # 外部API使用 'content' 字段名
+                        'content': row[3], # 外部API使用 'content' 字段名
                         'group_id': row[4],
                         'platform': row[5],
                         'timestamp': row[6],
@@ -5005,7 +5005,7 @@ class DatabaseManager(AsyncServiceBase):
                     'start_timestamp': earliest_timestamp,
                     'latest_timestamp': latest_timestamp,
                     'generated_at': time.time(),
-                    'recent_messages': messages[:5],  # 返回最近5条消息内容供参考
+                    'recent_messages': messages[:5], # 返回最近5条消息内容供参考
                     'from_cache': False
                 }
 
@@ -5188,12 +5188,12 @@ class DatabaseManager(AsyncServiceBase):
                 patterns = []
                 for row in await cursor.fetchall():
                     patterns.append({
-                        'situation': row[0],  # 场景描述
-                        'expression': row[1],  # 表达方式
-                        'weight': row[2],  # 权重
-                        'last_active_time': row[3],  # 最后活跃时间
-                        'create_time': row[4],  # 创建时间
-                        'group_id': row[5] if len(row) > 5 else group_id  # 群组ID（全局查询时有用）
+                        'situation': row[0], # 场景描述
+                        'expression': row[1], # 表达方式
+                        'weight': row[2], # 权重
+                        'last_active_time': row[3], # 最后活跃时间
+                        'create_time': row[4], # 创建时间
+                        'group_id': row[5] if len(row) > 5 else group_id # 群组ID（全局查询时有用）
                     })
 
                 return patterns
@@ -5289,7 +5289,7 @@ class DatabaseManager(AsyncServiceBase):
                 ))
 
                 await conn.commit()
-                self._logger.debug(f"✅ Bot消息已保存: group={group_id}, msg_preview={message[:50]}...")
+                self._logger.debug(f" Bot消息已保存: group={group_id}, msg_preview={message[:50]}...")
                 return True
 
             except aiosqlite.Error as e:
@@ -5366,7 +5366,7 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
-    # ========== 黑话学习系统数据库操作方法 ==========
+    # 黑话学习系统数据库操作方法
 
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
         """
@@ -6005,9 +6005,7 @@ class DatabaseManager(AsyncServiceBase):
             finally:
                 await cursor.close()
 
-    # ========================================================================
     # ORM Repository 方法（新）
-    # ========================================================================
 
     async def get_learning_batch_by_id(self, batch_id: str) -> Optional[Dict[str, Any]]:
         """

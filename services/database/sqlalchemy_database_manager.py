@@ -22,9 +22,7 @@ class SQLAlchemyDatabaseManager:
     对外接口（方法签名、返回类型）与旧版完全一致，消费者无需任何改动。
     """
 
-    # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
 
     def __init__(self, config: PluginConfig, context=None):
         self.config = config
@@ -125,9 +123,7 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[DomainRouter] 停止失败: {e}")
             return False
 
-    # ------------------------------------------------------------------
     # Facade initialization
-    # ------------------------------------------------------------------
 
     def _init_facades(self):
         """初始化所有领域 Facade"""
@@ -150,9 +146,7 @@ class SQLAlchemyDatabaseManager:
         self._admin = AdminFacade(self.engine, self.config)
         logger.info("[DomainRouter] 11 个领域 Facade 已初始化")
 
-    # ------------------------------------------------------------------
     # Infrastructure: database URL
-    # ------------------------------------------------------------------
 
     def _get_database_url(self) -> str:
         """获取数据库连接 URL"""
@@ -204,9 +198,7 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[DomainRouter] 确保 MySQL 数据库存在失败: {e}")
             raise
 
-    # ------------------------------------------------------------------
     # Infrastructure: session & connection shims
-    # ------------------------------------------------------------------
 
     @property
     def db_backend(self):
@@ -258,9 +250,7 @@ class SQLAlchemyDatabaseManager:
         """群组 DB 连接 shim（向后兼容）"""
         return self.get_db_connection()
 
-    # ==================================================================
     # Domain delegates: AffectionFacade
-    # ==================================================================
 
     async def get_user_affection(self, group_id: str, user_id: str) -> Optional[Dict[str, Any]]:
         return await self._affection.get_user_affection(group_id, user_id)
@@ -290,9 +280,7 @@ class SQLAlchemyDatabaseManager:
     async def get_current_bot_mood(self, group_id: str) -> Optional[Dict[str, Any]]:
         return await self._affection.get_current_bot_mood(group_id)
 
-    # ==================================================================
     # Domain delegates: MessageFacade
-    # ==================================================================
 
     async def save_raw_message(self, message_data) -> int:
         return await self._message.save_raw_message(message_data)
@@ -371,9 +359,7 @@ class SQLAlchemyDatabaseManager:
     async def get_groups_for_social_analysis(self) -> List[Dict[str, Any]]:
         return await self._message.get_groups_for_social_analysis()
 
-    # ==================================================================
     # Domain delegates: LearningFacade
-    # ==================================================================
 
     async def add_persona_learning_review(self, review_data: Dict[str, Any]) -> int:
         return await self._learning.add_persona_learning_review(review_data)
@@ -510,9 +496,7 @@ class SQLAlchemyDatabaseManager:
     ) -> Dict[str, Any]:
         return await self._learning.get_learning_patterns_data(group_id)
 
-    # ==================================================================
     # Domain delegates: JargonFacade
-    # ==================================================================
 
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
         return await self._jargon.get_jargon(chat_id, content)
@@ -574,9 +558,7 @@ class SQLAlchemyDatabaseManager:
     async def get_jargon_groups(self) -> List[Dict[str, Any]]:
         return await self._jargon.get_jargon_groups()
 
-    # ==================================================================
     # Domain delegates: PersonaFacade
-    # ==================================================================
 
     async def backup_persona(self, backup_data: Dict[str, Any]) -> bool:
         return await self._persona.backup_persona(backup_data)
@@ -594,9 +576,7 @@ class SQLAlchemyDatabaseManager:
     ) -> List[Dict[str, Any]]:
         return await self._persona.get_persona_update_history(group_id, limit)
 
-    # ==================================================================
     # Domain delegates: SocialFacade
-    # ==================================================================
 
     async def load_user_profile(self, qq_id: str) -> Optional[Dict[str, Any]]:
         return await self._social.load_user_profile(qq_id)
@@ -639,9 +619,7 @@ class SQLAlchemyDatabaseManager:
     ) -> Dict[str, Any]:
         return await self._social.get_user_social_relations(group_id, user_id)
 
-    # ==================================================================
     # Domain delegates: ExpressionFacade
-    # ==================================================================
 
     async def get_all_expression_patterns(self) -> Dict[str, List[Dict[str, Any]]]:
         return await self._expression.get_all_expression_patterns()
@@ -683,9 +661,7 @@ class SQLAlchemyDatabaseManager:
             language_style, pattern_data,
         )
 
-    # ==================================================================
     # Domain delegates: PsychologicalFacade
-    # ==================================================================
 
     async def load_emotion_profile(
         self, user_id: str, group_id: str,
@@ -699,9 +675,7 @@ class SQLAlchemyDatabaseManager:
             user_id, group_id, profile,
         )
 
-    # ==================================================================
     # Domain delegates: ReinforcementFacade
-    # ==================================================================
 
     async def get_learning_history_for_reinforcement(
         self, group_id: str, limit: int = 50,
@@ -743,9 +717,7 @@ class SQLAlchemyDatabaseManager:
             group_id, optimization_data,
         )
 
-    # ==================================================================
     # Domain delegates: MetricsFacade
-    # ==================================================================
 
     async def get_group_statistics(
         self, group_id: str = None,
@@ -760,9 +732,7 @@ class SQLAlchemyDatabaseManager:
     async def get_trends_data(self) -> Dict[str, Any]:
         return await self._metrics.get_trends_data()
 
-    # ==================================================================
     # Domain delegates: AdminFacade
-    # ==================================================================
 
     async def clear_all_messages_data(self) -> bool:
         return await self._admin.clear_all_messages_data()
@@ -772,9 +742,7 @@ class SQLAlchemyDatabaseManager:
     ) -> Dict[str, Any]:
         return await self._admin.export_messages_learning_data(group_id)
 
-    # ==================================================================
     # Safety net: __getattr__ fallback
-    # ==================================================================
 
     def __getattr__(self, name):
         """安全网：未显式路由的方法回退到传统数据库管理器（附 WARNING 日志）"""

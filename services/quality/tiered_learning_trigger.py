@@ -39,9 +39,7 @@ from astrbot.api import logger
 from ...core.interfaces import MessageData
 
 
-# ---------------------------------------------------------------------------
 # Type aliases
-# ---------------------------------------------------------------------------
 
 # Internal alias: once registered, a callback is always a real callable.
 _AsyncCallable = Callable[..., Coroutine[Any, Any, Any]]
@@ -50,9 +48,7 @@ _AsyncCallable = Callable[..., Coroutine[Any, Any, Any]]
 _OptionalAsyncCallback = Optional[_AsyncCallable]
 
 
-# ---------------------------------------------------------------------------
 # Per-group trigger state
-# ---------------------------------------------------------------------------
 
 @dataclass
 class _GroupTriggerState:
@@ -72,9 +68,7 @@ class _GroupTriggerState:
     consecutive_tier1_errors: int = 0
 
 
-# ---------------------------------------------------------------------------
 # Tier 2 trigger policy
-# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class BatchTriggerPolicy:
@@ -82,7 +76,7 @@ class BatchTriggerPolicy:
 
     A Tier 2 operation is triggered when **either** the message-count
     threshold **or** the maximum time interval is reached, whichever
-    comes first.  This ensures both high-traffic groups (hit count
+    comes first. This ensures both high-traffic groups (hit count
     quickly) and low-traffic groups (hit time limit) get timely
     processing.
     """
@@ -91,9 +85,7 @@ class BatchTriggerPolicy:
     cooldown_seconds: float = 120.0
 
 
-# ---------------------------------------------------------------------------
 # Result container
-# ---------------------------------------------------------------------------
 
 @dataclass
 class TriggerResult:
@@ -105,9 +97,7 @@ class TriggerResult:
     tier2_details: Dict[str, bool] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # Main class
-# ---------------------------------------------------------------------------
 
 class TieredLearningTrigger:
     """Orchestrates tiered learning operations for incoming messages.
@@ -130,9 +120,7 @@ class TieredLearningTrigger:
         # Tier 2: name -> (async callable(group_id), policy)
         self._tier2_ops: Dict[str, Tuple[_AsyncCallable, BatchTriggerPolicy]] = {}
 
-    # ------------------------------------------------------------------
     # Registration
-    # ------------------------------------------------------------------
 
     def register_tier1(
         self,
@@ -187,9 +175,7 @@ class TieredLearningTrigger:
         )
         logger.debug(f"[TieredTrigger] Registered Tier 2 op: {name}")
 
-    # ------------------------------------------------------------------
     # Main entry point
-    # ------------------------------------------------------------------
 
     async def process_message(
         self,
@@ -218,9 +204,9 @@ class TieredLearningTrigger:
         state.total_processed += 1
 
         # ---- Tier 2: check each registered batch operation ----
-        # Each operation has its own counter/cooldown gate.  When any
+        # Each operation has its own counter/cooldown gate. When any
         # operation fires, the shared message counter resets so that
-        # all Tier 2 ops start their count window fresh.  The time-based
+        # all Tier 2 ops start their count window fresh. The time-based
         # fallback ensures low-traffic groups still trigger eventually.
         now = time.time()
         for name, (callback, policy) in self._tier2_ops.items():
@@ -240,9 +226,7 @@ class TieredLearningTrigger:
 
         return result
 
-    # ------------------------------------------------------------------
     # Event-driven fast-path
-    # ------------------------------------------------------------------
 
     async def force_tier2(
         self,
@@ -262,9 +246,7 @@ class TieredLearningTrigger:
         callback, _ = self._tier2_ops[name]
         return await self._execute_tier2_op(name, callback, group_id, state)
 
-    # ------------------------------------------------------------------
     # Inspection / statistics
-    # ------------------------------------------------------------------
 
     def get_group_stats(self, group_id: str) -> Dict[str, Any]:
         """Return trigger statistics for a group."""
@@ -281,9 +263,7 @@ class TieredLearningTrigger:
             "consecutive_tier1_errors": state.consecutive_tier1_errors,
         }
 
-    # ------------------------------------------------------------------
     # Internals
-    # ------------------------------------------------------------------
 
     def _get_state(self, group_id: str) -> _GroupTriggerState:
         if group_id not in self._states:

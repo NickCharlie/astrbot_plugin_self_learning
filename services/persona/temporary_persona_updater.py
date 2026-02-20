@@ -49,8 +49,8 @@ class TemporaryPersonaUpdater:
         self.db_manager = db_manager
         
         # 临时人格存储
-        self.active_temp_personas: Dict[str, Dict] = {}  # group_id -> temp_persona_info
-        self.expiry_tasks: Dict[str, asyncio.Task] = {}  # group_id -> expiry_task
+        self.active_temp_personas: Dict[str, Dict] = {} # group_id -> temp_persona_info
+        self.expiry_tasks: Dict[str, asyncio.Task] = {} # group_id -> expiry_task
         
         # 备份目录设置
         self.backup_base_dir = os.path.join(config.data_dir, "persona_backups")
@@ -262,7 +262,7 @@ class TemporaryPersonaUpdater:
         
         # 添加对话示例
         if example_dialogs:
-            dialog_examples = ['\n\".join([f\"- {dialog}' for dialog in example_dialogs[:5]]  # 限制数量
+            dialog_examples = ['\n\".join([f\"- {dialog}' for dialog in example_dialogs[:5]] # 限制数量
             enhanced_prompt += f'{dialog_examples}'
         
         enhanced_persona.update({
@@ -270,7 +270,7 @@ class TemporaryPersonaUpdater:
             'prompt': enhanced_prompt,
             'mood_imitation_dialogs': (
                 original_persona.get('mood_imitation_dialogs', []) + example_dialogs
-            )[-20:],  # 保留最新20条
+            )[-20:], # 保留最新20条
             'temp_features': new_features,
             'temp_created_at': datetime.now().isoformat()
             })
@@ -292,7 +292,7 @@ class TemporaryPersonaUpdater:
         """
         将人格应用到系统中 - 使用会话级存储而不是修改全局provider
 
-        ✅ 修复: 不再修改全局provider.curr_personality,避免会话串流
+         修复: 不再修改全局provider.curr_personality,避免会话串流
         改为存储到self.session_updates[group_id]中,由LLM Hook注入
         """
         try:
@@ -311,7 +311,7 @@ class TemporaryPersonaUpdater:
                     incremental_update = enhanced_prompt[update_start:]
                     logger.info(f"提取到增量更新内容: {incremental_update[:100]}...")
 
-                    # ✅ 存储到会话级映射,不修改全局provider
+                    # 存储到会话级映射,不修改全局provider
                     if group_id not in self.session_updates:
                         self.session_updates[group_id] = []
 
@@ -608,7 +608,7 @@ class TemporaryPersonaUpdater:
             current_prompt = updated_persona.get('prompt', '')
             
             # 去除重复的更新内容
-            unique_updates = list(dict.fromkeys(updates))  # 保持顺序的去重
+            unique_updates = list(dict.fromkeys(updates)) # 保持顺序的去重
             logger.info(f"原始更新数量: {len(updates)}, 去重后: {len(unique_updates)}")
             
             # 构建增量更新文本
@@ -868,7 +868,7 @@ class TemporaryPersonaUpdater:
             
             # 构建表达风格描述
             style_descriptions = []
-            for pattern in expression_patterns[:5]:  # 只取前5个最重要的
+            for pattern in expression_patterns[:5]: # 只取前5个最重要的
                 situation = pattern.get('situation', '').strip()
                 expression = pattern.get('expression', '').strip()
                 weight = pattern.get('weight', 1.0)
@@ -1275,12 +1275,12 @@ class TemporaryPersonaUpdater:
         
         # 定义虚假对话的特征模式
         fake_patterns = [
-            r'A:\s*你最近干.*呢.*\?',  # "A: 你最近干啥呢？"模式
-            r'B:\s*',                 # "B: "开头的模式
-            r'用户\d+:\s*',           # "用户01: "模式
-            r'.*:\s*你最近.*',        # 任何包含"你最近"的对话格式
-            r'开场对话列表',          # 示例文本
-            r'情绪模拟对话列表',       # 示例文本
+            r'A:\s*你最近干.*呢.*\?', # "A: 你最近干啥呢？"模式
+            r'B:\s*', # "B: "开头的模式
+            r'用户\d+:\s*', # "用户01: "模式
+            r'.*:\s*你最近.*', # 任何包含"你最近"的对话格式
+            r'开场对话列表', # 示例文本
+            r'情绪模拟对话列表', # 示例文本
         ]
         
         import re
@@ -1292,7 +1292,7 @@ class TemporaryPersonaUpdater:
                     is_fake = True
                     break
             
-            if not is_fake and len(dialog.strip()) > 3:  # 只保留有效的真实对话
+            if not is_fake and len(dialog.strip()) > 3: # 只保留有效的真实对话
                 validated_dialogs.append(dialog)
         
         logger.info(f"对话验证完成: 原始{len(dialogs)}条，验证后{len(validated_dialogs)}条")

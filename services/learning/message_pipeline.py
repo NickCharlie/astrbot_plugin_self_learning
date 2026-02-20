@@ -38,9 +38,7 @@ class MessagePipeline:
         self._affection_manager = affection_manager
         self._db_manager = db_manager
 
-    # ------------------------------------------------------------------
     # 后台学习流水线（6 步）
-    # ------------------------------------------------------------------
 
     async def process_learning(
         self,
@@ -93,7 +91,7 @@ class MessagePipeline:
                         message_text, group_id, sender_id
                     )
                 except Exception:
-                    pass  # best-effort
+                    pass # best-effort
 
             # 3. 黑话挖掘 — 每收集 10 条消息触发一次
             stats = await self._message_collector.get_statistics(group_id)
@@ -142,7 +140,7 @@ class MessagePipeline:
                             topic = goal["final_goal"].get("topic", "未知话题")
                             current_stage = goal["current_stage"].get("task", "初始化")
                             logger.info(
-                                f"✅ [对话目标] 会话目标: {goal_name} "
+                                f" [对话目标] 会话目标: {goal_name} "
                                 f"(类型: {goal_type}), 话题: {topic}, "
                                 f"当前阶段: {current_stage}"
                             )
@@ -152,9 +150,7 @@ class MessagePipeline:
         except Exception as e:
             logger.error(f"后台学习处理失败: {e}", exc_info=True)
 
-    # ------------------------------------------------------------------
     # 黑话挖掘
-    # ------------------------------------------------------------------
 
     async def mine_jargon(self, group_id: str) -> None:
         """后台黑话挖掘 — 完全异步、非阻塞
@@ -227,9 +223,7 @@ class MessagePipeline:
                 exc_info=True,
             )
 
-    # ------------------------------------------------------------------
     # 好感度处理
-    # ------------------------------------------------------------------
 
     async def process_affection(
         self, group_id: str, sender_id: str, message_text: str

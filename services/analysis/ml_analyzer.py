@@ -41,15 +41,15 @@ class LightweightMLAnalyzer:
                  prompts: Any = None, temporary_persona_updater = None): # 使用框架适配器替代LLMClient
         self.config = config
         self.db_manager = db_manager
-        self.llm_adapter = llm_adapter  # 使用框架适配器
+        self.llm_adapter = llm_adapter # 使用框架适配器
         self.prompts = prompts # 保存 prompts
         self.temporary_persona_updater = temporary_persona_updater # 保存临时人格更新器引用
         
         # 设置分析限制以节省资源
-        self.max_sample_size = 100  # 最大样本数量
-        self.max_features = 50      # 最大特征数量
-        self.analysis_cache = {}    # 分析结果缓存
-        self.cache_timeout = 3600   # 缓存1小时
+        self.max_sample_size = 100 # 最大样本数量
+        self.max_features = 50 # 最大特征数量
+        self.analysis_cache = {} # 分析结果缓存
+        self.cache_timeout = 3600 # 缓存1小时
         
         if not SKLEARN_AVAILABLE:
             logger.warning("scikit-learn未安装，将使用基础统计分析")
@@ -125,7 +125,7 @@ class LightweightMLAnalyzer:
                 try:
                     reinforcement_result = safe_parse_llm_json(clean_response)
 
-                    # ✅ 检查解析结果是否为None
+                    # 检查解析结果是否为None
                     if not reinforcement_result:
                         logger.warning("强化学习记忆重放解析结果为空")
                         return {}
@@ -240,7 +240,7 @@ class LightweightMLAnalyzer:
         """
         强化学习策略优化：基于历史表现数据动态调整学习策略
         """
-        if (not self.llm_adapter or not self.llm_adapter.has_reinforce_provider())  and self.llm_adapter.providers_configured < 3:
+        if (not self.llm_adapter or not self.llm_adapter.has_reinforce_provider()) and self.llm_adapter.providers_configured < 3:
             logger.warning("强化模型未配置，跳过策略优化功能")
             return {}
 
@@ -343,7 +343,7 @@ class LightweightMLAnalyzer:
         记忆重放：将历史数据与新数据混合，并交给提炼模型进行处理。
         这模拟了LLM的"增量微调"过程，通过重新暴露历史数据来巩固学习。
         """
-        if (not self.llm_adapter or not self.llm_adapter.has_refine_provider())  and self.llm_adapter.providers_configured < 2:
+        if (not self.llm_adapter or not self.llm_adapter.has_refine_provider()) and self.llm_adapter.providers_configured < 2:
             logger.warning("提炼模型未配置，跳过记忆重放功能")
             return []
 
@@ -648,7 +648,7 @@ class LightweightMLAnalyzer:
             from ...models.orm import RawMessage
 
             async with self.db_manager.get_session() as session:
-                cutoff_time = time.time() - 86400 * 7  # 最近7天
+                cutoff_time = time.time() - 86400 * 7 # 最近7天
                 stmt = (
                     select(RawMessage)
                     .where(and_(
@@ -710,7 +710,7 @@ class LightweightMLAnalyzer:
         
         for i in range(1, len(sorted_messages)):
             interval = sorted_messages[i]['timestamp'] - sorted_messages[i-1]['timestamp']
-            intervals.append(interval / 60)  # 转换为分钟
+            intervals.append(interval / 60) # 转换为分钟
         
         if not intervals:
             return {}
@@ -718,7 +718,7 @@ class LightweightMLAnalyzer:
         return {
             'avg_interval_minutes': np.mean(intervals),
             'interval_std': np.std(intervals),
-            'burst_tendency': len([x for x in intervals if x < 5]) / len(intervals)  # 5分钟内连续消息比例
+            'burst_tendency': len([x for x in intervals if x < 5]) / len(intervals) # 5分钟内连续消息比例
         }
 
     async def _analyze_interaction_patterns(self, group_id: str, user_id: str, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -758,8 +758,8 @@ class LightweightMLAnalyzer:
             # TF-IDF向量化（限制特征数量）
             vectorizer = TfidfVectorizer(
                 max_features=min(self.max_features, len(texts) * 2),
-                stop_words=None,  # 不使用停用词以节省内存
-                ngram_range=(1, 1)  # 只使用单词
+                stop_words=None, # 不使用停用词以节省内存
+                ngram_range=(1, 1) # 只使用单词
             )
             
             tfidf_matrix = vectorizer.fit_transform(texts)
@@ -775,7 +775,7 @@ class LightweightMLAnalyzer:
             # 分析聚类结果
             clusters = defaultdict(list)
             for i, label in enumerate(cluster_labels):
-                clusters[int(label)].append(texts[i][:50])  # 限制文本长度
+                clusters[int(label)].append(texts[i][:50]) # 限制文本长度
             
             # 提取关键词
             feature_names = vectorizer.get_feature_names_out()
@@ -783,7 +783,7 @@ class LightweightMLAnalyzer:
             
             for i in range(n_clusters):
                 center = kmeans.cluster_centers_[i]
-                top_indices = center.argsort()[-5:][::-1]  # 前5个关键词
+                top_indices = center.argsort()[-5:][::-1] # 前5个关键词
                 cluster_keywords[i] = [feature_names[idx] for idx in top_indices]
             
             return {
@@ -836,7 +836,7 @@ class LightweightMLAnalyzer:
             from ...models.orm import RawMessage
 
             async with self.db_manager.get_session() as session:
-                cutoff_time = time.time() - 3600 * 6  # 最近6小时
+                cutoff_time = time.time() - 3600 * 6 # 最近6小时
                 stmt = (
                     select(RawMessage)
                     .where(and_(
@@ -900,8 +900,8 @@ class LightweightMLAnalyzer:
         # 确保消息列表已经过滤掉None值
         filtered_messages = [msg for msg in messages if msg is not None]
         
-        positive_keywords = ['哈哈', '好的', '谢谢', '赞', '棒', '开心', '高兴', '😊', '👍', '❤️']
-        negative_keywords = ['不行', '差', '烦', '无聊', '生气', '😢', '😡', '💔']
+        positive_keywords = ['哈哈', '好的', '谢谢', '赞', '棒', '开心', '高兴', '', '', '']
+        negative_keywords = ['不行', '差', '烦', '无聊', '生气', '', '', '']
         
         positive_count = 0
         negative_count = 0
@@ -1017,7 +1017,7 @@ class LightweightMLAnalyzer:
             from ...models.orm import RawMessage
 
             async with self.db_manager.get_session() as session:
-                cutoff_time = time.time() - 86400  # 最近24小时
+                cutoff_time = time.time() - 86400 # 最近24小时
                 stmt = (
                     select(
                         RawMessage.sender_id,

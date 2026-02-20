@@ -340,9 +340,7 @@ class DatabaseEngine:
         return url
 
 
-# ============================================================
 # 便捷函数
-# ============================================================
 
 def create_database_engine(database_url: str, echo: bool = False) -> DatabaseEngine:
     """

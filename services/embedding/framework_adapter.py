@@ -2,7 +2,7 @@
 Framework embedding adapter.
 
 Thin adapter that wraps AstrBot's ``EmbeddingProvider`` instance behind the
-plugin's ``IEmbeddingProvider`` interface.  All heavy lifting (HTTP calls,
+plugin's ``IEmbeddingProvider`` interface. All heavy lifting (HTTP calls,
 batching, retries, connection pooling) is delegated to the framework provider.
 
 Usage::
@@ -37,9 +37,7 @@ class FrameworkEmbeddingAdapter(IEmbeddingProvider):
             raise ValueError("provider must not be None")
         self._provider = provider
 
-    # ------------------------------------------------------------------
     # IEmbeddingProvider implementation
-    # ------------------------------------------------------------------
 
     async def get_embedding(self, text: str) -> List[float]:
         try:
@@ -69,9 +67,7 @@ class FrameworkEmbeddingAdapter(IEmbeddingProvider):
         # Framework manages its own provider lifecycle; nothing to release.
         pass
 
-    # ------------------------------------------------------------------
     # Extended helpers (delegated to framework)
-    # ------------------------------------------------------------------
 
     async def get_embeddings_batch(
         self,

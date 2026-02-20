@@ -39,9 +39,7 @@ class WebUIManager:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
 
-    # ------------------------------------------------------------------
     # 创建
-    # ------------------------------------------------------------------
 
     def create_server(self) -> bool:
         """创建 Server 实例（不启动）。返回 True 表示需要立即启动。"""
@@ -76,7 +74,7 @@ class WebUIManager:
                         f"Web 服务器实例已创建 "
                         f"({_server_instance.host}:{_server_instance.port})，将在 on_load 中启动"
                     )
-                    return True  # 需要立即启动
+                    return True # 需要立即启动
                 else:
                     logger.error("Web 服务器实例创建失败")
         except Exception as e:
@@ -84,13 +82,11 @@ class WebUIManager:
 
         return False
 
-    # ------------------------------------------------------------------
     # 启动
-    # ------------------------------------------------------------------
 
     async def immediate_start(self, db_manager: Any) -> None:
         """__init__ 阶段立即启动 WebUI（通过 asyncio.create_task 调用）"""
-        await asyncio.sleep(1)  # 等待插件完全初始化
+        await asyncio.sleep(1) # 等待插件完全初始化
 
         global _server_instance
         if not _server_instance or not self._config.enable_web_interface:
@@ -154,9 +150,7 @@ class WebUIManager:
         except Exception as e:
             logger.error(f"Web 服务器启动失败: {e}", exc_info=True)
 
-    # ------------------------------------------------------------------
     # 停止
-    # ------------------------------------------------------------------
 
     async def stop(self) -> None:
         """有序停止 WebUI 服务器"""
@@ -180,9 +174,7 @@ class WebUIManager:
                 logger.error(f"停止 Web 服务器失败: {e}", exc_info=True)
                 _server_instance = None
 
-    # ------------------------------------------------------------------
     # 内部方法
-    # ------------------------------------------------------------------
 
     async def _acquire_persona_manager(self) -> Any:
         """获取 AstrBot 框架 PersonaManager（带延迟重试）"""

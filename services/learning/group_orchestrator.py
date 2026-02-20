@@ -44,9 +44,7 @@ class GroupLearningOrchestrator:
         # Per-group last-start timestamps (keyed by group_id)
         self._last_learning_start: Dict[str, float] = {}
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def smart_start_learning_for_group(self, group_id: str) -> None:
         """Smart-start a learning task for *group_id* with frequency throttling."""
@@ -232,9 +230,7 @@ class GroupLearningOrchestrator:
                 logger.error(f"停止群组 {group_id} 学习任务失败: {e}")
         self.learning_tasks.clear()
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     async def _start_group_learning(self, group_id: str) -> None:
         """Start the progressive learning session for a single group."""

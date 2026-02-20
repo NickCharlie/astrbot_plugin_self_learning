@@ -23,12 +23,12 @@ from ..database import DatabaseManager
 @dataclass
 class ExpressionPattern:
     """表达模式数据结构"""
-    situation: str          # 场景描述，如"对某件事表示十分惊叹"
-    expression: str         # 表达方式，如"我嘞个xxxx"
-    weight: float          # 权重（使用频率）
-    last_active_time: float  # 最后活跃时间
-    create_time: float     # 创建时间
-    group_id: str          # 所属群组ID
+    situation: str # 场景描述，如"对某件事表示十分惊叹"
+    expression: str # 表达方式，如"我嘞个xxxx"
+    weight: float # 权重（使用频率）
+    last_active_time: float # 最后活跃时间
+    create_time: float # 创建时间
+    group_id: str # 所属群组ID
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -46,11 +46,11 @@ class ExpressionPatternLearner:
     """
     
     # MaiBot的配置参数
-    MAX_EXPRESSION_COUNT = 300  # 最大表达式数量
-    DECAY_DAYS = 15  # 15天衰减周期
-    DECAY_MIN = 0.01  # 最小衰减值
-    MIN_MESSAGES_FOR_LEARNING = 25  # 触发学习所需的最少消息数
-    MIN_LEARNING_INTERVAL = 300  # 最短学习时间间隔（秒）
+    MAX_EXPRESSION_COUNT = 300 # 最大表达式数量
+    DECAY_DAYS = 15 # 15天衰减周期
+    DECAY_MIN = 0.01 # 最小衰减值
+    MIN_MESSAGES_FOR_LEARNING = 25 # 触发学习所需的最少消息数
+    MIN_LEARNING_INTERVAL = 300 # 最短学习时间间隔（秒）
     
     _instance = None
     _initialized = False
@@ -255,7 +255,7 @@ class ExpressionPatternLearner:
 
 请从上面这段群聊中概括除了人名为"SELF"之外的人的语言风格
 1. 只考虑文字，不要考虑表情包和图片
-2. 不要涉及具体的人名，但是可以涉及具体名词  
+2. 不要涉及具体的人名，但是可以涉及具体名词 
 3. 思考有没有特殊的梗，一并总结成语言风格
 4. 例子仅供参考，请严格根据群聊内容总结!!!
 
@@ -279,8 +279,8 @@ class ExpressionPatternLearner:
                 try:
                     response = await self.llm_adapter.generate_response(
                         prompt, 
-                        temperature=0.3,  # 使用MaiBot的temperature设置
-                        model_type="refine"  # 使用精炼模型
+                        temperature=0.3, # 使用MaiBot的temperature设置
+                        model_type="refine" # 使用精炼模型
                     )
                     
                     # 检查response是否有效
@@ -349,7 +349,7 @@ class ExpressionPatternLearner:
             patterns = []
 
             # 分析消息特征
-            for msg in messages[:10]:  # 只分析前10条消息
+            for msg in messages[:10]: # 只分析前10条消息
                 # 兼容处理MessageData对象和字典类型
                 if hasattr(msg, 'message'):
                     # 如果是MessageData对象
@@ -400,7 +400,7 @@ class ExpressionPatternLearner:
                     }
                 
                 # 检测表情符号
-                elif any(emoji in content for emoji in ['😊', '😄', '😢', '😂', '🤔', '👍', '❤️']):
+                elif any(emoji in content for emoji in ['', '', '', '', '', '', '']):
                     pattern_data = {
                         "situation": "表达情感状态",
                         "expression": content[:10] + ('...' if len(content) > 10 else ''),
@@ -567,7 +567,7 @@ class ExpressionPatternLearner:
                         )
 
                 await conn.commit()
-                logger.info(f"✅ 保存了 {len(patterns)} 个表达模式到数据库（群组: {group_id}）")
+                logger.info(f" 保存了 {len(patterns)} 个表达模式到数据库（群组: {group_id}）")
 
         except Exception as e:
             logger.error(f"保存表达模式失败: {e}", exc_info=True)
@@ -625,10 +625,10 @@ class ExpressionPatternLearner:
         使用二次函数进行曲线插值
         """
         if time_diff_days <= 0:
-            return 0.0  # 刚激活的表达式不衰减
+            return 0.0 # 刚激活的表达式不衰减
         
         if time_diff_days >= self.DECAY_DAYS:
-            return 0.01  # 长时间未活跃的表达式大幅衰减
+            return 0.01 # 长时间未活跃的表达式大幅衰减
         
         # 使用二次函数插值：在0-15天之间从0衰减到0.01
         a = 0.01 / (self.DECAY_DAYS ** 2)

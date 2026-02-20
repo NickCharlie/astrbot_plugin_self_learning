@@ -82,7 +82,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             "同村村民": 0.45,
             "同乡": 0.50,
             "同校": 0.55,
-            "同车乘客": 0.05,  # 临时关系,易变
+            "同车乘客": 0.05, # 临时关系,易变
 
             # 业缘关系 - 中等到较高难度
             "上下级": 0.65,
@@ -122,7 +122,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             "借贷关系": 0.60,
             "生意伙伴": 0.55,
             "雇主雇员": 0.50,
-            "搭子关系": 0.15,  # 临时功能关系,易变
+            "搭子关系": 0.15, # 临时功能关系,易变
 
             # 亲密度等级相关
             "核心亲密": 0.90,
@@ -193,7 +193,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             relation_value_threshold=0.6,
             interaction_type="compliment",
             psychological_impact={
-                "情绪": 0.15,  # 挚友的称赞让情绪大幅提升
+                "情绪": 0.15, # 挚友的称赞让情绪大幅提升
                 "社交": 0.10,
                 "精力": 0.05
             },
@@ -205,7 +205,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             relation_value_threshold=0.6,
             interaction_type="insult",
             psychological_impact={
-                "情绪": -0.25,  # 挚友的侮辱伤害更深
+                "情绪": -0.25, # 挚友的侮辱伤害更深
                 "社交": -0.15,
                 "意志": -0.10
             },
@@ -241,7 +241,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             relation_value_threshold=0.7,
             interaction_type="compliment",
             psychological_impact={
-                "情绪": 0.20,  # 恋人的赞美影响最大
+                "情绪": 0.20, # 恋人的赞美影响最大
                 "社交": 0.12,
                 "精力": 0.08,
                 "兴趣": 0.05
@@ -254,7 +254,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             relation_value_threshold=0.7,
             interaction_type="insult",
             psychological_impact={
-                "情绪": -0.30,  # 恋人的伤害最深
+                "情绪": -0.30, # 恋人的伤害最深
                 "社交": -0.20,
                 "意志": -0.15,
                 "精力": -0.10
@@ -364,7 +364,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
                 if not relation:
                     relation = SocialRelationComponent(
                         relation_type=relation_type_str,
-                        value=0.5,  # 初始中等强度
+                        value=0.5, # 初始中等强度
                         description=f"与 {to_user_id} 的{relation_type_str}关系"
                     )
                     profile.add_relation(relation)
@@ -582,7 +582,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             self._logger.error(f"生成关系prompt注入失败: {e}")
             return ""
 
-    # ==================== 数据库操作 ====================
+    # 数据库操作
 
     async def _load_profile_from_db(
         self,
@@ -653,7 +653,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             async with self.db_manager.get_db_connection() as conn:
                 cursor = await conn.cursor()
 
-                # ✅ 使用数据库无关的语法：DELETE + INSERT 替代 INSERT OR REPLACE
+                # 使用数据库无关的语法：DELETE + INSERT 替代 INSERT OR REPLACE
                 # 先删除旧记录
                 await cursor.execute('''
                     DELETE FROM user_social_profiles
@@ -677,7 +677,7 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
                     rel_type_str = relation.relation_type.value if hasattr(
                         relation.relation_type, 'value') else str(relation.relation_type)
 
-                    # ✅ 先删除旧关系记录
+                    # 先删除旧关系记录
                     await cursor.execute('''
                         DELETE FROM user_social_relation_components
                         WHERE from_user_id = ? AND to_user_id = ? AND group_id = ? AND relation_type = ?

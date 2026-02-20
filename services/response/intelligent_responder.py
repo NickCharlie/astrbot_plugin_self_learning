@@ -12,7 +12,7 @@ from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
 from astrbot.core.platform.message_type import MessageType
 
-from ...core.framework_llm_adapter import FrameworkLLMAdapter  # 导入框架适配器
+from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
 
 from ...config import PluginConfig
 
@@ -29,8 +29,8 @@ class IntelligentResponder:
     RECENT_MESSAGES_LIMIT = 5
     PROMPT_MESSAGE_LENGTH_LIMIT = 50
     PROMPT_RESPONSE_WORD_LIMIT = 100
-    DAILY_RESPONSE_STATS_PERIOD_SECONDS = 86400  # 24小时
-    GROUP_ATMOSPHERE_PERIOD_SECONDS = 3600  # 1小时
+    DAILY_RESPONSE_STATS_PERIOD_SECONDS = 86400 # 24小时
+    GROUP_ATMOSPHERE_PERIOD_SECONDS = 3600 # 1小时
     GROUP_ACTIVITY_HIGH_THRESHOLD = 10
 
     def __init__(self, config: PluginConfig, context: Context, db_manager,
@@ -41,16 +41,16 @@ class IntelligentResponder:
         self.context = context
         self.db_manager = db_manager
         self.prompts = prompts
-        self.affection_manager = affection_manager  # 添加好感度管理器
-        self.diversity_manager = diversity_manager  # 添加多样性管理器
-        self.social_context_injector = social_context_injector  # 添加社交上下文注入器
+        self.affection_manager = affection_manager # 添加好感度管理器
+        self.diversity_manager = diversity_manager # 添加多样性管理器
+        self.social_context_injector = social_context_injector # 添加社交上下文注入器
 
         # 使用框架适配器
         self.llm_adapter = llm_adapter
 
         # 设置默认回复策略 - 不依赖配置文件
-        self.enable_intelligent_reply = True  # 默认启用智能回复
-        self.context_window_size = 5  # 默认上下文窗口大小
+        self.enable_intelligent_reply = True # 默认启用智能回复
+        self.context_window_size = 5 # 默认上下文窗口大小
 
         logger.info("智能回复器初始化完成 - 使用默认配置")
 
@@ -116,7 +116,7 @@ class IntelligentResponder:
         """生成自学习可能需要用到的的智能回复文本（修改版 - 增量更新在SYSTEM_PROMPT中）"""
         try:
             sender_id = event.get_sender_id()
-            group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
+            group_id = event.get_group_id() or event.get_sender_id() # 私聊时使用 sender_id 作为会话 ID
             message_text = event.get_message_str()
 
             # 收集上下文信息
@@ -134,11 +134,11 @@ class IntelligentResponder:
                 logger.info(f"开始注入多样性增强到system_prompt (当前长度: {len(enhanced_system_prompt)})")
                 enhanced_system_prompt = await self.diversity_manager.build_diversity_prompt_injection(
                     enhanced_system_prompt,
-                    group_id=group_id,  # ✅ 传入group_id以获取历史消息
+                    group_id=group_id, # 传入group_id以获取历史消息
                     inject_style=True,
                     inject_pattern=True,
                     inject_variation=True,
-                    inject_history=True  # ✅ 注入历史Bot消息，避免重复
+                    inject_history=True # 注入历史Bot消息，避免重复
                 )
                 logger.info(f"多样性注入后system_prompt长度: {len(enhanced_system_prompt)}")
 
@@ -156,7 +156,7 @@ class IntelligentResponder:
                     randomize=True
                 )
             else:
-                temperature = 0.7  # 默认值
+                temperature = 0.7 # 默认值
 
             # 调用框架的默认LLM
             provider = self.context.get_using_provider()
@@ -167,7 +167,7 @@ class IntelligentResponder:
             # 使用框架适配器
             if self.llm_adapter and self.llm_adapter.has_refine_provider():
                 try:
-                    # ✅ 将enhanced_system_prompt合并到prompt参数中，而不是使用system_prompt参数
+                    # 将enhanced_system_prompt合并到prompt参数中，而不是使用system_prompt参数
                     # 这样可以确保所有Provider都能看到完整的增强内容
                     combined_prompt = f"{enhanced_system_prompt}\n\n【当前用户消息】\n{message_text}"
 
@@ -177,16 +177,16 @@ class IntelligentResponder:
                     logger.debug(f"多样性增强部分长度: {len(enhanced_system_prompt)}, 用户消息长度: {len(message_text)}")
 
                     response = await self.llm_adapter.refine_chat_completion(
-                        prompt=combined_prompt,  # 包含增强系统提示词 + 用户消息
-                        system_prompt=None,  # 不使用system_prompt参数，避免Provider兼容性问题
-                        temperature=temperature,  # 动态temperature
+                        prompt=combined_prompt, # 包含增强系统提示词 + 用户消息
+                        system_prompt=None, # 不使用system_prompt参数，避免Provider兼容性问题
+                        temperature=temperature, # 动态temperature
                         max_tokens=self.PROMPT_RESPONSE_WORD_LIMIT
                     )
 
                     if response:
                         response_text = response.strip()
 
-                        # ✅ 提示词保护：消毒LLM回复，移除泄露的提示词
+                        # 提示词保护：消毒LLM回复，移除泄露的提示词
                         if self.diversity_manager:
                             try:
                                 sanitized_response, sanitize_report = self.diversity_manager.sanitize_llm_response(response_text)
@@ -197,13 +197,13 @@ class IntelligentResponder:
                             except Exception as sanitize_error:
                                 logger.warning(f"回复消毒失败(不影响回复): {sanitize_error}")
 
-                        # ✅ 保存Bot消息到数据库 (用于多样性分析和避免同质化)
+                        # 保存Bot消息到数据库 (用于多样性分析和避免同质化)
                         try:
                             await self.db_manager.save_bot_message(
                                 group_id=group_id,
                                 user_id=sender_id,
                                 message=response_text,
-                                response_to_message_id=None,  # TODO: 可以关联原始消息ID
+                                response_to_message_id=None, # TODO: 可以关联原始消息ID
                                 context_type='normal',
                                 temperature=temperature,
                                 language_style=current_language_style,
@@ -233,7 +233,7 @@ class IntelligentResponder:
         """生成智能回复参数，用于传递给框架的request_llm"""
         try:
             sender_id = event.get_sender_id()
-            group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
+            group_id = event.get_group_id() or event.get_sender_id() # 私聊时使用 sender_id 作为会话 ID
             message_text = event.get_message_str()
 
             logger.info(f"[生成智能回复] 开始处理: group_id={group_id}, sender_id={sender_id}, message_len={len(message_text)}")
@@ -258,11 +258,11 @@ class IntelligentResponder:
 
             # 参数验证
             if not enhanced_prompt or len(enhanced_prompt) == 0:
-                logger.error(f"[生成智能回复] ❌ 增强提示词为空！")
+                logger.error(f"[生成智能回复] 增强提示词为空！")
                 return None
 
             if not curr_cid:
-                logger.error(f"[生成智能回复] ❌ 会话ID为空！")
+                logger.error(f"[生成智能回复] 会话ID为空！")
                 return None
 
             # 返回request_llm所需的参数
@@ -272,7 +272,7 @@ class IntelligentResponder:
                 'conversation': conversation
             }
 
-            logger.info(f"[生成智能回复] ✅ 智能回复参数生成成功: prompt_len={len(enhanced_prompt)}, conversation_len={len(conversation)}, session_id={curr_cid}")
+            logger.info(f"[生成智能回复] 智能回复参数生成成功: prompt_len={len(enhanced_prompt)}, conversation_len={len(conversation)}, session_id={curr_cid}")
             return result
 
         except Exception as e:
@@ -282,8 +282,8 @@ class IntelligentResponder:
     async def _collect_context_info(self, group_id: str, sender_id: str, message: str) -> Dict[str, Any]:
         """收集上下文信息"""
         context_info = {
-            'group_id': group_id,  # 添加group_id字段
-            'sender_id': sender_id,  # 添加sender_id字段
+            'group_id': group_id, # 添加group_id字段
+            'sender_id': sender_id, # 添加sender_id字段
             'sender_profile': None,
             'user_affection': None,
             'social_relations': [],
@@ -304,7 +304,7 @@ class IntelligentResponder:
             context_info['social_relations'] = [
                 rel for rel in all_relations 
                 if rel['from_user'] == sender_id or rel['to_user'] == sender_id
-            ][:5]  # 限制前5个最强关系
+            ][:5] # 限制前5个最强关系
             
             # 获取最近的筛选消息
             context_info['recent_messages'] = await self.db_manager.get_recent_filtered_messages(group_id, 5)
@@ -329,7 +329,7 @@ class IntelligentResponder:
         """
         try:
             # 1. 获取基础人格设定（原有的SYSTEM_PROMPT）
-            base_system_prompt = "你是一个友好、智能的助手。"  # 默认
+            base_system_prompt = "你是一个友好、智能的助手。" # 默认
 
             try:
                 persona = await self.context.persona_manager.get_default_persona_v3()
@@ -391,9 +391,9 @@ class IntelligentResponder:
                             include_social_relations=getattr(self.config, 'include_social_relations', True),
                             include_affection=getattr(self.config, 'include_affection_info', True),
                             include_mood=getattr(self.config, 'include_mood_info', True),
-                            include_expression_patterns=True  # ✅ 启用表达模式注入
+                            include_expression_patterns=True # 启用表达模式注入
                         )
-                        logger.debug("✅ 社交上下文(含表达模式)已成功注入到系统提示词")
+                        logger.debug(" 社交上下文(含表达模式)已成功注入到系统提示词")
                 except Exception as e:
                     logger.warning(f"社交上下文注入失败: {e}", exc_info=True)
 
@@ -509,7 +509,7 @@ class IntelligentResponder:
             # 3. 社交关系图谱（增强版）
             if context_info.get('social_relations'):
                 relations_details = []
-                for rel in context_info['social_relations'][:5]:  # 显示前5个关系
+                for rel in context_info['social_relations'][:5]: # 显示前5个关系
                     strength_desc = "强" if rel['strength'] > 0.7 else "中" if rel['strength'] > 0.4 else "弱"
                     relations_details.append(
                         f"- 与{rel.get('to_user', '未知用户')}的关系强度: {rel['strength']:.2f}({strength_desc}), "
@@ -536,7 +536,7 @@ class IntelligentResponder:
             # 5. 最近对话上下文（更详细）
             if context_info.get('recent_messages'):
                 recent_context = []
-                for i, msg in enumerate(context_info['recent_messages'][-5:], 1):  # 最近5条
+                for i, msg in enumerate(context_info['recent_messages'][-5:], 1): # 最近5条
                     quality_score = msg.get('quality_scores', {})
                     msg_quality = "高质量" if isinstance(quality_score, dict) and quality_score.get('overall', 0) > 0.7 else "普通"
                     recent_context.append(
@@ -588,7 +588,7 @@ class IntelligentResponder:
             prompt_parts.append("你正在参与一个真实的群聊对话，需要基于以下详细上下文信息进行自然、智能的回复：")
             
             # 2. 当前人格状态 - 获取完整的人格信息（包含增量更新）
-            current_persona = "你是一个友好、智能的助手。"  # 默认人格
+            current_persona = "你是一个友好、智能的助手。" # 默认人格
             persona_updates_info = ""
 
             try:
@@ -607,7 +607,7 @@ class IntelligentResponder:
                     update_pattern = r'【增量更新[^】]*】[^【]*'
                     updates = re.findall(update_pattern, current_persona)
                     if updates:
-                        persona_updates_info = f"\n\n【当前活跃的人格增量更新】:\n" + "\n".join(updates[-3:])  # 取最近3个更新
+                        persona_updates_info = f"\n\n【当前活跃的人格增量更新】:\n" + "\n".join(updates[-3:]) # 取最近3个更新
                 
                 logger.debug(f"获取到当前人格设定长度: {len(current_persona)} 字符")
             
@@ -676,7 +676,7 @@ class IntelligentResponder:
                 ''', (
                     f"BOT回复: {response}",
                     "bot",
-                    group_id,  # 添加 group_id 字段
+                    group_id, # 添加 group_id 字段
                     1.0, # 假设BOT回复的置信度为1.0
                     f"回复{sender_id}: {original_message[:self.PROMPT_MESSAGE_LENGTH_LIMIT]}", # 使用常量
                     time.time(),
@@ -706,10 +706,10 @@ class IntelligentResponder:
             try:
                 response_params = await self.generate_intelligent_response(event)
             except ResponseError as re:
-                logger.error(f"[智能回复] ❌ 生成回复参数时发生ResponseError: {re}")
+                logger.error(f"[智能回复] 生成回复参数时发生ResponseError: {re}")
                 return None
             except Exception as gen_error:
-                logger.error(f"[智能回复] ❌ 生成回复参数时发生未知错误: {gen_error}", exc_info=True)
+                logger.error(f"[智能回复] 生成回复参数时发生未知错误: {gen_error}", exc_info=True)
                 return None
 
             if response_params:
@@ -718,15 +718,15 @@ class IntelligentResponder:
 
                 # 验证关键参数
                 if not response_params.get('prompt'):
-                    logger.error(f"[智能回复] ❌ prompt参数为空，无法发送回复")
+                    logger.error(f"[智能回复] prompt参数为空，无法发送回复")
                     return None
 
                 if not response_params.get('session_id'):
-                    logger.error(f"[智能回复] ❌ session_id参数为空，无法发送回复")
+                    logger.error(f"[智能回复] session_id参数为空，无法发送回复")
                     return None
 
-                logger.info(f"[智能回复] ✅ 参数验证通过，准备返回给main.py")
-                return response_params  # 返回request_llm参数
+                logger.info(f"[智能回复] 参数验证通过，准备返回给main.py")
+                return response_params # 返回request_llm参数
             else:
                 logger.warning(f"[智能回复] generate_intelligent_response 返回None")
                 return None
@@ -746,7 +746,7 @@ class IntelligentResponder:
                 SELECT COUNT(*) 
                 FROM filtered_messages 
                 WHERE sender_id = 'bot' AND timestamp > ?
-            ''', (time.time() - self.DAILY_RESPONSE_STATS_PERIOD_SECONDS,))  # 最近24小时
+            ''', (time.time() - self.DAILY_RESPONSE_STATS_PERIOD_SECONDS,)) # 最近24小时
             
             row = await cursor.fetchone()
             daily_responses = row[0] if row else 0
@@ -773,7 +773,7 @@ class IntelligentResponder:
                            AVG(LENGTH(message)) as avg_length
                     FROM raw_messages 
                     WHERE timestamp > ?
-                ''', (time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS,))  # 最近1小时
+                ''', (time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS,)) # 最近1小时
                 
                 row = await cursor.fetchone()
                 

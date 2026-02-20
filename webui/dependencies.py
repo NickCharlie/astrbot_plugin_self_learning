@@ -91,7 +91,7 @@ class ServiceContainer:
         # 获取人格更新器
         try:
             self.persona_updater = service_factory.get_persona_updater()
-            logger.info(f"✅ [WebUI] persona_updater 获取成功: {type(self.persona_updater)}")
+            logger.info(f" [WebUI] persona_updater 获取成功: {type(self.persona_updater)}")
         except Exception as e:
             logger.warning(f"获取 persona_updater 失败: {e}")
             self.persona_updater = None
@@ -118,7 +118,7 @@ class ServiceContainer:
                 self.persona_web_manager = PersonaWebManager(astrbot_persona_manager)
                 # 传递 group_id_to_unified_origin 映射引用（多配置文件支持）
                 self.persona_web_manager.group_id_to_unified_origin = self.group_id_to_unified_origin
-                logger.info("✅ [WebUI] PersonaWebManager 初始化成功")
+                logger.info(" [WebUI] PersonaWebManager 初始化成功")
             except Exception as e:
                 logger.warning(f"初始化 PersonaWebManager 失败: {e}")
                 self.persona_web_manager = None
@@ -126,7 +126,7 @@ class ServiceContainer:
             logger.warning("astrbot_persona_manager 未提供，无法初始化 PersonaWebManager")
             self.persona_web_manager = None
 
-        logger.info("✅ [WebUI] 服务容器初始化完成")
+        logger.info(" [WebUI] 服务容器初始化完成")
 
     def get_plugin_config(self):
         """获取插件配置"""
@@ -154,9 +154,7 @@ def get_container() -> ServiceContainer:
     return _container
 
 
-# ============================================================
 # 兼容原有的 set_plugin_services 接口
-# ============================================================
 
 async def set_plugin_services(
     plugin_config,
@@ -183,4 +181,4 @@ async def set_plugin_services(
         group_id_to_unified_origin=group_id_to_unified_origin
     )
 
-    logger.info("✅ [WebUI] 插件服务设置完成")
+    logger.info(" [WebUI] 插件服务设置完成")

@@ -53,9 +53,7 @@ class LLMHookHandler:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def handle(self, event: AstrMessageEvent, req: Any) -> None:
         """Process an LLM request hook — inject context into *req*."""
@@ -92,9 +90,7 @@ class LLMHookHandler:
             prompt_injections: List[str] = []
             logger.debug("[LLM Hook] 跳过基础人格注入（框架已处理），专注于增量内容")
 
-            # ----------------------------------------------------------
             # Parallel context retrieval
-            # ----------------------------------------------------------
             social_result: Optional[str] = None
             v2_result: Optional[Dict[str, Any]] = None
             diversity_result: Optional[str] = None
@@ -131,18 +127,14 @@ class LLMHookHandler:
                 _timed_jargon(),
             )
 
-            # ----------------------------------------------------------
             # Merge results in priority order
-            # ----------------------------------------------------------
             self._collect_social(social_result, group_id, prompt_injections)
             self._collect_v2(v2_result, v2_ms, prompt_injections)
             self._collect_diversity(diversity_result, prompt_injections)
             self._collect_jargon(jargon_result, prompt_injections)
             self._collect_session_updates(group_id, prompt_injections)
 
-            # ----------------------------------------------------------
             # Inject into request
-            # ----------------------------------------------------------
             if prompt_injections:
                 self._inject(req, prompt_injections, hook_start)
             else:
@@ -165,9 +157,7 @@ class LLMHookHandler:
         except Exception as e:
             logger.error(f"[LLM Hook] 框架层面注入多样性失败: {e}", exc_info=True)
 
-    # ------------------------------------------------------------------
     # Context fetchers
-    # ------------------------------------------------------------------
 
     async def _fetch_social(
         self, group_id: str, user_id: str
@@ -237,9 +227,7 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
             return None
 
-    # ------------------------------------------------------------------
     # Result collectors
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _collect_social(
@@ -309,9 +297,7 @@ class LLMHookHandler:
         except Exception as e:
             logger.warning(f"[LLM Hook] 注入会话级更新失败: {e}")
 
-    # ------------------------------------------------------------------
     # Injection
-    # ------------------------------------------------------------------
 
     def _inject(
         self, req: Any, injections: List[str], hook_start: float

@@ -11,7 +11,7 @@ from ..exceptions import SelfLearningError
 from ..statics.messages import StatusMessages, LogMessages
 
 if TYPE_CHECKING:
-    pass  # 避免循环导入
+    pass # 避免循环导入
 
 
 class PluginLifecycle:
@@ -27,11 +27,9 @@ class PluginLifecycle:
             plugin: SelfLearningPlugin 实例（回引，用于设置属性）
         """
         self._plugin = plugin
-        self._webui_manager = None  # Phase 2 WebUIManager 延迟创建
+        self._webui_manager = None # Phase 2 WebUIManager 延迟创建
 
-    # ==================================================================
     # Phase 1: 同步初始化（__init__ 阶段调用）
-    # ==================================================================
 
     def bootstrap(
         self,
@@ -40,7 +38,7 @@ class PluginLifecycle:
         group_id_to_unified_origin: Dict[str, str],
     ) -> None:
         """同步初始化：创建全部服务并注入到 plugin 实例上"""
-        p = self._plugin  # 简写
+        p = self._plugin # 简写
 
         try:
             # ------ FactoryManager 初始化 ------
@@ -300,9 +298,7 @@ class PluginLifecycle:
 
         asyncio.create_task(self._delayed_provider_reinitialization())
 
-    # ==================================================================
     # Phase 2: 异步启动（on_load 阶段调用）
-    # ==================================================================
 
     async def on_load(self) -> None:
         """异步启动：DB（带重试）+ 服务 + WebUI"""
@@ -365,9 +361,7 @@ class PluginLifecycle:
 
         logger.info(StatusMessages.PLUGIN_LOAD_COMPLETE)
 
-    # ==================================================================
     # Phase 3: 有序关停（terminate 阶段调用）
-    # ==================================================================
 
     async def shutdown(self) -> None:
         """有序关停所有服务"""
@@ -467,9 +461,7 @@ class PluginLifecycle:
                 exc_info=True,
             )
 
-    # ==================================================================
     # 辅助异步方法
-    # ==================================================================
 
     async def _delayed_provider_reinitialization(self) -> None:
         """延迟重新初始化提供商配置，解决重启后配置丢失问题"""

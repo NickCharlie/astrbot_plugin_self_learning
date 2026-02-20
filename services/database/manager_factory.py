@@ -40,9 +40,7 @@ class ManagerFactory:
         self.config = config
         logger.info("[ManagerFactory] initialized")
 
-    # ============================================================
     # 数据库管理器
-    # ============================================================
 
     def create_database_manager(self, context=None):
         """
@@ -58,9 +56,7 @@ class ManagerFactory:
         logger.info("[ManagerFactory] Creating SQLAlchemy database manager")
         return SQLAlchemyDatabaseManager(self.config, context)
 
-    # ============================================================
     # 好感度管理器
-    # ============================================================
 
     def create_affection_manager(
         self,
@@ -81,9 +77,7 @@ class ManagerFactory:
         logger.info("[ManagerFactory] Creating affection manager")
         return AffectionManager(self.config, database_manager, llm_adapter)
 
-    # ============================================================
     # 记忆管理器
-    # ============================================================
 
     def create_memory_manager(
         self,
@@ -111,9 +105,7 @@ class ManagerFactory:
             decay_manager
         )
 
-    # ============================================================
     # 心理状态管理器
-    # ============================================================
 
     def create_psychological_manager(
         self,
@@ -141,9 +133,7 @@ class ManagerFactory:
             affection_manager
         )
 
-    # ============================================================
     # 社交关系管理器
-    # ============================================================
 
     def create_social_relation_manager(
         self,
@@ -165,7 +155,7 @@ class ManagerFactory:
         # 注意: 原始的社交关系管理器已经叫 EnhancedSocialRelationManager
         # 所以这里不需要区分
         from ..social import EnhancedSocialRelationManager
-        logger.info("📦 [工厂] 创建社交关系管理器")
+        logger.info(" [工厂] 创建社交关系管理器")
         return EnhancedSocialRelationManager(
             self.config,
             database_manager,
@@ -173,9 +163,7 @@ class ManagerFactory:
             psychological_manager
         )
 
-    # ============================================================
     # 其他管理器（可根据需要扩展）
-    # ============================================================
 
     def create_diversity_manager(
         self,
@@ -184,7 +172,7 @@ class ManagerFactory:
     ):
         """创建响应多样性管理器"""
         from ..response import ResponseDiversityManager
-        logger.info("📦 [工厂] 创建响应多样性管理器")
+        logger.info(" [工厂] 创建响应多样性管理器")
         return ResponseDiversityManager(self.config, database_manager, llm_adapter)
 
     def create_time_decay_manager(
@@ -193,12 +181,10 @@ class ManagerFactory:
     ):
         """创建时间衰减管理器"""
         from ..state import TimeDecayManager
-        logger.info("📦 [工厂] 创建时间衰减管理器")
+        logger.info(" [工厂] 创建时间衰减管理器")
         return TimeDecayManager(self.config, database_manager)
 
-    # ============================================================
     # 批量创建
-    # ============================================================
 
     def create_all_managers(self, context=None) -> dict:
         """
@@ -211,7 +197,7 @@ class ManagerFactory:
             dict: 包含所有管理器的字典
         """
         logger.info("=" * 70)
-        logger.info("🏭 [管理器工厂] 开始创建所有管理器...")
+        logger.info(" [管理器工厂] 开始创建所有管理器...")
         logger.info("=" * 70)
 
         managers = {}
@@ -220,7 +206,7 @@ class ManagerFactory:
         managers['database'] = self.create_database_manager(context)
 
         # 2. LLM 适配器（从主插件获取）
-        managers['llm_adapter'] = None  # 需要外部传入
+        managers['llm_adapter'] = None # 需要外部传入
 
         # 3. 时间衰减管理器
         managers['time_decay'] = self.create_time_decay_manager(managers['database'])
@@ -259,14 +245,12 @@ class ManagerFactory:
         )
 
         logger.info("=" * 70)
-        logger.info(f"✅ [管理器工厂] 成功创建 {len(managers)} 个管理器")
+        logger.info(f" [管理器工厂] 成功创建 {len(managers)} 个管理器")
         logger.info("=" * 70)
 
         return managers
 
-    # ============================================================
     # 工具方法
-    # ============================================================
 
     def get_configuration_info(self) -> dict:
         """
@@ -286,19 +270,17 @@ class ManagerFactory:
         info = self.get_configuration_info()
 
         logger.info("=" * 70)
-        logger.info("📋 [管理器工厂] 当前配置:")
+        logger.info(" [管理器工厂] 当前配置:")
         logger.info("=" * 70)
 
         for key, value in info.items():
-            status = "✅ 启用" if value else "❌ 禁用"
-            logger.info(f"  {key}: {status}")
+            status = " 启用" if value else " 禁用"
+            logger.info(f" {key}: {status}")
 
         logger.info("=" * 70)
 
 
-# ============================================================
 # 全局工厂实例
-# ============================================================
 
 _global_factory = None
 

@@ -3,7 +3,7 @@ LightRAG-based knowledge manager.
 
 Replaces the legacy ``KnowledgeGraphManager`` by using the LightRAG library
 for entity/relation extraction, vector-indexed graph storage, and hybrid
-retrieval.  When ``knowledge_engine`` is set to ``"lightrag"`` in the plugin
+retrieval. When ``knowledge_engine`` is set to ``"lightrag"`` in the plugin
 config, this module is activated instead of the SQL-based implementation.
 
 Design notes:
@@ -39,9 +39,9 @@ try:
 
     _LIGHTRAG_AVAILABLE = True
 except ImportError:
-    LightRAG = None  # type: ignore[assignment,misc]
-    QueryParam = None  # type: ignore[assignment,misc]
-    EmbeddingFunc = None  # type: ignore[assignment,misc]
+    LightRAG = None # type: ignore[assignment,misc]
+    QueryParam = None # type: ignore[assignment,misc]
+    EmbeddingFunc = None # type: ignore[assignment,misc]
 
 
 class LightRAGKnowledgeManager:
@@ -95,9 +95,7 @@ class LightRAGKnowledgeManager:
         # Track processed message counts per group for statistics.
         self._processed_counts: Dict[str, int] = {}
 
-    # ------------------------------------------------------------------
     # Lifecycle
-    # ------------------------------------------------------------------
 
     async def start(self) -> bool:
         """Start the knowledge manager service."""
@@ -129,9 +127,7 @@ class LightRAGKnowledgeManager:
         logger.info("[LightRAG] Knowledge manager stopped")
         return True
 
-    # ------------------------------------------------------------------
     # Public API
-    # ------------------------------------------------------------------
 
     async def process_message_for_knowledge_graph(
         self, message: MessageData, group_id: str
@@ -180,7 +176,7 @@ class LightRAGKnowledgeManager:
             top_k: Number of top items to retrieve.
 
         Returns:
-            Retrieved context string.  Empty string if nothing relevant.
+            Retrieved context string. Empty string if nothing relevant.
         """
         try:
             rag = await self._get_rag(group_id)
@@ -194,7 +190,7 @@ class LightRAGKnowledgeManager:
             )
             if isinstance(result, dict):
                 # When only_need_context=True, LightRAG may return a dict
-                # with context sections.  Flatten to a single string.
+                # with context sections. Flatten to a single string.
                 parts = []
                 for key in ("entities", "relationships", "chunks"):
                     if key in result and result[key]:
@@ -218,7 +214,7 @@ class LightRAGKnowledgeManager:
         this method returns an empty string when no relevant context exists,
         rather than a fallback natural-language reply like "I don't know".
         The raw context is intended for inclusion in the main generation
-        prompt, saving an LLM round-trip.  Callers must handle the
+        prompt, saving an LLM round-trip. Callers must handle the
         empty-string case.
         """
         return await self.query_knowledge(question, group_id)
@@ -279,9 +275,7 @@ class LightRAGKnowledgeManager:
 
         return stats
 
-    # ------------------------------------------------------------------
     # Internal helpers
-    # ------------------------------------------------------------------
 
     async def _get_rag(self, group_id: str) -> LightRAG:
         """Return the LightRAG instance for *group_id*, creating if needed.
@@ -347,7 +341,7 @@ class LightRAGKnowledgeManager:
 
         Note: ``history_messages`` is accepted but not forwarded because
         the current ``FrameworkLLMAdapter`` does not support multi-turn
-        context.  A debug log is emitted when history is discarded.
+        context. A debug log is emitted when history is discarded.
         """
         llm = self._llm
 

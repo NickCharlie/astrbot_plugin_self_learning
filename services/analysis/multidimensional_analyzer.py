@@ -36,7 +36,7 @@ class UserProfile:
     social_connections: List[str] = None
     topic_preferences: Dict[str, float] = None
     emotional_tendency: Dict[str, float] = None
-    last_active: float = None  # 添加缺失的字段
+    last_active: float = None # 添加缺失的字段
     
     def __post_init__(self):
         if self.nicknames is None:
@@ -60,16 +60,16 @@ class SocialRelation:
     """社交关系"""
     from_user: str
     to_user: str
-    relation_type: str  # mention, reply, frequent_interaction
-    strength: float  # 关系强度 0-1
-    frequency: int   # 交互频次
+    relation_type: str # mention, reply, frequent_interaction
+    strength: float # 关系强度 0-1
+    frequency: int # 交互频次
     last_interaction: str
 
 
 @dataclass
 class ContextualPattern:
     """情境模式"""
-    context_type: str  # time_based, topic_based, social_based
+    context_type: str # time_based, topic_based, social_based
     pattern_name: str
     triggers: List[str]
     characteristics: Dict[str, Any]
@@ -94,13 +94,13 @@ class MultidimensionalAnalyzer:
         # 友好的配置状态提示
         if self.llm_adapter:
             if not self.llm_adapter.has_filter_provider():
-                logger.info("💡 筛选模型未配置，将使用简化算法进行消息筛选")
+                logger.info(" 筛选模型未配置，将使用简化算法进行消息筛选")
             if not self.llm_adapter.has_refine_provider():
-                logger.info("💡 提炼模型未配置，将使用简化算法进行深度分析")
+                logger.info(" 提炼模型未配置，将使用简化算法进行深度分析")
             if not self.llm_adapter.has_reinforce_provider():
-                logger.info("💡 强化模型未配置，将跳过强化学习功能")
+                logger.info(" 强化模型未配置，将跳过强化学习功能")
         else:
-            logger.info("💡 框架LLM适配器未配置，将使用简化算法进行分析")
+            logger.info(" 框架LLM适配器未配置，将使用简化算法进行分析")
         
         # 用户画像存储
         self.user_profiles: Dict[str, UserProfile] = {}
@@ -109,7 +109,7 @@ class MultidimensionalAnalyzer:
         self.social_graph: Dict[str, List[SocialRelation]] = defaultdict(list)
         
         # 昵称映射表
-        self.nickname_mapping: Dict[str, str] = {}  # nickname -> qq_id
+        self.nickname_mapping: Dict[str, str] = {} # nickname -> qq_id
         
         # 情境模式库
         self.contextual_patterns: List[ContextualPattern] = []
@@ -149,7 +149,7 @@ class MultidimensionalAnalyzer:
             
             # 初始化分析缓存
             self._analysis_cache = {}
-            self._cache_timeout = 3600  # 1小时缓存
+            self._cache_timeout = 3600 # 1小时缓存
             
             # 启动定期清理任务
             self._cleanup_task = asyncio.create_task(self._periodic_cleanup())
@@ -176,7 +176,7 @@ class MultidimensionalAnalyzer:
                     HAVING msg_count >= 5
                     ORDER BY msg_count DESC
                     LIMIT 500
-                ''', (time.time() - 7 * 24 * 3600,))  # 最近7天
+                ''', (time.time() - 7 * 24 * 3600,)) # 最近7天
                 
                 users = await cursor.fetchall()
                 
@@ -231,7 +231,7 @@ class MultidimensionalAnalyzer:
                     relation_info = {
                         'target_user': group_id,
                         'relation_type': 'group_member',
-                        'strength': min(1.0, count / 100.0),  # 基于消息数量计算关系强度
+                        'strength': min(1.0, count / 100.0), # 基于消息数量计算关系强度
                         'last_interaction': time.time()
                     }
                     self.social_graph[sender_id].append(relation_info)
@@ -247,7 +247,7 @@ class MultidimensionalAnalyzer:
         """定期清理过期缓存和数据"""
         try:
             while True:
-                await asyncio.sleep(3600)  # 每小时执行一次
+                await asyncio.sleep(3600) # 每小时执行一次
                 
                 current_time = time.time()
                 
@@ -264,7 +264,7 @@ class MultidimensionalAnalyzer:
                         logger.debug(f"清理了 {len(expired_keys)} 个过期的分析缓存")
                 
                 # 清理过期的用户活动记录
-                cutoff_time = current_time - 30 * 24 * 3600  # 30天前
+                cutoff_time = current_time - 30 * 24 * 3600 # 30天前
                 expired_users = [
                     k for k, v in self.user_profiles.items()
                     if v.get('last_activity', 0) < cutoff_time
@@ -478,7 +478,7 @@ class MultidimensionalAnalyzer:
             
             sender_id = event.get_sender_id()
             sender_name = event.get_sender_name()
-            group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
+            group_id = event.get_group_id() or event.get_sender_id() # 私聊时使用 sender_id 作为会话 ID
             
             # 预先清理user_profiles中的任何问题数据
             self._clean_user_profiles()
@@ -626,7 +626,7 @@ class MultidimensionalAnalyzer:
             
             # 分析沟通风格（添加限制）
             style_context = {}
-            if self._batch_analysis_count[hour_key] <= 50:  # 限制风格分析的调用次数
+            if self._batch_analysis_count[hour_key] <= 50: # 限制风格分析的调用次数
                 style_context = await self._analyze_communication_style(message_text)
             else:
                 # 使用简化的风格分析
@@ -878,7 +878,7 @@ class MultidimensionalAnalyzer:
         """分析社交关系上下文"""
         try:
             sender_id = event.get_sender_id()
-            group_id = event.get_group_id() or event.get_sender_id()  # 私聊时使用 sender_id 作为会话 ID
+            group_id = event.get_group_id() or event.get_sender_id() # 私聊时使用 sender_id 作为会话 ID
             
             social_context = {
                 'mentions': [],
@@ -913,7 +913,7 @@ class MultidimensionalAnalyzer:
             else:
                 logger.debug(f"[社交关系] 消息事件不支持get_reply_info或没有回复信息")
 
-            # === 新增：基于时间窗口的对话关系分析(去除@限制) ===
+            # 新增：基于时间窗口的对话关系分析(去除@限制)
             await self._analyze_conversation_interactions(sender_id, group_id, message_text)
 
             # 计算与群内成员的交互强度
@@ -952,7 +952,7 @@ class MultidimensionalAnalyzer:
         cache_key = f"emotion_cache_{hash(message_text)}"
         if hasattr(self, '_analysis_cache') and cache_key in self._analysis_cache:
             cached_result = self._analysis_cache[cache_key]
-            if time.time() - cached_result.get('timestamp', 0) < 300:  # 5分钟缓存
+            if time.time() - cached_result.get('timestamp', 0) < 300: # 5分钟缓存
                 logger.debug(f"使用缓存的情感分析结果")
                 return cached_result.get('result', self._simple_emotional_analysis(message_text))
         
@@ -1006,11 +1006,11 @@ class MultidimensionalAnalyzer:
     def _simple_emotional_analysis(self, message_text: str) -> Dict[str, float]:
         """简化的情感分析（备用）"""
         emotions = {
-            '积极': ['开心', '高兴', '兴奋', '满意', '喜欢', '爱', '好棒', '太好了', '哈哈', '😄', '😊', '👍'],
-            '消极': ['难过', '生气', '失望', '无聊', '烦', '讨厌', '糟糕', '不好', '😭', '😢', '😡'],
+            '积极': ['开心', '高兴', '兴奋', '满意', '喜欢', '爱', '好棒', '太好了', '哈哈', '', '', ''],
+            '消极': ['难过', '生气', '失望', '无聊', '烦', '讨厌', '糟糕', '不好', '', '', ''],
             '中性': ['知道', '明白', '可以', '好的', '嗯', '哦', '这样', '然后'],
-            '疑问': ['吗', '呢', '？', '什么', '怎么', '为什么', '哪里', '🤔'],
-            '惊讶': ['哇', '天哪', '真的', '不会吧', '太', '竟然', '居然', '😱', '😯']
+            '疑问': ['吗', '呢', '？', '什么', '怎么', '为什么', '哪里', ''],
+            '惊讶': ['哇', '天哪', '真的', '不会吧', '太', '竟然', '居然', '', '']
         }
         
         emotion_scores = {}
@@ -1049,7 +1049,7 @@ class MultidimensionalAnalyzer:
             cache_key = f"style_cache_{hash(message_text)}"
             if hasattr(self, '_analysis_cache') and cache_key in self._analysis_cache:
                 cached_result = self._analysis_cache[cache_key]
-                if time.time() - cached_result.get('timestamp', 0) < 600:  # 10分钟缓存
+                if time.time() - cached_result.get('timestamp', 0) < 600: # 10分钟缓存
                     logger.debug(f"使用缓存的风格分析结果")
                     return cached_result.get('result', {})
             
@@ -1195,7 +1195,7 @@ class MultidimensionalAnalyzer:
             # 获取最近5分钟内的消息
             recent_messages = await self.db_manager.get_messages_by_group_and_timerange(
                 group_id=group_id,
-                start_time=time.time() - 300,  # 5分钟
+                start_time=time.time() - 300, # 5分钟
                 limit=20
             )
 
@@ -1204,7 +1204,7 @@ class MultidimensionalAnalyzer:
 
             # 找到当前用户之前的最近一条其他人的消息
             previous_sender = None
-            for msg in reversed(recent_messages):  # 按时间倒序
+            for msg in reversed(recent_messages): # 按时间倒序
                 if msg['sender_id'] != sender_id and msg['sender_id'] != 'bot':
                     previous_sender = msg['sender_id']
                     previous_message = msg['message']
@@ -1480,7 +1480,7 @@ class MultidimensionalAnalyzer:
 
     def _simple_enthusiasm_level(self, text: str) -> float:
         """简化的热情程度计算（备用）"""
-        enthusiasm_indicators = ['！', '!', '哈哈', '太好了', '棒', '赞', '😄', '😊', '🎉', '厉害', 'awesome']
+        enthusiasm_indicators = ['！', '!', '哈哈', '太好了', '棒', '赞', '', '', '', '厉害', 'awesome']
         count = sum(text.count(indicator) for indicator in enthusiasm_indicators)
         return min(count / max(len(text), 1) * 20, 1.0)
 
@@ -1678,10 +1678,10 @@ class MultidimensionalAnalyzer:
         
         return {
             "openness": min(openness, 1.0),
-            "conscientiousness": 0.6,  # 默认值
+            "conscientiousness": 0.6, # 默认值
             "extraversion": extraversion,
-            "agreeableness": 0.7,  # 默认值
-            "neuroticism": 0.3   # 默认值
+            "agreeableness": 0.7, # 默认值
+            "neuroticism": 0.3 # 默认值
         }
 
     async def _analyze_social_behavior(self, qq_id: str) -> Dict[str, Any]:

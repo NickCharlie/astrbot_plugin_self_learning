@@ -26,9 +26,7 @@ class DialogAnalyzer:
         self._factory_manager = factory_manager
         self._db_manager = db_manager
 
-    # ------------------------------------------------------------------
     # Few-shot dialog generation
-    # ------------------------------------------------------------------
 
     async def generate_few_shots_dialog(
         self, group_id: str, message_data_list: List[Any]
@@ -36,7 +34,7 @@ class DialogAnalyzer:
         """Generate few-shot dialog content from collected messages.
 
         Requires at least 10 messages and 3 valid dialog pairs to produce
-        output.  Returns an empty string when the threshold is not met.
+        output. Returns an empty string when the threshold is not met.
         """
         try:
             if len(message_data_list) < 10:
@@ -108,9 +106,7 @@ class DialogAnalyzer:
             logger.error(f"生成Few Shots对话失败: {e}")
             return ""
 
-    # ------------------------------------------------------------------
     # Dialog-pair validation
-    # ------------------------------------------------------------------
 
     async def is_valid_dialog_pair(
         self, msg1: Any, msg2: Any, group_id: str
@@ -173,9 +169,7 @@ class DialogAnalyzer:
             logger.error(f"消息关系判断失败: {e}", exc_info=True)
             return False
 
-    # ------------------------------------------------------------------
     # Style-learning review management
-    # ------------------------------------------------------------------
 
     async def create_style_learning_review_request(
         self,
