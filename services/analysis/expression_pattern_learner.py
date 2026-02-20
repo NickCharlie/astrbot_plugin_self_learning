@@ -5,7 +5,6 @@ MaiBot式表达模式学习器 - 实现场景-表达映射的细粒度学习
 import time
 import json
 import random
-import sqlite3
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
 from dataclasses import dataclass, asdict
@@ -105,57 +104,8 @@ class ExpressionPatternLearner:
         return cls._instance
     
     async def _init_expression_patterns_table(self):
-        """初始化表达模式数据库表（异步）"""
-        if self._table_initialized:
-            return
-
-        try:
-            # 检查是否是 SQLAlchemy 版本
-            if hasattr(self.db_manager, 'get_session'):
-                # SQLAlchemy 版本 - 使用 async session
-                async with self.db_manager.get_session() as session:
-                    # 使用 SQLAlchemy 原生 SQL
-                    from sqlalchemy import text
-                    await session.execute(text('''
-                        CREATE TABLE IF NOT EXISTS expression_patterns (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            situation TEXT NOT NULL,
-                            expression TEXT NOT NULL,
-                            weight REAL NOT NULL DEFAULT 1.0,
-                            last_active_time REAL NOT NULL,
-                            create_time REAL NOT NULL,
-                            group_id TEXT NOT NULL,
-                            UNIQUE(situation, expression, group_id)
-                        )
-                    '''))
-                    await session.commit()
-                logger.info("表达模式数据库表初始化完成 (SQLAlchemy)")
-            elif hasattr(self.db_manager, 'get_db_connection'):
-                # 传统 DatabaseManager - 使用 get_db_connection 上下文管理器
-                async with self.db_manager.get_db_connection() as conn:
-                    cursor = await conn.cursor()
-                    await cursor.execute('''
-                        CREATE TABLE IF NOT EXISTS expression_patterns (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            situation TEXT NOT NULL,
-                            expression TEXT NOT NULL,
-                            weight REAL NOT NULL DEFAULT 1.0,
-                            last_active_time REAL NOT NULL,
-                            create_time REAL NOT NULL,
-                            group_id TEXT NOT NULL,
-                            UNIQUE(situation, expression, group_id)
-                        )
-                    ''')
-                    await conn.commit()
-                    await cursor.close()
-                    logger.info("表达模式数据库表初始化完成 (传统)")
-            else:
-                raise ExpressionLearningError("不支持的数据库管理器类型")
-
-            self._table_initialized = True
-        except Exception as e:
-            logger.error(f"初始化表达模式数据库表失败: {e}")
-            raise ExpressionLearningError(f"数据库初始化失败: {e}")
+        """表达模式表由 ORM (models/orm/expression.py) 在引擎启动时自动创建"""
+        self._table_initialized = True
     
     async def start(self) -> bool:
         """启动服务"""
@@ -533,40 +483,42 @@ class ExpressionPatternLearner:
         return patterns
     
     async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):
-        """保存表达模式到数据库（异步版本）"""
+        """保存表达模式到数据库（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select
+            from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
 
+            async with self.db_manager.get_session() as session:
                 for pattern in patterns:
                     # 查找是否已存在相似模式
-                    await cursor.execute(
-                        'SELECT id, weight FROM expression_patterns WHERE situation = ? AND expression = ? AND group_id = ?',
-                        (pattern.situation, pattern.expression, group_id)
+                    stmt = select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.situation == pattern.situation,
+                        ExpressionPatternORM.expression == pattern.expression,
+                        ExpressionPatternORM.group_id == group_id,
                     )
-                    existing = await cursor.fetchone()
+                    result = await session.execute(stmt)
+                    existing = result.scalar_one_or_none()
 
                     if existing:
-                        # 更新现有模式，权重增加，50%概率替换内容（参考MaiBot）
-                        new_weight = existing[1] + 1.0
+                        # 更新现有模式，权重增加，50%概率替换内容
+                        existing.weight += 1.0
+                        existing.last_active_time = pattern.last_active_time
                         if random.random() < 0.5:
-                            await cursor.execute(
-                                'UPDATE expression_patterns SET weight = ?, last_active_time = ?, situation = ?, expression = ? WHERE id = ?',
-                                (new_weight, pattern.last_active_time, pattern.situation, pattern.expression, existing[0])
-                            )
-                        else:
-                            await cursor.execute(
-                                'UPDATE expression_patterns SET weight = ?, last_active_time = ? WHERE id = ?',
-                                (new_weight, pattern.last_active_time, existing[0])
-                            )
+                            existing.situation = pattern.situation
+                            existing.expression = pattern.expression
                     else:
                         # 插入新模式
-                        await cursor.execute(
-                            'INSERT INTO expression_patterns (situation, expression, weight, last_active_time, create_time, group_id) VALUES (?, ?, ?, ?, ?, ?)',
-                            (pattern.situation, pattern.expression, pattern.weight, pattern.last_active_time, pattern.create_time, pattern.group_id)
+                        new_record = ExpressionPatternORM(
+                            situation=pattern.situation,
+                            expression=pattern.expression,
+                            weight=pattern.weight,
+                            last_active_time=pattern.last_active_time,
+                            create_time=pattern.create_time,
+                            group_id=pattern.group_id,
                         )
+                        session.add(new_record)
 
-                await conn.commit()
+                await session.commit()
                 logger.info(f" 保存了 {len(patterns)} 个表达模式到数据库（群组: {group_id}）")
 
         except Exception as e:
@@ -574,42 +526,48 @@ class ExpressionPatternLearner:
             raise ExpressionLearningError(f"保存表达模式失败: {e}")
     
     async def _apply_time_decay(self, group_id: str):
-        """
-        应用时间衰减 - 完全参考MaiBot的衰减机制（异步版本）
-        """
+        """应用时间衰减 - 完全参考MaiBot的衰减机制（ORM 版本）"""
         try:
+            from sqlalchemy import select, delete
+            from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
+
             current_time = time.time()
             updated_count = 0
             deleted_count = 0
 
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-
+            async with self.db_manager.get_session() as session:
                 # 获取所有该群组的表达模式
-                await cursor.execute(
-                    'SELECT id, weight, last_active_time FROM expression_patterns WHERE group_id = ?',
-                    (group_id,)
+                stmt = select(ExpressionPatternORM).where(
+                    ExpressionPatternORM.group_id == group_id
                 )
-                patterns = await cursor.fetchall()
+                result = await session.execute(stmt)
+                patterns = result.scalars().all()
 
-                for pattern_id, weight, last_active_time in patterns:
+                ids_to_delete = []
+                for pattern in patterns:
                     # 计算时间差（天）
-                    time_diff_days = (current_time - last_active_time) / (24 * 3600)
+                    time_diff_days = (current_time - pattern.last_active_time) / (24 * 3600)
 
                     # 计算衰减值
                     decay_value = self._calculate_decay_factor(time_diff_days)
-                    new_weight = max(self.DECAY_MIN, weight - decay_value)
+                    new_weight = max(self.DECAY_MIN, pattern.weight - decay_value)
 
                     if new_weight <= self.DECAY_MIN:
-                        # 删除权重过低的模式
-                        await cursor.execute('DELETE FROM expression_patterns WHERE id = ?', (pattern_id,))
+                        ids_to_delete.append(pattern.id)
                         deleted_count += 1
                     else:
-                        # 更新权重
-                        await cursor.execute('UPDATE expression_patterns SET weight = ? WHERE id = ?', (new_weight, pattern_id))
+                        pattern.weight = new_weight
                         updated_count += 1
 
-                await conn.commit()
+                # 批量删除权重过低的模式
+                if ids_to_delete:
+                    await session.execute(
+                        delete(ExpressionPatternORM).where(
+                            ExpressionPatternORM.id.in_(ids_to_delete)
+                        )
+                    )
+
+                await session.commit()
 
                 if updated_count > 0 or deleted_count > 0:
                     logger.info(f"群组 {group_id} 时间衰减完成：更新了 {updated_count} 个，删除了 {deleted_count} 个表达模式")
@@ -637,68 +595,70 @@ class ExpressionPatternLearner:
         return min(0.01, decay)
     
     async def _limit_max_expressions(self, group_id: str):
-        """限制最大表达模式数量（异步版本）"""
+        """限制最大表达模式数量（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select, func, delete, asc
+            from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
 
+            async with self.db_manager.get_session() as session:
                 # 统计当前数量
-                await cursor.execute('SELECT COUNT(*) FROM expression_patterns WHERE group_id = ?', (group_id,))
-                row = await cursor.fetchone()
-                count = row[0] if row else 0
+                count_stmt = select(func.count()).select_from(ExpressionPatternORM).where(
+                    ExpressionPatternORM.group_id == group_id
+                )
+                count = (await session.execute(count_stmt)).scalar() or 0
 
                 if count > self.MAX_EXPRESSION_COUNT:
-                    # 删除权重最小的多余模式
-                    # MySQL 不支持 DELETE ... WHERE id IN (SELECT ... LIMIT)
-                    # 改用 JOIN 方式
                     excess_count = count - self.MAX_EXPRESSION_COUNT
 
-                    # 先查询要删除的 ID
-                    await cursor.execute(
-                        'SELECT id FROM expression_patterns WHERE group_id = ? ORDER BY weight ASC LIMIT ?',
-                        (group_id, excess_count)
+                    # 查询权重最小的 ID
+                    ids_stmt = (
+                        select(ExpressionPatternORM.id)
+                        .where(ExpressionPatternORM.group_id == group_id)
+                        .order_by(asc(ExpressionPatternORM.weight))
+                        .limit(excess_count)
                     )
-                    rows = await cursor.fetchall()
-                    ids_to_delete = [row[0] for row in rows]
+                    result = await session.execute(ids_stmt)
+                    ids_to_delete = [row[0] for row in result.fetchall()]
 
                     if ids_to_delete:
-                        # 批量删除
-                        placeholders = ','.join(['?' for _ in ids_to_delete])
-                        await cursor.execute(
-                            f'DELETE FROM expression_patterns WHERE id IN ({placeholders})',
-                            tuple(ids_to_delete)
+                        await session.execute(
+                            delete(ExpressionPatternORM).where(
+                                ExpressionPatternORM.id.in_(ids_to_delete)
+                            )
                         )
-                        await conn.commit()
+                        await session.commit()
                         logger.info(f"群组 {group_id} 删除了 {len(ids_to_delete)} 个权重最小的表达模式")
 
         except Exception as e:
             logger.error(f"限制表达模式数量失败: {e}", exc_info=True)
     
     async def get_expression_patterns(self, group_id: str, limit: int = 10) -> List[ExpressionPattern]:
-        """获取群组的表达模式（异步版本）"""
+        """获取群组的表达模式（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select, desc
+            from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
 
-                await cursor.execute(
-                    'SELECT situation, expression, weight, last_active_time, create_time, group_id FROM expression_patterns WHERE group_id = ? ORDER BY weight DESC LIMIT ?',
-                    (group_id, limit)
+            async with self.db_manager.get_session() as session:
+                stmt = (
+                    select(ExpressionPatternORM)
+                    .where(ExpressionPatternORM.group_id == group_id)
+                    .order_by(desc(ExpressionPatternORM.weight))
+                    .limit(limit)
                 )
+                result = await session.execute(stmt)
+                rows = result.scalars().all()
 
-                rows = await cursor.fetchall()
-                patterns = []
-                for row in rows:
-                    pattern = ExpressionPattern(
-                        situation=row[0],
-                        expression=row[1],
-                        weight=row[2],
-                        last_active_time=row[3],
-                        create_time=row[4],
-                        group_id=row[5]
+                return [
+                    ExpressionPattern(
+                        situation=row.situation,
+                        expression=row.expression,
+                        weight=row.weight,
+                        last_active_time=row.last_active_time,
+                        create_time=row.create_time,
+                        group_id=row.group_id,
                     )
-                    patterns.append(pattern)
-
-                return patterns
+                    for row in rows
+                ]
 
         except Exception as e:
             logger.error(f"获取表达模式失败: {e}", exc_info=True)
