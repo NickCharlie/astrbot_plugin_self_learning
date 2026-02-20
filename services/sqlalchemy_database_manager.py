@@ -2076,6 +2076,7 @@ class SQLAlchemyDatabaseManager:
         group_id: str = None,
         chat_id: str = None,
         limit: int = 10,
+        offset: int = 0,
         only_confirmed: bool = None
     ) -> List[Dict[str, Any]]:
         """
@@ -2085,6 +2086,7 @@ class SQLAlchemyDatabaseManager:
             group_id: 群组ID（可选，None 表示获取所有群组）
             chat_id: 聊天ID（可选，兼容参数）
             limit: 返回数量限制
+            offset: 偏移量（用于分页）
             only_confirmed: 是否只返回已确认的黑话
 
         Returns:
@@ -2106,12 +2108,19 @@ class SQLAlchemyDatabaseManager:
                 if group_id is not None:
                     stmt = stmt.where(Jargon.chat_id == group_id)
 
-                # 如果只返回已确认的黑话
-                if only_confirmed:
+                # 按确认状态过滤（None=全部, True=已确认, False=未确认）
+                if only_confirmed is True:
                     stmt = stmt.where(Jargon.is_jargon == True)
+                elif only_confirmed is False:
+                    stmt = stmt.where(
+                        (Jargon.is_jargon == False) | (Jargon.is_jargon == None)
+                    )
 
-                # 按更新时间倒序排列，限制数量
-                stmt = stmt.order_by(Jargon.updated_at.desc()).limit(limit)
+                # 按更新时间倒序排列，分页
+                stmt = stmt.order_by(Jargon.updated_at.desc())
+                if offset > 0:
+                    stmt = stmt.offset(offset)
+                stmt = stmt.limit(limit)
 
                 result = await session.execute(stmt)
                 jargon_records = result.scalars().all()
@@ -2144,17 +2153,56 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[SQLAlchemy] 获取最近黑话列表失败: {e}", exc_info=True)
             return []
 
+    async def get_jargon_count(
+        self,
+        chat_id: Optional[str] = None,
+        only_confirmed: Optional[bool] = None,
+    ) -> int:
+        """获取黑话记录总数（用于分页）
+
+        Args:
+            chat_id: 群组ID（可选，None 表示所有群组）
+            only_confirmed: None=全部, True=已确认, False=未确认
+
+        Returns:
+            记录总数
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, func
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(func.count(Jargon.id))
+
+                if chat_id is not None:
+                    stmt = stmt.where(Jargon.chat_id == chat_id)
+
+                if only_confirmed is True:
+                    stmt = stmt.where(Jargon.is_jargon == True)
+                elif only_confirmed is False:
+                    stmt = stmt.where(
+                        (Jargon.is_jargon == False) | (Jargon.is_jargon == None)
+                    )
+
+                result = await session.execute(stmt)
+                return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取黑话总数失败: {e}", exc_info=True)
+            return 0
+
     async def search_jargon(
         self,
         keyword: str,
         chat_id: Optional[str] = None,
+        confirmed_only: bool = True,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """搜索黑话（LIKE 匹配，ORM 版本）
 
         Args:
             keyword: 搜索关键词
-            chat_id: 群组ID（有值搜本群已确认黑话，无值搜全局已确认黑话）
+            chat_id: 群组ID（有值搜本群，无值搜全局已确认黑话）
+            confirmed_only: 是否仅返回已确认的黑话（默认 True）
             limit: 返回数量限制
 
         Returns:
@@ -2167,11 +2215,13 @@ class SQLAlchemyDatabaseManager:
 
                 conditions = [
                     Jargon.content.ilike(f'%{keyword}%'),
-                    Jargon.is_jargon == True,
                 ]
+                if confirmed_only:
+                    conditions.append(Jargon.is_jargon == True)
                 if chat_id:
                     conditions.append(Jargon.chat_id == chat_id)
-                else:
+                elif confirmed_only:
+                    # 无群组限制 + 仅已确认 → 限定全局黑话
                     conditions.append(Jargon.is_global == True)
 
                 stmt = (
@@ -2360,6 +2410,72 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[SQLAlchemy] 同步全局黑话失败: {e}", exc_info=True)
             return 0
+
+    async def save_or_update_jargon(
+        self,
+        content: str,
+        meaning: str,
+        chat_id: str,
+    ) -> bool:
+        """保存或更新黑话记录（ORM 版本）
+
+        如果该群组已存在相同 content 的黑话，则更新其 meaning 和 is_complete；
+        否则创建新记录。
+
+        Args:
+            content: 黑话词汇
+            meaning: 推断的释义
+            chat_id: 群组ID
+
+        Returns:
+            是否成功
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, and_
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(and_(
+                    Jargon.chat_id == chat_id,
+                    Jargon.content == content,
+                ))
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                now_ts = int(time.time())
+
+                if record:
+                    record.meaning = meaning
+                    record.is_complete = True
+                    record.updated_at = now_ts
+                else:
+                    record = Jargon(
+                        content=content,
+                        raw_content='[]',
+                        meaning=meaning,
+                        is_jargon=True,
+                        count=1,
+                        last_inference_count=0,
+                        is_complete=True,
+                        is_global=False,
+                        chat_id=chat_id,
+                        created_at=now_ts,
+                        updated_at=now_ts,
+                    )
+                    session.add(record)
+
+                await session.commit()
+                logger.debug(
+                    f"[SQLAlchemy] 保存/更新黑话: content='{content}', "
+                    f"chat_id={chat_id}"
+                )
+                return True
+        except Exception as e:
+            logger.error(
+                f"[SQLAlchemy] 保存/更新黑话失败 (content='{content}'): {e}",
+                exc_info=True,
+            )
+            return False
 
     async def get_learning_patterns_data(self, group_id: str = None) -> Dict[str, Any]:
         """
