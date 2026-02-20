@@ -46,6 +46,8 @@ class ExemplarLibrary:
         examples = await library.get_few_shot_examples("query", group_id)
     """
 
+    _schema_migrated = False  # class-level flag: run migration once per process
+
     def __init__(self, db_manager, embedding_provider=None) -> None:
         """Initialise the exemplar library.
 
@@ -78,6 +80,11 @@ class ExemplarLibrary:
         Returns:
             The record ID if saved, or ``None`` if rejected.
         """
+        # One-time schema migration for existing MySQL tables (TEXT → MEDIUMTEXT).
+        if not ExemplarLibrary._schema_migrated:
+            await self._migrate_embedding_column()
+            ExemplarLibrary._schema_migrated = True
+
         if not content or len(content.strip()) < _MIN_CONTENT_LENGTH:
             return None
 
@@ -229,6 +236,29 @@ class ExemplarLibrary:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _migrate_embedding_column(self) -> None:
+        """Upgrade ``embedding_json`` from TEXT to MEDIUMTEXT on MySQL.
+
+        TEXT has a 65 KB limit which is too small for high-dimensional
+        embeddings (e.g. 3072-dim ≈ 69 KB JSON).  This runs once per
+        process and is a no-op on SQLite (syntax error caught silently).
+        """
+        try:
+            from sqlalchemy import text
+            async with self._db.get_session() as session:
+                await session.execute(
+                    text("ALTER TABLE exemplar MODIFY COLUMN embedding_json MEDIUMTEXT")
+                )
+                await session.commit()
+                logger.info(
+                    "[ExemplarLibrary] Migrated embedding_json column to MEDIUMTEXT"
+                )
+        except Exception as exc:
+            # SQLite doesn't support MODIFY COLUMN, or column already migrated.
+            logger.debug(
+                f"[ExemplarLibrary] embedding_json migration skipped: {exc}"
+            )
 
     async def _similarity_search(
         self, query: str, group_id: str, k: int

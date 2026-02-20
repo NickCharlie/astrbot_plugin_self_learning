@@ -343,7 +343,7 @@ class SchemaValidator:
             return True
 
         # STRING 类型族
-        string_types = {'STRING', 'TEXT', 'VARCHAR', 'CHAR'}
+        string_types = {'STRING', 'TEXT', 'VARCHAR', 'CHAR', 'MEDIUMTEXT', 'LONGTEXT'}
         if type1 in string_types and type2 in string_types:
             return True
 

@@ -17,8 +17,13 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.mysql import MEDIUMTEXT
 
 from .base import Base
+
+# MEDIUMTEXT on MySQL (16 MB), plain TEXT on SQLite (no size limit).
+# Required for high-dimensional embedding vectors (e.g. 3072-dim ≈ 69 KB JSON).
+_EmbeddingText = Text().with_variant(MEDIUMTEXT(), "mysql")
 
 
 class Exemplar(Base):
@@ -42,7 +47,7 @@ class Exemplar(Base):
     content = Column(Text, nullable=False)
     sender_id = Column(String(255), nullable=True)
     group_id = Column(String(255), nullable=False)
-    embedding_json = Column(Text, nullable=True)
+    embedding_json = Column(_EmbeddingText, nullable=True)
     weight = Column(Float, default=1.0)
     dimensions = Column(Integer, default=0)
     created_at = Column(BigInteger, nullable=False, default=lambda: int(time.time()))
