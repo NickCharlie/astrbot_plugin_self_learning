@@ -23,16 +23,43 @@ Design notes:
     - Thread-safe for single-event-loop asyncio usage.
 """
 
-import json
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import networkx as nx
+from pydantic import BaseModel, Field, field_validator
 
 from astrbot.api import logger
 
 from ..core.framework_llm_adapter import FrameworkLLMAdapter
-from ..utils.json_utils import safe_parse_llm_json
+
+
+# ---------------------------------------------------------------------------
+# Pydantic models for guardrails-ai structured output validation.
+# ---------------------------------------------------------------------------
+
+class _SentimentItem(BaseModel):
+    """Schema for a single sentiment-labelled interaction pair."""
+
+    from_user: str = Field(alias="from", description="Source user identifier.")
+    to_user: str = Field(alias="to", description="Target user identifier.")
+    sentiment: float = Field(
+        ge=-1.0, le=1.0,
+        description="Sentiment polarity from -1.0 (hostile) to +1.0 (friendly).",
+    )
+    label: str = Field(
+        description="Categorical label: positive, negative, or neutral.",
+    )
+
+    model_config = {"populate_by_name": True}
+
+    @field_validator("label")
+    @classmethod
+    def normalise_label(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in ("positive", "negative", "neutral"):
+            return "neutral"
+        return v
 
 
 # LLM prompt for batch sentiment labelling of interaction pairs.
@@ -225,20 +252,29 @@ class SocialGraphAnalyzer:
             if not response:
                 return []
 
-            parsed = safe_parse_llm_json(response.strip())
+            # Validate LLM output via guardrails-ai: parse the raw JSON
+            # array, then validate each element against the Pydantic schema.
+            from ..utils.guardrails_manager import get_guardrails_manager
+            gm = get_guardrails_manager()
+            parsed = gm.validate_and_clean_json(response, expected_type="array")
             if not isinstance(parsed, list):
                 return []
 
-            results = []
-            for item in parsed:
-                if not isinstance(item, dict):
+            results: List[Dict[str, Any]] = []
+            for raw_item in parsed:
+                if not isinstance(raw_item, dict):
                     continue
-                results.append({
-                    "from": str(item.get("from", "")),
-                    "to": str(item.get("to", "")),
-                    "sentiment": float(item.get("sentiment", 0.0)),
-                    "label": str(item.get("label", "neutral")),
-                })
+                try:
+                    validated = _SentimentItem.model_validate(raw_item)
+                    results.append({
+                        "from": validated.from_user,
+                        "to": validated.to_user,
+                        "sentiment": validated.sentiment,
+                        "label": validated.label,
+                    })
+                except Exception:
+                    # Skip malformed items rather than failing the batch.
+                    continue
             return results
 
         except Exception as exc:
