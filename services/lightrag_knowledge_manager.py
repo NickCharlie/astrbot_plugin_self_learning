@@ -323,7 +323,8 @@ class LightRAGKnowledgeManager:
 
             rag = LightRAG(**rag_kwargs)
             await rag.initialize_storages()
-            await rag.initialize_pipeline_status()
+            if hasattr(rag, "initialize_pipeline_status"):
+                await rag.initialize_pipeline_status()
 
             self._instances[group_id] = rag
             logger.info(
