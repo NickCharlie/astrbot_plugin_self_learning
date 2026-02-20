@@ -664,28 +664,26 @@ class IntelligentResponder:
     async def _record_response(self, group_id: str, sender_id: str, original_message: str, response: str):
         """记录回复信息用于学习"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
+            async with self.db_manager.get_session() as session:
+                from sqlalchemy import select
+                from ...models.orm.message import FilteredMessage
+
+                now = int(time.time())
                 # 简化实现：filtered_messages 表用于记录所有经过筛选的消息，包括BOT的回复。
                 # 实际应用中，可能需要为BOT回复创建单独的表以区分。
-                await cursor.execute('''
-                    INSERT OR IGNORE INTO filtered_messages 
-                    (message, sender_id, group_id, confidence, filter_reason, timestamp, used_for_learning)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    f"BOT回复: {response}",
-                    "bot",
-                    group_id, # 添加 group_id 字段
-                    1.0, # 假设BOT回复的置信度为1.0
-                    f"回复{sender_id}: {original_message[:self.PROMPT_MESSAGE_LENGTH_LIMIT]}", # 使用常量
-                    time.time(),
-                    False # BOT回复不用于学习，避免循环学习
-                ))
-                
-                await conn.commit()
-                await cursor.close()
-                
+                filtered_msg = FilteredMessage(
+                    message=f"BOT回复: {response}",
+                    sender_id="bot",
+                    group_id=group_id,
+                    confidence=1.0,  # 假设BOT回复的置信度为1.0
+                    filter_reason=f"回复{sender_id}: {original_message[:self.PROMPT_MESSAGE_LENGTH_LIMIT]}",  # 使用常量
+                    timestamp=now,
+                    created_at=now,
+                    processed=False,  # BOT回复不用于学习，避免循环学习
+                )
+                session.add(filtered_msg)
+                await session.commit()
+
         except Exception as e:
             logger.error(f"记录回复失败: {e}")
 
@@ -738,24 +736,27 @@ class IntelligentResponder:
     async def get_response_statistics(self, group_id: str) -> Dict[str, Any]:
         """获取回复统计"""
         try:
-            conn = await self.db_manager.get_group_connection(group_id)
-            cursor = await conn.cursor()
-            
-            # 统计BOT回复次数
-            await cursor.execute('''
-                SELECT COUNT(*) 
-                FROM filtered_messages 
-                WHERE sender_id = 'bot' AND timestamp > ?
-            ''', (time.time() - self.DAILY_RESPONSE_STATS_PERIOD_SECONDS,)) # 最近24小时
-            
-            row = await cursor.fetchone()
-            daily_responses = row[0] if row else 0
-            
-            return {
-                'daily_responses': daily_responses,
-                'intelligent_reply_enabled': self.enable_intelligent_reply
-            }
-            
+            async with self.db_manager.get_session() as session:
+                from sqlalchemy import select, func
+                from ...models.orm.message import FilteredMessage
+
+                # 统计BOT回复次数
+                cutoff = time.time() - self.DAILY_RESPONSE_STATS_PERIOD_SECONDS
+                stmt = (
+                    select(func.count())
+                    .select_from(FilteredMessage)
+                    .where(
+                        FilteredMessage.sender_id == 'bot',
+                        FilteredMessage.timestamp > cutoff,
+                    )
+                )
+                daily_responses = (await session.execute(stmt)).scalar() or 0
+
+                return {
+                    'daily_responses': daily_responses,
+                    'intelligent_reply_enabled': self.enable_intelligent_reply
+                }
+
         except Exception as e:
             logger.error(f"获取回复统计失败: {e}")
             return {}
@@ -763,31 +764,29 @@ class IntelligentResponder:
     async def _analyze_group_atmosphere(self, group_id: str) -> Dict[str, Any]:
         """分析群氛围"""
         try:
-            # 从全局消息数据库获取连接
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
-                
+            async with self.db_manager.get_session() as session:
+                from sqlalchemy import select, func
+                from ...models.orm.message import RawMessage
+
                 # 分析最近消息的情感倾向
-                await cursor.execute('''
-                    SELECT COUNT(*) as total_messages,
-                           AVG(LENGTH(message)) as avg_length
-                    FROM raw_messages 
-                    WHERE timestamp > ?
-                ''', (time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS,)) # 最近1小时
-                
-                row = await cursor.fetchone()
-                
-                await cursor.close()
-            
-            total_messages = row[0] if row else 0
-            avg_length = row[1] if row else 0.0
-            
+                cutoff = time.time() - self.GROUP_ATMOSPHERE_PERIOD_SECONDS
+                stmt = select(
+                    func.count().label('total_messages'),
+                    func.avg(func.length(RawMessage.message)).label('avg_length'),
+                ).select_from(RawMessage).where(
+                    RawMessage.timestamp > cutoff,
+                )
+                row = (await session.execute(stmt)).one()
+
+            total_messages = row.total_messages or 0
+            avg_length = row.avg_length or 0.0
+
             return {
                 'activity_level': 'high' if total_messages > self.GROUP_ACTIVITY_HIGH_THRESHOLD else 'low',
                 'avg_message_length': avg_length,
                 'total_recent_messages': total_messages
             }
-            
+
         except Exception as e:
             logger.error(f"分析群氛围失败: {e}")
             return {'activity_level': 'unknown'}
