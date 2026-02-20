@@ -287,7 +287,13 @@ class TieredLearningTrigger:
 
     def _get_state(self, group_id: str) -> _GroupTriggerState:
         if group_id not in self._states:
-            self._states[group_id] = _GroupTriggerState()
+            # Initialise last_op_times to "now" so that Tier 2 operations
+            # do not fire on the very first message of a new group.
+            state = _GroupTriggerState()
+            now = time.time()
+            for name in self._tier2_ops:
+                state.last_op_times[name] = now
+            self._states[group_id] = state
         return self._states[group_id]
 
     async def _execute_tier1(
