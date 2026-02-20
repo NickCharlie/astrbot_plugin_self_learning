@@ -35,7 +35,20 @@ class PluginConfig:
     filter_provider_id: Optional[str] = None  # 筛选模型使用的提供商ID
     refine_provider_id: Optional[str] = None  # 提炼模型使用的提供商ID
     reinforce_provider_id: Optional[str] = None # 强化模型使用的提供商ID
-    
+
+    # v2 Architecture: Embedding provider (framework-managed)
+    embedding_provider_id: Optional[str] = None
+
+    # v2 Architecture: Reranker provider (framework-managed)
+    rerank_provider_id: Optional[str] = None
+    rerank_top_k: int = 5
+
+    # v2 Architecture: Knowledge engine
+    knowledge_engine: str = "legacy"  # "lightrag" | "legacy"
+
+    # v2 Architecture: Memory engine
+    memory_engine: str = "legacy"  # "mem0" | "legacy"
+
     # 当前人格设置
     current_persona_name: str = "default"
     
@@ -213,6 +226,7 @@ class PluginConfig:
         social_context_settings = config.get('Social_Context_Settings', {})  # 新增：社交上下文设置
         repository_settings = config.get('Repository_Settings', {})  # 新增：Repository配置
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {})  # 新增：目标驱动对话设置
+        v2_settings = config.get('V2_Architecture_Settings', {})  # v2架构升级设置
 
         # ✅ 添加调试日志：显示目标驱动对话配置数据
         logger.info(f"🔍 [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
@@ -232,7 +246,14 @@ class PluginConfig:
             filter_provider_id=model_config.get('filter_provider_id', None),
             refine_provider_id=model_config.get('refine_provider_id', None),
             reinforce_provider_id=model_config.get('reinforce_provider_id', None),
-            
+
+            # v2 Architecture
+            embedding_provider_id=v2_settings.get('embedding_provider_id', None),
+            rerank_provider_id=v2_settings.get('rerank_provider_id', None),
+            rerank_top_k=v2_settings.get('rerank_top_k', 5),
+            knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
+            memory_engine=v2_settings.get('memory_engine', 'legacy'),
+
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),
             min_messages_for_learning=learning_params.get('min_messages_for_learning', 50),
             max_messages_per_batch=learning_params.get('max_messages_per_batch', 200),

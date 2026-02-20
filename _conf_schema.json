@@ -552,5 +552,44 @@
         "default": 7
       }
     }
+  },
+  "V2_Architecture_Settings": {
+    "description": "v2架构升级配置",
+    "type": "object",
+    "hint": "高级功能配置：Embedding向量化、Reranker重排序、知识引擎和记忆引擎。需要先在AstrBot中配置对应类型的Provider",
+    "items": {
+      "embedding_provider_id": {
+        "description": "Embedding 提供商",
+        "type": "string",
+        "hint": "用于文本向量化的Embedding提供商。需要先在AstrBot中配置Embedding类型的Provider（支持OpenAI Embedding、Gemini Embedding等），然后在此选择。支持SiliconFlow的Qwen3-Embedding、BGE-M3等模型",
+        "default": null,
+        "_special": "select_provider"
+      },
+      "rerank_provider_id": {
+        "description": "Reranker 提供商",
+        "type": "string",
+        "hint": "用于文档重排序的Reranker提供商。需要先在AstrBot中配置Reranker类型的Provider（支持vLLM Reranker、百炼Reranker等），然后在此选择",
+        "default": null,
+        "_special": "select_provider"
+      },
+      "rerank_top_k": {
+        "description": "重排序保留结果数",
+        "type": "int",
+        "hint": "Reranker重排序后保留的Top-K结果数量，值越小越精准但可能遗漏",
+        "default": 5
+      },
+      "knowledge_engine": {
+        "description": "知识引擎",
+        "type": "string",
+        "hint": "知识存储引擎类型。legacy=现有NetworkX实现，lightrag=使用LightRAG进行向量+图谱混合检索（需配置Embedding提供商）",
+        "default": "legacy"
+      },
+      "memory_engine": {
+        "description": "记忆引擎",
+        "type": "string",
+        "hint": "记忆管理引擎类型。legacy=现有实现，mem0=使用mem0进行自动记忆提取和检索（需配置Embedding提供商）",
+        "default": "legacy"
+      }
+    }
   }
 }
