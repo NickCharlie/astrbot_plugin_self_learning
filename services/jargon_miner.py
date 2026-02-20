@@ -444,15 +444,42 @@ class JargonMiner(AsyncServiceBase):
         except Exception as e:
             logger.error(f"推断黑话失败: {e}")
 
-    async def run_once(self, chat_messages: str, message_count: int):
-        """执行一次黑话学习"""
+    async def run_once(
+        self,
+        chat_messages: str,
+        message_count: int,
+        statistical_candidates: Optional[List[Dict[str, Any]]] = None,
+    ):
+        """Execute a single jargon learning iteration.
+
+        Args:
+            chat_messages: Formatted chat text for LLM extraction.
+            message_count: Number of recent messages.
+            statistical_candidates: Pre-filtered candidates from
+                ``JargonStatisticalFilter``.  When provided, LLM-based
+                candidate extraction is skipped, saving one LLM call.
+        """
 
         try:
             if not self.should_trigger(message_count):
                 return
 
-            # 1. 提取候选黑话
-            candidates = await self.extract_candidates(chat_messages)
+            # 1. Get candidates — prefer statistical pre-filter over LLM.
+            if statistical_candidates:
+                candidates = [
+                    {
+                        "content": c["term"],
+                        "raw_content": c.get("context_examples", []),
+                    }
+                    for c in statistical_candidates
+                    if c.get("term")
+                ]
+                logger.info(
+                    f"[{self.chat_id}] Using {len(candidates)} statistical "
+                    f"candidates (LLM extraction skipped)"
+                )
+            else:
+                candidates = await self.extract_candidates(chat_messages)
 
             if not candidates:
                 return

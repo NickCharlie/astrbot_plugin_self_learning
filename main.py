@@ -320,6 +320,11 @@ class SelfLearningPlugin(star.Star):
             )
             logger.info("黑话挖掘管理器已初始化")
 
+            # ✅ 创建黑话统计预筛器 - 零成本统计每条消息，减少LLM调用
+            from .services.jargon_statistical_filter import JargonStatisticalFilter
+            self.jargon_statistical_filter = JargonStatisticalFilter()
+            logger.info("黑话统计预筛器已初始化")
+
             # 在affection_manager和social_context_injector创建后再创建智能回复器
             self.intelligent_responder = self.service_factory.create_intelligent_responder()  # 重新启用智能回复器
             
@@ -718,56 +723,73 @@ class SelfLearningPlugin(star.Star):
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
 
     async def _mine_jargon_background(self, group_id: str):
-        """
-        后台黑话挖掘 - 完全异步,不阻塞主流程
+        """Background jargon mining — fully async, non-blocking.
 
-        工作流程:
-        1. 检查是否应该触发挖掘（频率控制）
-        2. 获取最近的消息
-        3. 使用JargonMiner进行黑话提取和推断
-        4. 保存到数据库
+        Workflow:
+        1. Check trigger conditions (frequency control).
+        2. Retrieve statistical candidates (zero LLM cost).
+        3. Fall back to LLM extraction if no statistical candidates.
+        4. Save/update to database and trigger inference at thresholds.
         """
         try:
             if not hasattr(self, 'jargon_miner_manager'):
-                logger.debug("[黑话挖掘] JargonMinerManager未初始化，跳过")
+                logger.debug("[JargonMining] JargonMinerManager not initialised, skip")
                 return
 
-            # 获取或创建该群组的黑话挖掘器
             jargon_miner = self.jargon_miner_manager.get_or_create_miner(group_id)
 
-            # 获取最近的消息用于挖掘
             stats = await self.message_collector.get_statistics(group_id)
             recent_message_count = stats.get('raw_messages', 0)
 
-            # 检查是否应该触发学习（频率控制）
             if not jargon_miner.should_trigger(recent_message_count):
-                logger.debug(f"[黑话挖掘] 群组 {group_id} 未达到触发条件")
+                logger.debug(f"[JargonMining] Group {group_id} trigger conditions not met")
                 return
 
-            # 获取最近20-50条消息用于黑话挖掘
             recent_messages = await self.db_manager.get_recent_raw_messages(
                 group_id, limit=30
             )
 
             if len(recent_messages) < 10:
-                logger.debug(f"[黑话挖掘] 群组 {group_id} 消息数量不足（{len(recent_messages)}<10）")
+                logger.debug(
+                    f"[JargonMining] Group {group_id} insufficient messages "
+                    f"({len(recent_messages)}<10)"
+                )
                 return
 
-            logger.info(f"🔍 [黑话挖掘] 开始分析群组 {group_id} 的 {len(recent_messages)} 条消息")
+            logger.info(
+                f"[JargonMining] Analysing {len(recent_messages)} messages "
+                f"from group {group_id}"
+            )
 
-            # 将消息列表转换为聊天文本
             chat_messages = "\n".join([
                 f"{msg.get('sender_id', 'unknown')}: {msg.get('message', '')}"
                 for msg in recent_messages
             ])
 
-            # 执行黑话学习（包括候选提取、推断、保存）
-            await jargon_miner.run_once(chat_messages, len(recent_messages))
+            # Retrieve statistical pre-filter candidates (if available).
+            statistical_candidates = None
+            if hasattr(self, 'jargon_statistical_filter'):
+                statistical_candidates = (
+                    self.jargon_statistical_filter.get_jargon_candidates(
+                        group_id, top_k=20
+                    )
+                )
+                if not statistical_candidates:
+                    statistical_candidates = None
 
-            logger.debug(f"[黑话挖掘] 群组 {group_id} 学习完成")
+            await jargon_miner.run_once(
+                chat_messages,
+                len(recent_messages),
+                statistical_candidates=statistical_candidates,
+            )
+
+            logger.debug(f"[JargonMining] Group {group_id} learning complete")
 
         except Exception as e:
-            logger.error(f"❌ [黑话挖掘] 后台任务失败 (group={group_id}): {e}", exc_info=True)
+            logger.error(
+                f"[JargonMining] Background task failed (group={group_id}): {e}",
+                exc_info=True,
+            )
 
     async def _process_affection_background(self, group_id: str, sender_id: str, message_text: str):
         """后台处理好感度更新（非阻塞）"""
@@ -816,6 +838,15 @@ class SelfLearningPlugin(star.Star):
                 )
             except Exception as e:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
+
+            # 2.5 Jargon statistical pre-filter: update term frequency per message (<1ms, zero LLM cost)
+            if hasattr(self, 'jargon_statistical_filter'):
+                try:
+                    self.jargon_statistical_filter.update_from_message(
+                        message_text, group_id, sender_id
+                    )
+                except Exception:
+                    pass  # Statistical update is best-effort.
 
             # 3. ✅ 黑话挖掘 - 每收集10条消息触发一次（完全后台执行）
             stats = await self.message_collector.get_statistics(group_id)
