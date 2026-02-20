@@ -76,6 +76,9 @@ from .knowledge_graph import (
     KGRelation,
     KGParagraphHash
 )
+from .exemplar import (
+    Exemplar
+)
 
 __all__ = [
     'Base',
@@ -140,4 +143,6 @@ __all__ = [
     'KGEntity',
     'KGRelation',
     'KGParagraphHash',
+    # Exemplar library
+    'Exemplar',
 ]
