@@ -139,13 +139,33 @@ class SocialFacade(BaseFacade):
     # ---- 社交关系 ----
 
     async def get_social_relations_by_group(self, group_id: str) -> List[Dict[str, Any]]:
-        """获取群组的社交关系列表"""
+        """获取群组的社交关系列表
+
+        返回格式兼容 SocialService/SocialRelationAnalyzer 期望的
+        from_user/to_user 键名。
+        """
         try:
             async with self.get_session() as session:
-                from ....repositories.social_repository import SocialRelationComponentRepository
-                repo = SocialRelationComponentRepository(session)
-                components = await repo.find_many(group_id=group_id)
-                return [self._row_to_dict(c) for c in components]
+                from sqlalchemy import select
+                from ....models.orm.social_relation import UserSocialRelationComponent
+
+                stmt = select(UserSocialRelationComponent).where(
+                    UserSocialRelationComponent.group_id == group_id
+                )
+                result = await session.execute(stmt)
+                components = result.scalars().all()
+                return [
+                    {
+                        'from_user': c.from_user_id,
+                        'to_user': c.to_user_id,
+                        'relation_type': c.relation_type,
+                        'strength': c.value,
+                        'frequency': c.frequency,
+                        'last_interaction': c.last_interaction,
+                        'description': c.description,
+                    }
+                    for c in components
+                ]
         except Exception as e:
             self._logger.error(f"[SocialFacade] 获取社交关系失败: {e}")
             return []
@@ -155,30 +175,40 @@ class SocialFacade(BaseFacade):
         return await self.get_social_relations_by_group(group_id)
 
     async def load_social_graph(self, group_id: str) -> List[Dict[str, Any]]:
-        """加载社交关系图"""
-        try:
-            async with self.get_session() as session:
-                from ....repositories.social_repository import SocialRelationComponentRepository
-                repo = SocialRelationComponentRepository(session)
-                components = await repo.find_many(group_id=group_id)
-                return [self._row_to_dict(c) for c in components]
-        except Exception as e:
-            self._logger.error(f"[SocialFacade] 加载社交图失败: {e}")
-            return []
+        """加载社交关系图（别名）"""
+        return await self.get_social_relations_by_group(group_id)
 
     async def save_social_relation(
         self, group_id: str, relation_data: Dict[str, Any]
     ) -> bool:
-        """保存社交关系"""
+        """保存社交关系
+
+        接受 SocialRelationAnalyzer 传入的 from_user/to_user 格式，
+        映射到 ORM 模型的 from_user_id/to_user_id 列。
+        """
         try:
             async with self.get_session() as session:
-                from ....repositories.social_repository import SocialRelationComponentRepository
-                repo = SocialRelationComponentRepository(session)
-                result = await repo.create(
+                from ....models.orm.social_relation import UserSocialRelationComponent
+                import time as _time
+
+                now = int(_time.time())
+                component = UserSocialRelationComponent(
+                    profile_id=0,  # 无关联 profile 时使用占位值
+                    from_user_id=relation_data.get('from_user', relation_data.get('from_user_id', '')),
+                    to_user_id=relation_data.get('to_user', relation_data.get('to_user_id', '')),
                     group_id=group_id,
-                    **{k: v for k, v in relation_data.items() if k != 'group_id'}
+                    relation_type=relation_data.get('relation_type', 'interaction'),
+                    value=relation_data.get('strength', 0.5),
+                    frequency=relation_data.get('frequency', 1),
+                    last_interaction=relation_data.get('last_interaction', now) if isinstance(
+                        relation_data.get('last_interaction'), (int, float)
+                    ) else now,
+                    description=relation_data.get('relation_name', ''),
+                    created_at=now,
                 )
-                return result is not None
+                session.add(component)
+                await session.commit()
+                return True
         except Exception as e:
             self._logger.error(f"[SocialFacade] 保存社交关系失败: {e}")
             return False
