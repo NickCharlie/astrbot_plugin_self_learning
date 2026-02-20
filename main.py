@@ -327,6 +327,10 @@ class SelfLearningPlugin(star.Star):
 
             # ✅ V2 架构集成 - 条件创建（知识引擎或记忆引擎非 legacy 时激活）
             self.v2_integration = None
+            logger.info(
+                f"[V2] Config check: knowledge_engine='{self.plugin_config.knowledge_engine}', "
+                f"memory_engine='{self.plugin_config.memory_engine}'"
+            )
             if self.plugin_config.knowledge_engine != "legacy" or self.plugin_config.memory_engine != "legacy":
                 try:
                     from .services.v2_learning_integration import V2LearningIntegration
