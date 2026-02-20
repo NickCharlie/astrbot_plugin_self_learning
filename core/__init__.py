@@ -3,27 +3,23 @@
 """
 
 from .factory import ServiceFactory
-from .patterns import EventBus, ServiceRegistry, AsyncServiceBase, LearningContext, LearningContextBuilder, StrategyFactory, ConfigurationManager, MetricsCollector
+from .patterns import ServiceRegistry, AsyncServiceBase, LearningContext, LearningContextBuilder, StrategyFactory
 from .interfaces import (
-    IMessageCollector, IMessageFilter, IStyleAnalyzer, ILearningStrategy, 
-    IQualityMonitor, IPersonaManager, IPersonaUpdater, IPersonaBackupManager, 
-    IDataStorage, IObserver, IEventPublisher, IServiceFactory, IAsyncService, 
-    IMLAnalyzer, IIntelligentResponder, ServiceLifecycle, MessageData, 
-    AnalysisResult, LearningStrategyType, AnalysisType, EventType, 
+    IMessageCollector, IMessageFilter, IStyleAnalyzer, ILearningStrategy,
+    IQualityMonitor, IPersonaManager, IPersonaUpdater, IPersonaBackupManager,
+    IDataStorage, IServiceFactory, IAsyncService,
+    IMLAnalyzer, IIntelligentResponder, ServiceLifecycle, MessageData,
+    AnalysisResult, LearningStrategyType, AnalysisType,
     ServiceError, StyleAnalysisError, ConfigurationError, DataStorageError, PersonaUpdateError
-
 )
 
 __all__ = [
     'ServiceFactory',
-    'EventBus',
     'ServiceRegistry',
     'AsyncServiceBase',
     'LearningContext',
     'LearningContextBuilder',
     'StrategyFactory',
-    'ConfigurationManager',
-    'MetricsCollector',
     'IMessageCollector',
     'IMessageFilter',
     'IStyleAnalyzer',
@@ -33,8 +29,6 @@ __all__ = [
     'IPersonaUpdater',
     'IPersonaBackupManager',
     'IDataStorage',
-    'IObserver',
-    'IEventPublisher',
     'IServiceFactory',
     'IAsyncService',
     'IMLAnalyzer',
@@ -44,9 +38,7 @@ __all__ = [
     'AnalysisResult',
     'LearningStrategyType',
     'AnalysisType',
-    'EventType',
     'ServiceError',
-    # 'AnalysisError',
     'ConfigurationError',
     'DataStorageError',
     'PersonaUpdateError'
