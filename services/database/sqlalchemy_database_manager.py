@@ -32,16 +32,6 @@ class SQLAlchemyDatabaseManager:
         self._starting = False
         self._start_lock = asyncio.Lock()
 
-        # Legacy fallback — 仅用于 get_db_connection / get_connection 等原始连接 shim
-        from .database_manager import DatabaseManager
-        self._legacy_db: Optional[DatabaseManager] = None
-        try:
-            self._legacy_db = DatabaseManager(config, context, skip_table_init=True)
-            logger.info("[DomainRouter] 初始化完成（含传统数据库后备）")
-        except Exception as e:
-            logger.warning(f"[DomainRouter] 传统数据库管理器初始化失败: {e}")
-            logger.info("[DomainRouter] 初始化完成")
-
         # Facades（在 start() 中初始化）
         self._affection = None
         self._message = None
@@ -74,11 +64,6 @@ class SQLAlchemyDatabaseManager:
             try:
                 self._starting = True
                 logger.info("[DomainRouter] 开始启动…")
-
-                # 启动传统数据库管理器（用于原始连接 shim）
-                if self._legacy_db:
-                    if not await self._legacy_db.start():
-                        logger.warning("[DomainRouter] 传统数据库管理器启动失败")
 
                 db_url = self._get_database_url()
 
@@ -113,7 +98,6 @@ class SQLAlchemyDatabaseManager:
         if not self._started:
             return True
         try:
-            logger.debug("[DomainRouter] 保持传统数据库运行（用于 WebUI 兼容）")
             if self.engine:
                 await self.engine.close()
             self._started = False
@@ -198,14 +182,7 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[DomainRouter] 确保 MySQL 数据库存在失败: {e}")
             raise
 
-    # Infrastructure: session & connection shims
-
-    @property
-    def db_backend(self):
-        """向后兼容 db_backend 属性"""
-        if self._legacy_db:
-            return self._legacy_db.db_backend
-        return None
+    # Infrastructure: session
 
     @asynccontextmanager
     async def get_session(self):
@@ -231,24 +208,6 @@ class SQLAlchemyDatabaseManager:
                 yield session
         finally:
             await session.close()
-
-    def get_db_connection(self):
-        """原始 DB 连接 shim（向后兼容 cursor() 消费者）"""
-        if self._legacy_db:
-            logger.debug("[DomainRouter] get_db_connection → 传统连接")
-            return self._legacy_db.get_db_connection()
-        logger.debug("[DomainRouter] get_db_connection → SQLAlchemy 会话工厂")
-        return self.get_session()
-
-    def get_connection(self):
-        """同步 DB 连接 shim（向后兼容 with 语句消费者）"""
-        if self._legacy_db:
-            return self._legacy_db.get_connection()
-        raise RuntimeError("[DomainRouter] get_connection: 传统数据库不可用")
-
-    async def get_group_connection(self, group_id: str):
-        """群组 DB 连接 shim（向后兼容）"""
-        return self.get_db_connection()
 
     # Domain delegates: AffectionFacade
 
@@ -361,7 +320,31 @@ class SQLAlchemyDatabaseManager:
 
     # Domain delegates: LearningFacade
 
-    async def add_persona_learning_review(self, review_data: Dict[str, Any]) -> int:
+    async def add_persona_learning_review(
+        self,
+        review_data: Dict[str, Any] = None,
+        *,
+        group_id: str = None,
+        proposed_content: str = None,
+        learning_source: str = '',
+        confidence_score: float = 0.5,
+        raw_analysis: str = '',
+        metadata: Dict[str, Any] = None,
+        original_content: str = '',
+        new_content: str = '',
+    ) -> int:
+        """兼容新旧两种调用方式：单 dict 或关键字参数。"""
+        if review_data is None:
+            review_data = {
+                'group_id': group_id or '',
+                'proposed_content': proposed_content or '',
+                'update_type': learning_source,
+                'confidence_score': confidence_score,
+                'reason': raw_analysis,
+                'metadata': metadata or {},
+                'original_content': original_content,
+                'new_content': new_content,
+            }
         return await self._learning.add_persona_learning_review(review_data)
 
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
@@ -751,23 +734,3 @@ class SQLAlchemyDatabaseManager:
         self, group_id: str = None,
     ) -> Dict[str, Any]:
         return await self._admin.export_messages_learning_data(group_id)
-
-    # Safety net: __getattr__ fallback
-
-    def __getattr__(self, name):
-        """安全网：未显式路由的方法回退到传统数据库管理器（附 WARNING 日志）"""
-        if name in ('_legacy_db', '_started', '_starting', '_start_lock',
-                     'config', 'context', 'engine',
-                     '_affection', '_message', '_learning', '_jargon',
-                     '_persona', '_social', '_expression', '_psychological',
-                     '_reinforcement', '_metrics', '_admin'):
-            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
-
-        if self._legacy_db and hasattr(self._legacy_db, name):
-            logger.warning(f"[DomainRouter] FALLBACK: '{name}' → 传统数据库管理器（请迁移到 Facade）")
-            return getattr(self._legacy_db, name)
-
-        raise AttributeError(
-            f"'{type(self).__name__}' has no attribute '{name}', "
-            f"legacy DB {'unavailable' if not self._legacy_db else 'also missing it'}"
-        )
