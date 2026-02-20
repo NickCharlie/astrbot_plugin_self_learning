@@ -1,6 +1,7 @@
 """
 风格分析服务 - 使用强模型深度分析对话风格并提炼特征
 """
+import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Any
@@ -125,11 +126,11 @@ class StyleAnalyzerService:
             message_texts = [msg.get('message', '') for msg in messages]
             combined_text = '\n'.join(message_texts[:50])  # 限制长度避免token超限
             
-            # 生成风格分析报告
-            style_analysis = await self._generate_style_analysis(combined_text)
-            
-            # 提取数值化特征
-            style_profile = await self._extract_style_profile(combined_text)
+            # 并行生成风格分析报告和提取数值化特征
+            style_analysis, style_profile = await asyncio.gather(
+                self._generate_style_analysis(combined_text),
+                self._extract_style_profile(combined_text),
+            )
             
             # 检测风格变化
             style_evolution = None

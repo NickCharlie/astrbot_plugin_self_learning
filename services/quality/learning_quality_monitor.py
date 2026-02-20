@@ -1,6 +1,7 @@
 """
 学习质量监控服务 - 监控学习效果，防止人格崩坏
 """
+import asyncio
 import json
 import time
 import re # 移动到文件顶部
@@ -71,25 +72,19 @@ class LearningQualityMonitor:
                                     learning_messages: List[Dict[str, Any]]) -> PersonaMetrics:
         """评估学习批次质量"""
         try:
-            # 计算各项指标
-            consistency_score = await self._calculate_consistency(
-                original_persona, updated_persona
-            )
-            
-            style_stability = await self._calculate_style_stability(
-                learning_messages
-            )
-            
-            vocabulary_diversity = await self._calculate_vocabulary_diversity(
-                learning_messages
-            )
-            
-            emotional_balance = await self._calculate_emotional_balance(
-                learning_messages
-            )
-            
-            coherence_score = await self._calculate_coherence(
-                updated_persona
+            # 并行计算各项指标
+            (
+                consistency_score,
+                style_stability,
+                vocabulary_diversity,
+                emotional_balance,
+                coherence_score,
+            ) = await asyncio.gather(
+                self._calculate_consistency(original_persona, updated_persona),
+                self._calculate_style_stability(learning_messages),
+                self._calculate_vocabulary_diversity(learning_messages),
+                self._calculate_emotional_balance(learning_messages),
+                self._calculate_coherence(updated_persona),
             )
             
             metrics = PersonaMetrics(
