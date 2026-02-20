@@ -569,10 +569,11 @@ class ProgressiveLearningService:
                     try:
                         await cursor.execute('''
                             INSERT INTO learning_batches
-                            (group_id, batch_name, start_time, end_time, quality_score, processed_messages,
+                            (batch_id, group_id, batch_name, start_time, end_time, quality_score, processed_messages,
                              message_count, filtered_count, success, error_message)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ''', (
+                            batch_name,
                             group_id,
                             batch_name,
                             start_time,

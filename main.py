@@ -325,6 +325,27 @@ class SelfLearningPlugin(star.Star):
             self.jargon_statistical_filter = JargonStatisticalFilter()
             logger.info("黑话统计预筛器已初始化")
 
+            # ✅ V2 架构集成 - 条件创建（知识引擎或记忆引擎非 legacy 时激活）
+            self.v2_integration = None
+            if self.plugin_config.knowledge_engine != "legacy" or self.plugin_config.memory_engine != "legacy":
+                try:
+                    from .services.v2_learning_integration import V2LearningIntegration
+                    llm_adapter = self.service_factory.create_framework_llm_adapter()
+                    self.v2_integration = V2LearningIntegration(
+                        config=self.plugin_config,
+                        llm_adapter=llm_adapter,
+                        db_manager=self.db_manager,
+                        context=self.context,
+                    )
+                    logger.info(
+                        f"V2LearningIntegration initialised "
+                        f"(knowledge={self.plugin_config.knowledge_engine}, "
+                        f"memory={self.plugin_config.memory_engine})"
+                    )
+                except Exception as exc:
+                    logger.warning(f"V2LearningIntegration init failed, v2 features disabled: {exc}")
+                    self.v2_integration = None
+
             # 在affection_manager和social_context_injector创建后再创建智能回复器
             self.intelligent_responder = self.service_factory.create_intelligent_responder()  # 重新启用智能回复器
             
@@ -439,6 +460,14 @@ class SelfLearningPlugin(star.Star):
                 logger.info("好感度管理服务启动成功")
             except Exception as e:
                 logger.error(f"好感度管理服务启动失败: {e}", exc_info=True)
+
+        # 启动 V2 学习集成服务
+        if hasattr(self, 'v2_integration') and self.v2_integration:
+            try:
+                await self.v2_integration.start()
+                logger.info("V2LearningIntegration started successfully")
+            except Exception as e:
+                logger.error(f"V2LearningIntegration start failed: {e}", exc_info=True)
         
         # 设置Web服务器的插件服务实例和启动Web服务器
         logger.info(f"Debug: 进入Web服务器启动逻辑")
@@ -853,6 +882,21 @@ class SelfLearningPlugin(star.Star):
             raw_message_count = stats.get('raw_messages', 0)
             if raw_message_count % 10 == 0 and raw_message_count >= 10:
                 asyncio.create_task(self._mine_jargon_background(group_id))
+
+            # 3.5 V2 per-message processing (knowledge ingestion, memory extraction, etc.)
+            if hasattr(self, 'v2_integration') and self.v2_integration:
+                try:
+                    msg_data = MessageData(
+                        message=message_text,
+                        sender_id=sender_id,
+                        sender_name=event.get_sender_name() or sender_id,
+                        group_id=group_id,
+                        timestamp=time.time(),
+                        platform=event.get_platform_name() or 'unknown'
+                    )
+                    await self.v2_integration.process_message(msg_data, group_id)
+                except Exception as e:
+                    logger.debug(f"V2 message processing failed: {e}")
 
             # 4. 如果启用实时学习，每条消息都学习（完全后台执行，不阻塞）
             if self.plugin_config.enable_realtime_learning:
@@ -1937,6 +1981,27 @@ class SelfLearningPlugin(star.Star):
             else:
                 logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
 
+            # ✅ 1.5 V2 enhanced context (knowledge graph, semantic memory, few-shot exemplars)
+            if hasattr(self, 'v2_integration') and self.v2_integration:
+                try:
+                    v2_ctx = await self.v2_integration.get_enhanced_context(
+                        req.prompt, group_id
+                    )
+                    v2_parts = []
+                    if v2_ctx.get('knowledge_context'):
+                        v2_parts.append(f"[Related Knowledge]\n{v2_ctx['knowledge_context']}")
+                    if v2_ctx.get('related_memories'):
+                        memories_text = "\n".join(v2_ctx['related_memories'][:5])
+                        v2_parts.append(f"[Related Memories]\n{memories_text}")
+                    if v2_ctx.get('few_shot_examples'):
+                        examples_text = "\n".join(v2_ctx['few_shot_examples'][:3])
+                        v2_parts.append(f"[Style Examples]\n{examples_text}")
+                    if v2_parts:
+                        prompt_injections.append("\n\n".join(v2_parts))
+                        logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections)")
+                except Exception as e:
+                    logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
+
             # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容) - 注入到 prompt
             diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
                 "",  # 传空字符串，只生成注入内容
@@ -2094,7 +2159,15 @@ class SelfLearningPlugin(star.Star):
                 except Exception as e:
                     logger.error(f"清理服务工厂失败: {e}")
 
-            # 4.5 重置单例管理器，确保重启时重新初始化
+            # 4.5 停止 V2 学习集成服务
+            if hasattr(self, 'v2_integration') and self.v2_integration:
+                try:
+                    await self.v2_integration.stop()
+                    logger.info("V2LearningIntegration stopped")
+                except Exception as e:
+                    logger.error(f"V2LearningIntegration stop failed: {e}")
+
+            # 4.6 重置单例管理器，确保重启时重新初始化
             try:
                 from .services.memory_graph_manager import MemoryGraphManager
                 MemoryGraphManager._instance = None
