@@ -169,11 +169,19 @@ class V2LearningIntegration:
         When a reranker is available, knowledge and memory candidates are
         reranked by relevance and only the top-k are returned.  Few-shot
         exemplars and graph stats are returned unmodified.
+
+        All retrieval tasks run concurrently via ``asyncio.gather`` to
+        minimise total latency.
         """
+        import asyncio
+
         context: Dict[str, Any] = {}
 
-        # --- Knowledge retrieval ---
-        if self._knowledge_manager:
+        # --- Build concurrent retrieval tasks ---
+
+        async def _fetch_knowledge() -> None:
+            if not self._knowledge_manager:
+                return
             try:
                 if hasattr(self._knowledge_manager, "query_knowledge"):
                     ctx = await self._knowledge_manager.query_knowledge(
@@ -196,8 +204,9 @@ class V2LearningIntegration:
                     f"[V2Integration] Knowledge retrieval failed: {exc}"
                 )
 
-        # --- Memory retrieval ---
-        if self._memory_manager:
+        async def _fetch_memories() -> None:
+            if not self._memory_manager:
+                return
             try:
                 memories = await self._memory_manager.get_related_memories(
                     query, group_id
@@ -209,8 +218,9 @@ class V2LearningIntegration:
                     f"[V2Integration] Memory retrieval failed: {exc}"
                 )
 
-        # --- Few-shot exemplars ---
-        if self._exemplar_library:
+        async def _fetch_exemplars() -> None:
+            if not self._exemplar_library:
+                return
             try:
                 examples = await self._exemplar_library.get_few_shot_examples(
                     query, group_id, k=top_k
@@ -222,8 +232,9 @@ class V2LearningIntegration:
                     f"[V2Integration] Exemplar retrieval failed: {exc}"
                 )
 
-        # --- Social graph stats (lightweight) ---
-        if self._social_analyzer:
+        async def _fetch_graph_stats() -> None:
+            if not self._social_analyzer:
+                return
             try:
                 stats = await self._social_analyzer.get_graph_statistics(
                     group_id
@@ -234,6 +245,14 @@ class V2LearningIntegration:
                 logger.debug(
                     f"[V2Integration] Social graph stats failed: {exc}"
                 )
+
+        # --- Run all retrievals concurrently ---
+        await asyncio.gather(
+            _fetch_knowledge(),
+            _fetch_memories(),
+            _fetch_exemplars(),
+            _fetch_graph_stats(),
+        )
 
         # --- Reranking (optional, knowledge + memory only) ---
         if self._rerank_provider and context:

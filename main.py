@@ -1974,107 +1974,144 @@ class SelfLearningPlugin(star.Star):
             # session_persona_prompt = await self._get_active_persona_prompt(event)
             logger.debug("[LLM Hook] 跳过基础人格注入（框架已处理），专注于增量内容")
 
-            # ✅ 1. 注入社交上下文（已整合所有功能）
-            # SocialContextInjector 现在包含：
-            # - 表达模式学习（原有）
-            # - 社交关系（原有）
-            # - 好感度（原有）
-            # - 基础情绪（原有）
-            # - 深度心理状态（整合自 PsychologicalSocialContextInjector）
-            # - 行为模式指导（整合自 PsychologicalSocialContextInjector）
+            # ✅ 1-3: 并行执行所有上下文检索（社交、V2、多样性、黑话互不依赖）
+            import asyncio as _aio
 
-            if hasattr(self, 'social_context_injector') and self.social_context_injector:
-                _t = time.time()
+            _social_result = None
+            _v2_result = None
+            _diversity_result = None
+            _jargon_result = None
+
+            async def _fetch_social():
+                nonlocal _social_result
+                if not (hasattr(self, 'social_context_injector') and self.social_context_injector):
+                    logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
+                    return
                 try:
-                    social_context = await self.social_context_injector.format_complete_context(
+                    _social_result = await self.social_context_injector.format_complete_context(
                         group_id=group_id,
                         user_id=user_id,
-                        include_social_relations=self.plugin_config.include_social_relations,  # 社交关系
-                        include_affection=self.plugin_config.include_affection_info,  # 好感度
-                        include_mood=False,  # 基础情绪（已被深度心理状态包含，避免重复）
-                        include_expression_patterns=True,  # ⭐ 表达模式学习结果
-                        include_psychological=True,  # ⭐ 深度心理状态分析
-                        include_behavior_guidance=True,  # ⭐ 行为模式指导
-                        include_conversation_goal=self.plugin_config.enable_goal_driven_chat,  # ⭐ 对话目标上下文
+                        include_social_relations=self.plugin_config.include_social_relations,
+                        include_affection=self.plugin_config.include_affection_info,
+                        include_mood=False,
+                        include_expression_patterns=True,
+                        include_psychological=True,
+                        include_behavior_guidance=True,
+                        include_conversation_goal=self.plugin_config.enable_goal_driven_chat,
                         enable_protection=True
                     )
-                    if social_context:
-                        prompt_injections.append(social_context)
-                        logger.info(f"✅ [LLM Hook] 已准备完整社交上下文 (长度: {len(social_context)})")
-                    else:
-                        logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
                 except Exception as e:
                     logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
-                _social_ms = (time.time() - _t) * 1000
-            else:
-                logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
 
-            # ✅ 1.5 V2 enhanced context (knowledge graph, semantic memory, few-shot exemplars)
-            if hasattr(self, 'v2_integration') and self.v2_integration:
+            async def _fetch_v2():
+                nonlocal _v2_result
+                if not (hasattr(self, 'v2_integration') and self.v2_integration):
+                    return
                 try:
-                    _v2_start = time.time()
-                    v2_ctx = await self.v2_integration.get_enhanced_context(
+                    _v2_result = await self.v2_integration.get_enhanced_context(
                         req.prompt, group_id
                     )
-                    v2_parts = []
-                    if v2_ctx.get('knowledge_context'):
-                        v2_parts.append(f"[Related Knowledge]\n{v2_ctx['knowledge_context']}")
-                    if v2_ctx.get('related_memories'):
-                        memories_text = "\n".join(v2_ctx['related_memories'][:5])
-                        v2_parts.append(f"[Related Memories]\n{memories_text}")
-                    if v2_ctx.get('few_shot_examples'):
-                        examples_text = "\n".join(v2_ctx['few_shot_examples'][:3])
-                        v2_parts.append(f"[Style Examples]\n{examples_text}")
-                    if v2_parts:
-                        prompt_injections.append("\n\n".join(v2_parts))
-                        logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {time.time() - _v2_start:.3f}s)")
-                    else:
-                        logger.debug(f"[LLM Hook] V2 context empty ({time.time() - _v2_start:.3f}s)")
                 except Exception as e:
                     logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
-                _v2_ms = (time.time() - _v2_start) * 1000
 
-            # ✅ 2. 构建多样性增强内容 (不传入base_prompt，只生成注入内容) - 注入到 prompt
-            _t = time.time()
-            diversity_content = await self.diversity_manager.build_diversity_prompt_injection(
-                "",  # 传空字符串，只生成注入内容
-                group_id=group_id,  # 传入group_id以获取历史消息
-                inject_style=True,
-                inject_pattern=True,
-                inject_variation=True,
-                inject_history=True  # 注入历史Bot消息，避免重复
-            )
-
-            # 提取纯注入内容（去除空的base_prompt）
-            diversity_content = diversity_content.strip()
-            if diversity_content:
-                prompt_injections.append(diversity_content)
-                logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(diversity_content)})")
-            _diversity_ms = (time.time() - _t) * 1000
-
-            # ✅ 3. 注入黑话理解（如果用户消息中包含黑话）- 注入到 prompt
-            _t = time.time()
-            if hasattr(self, 'jargon_query_service') and self.jargon_query_service:
+            async def _fetch_diversity():
+                nonlocal _diversity_result
                 try:
-                    # 获取用户消息文本
-                    user_message = event.message_str if hasattr(event, 'message_str') else str(event.get_message())
+                    content = await self.diversity_manager.build_diversity_prompt_injection(
+                        "",
+                        group_id=group_id,
+                        inject_style=True,
+                        inject_pattern=True,
+                        inject_variation=True,
+                        inject_history=True
+                    )
+                    _diversity_result = content.strip() if content else None
+                except Exception as e:
+                    logger.warning(f"[LLM Hook] 多样性增强失败: {e}")
 
-                    # 检查消息中是否包含黑话，并获取解释
-                    jargon_explanation = await self.jargon_query_service.check_and_explain_jargon(
+            async def _fetch_jargon():
+                nonlocal _jargon_result
+                if not (hasattr(self, 'jargon_query_service') and self.jargon_query_service):
+                    logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
+                    return
+                try:
+                    user_message = event.message_str if hasattr(event, 'message_str') else str(event.get_message())
+                    _jargon_result = await self.jargon_query_service.check_and_explain_jargon(
                         text=user_message,
                         chat_id=group_id
                     )
-
-                    if jargon_explanation:
-                        prompt_injections.append(jargon_explanation)
-                        logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(jargon_explanation)})")
-                    else:
-                        logger.debug(f"[LLM Hook] 用户消息中未检测到已知黑话")
                 except Exception as e:
                     logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
+
+            # --- 并行执行，分别计时 ---
+            _t_social = time.time()
+            _t_v2 = time.time()
+            _t_div = time.time()
+            _t_jar = time.time()
+
+            async def _timed_social():
+                nonlocal _social_ms, _t_social
+                _t_social = time.time()
+                await _fetch_social()
+                _social_ms = (time.time() - _t_social) * 1000
+
+            async def _timed_v2():
+                nonlocal _v2_ms, _t_v2
+                _t_v2 = time.time()
+                await _fetch_v2()
+                _v2_ms = (time.time() - _t_v2) * 1000
+
+            async def _timed_diversity():
+                nonlocal _diversity_ms, _t_div
+                _t_div = time.time()
+                await _fetch_diversity()
+                _diversity_ms = (time.time() - _t_div) * 1000
+
+            async def _timed_jargon():
+                nonlocal _jargon_ms, _t_jar
+                _t_jar = time.time()
+                await _fetch_jargon()
+                _jargon_ms = (time.time() - _t_jar) * 1000
+
+            await _aio.gather(
+                _timed_social(),
+                _timed_v2(),
+                _timed_diversity(),
+                _timed_jargon(),
+            )
+
+            # --- 按顺序收集结果到 prompt_injections ---
+            if _social_result:
+                prompt_injections.append(_social_result)
+                logger.info(f"✅ [LLM Hook] 已准备完整社交上下文 (长度: {len(_social_result)})")
             else:
-                logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
-            _jargon_ms = (time.time() - _t) * 1000
+                logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
+
+            if _v2_result:
+                v2_parts = []
+                if _v2_result.get('knowledge_context'):
+                    v2_parts.append(f"[Related Knowledge]\n{_v2_result['knowledge_context']}")
+                if _v2_result.get('related_memories'):
+                    memories_text = "\n".join(_v2_result['related_memories'][:5])
+                    v2_parts.append(f"[Related Memories]\n{memories_text}")
+                if _v2_result.get('few_shot_examples'):
+                    examples_text = "\n".join(_v2_result['few_shot_examples'][:3])
+                    v2_parts.append(f"[Style Examples]\n{examples_text}")
+                if v2_parts:
+                    prompt_injections.append("\n\n".join(v2_parts))
+                    logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {_v2_ms:.0f}ms)")
+                else:
+                    logger.debug(f"[LLM Hook] V2 context empty ({_v2_ms:.0f}ms)")
+
+            if _diversity_result:
+                prompt_injections.append(_diversity_result)
+                logger.info(f"✅ [LLM Hook] 已准备多样性增强内容 (长度: {len(_diversity_result)})")
+
+            if _jargon_result:
+                prompt_injections.append(_jargon_result)
+                logger.info(f"✅ [LLM Hook] 已准备黑话理解内容 (长度: {len(_jargon_result)})")
+            else:
+                logger.debug(f"[LLM Hook] 用户消息中未检测到已知黑话")
 
             # ✅ 4. 注入会话级增量更新 (修复会话串流bug) - 注入到 prompt
             if hasattr(self, 'temporary_persona_updater') and self.temporary_persona_updater:
