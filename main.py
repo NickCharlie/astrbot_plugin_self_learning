@@ -1917,6 +1917,7 @@ class SelfLearningPlugin(star.Star):
         3. 黑话理解（如果用户消息中包含黑话）
         4. 会话级增量更新（临时人格调整）
         """
+        _hook_start = time.time()
         try:
             # 检查 req 参数是否存在
             if req is None:
@@ -1988,6 +1989,7 @@ class SelfLearningPlugin(star.Star):
             # ✅ 1.5 V2 enhanced context (knowledge graph, semantic memory, few-shot exemplars)
             if hasattr(self, 'v2_integration') and self.v2_integration:
                 try:
+                    _v2_start = time.time()
                     v2_ctx = await self.v2_integration.get_enhanced_context(
                         req.prompt, group_id
                     )
@@ -2002,7 +2004,9 @@ class SelfLearningPlugin(star.Star):
                         v2_parts.append(f"[Style Examples]\n{examples_text}")
                     if v2_parts:
                         prompt_injections.append("\n\n".join(v2_parts))
-                        logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections)")
+                        logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {time.time() - _v2_start:.3f}s)")
+                    else:
+                        logger.debug(f"[LLM Hook] V2 context empty ({time.time() - _v2_start:.3f}s)")
                 except Exception as e:
                     logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
 
@@ -2097,7 +2101,7 @@ class SelfLearningPlugin(star.Star):
                 current_response_pattern = self.diversity_manager.get_current_pattern()
 
                 logger.info(f"✅ [LLM Hook] 当前语言风格: {current_language_style}, 回复模式: {current_response_pattern}")
-                logger.info(f"✅ [LLM Hook] 注入内容数量: {len(prompt_injections)}项")
+                logger.info(f"✅ [LLM Hook] 注入内容数量: {len(prompt_injections)}项, 耗时: {time.time() - _hook_start:.3f}s")
                 logger.debug(f"✅ [LLM Hook] 注入内容预览: {prompt_injection_text[:200]}...")
             else:
                 logger.debug("[LLM Hook] 没有可注入的增量内容")
