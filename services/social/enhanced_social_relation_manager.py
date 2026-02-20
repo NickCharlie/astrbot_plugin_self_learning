@@ -589,58 +589,55 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
         user_id: str,
         group_id: str
     ) -> Optional[UserSocialProfile]:
-        """从数据库加载用户社交档案"""
+        """从数据库加载用户社交档案（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select
+            from ...models.orm.social_relation import (
+                UserSocialProfile as UserSocialProfileORM,
+                UserSocialRelationComponent as UserSocialRelationComponentORM,
+            )
 
-                # 加载档案统计
-                await cursor.execute('''
-                    SELECT total_relations, significant_relations, dominant_relation_type,
-                           created_at, last_updated
-                    FROM user_social_profiles
-                    WHERE user_id = ? AND group_id = ?
-                ''', (user_id, group_id))
+            async with self.db_manager.get_session() as session:
+                # 加载档案（带 eager-loaded relation_components）
+                stmt = select(UserSocialProfileORM).where(
+                    UserSocialProfileORM.user_id == user_id,
+                    UserSocialProfileORM.group_id == group_id,
+                )
+                result = await session.execute(stmt)
+                profile_orm = result.scalar_one_or_none()
 
-                row = await cursor.fetchone()
-                if not row:
+                if not profile_orm:
                     return None
-
-                total, significant, dominant, created, updated = row
 
                 profile = UserSocialProfile(
                     user_id=user_id,
                     group_id=group_id,
-                    total_relations=total,
-                    significant_relations=significant,
-                    dominant_relation_type=dominant,
-                    created_at=created,
-                    last_updated=updated
+                    total_relations=profile_orm.total_relations,
+                    significant_relations=profile_orm.significant_relations,
+                    dominant_relation_type=profile_orm.dominant_relation_type,
+                    created_at=profile_orm.created_at,
+                    last_updated=profile_orm.last_updated,
                 )
 
                 # 加载所有关系组件
-                await cursor.execute('''
-                    SELECT relation_type, value, frequency, last_interaction,
-                           description, tags, created_at
-                    FROM user_social_relation_components
-                    WHERE from_user_id = ? AND group_id = ?
-                ''', (user_id, group_id))
+                comp_stmt = select(UserSocialRelationComponentORM).where(
+                    UserSocialRelationComponentORM.from_user_id == user_id,
+                    UserSocialRelationComponentORM.group_id == group_id,
+                )
+                comp_result = await session.execute(comp_stmt)
 
-                for row in await cursor.fetchall():
-                    rel_type, value, freq, last_int, desc, tags_json, created = row
-
+                for comp in comp_result.scalars().all():
                     component = SocialRelationComponent(
-                        relation_type=rel_type,
-                        value=value,
-                        frequency=freq,
-                        last_interaction=last_int,
-                        description=desc,
-                        tags=json.loads(tags_json) if tags_json else [],
-                        created_at=created
+                        relation_type=comp.relation_type,
+                        value=comp.value,
+                        frequency=comp.frequency,
+                        last_interaction=comp.last_interaction,
+                        description=comp.description,
+                        tags=json.loads(comp.tags) if comp.tags else [],
+                        created_at=comp.created_at,
                     )
                     profile.relations.append(component)
 
-                await cursor.close()
                 return profile
 
         except Exception as e:
@@ -648,56 +645,74 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
             return None
 
     async def _save_profile_to_db(self, profile: UserSocialProfile):
-        """保存用户社交档案到数据库"""
+        """保存用户社交档案到数据库（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select, delete
+            from ...models.orm.social_relation import (
+                UserSocialProfile as UserSocialProfileORM,
+                UserSocialRelationComponent as UserSocialRelationComponentORM,
+            )
 
-                # 使用数据库无关的语法：DELETE + INSERT 替代 INSERT OR REPLACE
-                # 先删除旧记录
-                await cursor.execute('''
-                    DELETE FROM user_social_profiles
-                    WHERE user_id = ? AND group_id = ?
-                ''', (profile.user_id, profile.group_id))
+            async with self.db_manager.get_session() as session:
+                # 查找现有档案
+                stmt = select(UserSocialProfileORM).where(
+                    UserSocialProfileORM.user_id == profile.user_id,
+                    UserSocialProfileORM.group_id == profile.group_id,
+                )
+                result = await session.execute(stmt)
+                existing = result.scalar_one_or_none()
 
-                # 再插入新记录
-                await cursor.execute('''
-                    INSERT INTO user_social_profiles
-                    (user_id, group_id, total_relations, significant_relations,
-                     dominant_relation_type, created_at, last_updated)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    profile.user_id, profile.group_id, profile.total_relations,
-                    profile.significant_relations, profile.dominant_relation_type,
-                    profile.created_at, time.time()
-                ))
+                if existing:
+                    # 更新现有档案
+                    existing.total_relations = profile.total_relations
+                    existing.significant_relations = profile.significant_relations
+                    existing.dominant_relation_type = profile.dominant_relation_type
+                    existing.last_updated = int(time.time())
+                    profile_id = existing.id
+                else:
+                    # 创建新档案
+                    new_profile = UserSocialProfileORM(
+                        user_id=profile.user_id,
+                        group_id=profile.group_id,
+                        total_relations=profile.total_relations,
+                        significant_relations=profile.significant_relations,
+                        dominant_relation_type=profile.dominant_relation_type,
+                        created_at=profile.created_at or int(time.time()),
+                        last_updated=int(time.time()),
+                    )
+                    session.add(new_profile)
+                    await session.flush()
+                    profile_id = new_profile.id
+
+                # 删除旧的关系组件
+                await session.execute(
+                    delete(UserSocialRelationComponentORM).where(
+                        UserSocialRelationComponentORM.from_user_id == profile.user_id,
+                        UserSocialRelationComponentORM.group_id == profile.group_id,
+                    )
+                )
 
                 # 保存所有关系组件
                 for relation in profile.relations:
                     rel_type_str = relation.relation_type.value if hasattr(
                         relation.relation_type, 'value') else str(relation.relation_type)
 
-                    # 先删除旧关系记录
-                    await cursor.execute('''
-                        DELETE FROM user_social_relation_components
-                        WHERE from_user_id = ? AND to_user_id = ? AND group_id = ? AND relation_type = ?
-                    ''', (profile.user_id, "bot", profile.group_id, rel_type_str))
+                    comp = UserSocialRelationComponentORM(
+                        profile_id=profile_id,
+                        from_user_id=profile.user_id,
+                        to_user_id="bot",
+                        group_id=profile.group_id,
+                        relation_type=rel_type_str,
+                        value=relation.value,
+                        frequency=relation.frequency,
+                        last_interaction=relation.last_interaction or int(time.time()),
+                        description=relation.description,
+                        tags=json.dumps(relation.tags, ensure_ascii=False) if relation.tags else None,
+                        created_at=relation.created_at or int(time.time()),
+                    )
+                    session.add(comp)
 
-                    # 再插入新关系记录
-                    await cursor.execute('''
-                        INSERT INTO user_social_relation_components
-                        (from_user_id, to_user_id, group_id, relation_type, value,
-                         frequency, last_interaction, description, tags, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ''', (
-                        profile.user_id, "bot", profile.group_id, rel_type_str,
-                        relation.value, relation.frequency, relation.last_interaction,
-                        relation.description, json.dumps(relation.tags, ensure_ascii=False),
-                        relation.created_at
-                    ))
-
-                await conn.commit()
-                await cursor.close()
+                await session.commit()
 
         except Exception as e:
             self._logger.error(f"保存社交档案到数据库失败: {e}", exc_info=True)
@@ -712,50 +727,49 @@ class EnhancedSocialRelationManager(AsyncServiceBase):
         new_value: float,
         reason: str
     ):
-        """记录关系变化历史"""
+        """记录关系变化历史（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from ...models.orm.social_relation import SocialRelationHistory
 
-                await cursor.execute('''
-                    INSERT INTO social_relation_history
-                    (from_user_id, to_user_id, group_id, relation_type,
-                     old_value, new_value, change_reason, timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    from_user_id, to_user_id, group_id, relation_type,
-                    old_value, new_value, reason, time.time()
-                ))
-
-                await conn.commit()
-                await cursor.close()
+            async with self.db_manager.get_session() as session:
+                record = SocialRelationHistory(
+                    from_user_id=from_user_id,
+                    to_user_id=to_user_id,
+                    group_id=group_id,
+                    relation_type=relation_type,
+                    old_value=old_value,
+                    new_value=new_value,
+                    change_reason=reason,
+                    timestamp=int(time.time()),
+                )
+                session.add(record)
+                await session.commit()
 
         except Exception as e:
             self._logger.error(f"记录关系历史失败: {e}")
 
     async def _load_active_profiles(self):
-        """加载活跃用户的社交档案"""
+        """加载活跃用户的社交档案（ORM 版本）"""
         try:
-            async with self.db_manager.get_db_connection() as conn:
-                cursor = await conn.cursor()
+            from sqlalchemy import select
+            from ...models.orm.social_relation import UserSocialProfile as UserSocialProfileORM
 
-                # 获取最近7天有互动的用户
-                await cursor.execute('''
-                    SELECT DISTINCT user_id, group_id
-                    FROM user_social_profiles
-                    WHERE last_updated > ?
-                    LIMIT 100
-                ''', (time.time() - 86400 * 7,))
+            async with self.db_manager.get_session() as session:
+                cutoff = int(time.time()) - 86400 * 7
+                stmt = (
+                    select(UserSocialProfileORM.user_id, UserSocialProfileORM.group_id)
+                    .where(UserSocialProfileORM.last_updated > cutoff)
+                    .limit(100)
+                )
+                result = await session.execute(stmt)
+                rows = result.fetchall()
 
-                rows = await cursor.fetchall()
-                await cursor.close()
+            for user_id, group_id in rows:
+                profile = await self._load_profile_from_db(user_id, group_id)
+                if profile:
+                    self.user_profiles[(user_id, group_id)] = profile
 
-                for user_id, group_id in rows:
-                    profile = await self._load_profile_from_db(user_id, group_id)
-                    if profile:
-                        self.user_profiles[(user_id, group_id)] = profile
-
-                self._logger.info(f"已加载 {len(self.user_profiles)} 个用户的社交档案")
+            self._logger.info(f"已加载 {len(self.user_profiles)} 个用户的社交档案")
 
         except Exception as e:
             self._logger.error(f"加载活跃档案失败: {e}", exc_info=True)
