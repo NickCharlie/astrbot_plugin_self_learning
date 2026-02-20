@@ -49,123 +49,6 @@ from ...repositories.jargon_repository import (
 )
 
 
-class DatabaseConnectionPool:
-    """数据库连接池"""
-    
-    def __init__(self, db_path: str, max_connections: int = 10, min_connections: int = 2):
-        self.db_path = db_path
-        self.max_connections = max_connections
-        self.min_connections = min_connections
-        self.pool: asyncio.Queue = asyncio.Queue(maxsize=max_connections)
-        self.active_connections = 0
-        self.total_connections = 0
-        self._lock = asyncio.Lock()
-        self._logger = logger
-
-    async def initialize(self):
-        """初始化连接池"""
-        async with self._lock:
-            # 创建最小数量的连接
-            for _ in range(self.min_connections):
-                conn = await self._create_connection()
-                await self.pool.put(conn)
-
-    async def _create_connection(self) -> aiosqlite.Connection:
-        """创建新的数据库连接"""
-        # 确保目录存在
-        db_dir = os.path.dirname(self.db_path)
-        os.makedirs(db_dir, exist_ok=True)
-        
-        # 检查数据库文件权限
-        if os.path.exists(self.db_path):
-            try:
-                import stat
-                os.chmod(self.db_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
-            except OSError as e:
-                self._logger.warning(f"无法修改数据库文件权限: {e}")
-        
-        conn = await aiosqlite.connect(self.db_path)
-        
-        # 设置连接参数
-        await conn.execute('PRAGMA foreign_keys = ON')
-        await conn.execute('PRAGMA journal_mode = WAL')
-        await conn.execute('PRAGMA synchronous = NORMAL')
-        await conn.execute('PRAGMA cache_size = 10000')
-        await conn.execute('PRAGMA temp_store = memory')
-        await conn.commit()
-        
-        self.total_connections += 1
-        self._logger.debug(f"创建新数据库连接，总连接数: {self.total_connections}")
-        return conn
-
-    async def get_connection(self) -> aiosqlite.Connection:
-        """获取数据库连接"""
-        try:
-            # 尝试从池中获取连接（非阻塞）
-            conn = self.pool.get_nowait()
-            self.active_connections += 1
-            return conn
-        except asyncio.QueueEmpty:
-            # 池中无可用连接
-            async with self._lock:
-                if self.total_connections < self.max_connections:
-                    # 可以创建新连接
-                    conn = await self._create_connection()
-                    self.active_connections += 1
-                    return conn
-                else:
-                    # 达到最大连接数，等待连接归还
-                    self._logger.debug("连接池已满，等待连接归还...")
-                    conn = await self.pool.get()
-                    self.active_connections += 1
-                    return conn
-
-    async def return_connection(self, conn: aiosqlite.Connection):
-        """归还数据库连接"""
-        if conn:
-            try:
-                # 检查连接是否仍然有效
-                await conn.execute('SELECT 1')
-                await self.pool.put(conn)
-                self.active_connections -= 1
-            except Exception as e:
-                # 连接已损坏，关闭并减少计数
-                self._logger.warning(f"连接已损坏，关闭连接: {e}")
-                try:
-                    await conn.close()
-                except Exception:
-                    pass
-                self.total_connections -= 1
-                self.active_connections -= 1
-
-    async def close_all(self):
-        """关闭所有连接"""
-        self._logger.info("开始关闭数据库连接池...")
-        
-        # 关闭池中的所有连接
-        while not self.pool.empty():
-            try:
-                conn = self.pool.get_nowait()
-                await conn.close()
-                self.total_connections -= 1
-            except asyncio.QueueEmpty:
-                break
-            except Exception as e:
-                self._logger.error(f"关闭连接时出错: {e}")
-        
-        self._logger.info(f"数据库连接池已关闭，剩余连接数: {self.total_connections}")
-
-    async def __aenter__(self):
-        """异步上下文管理器入口"""
-        return await self.get_connection()
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """异步上下文管理器退出"""
-        # 注意：这里不能直接归还连接，因为我们不知道连接对象
-        # 实际使用时需要在调用方手动归还
-        pass
-
-
 class DatabaseManager(AsyncServiceBase):
     """数据库管理器 - 使用连接池管理数据库连接，支持SQLite和MySQL"""
 
@@ -188,13 +71,6 @@ class DatabaseManager(AsyncServiceBase):
 
         # ✨ 新增: DatabaseEngine for ORM支持
         self.db_engine: Optional[DatabaseEngine] = None
-
-        # 初始化连接池（保留旧的SQLite连接池，用于group数据库）
-        self.connection_pool = DatabaseConnectionPool(
-            db_path=self.messages_db_path,
-            max_connections=config.max_connections,
-            min_connections=config.min_connections
-        )
 
         # 确保数据目录存在
         os.makedirs(self.group_data_dir, exist_ok=True)
@@ -219,11 +95,7 @@ class DatabaseManager(AsyncServiceBase):
 
             self._logger.info(f"✅ [DatabaseManager] {self.config.db_type} 后端初始化成功")
 
-            # 3. 初始化旧的连接池（仅用于group数据库，暂时保留）
-            await self.connection_pool.initialize()
-            self._logger.info("✅ [DatabaseManager] 数据库连接池初始化成功")
-
-            # 4. 初始化数据库表结构（如果表不存在则自动创建）
+            # 3. 初始化数据库表结构（如果表不存在则自动创建）
             # 如果 skip_table_init=True（由 ORM 管理表），则跳过表创建
             if not self.skip_table_init:
                 await self._init_messages_database()
@@ -300,9 +172,8 @@ class DatabaseManager(AsyncServiceBase):
             if self.db_backend:
                 await self.db_backend.close()
 
-            # 关闭旧的连接池
+            # 关闭 group 数据库连接
             await self.close_all_connections()
-            await self.connection_pool.close_all()
 
             self._logger.info("所有数据库连接已关闭")
             return True
@@ -321,31 +192,15 @@ class DatabaseManager(AsyncServiceBase):
         self._logger.debug(f"[get_db_connection] 配置的数据库类型: {db_type}")
         self._logger.debug(f"[get_db_connection] db_backend 状态: {self.db_backend is not None}")
 
-        # 如果使用MySQL或PostgreSQL且db_backend可用，使用通用后端连接管理器
-        if db_type in ('mysql', 'postgresql') and self.db_backend:
+        # 统一通过数据库后端获取连接（SQLite/MySQL/PostgreSQL 共用路径）
+        if self.db_backend:
             self._logger.debug(f"[get_db_connection] ✅ 使用 {db_type.upper()} 后端")
             return self._get_backend_connection_manager()
         else:
-            # 使用旧的SQLite连接池
-            self._logger.warning(f"[get_db_connection] ⚠️ 回退到 SQLite 连接池 (db_type={db_type}, backend_exists={self.db_backend is not None})")
-            return self._get_sqlite_connection_manager()
-
-    def _get_sqlite_connection_manager(self):
-        """获取SQLite连接管理器"""
-        class SQLiteConnectionManager:
-            def __init__(self, pool: DatabaseConnectionPool):
-                self.pool = pool
-                self.connection = None
-
-            async def __aenter__(self):
-                self.connection = await self.pool.get_connection()
-                return self.connection
-
-            async def __aexit__(self, exc_type, exc_val, exc_tb):
-                if self.connection:
-                    await self.pool.return_connection(self.connection)
-
-        return SQLiteConnectionManager(self.connection_pool)
+            raise RuntimeError(
+                f"[get_db_connection] 数据库后端未初始化 (db_type={db_type})，"
+                "请确保 DatabaseManager 已正确启动"
+            )
 
     def _get_backend_connection_manager(self):
         """获取MySQL/PostgreSQL连接管理器 - 适配aiosqlite接口"""
@@ -1709,10 +1564,10 @@ class DatabaseManager(AsyncServiceBase):
                         'disk_percent': 67.8
                     },
                     'connection_pool_stats': {
-                        'total_connections': self.connection_pool.total_connections,
-                        'active_connections': self.connection_pool.active_connections,
-                        'max_connections': self.connection_pool.max_connections,
-                        'pool_usage': round(self.connection_pool.active_connections / self.connection_pool.max_connections * 100, 1) if self.connection_pool.max_connections > 0 else 0
+                        'total_connections': 0,
+                        'active_connections': 0,
+                        'max_connections': self.config.max_connections,
+                        'pool_usage': 0
                     }
                 }
                 
