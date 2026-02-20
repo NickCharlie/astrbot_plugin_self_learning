@@ -2007,39 +2007,69 @@ class SQLAlchemyDatabaseManager:
             return False
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
-        """
-        获取俚语统计信息
+        """获取黑话学习统计信息（ORM 版本）
 
         Args:
-            group_id: 群组ID（可选，None表示全局统计）
+            group_id: 群组ID（可选，None 表示全局统计）
 
         Returns:
-            Dict: 俚语统计数据
+            统计数据字典，包含 total_candidates, confirmed_jargon,
+            completed_inference, total_occurrences, average_count, active_groups
         """
+        default_stats = {
+            'total_candidates': 0,
+            'confirmed_jargon': 0,
+            'completed_inference': 0,
+            'total_occurrences': 0,
+            'average_count': 0.0,
+            'active_groups': 0,
+        }
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ..models.orm.expression import ExpressionPattern
+                from sqlalchemy import select, func, case
+                from ..models.orm.jargon import Jargon
 
-                # 构建查询
-                if group_id:
-                    stmt = select(func.count()).select_from(ExpressionPattern).where(
-                        ExpressionPattern.group_id == group_id
+                columns = [
+                    func.count().label('total'),
+                    func.count(case((Jargon.is_jargon == True, 1))).label('confirmed'),
+                    func.count(case((Jargon.is_complete == True, 1))).label('completed'),
+                    func.coalesce(func.sum(Jargon.count), 0).label('total_occurrences'),
+                    func.coalesce(func.avg(Jargon.count), 0).label('avg_count'),
+                ]
+
+                if not group_id:
+                    columns.append(
+                        func.count(func.distinct(Jargon.chat_id)).label('active_groups')
                     )
-                else:
-                    stmt = select(func.count()).select_from(ExpressionPattern)
+
+                stmt = select(*columns)
+                if group_id:
+                    stmt = stmt.where(Jargon.chat_id == group_id)
 
                 result = await session.execute(stmt)
-                total_count = result.scalar() or 0
+                row = result.fetchone()
 
-                return {
-                    'total_jargons': total_count,
-                    'group_id': group_id
+                if not row:
+                    return default_stats
+
+                stats = {
+                    'total_candidates': int(row.total) if row.total else 0,
+                    'confirmed_jargon': int(row.confirmed) if row.confirmed else 0,
+                    'completed_inference': int(row.completed) if row.completed else 0,
+                    'total_occurrences': int(row.total_occurrences) if row.total_occurrences else 0,
+                    'average_count': round(float(row.avg_count), 1) if row.avg_count else 0.0,
                 }
 
+                if not group_id:
+                    stats['active_groups'] = int(row.active_groups) if row.active_groups else 0
+                else:
+                    stats['active_groups'] = 1 if stats['total_candidates'] > 0 else 0
+
+                return stats
+
         except Exception as e:
-            logger.error(f"[SQLAlchemy] 获取俚语统计失败: {e}", exc_info=True)
-            return {'total_jargons': 0, 'group_id': group_id}
+            logger.error(f"[SQLAlchemy] 获取黑话统计失败: {e}", exc_info=True)
+            return default_stats
 
     async def get_recent_jargon_list(
         self,
@@ -2094,6 +2124,7 @@ class SQLAlchemyDatabaseManager:
                         jargon_list.append({
                             'id': record.id,
                             'content': record.content,
+                            'raw_content': record.raw_content,
                             'meaning': record.meaning,
                             'is_jargon': record.is_jargon,
                             'count': record.count or 0,
@@ -2112,6 +2143,223 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[SQLAlchemy] 获取最近黑话列表失败: {e}", exc_info=True)
             return []
+
+    async def search_jargon(
+        self,
+        keyword: str,
+        chat_id: Optional[str] = None,
+        limit: int = 10
+    ) -> List[Dict[str, Any]]:
+        """搜索黑话（LIKE 匹配，ORM 版本）
+
+        Args:
+            keyword: 搜索关键词
+            chat_id: 群组ID（有值搜本群已确认黑话，无值搜全局已确认黑话）
+            limit: 返回数量限制
+
+        Returns:
+            匹配的黑话列表
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, and_
+                from ..models.orm.jargon import Jargon
+
+                conditions = [
+                    Jargon.content.ilike(f'%{keyword}%'),
+                    Jargon.is_jargon == True,
+                ]
+                if chat_id:
+                    conditions.append(Jargon.chat_id == chat_id)
+                else:
+                    conditions.append(Jargon.is_global == True)
+
+                stmt = (
+                    select(Jargon)
+                    .where(and_(*conditions))
+                    .order_by(Jargon.count.desc(), Jargon.updated_at.desc())
+                    .limit(limit)
+                )
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+
+                return [
+                    {
+                        'id': r.id,
+                        'content': r.content,
+                        'raw_content': r.raw_content,
+                        'meaning': r.meaning,
+                        'is_jargon': r.is_jargon,
+                        'count': r.count or 0,
+                        'is_complete': r.is_complete,
+                        'is_global': r.is_global or False,
+                        'chat_id': r.chat_id,
+                        'updated_at': r.updated_at,
+                    }
+                    for r in records
+                ]
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 搜索黑话失败: {e}", exc_info=True)
+            return []
+
+    async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
+        """根据ID获取黑话记录（ORM 版本）
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            黑话字典或 None
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(Jargon.id == jargon_id)
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    return None
+
+                return {
+                    'id': record.id,
+                    'content': record.content,
+                    'raw_content': record.raw_content,
+                    'meaning': record.meaning,
+                    'is_jargon': bool(record.is_jargon) if record.is_jargon is not None else None,
+                    'count': record.count or 0,
+                    'last_inference_count': record.last_inference_count or 0,
+                    'is_complete': bool(record.is_complete),
+                    'is_global': bool(record.is_global) if record.is_global is not None else False,
+                    'chat_id': record.chat_id,
+                    'updated_at': record.updated_at,
+                }
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 获取黑话记录失败 (id={jargon_id}): {e}", exc_info=True)
+            return None
+
+    async def delete_jargon_by_id(self, jargon_id: int) -> bool:
+        """根据ID删除黑话记录（ORM 版本）
+
+        Args:
+            jargon_id: 黑话记录ID
+
+        Returns:
+            是否删除成功
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(Jargon.id == jargon_id)
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    return False
+
+                await session.delete(record)
+                await session.commit()
+                logger.debug(f"[SQLAlchemy] 删除黑话记录成功, ID: {jargon_id}")
+                return True
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 删除黑话失败 (id={jargon_id}): {e}", exc_info=True)
+            return False
+
+    async def set_jargon_global(self, jargon_id: int, is_global: bool) -> bool:
+        """设置黑话的全局共享状态（ORM 版本）
+
+        Args:
+            jargon_id: 黑话记录ID
+            is_global: 是否全局共享
+
+        Returns:
+            是否更新成功
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select
+                from ..models.orm.jargon import Jargon
+
+                stmt = select(Jargon).where(Jargon.id == jargon_id)
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+
+                if not record:
+                    return False
+
+                record.is_global = is_global
+                record.updated_at = int(time.time())
+                await session.commit()
+                logger.info(f"[SQLAlchemy] 黑话全局状态已更新: ID={jargon_id}, is_global={is_global}")
+                return True
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 更新黑话全局状态失败 (id={jargon_id}): {e}", exc_info=True)
+            return False
+
+    async def sync_global_jargon_to_group(self, target_chat_id: str) -> int:
+        """将全局黑话同步到指定群组（ORM 版本）
+
+        对全局黑话逐条检查目标群组是否已存在相同内容，不存在则插入。
+
+        Args:
+            target_chat_id: 目标群组ID
+
+        Returns:
+            成功同步的数量
+        """
+        try:
+            async with self.get_session() as session:
+                from sqlalchemy import select, and_
+                from ..models.orm.jargon import Jargon
+
+                # 获取非目标群组的全局黑话
+                stmt = select(Jargon).where(and_(
+                    Jargon.is_jargon == True,
+                    Jargon.is_global == True,
+                    Jargon.chat_id != target_chat_id
+                ))
+                result = await session.execute(stmt)
+                global_jargons = result.scalars().all()
+
+                synced_count = 0
+                now_ts = int(time.time())
+
+                for gj in global_jargons:
+                    # 检查目标群组是否已存在
+                    check_stmt = select(Jargon).where(and_(
+                        Jargon.chat_id == target_chat_id,
+                        Jargon.content == gj.content
+                    ))
+                    check_result = await session.execute(check_stmt)
+                    if check_result.scalars().first():
+                        continue
+
+                    new_jargon = Jargon(
+                        content=gj.content,
+                        raw_content='[]',
+                        meaning=gj.meaning,
+                        is_jargon=True,
+                        count=1,
+                        last_inference_count=0,
+                        is_complete=False,
+                        is_global=False,
+                        chat_id=target_chat_id,
+                        created_at=now_ts,
+                        updated_at=now_ts,
+                    )
+                    session.add(new_jargon)
+                    synced_count += 1
+
+                await session.commit()
+                logger.info(f"[SQLAlchemy] 同步全局黑话到群组 {target_chat_id}: 同步 {synced_count} 条")
+                return synced_count
+        except Exception as e:
+            logger.error(f"[SQLAlchemy] 同步全局黑话失败: {e}", exc_info=True)
+            return 0
 
     async def get_learning_patterns_data(self, group_id: str = None) -> Dict[str, Any]:
         """
@@ -2969,6 +3217,7 @@ class SQLAlchemyDatabaseManager:
                     {
                         'id': jargon.id,
                         'content': jargon.content,
+                        'raw_content': jargon.raw_content,
                         'meaning': jargon.meaning,
                         'is_jargon': jargon.is_jargon,
                         'count': jargon.count,

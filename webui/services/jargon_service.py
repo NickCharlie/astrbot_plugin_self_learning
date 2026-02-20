@@ -1,6 +1,7 @@
 """
 黑话管理服务 - 处理黑话学习相关业务逻辑
 """
+import json
 from typing import Dict, Any, List, Tuple, Optional
 from astrbot.api import logger
 
@@ -18,52 +19,78 @@ class JargonService:
         self.container = container
         self.database_manager = container.database_manager
 
-    async def get_jargon_stats(self) -> Dict[str, Any]:
+    @staticmethod
+    def _format_jargon_for_frontend(j: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        将数据库字段映射为前端期望的字段名
+
+        DB → Frontend:
+            content → term
+            is_jargon → is_confirmed
+            count → occurrences
+            raw_content (JSON str) → context_examples (list)
+            chat_id → group_id
+        """
+        # 解析 raw_content JSON 为 context_examples 列表
+        raw = j.get('raw_content', '[]')
+        try:
+            context_examples = json.loads(raw) if raw else []
+        except (json.JSONDecodeError, TypeError):
+            context_examples = []
+
+        return {
+            'id': j.get('id'),
+            'term': j.get('content', ''),
+            'meaning': j.get('meaning', ''),
+            'is_confirmed': bool(j.get('is_jargon', False)),
+            'is_global': bool(j.get('is_global', False)),
+            'occurrences': j.get('count', 0),
+            'group_id': j.get('chat_id'),
+            'context_examples': context_examples,
+            'updated_at': j.get('updated_at'),
+        }
+
+    async def get_jargon_stats(self, group_id: Optional[str] = None) -> Dict[str, Any]:
         """
         获取黑话统计信息
 
+        Args:
+            group_id: 群组ID（可选，None 表示全局统计）
+
         Returns:
-            Dict: 统计信息
+            Dict: 统计信息（字段已与前端对齐）
         """
+        empty = {
+            'total_candidates': 0,
+            'confirmed_jargon': 0,
+            'completed_inference': 0,
+            'total_occurrences': 0,
+            'average_count': 0,
+            'active_groups': 0,
+        }
         if not self.database_manager:
-            return {
-                'total_jargons': 0,
-                'confirmed_jargon': 0,
-                'total_candidates': 0,
-                'active_groups': 0,
-                'total_occurrences': 0,
-                'average_count': 0
-            }
+            return empty
 
         try:
-            # 调用数据库方法获取全局统计（不传chat_id）
-            stats = await self.database_manager.get_jargon_statistics()
-
-            # 数据库返回的字段：total_candidates, confirmed_jargon, completed_inference, total_occurrences, average_count, active_groups
-            # WebUI需要的字段：total_jargons, confirmed_jargon, total_candidates, active_groups, ...
+            stats = await self.database_manager.get_jargon_statistics(
+                group_id=group_id
+            )
             return {
-                'total_jargons': stats.get('total_candidates', 0),  # 总候选数即总黑话数
-                'confirmed_jargon': stats.get('confirmed_jargon', 0),  # 已确认的黑话
-                'total_candidates': stats.get('total_candidates', 0),  # 总候选数
-                'active_groups': stats.get('active_groups', 0),  # 活跃群组数
-                'total_occurrences': stats.get('total_occurrences', 0),  # 总出现次数
-                'average_count': stats.get('average_count', 0),  # 平均出现次数
-                'completed_inference': stats.get('completed_inference', 0)  # 已完成推理的数量
+                'total_candidates': stats.get('total_candidates', 0),
+                'confirmed_jargon': stats.get('confirmed_jargon', 0),
+                'completed_inference': stats.get('completed_inference', 0),
+                'total_occurrences': stats.get('total_occurrences', 0),
+                'average_count': stats.get('average_count', 0),
+                'active_groups': stats.get('active_groups', 0),
             }
         except Exception as e:
             logger.error(f"获取黑话统计失败: {e}", exc_info=True)
-            return {
-                'total_jargons': 0,
-                'confirmed_jargon': 0,
-                'total_candidates': 0,
-                'active_groups': 0,
-                'total_occurrences': 0,
-                'average_count': 0
-            }
+            return empty
 
     async def get_jargon_list(
         self,
         group_id: Optional[str] = None,
+        confirmed: Optional[bool] = None,
         page: int = 1,
         page_size: int = 20
     ) -> Dict[str, Any]:
@@ -72,46 +99,33 @@ class JargonService:
 
         Args:
             group_id: 群组ID (可选,默认获取全局黑话)
+            confirmed: 过滤已确认/未确认（None=全部）
             page: 页码
             page_size: 每页数量
 
         Returns:
-            Dict: 黑话列表和分页信息
+            Dict: 黑话列表和分页信息，key 为 'jargon_list'
         """
         if not self.database_manager:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            # 使用数据库的 get_recent_jargon_list 方法
-            # 注意：原方法不支持分页，这里需要手动处理
             jargons = await self.database_manager.get_recent_jargon_list(
                 chat_id=group_id,
-                limit=page_size * page,  # 获取到当前页的所有数据
-                only_confirmed=False  # 获取所有黑话，包括候选
+                limit=page_size * page,
+                only_confirmed=confirmed,
             )
 
             # 手动实现分页
             total = len(jargons)
             start_idx = (page - 1) * page_size
             end_idx = start_idx + page_size
-            page_jargons = jargons[start_idx:end_idx] if start_idx < len(jargons) else []
+            page_jargons = jargons[start_idx:end_idx] if start_idx < total else []
 
-            # 格式化数据
-            formatted_jargons = []
-            for j in page_jargons:
-                formatted_jargons.append({
-                    'id': j.get('id'),
-                    'content': j.get('content'),
-                    'meaning': j.get('meaning', ''),
-                    'is_jargon': bool(j.get('is_jargon', False)),
-                    'is_global': bool(j.get('is_global', False)),
-                    'count': j.get('count', 0),
-                    'chat_id': j.get('chat_id'),
-                    'updated_at': j.get('updated_at')
-                })
+            formatted = [self._format_jargon_for_frontend(j) for j in page_jargons]
 
             return {
-                'jargons': formatted_jargons,
+                'jargon_list': formatted,
                 'total': total,
                 'page': page,
                 'page_size': page_size,
@@ -121,24 +135,57 @@ class JargonService:
             logger.error(f"获取黑话列表失败: {e}", exc_info=True)
             raise
 
-    async def search_jargon(self, keyword: str) -> List[Dict[str, Any]]:
+    async def search_jargon(
+        self,
+        keyword: str,
+        chat_id: Optional[str] = None,
+        confirmed_only: bool = False,
+    ) -> List[Dict[str, Any]]:
         """
         搜索黑话
 
         Args:
             keyword: 搜索关键词
+            chat_id: 群组ID（可选）
+            confirmed_only: 是否仅返回已确认的黑话
 
         Returns:
-            List[Dict]: 匹配的黑话列表
+            List[Dict]: 匹配的黑话列表（字段已映射为前端格式）
         """
         if not self.database_manager:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            results = await self.database_manager.search_jargon(keyword)
-            return results
+            results = await self.database_manager.search_jargon(
+                keyword, chat_id=chat_id
+            )
+            # 按 confirmed_only 过滤
+            if confirmed_only:
+                results = [r for r in results if r.get('is_jargon')]
+
+            return [self._format_jargon_for_frontend(r) for r in results]
         except Exception as e:
             logger.error(f"搜索黑话失败: {e}", exc_info=True)
+            raise
+
+    async def get_global_jargon_list(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        获取全局共享的黑话列表
+
+        Args:
+            limit: 返回数量限制
+
+        Returns:
+            List[Dict]: 全局黑话列表（字段已映射为前端格式）
+        """
+        if not self.database_manager:
+            raise ValueError('数据库管理器未初始化')
+
+        try:
+            jargons = await self.database_manager.get_global_jargon_list(limit=limit)
+            return [self._format_jargon_for_frontend(j) for j in jargons]
+        except Exception as e:
+            logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
             raise
 
     async def delete_jargon(self, jargon_id: int) -> Tuple[bool, str]:
@@ -155,7 +202,6 @@ class JargonService:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            # 使用 delete_jargon_by_id 方法
             success = await self.database_manager.delete_jargon_by_id(jargon_id)
             if success:
                 logger.info(f"黑话 {jargon_id} 已删除")
@@ -180,7 +226,6 @@ class JargonService:
             raise ValueError('数据库管理器未初始化')
 
         try:
-            # 获取当前状态
             jargon = await self.database_manager.get_jargon_by_id(jargon_id)
             if not jargon:
                 return False, "黑话不存在", False

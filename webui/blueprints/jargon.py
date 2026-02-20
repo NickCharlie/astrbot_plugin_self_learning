@@ -17,9 +17,11 @@ jargon_bp = Blueprint('jargon', __name__, url_prefix='/api')
 async def get_jargon_stats():
     """获取黑话统计信息"""
     try:
+        group_id = request.args.get('group_id')
+
         container = get_container()
         jargon_service = JargonService(container)
-        stats = await jargon_service.get_jargon_stats()
+        stats = await jargon_service.get_jargon_stats(group_id=group_id)
 
         return jsonify(stats), 200
 
@@ -37,9 +39,33 @@ async def get_jargon_list():
         page = int(request.args.get('page', 1))
         page_size = int(request.args.get('page_size', 20))
 
+        # 解析 confirmed 过滤参数
+        confirmed_param = request.args.get('confirmed')
+        confirmed = None
+        if confirmed_param == 'true':
+            confirmed = True
+        elif confirmed_param == 'false':
+            confirmed = False
+
+        # 如果带了 keyword，走搜索逻辑
+        keyword = request.args.get('keyword', '').strip()
         container = get_container()
         jargon_service = JargonService(container)
-        result = await jargon_service.get_jargon_list(group_id, page, page_size)
+
+        if keyword:
+            results = await jargon_service.search_jargon(
+                keyword,
+                chat_id=group_id,
+                confirmed_only=(confirmed is True),
+            )
+            return jsonify({
+                'jargon_list': results,
+                'total': len(results),
+            }), 200
+
+        result = await jargon_service.get_jargon_list(
+            group_id, confirmed=confirmed, page=page, page_size=page_size
+        )
 
         return jsonify(result), 200
 
@@ -59,12 +85,19 @@ async def search_jargon():
         if not keyword:
             return error_response("搜索关键词不能为空", 400)
 
+        group_id = request.args.get('group_id')
+        confirmed_only = request.args.get('confirmed_only', 'false').lower() == 'true'
+
         container = get_container()
         jargon_service = JargonService(container)
-        results = await jargon_service.search_jargon(keyword)
+        results = await jargon_service.search_jargon(
+            keyword,
+            chat_id=group_id,
+            confirmed_only=confirmed_only,
+        )
 
         return jsonify({
-            'jargons': results,
+            'jargon_list': results,
             'total': len(results)
         }), 200
 
@@ -181,17 +214,16 @@ async def get_global_jargon_list():
         limit = request.args.get('limit', 50, type=int)
 
         container = get_container()
-        database_manager = container.database_manager
-        if not database_manager:
-            return jsonify({"success": False, "error": "数据库管理器未初始化"}), 500
-
-        jargon_list = await database_manager.get_global_jargon_list(limit=limit)
+        jargon_service = JargonService(container)
+        jargon_list = await jargon_service.get_global_jargon_list(limit=limit)
 
         return jsonify({
-            "success": True,
-            "data": jargon_list,
-            "total": len(jargon_list)
+            'jargon_list': jargon_list,
+            'total': len(jargon_list)
         }), 200
+
+    except ValueError as e:
+        return error_response(str(e), 500)
     except Exception as e:
         logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
         return error_response(str(e), 500)
@@ -203,12 +235,15 @@ async def set_jargon_global_status(jargon_id: int):
     """设置黑话的全局共享状态"""
     try:
         container = get_container()
-        database_manager = container.database_manager
-        if not database_manager:
-            return jsonify({"success": False, "error": "数据库管理器未初始化"}), 500
+        jargon_service = JargonService(container)
 
         data = await request.get_json()
         is_global = data.get('is_global', True)
+
+        # 直接调用数据库方法（set_global 不需要 toggle 逻辑）
+        database_manager = container.database_manager
+        if not database_manager:
+            return error_response("数据库管理器未初始化", 500)
 
         result = await database_manager.set_jargon_global(jargon_id, is_global)
 
@@ -220,7 +255,7 @@ async def set_jargon_global_status(jargon_id: int):
                 "is_global": is_global
             }), 200
         else:
-            return jsonify({"success": False, "error": "操作失败"}), 500
+            return error_response("操作失败", 500)
     except Exception as e:
         logger.error(f"设置黑话全局状态失败: {e}", exc_info=True)
         return error_response(str(e), 500)
