@@ -433,17 +433,22 @@ class EnhancedMemoryGraphManager:
         except Exception as e:
             logger.error(f"[增强型记忆图] 保存记忆图失败: {e}")
 
-    async def add_memory_from_message(self, message: MessageData, group_id: str):
+    async def add_memory_from_message(self, message, group_id: str):
         """
         从消息添加记忆
 
         Args:
-            message: 消息数据
+            message: 消息数据（MessageData 对象或 dict）
             group_id: 群组 ID
         """
         try:
+            # 兼容 dict 和 MessageData 对象
+            raw_text = message.get('raw_message', message.get('message', '')) if isinstance(message, dict) else getattr(message, 'raw_message', '')
+            if not raw_text:
+                return
+
             # 提取概念
-            concepts = await self._extract_concepts_from_message(message)
+            concepts = await self._extract_concepts_from_text(raw_text)
 
             if not concepts:
                 return
@@ -455,7 +460,7 @@ class EnhancedMemoryGraphManager:
             for concept in concepts:
                 await memory_graph.add_memory_node(
                     concept,
-                    message.raw_message,
+                    raw_text,
                     self.llm_adapter
                 )
 
@@ -541,10 +546,10 @@ class EnhancedMemoryGraphManager:
 
     # 辅助方法
 
-    async def _extract_concepts_from_message(self, message: MessageData) -> List[str]:
+    async def _extract_concepts_from_message(self, message) -> List[str]:
         """从消息提取概念"""
-        # 保持原有逻辑
-        return await self._extract_concepts_from_text(message.raw_message)
+        raw_text = message.get('raw_message', message.get('message', '')) if isinstance(message, dict) else getattr(message, 'raw_message', '')
+        return await self._extract_concepts_from_text(raw_text)
 
     async def _extract_concepts_from_text(self, text: str) -> List[str]:
         """
