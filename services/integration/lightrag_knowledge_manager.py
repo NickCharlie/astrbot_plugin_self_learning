@@ -307,13 +307,19 @@ class LightRAGKnowledgeManager:
                 "entity_extract_max_gleaning": 1,
             }
 
-            # Attach embedding function if a provider is available.
-            if self._embedding:
-                rag_kwargs["embedding_func"] = EmbeddingFunc(
-                    embedding_dim=self._embedding.get_dim(),
-                    max_token_size=8192,
-                    func=self._make_embedding_func(),
+            # Attach embedding function -- required for vector storage.
+            if not self._embedding:
+                raise RuntimeError(
+                    "embedding_func is required for LightRAG vector storage "
+                    "but no embedding provider was configured. "
+                    "Please configure an embedding provider or disable "
+                    "the LightRAG knowledge engine."
                 )
+            rag_kwargs["embedding_func"] = EmbeddingFunc(
+                embedding_dim=self._embedding.get_dim(),
+                max_token_size=8192,
+                func=self._make_embedding_func(),
+            )
 
             rag = LightRAG(**rag_kwargs)
             await rag.initialize_storages()
