@@ -192,21 +192,22 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                     components = await component_repo.get_components(state.id)
 
                     # 转换为 CompositePsychologicalState
-                    state_components = {}
+                    state_components = []
                     for comp in components:
-                        state_components[comp.component_name] = PsychologicalStateComponent(
+                        state_components.append(PsychologicalStateComponent(
                             dimension=comp.component_name,
                             state_type=comp.component_name, # TODO: 需要解析类型
                             value=comp.value,
                             threshold=comp.threshold
-                        )
+                        ))
 
                     composite_state = CompositePsychologicalState(
+                        group_id=group_id,
                         state_id=f"{group_id}:{user_id}",
                         components=state_components,
-                        overall_state=state.overall_state,
-                        state_intensity=state.state_intensity,
-                        last_transition_time=state.last_transition_time
+                        overall_state=getattr(state, 'overall_state', 'neutral'),
+                        state_intensity=getattr(state, 'state_intensity', 0.5),
+                        last_transition_time=getattr(state, 'last_transition_time', None)
                     )
 
                     return composite_state

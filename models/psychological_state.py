@@ -642,6 +642,9 @@ class CompositePsychologicalState:
     group_id: str  # 群组ID
     state_id: str  # 状态唯一标识
     components: List[PsychologicalStateComponent] = field(default_factory=list)
+    overall_state: str = "neutral"  # 总体状态
+    state_intensity: float = 0.5  # 状态强度
+    last_transition_time: Optional[float] = None  # 上次转换时间
     created_at: float = field(default_factory=time.time)
     last_updated: float = field(default_factory=time.time)
 

@@ -285,6 +285,12 @@ class V2LearningIntegration:
     def _create_knowledge_manager(self) -> Optional[Any]:
         """Create knowledge manager based on configured engine."""
         if self._config.knowledge_engine == "lightrag":
+            if not self._embedding_provider:
+                logger.warning(
+                    "[V2Integration] LightRAG requires an embedding provider "
+                    "but none is available; knowledge engine disabled"
+                )
+                return None
             try:
                 from ..integration import LightRAGKnowledgeManager
                 return LightRAGKnowledgeManager(

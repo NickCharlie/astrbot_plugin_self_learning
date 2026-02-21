@@ -482,36 +482,45 @@ class SocialContextInjector:
             # 获取用户社交关系
             relations_data = await self.database_manager.get_user_social_relations(group_id, user_id)
 
-            if relations_data['total_relations'] == 0:
+            # 兼容两种返回格式：旧版 {total_relations, outgoing, incoming} 和新版 {relations}
+            relations = relations_data.get('relations', [])
+            if not relations and relations_data.get('total_relations', 0) == 0:
                 # 缓存空结果
                 self._set_to_cache(cache_key, None)
                 return None
+            if not relations:
+                self._set_to_cache(cache_key, None)
+                return None
+
+            # 将 flat relations 分为 outgoing / incoming
+            outgoing = [r for r in relations if r.get('from_user_id', r.get('from_user', '')) == user_id]
+            incoming = [r for r in relations if r.get('to_user_id', r.get('to_user', '')) == user_id]
 
             # 格式化社交关系文本
             context_lines = []
             context_lines.append(f"【该用户的社交关系网络】")
 
             # 格式化发出的关系
-            if relations_data['outgoing']:
+            if outgoing:
                 context_lines.append(f"该用户的互动对象（按频率排序）：")
-                for i, relation in enumerate(relations_data['outgoing'][:5], 1): # 只显示前5个
-                    target = self._extract_user_id(relation['to_user'])
-                    relation_type = self._format_relation_type(relation['relation_type'])
-                    strength = relation['strength']
-                    frequency = relation['frequency']
+                for i, relation in enumerate(sorted(outgoing, key=lambda r: r.get('frequency', 0), reverse=True)[:5], 1):
+                    target = self._extract_user_id(relation.get('to_user_id', relation.get('to_user', '')))
+                    relation_type = self._format_relation_type(relation.get('relation_type', 'interaction'))
+                    strength = relation.get('value', relation.get('strength', 0))
+                    frequency = relation.get('frequency', 0)
 
                     context_lines.append(
                         f" {i}. 与 {target} - {relation_type}，强度: {strength:.1f}，互动{frequency}次"
                     )
 
             # 格式化接收的关系
-            if relations_data['incoming']:
+            if incoming:
                 context_lines.append(f"与该用户互动的成员（按频率排序）：")
-                for i, relation in enumerate(relations_data['incoming'][:5], 1): # 只显示前5个
-                    source = self._extract_user_id(relation['from_user'])
-                    relation_type = self._format_relation_type(relation['relation_type'])
-                    strength = relation['strength']
-                    frequency = relation['frequency']
+                for i, relation in enumerate(sorted(incoming, key=lambda r: r.get('frequency', 0), reverse=True)[:5], 1):
+                    source = self._extract_user_id(relation.get('from_user_id', relation.get('from_user', '')))
+                    relation_type = self._format_relation_type(relation.get('relation_type', 'interaction'))
+                    strength = relation.get('value', relation.get('strength', 0))
+                    frequency = relation.get('frequency', 0)
 
                     context_lines.append(
                         f" {i}. {source} - {relation_type}，强度: {strength:.1f}，互动{frequency}次"

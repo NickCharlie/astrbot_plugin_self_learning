@@ -41,11 +41,12 @@ class PsychologicalStateRepository(BaseRepository[CompositePsychologicalState]):
             state = await self.create(
                 group_id=group_id,
                 user_id=user_id,
+                state_id=f"{group_id}:{user_id}",
                 overall_state="neutral",
                 state_intensity=0.5,
                 last_transition_time=int(time.time()),
                 created_at=int(time.time()),
-                updated_at=int(time.time())
+                last_updated=int(time.time())
             )
 
         return state
@@ -78,7 +79,7 @@ class PsychologicalStateRepository(BaseRepository[CompositePsychologicalState]):
         if state_intensity is not None:
             state.state_intensity = state_intensity
 
-        state.updated_at = int(time.time())
+        state.last_updated = int(time.time())
 
         return await self.update(state)
 

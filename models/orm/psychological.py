@@ -12,8 +12,12 @@ class CompositePsychologicalState(Base):
     __tablename__ = 'composite_psychological_states'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(String(255), nullable=False, index=True, unique=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    user_id = Column(String(255), nullable=False, default='', server_default='')
     state_id = Column(String(255), nullable=False, unique=True)
+    overall_state = Column(String(100), nullable=False, default='neutral', server_default='neutral')
+    state_intensity = Column(Float, nullable=False, default=0.5)
+    last_transition_time = Column(BigInteger, nullable=True)
     triggering_events = Column(Text) # JSON 格式
     context = Column(Text) # JSON 格式
     created_at = Column(BigInteger, nullable=False)
@@ -24,6 +28,7 @@ class CompositePsychologicalState(Base):
 
     __table_args__ = (
         Index('idx_psych_state_group', 'group_id'),
+        Index('idx_psych_state_group_user', 'group_id', 'user_id', unique=True),
     )
 
 
