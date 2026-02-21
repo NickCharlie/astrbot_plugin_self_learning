@@ -100,7 +100,7 @@ class JargonInferenceEngine:
                 raw_content=raw_content_text
             )
 
-            response1 = await self.llm.generate(prompt1, temperature=0.3)
+            response1 = await self.llm.generate_response(prompt1, temperature=0.3)
             if not response1:
                 logger.warning(f"黑话 {content} 推断1失败：无响应")
                 return None
@@ -122,7 +122,7 @@ class JargonInferenceEngine:
 
             # 步骤2: 仅基于词条推断
             prompt2 = self.prompt_infer_content_only.format(content=content)
-            response2 = await self.llm.generate(prompt2, temperature=0.3)
+            response2 = await self.llm.generate_response(prompt2, temperature=0.3)
 
             if not response2:
                 logger.warning(f"黑话 {content} 推断2失败：无响应")
@@ -139,7 +139,7 @@ class JargonInferenceEngine:
                 inference2=json.dumps(inference2, ensure_ascii=False)
             )
 
-            response3 = await self.llm.generate(prompt3, temperature=0.3)
+            response3 = await self.llm.generate_response(prompt3, temperature=0.3)
             if not response3:
                 logger.warning(f"黑话 {content} 对比失败：无响应")
                 return None
@@ -283,7 +283,7 @@ class JargonMiner(AsyncServiceBase):
         prompt = self.extract_prompt_template.format(chat_str=chat_messages)
 
         try:
-            response = await self.llm.generate(prompt, temperature=0.2)
+            response = await self.llm.generate_response(prompt, temperature=0.2)
             if not response:
                 return []
 
