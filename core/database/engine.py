@@ -216,24 +216,23 @@ class DatabaseEngine:
 
     async def create_tables(self, enable_auto_migration: bool = False):
         """
-        创建所有表
+        创建所有表并补齐缺失列
 
         根据 ORM 模型自动创建表结构
         如果表已存在则跳过
 
         Args:
-            enable_auto_migration: 是否启用自动迁移（默认禁用）
+            enable_auto_migration: 是否启用完整建表（默认禁用）
         """
-        if not enable_auto_migration:
-            logger.info("[DatabaseEngine] 数据库自动迁移已禁用，跳过表创建")
-            return
-
         try:
-            async with self.engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            logger.info("[DatabaseEngine] 数据库表结构创建完成")
+            if enable_auto_migration:
+                async with self.engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("[DatabaseEngine] 数据库表结构创建完成")
+            else:
+                logger.debug("[DatabaseEngine] 完整建表已禁用，仅执行列补齐")
 
-            # 补齐已有表的缺失列（create_all 不会 ALTER 已存在的表）
+            # 补齐已有表的缺失列（非破坏性，总是执行）
             await self._auto_add_missing_columns()
 
         except Exception as e:
