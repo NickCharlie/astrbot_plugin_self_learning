@@ -20,15 +20,17 @@ class PersonaFacade(BaseFacade):
             async with self.get_session() as session:
                 from ....models.orm.psychological import PersonaBackup
 
+                now = time.time()
                 backup = PersonaBackup(
                     group_id=backup_data.get('group_id', 'default'),
-                    backup_name=backup_data.get('backup_name', f'backup_{int(time.time())}'),
-                    timestamp=time.time(),
+                    backup_name=backup_data.get('backup_name', f'backup_{int(now)}'),
+                    timestamp=now,
                     reason=backup_data.get('reason', ''),
                     persona_config=json.dumps(backup_data.get('persona_config', {}), ensure_ascii=False),
                     original_persona=json.dumps(backup_data.get('original_persona', {}), ensure_ascii=False),
                     imitation_dialogues=json.dumps(backup_data.get('imitation_dialogues', []), ensure_ascii=False),
                     backup_reason=backup_data.get('backup_reason', ''),
+                    backup_time=now,
                 )
                 session.add(backup)
                 await session.commit()

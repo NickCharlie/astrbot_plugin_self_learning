@@ -229,6 +229,7 @@ class PersonaBackup(Base):
     original_persona = Column(Text) # JSON
     imitation_dialogues = Column(Text) # JSON
     backup_reason = Column(Text)
+    backup_time = Column(Float, nullable=True)  # legacy column in production DB
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
