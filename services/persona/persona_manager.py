@@ -59,7 +59,7 @@ class PersonaManagerService(IPersonaManager):
         try:
             self._logger.info(f"PersonaManagerService: Updating persona for group {group_id}...")
             # 在更新前创建备份（如果启用）
-            if getattr(self.config, 'persona_update_backup_enabled', False):
+            if getattr(self.config, 'auto_backup_enabled', False):
                 backup_id = await self._persona_backup_manager.create_backup_before_update(
                     group_id,
                     f"Style update initiated by PersonaManagerService for group {group_id}"

@@ -82,7 +82,7 @@ class PersonaUpdater(IPersonaUpdater):
             
             # 创建备份（如果启用）
             backup_id = None
-            if self.config.persona_update_backup_enabled:
+            if getattr(self.config, 'auto_backup_enabled', False):
                 try:
                     backup_id = await self.backup_manager.create_backup_before_update(
                         group_id, 
@@ -700,7 +700,7 @@ class PersonaUpdater(IPersonaUpdater):
                 return False
             
             # 如果启用备份，先创建备份persona
-            if self.config.persona_update_backup_enabled:
+            if getattr(self.config, 'auto_backup_enabled', False):
                 await self._create_backup_persona_with_manager(group_id)
             
             # 应用增量更新
