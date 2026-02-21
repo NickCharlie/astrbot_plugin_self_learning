@@ -779,25 +779,6 @@ class ComponentFactory:
         prompts = self.service_factory.get_prompts() # 获取 prompts
         return ActualPersonaUpdater(self.config, context, backup_manager, None, prompts)
 
-    @cached_service("data_analytics")
-    def create_data_analytics_service(self):
-        """创建数据分析与可视化服务"""
-        try:
-            from ..services.analysis import DataAnalyticsService
-
-            service = DataAnalyticsService(
-                self.config,
-                self.service_factory.create_database_manager()
-            )
-            self._registry.register_service("data_analytics", service)
-            
-            self._logger.info("创建数据分析服务成功")
-            return service
-            
-        except ImportError as e:
-            self._logger.error(f"导入数据分析服务失败: {e}", exc_info=True)
-            raise ServiceError(f"创建数据分析服务失败: {str(e)}")
-
     @cached_service("advanced_learning")
     def create_advanced_learning_service(self):
         """创建高级学习机制服务"""

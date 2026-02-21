@@ -59,7 +59,6 @@ class PluginLifecycle:
 
             # ------ ComponentFactory 创建高级服务 ------
             component_factory = p.factory_manager.get_component_factory()
-            p.data_analytics = component_factory.create_data_analytics_service()
             p.advanced_learning = component_factory.create_advanced_learning_service()
             p.enhanced_interaction = component_factory.create_enhanced_interaction_service()
             p.intelligence_enhancement = component_factory.create_intelligence_enhancement_service()
