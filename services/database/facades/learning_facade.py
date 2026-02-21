@@ -846,20 +846,35 @@ class LearningFacade(BaseFacade):
         try:
             async with self.get_session() as session:
                 from ....models.orm.learning import LearningSession
+                from sqlalchemy import select
 
-                record = LearningSession(
-                    session_id=session_data.get('session_id', ''),
-                    group_id=group_id,
-                    batch_id=session_data.get('batch_id'),
-                    start_time=self._to_float_ts(
-                        session_data.get('start_time'), default=time.time()
-                    ),
-                    end_time=self._to_float_ts(session_data.get('end_time')),
-                    message_count=session_data.get('message_count', 0),
-                    learning_quality=session_data.get('learning_quality'),
-                    status=session_data.get('status', 'active'),
-                )
-                session.add(record)
+                sid = session_data.get('session_id', '')
+
+                # 检查是否已存在，存在则更新
+                existing = (await session.execute(
+                    select(LearningSession).where(LearningSession.session_id == sid)
+                )).scalar_one_or_none()
+
+                if existing:
+                    existing.message_count = session_data.get('message_count', existing.message_count)
+                    existing.end_time = self._to_float_ts(session_data.get('end_time')) or existing.end_time
+                    existing.learning_quality = session_data.get('learning_quality') or existing.learning_quality
+                    existing.status = session_data.get('status', existing.status)
+                else:
+                    existing = LearningSession(
+                        session_id=sid,
+                        group_id=group_id,
+                        batch_id=session_data.get('batch_id'),
+                        start_time=self._to_float_ts(
+                            session_data.get('start_time'), default=time.time()
+                        ),
+                        end_time=self._to_float_ts(session_data.get('end_time')),
+                        message_count=session_data.get('message_count', 0),
+                        learning_quality=session_data.get('learning_quality'),
+                        status=session_data.get('status', 'active'),
+                    )
+                    session.add(existing)
+
                 await session.commit()
                 return True
         except Exception as e:
