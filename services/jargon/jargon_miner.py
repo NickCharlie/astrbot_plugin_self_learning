@@ -201,24 +201,34 @@ class JargonMiner(AsyncServiceBase):
         self.extract_prompt_template = """**聊天内容**
 {chat_str}
 
-请从上面这段聊天内容中提取"可能是黑话"的候选项（黑话/俚语/网络缩写/口头禅）。
-- 必须为对话中真实出现过的短词或短语
-- 必须是你无法理解含义的词语，没有明确含义的词语
-- 请不要选择有明确含义，或者含义清晰的词语
-- 排除：人名、@、表情包/图片中的内容、纯标点、常规功能词（如的、了、呢、啊等）
-- 每个词条长度建议 2-8 个字符（不强制），尽量短小
-- 合并重复项，去重
+请从上面这段聊天内容中提取"黑话/俚语/网络缩写"候选项。
 
-黑话必须为以下几种类型：
-- 由字母构成的，汉语拼音首字母的简写词，例如：nb、yyds、xswl
-- 英文词语的缩写，用英文字母概括一个词汇或含义，例如：CPU、GPU、API
-- 中文词语的缩写，用几个汉字概括一个词汇或含义，例如：社死、内卷
+**必须满足的条件（全部满足才提取）：**
+- 是对话中真实出现过的短词或短语（2-8个字符）
+- 是特定圈子/群组才会使用的词语，普通人看不懂的
+- 脱离上下文后无法理解其含义
 
-以 JSON 数组输出，元素为对象（严格按以下结构）：
+**严格排除以下内容（出现即跳过）：**
+- @xxx、@某人 等 at 提及
+- 人名、昵称、群名、ID
+- 日常用语：吃饭、睡觉、上班、回家、好的、可以、谢谢 等
+- 常见名词：手机、电脑、学校、公司、时间 等
+- 语气词：哈哈、嗯嗯、啊啊、呵呵 等
+- 表情描述：[图片]、[表情]、[语音] 等
+- 纯数字、纯标点、URL链接
+- 含义清晰明确的词语（即使不常见）
+
+**黑话的典型特征：**
+- 拼音首字母缩写：yyds、xswl、nbcs、zqsg
+- 特定圈子内的暗语、缩写、谐音梗
+- 群内独创的表达方式，外人无法理解
+
+以 JSON 数组输出（严格按结构）：
 [
-  {{"content": "词条", "raw_content": "包含该词条的完整对话上下文原文"}},
-  {{"content": "词条2", "raw_content": "包含该词条的完整对话上下文原文"}}
+  {{"content": "词条", "raw_content": "包含该词条的完整对话上下文原文"}}
 ]
+
+如果没有找到符合条件的黑话，输出空数组 []
 
 现在请输出："""
 
@@ -268,6 +278,7 @@ class JargonMiner(AsyncServiceBase):
         chat_messages: str
     ) -> List[Dict[str, Any]]:
         """使用LLM提取候选黑话"""
+        import re
 
         prompt = self.extract_prompt_template.format(chat_str=chat_messages)
 
@@ -297,6 +308,10 @@ class JargonMiner(AsyncServiceBase):
                 if not content:
                     continue
 
+                # 硬编码过滤：@mention、纯数字、过短/过长、常见词
+                if self._should_filter_candidate(content):
+                    continue
+
                 # 处理 raw_content
                 if isinstance(raw_content, list):
                     raw_content_list = [str(rc).strip() for rc in raw_content if str(rc).strip()]
@@ -316,6 +331,52 @@ class JargonMiner(AsyncServiceBase):
         except Exception as e:
             logger.error(f"提取黑话候选失败: {e}")
             return []
+
+    @staticmethod
+    def _should_filter_candidate(content: str) -> bool:
+        """硬编码过滤规则，过滤明显不是黑话的候选项"""
+        import re
+
+        # 包含 @ 的（@mention）
+        if '@' in content:
+            return True
+
+        # 纯数字
+        if re.match(r'^[\d\s.]+$', content):
+            return True
+
+        # 纯标点/特殊字符
+        if re.match(r'^[^\w\u4e00-\u9fff]+$', content):
+            return True
+
+        # 太短（单字）或太长（>15字符）
+        if len(content) < 2 or len(content) > 15:
+            return True
+
+        # [图片] [表情] 等标记
+        if re.match(r'^\[.+\]$', content):
+            return True
+
+        # URL
+        if re.match(r'https?://', content):
+            return True
+
+        # 常见日常词汇（不是黑话）
+        _COMMON_WORDS = frozenset({
+            "吃饭", "睡觉", "上班", "下班", "回家", "出门", "上课",
+            "工作", "学习", "考试", "运动", "休息", "洗澡",
+            "好的", "可以", "谢谢", "没事", "不用", "不是", "没有",
+            "手机", "电脑", "学校", "公司", "医院", "超市",
+            "今天", "昨天", "明天", "现在", "刚才", "马上",
+            "哈哈", "哈哈哈", "嗯嗯", "呵呵", "嘻嘻", "啊啊",
+            "朋友", "同学", "老师", "家人", "爸爸", "妈妈",
+            "真的", "确实", "其实", "当然", "觉得", "感觉",
+            "知道", "不知道", "怎么", "什么", "为什么", "这个", "那个",
+        })
+        if content in _COMMON_WORDS:
+            return True
+
+        return False
 
     async def save_or_update_jargon(
         self,

@@ -26,7 +26,7 @@ from astrbot.api import logger
 _MIN_TERM_LENGTH = 2
 
 # Minimum frequency in a group before a term is considered.
-_MIN_FREQUENCY = 3
+_MIN_FREQUENCY = 5
 
 # Maximum number of context examples to retain per term.
 _MAX_CONTEXT_EXAMPLES = 10
@@ -236,16 +236,31 @@ class JargonStatisticalFilter:
         """Segment text into tokens using jieba.
 
         Returns tokens with length >= _MIN_TERM_LENGTH, excluding
-        common stopwords and punctuation.
+        common stopwords, punctuation, @mentions, URLs, and pure numbers.
         """
+        import re
+
+        # 预处理：移除 @mention、URL、纯数字序列
+        text = re.sub(r'@\S+', '', text)
+        text = re.sub(r'https?://\S+', '', text)
+        text = re.sub(r'\[.*?\]', '', text)  # 移除 [图片] [表情] 等
+
         self._ensure_jieba()
         import jieba
 
         tokens = []
         for word in jieba.cut(text):
             word = word.strip()
-            if len(word) >= _MIN_TERM_LENGTH and not self._is_stopword(word):
-                tokens.append(word)
+            if len(word) < _MIN_TERM_LENGTH:
+                continue
+            if self._is_stopword(word):
+                continue
+            # 跳过纯数字、纯标点、纯英文常见词
+            if re.match(r'^[\d\s]+$', word):
+                continue
+            if re.match(r'^[^\w]+$', word):
+                continue
+            tokens.append(word)
         return tokens
 
     def _ensure_jieba(self) -> None:
@@ -275,8 +290,9 @@ class JargonStatisticalFilter:
 
     @staticmethod
     def _is_stopword(word: str) -> bool:
-        """Quick check for common Chinese stopwords and punctuation."""
+        """Quick check for common Chinese stopwords, punctuation, and everyday words."""
         _STOPWORDS = frozenset({
+            # 虚词/助词/语气词
             "的", "了", "在", "是", "我", "有", "和", "就",
             "不", "人", "都", "一", "个", "上", "也", "很",
             "到", "说", "要", "去", "你", "会", "着", "没",
@@ -286,5 +302,30 @@ class JargonStatisticalFilter:
             "来", "对", "把", "让", "被", "给", "从", "还",
             "比", "得", "过", "可", "能", "为", "以", "而",
             "但", "或", "如", "与", "等", "及", "其", "之",
+            # 代词/指示词
+            "这个", "那个", "什么", "怎么", "哪里", "这里", "那里",
+            "自己", "大家", "我们", "你们", "他们", "她们", "谁",
+            "哪个", "这些", "那些", "多少", "几个", "某个", "别人",
+            # 常见动词
+            "知道", "觉得", "感觉", "可以", "应该", "需要", "已经",
+            "开始", "然后", "因为", "所以", "虽然", "如果", "虽然",
+            "不是", "没有", "不会", "不能", "不要", "不用", "不行",
+            "出来", "出去", "进来", "起来", "下去", "回来", "过来",
+            "喜欢", "希望", "想要", "能够", "可能", "一定", "必须",
+            "告诉", "问题", "时候", "东西", "事情", "地方", "方面",
+            # 时间词
+            "今天", "昨天", "明天", "现在", "刚才", "以前", "以后",
+            "时间", "上午", "下午", "晚上", "早上", "中午",
+            # 常见形容词/副词
+            "真的", "确实", "其实", "当然", "特别", "非常", "一直",
+            "已经", "还是", "而且", "只是", "只有", "所有", "一些",
+            "比较", "最后", "首先", "然后", "接着", "终于", "竟然",
+            # 常见名词
+            "朋友", "老师", "同学", "学生", "家里", "公司", "学校",
+            "手机", "电脑", "工作", "生活", "问题",
+            # 网络常用但含义明确的词（不是黑话）
+            "哈哈", "哈哈哈", "呵呵", "嘻嘻", "啊啊", "嗯嗯",
+            "谢谢", "感谢", "抱歉", "不好意思", "没关系",
+            "图片", "表情", "语音", "视频", "文件", "链接",
         })
         return word in _STOPWORDS
