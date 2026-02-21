@@ -221,6 +221,7 @@ class PersonaBackup(Base):
     __tablename__ = 'persona_backups'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    group_id = Column(String(255), nullable=False, default='default', server_default='default', index=True)
     backup_name = Column(String(255), nullable=False)
     timestamp = Column(Float, nullable=False)
     reason = Column(Text)

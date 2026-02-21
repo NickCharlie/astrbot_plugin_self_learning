@@ -21,6 +21,7 @@ class PersonaFacade(BaseFacade):
                 from ....models.orm.psychological import PersonaBackup
 
                 backup = PersonaBackup(
+                    group_id=backup_data.get('group_id', 'default'),
                     backup_name=backup_data.get('backup_name', f'backup_{int(time.time())}'),
                     timestamp=time.time(),
                     reason=backup_data.get('reason', ''),
