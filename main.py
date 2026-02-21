@@ -39,6 +39,19 @@ class SelfLearningPlugin(star.Star):
         self.context = context
         self.config = config or {}
 
+        # Pre-initialize handler-accessed attributes so they exist even if
+        # bootstrap() fails.  Without this, a bootstrap exception propagates
+        # through __init__, AstrBot's star_manager skips functools.partial
+        # handler binding, and every handler call crashes with
+        # "missing 1 required positional argument: 'event'".
+        self.db_manager = None
+        self._pipeline = None
+        self._hook_handler = None
+        self._command_handlers = None
+        self._command_filter = None
+        self.qq_filter = None
+        self.plugin_config = None
+
         # ------ 插件配置加载 ------
         try:
             astrbot_data_path = get_astrbot_data_path()
@@ -94,17 +107,27 @@ class SelfLearningPlugin(star.Star):
         self._perf_tracker = PerfTracker(maxlen=200)
 
         # ------ 委托生命周期编排 ------
+        # Wrapped in try/except: if bootstrap() raises, AstrBot's
+        # star_manager catches the exception at the outer BaseException
+        # handler, which skips functools.partial handler binding entirely.
+        # The unbound handlers then remain in star_handlers_registry and
+        # get invoked without `self`, causing the "missing argument" crash.
         self._lifecycle = PluginLifecycle(self)
-        self._lifecycle.bootstrap(
-            self.plugin_config, self.context, self.group_id_to_unified_origin
-        )
+        try:
+            self._lifecycle.bootstrap(
+                self.plugin_config, self.context, self.group_id_to_unified_origin
+            )
+        except Exception as e:
+            logger.error(
+                f"插件服务编排失败，部分功能将不可用: {e}", exc_info=True
+            )
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
     # 生命周期
 
-    async def on_load(self):
-        """插件加载时启动 DB / 服务 / WebUI"""
+    async def initialize(self):
+        """AstrBot 在完成 handler 绑定后调用此方法"""
         await self._lifecycle.on_load()
 
     async def terminate(self):
@@ -117,7 +140,8 @@ class SelfLearningPlugin(star.Star):
     async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
         try:
-            if not self.db_manager or not self.db_manager.engine:
+            db = getattr(self, 'db_manager', None)
+            if not db or not db.engine:
                 return
 
             message_text = event.get_message_str()
@@ -128,25 +152,36 @@ class SelfLearningPlugin(star.Star):
             sender_id = event.get_sender_id()
 
             # 好感度处理（后台，仅 at/唤醒消息）
-            if event.is_at_or_wake_command and self.plugin_config.enable_affection_system:
+            pipeline = getattr(self, '_pipeline', None)
+            if (
+                event.is_at_or_wake_command
+                and self.plugin_config
+                and self.plugin_config.enable_affection_system
+                and pipeline
+            ):
                 asyncio.create_task(
-                    self._pipeline.process_affection(group_id, sender_id, message_text)
+                    pipeline.process_affection(group_id, sender_id, message_text)
                 )
 
-            if not self.plugin_config.enable_message_capture:
+            if not self.plugin_config or not self.plugin_config.enable_message_capture:
                 return
 
             # 命令过滤
-            if self._command_filter.is_astrbot_command(event):
+            cmd_filter = getattr(self, '_command_filter', None)
+            if cmd_filter and cmd_filter.is_astrbot_command(event):
                 logger.debug(f"检测到AstrBot命令，跳过学习数据收集: {message_text}")
                 return
 
-            if not self.qq_filter.should_collect_message(sender_id, group_id):
+            qq_filter = getattr(self, 'qq_filter', None)
+            if qq_filter and not qq_filter.should_collect_message(sender_id, group_id):
+                return
+
+            if not pipeline:
                 return
 
             # 后台学习流水线
             asyncio.create_task(
-                self._pipeline.process_learning(group_id, sender_id, message_text, event)
+                pipeline.process_learning(group_id, sender_id, message_text, event)
             )
 
             self.learning_stats.total_messages_collected += 1
@@ -160,7 +195,9 @@ class SelfLearningPlugin(star.Star):
     @filter.on_llm_request()
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """LLM Hook — inject diversity, social context, V2, jargon into request."""
-        await self._hook_handler.handle(event, req)
+        handler = getattr(self, '_hook_handler', None)
+        if handler:
+            await handler.handle(event, req)
 
     # 命令处理器（薄委托）
 
