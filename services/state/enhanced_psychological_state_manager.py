@@ -314,10 +314,14 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
             injection_parts.append(f"当前整体心理状态: {state.overall_state}")
 
             # 添加各维度状态
-            for dimension, component in state.components.items():
+            components = state.components if isinstance(state.components, list) else []
+            for component in components:
+                dimension = getattr(component, 'category', '') or getattr(component, 'state_type', '')
+                value = getattr(component, 'value', 0.0)
+                state_type = getattr(component, 'state_type', '')
                 injection_parts.append(
-                    f"{dimension}: {component.state_type} "
-                    f"(强度: {component.value:.2f})"
+                    f"{dimension}: {state_type} "
+                    f"(强度: {value:.2f})"
                 )
 
             return "\n".join(injection_parts)
