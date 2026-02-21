@@ -82,11 +82,11 @@ class ExpressionFacade(BaseFacade):
 
                 cutoff = time.time() - (hours * 3600)
                 stmt = select(ExpressionPattern).where(
-                    ExpressionPattern.last_adapted_at >= cutoff
+                    ExpressionPattern.last_active_time >= cutoff
                 )
                 if group_id:
                     stmt = stmt.where(ExpressionPattern.group_id == group_id)
-                stmt = stmt.order_by(desc(ExpressionPattern.usage_count)).limit(limit)
+                stmt = stmt.order_by(desc(ExpressionPattern.weight)).limit(limit)
 
                 result = await session.execute(stmt)
                 return [self._row_to_dict(p) for p in result.scalars().all()]
