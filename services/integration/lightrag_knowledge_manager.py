@@ -384,13 +384,16 @@ class LightRAGKnowledgeManager:
     def _make_embedding_func(self):
         """Build an async callable matching LightRAG's embedding function.
 
-        LightRAG expects::
-
-            async def func(texts: list[str]) -> list[list[float]]
+        LightRAG expects the return value to be a **numpy array** (it
+        accesses ``result.size`` internally). Our ``IEmbeddingProvider``
+        returns ``list[list[float]]``, so we convert here.
         """
+        import numpy as np
+
         embedding = self._embedding
 
-        async def _embedding_bridge(texts: list) -> list:
-            return await embedding.get_embeddings(texts)
+        async def _embedding_bridge(texts: list) -> "np.ndarray":
+            result = await embedding.get_embeddings(texts)
+            return np.array(result)
 
         return _embedding_bridge
