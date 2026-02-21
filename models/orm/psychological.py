@@ -230,6 +230,7 @@ class PersonaBackup(Base):
     imitation_dialogues = Column(Text) # JSON
     backup_reason = Column(Text)
     backup_time = Column(Float, nullable=True)  # legacy column in production DB
+    persona_content = Column(Text, nullable=True, default='', server_default='')  # legacy column in production DB
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
