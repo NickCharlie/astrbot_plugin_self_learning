@@ -233,6 +233,9 @@ class DatabaseEngine:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("[DatabaseEngine] 数据库表结构创建完成")
 
+            # 补齐已有表的缺失列（create_all 不会 ALTER 已存在的表）
+            await self._auto_add_missing_columns()
+
         except Exception as e:
             error_msg = str(e).lower()
             if 'index' in error_msg and 'already exists' in error_msg:
@@ -240,6 +243,64 @@ class DatabaseEngine:
             else:
                 logger.error(f"[DatabaseEngine] 创建表失败: {e}")
                 raise
+
+    async def _auto_add_missing_columns(self):
+        """检测并补齐已有表的缺失列（轻量级 auto-migration）"""
+        try:
+            from sqlalchemy import text, inspect as sa_inspect
+
+            async with self.engine.begin() as conn:
+                # 获取数据库中实际的列信息
+                def _get_existing_columns(sync_conn):
+                    insp = sa_inspect(sync_conn)
+                    result = {}
+                    for table_name in insp.get_table_names():
+                        result[table_name] = {
+                            col['name'] for col in insp.get_columns(table_name)
+                        }
+                    return result
+
+                existing = await conn.run_sync(_get_existing_columns)
+
+            # 对比 ORM 定义，收集需要 ALTER 的列
+            alter_statements = []
+            for table in Base.metadata.sorted_tables:
+                if table.name not in existing:
+                    continue  # 新表，create_all 已处理
+                db_cols = existing[table.name]
+                for col in table.columns:
+                    if col.name not in db_cols:
+                        col_type = col.type.compile(self.engine.dialect)
+                        nullable = "NULL" if col.nullable else "NOT NULL"
+                        default = ""
+                        if col.server_default is not None:
+                            default = f" DEFAULT {col.server_default.arg!r}"
+                        elif col.default is not None and col.default.is_scalar:
+                            default = f" DEFAULT {col.default.arg!r}"
+                        alter_statements.append(
+                            f"ALTER TABLE `{table.name}` ADD COLUMN "
+                            f"`{col.name}` {col_type} {nullable}{default}"
+                        )
+
+            if alter_statements:
+                async with self.engine.begin() as conn:
+                    for stmt in alter_statements:
+                        try:
+                            await conn.execute(text(stmt))
+                            logger.info(f"[DatabaseEngine] 自动迁移: {stmt}")
+                        except Exception as col_err:
+                            # 列可能已经被其他实例添加
+                            if 'duplicate column' in str(col_err).lower():
+                                pass
+                            else:
+                                logger.warning(
+                                    f"[DatabaseEngine] 自动迁移列失败: {col_err}"
+                                )
+            else:
+                logger.debug("[DatabaseEngine] 所有表列已与 ORM 模型一致")
+
+        except Exception as e:
+            logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
 
     async def drop_tables(self):
         """
