@@ -626,10 +626,10 @@ class SQLAlchemyDatabaseManager:
         return await self._expression.get_group_expression_patterns(group_id, limit)
 
     async def get_recent_week_expression_patterns(
-        self, group_id: str = None, limit: int = 50,
+        self, group_id: str = None, limit: int = 50, hours: int = 168,
     ) -> List[Dict[str, Any]]:
         return await self._expression.get_recent_week_expression_patterns(
-            group_id, limit,
+            group_id, limit, hours,
         )
 
     async def load_style_profile(

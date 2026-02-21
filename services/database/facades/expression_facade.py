@@ -72,15 +72,15 @@ class ExpressionFacade(BaseFacade):
             return []
 
     async def get_recent_week_expression_patterns(
-        self, group_id: str = None, limit: int = 50
+        self, group_id: str = None, limit: int = 50, hours: int = 168
     ) -> List[Dict[str, Any]]:
-        """获取最近一周的表达模式"""
+        """获取最近指定时间范围的表达模式"""
         try:
             async with self.get_session() as session:
                 from sqlalchemy import select, desc
                 from ....models.orm.expression import ExpressionPattern
 
-                cutoff = time.time() - (7 * 24 * 3600)
+                cutoff = time.time() - (hours * 3600)
                 stmt = select(ExpressionPattern).where(
                     ExpressionPattern.last_adapted_at >= cutoff
                 )
