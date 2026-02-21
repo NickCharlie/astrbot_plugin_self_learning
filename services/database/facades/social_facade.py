@@ -188,13 +188,39 @@ class SocialFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.social_relation import UserSocialRelationComponent
+                from ....models.orm.social_relation import (
+                    UserSocialRelationComponent,
+                    UserSocialProfile,
+                )
+                from sqlalchemy import select
                 import time as _time
 
                 now = int(_time.time())
+                from_user = relation_data.get('from_user', relation_data.get('from_user_id', ''))
+
+                # 获取或创建 from_user 的 profile 以满足外键约束
+                stmt = select(UserSocialProfile).where(
+                    UserSocialProfile.user_id == from_user,
+                    UserSocialProfile.group_id == group_id,
+                )
+                result = await session.execute(stmt)
+                profile = result.scalars().first()
+
+                if not profile:
+                    profile = UserSocialProfile(
+                        user_id=from_user,
+                        group_id=group_id,
+                        total_relations=0,
+                        significant_relations=0,
+                        created_at=now,
+                        last_updated=now,
+                    )
+                    session.add(profile)
+                    await session.flush()  # 获取自增 id
+
                 component = UserSocialRelationComponent(
-                    profile_id=0,  # 无关联 profile 时使用占位值
-                    from_user_id=relation_data.get('from_user', relation_data.get('from_user_id', '')),
+                    profile_id=profile.id,
+                    from_user_id=from_user,
                     to_user_id=relation_data.get('to_user', relation_data.get('to_user_id', '')),
                     group_id=group_id,
                     relation_type=relation_data.get('relation_type', 'interaction'),
