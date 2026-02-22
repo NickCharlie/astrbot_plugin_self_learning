@@ -181,7 +181,7 @@ class PluginCommandHandlers:
             )
 
             try:
-                await self._progressive_learning._execute_learning_batch(group_id)
+                await self._progressive_learning._execute_learning_batch(group_id, from_force_learning=True)
                 yield event.plain_result(" 学习批次执行完成")
             except Exception as batch_error:
                 yield event.plain_result(f" 学习批次执行失败: {str(batch_error)}")
@@ -230,7 +230,7 @@ class PluginCommandHandlers:
 
             self._force_learning_in_progress.add(group_id)
             try:
-                await self._progressive_learning._execute_learning_batch(group_id)
+                await self._progressive_learning._execute_learning_batch(group_id, from_force_learning=True)
                 yield event.plain_result(
                     CommandMessages.FORCE_LEARNING_COMPLETE.format(group_id=group_id)
                 )

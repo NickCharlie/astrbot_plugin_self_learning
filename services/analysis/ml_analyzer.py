@@ -63,7 +63,7 @@ class LightweightMLAnalyzer:
         
         logger.info("轻量级ML分析器初始化完成")
 
-    async def reinforcement_memory_replay(self, group_id: str, new_messages: List[Dict[str, Any]], current_persona: Dict[str, Any]) -> Dict[str, Any]:
+    async def reinforcement_memory_replay(self, group_id: str, new_messages: List[Dict[str, Any]], current_persona: Dict[str, Any], from_learning_batch: bool = False) -> Dict[str, Any]:
         """
         强化学习记忆重放：通过强化模型分析历史数据和新数据的关联性，优化学习策略
         """
@@ -72,18 +72,9 @@ class LightweightMLAnalyzer:
             return {}
 
         try:
-            # 检查是否在学习流程中，避免在force_learning过程中重复调用
-            import inspect
-            current_frame = inspect.currentframe()
-            call_stack = []
-            frame = current_frame
-            while frame:
-                call_stack.append(frame.f_code.co_name)
-                frame = frame.f_back
-            
-            learning_methods = ['_execute_learning_batch', 'force_learning_command']
-            if any(method in call_stack for method in learning_methods):
-                logger.debug(f"检测到正在强制学习流程中，适度降低强化学习记忆重放的调用频率")
+            # 在学习流程中适度降低强化学习记忆重放的复杂度
+            if from_learning_batch:
+                logger.debug("检测到正在学习流程中，适度降低强化学习记忆重放的调用频率")
                 # 在学习流程中仍然执行，但减少复杂度
                 pass
 
@@ -400,20 +391,9 @@ class LightweightMLAnalyzer:
                     # 将强化学习结果集成到system_prompt
                     if self.temporary_persona_updater:
                         try:
-                            # 检查是否在强制学习过程中，避免无限循环
-                            # 通过检查调用栈来判断是否已经在学习流程中
-                            import inspect
-                            current_frame = inspect.currentframe()
-                            call_stack = []
-                            frame = current_frame
-                            while frame:
-                                call_stack.append(frame.f_code.co_name)
-                                frame = frame.f_back
-                            
-                            # 如果调用栈中包含学习相关的方法，说明正在学习流程中，跳过system_prompt更新
-                            learning_methods = ['_execute_learning_batch', 'force_learning_command', '_apply_learning_updates']
-                            if any(method in call_stack for method in learning_methods):
-                                logger.debug(f"检测到正在学习流程中，跳过记忆重放的system_prompt集成以避免循环")
+                            # 在学习流程中跳过system_prompt更新以避免循环
+                            if from_learning_batch:
+                                logger.debug("检测到正在学习流程中，跳过记忆重放的system_prompt集成以避免循环")
                             else:
                                 # 准备学习洞察更新数据
                                 insights_data = {
