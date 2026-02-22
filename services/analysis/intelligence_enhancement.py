@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from collections import defaultdict, Counter
 from dataclasses import dataclass, asdict
 
-import numpy as np
 import networkx as nx
 
 from astrbot.api import logger
@@ -398,7 +397,7 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                     similarity_scores.append(similarity)
         
         if similarity_scores:
-            return np.mean(similarity_scores)
+            return sum(similarity_scores) / len(similarity_scores)
         else:
             return 0.5
     
@@ -413,11 +412,12 @@ class IntelligenceEnhancementService(AsyncServiceBase):
         for emotion in self.emotion_keywords.keys():
             scores = [record['emotions'].get(emotion, 0) for record in profile.emotion_history[-20:]]
             if scores:
-                variance = np.var(scores)
+                mean_s = sum(scores) / len(scores)
+                variance = sum((x - mean_s) ** 2 for x in scores) / len(scores)
                 emotion_variances.append(variance)
         
         if emotion_variances:
-            avg_variance = np.mean(emotion_variances)
+            avg_variance = sum(emotion_variances) / len(emotion_variances)
             stability = max(0, 1 - (avg_variance * 2))  # 方差越小，稳定性越高
             return stability
         else:

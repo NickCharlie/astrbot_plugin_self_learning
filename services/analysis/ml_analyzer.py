@@ -1,7 +1,10 @@
 """
 轻量级机器学习分析器 - 使用简单的ML算法进行数据分析
 """
-import numpy as np
+try:
+    import numpy as np
+except ImportError:
+    np = None  # type: ignore[assignment]
 import json
 import time
 import pandas as pd # 导入 pandas

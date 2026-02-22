@@ -11,8 +11,6 @@ from datetime import datetime, timedelta
 from collections import defaultdict, deque
 from dataclasses import dataclass, asdict
 
-import numpy as np
-
 from astrbot.api import logger
 
 from ...config import PluginConfig
@@ -345,7 +343,7 @@ class EnhancedInteractionService(AsyncServiceBase):
                 behavior.get('avg_message_length', 0) 
                 for behavior in memory.group_behaviors.values()
             ]
-            profile['global_avg_message_length'] = np.mean(avg_lengths) if avg_lengths else 0
+            profile['global_avg_message_length'] = (sum(avg_lengths) / len(avg_lengths)) if avg_lengths else 0
             
             # 活跃群组数
             profile['active_groups'] = len([
@@ -363,8 +361,9 @@ class EnhancedInteractionService(AsyncServiceBase):
         
         # 消息长度一致性
         lengths = [b.get('avg_message_length', 0) for b in group_behaviors.values()]
-        length_std = np.std(lengths)
-        length_consistency = max(0, 1 - (length_std / (np.mean(lengths) + 1)))
+        mean_len = sum(lengths) / len(lengths) if lengths else 0
+        length_std = (sum((x - mean_len) ** 2 for x in lengths) / len(lengths)) ** 0.5 if lengths else 0
+        length_consistency = max(0, 1 - (length_std / (mean_len + 1)))
         
         # 活跃度模式一致性（简化计算）
         activity_consistency = 0.8  # 暂时使用固定值，可扩展
