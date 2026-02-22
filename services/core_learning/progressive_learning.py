@@ -208,7 +208,7 @@ class ProgressiveLearningService:
                 await self.db_manager.save_learning_session_record(group_id, session.__dict__)
             logger.info(f"学习循环结束 for group {group_id}")
 
-    async def _execute_learning_batch(self, group_id: str, relearn_mode: bool = False):
+    async def _execute_learning_batch(self, group_id: str, relearn_mode: bool = False, from_force_learning: bool = False):
         """执行一个学习批次 - 集成强化学习
 
         Args:
@@ -254,23 +254,15 @@ class ProgressiveLearningService:
             # 3. 获取当前人格设置 (针对特定群组)
             current_persona = await self._get_current_persona(group_id)
             
-            # 4. 【新增】强化学习记忆重放 - 在force_learning中减少调用频率
+            # 4. 强化学习记忆重放 - 在force_learning中跳过以避免无限循环
             if self.config.enable_ml_analysis:
                 try:
-                    # 检查是否为force_learning调用，如果是则跳过记忆重放避免无限循环
-                    import inspect
-                    current_frame = inspect.currentframe()
-                    call_stack = []
-                    frame = current_frame
-                    while frame:
-                        call_stack.append(frame.f_code.co_name)
-                        frame = frame.f_back
-                    
-                    if 'force_learning_command' in call_stack:
+                    if from_force_learning:
                         logger.debug("force_learning中跳过强化学习记忆重放，避免无限循环")
                     else:
                         reinforcement_result = await self.ml_analyzer.reinforcement_memory_replay(
-                            group_id, filtered_messages, current_persona
+                            group_id, filtered_messages, current_persona,
+                            from_learning_batch=True
                         )
                         
                         if reinforcement_result and reinforcement_result.get('optimization_strategy'):
@@ -1238,12 +1230,13 @@ class ProgressiveLearningService:
             if not patterns:
                 return
 
-            # 使用 ORM 保存表达模式
+            # 使用 ORM 批量保存表达模式
             async with self.db_manager.get_session() as session:
                 from ...models.orm.expression import ExpressionPattern
                 import time
 
                 current_time = time.time()
+                objects = []
 
                 for pattern in patterns:
                     situation = pattern.get('situation', '').strip()
@@ -1252,20 +1245,19 @@ class ProgressiveLearningService:
                     if not situation or not expression:
                         continue
 
-                    # 创建表达模式记录（ExpressionPattern只有weight, last_active_time, create_time字段）
-                    expr_pattern = ExpressionPattern(
+                    objects.append(ExpressionPattern(
                         group_id=group_id,
                         situation=situation,
                         expression=expression,
                         weight=float(pattern.get('weight', 1.0)),
-                        last_active_time=current_time, # 使用last_active_time而不是confidence
+                        last_active_time=current_time,
                         create_time=current_time
-                    )
+                    ))
 
-                    session.add(expr_pattern)
-
-                await session.commit()
-                logger.info(f" 已保存 {len(patterns)} 个表达模式到数据库 (群组: {group_id})")
+                if objects:
+                    session.add_all(objects)
+                    await session.commit()
+                    logger.info(f"已保存 {len(objects)} 个表达模式到数据库 (群组: {group_id})")
 
         except Exception as e:
             logger.error(f"保存表达模式失败: {e}", exc_info=True)
