@@ -7,7 +7,8 @@
    1. Global Styles (app.css)
    ------------------------------------------------------------ */
 
-body, html {
+body,
+html {
     width: 100%;
     height: 100%;
     margin: 0;
@@ -45,7 +46,8 @@ body {
     user-select: none;
 }
 
-input, textarea {
+input,
+textarea {
     -moz-user-select: text;
     -webkit-user-select: text;
     -ms-user-select: text;
@@ -105,7 +107,11 @@ audio {
 }
 
 .el-scrollbar {
-    width: 200px;
+    width: 100%;
+}
+
+.el-table__body-wrapper>.el-scrollbar {
+    width: 100%;
 }
 
 .el-dropdown__popper.el-popper[role=tooltip] {
@@ -169,6 +175,7 @@ audio {
     0% {
         opacity: 0;
     }
+
     100% {
         opacity: 1;
     }
@@ -178,6 +185,7 @@ audio {
     0% {
         opacity: 1;
     }
+
     100% {
         opacity: 0;
     }
@@ -195,6 +203,7 @@ audio {
     0% {
         opacity: 0;
     }
+
     100% {
         opacity: 1;
     }
@@ -204,11 +213,13 @@ audio {
     0% {
         opacity: 1;
     }
+
     30% {
         opacity: 0.8;
         left: 30%;
         right: 30%;
     }
+
     100% {
         opacity: 0;
         left: 100%;
@@ -230,6 +241,7 @@ audio {
         width: 0px;
         opacity: 0;
     }
+
     100% {
         width: 200px;
         opacity: 1;
@@ -241,6 +253,7 @@ audio {
         width: 200px;
         opacity: 1;
     }
+
     100% {
         width: 0px;
         opacity: 0;
@@ -251,9 +264,11 @@ audio {
     0% {
         transform: translateY(0);
     }
+
     50% {
         transform: translateY(-20px);
     }
+
     100% {
         transform: translateY(0);
     }
@@ -264,6 +279,7 @@ audio {
         opacity: 0;
         top: 0;
     }
+
     100% {
         opacity: 1;
         top: -66px;
@@ -274,9 +290,11 @@ audio {
     0% {
         margin-left: -30px;
     }
+
     50% {
         margin-left: 30px;
     }
+
     100% {
         margin-left: 0;
     }
@@ -1223,15 +1241,19 @@ audio {
     .macos-launchpad .body .launchpad-app {
         padding: 40px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item {
         width: 120px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item .iconfont {
         font-size: 60px;
     }
+
     .macos-desktop .body .desktop-app .app-item {
         width: 80px;
     }
+
     .macos-desktop .body .desktop-app .app-item .iconfont {
         font-size: 42px;
     }
@@ -1239,20 +1261,25 @@ audio {
 
 /* --- Mobile (≤768px) --- */
 @media (max-width: 768px) {
+
     /* Top menu bar taller for touch */
     .macos-desktop .top {
         height: 38px;
     }
+
     .macos-desktop .top .logo {
         padding: 0 10px;
     }
+
     .macos-desktop .top .logo img {
         height: 20px;
         width: 20px;
     }
+
     .macos-desktop .top .status .datetime {
         font-size: 12px;
     }
+
     /* Force all windows to full screen on mobile */
     .macos-movebg .box {
         left: 0 !important;
@@ -1260,9 +1287,11 @@ audio {
         top: 38px !important;
         bottom: 60px !important;
     }
+
     .macos-movebg .box .box-center-center {
         border-radius: 0 !important;
     }
+
     /* Hide resize handles */
     .macos-movebg .box .box-top,
     .macos-movebg .box .box-bottom,
@@ -1270,79 +1299,97 @@ audio {
     .macos-movebg .box .box-center-right {
         display: none !important;
     }
+
     /* Adjust title bar - taller for touch */
     .macos-movebg .box .box-center-center .app-bar {
         height: 42px;
         cursor: default;
     }
+
     .macos-movebg .box .box-center-center .app-bar .title {
         margin-right: 60px;
         font-size: 13px;
     }
+
     /* Bigger close/min/max buttons for touch */
     .macos-movebg .box .box-center-center .app-bar .controll div {
         height: 18px;
         width: 18px;
         margin-right: 8px;
     }
+
     .macos-movebg .box .box-center-center .app-bar .controll {
         margin-left: 12px;
     }
+
     /* Dock bigger for touch */
     .macos-dock {
         border-radius: 14px;
         padding: 4px 8px;
     }
+
     .macos-dock .item .iconfont {
         height: 40px;
         width: 40px;
         font-size: 28px;
         border-radius: 10px;
     }
+
     .macos-dock .item .title {
         font-size: 9px;
     }
+
     .macos-dock .item:hover .iconfont {
         transform: scale(1.15) translateY(-3px);
         margin: 0 3px;
     }
+
     .macos-footer {
         padding-bottom: 6px;
     }
+
     /* Desktop icons grid */
     .macos-desktop .body .desktop-app {
         grid-template-columns: repeat(auto-fill, minmax(75px, 1fr));
     }
+
     .macos-desktop .body .desktop-app .app-item {
         width: 75px;
     }
+
     .macos-desktop .body .desktop-app .app-item .icon .iconfont {
         font-size: 40px;
         height: 50px;
         width: 50px;
         line-height: 50px;
     }
+
     .macos-desktop .body .desktop-app .app-item .title {
         font-size: 11px;
     }
+
     /* Launchpad grid */
     .macos-launchpad .body .launchpad-app {
         left: 5%;
         right: 5%;
         padding: 20px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item {
         width: 85px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item .icon .iconfont {
         font-size: 44px;
         height: 54px;
         width: 54px;
         line-height: 54px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item .title {
         font-size: 11px;
     }
+
     /* Menu bar responsive */
     .macos-desktop .top .top-menu {
         overflow-x: auto;
@@ -1354,35 +1401,43 @@ audio {
     .macos-desktop .top {
         height: 36px;
     }
+
     .macos-dock .item .iconfont {
         height: 36px;
         width: 36px;
         font-size: 24px;
     }
+
     .macos-dock .item {
         padding: 3px;
     }
+
     /* Keep close button visible, hide min/full on very small screens */
     .macos-movebg .box .box-center-center .app-bar .controll .min,
     .macos-movebg .box .box-center-center .app-bar .controll .full {
         display: none;
     }
+
     .macos-movebg .box .box-center-center .app-bar .controll div {
         height: 16px;
         width: 16px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item {
         width: 72px;
     }
+
     .macos-launchpad .body .launchpad-app .app-item .icon .iconfont {
         font-size: 38px;
         height: 48px;
         width: 48px;
         line-height: 48px;
     }
+
     .macos-desktop .body .desktop-app .app-item {
         width: 68px;
     }
+
     .macos-desktop .body .desktop-app .app-item .icon .iconfont {
         font-size: 36px;
         height: 46px;
@@ -1693,20 +1748,25 @@ audio {
         padding: 10px;
         font-size: 12px;
     }
+
     .app-content .stat-grid {
         grid-template-columns: repeat(2, 1fr);
         gap: 8px;
     }
+
     .app-content .charts-grid {
         grid-template-columns: 1fr;
     }
+
     .app-content .chart-box .chart-area {
         height: 200px;
     }
+
     .app-content .filter-bar {
         flex-direction: column;
         align-items: stretch;
     }
+
     .app-content .persona-grid {
         grid-template-columns: 1fr;
     }
@@ -1930,7 +1990,7 @@ body[data-theme="dark"] .el-table tr {
     background-color: #2c2c2e;
 }
 
-body[data-theme="dark"] .el-table--enable-row-hover .el-table__body tr:hover > td {
+body[data-theme="dark"] .el-table--enable-row-hover .el-table__body tr:hover>td {
     background-color: #3a3a3c;
 }
 
