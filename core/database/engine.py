@@ -263,11 +263,27 @@ class DatabaseEngine:
 
                 existing = await conn.run_sync(_get_existing_columns)
 
+            # 创建 ORM 中定义但数据库中不存在的新表
+            missing_tables = [
+                t for t in Base.metadata.sorted_tables
+                if t.name not in existing
+            ]
+            if missing_tables:
+                async with self.engine.begin() as conn:
+                    await conn.run_sync(
+                        Base.metadata.create_all,
+                        tables=missing_tables,
+                    )
+                names = [t.name for t in missing_tables]
+                logger.info(
+                    f"[DatabaseEngine] 自动创建缺失表: {', '.join(names)}"
+                )
+
             # 对比 ORM 定义，收集需要 ALTER 的列
             alter_statements = []
             for table in Base.metadata.sorted_tables:
                 if table.name not in existing:
-                    continue  # 新表，create_all 已处理
+                    continue  # 刚创建的新表，无需 ALTER
                 db_cols = existing[table.name]
                 for col in table.columns:
                     if col.name not in db_cols:
