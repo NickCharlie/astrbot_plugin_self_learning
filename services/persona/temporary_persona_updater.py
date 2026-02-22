@@ -63,15 +63,16 @@ class TemporaryPersonaUpdater:
         # key: group_id, value: List[str] 存储该会话的所有增量更新
         self.session_updates: Dict[str, List[str]] = {}
 
+        # 初始化PersonaManager更新器
+        self.persona_manager_updater = PersonaManagerUpdater(config, context)
+
+        logger.info("临时人格更新器初始化完成")
+
     def _resolve_umo(self, group_id: str) -> str:
         """将group_id解析为unified_msg_origin以支持多配置文件"""
         if hasattr(self, 'group_id_to_unified_origin'):
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
-        # 初始化PersonaManager更新器
-        self.persona_manager_updater = PersonaManagerUpdater(config, context)
-        
-        logger.info("临时人格更新器初始化完成")
 
     async def _get_framework_persona(self, group_id: str = None) -> Optional[Dict[str, Any]]:
         """
