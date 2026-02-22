@@ -108,8 +108,7 @@ class RealtimeProcessor:
                 self._config.filtered_messages = (
                     self._learning_stats.filtered_messages
                 )
-
-            # LLM-based filtering
+                return
             current_persona_description = (
                 await self._persona_manager.get_current_persona_description(group_id)
             )
