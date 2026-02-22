@@ -15,6 +15,7 @@ from .metrics import metrics_bp
 from .social import social_bp
 from .persona_reviews import persona_reviews_bp
 from .intelligent_chat import intelligent_chat_bp
+from .monitoring import monitoring_bp
 
 
 def get_blueprints() -> List[Blueprint]:
@@ -36,6 +37,7 @@ def get_blueprints() -> List[Blueprint]:
         social_bp,
         persona_reviews_bp,
         intelligent_chat_bp,
+        monitoring_bp,
     ]
 
 
@@ -64,6 +66,7 @@ __all__ = [
     'social_bp',
     'persona_reviews_bp',
     'intelligent_chat_bp',
+    'monitoring_bp',
     'get_blueprints',
     'register_blueprints'
 ]

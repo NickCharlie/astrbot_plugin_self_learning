@@ -55,6 +55,10 @@ class ServiceContainer:
         # 性能计时收集器（指向插件实例的 get_perf_data 方法）
         self.perf_collector: Optional[Any] = None
 
+        # 性能监测模块
+        self.metric_collector: Optional[Any] = None
+        self.health_checker: Optional[Any] = None
+
         self._initialized = True
 
     def initialize(
@@ -110,6 +114,30 @@ class ServiceContainer:
             )
         except Exception as e:
             logger.warning(f"初始化智能指标服务失败: {e}")
+
+        # 初始化性能监测模块
+        try:
+            from ..services.monitoring import MetricCollector, HealthChecker
+            from ..utils.cache_manager import get_cache_manager
+
+            service_registry = service_factory.get_service_registry()
+            cache_manager = get_cache_manager()
+
+            self.metric_collector = MetricCollector(
+                perf_tracker=self.perf_collector,
+                cache_manager=cache_manager,
+                llm_adapter=self.llm_adapter,
+                service_registry=service_registry,
+                progressive_learning=self.progressive_learning,
+            )
+            self.health_checker = HealthChecker(
+                service_registry=service_registry,
+                cache_manager=cache_manager,
+                llm_adapter=self.llm_adapter,
+            )
+            logger.info("[WebUI] 性能监测模块初始化成功")
+        except Exception as e:
+            logger.warning(f"初始化性能监测模块失败: {e}")
 
         # 初始化 PersonaWebManager
         if astrbot_persona_manager:

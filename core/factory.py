@@ -526,6 +526,10 @@ class ServiceFactory(IServiceFactory):
             self.create_multidimensional_analyzer()
             self.create_progressive_learning()
 
+            # Enable function-level monitoring when debug_mode is active.
+            from ..services.monitoring.instrumentation import set_debug_mode
+            set_debug_mode(self.config.debug_mode)
+
             # 启动所有注册的服务
             success = await self._registry.start_all_services()
 
@@ -1023,6 +1027,48 @@ class ComponentFactory:
             self._logger.error(f"导入智能对话服务失败: {e}", exc_info=True)
             raise ServiceError(f"创建智能对话服务失败: {str(e)}")
 
+    @cached_service("metric_collector")
+    def create_metric_collector(self):
+        """创建性能指标收集器"""
+        try:
+            from ..services.monitoring import MetricCollector
+            from ..utils.cache_manager import get_cache_manager
+
+            service = MetricCollector(
+                perf_tracker=self._service_cache.get("perf_collector"),
+                cache_manager=get_cache_manager(),
+                llm_adapter=self.service_factory.create_framework_llm_adapter(),
+                service_registry=self._registry,
+                progressive_learning=self._service_cache.get("progressive_learning"),
+            )
+            self._registry.register_service("metric_collector", service)
+
+            self._logger.info("创建性能指标收集器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入性能指标收集器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建性能指标收集器失败: {str(e)}")
+
+    @cached_service("health_checker")
+    def create_health_checker(self):
+        """创建健康检查器"""
+        try:
+            from ..services.monitoring import HealthChecker
+            from ..utils.cache_manager import get_cache_manager
+
+            service = HealthChecker(
+                service_registry=self._registry,
+                cache_manager=get_cache_manager(),
+                llm_adapter=self.service_factory.create_framework_llm_adapter(),
+            )
+
+            self._logger.info("创建健康检查器成功")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"导入健康检查器失败: {e}", exc_info=True)
+            raise ServiceError(f"创建健康检查器失败: {str(e)}")
 
 
 # 全局工厂实例管理器

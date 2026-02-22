@@ -17,3 +17,5 @@ cachetools>=5.3.0
 apscheduler>=3.10.0
 lightrag-hku>=1.4.0
 mem0ai>=1.0.0
+prometheus_client>=0.20.0
+prometheus-async>=22.2.0
