@@ -17,6 +17,7 @@ Backend selection:
 
 import cProfile
 import io
+import os
 import pstats
 import time
 import tracemalloc
@@ -146,11 +147,17 @@ class ProfileSession:
         ps.print_stats(top_n)
         text_output = stream.getvalue()
 
+        # Use ps.fcn_list (sorted by cumulative time) instead of
+        # iterating ps.stats.items() which has no guaranteed order.
+        sorted_keys = (ps.fcn_list or list(ps.stats.keys()))[:top_n]
         entries = []
-        for key, (cc, nc, tt, ct, callers) in list(ps.stats.items())[:top_n]:
+        for key in sorted_keys:
+            cc, nc, tt, ct, callers = ps.stats[key]
             filename, lineno, func_name = key
+            # Shorten long system paths to basename for readability.
+            short_name = os.path.basename(filename)
             entries.append({
-                "name": f"{filename}:{lineno}({func_name})",
+                "name": f"{short_name}:{lineno}({func_name})",
                 "ncall": nc,
                 "tottime": round(tt, 6),
                 "cumtime": round(ct, 6),
@@ -217,8 +224,15 @@ class ProfileSession:
 
         entries = []
         for stat in stats[:top_n]:
+            # Extract file:line from traceback instead of str(stat) which
+            # redundantly includes size and count in the string.
+            if stat.traceback:
+                frame = stat.traceback[0]
+                loc = f"{frame.filename}:{frame.lineno}"
+            else:
+                loc = "<unknown>"
             entries.append({
-                "location": str(stat),
+                "location": loc,
                 "size_kb": round(stat.size / 1024, 2),
                 "count": stat.count,
             })

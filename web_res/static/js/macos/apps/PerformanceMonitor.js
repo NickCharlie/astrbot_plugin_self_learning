@@ -166,29 +166,43 @@ window.AppPerformanceMonitor = {
             <!-- CPU results -->
             <el-table v-if="profileResult.top_functions" :data="profileResult.top_functions" size="small" stripe max-height="400"
                       :default-sort="{prop: profileResult.backend === 'yappi' ? 'ttot' : 'cumtime', order: 'descending'}">
-              <el-table-column prop="name" label="函数" min-width="300" show-overflow-tooltip sortable>
+              <el-table-column prop="name" label="函数" width="360" show-overflow-tooltip sortable>
                 <template #default="scope">
-                  <span style="font-family:monospace;font-size:11px;">{{ scope.row.name }}</span>
+                  <span style="font-family:monospace;font-size:11px;" :title="scope.row.name">{{ scope.row.name }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="ncall" label="调用次数" width="90" align="right" sortable />
-              <el-table-column v-if="profileResult.backend==='yappi'" prop="tsub" label="自身耗时(s)" width="110" align="right" sortable />
-              <el-table-column v-if="profileResult.backend==='yappi'" prop="ttot" label="总耗时(s)" width="100" align="right" sortable />
-              <el-table-column v-if="profileResult.backend==='yappi'" prop="tavg" label="平均(s)" width="90" align="right" sortable />
-              <el-table-column v-if="profileResult.backend==='cProfile'" prop="tottime" label="自身耗时(s)" width="110" align="right" sortable />
-              <el-table-column v-if="profileResult.backend==='cProfile'" prop="cumtime" label="累计耗时(s)" width="110" align="right" sortable />
+              <el-table-column prop="ncall" label="调用次数" width="100" align="right" sortable>
+                <template #default="scope">{{ scope.row.ncall != null ? scope.row.ncall : 0 }}</template>
+              </el-table-column>
+              <el-table-column v-if="profileResult.backend==='yappi'" prop="tsub" label="自身耗时(s)" width="120" align="right" sortable>
+                <template #default="scope">{{ (scope.row.tsub || 0).toFixed(4) }}</template>
+              </el-table-column>
+              <el-table-column v-if="profileResult.backend==='yappi'" prop="ttot" label="总耗时(s)" width="110" align="right" sortable>
+                <template #default="scope">{{ (scope.row.ttot || 0).toFixed(4) }}</template>
+              </el-table-column>
+              <el-table-column v-if="profileResult.backend==='yappi'" prop="tavg" label="平均(s)" width="100" align="right" sortable>
+                <template #default="scope">{{ (scope.row.tavg || 0).toFixed(6) }}</template>
+              </el-table-column>
+              <el-table-column v-if="profileResult.backend==='cProfile'" prop="tottime" label="自身耗时(s)" width="120" align="right" sortable>
+                <template #default="scope">{{ (scope.row.tottime || 0).toFixed(4) }}</template>
+              </el-table-column>
+              <el-table-column v-if="profileResult.backend==='cProfile'" prop="cumtime" label="累计耗时(s)" width="120" align="right" sortable>
+                <template #default="scope">{{ (scope.row.cumtime || 0).toFixed(4) }}</template>
+              </el-table-column>
             </el-table>
 
             <!-- Memory results -->
             <el-table v-if="profileResult.top_allocations" :data="profileResult.top_allocations" size="small" stripe max-height="400"
-                      :default-sort="{prop:'size_kb',order:'descending'}">
-              <el-table-column prop="location" label="位置" min-width="400" show-overflow-tooltip sortable>
+                      :default-sort="{prop:'size_kb',order:'descending'}" style="width:100%;" table-layout="fixed">
+              <el-table-column prop="location" label="位置" show-overflow-tooltip sortable>
                 <template #default="scope">
-                  <span style="font-family:monospace;font-size:11px;">{{ scope.row.location }}</span>
+                  <span style="font-family:monospace;font-size:11px;" :title="scope.row.location">{{ scope.row.location }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="size_kb" label="大小(KB)" width="100" align="right" sortable />
-              <el-table-column prop="count" label="分配次数" width="100" align="right" sortable />
+              <el-table-column prop="size_kb" label="大小(KB)" width="120" align="right" sortable>
+                <template #default="scope">{{ scope.row.size_kb != null ? scope.row.size_kb.toFixed(2) : 0 }}</template>
+              </el-table-column>
+              <el-table-column prop="count" label="分配次数" width="120" align="right" sortable />
             </el-table>
           </div>
 
@@ -260,9 +274,10 @@ window.AppPerformanceMonitor = {
         result.push({
           key: "cpu",
           label: "CPU",
-          value: (checks.cpu.detail && checks.cpu.detail.cpu_percent != null)
-            ? checks.cpu.detail.cpu_percent.toFixed(1) + "%"
-            : "-",
+          value:
+            checks.cpu.detail && checks.cpu.detail.cpu_percent != null
+              ? checks.cpu.detail.cpu_percent.toFixed(1) + "%"
+              : "-",
           status: checks.cpu.status,
         });
       }
@@ -271,9 +286,15 @@ window.AppPerformanceMonitor = {
         result.push({
           key: "memory",
           label: "内存",
-          value: md.memory_percent != null ? md.memory_percent.toFixed(1) + "%" : "-",
+          value:
+            md.memory_percent != null
+              ? md.memory_percent.toFixed(1) + "%"
+              : "-",
           status: checks.memory.status,
-          extra: md.used_gb != null ? md.used_gb.toFixed(1) + " / " + md.total_gb.toFixed(1) + " GB" : "",
+          extra:
+            md.used_gb != null
+              ? md.used_gb.toFixed(1) + " / " + md.total_gb.toFixed(1) + " GB"
+              : "",
         });
       }
       if (checks.llm) {
@@ -281,9 +302,15 @@ window.AppPerformanceMonitor = {
         result.push({
           key: "llm",
           label: "LLM",
-          value: ld.error_rate != null ? (ld.error_rate * 100).toFixed(1) + "%" : "-",
+          value:
+            ld.error_rate != null
+              ? (ld.error_rate * 100).toFixed(1) + "%"
+              : "-",
           status: checks.llm.status,
-          extra: ld.avg_latency_s != null ? "延迟 " + ld.avg_latency_s.toFixed(2) + "s" : "",
+          extra:
+            ld.avg_latency_s != null
+              ? "延迟 " + ld.avg_latency_s.toFixed(2) + "s"
+              : "",
         });
       }
       if (checks.cache) {
@@ -291,9 +318,13 @@ window.AppPerformanceMonitor = {
         result.push({
           key: "cache",
           label: "缓存",
-          value: cd.hit_rate != null ? (cd.hit_rate * 100).toFixed(1) + "%" : "-",
+          value:
+            cd.hit_rate != null ? (cd.hit_rate * 100).toFixed(1) + "%" : "-",
           status: checks.cache.status,
-          extra: cd.total_hits != null ? "命中 " + cd.total_hits + " / 未命中 " + cd.total_misses : "",
+          extra:
+            cd.total_hits != null
+              ? "命中 " + cd.total_hits + " / 未命中 " + cd.total_misses
+              : "",
         });
       }
       if (checks.services) {
@@ -303,9 +334,10 @@ window.AppPerformanceMonitor = {
           label: "服务",
           value: sd.total != null ? sd.total + " 个" : "-",
           status: checks.services.status,
-          extra: sd.error_services && sd.error_services.length > 0
-            ? "异常: " + sd.error_services.join(", ")
-            : "",
+          extra:
+            sd.error_services && sd.error_services.length > 0
+              ? "异常: " + sd.error_services.join(", ")
+              : "",
         });
       }
       return result;
@@ -358,10 +390,16 @@ window.AppPerformanceMonitor = {
       try {
         echarts.registerTheme("perf-monitor", {
           backgroundColor: "transparent",
-          textStyle: { fontFamily: "Roboto, sans-serif", fontSize: 12, color: "#424242" },
+          textStyle: {
+            fontFamily: "Roboto, sans-serif",
+            fontSize: 12,
+            color: "#424242",
+          },
         });
         this.themeRegistered = true;
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
     },
 
     initChart(refName) {
@@ -383,20 +421,42 @@ window.AppPerformanceMonitor = {
       if (this.metricsData && this.metricsData.metrics) {
         val = this.metricsData.metrics["system_cpu_percent"] || 0;
       }
-      chart.setOption({
-        series: [{
-          type: "gauge", startAngle: 220, endAngle: -40, min: 0, max: 100,
-          progress: { show: true, width: 12 },
-          axisLine: { lineStyle: { width: 12, color: [[0.7, "#4caf50"], [0.9, "#ff9800"], [1, "#f44336"]] } },
-          axisTick: { show: false },
-          splitLine: { length: 8, lineStyle: { width: 2 } },
-          axisLabel: { distance: 18, fontSize: 10 },
-          pointer: { length: "60%", width: 4 },
-          detail: { formatter: "{value}%", fontSize: 18, offsetCenter: [0, "70%"] },
-          title: { offsetCenter: [0, "90%"], fontSize: 12 },
-          data: [{ value: val.toFixed(1), name: "CPU" }],
-        }],
-      }, true);
+      chart.setOption(
+        {
+          series: [
+            {
+              type: "gauge",
+              startAngle: 220,
+              endAngle: -40,
+              min: 0,
+              max: 100,
+              progress: { show: true, width: 12 },
+              axisLine: {
+                lineStyle: {
+                  width: 12,
+                  color: [
+                    [0.7, "#4caf50"],
+                    [0.9, "#ff9800"],
+                    [1, "#f44336"],
+                  ],
+                },
+              },
+              axisTick: { show: false },
+              splitLine: { length: 8, lineStyle: { width: 2 } },
+              axisLabel: { distance: 18, fontSize: 10 },
+              pointer: { length: "60%", width: 4 },
+              detail: {
+                formatter: "{value}%",
+                fontSize: 18,
+                offsetCenter: [0, "70%"],
+              },
+              title: { offsetCenter: [0, "90%"], fontSize: 12 },
+              data: [{ value: val.toFixed(1), name: "CPU" }],
+            },
+          ],
+        },
+        true,
+      );
     },
 
     updateMemGauge() {
@@ -406,20 +466,42 @@ window.AppPerformanceMonitor = {
       if (this.metricsData && this.metricsData.metrics) {
         val = this.metricsData.metrics["system_memory_percent"] || 0;
       }
-      chart.setOption({
-        series: [{
-          type: "gauge", startAngle: 220, endAngle: -40, min: 0, max: 100,
-          progress: { show: true, width: 12 },
-          axisLine: { lineStyle: { width: 12, color: [[0.7, "#4caf50"], [0.85, "#ff9800"], [1, "#f44336"]] } },
-          axisTick: { show: false },
-          splitLine: { length: 8, lineStyle: { width: 2 } },
-          axisLabel: { distance: 18, fontSize: 10 },
-          pointer: { length: "60%", width: 4 },
-          detail: { formatter: "{value}%", fontSize: 18, offsetCenter: [0, "70%"] },
-          title: { offsetCenter: [0, "90%"], fontSize: 12 },
-          data: [{ value: val.toFixed(1), name: "\u5185\u5b58" }],
-        }],
-      }, true);
+      chart.setOption(
+        {
+          series: [
+            {
+              type: "gauge",
+              startAngle: 220,
+              endAngle: -40,
+              min: 0,
+              max: 100,
+              progress: { show: true, width: 12 },
+              axisLine: {
+                lineStyle: {
+                  width: 12,
+                  color: [
+                    [0.7, "#4caf50"],
+                    [0.85, "#ff9800"],
+                    [1, "#f44336"],
+                  ],
+                },
+              },
+              axisTick: { show: false },
+              splitLine: { length: 8, lineStyle: { width: 2 } },
+              axisLabel: { distance: 18, fontSize: 10 },
+              pointer: { length: "60%", width: 4 },
+              detail: {
+                formatter: "{value}%",
+                fontSize: 18,
+                offsetCenter: [0, "70%"],
+              },
+              title: { offsetCenter: [0, "90%"], fontSize: 12 },
+              data: [{ value: val.toFixed(1), name: "\u5185\u5b58" }],
+            },
+          ],
+        },
+        true,
+      );
     },
 
     resizeAllCharts() {
@@ -444,13 +526,22 @@ window.AppPerformanceMonitor = {
     async fetchAllData() {
       try {
         var results = await Promise.allSettled([
-          fetch("/api/monitoring/health").then(function (r) { return r.json(); }),
-          fetch("/api/monitoring/metrics/json").then(function (r) { return r.json(); }),
-          fetch("/api/monitoring/functions").then(function (r) { return r.json(); }),
+          fetch("/api/monitoring/health").then(function (r) {
+            return r.json();
+          }),
+          fetch("/api/monitoring/metrics/json").then(function (r) {
+            return r.json();
+          }),
+          fetch("/api/monitoring/functions").then(function (r) {
+            return r.json();
+          }),
         ]);
-        if (results[0].status === "fulfilled") this.healthData = results[0].value;
-        if (results[1].status === "fulfilled") this.metricsData = results[1].value;
-        if (results[2].status === "fulfilled") this.functionsData = results[2].value;
+        if (results[0].status === "fulfilled")
+          this.healthData = results[0].value;
+        if (results[1].status === "fulfilled")
+          this.metricsData = results[1].value;
+        if (results[2].status === "fulfilled")
+          this.functionsData = results[2].value;
       } catch (e) {
         console.error("[PerformanceMonitor] fetchAllData error:", e);
       }
@@ -511,8 +602,11 @@ window.AppPerformanceMonitor = {
       if (!this.activeSession) return;
       this.profileLoading = true;
       try {
-        var url = "/api/monitoring/profile/" + this.activeSession.session_id
-          + "?type=" + this.activeSession.type;
+        var url =
+          "/api/monitoring/profile/" +
+          this.activeSession.session_id +
+          "?type=" +
+          this.activeSession.type;
         var resp = await fetch(url, { credentials: "same-origin" });
         var data = await resp.json();
         if (resp.ok) {
@@ -532,12 +626,18 @@ window.AppPerformanceMonitor = {
     this.registerTheme();
 
     try {
-      var resp = await fetch("/api/monitoring/profile/backends", { credentials: "same-origin" });
+      var resp = await fetch("/api/monitoring/profile/backends", {
+        credentials: "same-origin",
+      });
       var data = await resp.json();
       this.availableBackends = data.backends || [];
-      var cpuBk = this.availableBackends.find(function (b) { return b !== "tracemalloc"; });
+      var cpuBk = this.availableBackends.find(function (b) {
+        return b !== "tracemalloc";
+      });
       if (cpuBk) this.profileBackend = cpuBk;
-    } catch (e) { /* ignore */ }
+    } catch (e) {
+      /* ignore */
+    }
 
     await this.fetchAllData();
     this.loading = false;
@@ -549,18 +649,28 @@ window.AppPerformanceMonitor = {
           self.updateMemGauge();
         }
         if (self.$refs.rootEl && typeof ResizeObserver !== "undefined") {
-          self.resizeObserver = new ResizeObserver(function () { self.resizeAllCharts(); });
+          self.resizeObserver = new ResizeObserver(function () {
+            self.resizeAllCharts();
+          });
           self.resizeObserver.observe(self.$refs.rootEl);
         }
       }, 100);
     });
 
-    this.refreshTimer = setInterval(function () { self.refreshAll(); }, 10000);
+    this.refreshTimer = setInterval(function () {
+      self.refreshAll();
+    }, 10000);
   },
 
   beforeUnmount() {
-    if (this.refreshTimer) { clearInterval(this.refreshTimer); this.refreshTimer = null; }
-    if (this.resizeObserver) { this.resizeObserver.disconnect(); this.resizeObserver = null; }
+    if (this.refreshTimer) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
     this.disposeAllCharts();
   },
 };
