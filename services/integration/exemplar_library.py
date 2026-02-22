@@ -8,16 +8,23 @@ When an ``IEmbeddingProvider`` is available, exemplars are embedded and
 similarity search uses vector cosine distance. Without an embedding
 provider the library degrades to recency-weighted random sampling.
 
+Performance notes:
+    - An in-memory vector index (per-group TTL cache) avoids repeated
+      DB loads and JSON deserialization on every query.
+    - When numpy is available, cosine similarity is computed via a single
+      matrix–vector multiply (~1000x faster than the pure-Python fallback).
+    - Similarity search loads at most ``_SIMILARITY_SEARCH_LIMIT`` exemplars
+      (by weight desc) to bound DB I/O and memory.
+
 Design notes:
     - Embedding vectors stored as JSON text columns for DB portability.
-    - Cosine similarity computed in Python (numpy) during retrieval.
     - Weight field supports feedback-driven quality adjustment.
     - Thread-safe for single-event-loop asyncio usage.
 """
 
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 from sqlalchemy import case, delete, desc, select, update
@@ -25,6 +32,14 @@ from sqlalchemy.sql import func
 
 from ...models.orm.exemplar import Exemplar
 from ..monitoring.instrumentation import monitored
+
+# Optional numpy for vectorised cosine similarity.
+try:
+    import numpy as np
+    _HAS_NUMPY = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    _HAS_NUMPY = False
 
 
 # Minimum content length to accept as an exemplar.
@@ -35,6 +50,12 @@ _MAX_EXEMPLARS_PER_GROUP = 500
 
 # Default number of few-shot examples to retrieve.
 _DEFAULT_TOP_K = 5
+
+# Maximum exemplars loaded from DB for similarity search (by weight desc).
+_SIMILARITY_SEARCH_LIMIT = 100
+
+# In-memory vector cache TTL (seconds).
+_VECTOR_CACHE_TTL = 120
 
 
 class ExemplarLibrary:
@@ -61,6 +82,12 @@ class ExemplarLibrary:
         self._db = db_manager
         self._embedding = embedding_provider
 
+        # In-memory vector index per group.
+        # group_id -> (timestamp, contents, vectors, weights)
+        self._vector_cache: Dict[
+            str, Tuple[float, List[str], Any, List[float]]
+        ] = {}
+
     # Public API
 
     async def add_exemplar(
@@ -79,7 +106,7 @@ class ExemplarLibrary:
         Returns:
             The record ID if saved, or ``None`` if rejected.
         """
-        # One-time schema migration for existing MySQL tables (TEXT → MEDIUMTEXT).
+        # One-time schema migration for existing MySQL tables (TEXT -> MEDIUMTEXT).
         if not ExemplarLibrary._schema_migrated:
             await self._migrate_embedding_column()
             ExemplarLibrary._schema_migrated = True
@@ -123,6 +150,9 @@ class ExemplarLibrary:
 
                 # Evict excess exemplars if over capacity.
                 await self._evict_excess(session, group_id)
+
+                # Invalidate vector cache so next query picks up the new data.
+                self._vector_cache.pop(group_id, None)
 
                 return record_id
 
@@ -239,7 +269,7 @@ class ExemplarLibrary:
         """Upgrade ``embedding_json`` from TEXT to MEDIUMTEXT on MySQL.
 
         TEXT has a 65 KB limit which is too small for high-dimensional
-        embeddings (e.g. 3072-dim ≈ 69 KB JSON). This runs once per
+        embeddings (e.g. 3072-dim ~ 69 KB JSON). This runs once per
         process and is a no-op on SQLite (syntax error caught silently).
         """
         try:
@@ -261,38 +291,90 @@ class ExemplarLibrary:
     async def _similarity_search(
         self, query: str, group_id: str, k: int
     ) -> List[str]:
-        """Vector cosine similarity search."""
+        """Vector cosine similarity search with in-memory caching."""
         query_vec = await self._embedding.get_embedding(query)
 
+        # Use cached vectors or load from DB.
+        cached = self._vector_cache.get(group_id)
+        if cached and time.time() - cached[0] < _VECTOR_CACHE_TTL:
+            contents, vectors, weights = cached[1], cached[2], cached[3]
+        else:
+            contents, vectors, weights = await self._load_vectors(group_id)
+            if not contents:
+                return await self._weight_based_search(group_id, k)
+            self._vector_cache[group_id] = (
+                time.time(), contents, vectors, weights,
+            )
+
+        if not contents:
+            return await self._weight_based_search(group_id, k)
+
+        # Numpy-accelerated path.
+        if _HAS_NUMPY and isinstance(vectors, np.ndarray):
+            scores = self._numpy_cosine_scores(query_vec, vectors, weights)
+            top_k = min(k, len(contents))
+            top_indices = np.argsort(scores)[-top_k:][::-1]
+            return [contents[i] for i in top_indices]
+
+        # Pure Python fallback.
+        scored = []
+        for content, vec, weight in zip(contents, vectors, weights):
+            sim = self._cosine_similarity(query_vec, vec)
+            score = sim * 0.8 + (weight or 1.0) * 0.2
+            scored.append((content, score))
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [c for c, _ in scored[:k]]
+
+    async def _load_vectors(
+        self, group_id: str
+    ) -> Tuple[List[str], Any, List[float]]:
+        """Load exemplar vectors from DB and build an in-memory index.
+
+        Returns:
+            ``(contents, vectors, weights)`` where *vectors* is a numpy
+            matrix (N, D) when numpy is available, or a list of lists
+            otherwise. Returns empty lists if no data.
+        """
         async with self._db.get_session() as session:
             stmt = (
-                select(Exemplar.content, Exemplar.embedding_json, Exemplar.weight)
+                select(
+                    Exemplar.content,
+                    Exemplar.embedding_json,
+                    Exemplar.weight,
+                )
                 .where(
                     Exemplar.group_id == group_id,
                     Exemplar.embedding_json.isnot(None),
                 )
                 .order_by(desc(Exemplar.weight))
-                .limit(_MAX_EXEMPLARS_PER_GROUP)
+                .limit(_SIMILARITY_SEARCH_LIMIT)
             )
             result = await session.execute(stmt)
             rows = result.all()
 
         if not rows:
-            return await self._weight_based_search(group_id, k)
+            return [], None, []
 
-        scored = []
+        contents: List[str] = []
+        raw_vectors: List[List[float]] = []
+        weights: List[float] = []
         for content, emb_json, weight in rows:
             try:
-                stored_vec = json.loads(emb_json)
-                sim = self._cosine_similarity(query_vec, stored_vec)
-                # Blend similarity with weight for final score.
-                score = sim * 0.8 + (weight or 1.0) * 0.2
-                scored.append((content, score))
+                vec = json.loads(emb_json)
+                contents.append(content)
+                raw_vectors.append(vec)
+                weights.append(weight or 1.0)
             except (json.JSONDecodeError, TypeError):
                 continue
 
-        scored.sort(key=lambda x: x[1], reverse=True)
-        return [content for content, _ in scored[:k]]
+        if not contents:
+            return [], None, []
+
+        if _HAS_NUMPY:
+            matrix = np.array(raw_vectors, dtype=np.float32)
+            return contents, matrix, weights
+
+        return contents, raw_vectors, weights
 
     async def _weight_based_search(
         self, group_id: str, k: int
@@ -345,6 +427,31 @@ class ExemplarLibrary:
                 )
         except Exception as exc:
             logger.debug(f"[ExemplarLibrary] Eviction failed: {exc}")
+
+    # Cosine similarity helpers
+
+    @staticmethod
+    def _numpy_cosine_scores(
+        query_vec: List[float],
+        matrix: "np.ndarray",
+        weights: List[float],
+    ) -> "np.ndarray":
+        """Vectorised cosine similarity blended with quality weights.
+
+        Computes ``score = cosine_sim * 0.8 + weight * 0.2`` for all
+        rows in a single matrix–vector multiply.
+        """
+        query_np = np.array(query_vec, dtype=np.float32)
+        query_norm = np.linalg.norm(query_np)
+        if query_norm < 1e-10:
+            return np.zeros(len(weights), dtype=np.float32)
+
+        row_norms = np.linalg.norm(matrix, axis=1)
+        safe_norms = np.maximum(row_norms, 1e-10)
+        sims = (matrix @ query_np) / (safe_norms * query_norm)
+
+        weight_arr = np.array(weights, dtype=np.float32)
+        return sims * 0.8 + weight_arr * 0.2
 
     @staticmethod
     def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
