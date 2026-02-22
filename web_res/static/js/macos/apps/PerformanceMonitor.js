@@ -165,8 +165,8 @@ window.AppPerformanceMonitor = {
 
             <!-- CPU results -->
             <el-table v-if="profileResult.top_functions" :data="profileResult.top_functions" size="small" stripe max-height="400"
-                      :default-sort="{prop: profileResult.backend === 'yappi' ? 'ttot' : 'cumtime', order: 'descending'}">
-              <el-table-column prop="name" label="函数" width="360" show-overflow-tooltip sortable>
+                      :default-sort="{prop: profileResult.backend === 'yappi' ? 'ttot' : 'cumtime', order: 'descending'}" style="width:100%;" table-layout="fixed">
+              <el-table-column prop="name" label="函数" show-overflow-tooltip sortable>
                 <template #default="scope">
                   <span style="font-family:monospace;font-size:11px;" :title="scope.row.name">{{ scope.row.name }}</span>
                 </template>
