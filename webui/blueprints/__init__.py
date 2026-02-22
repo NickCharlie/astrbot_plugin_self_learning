@@ -15,7 +15,13 @@ from .metrics import metrics_bp
 from .social import social_bp
 from .persona_reviews import persona_reviews_bp
 from .intelligent_chat import intelligent_chat_bp
-from .monitoring import monitoring_bp
+
+# monitoring blueprint requires prometheus_client; degrade gracefully
+try:
+    from .monitoring import monitoring_bp
+    _has_monitoring = True
+except ImportError:
+    _has_monitoring = False
 
 
 def get_blueprints() -> List[Blueprint]:
@@ -25,7 +31,7 @@ def get_blueprints() -> List[Blueprint]:
     Returns:
         List[Blueprint]: 蓝图列表
     """
-    return [
+    bps = [
         auth_bp,
         config_bp,
         personas_bp,
@@ -37,8 +43,10 @@ def get_blueprints() -> List[Blueprint]:
         social_bp,
         persona_reviews_bp,
         intelligent_chat_bp,
-        monitoring_bp,
     ]
+    if _has_monitoring:
+        bps.append(monitoring_bp)
+    return bps
 
 
 def register_blueprints(app):
@@ -66,7 +74,9 @@ __all__ = [
     'social_bp',
     'persona_reviews_bp',
     'intelligent_chat_bp',
-    'monitoring_bp',
     'get_blueprints',
     'register_blueprints'
 ]
+
+if _has_monitoring:
+    __all__.append('monitoring_bp')
