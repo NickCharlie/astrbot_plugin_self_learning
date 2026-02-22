@@ -405,45 +405,7 @@ class FrameworkLLMAdapter:
             
             logger.error(f"强化模型调用失败: {e}")
             return None
-    
-    async def generate_response(self, prompt: str, temperature: float = 0.7, model_type: str = "general", **kwargs) -> Optional[str]:
-        """通用响应生成方法"""
-        start_time = time.time()
-        self.call_stats['general']['total_calls'] += 1
-        
-        try:
-            # 根据model_type选择对应的provider
-            if model_type == "filter" and self.filter_provider:
-                provider = self.filter_provider
-            elif model_type == "refine" and self.refine_provider:
-                provider = self.refine_provider
-            elif model_type == "reinforce" and self.reinforce_provider:
-                provider = self.reinforce_provider
-            else:
-                # 使用第一个可用的provider
-                provider = self.filter_provider or self.refine_provider or self.reinforce_provider
-            
-            if not provider:
-                logger.error("没有可用的Provider")
-                return None
-            
-            response = await provider.text_chat(prompt=prompt, **kwargs)
-            
-            # 统计调用时间
-            elapsed_time = time.time() - start_time
-            self.call_stats['general']['total_time'] += elapsed_time
-            
-            return response.completion_text if response else None
-            
-        except Exception as e:
-            # 统计错误
-            elapsed_time = time.time() - start_time
-            self.call_stats['general']['total_time'] += elapsed_time
-            self.call_stats['general']['errors'] += 1
-            
-            logger.error(f"通用模型调用失败: {e}")
-            return None
-    
+
     def get_call_statistics(self) -> Dict[str, Any]:
         """获取调用统计信息"""
         stats = {}
@@ -509,12 +471,12 @@ class FrameworkLLMAdapter:
     async def generate_response(self, prompt: str, temperature: float = 0.7, model_type: str = "filter") -> Optional[str]:
         """
         通用的生成响应方法，根据model_type调用对应的Provider
-        
+
         Args:
             prompt: 提示词
             temperature: 温度参数
-            model_type: 模型类型 ("filter", "refine", "reinforce")
-            
+            model_type: 模型类型 ("filter", "refine", "reinforce", "general")
+
         Returns:
             LLM响应文本，如果失败返回None
         """
@@ -525,6 +487,8 @@ class FrameworkLLMAdapter:
                 return await self.refine_chat_completion(prompt=prompt, temperature=temperature)
             elif model_type == "reinforce":
                 return await self.reinforce_chat_completion(prompt=prompt, temperature=temperature)
+            elif model_type == "general":
+                return await self.filter_chat_completion(prompt=prompt, temperature=temperature)
             else:
                 logger.error(f"不支持的模型类型: {model_type}")
                 return None
