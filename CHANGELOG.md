@@ -2,6 +2,98 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.0] - 2026-02-22
+
+### 🎯 新功能
+
+#### Prometheus 性能监控模块
+- 新增 `services/monitoring/` 子包，提供统一性能监控基础设施
+- **指标收集** (`metrics.py`)：基于 `prometheus_client` 的 14 个预定义指标（LLM 延迟/调用/错误、消息处理、缓存命中、系统 CPU/内存、Hook 耗时等）
+- **异步装饰器** (`instrumentation.py`)：`@timed`、`@count_errors`、`timer` 上下文管理器，兼容 `prometheus-async`，缺失时自动回退纯 Python 实现
+- **函数级监控** (`instrumentation.py`)：`@monitored` 装饰器记录每函数调用次数、错误数、延迟直方图，通过 `debug_mode` 开关控制，关闭时零开销
+- **指标采集器** (`collector.py`)：后台周期采集系统资源（CPU/内存）和缓存命中率，写入 Prometheus 注册表
+- **健康检查** (`health_checker.py`)：5 项子系统健康检查（CPU/内存/LLM/缓存/服务注册表），返回 healthy/degraded/unhealthy 状态
+- **性能分析** (`profiler.py`)：按需 CPU 分析（yappi/cProfile）和内存分析（tracemalloc），支持启动/停止会话式操作
+- **REST API** (`webui/blueprints/monitoring.py`)：6 个端点 — `/metrics`（Prometheus 文本格式）、`/metrics/json`、`/health`、`/functions`（函数级指标）、`/profile/start`、`/profile/<id>`
+- 新增 `prometheus_client` 和 `prometheus-async` 依赖
+- `ServiceFactory` 注册 `MetricCollector` 和 `HealthChecker`，`ServiceContainer` 自动初始化
+
+#### 性能监控 WebUI 应用
+- 新增 macOS 风格「性能监控」应用，包含 3 个 Tab 页
+- **系统概览**：5 个健康状态卡片（CPU/内存/LLM/缓存/服务）+ 2 个 ECharts 仪表盘图表
+- **函数性能**（默认 Tab）：`el-table` 可排序表格，**默认按平均耗时降序排列**，实时展示最慢函数；支持搜索过滤、错误率颜色标签
+- **性能分析**：CPU/内存分析启停控制，结果以表格展示 top 函数/分配热点
+- 每 10 秒自动刷新数据
+- `debug_mode` 关闭时函数性能 Tab 显示引导提示
+
+#### 数据库自动列迁移
+- 新增启动时自动检测并添加缺失列的机制
+- ORM 模型新增列后无需手动迁移，`create_all` + `inspect` 自动补全
+- 为 `PersonaBackup` 添加 `group_id`、`persona_content`、`backup_time` 列
+
+### ⚡ 性能优化
+
+#### 数据库引擎
+- SQLite 连接池从 `NullPool` 切换为 `StaticPool`，复用单连接消除逐查询开销
+- 启用 `mmap_size=256MB` 加速读取
+
+#### 缓存系统
+- `CacheManager.general_cache` 从无界 `dict` 改为 `LRUCache(maxsize=5000)`，防止内存无限增长
+- 新增逐缓存命中/未命中计数和 `get_hit_rates()` API，供监控仪表盘消费
+- `MultidimensionalAnalyzer` 分析缓存从无界 `dict` 改为 `TTLCache`（情感 15min、风格 30min）
+- 新增社交关系 O(1) 索引（`(from_user, to_user, relation_type)` 元组键）
+
+#### 社交上下文注入
+- 5 个独立上下文查询改为 `asyncio.gather` 并发执行，总延迟降低
+- 缓存 TTL 从 60 秒提升至 300 秒，匹配社交数据低频变更特性
+- 新增 `invalidate_user_cache()` 主动失效机制
+
+#### LLM 适配器
+- Provider 延迟初始化从一次性尝试改为 30 秒冷却间隔重试，应对启动时 Provider 未就绪场景
+
+#### 响应多样性
+- 新增 5 秒去重缓存，同一群组短时间窗口内的重复调用直接返回缓存结果
+
+#### 学习流程
+- 表达模式保存从逐条 `session.add()` + `commit` 改为 `add_all()` 批量写入
+- `_execute_learning_batch` 和 `reinforcement_memory_replay` 用显式 `from_force_learning` / `from_learning_batch` 参数替代 `inspect.currentframe()` 栈帧遍历
+
+#### 模块生命周期
+- `V2LearningIntegration` 的 `start()`/`stop()` 从串行 await 改为 `asyncio.gather` 并发
+- `LightRAGKnowledgeManager` 新增统计结果缓存（TTL 5min），避免重复 GraphML 解析
+
+### 🔧 Bug 修复
+
+#### ORM 迁移后遗留修复
+- `ExpressionPattern` Facade 查询列名修正
+- `SocialContextInjector` 适配新 Facade 返回格式
+- `SocialFacade` 的 `from_user`/`to_user` 映射到 ORM 列名
+- 社交用户统计查询补充 `sender_name` 字段
+- `CompositePsychologicalState` 模型补充缺失列
+- `get_recent_week_expression_patterns` 补充 `hours` 参数
+- `DatabaseManager` 别名兼容旧代码
+- 学习会话记录改为 upsert 避免重复插入
+- `MemoryGraphManager` 处理 dict 类型消息
+
+#### 业务逻辑修复
+- `LightRAGKnowledgeManager`：embedding 结果转换为 numpy array，避免类型错误
+- `LightRAGKnowledgeManager`：缺失 embedding provider 时添加守护检查
+- 黑话学习：`generate_response` 替代不存在的 `generate` 方法
+- 黑话挖掘：增强过滤条件提升挖掘质量
+- 社交关系：插入前先 get-or-create `UserSocialProfile`，避免外键约束失败
+- 人格备份：`auto_backup_enabled` 作为唯一备份开关
+- 插件初始化：bootstrap 异常不再阻断 handler 绑定
+- 状态迭代：组件列表用 `list()` 迭代替代 dict 迭代
+
+### 🔇 日志优化
+- LLM Hook 注入流程的 10 处 `logger.info` 降级为 `logger.debug`，减少正常运行时的日志噪音
+
+### 🗑️ 移除
+- 删除未使用的 `DataAnalyticsService`
+- 移除 `plotly`、`matplotlib`、`seaborn`、`wordcloud` 及 3 个未使用依赖
+
+---
+
 ## [Next-2.0.0] - 2026-02-21
 
 ### 🏗️ 架构重构
