@@ -515,11 +515,7 @@ class ServiceFactory(IServiceFactory):
             except Exception as e:
                 self._logger.warning(f"创建响应多样性管理器失败（继续使用默认行为）: {e}")
 
-            # 创建社交上下文注入器（在intelligent_responder之前）
-            try:
-                self.create_social_context_injector()
-            except Exception as e:
-                self._logger.warning(f"创建社交上下文注入器失败（继续使用默认行为）: {e}")
+            # 社交上下文注入器由 ComponentFactory 创建（plugin_lifecycle.py）
 
             self.create_intelligent_responder() # 重新启用智能回复器
             self.create_persona_manager()
@@ -527,8 +523,15 @@ class ServiceFactory(IServiceFactory):
             self.create_progressive_learning()
 
             # Enable function-level monitoring when debug_mode is active.
-            from ..services.monitoring.instrumentation import set_debug_mode
-            set_debug_mode(self.config.debug_mode)
+            try:
+                from ..services.monitoring.instrumentation import set_debug_mode
+                set_debug_mode(self.config.debug_mode)
+            except ImportError:
+                if self.config.debug_mode:
+                    self._logger.warning(
+                        "prometheus_client 未安装，函数级性能监控不可用。"
+                        "安装 prometheus_client 后重启即可启用。"
+                    )
 
             # 启动所有注册的服务
             success = await self._registry.start_all_services()
