@@ -120,6 +120,9 @@ class PluginConfig(BaseModel):
     # 用户可配置的存储路径（放在最后，用户可以自定义）
     data_dir: str = "./data/self_learning_data" # 插件数据存储目录
 
+    # 表达模式统计时间窗口
+    expression_patterns_hours: int = 24 # 表达模式统计的小时数
+
     # API设置
     api_key: str = "" # 外部API访问密钥
     enable_api_auth: bool = False # 是否启用API密钥认证
@@ -328,6 +331,7 @@ class PluginConfig(BaseModel):
             include_affection_info=social_context_settings.get('include_affection_info', True),
             include_mood_info=social_context_settings.get('include_mood_info', True),
             context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+            expression_patterns_hours=social_context_settings.get('expression_patterns_hours', 24),
 
             # 目标驱动对话设置
             enable_goal_driven_chat=goal_driven_chat_settings.get('enable_goal_driven_chat', False),
