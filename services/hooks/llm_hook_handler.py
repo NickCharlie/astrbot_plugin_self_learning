@@ -201,7 +201,9 @@ class LLMHookHandler:
         if not self._v2_integration:
             return None
         try:
-            return await self._v2_integration.get_enhanced_context(prompt, group_id)
+            return await self._v2_integration.get_enhanced_context(
+                prompt, group_id, top_k=self._config.rerank_top_k
+            )
         except Exception as e:
             logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
             return None

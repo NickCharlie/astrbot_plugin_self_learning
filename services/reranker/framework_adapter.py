@@ -14,6 +14,10 @@ from astrbot.core.provider.entities import RerankResult as FrameworkRerankResult
 
 from .base import IRerankProvider, RerankResult, RerankProviderError
 
+# Most rerank APIs enforce a query length limit (typically 256-512 tokens).
+# Truncate long queries to avoid "Query is too long" errors.
+_MAX_QUERY_CHARS = 512
+
 
 class FrameworkRerankAdapter(IRerankProvider):
     """Adapter bridging AstrBot ``RerankProvider`` → plugin ``IRerankProvider``.
@@ -34,6 +38,14 @@ class FrameworkRerankAdapter(IRerankProvider):
         top_n: Optional[int] = None,
     ) -> List[RerankResult]:
         try:
+            # Truncate query to prevent "Query is too long" API errors.
+            if len(query) > _MAX_QUERY_CHARS:
+                logger.debug(
+                    f"[RerankAdapter] Truncating query from {len(query)} "
+                    f"to {_MAX_QUERY_CHARS} chars"
+                )
+                query = query[:_MAX_QUERY_CHARS]
+
             framework_results: List[FrameworkRerankResult] = (
                 await self._provider.rerank(query, documents, top_n)
             )
