@@ -26,6 +26,7 @@ class PerfTracker:
         "v2_ctx_ms",
         "diversity_ms",
         "jargon_ms",
+        "few_shots_ms",
     )
 
     def __init__(self, maxlen: int = 200) -> None:
@@ -37,6 +38,7 @@ class PerfTracker:
             "avg_v2_ctx_ms": 0,
             "avg_diversity_ms": 0,
             "avg_jargon_ms": 0,
+            "avg_few_shots_ms": 0,
             "max_total_ms": 0,
             "last_updated": 0,
         }

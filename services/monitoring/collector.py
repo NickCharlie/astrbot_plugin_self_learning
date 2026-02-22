@@ -150,7 +150,7 @@ class MetricCollector(AsyncServiceBase):
         try:
             data = self._perf_tracker.get_perf_data(recent_limit=0)
             for key in ("total_ms", "social_ctx_ms", "v2_ctx_ms",
-                        "diversity_ms", "jargon_ms"):
+                        "diversity_ms", "jargon_ms", "few_shots_ms"):
                 avg_key = f"avg_{key}"
                 if avg_key in data:
                     step_name = key.replace("_ms", "")
