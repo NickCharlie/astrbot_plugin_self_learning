@@ -24,6 +24,7 @@ from sqlalchemy import case, delete, desc, select, update
 from sqlalchemy.sql import func
 
 from ...models.orm.exemplar import Exemplar
+from ..monitoring.instrumentation import monitored
 
 
 # Minimum content length to accept as an exemplar.
@@ -129,6 +130,7 @@ class ExemplarLibrary:
             logger.warning(f"[ExemplarLibrary] Failed to save exemplar: {exc}")
             return None
 
+    @monitored
     async def get_few_shot_examples(
         self,
         query: str,

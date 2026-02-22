@@ -12,6 +12,8 @@ from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
 from astrbot.core.platform.message_type import MessageType
 
+from ..monitoring.instrumentation import monitored
+
 from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
 
 from ...config import PluginConfig
@@ -54,6 +56,7 @@ class IntelligentResponder:
 
         logger.info("智能回复器初始化完成 - 使用默认配置")
 
+    @monitored
     async def should_respond(self, event: AstrMessageEvent) -> bool:
         """判断是否应该回复此消息"""
         logger.info(f"[智能回复] should_respond 检查开始: enable_intelligent_reply={self.enable_intelligent_reply}")
@@ -112,6 +115,7 @@ class IntelligentResponder:
             logger.error(f"获取社交强度失败: {e}")
             return 0.0
 
+    @monitored
     async def generate_intelligent_response_text(self, event: AstrMessageEvent) -> Optional[str]:
         """生成自学习可能需要用到的的智能回复文本（修改版 - 增量更新在SYSTEM_PROMPT中）"""
         try:
@@ -279,6 +283,7 @@ class IntelligentResponder:
             logger.error(f"生成智能回复参数失败: {e}", exc_info=True)
             raise ResponseError(f"生成智能回复参数失败: {str(e)}")
 
+    @monitored
     async def _collect_context_info(self, group_id: str, sender_id: str, message: str) -> Dict[str, Any]:
         """收集上下文信息"""
         context_info = {

@@ -13,6 +13,7 @@ from astrbot.core.provider.provider import RerankProvider as FrameworkRerankProv
 from astrbot.core.provider.entities import RerankResult as FrameworkRerankResult
 
 from .base import IRerankProvider, RerankResult, RerankProviderError
+from ..monitoring.instrumentation import monitored
 
 # Most rerank APIs enforce a query length limit (typically 256-512 tokens).
 # Truncate long queries to avoid "Query is too long" errors.
@@ -31,6 +32,7 @@ class FrameworkRerankAdapter(IRerankProvider):
             raise ValueError("provider must not be None")
         self._provider = provider
 
+    @monitored
     async def rerank(
         self,
         query: str,

@@ -30,6 +30,7 @@ from astrbot.api import logger
 from ...config import PluginConfig
 from ...core.interfaces import MessageData, ServiceLifecycle
 from ..embedding.base import IEmbeddingProvider
+from ..monitoring.instrumentation import monitored
 
 # Lazy import guard -- LightRAG is an optional dependency.
 _LIGHTRAG_AVAILABLE = False
@@ -163,6 +164,7 @@ class LightRAGKnowledgeManager:
         """Short alias for ``process_message_for_knowledge_graph``."""
         await self.process_message_for_knowledge_graph(message, group_id)
 
+    @monitored
     async def query_knowledge(
         self,
         query: str,
@@ -207,6 +209,7 @@ class LightRAGKnowledgeManager:
             )
             return ""
 
+    @monitored
     async def answer_question_with_knowledge_graph(
         self,
         question: str,

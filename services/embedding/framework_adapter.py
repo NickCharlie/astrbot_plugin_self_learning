@@ -20,6 +20,7 @@ from astrbot.api import logger
 from astrbot.core.provider.provider import EmbeddingProvider
 
 from .base import IEmbeddingProvider, EmbeddingProviderError
+from ..monitoring.instrumentation import monitored
 
 
 class FrameworkEmbeddingAdapter(IEmbeddingProvider):
@@ -39,6 +40,7 @@ class FrameworkEmbeddingAdapter(IEmbeddingProvider):
 
     # IEmbeddingProvider implementation
 
+    @monitored
     async def get_embedding(self, text: str) -> List[float]:
         try:
             return await self._provider.get_embedding(text)
@@ -47,6 +49,7 @@ class FrameworkEmbeddingAdapter(IEmbeddingProvider):
                 f"Framework embedding call failed: {exc}"
             ) from exc
 
+    @monitored
     async def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             raise ValueError("texts must be a non-empty list")

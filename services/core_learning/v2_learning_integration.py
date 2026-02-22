@@ -35,6 +35,7 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...core.interfaces import MessageData
+from ..monitoring.instrumentation import monitored
 from ..quality import (
     BatchTriggerPolicy,
     TieredLearningTrigger,
@@ -153,6 +154,7 @@ class V2LearningIntegration:
 
     # Public API
 
+    @monitored
     async def process_message(
         self, message: MessageData, group_id: str
     ) -> TriggerResult:
@@ -163,6 +165,7 @@ class V2LearningIntegration:
         """
         return await self._trigger.process_message(message, group_id)
 
+    @monitored
     async def get_enhanced_context(
         self,
         query: str,
@@ -508,6 +511,7 @@ class V2LearningIntegration:
 
     # Reranking
 
+    @monitored
     async def _rerank_context(
         self,
         query: str,

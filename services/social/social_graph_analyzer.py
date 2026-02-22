@@ -31,6 +31,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from astrbot.api import logger
 
+from ..monitoring.instrumentation import monitored
+
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 
 
@@ -277,6 +279,7 @@ class SocialGraphAnalyzer:
             logger.debug(f"[SocialGraph] Sentiment analysis failed: {exc}")
             return []
 
+    @monitored
     async def get_graph_statistics(
         self, group_id: str
     ) -> Dict[str, Any]:

@@ -31,6 +31,7 @@ from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...core.interfaces import MessageData, ServiceLifecycle
+from ..monitoring.instrumentation import monitored
 
 # Lazy import guard -- mem0ai is an optional dependency.
 _MEM0_AVAILABLE = False
@@ -140,6 +141,7 @@ class Mem0MemoryManager:
         except Exception as exc:
             logger.debug(f"[Mem0] add_memory failed: {exc}")
 
+    @monitored
     async def get_related_memories(
         self,
         query: str,

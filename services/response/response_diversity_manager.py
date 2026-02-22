@@ -8,6 +8,8 @@ from datetime import datetime
 
 from astrbot.api import logger
 
+from ..monitoring.instrumentation import monitored
+
 
 class ResponseDiversityManager:
     """
@@ -217,6 +219,7 @@ class ResponseDiversityManager:
                 'emphasis': '不作强调'
             }
 
+    @monitored
     async def build_diversity_prompt_injection(self, base_prompt: str,
                                         group_id: str = None,
                                         inject_style: bool = True,

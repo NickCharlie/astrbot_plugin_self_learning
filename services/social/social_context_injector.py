@@ -14,6 +14,8 @@ from cachetools import TTLCache
 
 from astrbot.api import logger
 
+from ..monitoring.instrumentation import monitored
+
 
 class SocialContextInjector:
     """社交上下文注入器 - 格式化并注入用户社交关系、好感度、Bot情绪到prompt"""
@@ -95,6 +97,7 @@ class SocialContextInjector:
                 f"(group={group_id}, user={user_id or 'all'})"
             )
 
+    @monitored
     async def format_complete_context(
         self,
         group_id: str,

@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
+
+from ..monitoring.instrumentation import monitored
 from astrbot.core.agent.message import TextPart
 
 from .perf_tracker import PerfTracker
@@ -58,6 +60,7 @@ class LLMHookHandler:
 
     # Public API
 
+    @monitored
     async def handle(self, event: AstrMessageEvent, req: Any) -> None:
         """Process an LLM request hook — inject context into *req*."""
         hook_start = time.time()
@@ -172,6 +175,7 @@ class LLMHookHandler:
 
     # Context fetchers
 
+    @monitored
     async def _fetch_social(
         self, group_id: str, user_id: str
     ) -> Optional[str]:
@@ -195,6 +199,7 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] 注入社交上下文失败: {e}")
             return None
 
+    @monitored
     async def _fetch_v2(
         self, prompt: str, group_id: str
     ) -> Optional[Dict[str, Any]]:
@@ -208,6 +213,7 @@ class LLMHookHandler:
             logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
             return None
 
+    @monitored
     async def _fetch_diversity(self, group_id: str) -> Optional[str]:
         try:
             content = await self._diversity_manager.build_diversity_prompt_injection(
@@ -223,6 +229,7 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] 多样性增强失败: {e}")
             return None
 
+    @monitored
     async def _fetch_jargon(
         self, event: AstrMessageEvent, group_id: str
     ) -> Optional[str]:
@@ -242,6 +249,7 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] 注入黑话理解失败: {e}")
             return None
 
+    @monitored
     async def _fetch_few_shots(self, group_id: str) -> Optional[str]:
         """Fetch approved few-shot dialogue content for the given group."""
         if not self._db_manager:

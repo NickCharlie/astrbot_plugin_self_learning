@@ -7,6 +7,8 @@ from typing import Optional, List, Dict, Any
 from astrbot.api import logger
 from cachetools import TTLCache
 
+from ..monitoring.instrumentation import monitored
+
 
 class JargonQueryService:
     """黑话查询服务 - 供LLM工具调用"""
@@ -144,6 +146,7 @@ class JargonQueryService:
             logger.error(f"获取黑话上下文失败: {e}")
             return ""
 
+    @monitored
     async def check_and_explain_jargon(
         self,
         text: str,
