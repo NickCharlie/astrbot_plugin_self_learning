@@ -18,9 +18,11 @@ class FrameworkLLMAdapter:
         self.refine_provider: Optional[Provider] = None
         self.reinforce_provider: Optional[Provider] = None
         self.providers_configured = 0
-        self._needs_lazy_init = False # 延迟初始化标记
-        self._lazy_init_attempted = False # 避免重复尝试
-        self._config = None # 保存配置用于延迟初始化
+        self._needs_lazy_init = False
+        self._config = None
+        # 延迟初始化冷却: 避免在providers尚未就绪时高频重试
+        self._last_lazy_init_attempt: float = 0
+        self._lazy_init_cooldown: float = 30.0
 
         # 添加调用统计
         self.call_stats = {
@@ -212,19 +214,23 @@ class FrameworkLLMAdapter:
             logger.warning(" 所有Provider均未配置，插件功能将受限")
 
     def _try_lazy_init(self):
-        """尝试延迟初始化Provider（仅执行一次）"""
-        if self._needs_lazy_init and not self._lazy_init_attempted and self._config:
-            self._lazy_init_attempted = True
-            logger.info(" [LLM适配器] 尝试延迟初始化Provider...")
-            try:
-                self.initialize_providers(self._config)
-                if self.providers_configured > 0:
-                    self._needs_lazy_init = False
-                    logger.info(f" [LLM适配器] 延迟初始化成功，已配置 {self.providers_configured} 个Provider")
-                else:
-                    logger.warning(" [LLM适配器] 延迟初始化仍未找到可用Provider")
-            except Exception as e:
-                logger.warning(f" [LLM适配器] 延迟初始化失败: {e}")
+        """尝试延迟初始化Provider（带30秒冷却间隔，避免高频重试开销）"""
+        if not self._needs_lazy_init or not self._config:
+            return
+        now = time.time()
+        if now - self._last_lazy_init_attempt < self._lazy_init_cooldown:
+            return
+        self._last_lazy_init_attempt = now
+        logger.info("[LLM适配器] 尝试延迟初始化Provider...")
+        try:
+            self.initialize_providers(self._config)
+            if self.providers_configured > 0:
+                self._needs_lazy_init = False
+                logger.info(f"[LLM适配器] 延迟初始化成功，已配置 {self.providers_configured} 个Provider")
+            else:
+                logger.warning("[LLM适配器] 延迟初始化仍未找到可用Provider")
+        except Exception as e:
+            logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
     async def filter_chat_completion(
         self,

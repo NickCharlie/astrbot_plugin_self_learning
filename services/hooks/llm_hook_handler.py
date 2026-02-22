@@ -85,7 +85,7 @@ class LLMHookHandler:
                 return
 
             original_prompt_length = len(req.prompt)
-            logger.info(
+            logger.debug(
                 f"[LLM Hook] 开始注入多样性增强 "
                 f"(group: {group_id}, 原prompt长度: {original_prompt_length})"
             )
@@ -260,7 +260,7 @@ class LLMHookHandler:
     ) -> None:
         if result:
             out.append(result)
-            logger.info(f"[LLM Hook] 已准备完整社交上下文 (长度: {len(result)})")
+            logger.debug(f"[LLM Hook] 已准备完整社交上下文 (长度: {len(result)})")
         else:
             logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
 
@@ -281,7 +281,7 @@ class LLMHookHandler:
             v2_parts.append(f"[Style Examples]\n{examples_text}")
         if v2_parts:
             out.append("\n\n".join(v2_parts))
-            logger.info(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {ms:.0f}ms)")
+            logger.debug(f"[LLM Hook] V2 context injected ({len(v2_parts)} sections, {ms:.0f}ms)")
         else:
             logger.debug(f"[LLM Hook] V2 context empty ({ms:.0f}ms)")
 
@@ -289,13 +289,13 @@ class LLMHookHandler:
     def _collect_diversity(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(result)
-            logger.info(f"[LLM Hook] 已准备多样性增强内容 (长度: {len(result)})")
+            logger.debug(f"[LLM Hook] 已准备多样性增强内容 (长度: {len(result)})")
 
     @staticmethod
     def _collect_jargon(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(result)
-            logger.info(f"[LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
+            logger.debug(f"[LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
         else:
             logger.debug("[LLM Hook] 用户消息中未检测到已知黑话")
 
@@ -303,7 +303,7 @@ class LLMHookHandler:
     def _collect_few_shots(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(f"[Few-Shot Dialogue Examples]\n{result}")
-            logger.info(f"[LLM Hook] Few-shot dialogue injected (len={len(result)})")
+            logger.debug(f"[LLM Hook] Few-shot dialogue injected (len={len(result)})")
         else:
             logger.debug("[LLM Hook] No approved few-shot dialogues available")
 
@@ -320,7 +320,7 @@ class LLMHookHandler:
             if session_updates:
                 updates_text = "\n\n".join(session_updates)
                 out.append(updates_text)
-                logger.info(
+                logger.debug(
                     f"[LLM Hook] 已准备会话级更新 "
                     f"(会话: {group_id}, 更新数: {len(session_updates)}, "
                     f"长度: {len(updates_text)})"
@@ -345,7 +345,7 @@ class LLMHookHandler:
             req.extra_user_content_parts.append(
                 TextPart(text=f"<context>\n{injection_text}\n</context>")
             )
-            logger.info(
+            logger.debug(
                 f"[LLM Hook] extra_user_content_parts 注入完成 - "
                 f"新增: {len(injection_text)} chars"
             )
@@ -354,7 +354,7 @@ class LLMHookHandler:
             if not req.system_prompt:
                 req.system_prompt = ""
             req.system_prompt += "\n\n" + injection_text
-            logger.info(
+            logger.debug(
                 f"[LLM Hook] system_prompt fallback 注入完成 - "
                 f"新增: {len(injection_text)} chars"
             )
@@ -365,10 +365,10 @@ class LLMHookHandler:
 
         current_style = self._diversity_manager.get_current_style()
         current_pattern = self._diversity_manager.get_current_pattern()
-        logger.info(
+        logger.debug(
             f"[LLM Hook] 当前语言风格: {current_style}, 回复模式: {current_pattern}"
         )
-        logger.info(
+        logger.debug(
             f"[LLM Hook] 注入内容数量: {len(injections)}项, "
             f"耗时: {time.time() - hook_start:.3f}s"
         )
