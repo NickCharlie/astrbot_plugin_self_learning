@@ -404,13 +404,17 @@ class LightRAGKnowledgeManager:
         LightRAG expects the return value to be a **numpy array** (it
         accesses ``result.size`` internally). Our ``IEmbeddingProvider``
         returns ``list[list[float]]``, so we convert here.
+
+        The bridge accepts ``**kwargs`` because LightRAG callers may
+        pass extra keyword arguments such as ``_priority`` (query path)
+        that are irrelevant to the actual embedding computation.
         """
         import numpy as np
 
         embedding = self._embedding
 
-        async def _embedding_bridge(texts: list) -> "np.ndarray":
+        async def _embedding_bridge(texts: list, **kwargs) -> "np.ndarray":
             result = await embedding.get_embeddings(texts)
-            return np.array(result)
+            return np.array(result, dtype=np.float32)
 
         return _embedding_bridge
