@@ -28,6 +28,7 @@ Design notes:
     - Thread-safe for single-event-loop asyncio usage.
 """
 
+import asyncio
 from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
@@ -99,14 +100,20 @@ class V2LearningIntegration:
             ("social_analyzer", self._social_analyzer),
             ("jargon_filter", self._jargon_filter),
         ]
-        for name, module in modules:
-            if module and hasattr(module, "start"):
-                try:
-                    await module.start()
-                except Exception as exc:
-                    logger.warning(
-                        f"[V2Integration] {name} start failed: {exc}"
-                    )
+
+        async def _start_one(name: str, module: Any) -> None:
+            try:
+                await module.start()
+            except Exception as exc:
+                logger.warning(
+                    f"[V2Integration] {name} start failed: {exc}"
+                )
+
+        await asyncio.gather(*(
+            _start_one(name, module)
+            for name, module in modules
+            if module and hasattr(module, "start")
+        ))
         logger.info("[V2Integration] All modules started")
 
     async def stop(self) -> None:
@@ -118,21 +125,30 @@ class V2LearningIntegration:
             ("social_analyzer", self._social_analyzer),
             ("jargon_filter", self._jargon_filter),
         ]
-        for name, module in modules:
-            if module and hasattr(module, "stop"):
-                try:
-                    await module.stop()
-                except Exception as exc:
-                    logger.warning(
-                        f"[V2Integration] {name} stop failed: {exc}"
-                    )
 
-        if self._rerank_provider and hasattr(self._rerank_provider, "close"):
+        async def _stop_one(name: str, module: Any) -> None:
+            try:
+                await module.stop()
+            except Exception as exc:
+                logger.warning(
+                    f"[V2Integration] {name} stop failed: {exc}"
+                )
+
+        async def _close_reranker() -> None:
             try:
                 await self._rerank_provider.close()
             except Exception as exc:
                 logger.warning(f"[V2Integration] Reranker close failed: {exc}")
 
+        tasks = [
+            _stop_one(name, module)
+            for name, module in modules
+            if module and hasattr(module, "stop")
+        ]
+        if self._rerank_provider and hasattr(self._rerank_provider, "close"):
+            tasks.append(_close_reranker())
+
+        await asyncio.gather(*tasks)
         logger.info("[V2Integration] All modules stopped")
 
     # Public API
@@ -169,8 +185,6 @@ class V2LearningIntegration:
         All retrieval tasks run concurrently via ``asyncio.gather`` to
         minimise total latency.
         """
-        import asyncio
-
         context: Dict[str, Any] = {}
 
         # --- Build concurrent retrieval tasks ---

@@ -57,6 +57,10 @@ class ResponseDiversityManager:
         self.current_language_style = None
         self.current_response_pattern = None
 
+        # 去重缓存: 同一group_id在短时间窗口内的重复调用直接返回缓存结果
+        self._dedup_cache: Dict[str, Tuple[float, str]] = {}
+        self._dedup_window = 5.0  # 5秒去重窗口
+
         # 回复模式池
         self.response_patterns = [
             "直接回答型：直接给出答案，不绕弯子",
@@ -236,6 +240,14 @@ class ResponseDiversityManager:
             str: 增强后的系统提示词
         """
         try:
+            # 去重: 同一group在短时间窗口内的第二次调用直接返回已生成的结果
+            if group_id:
+                now = time.time()
+                cached_entry = self._dedup_cache.get(group_id)
+                if cached_entry and (now - cached_entry[0]) < self._dedup_window:
+                    logger.debug(f"[多样性管理器] 去重命中 (group={group_id})")
+                    return cached_entry[1] if not base_prompt else base_prompt + "\n\n" + cached_entry[1]
+
             # 收集所有要注入的原始提示词
             raw_prompts = []
 
@@ -313,6 +325,12 @@ class ResponseDiversityManager:
                 logger.debug("未启用提示词保护")
 
             logger.debug(f"注入的完整内容:\n{enhanced_prompt[len(base_prompt):]}")
+
+            # 缓存去重: 仅缓存注入部分（不含base_prompt），供后续调用复用
+            if group_id:
+                injection_part = enhanced_prompt[len(base_prompt):]
+                self._dedup_cache[group_id] = (time.time(), injection_part.strip())
+
             return enhanced_prompt
 
         except Exception as e:

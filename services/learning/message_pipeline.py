@@ -139,8 +139,8 @@ class MessagePipeline:
                             goal_name = goal["final_goal"].get("name", "未知目标")
                             topic = goal["final_goal"].get("topic", "未知话题")
                             current_stage = goal["current_stage"].get("task", "初始化")
-                            logger.info(
-                                f" [对话目标] 会话目标: {goal_name} "
+                            logger.debug(
+                                f"[对话目标] 会话目标: {goal_name} "
                                 f"(类型: {goal_type}), 话题: {topic}, "
                                 f"当前阶段: {current_stage}"
                             )
@@ -187,7 +187,7 @@ class MessagePipeline:
                 )
                 return
 
-            logger.info(
+            logger.debug(
                 f"[JargonMining] Analysing {len(recent_messages)} messages "
                 f"from group {group_id}"
             )

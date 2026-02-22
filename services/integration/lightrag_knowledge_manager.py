@@ -95,6 +95,10 @@ class LightRAGKnowledgeManager:
         # Track processed message counts per group for statistics.
         self._processed_counts: Dict[str, int] = {}
 
+        # Statistics cache to avoid repeated GraphML parsing (TTL 5 minutes).
+        self._stats_cache: Dict[str, tuple] = {}
+        self._stats_cache_ttl: float = 300.0
+
     # Lifecycle
 
     async def start(self) -> bool:
@@ -238,7 +242,17 @@ class LightRAGKnowledgeManager:
     async def get_knowledge_graph_statistics(
         self, group_id: str
     ) -> Dict[str, Any]:
-        """Return summary statistics for a group's knowledge graph."""
+        """Return summary statistics for a group's knowledge graph.
+
+        Results are cached for ``_stats_cache_ttl`` seconds to avoid
+        repeatedly parsing the GraphML file on frequent status queries.
+        """
+        # Check TTL cache first
+        if group_id in self._stats_cache:
+            cached_ts, cached_stats = self._stats_cache[group_id]
+            if time.time() - cached_ts < self._stats_cache_ttl:
+                return cached_stats
+
         stats: Dict[str, Any] = {
             "engine": "lightrag",
             "entity_count": 0,
@@ -249,7 +263,6 @@ class LightRAGKnowledgeManager:
         if group_id not in self._instances:
             return stats
 
-        # Read basic metrics from the working directory if available.
         working_dir = os.path.join(self._base_dir, group_id)
         graph_file = os.path.join(
             working_dir, "graph_chunk_entity_relation.graphml"
@@ -273,6 +286,7 @@ class LightRAGKnowledgeManager:
         except Exception as exc:
             logger.warning(f"[LightRAG] Could not read graph stats: {exc}")
 
+        self._stats_cache[group_id] = (time.time(), stats)
         return stats
 
     # Internal helpers
