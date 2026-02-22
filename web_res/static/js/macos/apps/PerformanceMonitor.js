@@ -165,7 +165,7 @@ window.AppPerformanceMonitor = {
 
             <!-- CPU results -->
             <el-table v-if="profileResult.top_functions" :data="profileResult.top_functions" size="small" stripe max-height="400"
-                      :default-sort="{prop: profileResult.backend === 'yappi' ? 'ttot' : 'cumtime', order: 'descending'}">
+                      :default-sort="{prop: profileResult.backend === 'yappi' ? 'ttot' : 'cumtime', order: 'descending'}" style="width:100%;">
               <el-table-column prop="name" label="函数" min-width="200" show-overflow-tooltip sortable>
                 <template #default="scope">
                   <span style="font-family:monospace;font-size:11px;" :title="scope.row.name">{{ scope.row.name }}</span>
@@ -193,7 +193,7 @@ window.AppPerformanceMonitor = {
 
             <!-- Memory results -->
             <el-table v-if="profileResult.top_allocations" :data="profileResult.top_allocations" size="small" stripe max-height="400"
-                      :default-sort="{prop:'size_kb',order:'descending'}">
+                      :default-sort="{prop:'size_kb',order:'descending'}" style="width:100%;">
               <el-table-column prop="location" label="位置" min-width="200" show-overflow-tooltip sortable>
                 <template #default="scope">
                   <span style="font-family:monospace;font-size:11px;" :title="scope.row.location">{{ scope.row.location }}</span>
