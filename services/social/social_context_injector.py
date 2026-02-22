@@ -47,9 +47,8 @@ class SocialContextInjector:
         self._enable_protection = True
 
         # 缓存机制 - 使用cachetools的TTLCache
-        # maxsize=1000: 最多缓存1000个条目
-        # ttl=60: 缓存有效期60秒（1分钟）
-        self._cache = TTLCache(maxsize=1000, ttl=60)
+        # 社交关系、好感度、心理状态等数据变化频率较低，5分钟TTL足以平衡实时性和性能
+        self._cache = TTLCache(maxsize=1000, ttl=300)
 
         # 行为指导后台生成 (整合自 PsychologicalSocialContextInjector)
         self._background_tasks: set = set()
@@ -74,6 +73,27 @@ class SocialContextInjector:
     def _set_to_cache(self, key: str, data: Any):
         """设置缓存 (使用TTLCache自动管理过期)"""
         self._cache[key] = data
+
+    def invalidate_user_cache(self, group_id: str, user_id: str = None):
+        """主动失效指定群组/用户的缓存条目
+
+        在好感度或社交关系等数据发生变更时调用，确保下次LLM请求使用最新数据。
+
+        Args:
+            group_id: 群组ID
+            user_id: 用户ID，为None时失效该群组所有缓存
+        """
+        keys_to_remove = [
+            key for key in list(self._cache.keys())
+            if group_id in str(key) and (user_id is None or user_id in str(key))
+        ]
+        for key in keys_to_remove:
+            self._cache.pop(key, None)
+        if keys_to_remove:
+            logger.debug(
+                f"[社交上下文] 已失效 {len(keys_to_remove)} 条缓存 "
+                f"(group={group_id}, user={user_id or 'all'})"
+            )
 
     async def format_complete_context(
         self,
@@ -110,69 +130,120 @@ class SocialContextInjector:
         try:
             context_parts = []
 
-            # 1. 深度心理状态分析（整合自 PsychologicalSocialContextInjector）
-            if include_psychological and self.psych_manager:
-                psych_context = await self._build_psychological_context(group_id)
-                if psych_context:
-                    context_parts.append(psych_context)
-                    logger.info(f" [社交上下文] 已准备深度心理状态 (群组: {group_id}, 长度: {len(psych_context)})")
-                else:
-                    logger.info(f" [社交上下文] 群组 {group_id} 暂无活跃的心理状态")
+            # Build a list of independent coroutines (steps 1-5, 7) that can
+            # run concurrently. Each coroutine returns a (label, result) tuple
+            # so we can log appropriately after the gather completes.
+            independent_tasks: List[asyncio.Task] = []
 
-            # 2. Bot当前情绪信息（基础版，可与心理状态共存）
+            async def _fetch_psychological() -> Tuple[str, Optional[str]]:
+                result = await self._build_psychological_context(group_id)
+                return "psychological", result
+
+            async def _fetch_mood() -> Tuple[str, Optional[str]]:
+                result = await self._format_mood_context(group_id)
+                return "mood", result
+
+            async def _fetch_affection() -> Tuple[str, Optional[str]]:
+                result = await self._format_affection_context(group_id, user_id)
+                return "affection", result
+
+            async def _fetch_social() -> Tuple[str, Optional[str]]:
+                result = await self.format_social_context(group_id, user_id)
+                return "social", result
+
+            async def _fetch_expression() -> Tuple[str, Optional[str]]:
+                result = await self._format_expression_patterns_context(
+                    group_id,
+                    enable_protection=enable_protection
+                )
+                return "expression", result
+
+            async def _fetch_goal() -> Tuple[str, Optional[str]]:
+                logger.debug(f" [社交上下文] 尝试获取对话目标上下文 (user={user_id[:8]}..., group={group_id})")
+                result = await self._format_conversation_goal_context(group_id, user_id)
+                return "goal", result
+
+            # 1. 深度心理状态分析
+            if include_psychological and self.psych_manager:
+                independent_tasks.append(_fetch_psychological())
+
+            # 2. Bot当前情绪信息
             if include_mood and self.mood_manager:
-                mood_text = await self._format_mood_context(group_id)
-                if mood_text:
-                    context_parts.append(mood_text)
-                    logger.debug(f" [社交上下文] 已准备情绪信息 (群组: {group_id})")
+                independent_tasks.append(_fetch_mood())
 
             # 3. 对该用户的好感度信息
             if include_affection and self.affection_manager:
-                affection_text = await self._format_affection_context(group_id, user_id)
-                if affection_text:
-                    context_parts.append(affection_text)
-                    logger.debug(f" [社交上下文] 已准备好感度信息 (群组: {group_id}, 用户: {user_id[:8]}...)")
+                independent_tasks.append(_fetch_affection())
 
-            # 4. 用户社交关系信息（使用 SocialContextInjector 原有实现）
+            # 4. 用户社交关系信息
             if include_social_relations:
-                social_text = await self.format_social_context(group_id, user_id)
-                if social_text:
-                    context_parts.append(social_text)
-                    logger.debug(f" [社交上下文] 已准备社交关系 (群组: {group_id}, 用户: {user_id[:8]}...)")
+                independent_tasks.append(_fetch_social())
 
-            # 5. 最近学到的表达模式（风格特征）- SocialContextInjector 独有
-            # 注意：表达模式内部已经应用了保护，这里获取的是保护后的文本
+            # 5. 最近学到的表达模式（风格特征）
             if include_expression_patterns:
-                expression_text = await self._format_expression_patterns_context(
-                    group_id,
-                    enable_protection=enable_protection # 传递保护参数
-                )
-                if expression_text:
-                    context_parts.append(expression_text)
-                    logger.info(f" [社交上下文] 已准备表达模式 (群组: {group_id}, 长度: {len(expression_text)})")
-                else:
-                    logger.info(f" [社交上下文] 群组 {group_id} 暂无表达模式学习记录")
+                independent_tasks.append(_fetch_expression())
 
-            # 6. 行为模式指导（整合自 PsychologicalSocialContextInjector）
+            # 7. 对话目标上下文
+            if include_conversation_goal and self.goal_manager:
+                independent_tasks.append(_fetch_goal())
+            elif include_conversation_goal and not self.goal_manager:
+                logger.warning(f" [社交上下文] 对话目标功能已启用但goal_manager未初始化")
+
+            # Run all independent steps concurrently
+            gather_results = await asyncio.gather(*independent_tasks, return_exceptions=True)
+
+            # Process gather results, preserving the original insertion order
+            for result in gather_results:
+                if isinstance(result, Exception):
+                    logger.error(f" [社交上下文] 并发上下文步骤异常: {result}", exc_info=result)
+                    continue
+
+                label, value = result
+
+                if label == "psychological":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备深度心理状态 (群组: {group_id}, 长度: {len(value)})")
+                    else:
+                        logger.debug(f" [社交上下文] 群组 {group_id} 暂无活跃的心理状态")
+
+                elif label == "mood":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备情绪信息 (群组: {group_id})")
+
+                elif label == "affection":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备好感度信息 (群组: {group_id}, 用户: {user_id[:8]}...)")
+
+                elif label == "social":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备社交关系 (群组: {group_id}, 用户: {user_id[:8]}...)")
+
+                elif label == "expression":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备表达模式 (群组: {group_id}, 长度: {len(value)})")
+                    else:
+                        logger.debug(f" [社交上下文] 群组 {group_id} 暂无表达模式学习记录")
+
+                elif label == "goal":
+                    if value:
+                        context_parts.append(value)
+                        logger.debug(f" [社交上下文] 已准备对话目标 (长度: {len(value)})")
+                    else:
+                        logger.debug(f" [社交上下文] 未找到活跃对话目标 (user={user_id[:8]}..., group={group_id})")
+
+            # 6. 行为模式指导（依赖心理/社交结果，需在 gather 之后执行）
             if include_behavior_guidance and (include_psychological or include_social_relations):
                 behavior_guidance = await self._build_behavior_guidance(group_id, user_id)
                 if behavior_guidance:
                     context_parts.append(behavior_guidance)
-                    logger.info(f" [社交上下文] 已准备行为模式指导 (长度: {len(behavior_guidance)})")
+                    logger.debug(f" [社交上下文] 已准备行为模式指导 (长度: {len(behavior_guidance)})")
                 else:
                     logger.debug(f" [社交上下文] 未生成行为模式指导")
-
-            # 7. 对话目标上下文（新增）
-            if include_conversation_goal and self.goal_manager:
-                logger.info(f" [社交上下文] 尝试获取对话目标上下文 (user={user_id[:8]}..., group={group_id})")
-                goal_context = await self._format_conversation_goal_context(group_id, user_id)
-                if goal_context:
-                    context_parts.append(goal_context)
-                    logger.info(f" [社交上下文] 已准备对话目标 (长度: {len(goal_context)})")
-                else:
-                    logger.info(f" [社交上下文] 未找到活跃对话目标 (user={user_id[:8]}..., group={group_id})")
-            elif include_conversation_goal and not self.goal_manager:
-                logger.warning(f" [社交上下文] 对话目标功能已启用但goal_manager未初始化")
 
             if not context_parts:
                 return None
@@ -200,7 +271,7 @@ class SocialContextInjector:
                     protection = self._get_prompt_protection()
                     if protection:
                         protected_other = protection.wrap_prompt(raw_other_context, register_for_filter=True)
-                        logger.info(f" [社交上下文] 已对情绪/好感度/社交关系应用提示词保护")
+                        logger.debug(f" [社交上下文] 已对情绪/好感度/社交关系应用提示词保护")
                     else:
                         protected_other = raw_other_context
                         logger.warning(f" [社交上下文] 提示词保护服务不可用，使用原始文本")
@@ -222,11 +293,11 @@ class SocialContextInjector:
             full_context = "\n\n".join(final_parts)
 
             # 输出最终上下文的组成部分用于调试
-            logger.info(f" [社交上下文] 最终上下文包含 {len(final_parts)} 个部分")
+            logger.debug(f" [社交上下文] 最终上下文包含 {len(final_parts)} 个部分")
             if "对话目标" in full_context or "【当前对话目标状态】" in full_context:
-                logger.info(f" [社交上下文] 对话目标上下文已成功包含在最终输出中")
+                logger.debug(f" [社交上下文] 对话目标上下文已成功包含在最终输出中")
             else:
-                logger.info(f" [社交上下文] 对话目标上下文未包含在最终输出中")
+                logger.debug(f" [社交上下文] 对话目标上下文未包含在最终输出中")
 
             return full_context
 
