@@ -50,6 +50,7 @@ class BotMoodRepository(BaseRepository[BotMood]):
 
             # 创建新的活跃情绪
             mood_data.setdefault('start_time', time.time())
+            mood_data.setdefault('timestamp', time.time())
             mood_data.setdefault('is_active', 1)
             mood = BotMood(**mood_data)
             self.session.add(mood)

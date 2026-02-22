@@ -206,6 +206,7 @@ class BotMood(Base):
     mood_type = Column(String(100), nullable=False)
     mood_intensity = Column(Float, default=0.5)
     mood_description = Column(Text)
+    timestamp = Column(Float, nullable=False)  # required by production MySQL schema
     start_time = Column(Float, nullable=False)
     end_time = Column(Float)
     is_active = Column(Integer, default=1) # Boolean as int for SQLite compat
