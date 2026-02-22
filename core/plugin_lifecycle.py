@@ -355,6 +355,18 @@ class PluginLifecycle:
             except Exception as e:
                 logger.error(f"V2LearningIntegration start failed: {e}", exc_info=True)
 
+        # ------ 函数级性能监控 ------
+        if plugin_config.debug_mode:
+            try:
+                from ..services.monitoring.instrumentation import set_debug_mode
+                set_debug_mode(True)
+                logger.info("函数级性能监控已启用 (debug_mode=True)")
+            except ImportError:
+                logger.warning(
+                    "prometheus_client 未安装，函数级性能监控不可用。"
+                    "安装 prometheus_client 后重启即可启用。"
+                )
+
         # ------ WebUI ------
         if self._webui_manager:
             await self._webui_manager.setup_and_start()
