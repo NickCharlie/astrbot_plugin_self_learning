@@ -103,6 +103,10 @@ class SocialGraphAnalyzer:
         self._community_cache: Dict[str, Tuple[float, List[Set[str]]]] = {}
         self._cache_ttl = 600 # 10 minutes
 
+        # Per-group statistics cache: group_id -> (timestamp, stats).
+        self._stats_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._stats_cache_ttl = 120 # 2 minutes
+
     # Public API
 
     async def build_social_graph(self, group_id: str) -> nx.DiGraph:
@@ -284,6 +288,13 @@ class SocialGraphAnalyzer:
         self, group_id: str
     ) -> Dict[str, Any]:
         """Return summary statistics for a group's social graph."""
+        # Check TTL cache.
+        cached = self._stats_cache.get(group_id)
+        if cached:
+            ts, stats = cached
+            if time.time() - ts < self._stats_cache_ttl:
+                return stats
+
         graph = await self.build_social_graph(group_id)
         stats: Dict[str, Any] = {
             "node_count": graph.number_of_nodes(),
@@ -297,4 +308,5 @@ class SocialGraphAnalyzer:
             communities = await self.detect_communities(group_id)
             stats["communities"] = len(communities)
 
+        self._stats_cache[group_id] = (time.time(), stats)
         return stats
