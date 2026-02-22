@@ -340,12 +340,18 @@ class AffectionManager(AsyncServiceBase):
         mood_data = await self.db_manager.get_current_bot_mood(group_id)
         if mood_data:
             try:
+                start = mood_data['start_time']
+                end = mood_data.get('end_time')
+                if end and start:
+                    duration_hours = int((end - start) / 3600)
+                else:
+                    duration_hours = 24  # default
                 mood = BotMood(
                     mood_type=MoodType(mood_data['mood_type']),
                     intensity=mood_data['mood_intensity'],
                     description=mood_data['mood_description'],
-                    start_time=mood_data['start_time'],
-                    duration_hours=int((mood_data['end_time'] - mood_data['start_time']) / 3600)
+                    start_time=start,
+                    duration_hours=duration_hours
                 )
                 if mood.is_active():
                     self.current_moods[group_id] = mood

@@ -128,6 +128,7 @@ class AffectionFacade(BaseFacade):
                     'mood_intensity': mood.mood_intensity,
                     'mood_description': mood.mood_description,
                     'start_time': mood.start_time,
+                    'end_time': mood.end_time,
                 }
         except Exception as e:
             self._logger.error(f"[AffectionFacade] 获取当前情绪失败: {e}")
