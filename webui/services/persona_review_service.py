@@ -302,7 +302,16 @@ class PersonaReviewService:
                     try:
                         review_data = await self.database_manager.get_persona_learning_review_by_id(persona_learning_review_id)
                         if review_data:
-                            content_to_apply = modified_content if modified_content else review_data.get('proposed_content')
+                            original_content = review_data.get('original_content', '')
+
+                            if modified_content:
+                                # 用户通过编辑框修改了建议内容（仅增量部分），拼接原人格
+                                content_to_apply = original_content + "\n\n" + modified_content if original_content else modified_content
+                            else:
+                                # 未修改，使用 new_content（已是完整人格文本）
+                                content_to_apply = review_data.get('new_content') or (
+                                    (original_content + "\n\n" + review_data.get('proposed_content', '')) if original_content else review_data.get('proposed_content')
+                                )
                             group_id = review_data.get('group_id', 'default')
 
                             if self.persona_web_manager and content_to_apply:

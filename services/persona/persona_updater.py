@@ -117,16 +117,9 @@ class PersonaUpdater(IPersonaUpdater):
                 # Personality是TypedDict,直接使用字典访问
                 original_prompt = current_persona.get('prompt', '')
                 enhanced_prompt = self._merge_prompts(original_prompt, style_analysis['enhanced_prompt'])
-                
-                # 记录人格更新以便人工审查
-                await self.record_persona_update_for_review(PersonaUpdateRecord(
-                    timestamp=time.time(),
-                    group_id=group_id,
-                    update_type="prompt_update",
-                    original_content=original_prompt,
-                    new_content=enhanced_prompt,
-                    reason="风格分析建议更新prompt"
-                ))
+
+                # 审查记录由调用方（progressive_learning._apply_learning_updates）统一创建，
+                # 此处不再重复创建，避免产生重复的审查记录
 
                 # Personality是TypedDict,需要通过PersonaManager更新
                 current_persona['prompt'] = enhanced_prompt

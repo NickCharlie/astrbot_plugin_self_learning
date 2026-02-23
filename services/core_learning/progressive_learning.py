@@ -1011,16 +1011,16 @@ class ProgressiveLearningService:
                             raw_analysis_parts.append(f"已应用强化学习优化，预期改进: {ml_tuning_info['expected_improvement']:.2%}")
                     raw_analysis = "；".join(raw_analysis_parts)
 
-                    # 创建审查记录 - proposed_content 是完整的新人格（原人格 + 更新内容）
+                    # 创建审查记录 - proposed_content 仅包含新增内容，审批时拼接 original_content
                     review_id = await self.db_manager.add_persona_learning_review(
                         group_id=group_id,
-                        proposed_content=new_prompt, # 修改：proposed_content 是完整新人格
+                        proposed_content=incremental_content, # 仅新增内容，不重复原始人格
                         learning_source=UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
                         confidence_score=confidence_score,
                         raw_analysis=raw_analysis,
                         metadata=metadata,
                         original_content=original_prompt, # 原人格完整文本
-                        new_content=new_prompt # 新人格完整文本（与proposed_content相同，保持一致性）
+                        new_content=new_prompt # 完整新人格文本（original + incremental），用于审批应用
                     )
 
                     logger.info(f" 已创建人格学习审查记录 (ID: {review_id})，置信度: {confidence_score:.3f}")
