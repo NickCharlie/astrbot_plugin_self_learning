@@ -38,20 +38,22 @@ class KnowledgeGraphManager:
 
     def __init__(self, config: PluginConfig = None, db_manager=None,
                  llm_adapter: FrameworkLLMAdapter = None):
-        # 防止重复初始化
-        if self._initialized:
+        # 允许用实际参数重新初始化（单例首次由 get_instance 以空参数创建）
+        if self._initialized and not (db_manager and not getattr(self, 'db_manager', None)):
             return
 
-        self.config = config
-        self.db_manager = db_manager
-        self.llm_adapter = llm_adapter
-        self._status = ServiceLifecycle.CREATED
+        self.config = config or getattr(self, 'config', None)
+        self.db_manager = db_manager or getattr(self, 'db_manager', None)
+        self.llm_adapter = llm_adapter or getattr(self, 'llm_adapter', None)
+        self._status = getattr(self, '_status', ServiceLifecycle.CREATED)
 
         # 实体出现次数缓存
-        self.entity_appear_count: Dict[str, Dict[str, int]] = defaultdict(dict)
+        if not hasattr(self, 'entity_appear_count'):
+            self.entity_appear_count: Dict[str, Dict[str, int]] = defaultdict(dict)
 
         # 存储段落的hash值，用于去重
-        self.stored_paragraph_hashes: Dict[str, Set[str]] = defaultdict(set)
+        if not hasattr(self, 'stored_paragraph_hashes'):
+            self.stored_paragraph_hashes: Dict[str, Set[str]] = defaultdict(set)
 
         self._initialized = True
 

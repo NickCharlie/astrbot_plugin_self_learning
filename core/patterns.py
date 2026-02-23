@@ -377,9 +377,15 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
     
     def get_service_status(self) -> Dict[str, str]:
         """获取所有服务状态"""
-        return {
-            name: service.status.value 
-            for name, service in self._services.items()
-        }
+        result = {}
+        for name, service in self._services.items():
+            status = getattr(service, 'status', None)
+            if status is not None:
+                result[name] = status.value if hasattr(status, 'value') else str(status)
+            else:
+                # 没有 status 属性的服务，通过 _started 推断状态
+                started = getattr(service, '_started', False)
+                result[name] = ServiceLifecycle.RUNNING.value if started else ServiceLifecycle.CREATED.value
+        return result
 
 

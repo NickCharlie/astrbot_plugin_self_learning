@@ -95,7 +95,6 @@ class BaseRepository(Generic[T]):
             obj = self.model_class(**kwargs)
             self.session.add(obj)
             await self.session.flush()
-            await self.session.refresh(obj)
             await self.session.commit()
             return obj
 
@@ -116,7 +115,6 @@ class BaseRepository(Generic[T]):
         """
         try:
             await self.session.flush()
-            await self.session.refresh(obj)
             await self.session.commit()
             return obj
 
@@ -313,10 +311,6 @@ class BaseRepository(Generic[T]):
             objects = [self.model_class(**record) for record in records]
             self.session.add_all(objects)
             await self.session.flush()
-
-            for obj in objects:
-                await self.session.refresh(obj)
-
             await self.session.commit()
             return objects
 

@@ -187,6 +187,11 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
 
                     # 获取状态
                     state = await state_repo.get_or_create(group_id, user_id)
+                    if state is None:
+                        self._logger.warning(
+                            f"[增强型心理状态] 无法获取或创建状态: {group_id}:{user_id}"
+                        )
+                        return None
 
                     # 获取组件
                     components = await component_repo.get_components(state.id)
@@ -252,6 +257,11 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
 
                     # 获取或创建状态
                     state = await state_repo.get_or_create(group_id, user_id)
+                    if state is None:
+                        self._logger.warning(
+                            f"[增强型心理状态] 无法获取或创建状态: {group_id}:{user_id}"
+                        )
+                        return False
 
                     # 更新组件
                     await component_repo.update_component(
