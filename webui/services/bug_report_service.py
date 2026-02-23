@@ -30,7 +30,7 @@ class BugReportService:
         """
         # Bug报告配置常量
         BUG_REPORT_ENABLED = getattr(self.webui_config, 'bug_report_enabled', True)
-        BUG_REPORT_ATTACHMENT_ENABLED = False  # 暂时禁用附件
+        BUG_REPORT_ATTACHMENT_ENABLED = False # 暂时禁用附件
         BUG_CLOUD_FUNCTION_URL = os.getenv(
             "ASTRBOT_BUG_CLOUD_URL",
             "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
@@ -132,7 +132,7 @@ class BugReportService:
                 "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
             )
 
-            # ✅ 构建完整的重现步骤，包含所有信息
+            # 构建完整的重现步骤，包含所有信息
             severity_labels = {1: "致命", 2: "严重", 3: "一般", 4: "轻微"}
             priority_labels = {1: "紧急", 2: "高", 3: "中", 4: "低"}
             type_labels = {
@@ -177,7 +177,7 @@ class BugReportService:
 {bug_data['steps']}
 """
 
-            # ✅ 构建请求数据，将完整信息放入steps字段
+            # 构建请求数据，将完整信息放入steps字段
             payload = {
                 "title": bug_data["title"],
                 "steps": formatted_steps,
@@ -193,7 +193,7 @@ class BugReportService:
             logger.info(f"准备提交Bug报告: {payload['title']}")
             logger.debug(f"Bug报告完整数据: {payload}")
 
-            # ✅ 实际调用云函数API
+            # 实际调用云函数API
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     cloud_url,

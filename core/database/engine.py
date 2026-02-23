@@ -8,7 +8,7 @@ SQLAlchemy 数据库引擎封装
 避免 "Task got Future attached to a different loop" 错误。
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool, QueuePool
+from sqlalchemy.pool import NullPool, QueuePool, StaticPool
 from astrbot.api import logger
 from typing import Optional
 import asyncio
@@ -89,10 +89,11 @@ class DatabaseEngine:
             logger.info(f"[DatabaseEngine] 创建数据库目录: {db_dir}")
 
         # SQLite 配置
+        # StaticPool reuses a single connection, avoiding per-query overhead
         engine = create_async_engine(
             db_url,
             echo=self.echo,
-            poolclass=NullPool,
+            poolclass=StaticPool,
             connect_args={
                 'check_same_thread': False,
                 'timeout': 30,
@@ -110,6 +111,7 @@ class DatabaseEngine:
             cursor.execute("PRAGMA cache_size=10000")
             cursor.execute("PRAGMA temp_store=memory")
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA mmap_size=268435456")
             cursor.close()
 
         logger.debug(f"[DatabaseEngine] SQLite 引擎创建成功 (WAL模式): {db_path}")
@@ -216,22 +218,21 @@ class DatabaseEngine:
 
     async def create_tables(self, enable_auto_migration: bool = False):
         """
-        创建所有表
+        创建所有表并补齐缺失列
 
-        根据 ORM 模型自动创建表结构
-        如果表已存在则跳过
+        始终执行 create_all(checkfirst=True) 确保所有 ORM 表存在。
+        enable_auto_migration 控制是否额外执行列级自动迁移。
 
         Args:
-            enable_auto_migration: 是否启用自动迁移（默认禁用）
+            enable_auto_migration: 是否启用列级自动迁移（默认禁用）
         """
-        if not enable_auto_migration:
-            logger.info("[DatabaseEngine] 数据库自动迁移已禁用，跳过表创建")
-            return
-
         try:
             async with self.engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            logger.info("[DatabaseEngine] 数据库表结构创建完成")
+            logger.info("[DatabaseEngine] 数据库表结构同步完成")
+
+            if enable_auto_migration:
+                await self._auto_add_missing_columns()
 
         except Exception as e:
             error_msg = str(e).lower()
@@ -240,6 +241,79 @@ class DatabaseEngine:
             else:
                 logger.error(f"[DatabaseEngine] 创建表失败: {e}")
                 raise
+
+    async def _auto_add_missing_columns(self):
+        """检测并补齐已有表的缺失列（轻量级 auto-migration）"""
+        try:
+            from sqlalchemy import text, inspect as sa_inspect
+
+            async with self.engine.begin() as conn:
+                # 获取数据库中实际的列信息
+                def _get_existing_columns(sync_conn):
+                    insp = sa_inspect(sync_conn)
+                    result = {}
+                    for table_name in insp.get_table_names():
+                        result[table_name] = {
+                            col['name'] for col in insp.get_columns(table_name)
+                        }
+                    return result
+
+                existing = await conn.run_sync(_get_existing_columns)
+
+                # 创建 ORM 中定义但数据库中不存在的新表
+                missing_tables = [
+                    t for t in Base.metadata.sorted_tables
+                    if t.name not in existing
+                ]
+                if missing_tables:
+                    await conn.run_sync(
+                        Base.metadata.create_all,
+                        tables=missing_tables,
+                        checkfirst=False,
+                    )
+                    names = [t.name for t in missing_tables]
+                    logger.info(
+                        f"[DatabaseEngine] 自动创建缺失表: {', '.join(names)}"
+                    )
+
+                # 对比 ORM 定义，收集需要 ALTER 的列
+                alter_statements = []
+                for table in Base.metadata.sorted_tables:
+                    if table.name not in existing:
+                        continue  # 刚创建的新表，无需 ALTER
+                    db_cols = existing[table.name]
+                    for col in table.columns:
+                        if col.name not in db_cols:
+                            col_type = col.type.compile(self.engine.dialect)
+                            nullable = "NULL" if col.nullable else "NOT NULL"
+                            default = ""
+                            if col.server_default is not None:
+                                default = f" DEFAULT {col.server_default.arg!r}"
+                            elif col.default is not None and col.default.is_scalar:
+                                default = f" DEFAULT {col.default.arg!r}"
+                            alter_statements.append(
+                                f"ALTER TABLE `{table.name}` ADD COLUMN "
+                                f"`{col.name}` {col_type} {nullable}{default}"
+                            )
+
+                if alter_statements:
+                    for stmt in alter_statements:
+                        try:
+                            await conn.execute(text(stmt))
+                            logger.info(f"[DatabaseEngine] 自动迁移: {stmt}")
+                        except Exception as col_err:
+                            # 列可能已经被其他实例添加
+                            if 'duplicate column' in str(col_err).lower():
+                                pass
+                            else:
+                                logger.warning(
+                                    f"[DatabaseEngine] 自动迁移列失败: {col_err}"
+                                )
+                else:
+                    logger.debug("[DatabaseEngine] 所有表列已与 ORM 模型一致")
+
+        except Exception as e:
+            logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
 
     async def drop_tables(self):
         """
@@ -340,9 +414,7 @@ class DatabaseEngine:
         return url
 
 
-# ============================================================
 # 便捷函数
-# ============================================================
 
 def create_database_engine(database_url: str, echo: bool = False) -> DatabaseEngine:
     """

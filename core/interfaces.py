@@ -231,34 +231,6 @@ class IDataStorage(ABC):
         pass
 
 
-class IObserver(ABC):
-    """观察者接口"""
-    
-    @abstractmethod
-    async def on_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """处理事件"""
-        pass
-
-
-class IEventPublisher(ABC):
-    """事件发布器接口"""
-    
-    @abstractmethod
-    async def publish_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """发布事件"""
-        pass
-    
-    @abstractmethod
-    def subscribe(self, event_type: str, observer: IObserver) -> None:
-        """订阅事件"""
-        pass
-    
-    @abstractmethod
-    def unsubscribe(self, event_type: str, observer: IObserver) -> None:
-        """取消订阅"""
-        pass
-
-
 class IMessageRelationshipAnalyzer(ABC):
     """消息关系分析器接口"""
     
@@ -478,17 +450,6 @@ class AnalysisType(Enum):
     TOPIC = "topic"
     BEHAVIOR = "behavior"
     QUALITY = "quality"
-
-
-class EventType(Enum):
-    """事件类型"""
-    MESSAGE_COLLECTED = "message_collected"
-    MESSAGE_FILTERED = "message_filtered"
-    STYLE_ANALYZED = "style_analyzed"
-    PERSONA_UPDATED = "persona_updated"
-    LEARNING_COMPLETED = "learning_completed"
-    QUALITY_ISSUE_DETECTED = "quality_issue_detected"
-    SERVICE_STATUS_CHANGED = "service_status_changed"
 
 
 # 异常类型 (从 exceptions.py 导入，避免重复定义)

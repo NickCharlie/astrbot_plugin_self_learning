@@ -2,7 +2,8 @@
 统一缓存管理器 - 使用 Cachetools
 高性能、支持 TTL、LRU 等多种淘汰策略
 """
-from typing import Any, Optional, Callable
+from typing import Any, Dict, Optional, Callable
+from collections import defaultdict
 from functools import wraps
 import asyncio
 from cachetools import TTLCache, LRUCache, Cache
@@ -24,23 +25,26 @@ class CacheManager:
         """初始化缓存管理器"""
         # 不同用途的缓存实例
         # TTL 缓存 - 用于有明确过期时间的数据
-        self.affection_cache = TTLCache(maxsize=2000, ttl=300)  # 5分钟
-        self.memory_cache = TTLCache(maxsize=1000, ttl=600)  # 10分钟
-        self.state_cache = TTLCache(maxsize=500, ttl=60)  # 1分钟
-        self.relation_cache = TTLCache(maxsize=1000, ttl=60)  # 1分钟
+        self.affection_cache = TTLCache(maxsize=2000, ttl=300) # 5分钟
+        self.memory_cache = TTLCache(maxsize=1000, ttl=600) # 10分钟
+        self.state_cache = TTLCache(maxsize=500, ttl=60) # 1分钟
+        self.relation_cache = TTLCache(maxsize=1000, ttl=60) # 1分钟
 
         # LRU 缓存 - 用于需要保持热点数据的场景
         self.conversation_cache = LRUCache(maxsize=500)
         self.summary_cache = LRUCache(maxsize=200)
 
-        # 通用缓存 - 无限制
-        self.general_cache: Cache = {}
+        # 通用缓存 - 使用LRU策略防止无界增长
+        self.general_cache = LRUCache(maxsize=5000)
+
+        # 缓存命中/未命中统计，用于监控和TTL调优
+        self._hit_counts: Dict[str, int] = defaultdict(int)
+        self._miss_counts: Dict[str, int] = defaultdict(int)
 
         logger.info("[缓存管理器] 初始化完成")
 
     def get(self, cache_name: str, key: str) -> Optional[Any]:
-        """
-        获取缓存值
+        """获取缓存值，同时记录命中/未命中统计
 
         Args:
             cache_name: 缓存名称 (affection/memory/state/relation等)
@@ -53,7 +57,12 @@ class CacheManager:
         if cache is None:
             return None
 
-        return cache.get(key)
+        result = cache.get(key)
+        if result is not None:
+            self._hit_counts[cache_name] += 1
+        else:
+            self._miss_counts[cache_name] += 1
+        return result
 
     def set(self, cache_name: str, key: str, value: Any):
         """
@@ -135,10 +144,27 @@ class CacheManager:
         else:
             return {'size': len(cache)}
 
+    def get_hit_rates(self) -> Dict[str, Dict[str, Any]]:
+        """获取所有缓存的命中率统计
 
-# ============================================================
+        Returns:
+            以缓存名称为键的统计字典，包含hits、misses和hit_rate
+        """
+        stats = {}
+        all_names = set(self._hit_counts.keys()) | set(self._miss_counts.keys())
+        for name in all_names:
+            hits = self._hit_counts.get(name, 0)
+            misses = self._miss_counts.get(name, 0)
+            total = hits + misses
+            stats[name] = {
+                'hits': hits,
+                'misses': misses,
+                'hit_rate': hits / total if total > 0 else 0.0,
+            }
+        return stats
+
+
 # 装饰器
-# ============================================================
 
 def cached(
     cache_name: str = 'general',
@@ -229,9 +255,7 @@ def async_cached(
     return decorator
 
 
-# ============================================================
 # 全局单例
-# ============================================================
 
 _global_cache_manager: Optional[CacheManager] = None
 

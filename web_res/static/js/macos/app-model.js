@@ -249,6 +249,25 @@
           { key: "bug", title: "反馈", sub: [{ key: "close", title: "关闭" }] },
         ],
       },
+      {
+        key: "app_performance",
+        component: "AppPerformanceMonitor",
+        icon: "icon-dashboard",
+        title: "性能监控",
+        iconColor: "#fff",
+        iconBgColor: "#30d158",
+        width: Math.min(W, 960),
+        height: H,
+        hideInDesktop: false,
+        keepInDock: true,
+        menu: [
+          {
+            key: "perf",
+            title: "监控",
+            sub: [{ key: "close", title: "关闭" }],
+          },
+        ],
+      },
     ],
   };
 })();

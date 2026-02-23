@@ -52,6 +52,13 @@ class ServiceContainer:
         # 智能指标服务
         self.intelligence_metrics_service: Optional[Any] = None
 
+        # 性能计时收集器（指向插件实例的 get_perf_data 方法）
+        self.perf_collector: Optional[Any] = None
+
+        # 性能监测模块
+        self.metric_collector: Optional[Any] = None
+        self.health_checker: Optional[Any] = None
+
         self._initialized = True
 
     def initialize(
@@ -88,7 +95,7 @@ class ServiceContainer:
         # 获取人格更新器
         try:
             self.persona_updater = service_factory.get_persona_updater()
-            logger.info(f"✅ [WebUI] persona_updater 获取成功: {type(self.persona_updater)}")
+            logger.info(f" [WebUI] persona_updater 获取成功: {type(self.persona_updater)}")
         except Exception as e:
             logger.warning(f"获取 persona_updater 失败: {e}")
             self.persona_updater = None
@@ -99,7 +106,7 @@ class ServiceContainer:
 
         # 初始化智能指标服务
         try:
-            from ..services.intelligence_metrics import IntelligenceMetricsService
+            from ..services.analysis import IntelligenceMetricsService
             self.intelligence_metrics_service = IntelligenceMetricsService(
                 plugin_config,
                 self.database_manager,
@@ -108,14 +115,44 @@ class ServiceContainer:
         except Exception as e:
             logger.warning(f"初始化智能指标服务失败: {e}")
 
+        # 初始化性能监测模块
+        try:
+            from ..services.monitoring import MetricCollector, HealthChecker
+            from ..utils.cache_manager import get_cache_manager
+
+            service_registry = service_factory.get_service_registry()
+            cache_manager = get_cache_manager()
+
+            self.metric_collector = MetricCollector(
+                perf_tracker=self.perf_collector,
+                cache_manager=cache_manager,
+                llm_adapter=self.llm_adapter,
+                service_registry=service_registry,
+                progressive_learning=self.progressive_learning,
+            )
+            self.health_checker = HealthChecker(
+                service_registry=service_registry,
+                cache_manager=cache_manager,
+                llm_adapter=self.llm_adapter,
+            )
+            logger.info("[WebUI] 性能监测模块初始化成功")
+        except Exception as e:
+            logger.warning(f"初始化性能监测模块失败: {e}")
+
         # 初始化 PersonaWebManager
         if astrbot_persona_manager:
             try:
                 from ..persona_web_manager import PersonaWebManager
+                import asyncio
                 self.persona_web_manager = PersonaWebManager(astrbot_persona_manager)
+                # 捕获主事件循环（当前在 set_plugin_services 异步上下文中）
+                try:
+                    self.persona_web_manager._main_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    self.persona_web_manager._main_loop = asyncio.get_event_loop()
                 # 传递 group_id_to_unified_origin 映射引用（多配置文件支持）
                 self.persona_web_manager.group_id_to_unified_origin = self.group_id_to_unified_origin
-                logger.info("✅ [WebUI] PersonaWebManager 初始化成功")
+                logger.info(" [WebUI] PersonaWebManager 初始化成功")
             except Exception as e:
                 logger.warning(f"初始化 PersonaWebManager 失败: {e}")
                 self.persona_web_manager = None
@@ -123,7 +160,7 @@ class ServiceContainer:
             logger.warning("astrbot_persona_manager 未提供，无法初始化 PersonaWebManager")
             self.persona_web_manager = None
 
-        logger.info("✅ [WebUI] 服务容器初始化完成")
+        logger.info(" [WebUI] 服务容器初始化完成")
 
     def get_plugin_config(self):
         """获取插件配置"""
@@ -151,9 +188,7 @@ def get_container() -> ServiceContainer:
     return _container
 
 
-# ============================================================
 # 兼容原有的 set_plugin_services 接口
-# ============================================================
 
 async def set_plugin_services(
     plugin_config,
@@ -180,4 +215,4 @@ async def set_plugin_services(
         group_id_to_unified_origin=group_id_to_unified_origin
     )
 
-    logger.info("✅ [WebUI] 插件服务设置完成")
+    logger.info(" [WebUI] 插件服务设置完成")

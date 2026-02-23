@@ -1,8 +1,9 @@
 """
 社交关系系统相关的 ORM 模型
 """
-from sqlalchemy import Column, Integer, String, Text, Float, Index, BigInteger, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, Float, Index, BigInteger, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from .base import Base
 
 
@@ -110,4 +111,39 @@ class SocialRelationHistory(Base):
     __table_args__ = (
         Index('idx_social_history_from_to', 'from_user_id', 'to_user_id', 'group_id'),
         Index('idx_social_history_timestamp', 'timestamp'),
+    )
+
+
+class UserProfile(Base):
+    """User profile with JSON-stored behavioral data."""
+    __tablename__ = 'user_profiles'
+
+    qq_id = Column(String(255), primary_key=True)
+    qq_name = Column(String(255))
+    nicknames = Column(Text)             # JSON
+    activity_pattern = Column(Text)      # JSON
+    communication_style = Column(Text)   # JSON
+    topic_preferences = Column(Text)     # JSON
+    emotional_tendency = Column(Text)    # JSON
+    last_active = Column(Float)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class UserPreferences(Base):
+    """User learning/interaction preferences per group."""
+    __tablename__ = 'user_preferences'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(255), nullable=False, index=True)
+    group_id = Column(String(255), nullable=False, index=True)
+    favorite_topics = Column(Text)       # JSON
+    interaction_style = Column(Text)     # JSON
+    learning_preferences = Column(Text)  # JSON
+    adaptive_rate = Column(Float, default=0.5)
+    updated_at = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index('idx_pref_user_group', 'user_id', 'group_id', unique=True),
     )

@@ -1,6 +1,5 @@
 
 import abc
-import asyncio
 from typing import Dict, List, Optional, Any, Type
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -8,8 +7,8 @@ from datetime import datetime
 from astrbot.api import logger # 导入 logger
 
 from .interfaces import (
-    IObserver, IEventPublisher, IServiceFactory, ILearningStrategy, 
-    IAsyncService, ServiceLifecycle, EventType, LearningStrategyType,
+    IServiceFactory, ILearningStrategy,
+    IAsyncService, ServiceLifecycle, LearningStrategyType,
     MessageData, AnalysisResult, IMessageCollector, IStyleAnalyzer,
     IQualityMonitor, IPersonaManager, ServiceError
 )
@@ -25,48 +24,6 @@ class SingletonABCMeta(abc.ABCMeta):
         return cls._instances[cls]
 
 
-class EventBus(IEventPublisher, metaclass=SingletonABCMeta):
-    """事件总线 - 观察者模式实现"""
-    
-    def __init__(self):
-        self._observers: Dict[str, List[IObserver]] = {}
-        self._logger = logger
-    
-    def subscribe(self, event_type: str, observer: IObserver) -> None:
-        """订阅事件"""
-        if event_type not in self._observers:
-            self._observers[event_type] = []
-        
-        if observer not in self._observers[event_type]:
-            self._observers[event_type].append(observer)
-            self._logger.debug(f"订阅事件 {event_type}: {observer.__class__.__name__}")
-    
-    def unsubscribe(self, event_type: str, observer: IObserver) -> None:
-        """取消订阅"""
-        if event_type in self._observers and observer in self._observers[event_type]:
-            self._observers[event_type].remove(observer)
-            self._logger.debug(f"取消订阅事件 {event_type}: {observer.__class__.__name__}")
-    
-    async def publish_event(self, event_type: str, data: Dict[str, Any]) -> None:
-        """发布事件"""
-        if event_type not in self._observers:
-            return
-        
-        self._logger.debug(f"发布事件 {event_type}, 观察者数量: {len(self._observers[event_type])}")
-        
-        # 并发通知所有观察者
-        tasks = []
-        for observer in self._observers[event_type]:
-            try:
-                task = asyncio.create_task(observer.on_event(event_type, data))
-                tasks.append(task)
-            except Exception as e:
-                self._logger.error(f"通知观察者失败: {e}")
-        
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-
 class AsyncServiceBase(IAsyncService):
     """异步服务基类"""
     
@@ -74,7 +31,6 @@ class AsyncServiceBase(IAsyncService):
         self.name = name
         self._status = ServiceLifecycle.CREATED
         self._logger = logger
-        self._event_bus = EventBus()
     
     @property
     def status(self) -> ServiceLifecycle:
@@ -85,17 +41,6 @@ class AsyncServiceBase(IAsyncService):
         old_status = self._status
         self._status = new_status
         self._logger.info(f"服务状态变更: {old_status.value} -> {new_status.value}")
-        
-        # 发布状态变更事件
-        await self._event_bus.publish_event(
-            EventType.SERVICE_STATUS_CHANGED.value,
-            {
-                'service_name': self.name,
-                'old_status': old_status.value,
-                'new_status': new_status.value,
-                'timestamp': datetime.now().isoformat()
-            }
-        )
     
     async def start(self) -> bool:
         """启动服务"""
@@ -432,90 +377,15 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
     
     def get_service_status(self) -> Dict[str, str]:
         """获取所有服务状态"""
-        return {
-            name: service.status.value 
-            for name, service in self._services.items()
-        }
+        result = {}
+        for name, service in self._services.items():
+            status = getattr(service, 'status', None)
+            if status is not None:
+                result[name] = status.value if hasattr(status, 'value') else str(status)
+            else:
+                # 没有 status 属性的服务，通过 _started 推断状态
+                started = getattr(service, '_started', False)
+                result[name] = ServiceLifecycle.RUNNING.value if started else ServiceLifecycle.CREATED.value
+        return result
 
 
-class ConfigurationManager(metaclass=SingletonABCMeta):
-    """配置管理器 - 单例模式"""
-    
-    def __init__(self):
-        self._config: Dict[str, Any] = {}
-        self._observers: List[callable] = []
-        self._logger = logger
-    
-    def update_config(self, key: str, value: Any):
-        """更新配置"""
-        old_value = self._config.get(key)
-        self._config[key] = value
-        
-        self._logger.info(f"配置更新: {key} = {value}")
-        
-        # 通知观察者
-        for observer in self._observers:
-            try:
-                observer(key, old_value, value)
-            except Exception as e:
-                self._logger.error(f"通知配置观察者失败: {e}")
-    
-    def get_config(self, key: str, default: Any = None) -> Any:
-        """获取配置"""
-        return self._config.get(key, default)
-    
-    def add_observer(self, observer: callable):
-        """添加配置变更观察者"""
-        self._observers.append(observer)
-    
-    def remove_observer(self, observer: callable):
-        """移除配置变更观察者"""
-        if observer in self._observers:
-            self._observers.remove(observer)
-
-
-class MetricsCollector(metaclass=SingletonABCMeta):
-    """指标收集器"""
-    
-    def __init__(self):
-        self._metrics: Dict[str, Any] = {}
-        self._logger = logger
-    
-    def record_metric(self, name: str, value: Any, tags: Dict[str, str] = None):
-        """记录指标"""
-        timestamp = datetime.now().timestamp()
-        
-        if name not in self._metrics:
-            self._metrics[name] = []
-        
-        self._metrics[name].append({
-            'value': value,
-            'timestamp': timestamp,
-            'tags': tags or {}
-        })
-        
-        # 保持最近1000条记录
-        if len(self._metrics[name]) > 1000:
-            self._metrics[name] = self._metrics[name][-1000:]
-    
-    def get_metrics(self) -> Dict[str, Any]:
-        """获取所有指标"""
-        return self._metrics.copy()
-    
-    def get_metric_summary(self, name: str) -> Dict[str, Any]:
-        """获取指标摘要"""
-        if name not in self._metrics:
-            return {}
-        
-        values = [m['value'] for m in self._metrics[name] if isinstance(m['value'], (int, float))]
-        
-        if not values:
-            return {}
-        
-        return {
-            'count': len(values),
-            'min': min(values),
-            'max': max(values),
-            'avg': sum(values) / len(values),
-            'latest': values[-1] if values else None
-        }

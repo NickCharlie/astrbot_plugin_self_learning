@@ -28,11 +28,11 @@ class TaskSchedulerManager:
     def __init__(self):
         """初始化任务调度器"""
         self.scheduler = AsyncIOScheduler(
-            timezone='Asia/Shanghai',  # 设置时区
+            timezone='Asia/Shanghai', # 设置时区
             job_defaults={
-                'coalesce': False,  # 不合并多个未执行的任务
-                'max_instances': 1,  # 每个任务最多同时运行1个实例
-                'misfire_grace_time': 60  # 错过执行时间后60秒内仍然执行
+                'coalesce': False, # 不合并多个未执行的任务
+                'max_instances': 1, # 每个任务最多同时运行1个实例
+                'misfire_grace_time': 60 # 错过执行时间后60秒内仍然执行
             }
         )
         self._started = False
@@ -43,14 +43,14 @@ class TaskSchedulerManager:
         if not self._started:
             self.scheduler.start()
             self._started = True
-            logger.info("✅ [任务调度器] 已启动")
+            logger.info(" [任务调度器] 已启动")
 
     async def stop(self):
         """停止调度器"""
         if self._started:
             self.scheduler.shutdown(wait=True)
             self._started = False
-            logger.info("✅ [任务调度器] 已停止")
+            logger.info(" [任务调度器] 已停止")
 
     def add_interval_job(
         self,
@@ -101,10 +101,10 @@ class TaskSchedulerManager:
                 replace_existing=True,
                 **kwargs
             )
-            logger.info(f"✅ [任务调度器] 已添加周期任务: {job_id}")
+            logger.info(f" [任务调度器] 已添加周期任务: {job_id}")
             return job
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 添加周期任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 添加周期任务失败 ({job_id}): {e}")
             return None
 
     def add_cron_job(
@@ -169,10 +169,10 @@ class TaskSchedulerManager:
                 replace_existing=True,
                 **kwargs
             )
-            logger.info(f"✅ [任务调度器] 已添加 cron 任务: {job_id}")
+            logger.info(f" [任务调度器] 已添加 cron 任务: {job_id}")
             return job
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 添加 cron 任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 添加 cron 任务失败 ({job_id}): {e}")
             return None
 
     def add_date_job(
@@ -210,10 +210,10 @@ class TaskSchedulerManager:
                 replace_existing=True,
                 **kwargs
             )
-            logger.info(f"✅ [任务调度器] 已添加一次性任务: {job_id} (执行时间: {run_date})")
+            logger.info(f" [任务调度器] 已添加一次性任务: {job_id} (执行时间: {run_date})")
             return job
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 添加一次性任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 添加一次性任务失败 ({job_id}): {e}")
             return None
 
     def remove_job(self, job_id: str) -> bool:
@@ -228,10 +228,10 @@ class TaskSchedulerManager:
         """
         try:
             self.scheduler.remove_job(job_id)
-            logger.info(f"✅ [任务调度器] 已删除任务: {job_id}")
+            logger.info(f" [任务调度器] 已删除任务: {job_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 删除任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 删除任务失败 ({job_id}): {e}")
             return False
 
     def pause_job(self, job_id: str) -> bool:
@@ -246,10 +246,10 @@ class TaskSchedulerManager:
         """
         try:
             self.scheduler.pause_job(job_id)
-            logger.info(f"⏸️ [任务调度器] 已暂停任务: {job_id}")
+            logger.info(f" [任务调度器] 已暂停任务: {job_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 暂停任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 暂停任务失败 ({job_id}): {e}")
             return False
 
     def resume_job(self, job_id: str) -> bool:
@@ -264,10 +264,10 @@ class TaskSchedulerManager:
         """
         try:
             self.scheduler.resume_job(job_id)
-            logger.info(f"▶️ [任务调度器] 已恢复任务: {job_id}")
+            logger.info(f" [任务调度器] 已恢复任务: {job_id}")
             return True
         except Exception as e:
-            logger.error(f"❌ [任务调度器] 恢复任务失败 ({job_id}): {e}")
+            logger.error(f" [任务调度器] 恢复任务失败 ({job_id}): {e}")
             return False
 
     def get_job(self, job_id: str) -> Optional[Job]:
@@ -302,9 +302,7 @@ class TaskSchedulerManager:
         }
 
 
-# ============================================================
 # 全局单例
-# ============================================================
 
 _global_task_scheduler: Optional[TaskSchedulerManager] = None
 

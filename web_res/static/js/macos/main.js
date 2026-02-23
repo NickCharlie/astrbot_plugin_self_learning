@@ -53,6 +53,7 @@
   app.component("AppSocialRelations", window.AppSocialRelations);
   app.component("AppJargonLearning", window.AppJargonLearning);
   app.component("AppBugReport", window.AppBugReport);
+  app.component("AppPerformanceMonitor", window.AppPerformanceMonitor);
 
   // 挂载
   app.mount("#app");

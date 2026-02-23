@@ -54,11 +54,11 @@ class ReinforcementLearningRepository:
             self.session.add(result)
             await self.session.commit()
 
-            logger.info(f"✅ 保存强化学习结果成功 (group: {group_id})")
+            logger.info(f" 保存强化学习结果成功 (group: {group_id})")
             return True
 
         except Exception as e:
-            logger.error(f"❌ 保存强化学习结果失败: {e}", exc_info=True)
+            logger.error(f" 保存强化学习结果失败: {e}", exc_info=True)
             await self.session.rollback()
             return False
 
@@ -91,7 +91,7 @@ class ReinforcementLearningRepository:
             return [r.to_dict() for r in results]
 
         except Exception as e:
-            logger.error(f"❌ 获取强化学习结果失败: {e}", exc_info=True)
+            logger.error(f" 获取强化学习结果失败: {e}", exc_info=True)
             return []
 
 
@@ -129,11 +129,11 @@ class PersonaFusionRepository:
             self.session.add(fusion)
             await self.session.commit()
 
-            logger.info(f"✅ 保存人格融合结果成功 (group: {group_id})")
+            logger.info(f" 保存人格融合结果成功 (group: {group_id})")
             return True
 
         except Exception as e:
-            logger.error(f"❌ 保存人格融合结果失败: {e}", exc_info=True)
+            logger.error(f" 保存人格融合结果失败: {e}", exc_info=True)
             await self.session.rollback()
             return False
 
@@ -166,7 +166,7 @@ class PersonaFusionRepository:
             return [h.to_dict() for h in histories]
 
         except Exception as e:
-            logger.error(f"❌ 获取人格融合历史失败: {e}", exc_info=True)
+            logger.error(f" 获取人格融合历史失败: {e}", exc_info=True)
             return []
 
 
@@ -203,11 +203,11 @@ class StrategyOptimizationRepository:
             self.session.add(result)
             await self.session.commit()
 
-            logger.info(f"✅ 保存策略优化结果成功 (group: {group_id})")
+            logger.info(f" 保存策略优化结果成功 (group: {group_id})")
             return True
 
         except Exception as e:
-            logger.error(f"❌ 保存策略优化结果失败: {e}", exc_info=True)
+            logger.error(f" 保存策略优化结果失败: {e}", exc_info=True)
             await self.session.rollback()
             return False
 
@@ -240,5 +240,5 @@ class StrategyOptimizationRepository:
             return [r.to_dict() for r in results]
 
         except Exception as e:
-            logger.error(f"❌ 获取策略优化结果失败: {e}", exc_info=True)
+            logger.error(f" 获取策略优化结果失败: {e}", exc_info=True)
             return []

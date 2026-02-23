@@ -127,29 +127,82 @@ async def get_style_learning_content_text():
             'history': []
         }
 
-        if database_manager:
+        if database_manager and hasattr(database_manager, 'get_session'):
+            from sqlalchemy import select, desc, func
+            from ...models.orm import (
+                RawMessage, StyleLearningReview,
+                ExpressionPattern, LearningBatch,
+            )
+            from datetime import datetime
+            import time as time_module
+            import json as json_module
+
             try:
-                # Get recent raw messages for dialogues
-                if hasattr(database_manager, 'get_session'):
-                    from sqlalchemy import select, desc
-                    from ...models.orm import RawMessage
+                async with database_manager.get_session() as session:
+                    # 1. dialogues — 最近的原始消息
+                    stmt = select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(20)
+                    result = await session.execute(stmt)
+                    for msg in result.scalars().all():
+                        message_text = msg.message if msg.message else ''
+                        if len(message_text.strip()) < 5:
+                            continue
+                        content_data['dialogues'].append({
+                            'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time_module.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                            'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
+                            'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
+                        })
 
-                    async with database_manager.get_session() as session:
-                        stmt = select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(20)
-                        result = await session.execute(stmt)
-                        raw_messages = result.scalars().all()
+                    # 2. analysis — 已审批的风格学习分析结果
+                    analysis_stmt = (
+                        select(StyleLearningReview)
+                        .where(StyleLearningReview.status.in_(['approved', 'pending']))
+                        .order_by(desc(StyleLearningReview.timestamp))
+                        .limit(20)
+                    )
+                    analysis_result = await session.execute(analysis_stmt)
+                    for review in analysis_result.scalars().all():
+                        patterns = []
+                        if review.learned_patterns:
+                            try:
+                                patterns = json_module.loads(review.learned_patterns)
+                            except (json_module.JSONDecodeError, TypeError):
+                                pass
+                        content_data['analysis'].append({
+                            'timestamp': datetime.fromtimestamp(review.timestamp).strftime('%Y-%m-%d %H:%M:%S') if review.timestamp else '',
+                            'text': review.description or review.few_shots_content or f"风格学习 ({review.type})",
+                            'metadata': f"群组: {review.group_id}, 状态: {review.status}, 模式数: {len(patterns) if isinstance(patterns, list) else 0}"
+                        })
 
-                        for msg in raw_messages:
-                            message_text = msg.message if msg.message else ''
-                            if len(message_text.strip()) < 5:
-                                continue
-                            from datetime import datetime
-                            import time as time_module
-                            content_data['dialogues'].append({
-                                'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time_module.time()).strftime('%Y-%m-%d %H:%M:%S'),
-                                'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
-                                'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
-                            })
+                    # 3. features — 已学习的表达模式
+                    features_stmt = (
+                        select(ExpressionPattern)
+                        .order_by(desc(ExpressionPattern.last_active_time))
+                        .limit(20)
+                    )
+                    features_result = await session.execute(features_stmt)
+                    for pattern in features_result.scalars().all():
+                        content_data['features'].append({
+                            'timestamp': datetime.fromtimestamp(pattern.last_active_time).strftime('%Y-%m-%d %H:%M:%S') if pattern.last_active_time else '',
+                            'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
+                            'metadata': f"群组: {pattern.group_id}, 权重: {pattern.weight:.2f}"
+                        })
+
+                    # 4. history — 学习批次历史
+                    history_stmt = (
+                        select(LearningBatch)
+                        .order_by(desc(LearningBatch.start_time))
+                        .limit(20)
+                    )
+                    history_result = await session.execute(history_stmt)
+                    for batch in history_result.scalars().all():
+                        duration = ''
+                        if batch.start_time and batch.end_time:
+                            duration = f", 耗时: {batch.end_time - batch.start_time:.1f}s"
+                        content_data['history'].append({
+                            'timestamp': datetime.fromtimestamp(batch.start_time).strftime('%Y-%m-%d %H:%M:%S') if batch.start_time else '',
+                            'text': f"批次: {batch.batch_name or batch.batch_id}, 质量: {batch.quality_score or 0:.3f}",
+                            'metadata': f"群组: {batch.group_id}, 消息: {batch.processed_messages or 0}, 成功: {'是' if batch.success else '否'}{duration}"
+                        })
             except Exception as e:
                 logger.warning(f"获取学习内容文本失败: {e}")
 

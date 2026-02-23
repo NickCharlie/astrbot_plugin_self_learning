@@ -1,0 +1,1 @@
+"""Plugin orchestration layer — initialization, lifecycle, WebUI management."""

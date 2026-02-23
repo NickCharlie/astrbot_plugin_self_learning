@@ -86,14 +86,14 @@ async def get_metrics():
             except Exception as e:
                 logger.warning(f"获取消息统计失败: {e}")
 
-        # LLM call statistics
+        # LLM call statistics (filter out providers with no calls)
         llm_stats = {}
         llm_adapter = container.llm_adapter
         if llm_adapter and hasattr(llm_adapter, 'get_call_statistics'):
             try:
                 real_stats = llm_adapter.get_call_statistics()
                 for provider_type, stats_data in real_stats.items():
-                    if provider_type != 'overall':
+                    if provider_type != 'overall' and stats_data.get('total_calls', 0) > 0:
                         llm_stats[f"{provider_type}_provider"] = {
                             "total_calls": stats_data.get('total_calls', 0),
                             "avg_response_time_ms": stats_data.get('avg_response_time_ms', 0),
@@ -133,6 +133,78 @@ async def get_metrics():
             except Exception:
                 pass
 
+        # Learning efficiency (from persistent DB data)
+        learning_efficiency = 0
+        learning_dimensions = {}
+
+        if database_manager:
+            # 1. Message filtering quality
+            filter_rate = 0
+            if total_messages > 0:
+                filter_rate = min(filtered_messages / total_messages * 100, 100)
+            learning_dimensions['filter_rate'] = round(filter_rate, 1)
+
+            # 2. Style learning progress
+            style_score = 0
+            try:
+                style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
+                approved = style_stats.get('approved_reviews', 0) if isinstance(style_stats, dict) else 0
+                total_reviews = style_stats.get('total_reviews', 0) if isinstance(style_stats, dict) else 0
+                style_score = min(approved * 10, 100)
+                learning_dimensions['style_reviews'] = total_reviews
+                learning_dimensions['style_approved'] = approved
+            except Exception as e:
+                logger.warning(f"获取风格学习统计失败: {e}")
+
+            # 3. Expression pattern learning
+            pattern_score = 0
+            try:
+                if hasattr(database_manager, 'get_expression_patterns_statistics'):
+                    pattern_stats = await database_manager.get_expression_patterns_statistics()
+                    pattern_count = pattern_stats.get('total_patterns', 0) if isinstance(pattern_stats, dict) else 0
+                    pattern_score = min(pattern_count * 2, 100)
+                    learning_dimensions['expression_patterns'] = pattern_count
+            except Exception as e:
+                logger.warning(f"获取表达模式统计失败: {e}")
+
+            # 4. Learning session quality (from performance records)
+            session_quality = 0
+            try:
+                if hasattr(database_manager, 'get_learning_performance_history'):
+                    perf_records = await database_manager.get_learning_performance_history('default')
+                    if perf_records:
+                        quality_scores = [r.get('quality_score', 0) for r in perf_records if r.get('quality_score', 0) > 0]
+                        if quality_scores:
+                            session_quality = min(sum(quality_scores) / len(quality_scores) * 100, 100)
+                        success_count = sum(1 for r in perf_records if r.get('success'))
+                        learning_dimensions['session_success_rate'] = round(success_count / len(perf_records) * 100, 1) if perf_records else 0
+                        learning_dimensions['total_sessions'] = len(perf_records)
+            except Exception as e:
+                logger.warning(f"获取学习性能记录失败: {e}")
+
+            # Weighted average for learning efficiency
+            learning_efficiency = (
+                filter_rate * 0.25 +
+                style_score * 0.25 +
+                pattern_score * 0.25 +
+                session_quality * 0.25
+            )
+
+            logger.debug(
+                f"[Metrics] learning_efficiency={learning_efficiency:.1f} "
+                f"(filter={filter_rate:.1f}, style={style_score}, "
+                f"pattern={pattern_score}, session_quality={session_quality:.1f})"
+            )
+
+        # Hook performance timing
+        hook_performance = {}
+        perf_collector = container.perf_collector
+        if perf_collector and hasattr(perf_collector, 'get_perf_data'):
+            try:
+                hook_performance = perf_collector.get_perf_data(recent_limit=50)
+            except Exception as e:
+                logger.warning(f"获取Hook性能数据失败: {e}")
+
         import time
         metrics = {
             "llm_calls": llm_stats,
@@ -140,6 +212,9 @@ async def get_metrics():
             "filtered_messages": filtered_messages,
             "system_metrics": system_metrics,
             "learning_sessions": learning_sessions,
+            "learning_efficiency": round(learning_efficiency, 1),
+            "learning_dimensions": learning_dimensions,
+            "hook_performance": hook_performance,
             "last_updated": time.time()
         }
 
