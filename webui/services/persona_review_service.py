@@ -310,36 +310,37 @@ class PersonaReviewService:
                             if auto_apply_enabled and self.astrbot_persona_manager and incremental_content:
                                 try:
                                     # 用框架的 persona_manager 获取当前人格
+                                    # get_default_persona_v3 返回 dict-like，字段为 name/prompt
                                     umo = self._resolve_umo(group_id)
                                     current_persona = await self.astrbot_persona_manager.get_default_persona_v3(umo)
                                     if not current_persona:
                                         message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取当前人格"
                                     else:
-                                        persona_name = (
-                                            getattr(current_persona, 'persona_id', None)
-                                            or (current_persona.get('persona_id') if isinstance(current_persona, dict) else None)
-                                            or 'default'
-                                        )
-                                        current_prompt = (
-                                            getattr(current_persona, 'prompt', '')
-                                            or (current_persona.get('prompt', '') if isinstance(current_persona, dict) else '')
-                                        )
+                                        persona_name = current_persona.get('name', 'default')
+                                        current_prompt = current_persona.get('prompt', '')
 
-                                        # 追加增量内容到当前人格末尾
-                                        new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
+                                        if persona_name == 'default':
+                                            logger.warning("当前为系统内置default人格，跳过自动应用")
+                                            message = (
+                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
+                                                f"但当前为系统内置default人格，无法自动应用"
+                                            )
+                                        else:
+                                            # 追加增量内容到当前人格末尾
+                                            new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
 
-                                        await self.astrbot_persona_manager.update_persona(
-                                            persona_id=persona_name,
-                                            system_prompt=new_prompt
-                                        )
-                                        logger.info(
-                                            f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                            f"增量内容已追加到人格 [{persona_name}] 末尾"
-                                        )
-                                        message = (
-                                            f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                            f"已追加到人格 [{persona_name}]"
-                                        )
+                                            await self.astrbot_persona_manager.update_persona(
+                                                persona_id=persona_name,
+                                                system_prompt=new_prompt
+                                            )
+                                            logger.info(
+                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
+                                                f"增量内容已追加到人格 [{persona_name}] 末尾"
+                                            )
+                                            message = (
+                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
+                                                f"已追加到人格 [{persona_name}]"
+                                            )
                                 except Exception as apply_error:
                                     logger.error(f"应用人格更新失败: {apply_error}", exc_info=True)
                                     message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
@@ -400,111 +401,107 @@ class PersonaReviewService:
         if success and target_review['few_shots_content']:
             group_id = target_review.get('group_id', 'default')
 
-            if self.persona_web_manager:
+            # 自动追加到 begin_dialogs（与 temporary_persona_updater 方式一致）
+            auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+            if auto_apply_enabled and self.astrbot_persona_manager:
                 try:
-                    # 获取当前使用的原人格名称
-                    base_persona_name = "default"
-                    try:
-                        if self.astrbot_persona_manager:
-                            current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
-                            if current_persona and hasattr(current_persona, 'persona_id'):
-                                base_persona_name = current_persona.persona_id
-                            elif isinstance(current_persona, dict) and 'persona_id' in current_persona:
-                                base_persona_name = current_persona['persona_id']
-                    except Exception as e:
-                        logger.warning(f"获取原人格名称失败，使用默认值: {e}")
+                    umo = self._resolve_umo(group_id)
+                    current_persona = await self.astrbot_persona_manager.get_default_persona_v3(umo)
+                    if not current_persona:
+                        return True, f"风格学习审查 {review_id} 已批准，但无法获取当前人格"
 
-                    # 生成新人格ID: 原人格名-具体时间-批准人格
-                    from datetime import datetime
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    new_persona_id = f"{base_persona_name}-{timestamp}-approved"
+                    persona_name = current_persona.get('name', 'default')
+                    if persona_name == 'default':
+                        logger.warning("当前为系统内置default人格，跳过自动应用")
+                        return True, f"风格学习审查 {review_id} 已批准，但当前为系统内置default人格，无法自动应用"
 
-                    # 使用PersonaWebManager创建新人格
-                    create_result = await self.persona_web_manager.create_persona_via_web({
-                        "persona_id": new_persona_id,
-                        "system_prompt": target_review['few_shots_content'],
-                        "begin_dialogs": [],
-                        "tools": []
-                    })
+                    # 从 learned_patterns 提取结构化对话对
+                    dialog_pairs = []
+                    learned_patterns = target_review.get('learned_patterns', [])
+                    for pattern in learned_patterns:
+                        situation = pattern.get('situation', '') if isinstance(pattern, dict) else ''
+                        expression = pattern.get('expression', '') if isinstance(pattern, dict) else ''
+                        if situation and expression:
+                            dialog_pairs.append((situation, expression))
 
-                    if create_result.get('success'):
-                        logger.info(f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}")
-                        msg = f"风格学习审查 {review_id} 已批准，成功创建新人格: {new_persona_id}"
+                    if not dialog_pairs:
+                        # 回退: 从 few_shots_content 文本解析 A/B 对
+                        dialog_pairs = self._parse_few_shots_to_pairs(target_review['few_shots_content'])
 
-                        # 自动应用到默认人格
-                        auto_apply_msg = await self._auto_apply_to_default_persona(
-                            group_id, base_persona_name, target_review['few_shots_content']
+                    if dialog_pairs:
+                        current_begin_dialogs = list(current_persona.get('begin_dialogs', []) or [])
+
+                        # 追加风格示范对话（带 [风格示范] 标记）
+                        for user_msg, assistant_msg in dialog_pairs:
+                            current_begin_dialogs.append(f"[风格示范]{user_msg}")
+                            current_begin_dialogs.append(assistant_msg)
+
+                        # 超过 10 对风格示范时清理最早的
+                        style_indices = []
+                        idx = 0
+                        while idx < len(current_begin_dialogs):
+                            if str(current_begin_dialogs[idx]).startswith("[风格示范]") and idx + 1 < len(current_begin_dialogs):
+                                style_indices.append(idx)
+                                idx += 2
+                            else:
+                                idx += 1
+
+                        if len(style_indices) > 10:
+                            # 需要移除最早的 style_indices[:len-10] 对
+                            remove_count = len(style_indices) - 10
+                            indices_to_remove = set()
+                            for ri in style_indices[:remove_count]:
+                                indices_to_remove.add(ri)
+                                indices_to_remove.add(ri + 1)
+                            current_begin_dialogs = [
+                                d for i, d in enumerate(current_begin_dialogs)
+                                if i not in indices_to_remove
+                            ]
+
+                        await self.astrbot_persona_manager.update_persona(
+                            persona_id=persona_name,
+                            begin_dialogs=current_begin_dialogs
                         )
-                        if auto_apply_msg:
-                            msg += f"；{auto_apply_msg}"
-
-                        return True, msg
+                        logger.info(
+                            f"风格学习审查 {review_id} 已批准，"
+                            f"{len(dialog_pairs)} 组示例对话已注入 begin_dialogs [{persona_name}]"
+                        )
+                        return True, f"风格学习审查 {review_id} 已批准，已注入 {len(dialog_pairs)} 组示例对话到人格 [{persona_name}]"
                     else:
-                        error_msg = create_result.get('error', '未知错误')
-                        logger.warning(f" 风格学习审查 {review_id} 批准成功但创建新人格失败: {error_msg}")
-                        return True, f"风格学习审查 {review_id} 已批准，但创建新人格失败: {error_msg}"
-
+                        return True, f"风格学习审查 {review_id} 已批准，但未能提取到有效的对话示例"
                 except Exception as e:
-                    logger.error(f" 创建新人格失败: {e}", exc_info=True)
-                    return True, f"风格学习审查 {review_id} 已批准，但创建新人格过程出错: {str(e)}"
+                    logger.error(f"风格学习审查批准后应用到人格失败: {e}", exc_info=True)
+                    return True, f"风格学习审查 {review_id} 已批准，但应用过程出错: {str(e)}"
             else:
-                logger.warning("PersonaWebManager未初始化，无法创建新人格")
-                return True, f"风格学习审查 {review_id} 已批准，但PersonaWebManager未初始化"
+                msg = f"风格学习审查 {review_id} 已批准"
+                if not auto_apply_enabled:
+                    msg += "（开启 auto_apply_approved_persona 可自动追加到当前人格）"
+                return True, msg
         else:
             return True, f"风格学习审查 {review_id} 已批准"
 
-    async def _auto_apply_to_default_persona(
-        self, group_id: str, base_persona_name: str, content: str
-    ) -> Optional[str]:
+    @staticmethod
+    def _parse_few_shots_to_pairs(text: str) -> List[Tuple[str, str]]:
+        """从 few_shots_content 文本中解析 A/B 对话对。
+
+        支持格式:
+          A: xxx\\nB: yyy
+          A（用户发言）: xxx\\nB（回复）: yyy
         """
-        自动将批准内容应用到默认人格（危险功能，需配置开启）
-
-        流程：先创建副本（已在调用方完成），再更新默认人格的system_prompt。
-
-        Args:
-            group_id: 群组ID
-            base_persona_name: 当前默认人格的persona_id/name
-            content: 要应用的人格内容
-
-        Returns:
-            成功/失败消息，如果功能未启用则返回None
-        """
-        # 检查是否启用自动应用
-        if not self.plugin_config or not getattr(self.plugin_config, 'auto_apply_approved_persona', False):
-            return None
-
-        if not content or not content.strip():
-            return None
-
-        pm = self.astrbot_persona_manager
-        if not pm:
-            logger.warning("AstrBot PersonaManager不可用，无法自动应用到默认人格")
-            return "自动应用失败：PersonaManager不可用"
-
-        try:
-            # 获取当前默认人格
-            umo = self._resolve_umo(group_id)
-            current_persona = await pm.get_default_persona_v3(umo)
-            if not current_persona:
-                return "自动应用失败：无法获取当前默认人格"
-
-            persona_name = current_persona.get('name', 'default')
-            if persona_name == 'default':
-                logger.warning("默认人格为系统内置default，跳过自动应用（避免覆盖内置人格）")
-                return "自动应用跳过：当前为系统内置default人格，无法覆盖"
-
-            # 更新默认人格的system_prompt
-            await pm.update_persona(
-                persona_id=persona_name,
-                system_prompt=content
-            )
-
-            logger.info(f"已自动将批准内容应用到默认人格 [{persona_name}]（群组 {group_id}）")
-            return f"已自动应用到默认人格 [{persona_name}]"
-
-        except Exception as e:
-            logger.error(f"自动应用到默认人格失败: {e}", exc_info=True)
-            return f"自动应用失败: {str(e)}"
+        import re
+        pairs = []
+        # 匹配 A: ... B: ... 对
+        pattern = re.compile(
+            r'A(?:\s*[（(][^)）]*[)）])?\s*[:：]\s*(.+?)[\r\n]+'
+            r'B(?:\s*[（(][^)）]*[)）])?\s*[:：]\s*(.+?)(?:\n|$)',
+            re.DOTALL
+        )
+        for match in pattern.finditer(text):
+            a_text = match.group(1).strip()
+            b_text = match.group(2).strip()
+            if a_text and b_text:
+                pairs.append((a_text, b_text))
+        return pairs
 
     async def _reject_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
         """拒绝风格学习审查（内部方法）"""

@@ -949,6 +949,90 @@ class TemporaryPersonaUpdater:
             logger.error(f"风格示范更新失败 for group {group_id}: {e}")
             return False
 
+    async def apply_style_as_begin_dialogs(
+        self, group_id: str, dialog_pairs: List[Tuple[str, str]]
+    ) -> bool:
+        """将风格示范作为 begin_dialogs 示例对话注入人格。
+
+        当风格示范对话总数超过 10 对时，清理最早的示范对话，保留最新 10 对。
+
+        Args:
+            group_id: 群组ID
+            dialog_pairs: A/B 对话对列表，每个元素为 (user_msg, assistant_msg)
+        """
+        MAX_STYLE_PAIRS = 10
+
+        try:
+            if not dialog_pairs:
+                return False
+
+            persona = await self._get_framework_persona(group_id)
+            if not persona:
+                logger.warning("无法获取当前人格，begin_dialogs 风格注入失败")
+                return False
+
+            persona_name = persona.get('name', 'default')
+            current_prompt = persona.get('prompt', '')
+            current_begin_dialogs: list = list(persona.get('begin_dialogs', []) or [])
+
+            # 分离: 普通对话 vs 风格示范对话（以 [风格示范] 前缀标记）
+            normal_dialogs: List[str] = []
+            existing_style_pairs: List[Tuple[str, str]] = []
+            i = 0
+            while i < len(current_begin_dialogs):
+                entry = str(current_begin_dialogs[i])
+                if entry.startswith("[风格示范]") and i + 1 < len(current_begin_dialogs):
+                    # 收集现有风格示范对
+                    user_msg = entry[len("[风格示范]"):]
+                    assistant_msg = str(current_begin_dialogs[i + 1])
+                    existing_style_pairs.append((user_msg, assistant_msg))
+                    i += 2
+                else:
+                    normal_dialogs.append(entry)
+                    i += 1
+
+            # 合并新旧风格示范
+            all_style_pairs = existing_style_pairs + dialog_pairs
+
+            # 超过 MAX_STYLE_PAIRS 时，只保留最新的
+            if len(all_style_pairs) > MAX_STYLE_PAIRS:
+                all_style_pairs = all_style_pairs[-MAX_STYLE_PAIRS:]
+
+            # 重新组装 begin_dialogs: 普通对话 + 风格示范对话
+            new_begin_dialogs = list(normal_dialogs)
+            for user_msg, assistant_msg in all_style_pairs:
+                new_begin_dialogs.append(f"[风格示范]{user_msg}")
+                new_begin_dialogs.append(assistant_msg)
+
+            # 同时清理 system_prompt 中残留的旧风格段落
+            lines = current_prompt.split('\n')
+            filtered_lines = []
+            in_temp_style_section = False
+            for line in lines:
+                if '【风格示范】' in line or '【临时表达风格特征】' in line:
+                    in_temp_style_section = True
+                    continue
+                elif in_temp_style_section and line.startswith('【'):
+                    in_temp_style_section = False
+                    filtered_lines.append(line)
+                elif not in_temp_style_section:
+                    filtered_lines.append(line)
+            clean_prompt = '\n'.join(filtered_lines).strip()
+
+            await self._update_framework_persona(
+                persona_name, clean_prompt, begin_dialogs=new_begin_dialogs
+            )
+
+            logger.info(
+                f"群组 {group_id} 风格示范已通过 begin_dialogs 注入，"
+                f"新增 {len(dialog_pairs)} 组，总计 {len(all_style_pairs)} 组示例对话"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"begin_dialogs 风格注入失败 for group {group_id}: {e}")
+            return False
+
     async def _append_to_persona_updates_file(self, update_content: str):
         """向人格更新文件追加内容（带去重逻辑）"""
         try:

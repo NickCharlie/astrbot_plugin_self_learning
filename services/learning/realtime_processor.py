@@ -237,18 +237,18 @@ class RealtimeProcessor:
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
 
-    # Temporary style application — appended to persona prompt as few-shot examples
+    # Temporary style application — injected as begin_dialogs example conversations
 
     async def _apply_style_to_prompt_temporarily(
         self, group_id: str, learned_patterns: List[Any]
     ) -> None:
-        """Append learned style patterns to persona prompt as few-shot examples."""
+        """Inject learned style patterns as begin_dialogs example conversations."""
         try:
             if not learned_patterns:
                 return
 
-            examples: List[str] = []
-            for i, pattern in enumerate(learned_patterns[:5], 1):
+            dialog_pairs: list = []
+            for pattern in learned_patterns[:5]:
                 situation = (
                     pattern.situation
                     if hasattr(pattern, "situation")
@@ -260,33 +260,22 @@ class RealtimeProcessor:
                     else pattern.get("expression", "")
                 )
                 if situation and expression:
-                    examples.append(
-                        f"示例{i}:\n"
-                        f"A（用户发言）: {situation}\n"
-                        f"B（回复）: {expression}"
-                    )
+                    dialog_pairs.append((situation, expression))
 
-            if not examples:
+            if not dialog_pairs:
                 return
 
-            style_prompt = (
-                "【风格示范】\n"
-                "以下是几组对话示例，A 是用户发言，B 是你应模仿的回复风格。"
-                "请在之后的回复中自然地模仿 B 的表达方式。\n\n"
-                + "\n\n".join(examples)
-            )
-
-            success = await self._temporary_persona_updater.apply_temporary_style_update(
-                group_id, style_prompt
+            success = await self._temporary_persona_updater.apply_style_as_begin_dialogs(
+                group_id, dialog_pairs
             )
 
             if success:
                 logger.info(
-                    f"群组 {group_id} few-shot 风格示例已追加到人设末尾，"
-                    f"包含 {len(examples)} 个示例"
+                    f"群组 {group_id} 风格示例已注入 begin_dialogs，"
+                    f"包含 {len(dialog_pairs)} 组示例对话"
                 )
             else:
-                logger.warning(f"群组 {group_id} few-shot 风格追加失败")
+                logger.warning(f"群组 {group_id} begin_dialogs 风格注入失败")
 
         except Exception as e:
             logger.error(f"追加 few-shot 风格示例失败: {e}")
