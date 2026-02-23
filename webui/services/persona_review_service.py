@@ -371,14 +371,68 @@ class PersonaReviewService:
 
         else:
             # 传统人格审查
-            if self.persona_updater:
-                result = await self.persona_updater.review_persona_update(int(update_id), status, comment)
-                if result:
-                    return True, f"人格更新 {update_id} 已{action}"
+            logger.info(f"[传统审批] update_id={update_id}, action={action}")
+
+            if not self.database_manager:
+                return False, "Database manager not initialized"
+
+            # 更新数据库状态
+            result = await self.database_manager.update_persona_update_record_status(
+                int(update_id), status, comment
+            )
+            if not result:
+                return False, "Failed to update persona review status"
+
+            if action != "approve":
+                return True, f"人格更新 {update_id} 已拒绝"
+
+            # 批准后自动应用到当前人格（通过 persona_web_manager 线程安全调用）
+            auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+            logger.info(
+                f"[传统审批] auto_apply={auto_apply_enabled}, "
+                f"persona_web_manager={'有' if self.persona_web_manager else '无'}"
+            )
+
+            if not auto_apply_enabled or not self.persona_web_manager:
+                msg = f"人格更新 {update_id} 已批准"
+                if not auto_apply_enabled:
+                    msg += "（开启 auto_apply_approved_persona 可自动应用到当前人格）"
+                return True, msg
+
+            try:
+                # 获取审查记录中的新内容
+                record = await self.database_manager.get_persona_update_record_by_id(int(update_id))
+                if not record:
+                    return True, f"人格更新 {update_id} 已批准，但无法获取记录详情"
+
+                new_content = modified_content or record.get('new_content', '')
+                group_id = record.get('group_id', 'default')
+
+                if not new_content:
+                    return True, f"人格更新 {update_id} 已批准，但缺少新内容"
+
+                # 通过 persona_web_manager 获取/更新（线程安全）
+                current = await self.persona_web_manager.get_persona_for_group(group_id)
+                persona_name = current.get('persona_id', 'default')
+                logger.info(
+                    f"[传统审批] 获取到人格: name={persona_name}, "
+                    f"new_content长度={len(new_content)}, group_id={group_id}"
+                )
+
+                update_result = await self.persona_web_manager.update_persona_via_web(
+                    persona_name, {"system_prompt": new_content}
+                )
+                if update_result.get('success'):
+                    logger.info(f"人格更新 {update_id} 已批准并应用到人格 [{persona_name}]")
+                    return True, f"人格更新 {update_id} 已批准，已应用到人格 [{persona_name}]"
                 else:
-                    return False, "Failed to update persona review status"
-            else:
-                return False, "Persona updater not initialized"
+                    err = update_result.get('error', '未知错误')
+                    logger.error(f"[传统审批] 更新人格失败: {err}")
+                    return True, f"人格更新 {update_id} 已批准，但应用失败: {err}"
+
+            except Exception as e:
+                logger.error(f"[传统审批] 应用人格更新失败: {e}", exc_info=True)
+                return True, f"人格更新 {update_id} 已批准，但应用过程出错: {str(e)}"
 
     async def _approve_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
         """批准风格学习审查（内部方法）- 创建新人格"""
