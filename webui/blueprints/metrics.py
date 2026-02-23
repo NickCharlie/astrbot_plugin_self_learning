@@ -182,6 +182,11 @@ async def get_metrics():
                 jargon_score * 0.25 +
                 social_score * 0.20
             )
+            logger.debug(
+                f"[Metrics] learning_efficiency={learning_efficiency:.1f} "
+                f"(filter={filter_rate:.1f}, style={style_score}, "
+                f"jargon={jargon_score}, social={social_score})"
+            )
 
         # Hook performance timing
         hook_performance = {}
