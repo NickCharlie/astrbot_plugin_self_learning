@@ -133,6 +133,24 @@ async def get_metrics():
             except Exception:
                 pass
 
+        # Learning efficiency (from quality monitor)
+        learning_efficiency = 0
+        if progressive_learning and hasattr(progressive_learning, 'quality_monitor'):
+            try:
+                quality_report = await progressive_learning.quality_monitor.get_quality_report()
+                if isinstance(quality_report, dict) and 'current_metrics' in quality_report:
+                    m = quality_report['current_metrics']
+                    # 加权平均: 一致性30% + 风格稳定性25% + 词汇多样性20% + 情感平衡15% + 连贯性10%
+                    learning_efficiency = (
+                        m.get('consistency_score', 0) * 0.30 +
+                        m.get('style_stability', 0) * 0.25 +
+                        m.get('vocabulary_diversity', 0) * 0.20 +
+                        m.get('emotional_balance', 0) * 0.15 +
+                        m.get('coherence_score', 0) * 0.10
+                    ) * 100  # 转为 0-100 分
+            except Exception as e:
+                logger.debug(f"获取学习质量指标失败: {e}")
+
         # Hook performance timing
         hook_performance = {}
         perf_collector = container.perf_collector
@@ -149,6 +167,7 @@ async def get_metrics():
             "filtered_messages": filtered_messages,
             "system_metrics": system_metrics,
             "learning_sessions": learning_sessions,
+            "learning_efficiency": round(learning_efficiency, 1),
             "hook_performance": hook_performance,
             "last_updated": time.time()
         }
