@@ -307,39 +307,43 @@ class PersonaReviewService:
                             group_id = review_data.get('group_id', 'default')
 
                             auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+                            logger.info(
+                                f"[人格审批] id={persona_learning_review_id}, "
+                                f"auto_apply={auto_apply_enabled}, "
+                                f"persona_web_manager={'有' if self.persona_web_manager else '无'}, "
+                                f"incremental_content长度={len(incremental_content) if incremental_content else 0}, "
+                                f"group_id={group_id}"
+                            )
                             if auto_apply_enabled and self.persona_web_manager and incremental_content:
                                 try:
                                     # 通过 persona_web_manager 获取/更新（线程安全）
                                     current = await self.persona_web_manager.get_persona_for_group(group_id)
                                     persona_name = current.get('persona_id', 'default')
                                     current_prompt = current.get('system_prompt', '')
+                                    logger.info(
+                                        f"[人格审批] 获取到当前人格: name={persona_name}, "
+                                        f"prompt长度={len(current_prompt)}"
+                                    )
 
-                                    if persona_name == 'default':
-                                        logger.warning("当前为系统内置default人格，跳过自动应用")
+                                    # 追加增量内容到当前人格末尾
+                                    new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
+
+                                    result = await self.persona_web_manager.update_persona_via_web(
+                                        persona_name, {"system_prompt": new_prompt}
+                                    )
+                                    if result.get('success'):
+                                        logger.info(
+                                            f"人格学习审查 {persona_learning_review_id} 已批准，"
+                                            f"增量内容已追加到人格 [{persona_name}] 末尾"
+                                        )
                                         message = (
                                             f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                            f"但当前为系统内置default人格，无法自动应用"
+                                            f"已追加到人格 [{persona_name}]"
                                         )
                                     else:
-                                        # 追加增量内容到当前人格末尾
-                                        new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
-
-                                        result = await self.persona_web_manager.update_persona_via_web(
-                                            persona_name, {"system_prompt": new_prompt}
-                                        )
-                                        if result.get('success'):
-                                            logger.info(
-                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                                f"增量内容已追加到人格 [{persona_name}] 末尾"
-                                            )
-                                            message = (
-                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                                f"已追加到人格 [{persona_name}]"
-                                            )
-                                        else:
-                                            err = result.get('error', '未知错误')
-                                            logger.error(f"更新人格失败: {err}")
-                                            message = f"人格学习审查 {persona_learning_review_id} 已批准，但更新人格失败: {err}"
+                                        err = result.get('error', '未知错误')
+                                        logger.error(f"更新人格失败: {err}")
+                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但更新人格失败: {err}"
                                 except Exception as apply_error:
                                     logger.error(f"应用人格更新失败: {apply_error}", exc_info=True)
                                     message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
@@ -402,14 +406,15 @@ class PersonaReviewService:
 
             # 自动追加到 begin_dialogs（通过 persona_web_manager，线程安全）
             auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+            logger.info(
+                f"[风格审批] id={review_id}, auto_apply={auto_apply_enabled}, "
+                f"persona_web_manager={'有' if self.persona_web_manager else '无'}, "
+                f"group_id={group_id}"
+            )
             if auto_apply_enabled and self.persona_web_manager:
                 try:
                     current = await self.persona_web_manager.get_persona_for_group(group_id)
                     persona_name = current.get('persona_id', 'default')
-
-                    if persona_name == 'default':
-                        logger.warning("当前为系统内置default人格，跳过自动应用")
-                        return True, f"风格学习审查 {review_id} 已批准，但当前为系统内置default人格，无法自动应用"
 
                     # 从 learned_patterns 提取结构化对话对
                     dialog_pairs = []

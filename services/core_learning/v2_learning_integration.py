@@ -467,7 +467,15 @@ class V2LearningIntegration:
                             and hasattr(db, "save_or_update_jargon")
                         ):
                             await db.save_or_update_jargon(
-                                candidate["term"], meaning, group_id
+                                group_id,
+                                candidate["term"],
+                                {
+                                    "meaning": meaning,
+                                    "raw_content": "[]",
+                                    "is_jargon": True,
+                                    "count": 1,
+                                    "is_complete": True,
+                                },
                             )
                     except Exception as exc:
                         logger.debug(
