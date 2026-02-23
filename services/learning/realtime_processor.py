@@ -248,7 +248,7 @@ class RealtimeProcessor:
                 return
 
             examples: List[str] = []
-            for pattern in learned_patterns[:5]:
+            for i, pattern in enumerate(learned_patterns[:5], 1):
                 situation = (
                     pattern.situation
                     if hasattr(pattern, "situation")
@@ -260,14 +260,19 @@ class RealtimeProcessor:
                     else pattern.get("expression", "")
                 )
                 if situation and expression:
-                    examples.append(f"场景: {situation}\n示例回复: {expression}")
+                    examples.append(
+                        f"示例{i}:\n"
+                        f"A（用户发言）: {situation}\n"
+                        f"B（回复）: {expression}"
+                    )
 
             if not examples:
                 return
 
             style_prompt = (
                 "【风格示范】\n"
-                "以下是对话中的表达风格示例，请在回复中自然借鉴：\n\n"
+                "以下是几组对话示例，A 是用户发言，B 是你应模仿的回复风格。"
+                "请在之后的回复中自然地模仿 B 的表达方式。\n\n"
                 + "\n\n".join(examples)
             )
 
