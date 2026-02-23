@@ -181,6 +181,45 @@ class PersonaWebManager:
             logger.error(f"获取默认人格失败: {e}", exc_info=True)
             return fallback
 
+    async def get_persona_for_group(self, group_id: str) -> Dict[str, Any]:
+        """获取指定群组对应的默认人格（线程安全）
+
+        通过 group_id_to_unified_origin 映射解析 UMO，再获取该 UMO 对应的人格。
+
+        Returns:
+            Dict with persona_id, system_prompt, begin_dialogs, tools
+        """
+        fallback = {
+            "persona_id": "default",
+            "system_prompt": "",
+            "begin_dialogs": [],
+            "tools": []
+        }
+
+        if not self.persona_manager:
+            return fallback
+
+        try:
+            umo = self.group_id_to_unified_origin.get(group_id, group_id)
+
+            default_persona = await self._run_on_main_loop(
+                self.persona_manager.get_default_persona_v3(umo)
+            )
+
+            if default_persona:
+                persona_name = default_persona.get("name", "default")
+                return {
+                    "persona_id": persona_name,
+                    "system_prompt": default_persona.get("prompt", ""),
+                    "begin_dialogs": default_persona.get("begin_dialogs", []) or [],
+                    "tools": default_persona.get("tools", []) or []
+                }
+            return fallback
+
+        except Exception as e:
+            logger.error(f"获取群组 {group_id} 人格失败: {e}", exc_info=True)
+            return fallback
+
     async def create_persona_via_web(self, persona_data: Dict[str, Any]) -> Dict[str, Any]:
         """通过Web界面创建人格"""
         if not self.persona_manager:

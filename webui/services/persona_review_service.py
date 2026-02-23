@@ -307,32 +307,27 @@ class PersonaReviewService:
                             group_id = review_data.get('group_id', 'default')
 
                             auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
-                            if auto_apply_enabled and self.astrbot_persona_manager and incremental_content:
+                            if auto_apply_enabled and self.persona_web_manager and incremental_content:
                                 try:
-                                    # 用框架的 persona_manager 获取当前人格
-                                    # get_default_persona_v3 返回 dict-like，字段为 name/prompt
-                                    umo = self._resolve_umo(group_id)
-                                    current_persona = await self.astrbot_persona_manager.get_default_persona_v3(umo)
-                                    if not current_persona:
-                                        message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取当前人格"
+                                    # 通过 persona_web_manager 获取/更新（线程安全）
+                                    current = await self.persona_web_manager.get_persona_for_group(group_id)
+                                    persona_name = current.get('persona_id', 'default')
+                                    current_prompt = current.get('system_prompt', '')
+
+                                    if persona_name == 'default':
+                                        logger.warning("当前为系统内置default人格，跳过自动应用")
+                                        message = (
+                                            f"人格学习审查 {persona_learning_review_id} 已批准，"
+                                            f"但当前为系统内置default人格，无法自动应用"
+                                        )
                                     else:
-                                        persona_name = current_persona.get('name', 'default')
-                                        current_prompt = current_persona.get('prompt', '')
+                                        # 追加增量内容到当前人格末尾
+                                        new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
 
-                                        if persona_name == 'default':
-                                            logger.warning("当前为系统内置default人格，跳过自动应用")
-                                            message = (
-                                                f"人格学习审查 {persona_learning_review_id} 已批准，"
-                                                f"但当前为系统内置default人格，无法自动应用"
-                                            )
-                                        else:
-                                            # 追加增量内容到当前人格末尾
-                                            new_prompt = current_prompt.strip() + "\n\n" + incremental_content.strip()
-
-                                            await self.astrbot_persona_manager.update_persona(
-                                                persona_id=persona_name,
-                                                system_prompt=new_prompt
-                                            )
+                                        result = await self.persona_web_manager.update_persona_via_web(
+                                            persona_name, {"system_prompt": new_prompt}
+                                        )
+                                        if result.get('success'):
                                             logger.info(
                                                 f"人格学习审查 {persona_learning_review_id} 已批准，"
                                                 f"增量内容已追加到人格 [{persona_name}] 末尾"
@@ -341,6 +336,10 @@ class PersonaReviewService:
                                                 f"人格学习审查 {persona_learning_review_id} 已批准，"
                                                 f"已追加到人格 [{persona_name}]"
                                             )
+                                        else:
+                                            err = result.get('error', '未知错误')
+                                            logger.error(f"更新人格失败: {err}")
+                                            message = f"人格学习审查 {persona_learning_review_id} 已批准，但更新人格失败: {err}"
                                 except Exception as apply_error:
                                     logger.error(f"应用人格更新失败: {apply_error}", exc_info=True)
                                     message = f"人格学习审查 {persona_learning_review_id} 已批准，但应用过程出错: {str(apply_error)}"
@@ -352,7 +351,7 @@ class PersonaReviewService:
                             elif not incremental_content:
                                 message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少增量内容"
                             else:
-                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但 PersonaManager 未初始化"
+                                message = f"人格学习审查 {persona_learning_review_id} 已批准，但 PersonaWebManager 未初始化"
                         else:
                             logger.error(f"无法获取人格学习审查 {persona_learning_review_id} 的详情")
                             message = f"人格学习审查 {persona_learning_review_id} 已批准，但无法获取详情"
@@ -401,16 +400,13 @@ class PersonaReviewService:
         if success and target_review['few_shots_content']:
             group_id = target_review.get('group_id', 'default')
 
-            # 自动追加到 begin_dialogs（与 temporary_persona_updater 方式一致）
+            # 自动追加到 begin_dialogs（通过 persona_web_manager，线程安全）
             auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
-            if auto_apply_enabled and self.astrbot_persona_manager:
+            if auto_apply_enabled and self.persona_web_manager:
                 try:
-                    umo = self._resolve_umo(group_id)
-                    current_persona = await self.astrbot_persona_manager.get_default_persona_v3(umo)
-                    if not current_persona:
-                        return True, f"风格学习审查 {review_id} 已批准，但无法获取当前人格"
+                    current = await self.persona_web_manager.get_persona_for_group(group_id)
+                    persona_name = current.get('persona_id', 'default')
 
-                    persona_name = current_persona.get('name', 'default')
                     if persona_name == 'default':
                         logger.warning("当前为系统内置default人格，跳过自动应用")
                         return True, f"风格学习审查 {review_id} 已批准，但当前为系统内置default人格，无法自动应用"
@@ -429,7 +425,7 @@ class PersonaReviewService:
                         dialog_pairs = self._parse_few_shots_to_pairs(target_review['few_shots_content'])
 
                     if dialog_pairs:
-                        current_begin_dialogs = list(current_persona.get('begin_dialogs', []) or [])
+                        current_begin_dialogs = list(current.get('begin_dialogs', []) or [])
 
                         # 追加风格示范对话（带 [风格示范] 标记）
                         for user_msg, assistant_msg in dialog_pairs:
@@ -447,7 +443,6 @@ class PersonaReviewService:
                                 idx += 1
 
                         if len(style_indices) > 10:
-                            # 需要移除最早的 style_indices[:len-10] 对
                             remove_count = len(style_indices) - 10
                             indices_to_remove = set()
                             for ri in style_indices[:remove_count]:
@@ -458,15 +453,19 @@ class PersonaReviewService:
                                 if i not in indices_to_remove
                             ]
 
-                        await self.astrbot_persona_manager.update_persona(
-                            persona_id=persona_name,
-                            begin_dialogs=current_begin_dialogs
+                        result = await self.persona_web_manager.update_persona_via_web(
+                            persona_name, {"begin_dialogs": current_begin_dialogs}
                         )
-                        logger.info(
-                            f"风格学习审查 {review_id} 已批准，"
-                            f"{len(dialog_pairs)} 组示例对话已注入 begin_dialogs [{persona_name}]"
-                        )
-                        return True, f"风格学习审查 {review_id} 已批准，已注入 {len(dialog_pairs)} 组示例对话到人格 [{persona_name}]"
+                        if result.get('success'):
+                            logger.info(
+                                f"风格学习审查 {review_id} 已批准，"
+                                f"{len(dialog_pairs)} 组示例对话已注入 begin_dialogs [{persona_name}]"
+                            )
+                            return True, f"风格学习审查 {review_id} 已批准，已注入 {len(dialog_pairs)} 组示例对话到人格 [{persona_name}]"
+                        else:
+                            err = result.get('error', '未知错误')
+                            logger.error(f"更新 begin_dialogs 失败: {err}")
+                            return True, f"风格学习审查 {review_id} 已批准，但更新 begin_dialogs 失败: {err}"
                     else:
                         return True, f"风格学习审查 {review_id} 已批准，但未能提取到有效的对话示例"
                 except Exception as e:
