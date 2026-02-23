@@ -33,6 +33,7 @@ class PersonaFacade(BaseFacade):
                     imitation_dialogues=json.dumps(backup_data.get('imitation_dialogues', []), ensure_ascii=False),
                     backup_reason=backup_data.get('backup_reason', ''),
                     backup_time=now,
+                    persona_content=backup_data.get('persona_content', ''),
                 )
                 session.add(backup)
                 await session.commit()
