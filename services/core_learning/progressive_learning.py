@@ -254,78 +254,22 @@ class ProgressiveLearningService:
             # 3. 获取当前人格设置 (针对特定群组)
             current_persona = await self._get_current_persona(group_id)
             
-            # 4. 强化学习记忆重放 - 在force_learning中跳过以避免无限循环
-            if self.config.enable_ml_analysis:
-                try:
-                    if from_force_learning:
-                        logger.debug("force_learning中跳过强化学习记忆重放，避免无限循环")
-                    else:
-                        reinforcement_result = await self.ml_analyzer.reinforcement_memory_replay(
-                            group_id, filtered_messages, current_persona,
-                            from_learning_batch=True
-                        )
-                        
-                        if reinforcement_result and reinforcement_result.get('optimization_strategy'):
-                            # 根据强化学习结果调整学习参数
-                            learning_weight = reinforcement_result.get('optimization_strategy', {}).get('learning_weight', 1.0)
-                            confidence_threshold = reinforcement_result.get('optimization_strategy', {}).get('confidence_threshold', self.config.confidence_threshold)
-                            
-                            # 动态调整筛选阈值
-                            if confidence_threshold != self.config.confidence_threshold:
-                                logger.info(f"根据强化学习调整置信度阈值: {self.config.confidence_threshold} -> {confidence_threshold}")
-                                # 重新筛选消息（如果阈值提高了）
-                                if confidence_threshold > self.config.confidence_threshold:
-                                    filtered_messages = [msg for msg in filtered_messages 
-                                                       if msg.get('relevance_score', 0) >= confidence_threshold]
-                                    
-                except Exception as e:
-                    logger.error(f"强化学习记忆重放失败: {e}")
-            
-            # 5. 使用风格分析器深度分析
-            style_analysis = await self.style_analyzer.analyze_conversation_style(group_id, filtered_messages)
-            
-            # 6. 【增强】使用提炼模型生成更新后的人格
-            updated_persona = await self._generate_updated_persona_with_refinement(group_id, current_persona, style_analysis)
+            # 4-7. 跳过LLM分析，仅记录消息统计
+            from ...core.interfaces import AnalysisResult
 
-            # 7. 【新增】强化学习增量微调
-            ml_tuning_info = None # 用于记录强化学习调优信息
-            if self.config.enable_ml_analysis and updated_persona:
-                try:
-                    tuning_result = await self.ml_analyzer.reinforcement_incremental_tuning(
-                        group_id, current_persona, updated_persona
-                    )
+            style_analysis = AnalysisResult(
+                success=True,
+                confidence=0.7,
+                data={
+                    'message_count': len(filtered_messages),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                },
+                timestamp=time.time()
+            )
 
-                    if tuning_result and tuning_result.get('updated_persona'):
-                        # 使用强化学习优化后的人格
-                        final_persona = tuning_result.get('updated_persona')
-
-                        # 检查 updated_persona 类型，确保是字典才调用 update
-                        if not isinstance(updated_persona, dict):
-                            logger.error(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
-                        elif not isinstance(final_persona, dict):
-                            logger.error(f"final_persona 类型不正确，预期为 dict 但得到 {type(final_persona)}，跳过强化学习调优")
-                        else:
-                            # 检测是否使用了保守融合策略
-                            original_prompt_length = len(current_persona.get('prompt', ''))
-                            new_prompt_length = len(final_persona.get('prompt', ''))
-                            used_conservative_fusion = new_prompt_length < original_prompt_length * 0.8
-
-                            updated_persona.update(final_persona)
-
-                            # 保存强化学习调优信息，供审查记录使用
-                            ml_tuning_info = {
-                                'applied': True,
-                                'expected_improvement': tuning_result.get('performance_prediction', {}).get('expected_improvement', 0),
-                                'used_conservative_fusion': used_conservative_fusion,
-                                'original_length': original_prompt_length,
-                                'tuned_length': new_prompt_length
-                            }
-
-                            logger.info(f"应用强化学习优化后的人格，预期改进: {ml_tuning_info['expected_improvement']}" +
-                                      (f"，使用保守融合策略" if used_conservative_fusion else ""))
-
-                except Exception as e:
-                    logger.error(f"强化学习增量微调失败: {e}")
+            # 不调用LLM生成更新后的人格，保持当前人格不变
+            updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
+            ml_tuning_info = None
             
             # 8. 质量监控评估
             # 确保参数不为None，提供默认值
@@ -440,49 +384,22 @@ class ProgressiveLearningService:
                 await self._mark_messages_processed(unprocessed_messages)
                 return
             
-            # 3. 并行执行强化学习和风格分析
-            reinforcement_result, style_analysis = await asyncio.gather(
-                self._execute_reinforcement_learning_background(group_id, filtered_messages, current_persona),
-                self._execute_style_analysis_background(group_id, filtered_messages),
-                return_exceptions=True
+            # 3. 跳过LLM分析，仅记录消息统计
+            from ...core.interfaces import AnalysisResult
+
+            style_analysis = AnalysisResult(
+                success=True,
+                confidence=0.7,
+                data={
+                    'message_count': len(filtered_messages),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                },
+                timestamp=time.time()
             )
-            
-            # 处理异常结果
-            if isinstance(reinforcement_result, Exception):
-                logger.error(f"强化学习异常: {reinforcement_result}")
-                reinforcement_result = {}
-            
-            if isinstance(style_analysis, Exception):
-                logger.error(f"风格分析异常: {style_analysis}")
-                style_analysis = {}
-            
-            # 4. 动态调整学习参数（基于强化学习结果）
-            if reinforcement_result and reinforcement_result.get('optimization_strategy'):
-                confidence_threshold = reinforcement_result.get('optimization_strategy', {}).get('confidence_threshold', self.config.confidence_threshold)
-                if confidence_threshold > self.config.confidence_threshold:
-                    filtered_messages = [msg for msg in filtered_messages 
-                                       if msg.get('relevance_score', 0) >= confidence_threshold]
-                    logger.info(f"根据强化学习调整置信度阈值: {self.config.confidence_threshold} -> {confidence_threshold}")
-            
-            # 5. 使用提炼模型生成更新后的人格
-            updated_persona = await self._generate_updated_persona_with_refinement(
-                group_id, current_persona, style_analysis
-            )
-            
-            # 6. 强化学习增量微调
-            if self.config.enable_ml_analysis and updated_persona:
-                tuning_result = await self._execute_incremental_tuning_background(
-                    group_id, current_persona, updated_persona
-                )
-                if tuning_result and tuning_result.get('updated_persona'):
-                    # 检查 updated_persona 类型，确保是字典才调用 update
-                    if isinstance(updated_persona, dict):
-                        updated_persona.update(tuning_result.get('updated_persona'))
-                        logger.info(f"应用强化学习优化，预期改进: {tuning_result.get('performance_prediction', {}).get('expected_improvement', 0)}")
-                    else:
-                        logger.warning(f"updated_persona 类型不正确，预期为 dict 但得到 {type(updated_persona)}，跳过强化学习调优")
-            
-            # 7. 质量评估和应用更新
+
+            updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
+
+            # 4. 质量评估和应用更新
             await self._finalize_learning_batch(
                 group_id, current_persona, updated_persona, filtered_messages,
                 unprocessed_messages, batch_start_time, style_analysis # 传递 style_analysis

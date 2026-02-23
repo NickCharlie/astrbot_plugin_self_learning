@@ -143,7 +143,13 @@ class ServiceContainer:
         if astrbot_persona_manager:
             try:
                 from ..persona_web_manager import PersonaWebManager
+                import asyncio
                 self.persona_web_manager = PersonaWebManager(astrbot_persona_manager)
+                # 捕获主事件循环（当前在 set_plugin_services 异步上下文中）
+                try:
+                    self.persona_web_manager._main_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    self.persona_web_manager._main_loop = asyncio.get_event_loop()
                 # 传递 group_id_to_unified_origin 映射引用（多配置文件支持）
                 self.persona_web_manager.group_id_to_unified_origin = self.group_id_to_unified_origin
                 logger.info(" [WebUI] PersonaWebManager 初始化成功")
