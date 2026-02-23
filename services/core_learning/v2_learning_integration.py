@@ -397,7 +397,7 @@ class V2LearningIntegration:
             async def _jargon_update(
                 message: MessageData, group_id: str
             ) -> None:
-                jf.update_from_message(message, group_id)
+                jf.update_from_message(message.message, group_id, message.sender_id)
 
             self._trigger.register_tier1("jargon_stats", _jargon_update)
 

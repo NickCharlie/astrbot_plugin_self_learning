@@ -133,52 +133,55 @@ async def get_metrics():
             except Exception:
                 pass
 
-        # Learning efficiency (from quality monitor + additional dimensions)
+        # Learning efficiency (from persistent DB data)
         learning_efficiency = 0
         learning_dimensions = {}
 
-        # 从质量监控获取基础学习质量
-        if progressive_learning and hasattr(progressive_learning, 'quality_monitor'):
-            try:
-                quality_report = await progressive_learning.quality_monitor.get_quality_report()
-                if isinstance(quality_report, dict) and 'current_metrics' in quality_report:
-                    m = quality_report['current_metrics']
-                    learning_efficiency = (
-                        m.get('consistency_score', 0) * 0.30 +
-                        m.get('style_stability', 0) * 0.25 +
-                        m.get('vocabulary_diversity', 0) * 0.20 +
-                        m.get('emotional_balance', 0) * 0.15 +
-                        m.get('coherence_score', 0) * 0.10
-                    ) * 100
-                    learning_dimensions.update({
-                        'consistency': round(m.get('consistency_score', 0) * 100, 1),
-                        'stability': round(m.get('style_stability', 0) * 100, 1),
-                        'diversity': round(m.get('vocabulary_diversity', 0) * 100, 1),
-                    })
-            except Exception as e:
-                logger.debug(f"获取学习质量指标失败: {e}")
-
-        # 从数据库获取黑话、社交关系等附加维度
         if database_manager:
+            # Message filtering quality
+            filter_rate = 0
+            if total_messages > 0:
+                filter_rate = min(filtered_messages / total_messages * 100, 100)
+            learning_dimensions['filter_rate'] = round(filter_rate, 1)
+
+            # Style learning progress
+            style_score = 0
+            try:
+                style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
+                approved = style_stats.get('approved_reviews', 0) if isinstance(style_stats, dict) else 0
+                total_reviews = style_stats.get('total_reviews', 0) if isinstance(style_stats, dict) else 0
+                style_score = min(approved * 10, 100)
+                learning_dimensions['style_reviews'] = total_reviews
+                learning_dimensions['style_approved'] = approved
+            except Exception:
+                pass
+
+            # Jargon learning
+            jargon_score = 0
             try:
                 jargon_count = await database_manager.get_jargon_count() if hasattr(database_manager, 'get_jargon_count') else 0
+                jargon_score = min(jargon_count * 5, 100)
                 learning_dimensions['jargon_count'] = jargon_count
             except Exception:
-                jargon_count = 0
+                pass
 
+            # Social relations
+            social_score = 0
             try:
                 social_stats = await database_manager.get_social_relationships('default') if hasattr(database_manager, 'get_social_relationships') else []
                 social_count = len(social_stats) if isinstance(social_stats, list) else 0
+                social_score = min(social_count * 10, 100)
                 learning_dimensions['social_relation_count'] = social_count
             except Exception:
-                social_count = 0
+                pass
 
-            try:
-                style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
-                style_patterns = style_stats.get('total_patterns', 0) if isinstance(style_stats, dict) else 0
-                learning_dimensions['style_patterns'] = style_patterns
-            except Exception:
-                style_patterns = 0
+            # Weighted average
+            learning_efficiency = (
+                filter_rate * 0.25 +
+                style_score * 0.30 +
+                jargon_score * 0.25 +
+                social_score * 0.20
+            )
 
         # Hook performance timing
         hook_performance = {}

@@ -54,6 +54,7 @@ class RealtimeProcessor:
         self._learning_stats = learning_stats
         self._factory_manager = factory_manager
         self._db_manager = db_manager
+        self._expression_learner = None  # lazily resolved, cached
 
         # Callback set by the plugin to trigger incremental prompt updates
         self.update_system_prompt_callback: Optional[
@@ -174,10 +175,16 @@ class RealtimeProcessor:
                 f"有效消息数：{len(message_data_list)}"
             )
 
-            expression_learner = (
-                self._factory_manager.get_component_factory()
-                .create_expression_pattern_learner()
-            )
+            if not self._expression_learner:
+                try:
+                    self._expression_learner = (
+                        self._factory_manager.get_component_factory()
+                        .create_expression_pattern_learner()
+                    )
+                except Exception:
+                    logger.debug("表达模式学习器尚未就绪，跳过本次风格学习")
+                    return
+            expression_learner = self._expression_learner
             if not expression_learner:
                 logger.warning("表达模式学习器未正确初始化")
                 return
@@ -230,18 +237,23 @@ class RealtimeProcessor:
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
 
-    # Temporary style application
+    # Temporary style application — stored as few-shot examples in session_updates
 
     async def _apply_style_to_prompt_temporarily(
         self, group_id: str, learned_patterns: List[Any]
     ) -> None:
-        """Apply learned style patterns to the prompt temporarily."""
+        """Store learned style patterns as few-shot examples in session_updates.
+
+        Instead of modifying the persona prompt, patterns are formatted as
+        few-shot examples and injected via extra_user_content_parts by the
+        LLM hook handler.
+        """
         try:
             if not learned_patterns:
                 return
 
-            style_descriptions: List[str] = []
-            for pattern in learned_patterns[:3]:
+            examples: List[str] = []
+            for pattern in learned_patterns[:5]:
                 situation = (
                     pattern.situation
                     if hasattr(pattern, "situation")
@@ -253,35 +265,35 @@ class RealtimeProcessor:
                     else pattern.get("expression", "")
                 )
                 if situation and expression:
-                    style_descriptions.append(
-                        f'当{situation}时，可以使用"{expression}"这样的表达'
-                    )
+                    examples.append(f"场景: {situation}\n示例回复: {expression}")
 
-            if not style_descriptions:
+            if not examples:
                 return
 
-            bullet_list = "\n".join(f"• {desc}" for desc in style_descriptions)
-            style_prompt = (
-                "【临时表达风格特征】（基于最近学习）\n"
-                "在回复时可以参考以下表达方式：\n"
-                f"{bullet_list}\n\n"
-                "注意：这些是临时学习的风格特征，应自然融入回复，不要刻意模仿。"
-            )
+            few_shot_text = "[Style Few-Shot Examples]\n" + "\n\n".join(examples)
 
-            success = await self._temporary_persona_updater.apply_temporary_style_update(
-                group_id, style_prompt
-            )
+            if self._temporary_persona_updater and hasattr(
+                self._temporary_persona_updater, "session_updates"
+            ):
+                updates = self._temporary_persona_updater.session_updates.setdefault(
+                    group_id, []
+                )
+                # Replace any previous style examples
+                updates[:] = [
+                    u for u in updates
+                    if not u.startswith("[Style Few-Shot Examples]")
+                ]
+                updates.append(few_shot_text)
 
-            if success:
                 logger.info(
-                    f"群组 {group_id} 表达风格已临时应用到prompt，"
-                    f"包含 {len(style_descriptions)} 个风格特征"
+                    f"群组 {group_id} 表达风格已存储为 few-shot 示例，"
+                    f"包含 {len(examples)} 个示例"
                 )
             else:
-                logger.warning(f"群组 {group_id} 表达风格临时应用失败")
+                logger.warning(f"群组 {group_id} session_updates 不可用，跳过风格注入")
 
         except Exception as e:
-            logger.error(f"临时应用风格到prompt失败: {e}")
+            logger.error(f"存储 few-shot 风格示例失败: {e}")
 
     # Helpers
 
