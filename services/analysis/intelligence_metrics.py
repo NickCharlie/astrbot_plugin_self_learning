@@ -10,7 +10,6 @@ from datetime import datetime, timedelta
 
 from astrbot.api import logger
 from ...config import PluginConfig
-from ...utils.json_utils import safe_parse_llm_json
 
 
 @dataclass
@@ -22,19 +21,24 @@ class LearningEfficiencyMetrics:
     style_learning_progress: float  # 对话风格学习进度
     persona_update_quality: float  # 人格更新质量
     active_strategies_count: int  # 激活的学习策略数量
+    jargon_learning_score: float = 0.0  # 黑话学习得分 (0-100)
+    social_relation_score: float = 0.0  # 社交关系学习得分 (0-100)
+    affection_score: float = 0.0  # 好感度系统得分 (0-100)
 
     # 各维度权重分配
     weights: Dict[str, float] = None
 
     def __post_init__(self):
         if self.weights is None:
-            # 默认权重分配
             self.weights = {
-                'message_filter': 0.20,  # 消息筛选 20%
-                'content_refine': 0.25,  # 内容提炼 25%
-                'style_learning': 0.30,  # 风格学习 30%
-                'persona_update': 0.15,  # 人格更新 15%
-                'active_strategies': 0.10  # 学习策略 10%
+                'message_filter': 0.15,
+                'content_refine': 0.15,
+                'style_learning': 0.20,
+                'persona_update': 0.10,
+                'active_strategies': 0.10,
+                'jargon_learning': 0.10,
+                'social_relation': 0.10,
+                'affection': 0.10,
             }
 
 
@@ -69,7 +73,10 @@ class IntelligenceMetricsService:
         refined_content_count: int = 0,
         style_patterns_learned: int = 0,
         persona_updates_count: int = 0,
-        active_strategies: List[str] = None
+        active_strategies: List[str] = None,
+        jargon_count: int = 0,
+        social_relation_count: int = 0,
+        affection_users_count: int = 0
     ) -> LearningEfficiencyMetrics:
         """
         计算综合学习效率
@@ -136,6 +143,17 @@ class IntelligenceMetricsService:
         # 5. 激活的学习策略数量得分
         active_strategies_score = self._calculate_strategies_score(active_strategies)
 
+        # 6. 黑话学习得分
+        jargon_learning_score = self._calculate_jargon_score(jargon_count, total_messages)
+
+        # 7. 社交关系学习得分
+        social_relation_score = self._calculate_social_relation_score(
+            social_relation_count, total_messages
+        )
+
+        # 8. 好感度系统得分
+        affection_score = self._calculate_affection_score(affection_users_count)
+
         # 计算加权总体效率
         metrics = LearningEfficiencyMetrics(
             overall_efficiency=0,  # 稍后计算
@@ -143,7 +161,10 @@ class IntelligenceMetricsService:
             content_refine_quality=content_refine_quality,
             style_learning_progress=style_learning_progress,
             persona_update_quality=persona_update_quality,
-            active_strategies_count=len(active_strategies)
+            active_strategies_count=len(active_strategies),
+            jargon_learning_score=jargon_learning_score,
+            social_relation_score=social_relation_score,
+            affection_score=affection_score
         )
 
         # 使用权重计算总体效率
@@ -152,7 +173,10 @@ class IntelligenceMetricsService:
             metrics.weights['content_refine'] * content_refine_quality +
             metrics.weights['style_learning'] * style_learning_progress +
             metrics.weights['persona_update'] * persona_update_quality +
-            metrics.weights['active_strategies'] * active_strategies_score
+            metrics.weights['active_strategies'] * active_strategies_score +
+            metrics.weights['jargon_learning'] * jargon_learning_score +
+            metrics.weights['social_relation'] * social_relation_score +
+            metrics.weights['affection'] * affection_score
         )
 
         self.logger.debug(
@@ -161,6 +185,9 @@ class IntelligenceMetricsService:
             f"提炼质量={content_refine_quality:.2f}%, "
             f"风格进度={style_learning_progress:.2f}%, "
             f"人格质量={persona_update_quality:.2f}%, "
+            f"黑话={jargon_learning_score:.2f}%, "
+            f"社交={social_relation_score:.2f}%, "
+            f"好感度={affection_score:.2f}%, "
             f"策略数={len(active_strategies)}"
         )
 
@@ -243,6 +270,67 @@ class IntelligenceMetricsService:
 
         return activation_rate
 
+    def _calculate_jargon_score(self, jargon_count: int, message_count: int) -> float:
+        """计算黑话学习得分 (0-100)
+
+        基于已学习的黑话数量与消息量的比例评估黑话挖掘效果
+        """
+        if message_count == 0:
+            return 0.0
+
+        # 每100条消息预期学到2-5个黑话
+        expected = message_count / 50
+        if expected == 0:
+            return 0.0
+
+        ratio = jargon_count / expected
+        # 在0.5-2.0倍之间为合理区间
+        if ratio < 0.1:
+            return min(100, ratio * 200)  # 很少黑话,低分但不为0
+        elif ratio > 3.0:
+            return max(50, 100 - (ratio - 3.0) * 10)  # 过多可能噪声大
+        else:
+            return min(100, 50 + ratio * 25)
+
+    def _calculate_social_relation_score(
+        self, relation_count: int, message_count: int
+    ) -> float:
+        """计算社交关系学习得分 (0-100)
+
+        基于已建立的社交关系数量评估社交图谱构建情况
+        """
+        if message_count == 0:
+            return 0.0
+
+        # 每200条消息预期建立1-3个社交关系
+        expected = message_count / 100
+        if expected == 0:
+            return 0.0
+
+        ratio = relation_count / expected
+        if ratio < 0.1:
+            return min(100, ratio * 200)
+        elif ratio > 5.0:
+            return max(60, 100 - (ratio - 5.0) * 5)
+        else:
+            return min(100, 40 + ratio * 12)
+
+    def _calculate_affection_score(self, users_count: int) -> float:
+        """计算好感度系统得分 (0-100)
+
+        基于参与好感度追踪的用户数量评估好感度系统运行状况
+        """
+        if users_count == 0:
+            return 0.0
+
+        # 有追踪用户即有基础分，随用户数增长
+        if users_count >= 10:
+            return 100.0
+        elif users_count >= 5:
+            return 80.0
+        else:
+            return min(100, 30 + users_count * 10)
+
     async def calculate_persona_confidence(
         self,
         proposed_content: str,
@@ -252,35 +340,14 @@ class IntelligenceMetricsService:
         llm_adapter=None
     ) -> ConfidenceMetrics:
         """
-        智能化人格置信度评估
-
-        使用LLM模型进行多维度评判
+        人格置信度评估（纯本地启发式计算，不调用 LLM）
         """
-        # 基础置信度评估 (不依赖LLM)
-        basic_metrics = self._calculate_basic_confidence(
+        return self._calculate_basic_confidence(
             proposed_content,
             original_content,
             learning_source,
             message_count
         )
-
-        # 如果有LLM适配器,使用智能评估
-        if llm_adapter:
-            try:
-                llm_metrics = await self._calculate_llm_confidence(
-                    proposed_content,
-                    original_content,
-                    learning_source,
-                    llm_adapter
-                )
-
-                # 融合基础评估和LLM评估
-                return self._merge_confidence_metrics(basic_metrics, llm_metrics)
-            except Exception as e:
-                self.logger.warning(f"LLM置信度评估失败,使用基础评估: {e}")
-                return basic_metrics
-        else:
-            return basic_metrics
 
     def _calculate_basic_confidence(
         self,
@@ -463,127 +530,3 @@ class IntelligenceMetricsService:
             reliability += 0.05
 
         return min(1.0, reliability)
-
-    async def _calculate_llm_confidence(
-        self,
-        proposed_content: str,
-        original_content: str,
-        learning_source: str,
-        llm_adapter
-    ) -> ConfidenceMetrics:
-        """使用LLM进行智能置信度评估"""
-
-        prompt = self._build_confidence_evaluation_prompt(
-            proposed_content,
-            original_content,
-            learning_source
-        )
-
-        # 调用LLM进行评估
-        response = await llm_adapter.call_llm(
-            prompt=prompt,
-            context_id="confidence_evaluation",
-            max_tokens=500
-        )
-
-        # 解析LLM响应
-        metrics = self._parse_llm_confidence_response(response)
-
-        return metrics
-
-    def _build_confidence_evaluation_prompt(
-        self,
-        proposed_content: str,
-        original_content: str,
-        learning_source: str
-    ) -> str:
-        """构建置信度评估prompt"""
-
-        prompt = f"""你是一个专业的人格内容质量评估专家。请对以下人格更新内容进行多维度评估。
-
-【原始人格内容】
-{original_content[:500]}{'...' if len(original_content) > 500 else ''}
-
-【建议更新内容】
-{proposed_content[:500]}{'...' if len(proposed_content) > 500 else ''}
-
-【学习来源】{learning_source}
-
-请从以下5个维度对建议更新内容进行评分(0.0-1.0):
-
-1. **内容相关性** (Content Relevance): 新内容与原人格的相关性和连贯性
-2. **一致性** (Consistency): 新内容与原人格风格、语气的一致程度
-3. **质量** (Quality): 新内容的语言质量、表达清晰度、逻辑性
-4. **多样性** (Diversity): 新内容带来的创新性和多样化程度
-5. **实用性** (Practicality): 新内容对改善人格表现的实际帮助
-
-请以JSON格式返回评分:
-{{
-    "content_relevance": 0.85,
-    "consistency": 0.90,
-    "quality": 0.88,
-    "diversity": 0.75,
-    "practicality": 0.80,
-    "overall": 0.84,
-    "reasoning": "简要说明评分理由(100字以内)"
-}}
-
-只返回JSON,不要其他内容。"""
-
-        return prompt
-
-    def _parse_llm_confidence_response(self, response: str) -> ConfidenceMetrics:
-        """解析LLM的置信度评估响应"""
-        try:
-            # 使用统一的json_utils工具解析LLM响应
-            data = safe_parse_llm_json(response)
-
-            if data:
-                return ConfidenceMetrics(
-                    overall_confidence=data.get('overall', 0.7),
-                    content_relevance=data.get('content_relevance', 0.7),
-                    consistency_score=data.get('consistency', 0.7),
-                    quality_score=data.get('quality', 0.7),
-                    diversity_score=data.get('diversity', 0.7),
-                    source_reliability=data.get('practicality', 0.7),
-                    evaluation_basis={
-                        'method': 'llm_evaluation',
-                        'reasoning': data.get('reasoning', ''),
-                        'raw_response': response
-                    }
-                )
-        except Exception as e:
-            self.logger.warning(f"解析LLM置信度响应失败: {e}")
-
-        # 失败时返回中等置信度
-        return ConfidenceMetrics(
-            overall_confidence=0.6,
-            content_relevance=0.6,
-            consistency_score=0.6,
-            quality_score=0.6,
-            diversity_score=0.6,
-            source_reliability=0.6,
-            evaluation_basis={'method': 'fallback', 'error': str(e)}
-        )
-
-    def _merge_confidence_metrics(
-        self,
-        basic: ConfidenceMetrics,
-        llm: ConfidenceMetrics
-    ) -> ConfidenceMetrics:
-        """融合基础评估和LLM评估结果"""
-
-        # 使用加权平均 (基础30%, LLM 70%)
-        return ConfidenceMetrics(
-            overall_confidence=basic.overall_confidence * 0.3 + llm.overall_confidence * 0.7,
-            content_relevance=basic.content_relevance * 0.3 + llm.content_relevance * 0.7,
-            consistency_score=basic.consistency_score * 0.3 + llm.consistency_score * 0.7,
-            quality_score=basic.quality_score * 0.3 + llm.quality_score * 0.7,
-            diversity_score=basic.diversity_score * 0.3 + llm.diversity_score * 0.7,
-            source_reliability=basic.source_reliability * 0.3 + llm.source_reliability * 0.7,
-            evaluation_basis={
-                'method': 'merged',
-                'basic': basic.evaluation_basis,
-                'llm': llm.evaluation_basis
-            }
-        )

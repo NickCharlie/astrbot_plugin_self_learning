@@ -86,14 +86,14 @@ async def get_metrics():
             except Exception as e:
                 logger.warning(f"获取消息统计失败: {e}")
 
-        # LLM call statistics
+        # LLM call statistics (filter out providers with no calls)
         llm_stats = {}
         llm_adapter = container.llm_adapter
         if llm_adapter and hasattr(llm_adapter, 'get_call_statistics'):
             try:
                 real_stats = llm_adapter.get_call_statistics()
                 for provider_type, stats_data in real_stats.items():
-                    if provider_type != 'overall':
+                    if provider_type != 'overall' and stats_data.get('total_calls', 0) > 0:
                         llm_stats[f"{provider_type}_provider"] = {
                             "total_calls": stats_data.get('total_calls', 0),
                             "avg_response_time_ms": stats_data.get('avg_response_time_ms', 0),
@@ -133,23 +133,52 @@ async def get_metrics():
             except Exception:
                 pass
 
-        # Learning efficiency (from quality monitor)
+        # Learning efficiency (from quality monitor + additional dimensions)
         learning_efficiency = 0
+        learning_dimensions = {}
+
+        # 从质量监控获取基础学习质量
         if progressive_learning and hasattr(progressive_learning, 'quality_monitor'):
             try:
                 quality_report = await progressive_learning.quality_monitor.get_quality_report()
                 if isinstance(quality_report, dict) and 'current_metrics' in quality_report:
                     m = quality_report['current_metrics']
-                    # 加权平均: 一致性30% + 风格稳定性25% + 词汇多样性20% + 情感平衡15% + 连贯性10%
                     learning_efficiency = (
                         m.get('consistency_score', 0) * 0.30 +
                         m.get('style_stability', 0) * 0.25 +
                         m.get('vocabulary_diversity', 0) * 0.20 +
                         m.get('emotional_balance', 0) * 0.15 +
                         m.get('coherence_score', 0) * 0.10
-                    ) * 100  # 转为 0-100 分
+                    ) * 100
+                    learning_dimensions.update({
+                        'consistency': round(m.get('consistency_score', 0) * 100, 1),
+                        'stability': round(m.get('style_stability', 0) * 100, 1),
+                        'diversity': round(m.get('vocabulary_diversity', 0) * 100, 1),
+                    })
             except Exception as e:
                 logger.debug(f"获取学习质量指标失败: {e}")
+
+        # 从数据库获取黑话、社交关系等附加维度
+        if database_manager:
+            try:
+                jargon_count = await database_manager.get_jargon_count() if hasattr(database_manager, 'get_jargon_count') else 0
+                learning_dimensions['jargon_count'] = jargon_count
+            except Exception:
+                jargon_count = 0
+
+            try:
+                social_stats = await database_manager.get_social_relationships('default') if hasattr(database_manager, 'get_social_relationships') else []
+                social_count = len(social_stats) if isinstance(social_stats, list) else 0
+                learning_dimensions['social_relation_count'] = social_count
+            except Exception:
+                social_count = 0
+
+            try:
+                style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
+                style_patterns = style_stats.get('total_patterns', 0) if isinstance(style_stats, dict) else 0
+                learning_dimensions['style_patterns'] = style_patterns
+            except Exception:
+                style_patterns = 0
 
         # Hook performance timing
         hook_performance = {}
@@ -168,6 +197,7 @@ async def get_metrics():
             "system_metrics": system_metrics,
             "learning_sessions": learning_sessions,
             "learning_efficiency": round(learning_efficiency, 1),
+            "learning_dimensions": learning_dimensions,
             "hook_performance": hook_performance,
             "last_updated": time.time()
         }
