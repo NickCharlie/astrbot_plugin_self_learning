@@ -220,22 +220,19 @@ class DatabaseEngine:
         """
         创建所有表并补齐缺失列
 
-        根据 ORM 模型自动创建表结构
-        如果表已存在则跳过
+        始终执行 create_all(checkfirst=True) 确保所有 ORM 表存在。
+        enable_auto_migration 控制是否额外执行列级自动迁移。
 
         Args:
-            enable_auto_migration: 是否启用完整建表（默认禁用）
+            enable_auto_migration: 是否启用列级自动迁移（默认禁用）
         """
         try:
-            if enable_auto_migration:
-                async with self.engine.begin() as conn:
-                    await conn.run_sync(Base.metadata.create_all)
-                logger.info("[DatabaseEngine] 数据库表结构创建完成")
-            else:
-                logger.debug("[DatabaseEngine] 完整建表已禁用，仅执行列补齐")
+            async with self.engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("[DatabaseEngine] 数据库表结构同步完成")
 
-            # 补齐已有表的缺失列（非破坏性，总是执行）
-            await self._auto_add_missing_columns()
+            if enable_auto_migration:
+                await self._auto_add_missing_columns()
 
         except Exception as e:
             error_msg = str(e).lower()
