@@ -10,6 +10,14 @@ from astrbot.api import logger
 from ._base import BaseFacade
 from ....repositories.user_profile_repository import UserProfileRepository
 from ....repositories.user_preferences_repository import UserPreferencesRepository
+from sqlalchemy import and_, or_, select
+from ....models.orm.social_relation import (
+    UserPreferences,
+    UserProfile,
+    UserSocialProfile,
+    UserSocialRelationComponent,
+)
+from ....repositories.social_repository import SocialRelationComponentRepository
 
 
 class SocialFacade(BaseFacade):
@@ -21,7 +29,6 @@ class SocialFacade(BaseFacade):
         """加载用户画像"""
         try:
             async with self.get_session() as session:
-                from ....models.orm.social_relation import UserProfile
                 profile = await session.get(UserProfile, qq_id)
                 if not profile:
                     return None
@@ -43,7 +50,6 @@ class SocialFacade(BaseFacade):
         """保存用户画像（upsert）"""
         try:
             async with self.get_session() as session:
-                from ....models.orm.social_relation import UserProfile
                 profile = await session.get(UserProfile, qq_id)
                 if profile:
                     profile.qq_name = profile_data.get('qq_name', profile.qq_name)
@@ -79,8 +85,6 @@ class SocialFacade(BaseFacade):
         """加载用户偏好"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.social_relation import UserPreferences
                 stmt = select(UserPreferences).where(
                     and_(UserPreferences.user_id == user_id, UserPreferences.group_id == group_id)
                 )
@@ -106,8 +110,6 @@ class SocialFacade(BaseFacade):
         """保存用户偏好（upsert）"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.social_relation import UserPreferences
                 stmt = select(UserPreferences).where(
                     and_(UserPreferences.user_id == user_id, UserPreferences.group_id == group_id)
                 )
@@ -146,8 +148,6 @@ class SocialFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.social_relation import UserSocialRelationComponent
 
                 stmt = select(UserSocialRelationComponent).where(
                     UserSocialRelationComponent.group_id == group_id
@@ -188,14 +188,7 @@ class SocialFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.social_relation import (
-                    UserSocialRelationComponent,
-                    UserSocialProfile,
-                )
-                from sqlalchemy import select
-                import time as _time
-
-                now = int(_time.time())
+                now = int(time.time())
                 from_user = relation_data.get('from_user', relation_data.get('from_user_id', ''))
 
                 # 获取或创建 from_user 的 profile 以满足外键约束
@@ -245,10 +238,7 @@ class SocialFacade(BaseFacade):
         """获取用户的社交关系"""
         try:
             async with self.get_session() as session:
-                from ....repositories.social_repository import SocialRelationComponentRepository
                 repo = SocialRelationComponentRepository(session)
-                from sqlalchemy import select, or_
-                from ....models.orm.social_relation import UserSocialRelationComponent
 
                 stmt = select(UserSocialRelationComponent).where(
                     UserSocialRelationComponent.group_id == group_id,

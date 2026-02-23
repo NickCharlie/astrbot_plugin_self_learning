@@ -9,6 +9,8 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from ....repositories.emotion_profile_repository import EmotionProfileRepository
+from sqlalchemy import and_, select
+from ....models.orm.psychological import EmotionProfile
 
 
 class PsychologicalFacade(BaseFacade):
@@ -43,8 +45,6 @@ class PsychologicalFacade(BaseFacade):
         """保存情绪画像（upsert）"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.psychological import EmotionProfile
 
                 stmt = select(EmotionProfile).where(
                     and_(EmotionProfile.user_id == user_id, EmotionProfile.group_id == group_id)

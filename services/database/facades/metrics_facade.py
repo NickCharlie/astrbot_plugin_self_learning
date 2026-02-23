@@ -7,6 +7,14 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
+from sqlalchemy import and_, func, select
+from ....models.orm.learning import (
+    LearningBatch,
+    PersonaLearningReview,
+    StyleLearningPattern,
+    StyleLearningReview,
+)
+from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
 
 
 class MetricsFacade(BaseFacade):
@@ -16,9 +24,6 @@ class MetricsFacade(BaseFacade):
         """获取群组综合统计数据"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func, and_
-                from ....models.orm.message import RawMessage, FilteredMessage
-                from ....models.orm.learning import PersonaLearningReview, StyleLearningReview
 
                 # 原始消息数
                 raw_stmt = select(func.count()).select_from(RawMessage)
@@ -63,12 +68,6 @@ class MetricsFacade(BaseFacade):
         """获取详细指标"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.message import RawMessage, FilteredMessage, BotMessage
-                from ....models.orm.learning import (
-                    PersonaLearningReview, StyleLearningReview,
-                    LearningBatch, StyleLearningPattern
-                )
 
                 async def _count(model, group_col=None):
                     stmt = select(func.count()).select_from(model)
@@ -111,9 +110,6 @@ class MetricsFacade(BaseFacade):
         """获取趋势数据"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.message import RawMessage
-                from ....models.orm.learning import LearningBatch
 
                 # 过去7天每天的消息数
                 cutoff = int(time.time()) - (7 * 24 * 3600)

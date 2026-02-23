@@ -7,9 +7,11 @@ import time
 import json
 from typing import Dict, List, Optional, Any
 
+from sqlalchemy import select, and_, func, desc, or_, case
 from astrbot.api import logger
 
 from ._base import BaseFacade
+from ....models.orm.jargon import Jargon
 
 
 class JargonFacade(BaseFacade):
@@ -28,8 +30,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(and_(
                     Jargon.chat_id == chat_id,
@@ -59,7 +59,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.jargon import Jargon
 
                 now_ts = int(time.time())
 
@@ -124,8 +123,6 @@ class JargonFacade(BaseFacade):
 
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(Jargon.id == jargon_id)
                 result = await session.execute(stmt)
@@ -191,8 +188,6 @@ class JargonFacade(BaseFacade):
         }
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func, case
-                from ....models.orm.jargon import Jargon
 
                 columns = [
                     func.count().label('total'),
@@ -263,8 +258,6 @@ class JargonFacade(BaseFacade):
 
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 # 构建查询
                 stmt = select(Jargon)
@@ -338,8 +331,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(func.count(Jargon.id))
 
@@ -380,8 +371,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.jargon import Jargon
 
                 conditions = [
                     Jargon.content.ilike(f'%{keyword}%'),
@@ -434,8 +423,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(Jargon.id == jargon_id)
                 result = await session.execute(stmt)
@@ -464,8 +451,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(Jargon.id == jargon_id)
                 result = await session.execute(stmt)
@@ -497,8 +482,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(Jargon.id == jargon_id)
                 result = await session.execute(stmt)
@@ -534,8 +517,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.jargon import Jargon
 
                 # 获取非目标群组的全局黑话
                 stmt = select(Jargon).where(and_(
@@ -607,8 +588,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, and_
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(and_(
                     Jargon.chat_id == chat_id,
@@ -686,8 +665,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(Jargon).where(
                     Jargon.is_jargon == True,
@@ -734,8 +711,6 @@ class JargonFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.jargon import Jargon
 
                 stmt = select(
                     Jargon.chat_id,
