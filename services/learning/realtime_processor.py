@@ -103,11 +103,6 @@ class RealtimeProcessor:
                     }
                 )
                 self._learning_stats.filtered_messages += 1
-                if not hasattr(self._config, "filtered_messages"):
-                    self._config.filtered_messages = 0
-                self._config.filtered_messages = (
-                    self._learning_stats.filtered_messages
-                )
                 return
             current_persona_description = (
                 await self._persona_manager.get_current_persona_description(group_id)
@@ -126,11 +121,6 @@ class RealtimeProcessor:
                     }
                 )
                 self._learning_stats.filtered_messages += 1
-                if not hasattr(self._config, "filtered_messages"):
-                    self._config.filtered_messages = 0
-                self._config.filtered_messages = (
-                    self._learning_stats.filtered_messages
-                )
 
         except Exception as e:
             logger.error(

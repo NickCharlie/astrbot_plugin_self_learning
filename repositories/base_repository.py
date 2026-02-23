@@ -94,8 +94,9 @@ class BaseRepository(Generic[T]):
         try:
             obj = self.model_class(**kwargs)
             self.session.add(obj)
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(obj)
+            await self.session.commit()
             return obj
 
         except Exception as e:
@@ -114,8 +115,9 @@ class BaseRepository(Generic[T]):
             Optional[T]: 更新后的对象
         """
         try:
-            await self.session.commit()
+            await self.session.flush()
             await self.session.refresh(obj)
+            await self.session.commit()
             return obj
 
         except Exception as e:
@@ -310,12 +312,12 @@ class BaseRepository(Generic[T]):
         try:
             objects = [self.model_class(**record) for record in records]
             self.session.add_all(objects)
-            await self.session.commit()
+            await self.session.flush()
 
-            # 刷新所有对象
             for obj in objects:
                 await self.session.refresh(obj)
 
+            await self.session.commit()
             return objects
 
         except Exception as e:
