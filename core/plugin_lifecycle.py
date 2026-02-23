@@ -340,7 +340,7 @@ class PluginLifecycle:
             logger.warning("插件将在数据库功能受限的情况下继续运行")
 
         # ------ 好感度管理服务 ------
-        if plugin_config.enable_affection_system:
+        if plugin_config.enable_affection_system and getattr(p, "affection_manager", None):
             try:
                 await p.affection_manager.start()
                 logger.info("好感度管理服务启动成功")
@@ -383,7 +383,8 @@ class PluginLifecycle:
 
             # 1. 停止学习任务
             logger.info("停止所有学习任务...")
-            await p._group_orchestrator.cancel_all()
+            if getattr(p, "_group_orchestrator", None):
+                await p._group_orchestrator.cancel_all()
 
             # 2. 停止学习调度器
             if hasattr(p, "learning_scheduler"):

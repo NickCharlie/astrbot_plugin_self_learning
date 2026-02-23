@@ -263,44 +263,43 @@ class DatabaseEngine:
 
                 existing = await conn.run_sync(_get_existing_columns)
 
-            # 创建 ORM 中定义但数据库中不存在的新表
-            missing_tables = [
-                t for t in Base.metadata.sorted_tables
-                if t.name not in existing
-            ]
-            if missing_tables:
-                async with self.engine.begin() as conn:
+                # 创建 ORM 中定义但数据库中不存在的新表
+                missing_tables = [
+                    t for t in Base.metadata.sorted_tables
+                    if t.name not in existing
+                ]
+                if missing_tables:
                     await conn.run_sync(
                         Base.metadata.create_all,
                         tables=missing_tables,
+                        checkfirst=False,
                     )
-                names = [t.name for t in missing_tables]
-                logger.info(
-                    f"[DatabaseEngine] 自动创建缺失表: {', '.join(names)}"
-                )
+                    names = [t.name for t in missing_tables]
+                    logger.info(
+                        f"[DatabaseEngine] 自动创建缺失表: {', '.join(names)}"
+                    )
 
-            # 对比 ORM 定义，收集需要 ALTER 的列
-            alter_statements = []
-            for table in Base.metadata.sorted_tables:
-                if table.name not in existing:
-                    continue  # 刚创建的新表，无需 ALTER
-                db_cols = existing[table.name]
-                for col in table.columns:
-                    if col.name not in db_cols:
-                        col_type = col.type.compile(self.engine.dialect)
-                        nullable = "NULL" if col.nullable else "NOT NULL"
-                        default = ""
-                        if col.server_default is not None:
-                            default = f" DEFAULT {col.server_default.arg!r}"
-                        elif col.default is not None and col.default.is_scalar:
-                            default = f" DEFAULT {col.default.arg!r}"
-                        alter_statements.append(
-                            f"ALTER TABLE `{table.name}` ADD COLUMN "
-                            f"`{col.name}` {col_type} {nullable}{default}"
-                        )
+                # 对比 ORM 定义，收集需要 ALTER 的列
+                alter_statements = []
+                for table in Base.metadata.sorted_tables:
+                    if table.name not in existing:
+                        continue  # 刚创建的新表，无需 ALTER
+                    db_cols = existing[table.name]
+                    for col in table.columns:
+                        if col.name not in db_cols:
+                            col_type = col.type.compile(self.engine.dialect)
+                            nullable = "NULL" if col.nullable else "NOT NULL"
+                            default = ""
+                            if col.server_default is not None:
+                                default = f" DEFAULT {col.server_default.arg!r}"
+                            elif col.default is not None and col.default.is_scalar:
+                                default = f" DEFAULT {col.default.arg!r}"
+                            alter_statements.append(
+                                f"ALTER TABLE `{table.name}` ADD COLUMN "
+                                f"`{col.name}` {col_type} {nullable}{default}"
+                            )
 
-            if alter_statements:
-                async with self.engine.begin() as conn:
+                if alter_statements:
                     for stmt in alter_statements:
                         try:
                             await conn.execute(text(stmt))
@@ -313,8 +312,8 @@ class DatabaseEngine:
                                 logger.warning(
                                     f"[DatabaseEngine] 自动迁移列失败: {col_err}"
                                 )
-            else:
-                logger.debug("[DatabaseEngine] 所有表列已与 ORM 模型一致")
+                else:
+                    logger.debug("[DatabaseEngine] 所有表列已与 ORM 模型一致")
 
         except Exception as e:
             logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
