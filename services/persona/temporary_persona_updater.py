@@ -922,31 +922,31 @@ class TemporaryPersonaUpdater:
             persona_name = persona.get('name', 'default')
             current_prompt = persona.get('prompt', '')
 
-            # 检查是否已经有临时风格特征，如果有则替换
+            # 检查是否已经有风格示范段落，如果有则替换
             lines = current_prompt.split('\n')
             filtered_lines = []
             in_temp_style_section = False
 
             for line in lines:
-                if '【临时表达风格特征】' in line:
+                if '【风格示范】' in line or '【临时表达风格特征】' in line:
                     in_temp_style_section = True
                     continue
-                elif in_temp_style_section and line.startswith('【') and '临时表达风格特征' not in line:
+                elif in_temp_style_section and line.startswith('【'):
                     in_temp_style_section = False
                     filtered_lines.append(line)
                 elif not in_temp_style_section:
                     filtered_lines.append(line)
 
-            # 在prompt末尾添加新的临时风格特征
+            # 在prompt末尾添加新的风格示范
             updated_prompt = '\n'.join(filtered_lines).strip() + '\n\n' + style_content
 
             await self._update_framework_persona(persona_name, updated_prompt)
 
-            logger.info(f"群组 {group_id} 临时风格更新已应用到当前prompt")
+            logger.info(f"群组 {group_id} 风格示范已应用到当前prompt")
             return True
-            
+
         except Exception as e:
-            logger.error(f"临时风格更新失败 for group {group_id}: {e}")
+            logger.error(f"风格示范更新失败 for group {group_id}: {e}")
             return False
 
     async def _append_to_persona_updates_file(self, update_content: str):

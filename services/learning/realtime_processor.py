@@ -237,17 +237,12 @@ class RealtimeProcessor:
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
 
-    # Temporary style application — stored as few-shot examples in session_updates
+    # Temporary style application — appended to persona prompt as few-shot examples
 
     async def _apply_style_to_prompt_temporarily(
         self, group_id: str, learned_patterns: List[Any]
     ) -> None:
-        """Store learned style patterns as few-shot examples in session_updates.
-
-        Instead of modifying the persona prompt, patterns are formatted as
-        few-shot examples and injected via extra_user_content_parts by the
-        LLM hook handler.
-        """
+        """Append learned style patterns to persona prompt as few-shot examples."""
         try:
             if not learned_patterns:
                 return
@@ -270,30 +265,26 @@ class RealtimeProcessor:
             if not examples:
                 return
 
-            few_shot_text = "[Style Few-Shot Examples]\n" + "\n\n".join(examples)
+            style_prompt = (
+                "【风格示范】\n"
+                "以下是对话中的表达风格示例，请在回复中自然借鉴：\n\n"
+                + "\n\n".join(examples)
+            )
 
-            if self._temporary_persona_updater and hasattr(
-                self._temporary_persona_updater, "session_updates"
-            ):
-                updates = self._temporary_persona_updater.session_updates.setdefault(
-                    group_id, []
-                )
-                # Replace any previous style examples
-                updates[:] = [
-                    u for u in updates
-                    if not u.startswith("[Style Few-Shot Examples]")
-                ]
-                updates.append(few_shot_text)
+            success = await self._temporary_persona_updater.apply_temporary_style_update(
+                group_id, style_prompt
+            )
 
+            if success:
                 logger.info(
-                    f"群组 {group_id} 表达风格已存储为 few-shot 示例，"
+                    f"群组 {group_id} few-shot 风格示例已追加到人设末尾，"
                     f"包含 {len(examples)} 个示例"
                 )
             else:
-                logger.warning(f"群组 {group_id} session_updates 不可用，跳过风格注入")
+                logger.warning(f"群组 {group_id} few-shot 风格追加失败")
 
         except Exception as e:
-            logger.error(f"存储 few-shot 风格示例失败: {e}")
+            logger.error(f"追加 few-shot 风格示例失败: {e}")
 
     # Helpers
 
