@@ -1142,13 +1142,10 @@ class ProgressiveLearningService:
             if expression_patterns:
                 await self._save_expression_patterns(group_id, expression_patterns)
 
-            # 2. 构建 few_shots 内容
+            # 2. 构建 few_shots 内容（仅使用原始 A/B 对话对，不做 LLM 总结）
             few_shots_content = ''
-            if style_analysis_dict:
-                few_shots_content = style_analysis_dict.get('enhanced_prompt', '')
-                if not few_shots_content and expression_patterns:
-                    # 如果没有 enhanced_prompt，从 expression_patterns 构建
-                    few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
+            if expression_patterns:
+                few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
 
             # 如果没有 few_shots_content，从消息中构建简单的学习内容
             if not few_shots_content and messages:
