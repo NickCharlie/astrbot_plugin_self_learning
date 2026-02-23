@@ -98,18 +98,27 @@ class IntelligenceEnhancementService(AsyncServiceBase):
             await self._load_knowledge_graph()
             await self._load_user_preferences()
             
-            # 启动定期任务
-            asyncio.create_task(self._periodic_knowledge_update())
-            asyncio.create_task(self._periodic_recommendation_refresh())
-            
+            # 启动定期任务（保留引用以便 stop 时取消）
+            self._knowledge_task = asyncio.create_task(self._periodic_knowledge_update())
+            self._recommend_task = asyncio.create_task(self._periodic_recommendation_refresh())
+
             self._logger.info("智能化提升服务启动成功")
             return True
         except Exception as e:
             self._logger.error(f"智能化提升服务启动失败: {e}")
             return False
-    
+
     async def _do_stop(self) -> bool:
         """停止智能化服务"""
+        # 取消后台任务
+        for task in (getattr(self, '_knowledge_task', None),
+                     getattr(self, '_recommend_task', None)):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self._save_emotion_profiles()
         await self._save_knowledge_graph()
         await self._save_user_preferences()
@@ -879,34 +888,33 @@ class IntelligenceEnhancementService(AsyncServiceBase):
     
     async def _periodic_knowledge_update(self):
         """定期更新知识图谱"""
-        while True:
-            try:
+        try:
+            while True:
                 await asyncio.sleep(3600)  # 每小时更新一次
-                
+
                 # 清理过期实体
                 current_time = time.time()
                 expired_entities = []
-                
+
                 for entity_id, entity in self.knowledge_entities.items():
                     if current_time - entity.last_mentioned > 86400 * 7:  # 7天未提及
                         expired_entities.append(entity_id)
-                
+
                 for entity_id in expired_entities:
                     del self.knowledge_entities[entity_id]
                     if self.knowledge_graph.has_node(entity_id):
                         self.knowledge_graph.remove_node(entity_id)
-                
+
                 self._logger.info(f"清理过期知识实体: {len(expired_entities)}")
-                
-            except Exception as e:
-                self._logger.error(f"知识图谱更新失败: {e}")
+        except asyncio.CancelledError:
+            self._logger.debug("知识图谱更新任务已取消")
     
     async def _periodic_recommendation_refresh(self):
         """定期刷新推荐缓存"""
-        while True:
-            try:
+        try:
+            while True:
                 await asyncio.sleep(1800)  # 30分钟刷新一次
-                
+
                 # 清理过期推荐
                 current_time = time.time()
                 for user_key in list(self.recommendation_cache.keys()):
@@ -915,14 +923,13 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                         rec for rec in recommendations
                         if current_time - rec.timestamp < 3600  # 1小时内的推荐
                     ]
-                    
+
                     if fresh_recommendations:
                         self.recommendation_cache[user_key] = fresh_recommendations
                     else:
                         del self.recommendation_cache[user_key]
-                
-            except Exception as e:
-                self._logger.error(f"推荐缓存刷新失败: {e}")
+        except asyncio.CancelledError:
+            self._logger.debug("推荐缓存刷新任务已取消")
     
     async def _load_emotion_profiles(self):
         """加载情感档案"""

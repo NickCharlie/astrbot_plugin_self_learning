@@ -72,19 +72,28 @@ class EnhancedInteractionService(AsyncServiceBase):
         try:
             await self._load_cross_group_memories()
             await self._load_group_interests()
-            
-            # 启动定期任务
-            asyncio.create_task(self._periodic_memory_sync())
-            asyncio.create_task(self._periodic_context_cleanup())
-            
+
+            # 启动定期任务（保留引用以便 stop 时取消）
+            self._sync_task = asyncio.create_task(self._periodic_memory_sync())
+            self._cleanup_task = asyncio.create_task(self._periodic_context_cleanup())
+
             self._logger.info("增强交互服务启动成功")
             return True
         except Exception as e:
             self._logger.error(f"增强交互服务启动失败: {e}")
             return False
-    
+
     async def _do_stop(self) -> bool:
         """停止增强交互服务"""
+        # 取消后台任务
+        for task in (getattr(self, '_sync_task', None),
+                     getattr(self, '_cleanup_task', None)):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         await self._save_cross_group_memories()
         await self._save_group_interests()
         return True
@@ -448,31 +457,30 @@ class EnhancedInteractionService(AsyncServiceBase):
     
     async def _periodic_memory_sync(self):
         """定期同步跨群记忆"""
-        while True:
-            try:
+        try:
+            while True:
                 await asyncio.sleep(self.memory_sync_interval)
                 await self._save_cross_group_memories()
-            except Exception as e:
-                self._logger.error(f"记忆同步失败: {e}")
-    
+        except asyncio.CancelledError:
+            self._logger.debug("记忆同步任务已取消")
+
     async def _periodic_context_cleanup(self):
         """定期清理过期上下文"""
-        while True:
-            try:
+        try:
+            while True:
                 await asyncio.sleep(600)  # 10分钟清理一次
                 current_time = time.time()
-                
+
                 expired_contexts = [
                     group_id for group_id, context in self.conversation_contexts.items()
                     if current_time - context.last_activity > self.context_retention_time
                 ]
-                
+
                 for group_id in expired_contexts:
                     del self.conversation_contexts[group_id]
                     self._logger.debug(f"清理过期对话上下文: {group_id}")
-                    
-            except Exception as e:
-                self._logger.error(f"上下文清理失败: {e}")
+        except asyncio.CancelledError:
+            self._logger.debug("上下文清理任务已取消")
     
     async def _load_cross_group_memories(self):
         """加载跨群记忆数据"""

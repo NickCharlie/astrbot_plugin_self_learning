@@ -131,19 +131,27 @@ class AffectionManager(AsyncServiceBase):
             # 为所有活跃群组设置初始随机情绪（如果启用）
             if self.config.enable_startup_random_mood:
                 await self._initialize_random_moods_for_active_groups()
-            
+
             # 启动每日情绪更新任务
             if self.config.enable_daily_mood:
-                asyncio.create_task(self._daily_mood_updater())
-            
+                self._mood_task = asyncio.create_task(self._daily_mood_updater())
+
             self._logger.info("好感度管理服务启动成功")
             return True
         except Exception as e:
             self._logger.error(f"好感度管理服务启动失败: {e}")
             return False
-    
+
     async def _do_stop(self) -> bool:
         """停止好感度管理服务"""
+        # 取消后台任务
+        task = getattr(self, '_mood_task', None)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         # 保存当前状态
         await self._save_current_state()
         return True
@@ -993,21 +1001,15 @@ class AffectionManager(AsyncServiceBase):
     
     async def _daily_mood_updater(self):
         """每日情绪更新任务"""
-        while True:
-            try:
+        try:
+            while True:
                 current_hour = datetime.now().hour
                 if current_hour == self.config.mood_change_hour:
-                    # 为所有活跃群组更新情绪
-                    # 这里需要获取活跃群组列表，简化实现暂时跳过
-                    # await self._update_all_group_moods()
                     pass
-                
-                # 每小时检查一次
+
                 await asyncio.sleep(3600)
-                
-            except Exception as e:
-                self._logger.error(f"每日情绪更新失败: {e}")
-                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            self._logger.debug("每日情绪更新任务已取消")
     
     async def _save_current_state(self):
         """保存当前状态到数据库"""

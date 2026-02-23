@@ -243,11 +243,15 @@ class PluginLifecycle:
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:
-                asyncio.create_task(self._webui_manager.immediate_start(p.db_manager))
+                _t = asyncio.create_task(self._webui_manager.immediate_start(p.db_manager))
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
             # ------ 自动学习启动（必须在 _group_orchestrator 创建之后）------
             if plugin_config.enable_auto_learning:
-                asyncio.create_task(p._group_orchestrator.delayed_auto_start_learning())
+                _t = asyncio.create_task(p._group_orchestrator.delayed_auto_start_learning())
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
             logger.info(StatusMessages.FACTORY_SERVICES_INIT_COMPLETE)
 
@@ -296,7 +300,9 @@ class PluginLifecycle:
         p.learning_scheduler = component_factory.create_learning_scheduler(p)
         p.background_tasks = set()
 
-        asyncio.create_task(self._delayed_provider_reinitialization())
+        _t = asyncio.create_task(self._delayed_provider_reinitialization())
+        p.background_tasks.add(_t)
+        _t.add_done_callback(p.background_tasks.discard)
 
     # Phase 2: 异步启动（on_load 阶段调用）
 
@@ -451,6 +457,14 @@ class PluginLifecycle:
                 EnhancedMemoryGraphManager._instance = None
                 EnhancedMemoryGraphManager._initialized = False
                 logger.info("MemoryGraphManager 单例已重置")
+            except Exception:
+                pass
+
+            try:
+                from .patterns import SingletonABCMeta
+
+                SingletonABCMeta._instances.clear()
+                logger.info("SingletonABCMeta 实例缓存已清理")
             except Exception:
                 pass
 
