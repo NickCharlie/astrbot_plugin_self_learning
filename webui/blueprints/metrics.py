@@ -138,13 +138,13 @@ async def get_metrics():
         learning_dimensions = {}
 
         if database_manager:
-            # Message filtering quality
+            # 1. Message filtering quality
             filter_rate = 0
             if total_messages > 0:
                 filter_rate = min(filtered_messages / total_messages * 100, 100)
             learning_dimensions['filter_rate'] = round(filter_rate, 1)
 
-            # Style learning progress
+            # 2. Style learning progress
             style_score = 0
             try:
                 style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
@@ -153,39 +153,47 @@ async def get_metrics():
                 style_score = min(approved * 10, 100)
                 learning_dimensions['style_reviews'] = total_reviews
                 learning_dimensions['style_approved'] = approved
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"获取风格学习统计失败: {e}")
 
-            # Jargon learning
-            jargon_score = 0
+            # 3. Expression pattern learning
+            pattern_score = 0
             try:
-                jargon_count = await database_manager.get_jargon_count() if hasattr(database_manager, 'get_jargon_count') else 0
-                jargon_score = min(jargon_count * 5, 100)
-                learning_dimensions['jargon_count'] = jargon_count
-            except Exception:
-                pass
+                if hasattr(database_manager, 'get_expression_patterns_statistics'):
+                    pattern_stats = await database_manager.get_expression_patterns_statistics()
+                    pattern_count = pattern_stats.get('total_patterns', 0) if isinstance(pattern_stats, dict) else 0
+                    pattern_score = min(pattern_count * 2, 100)
+                    learning_dimensions['expression_patterns'] = pattern_count
+            except Exception as e:
+                logger.warning(f"获取表达模式统计失败: {e}")
 
-            # Social relations
-            social_score = 0
+            # 4. Learning session quality (from performance records)
+            session_quality = 0
             try:
-                social_stats = await database_manager.get_social_relationships('default') if hasattr(database_manager, 'get_social_relationships') else []
-                social_count = len(social_stats) if isinstance(social_stats, list) else 0
-                social_score = min(social_count * 10, 100)
-                learning_dimensions['social_relation_count'] = social_count
-            except Exception:
-                pass
+                if hasattr(database_manager, 'get_learning_performance_history'):
+                    perf_records = await database_manager.get_learning_performance_history('default')
+                    if perf_records:
+                        quality_scores = [r.get('quality_score', 0) for r in perf_records if r.get('quality_score', 0) > 0]
+                        if quality_scores:
+                            session_quality = min(sum(quality_scores) / len(quality_scores) * 100, 100)
+                        success_count = sum(1 for r in perf_records if r.get('success'))
+                        learning_dimensions['session_success_rate'] = round(success_count / len(perf_records) * 100, 1) if perf_records else 0
+                        learning_dimensions['total_sessions'] = len(perf_records)
+            except Exception as e:
+                logger.warning(f"获取学习性能记录失败: {e}")
 
-            # Weighted average
+            # Weighted average for learning efficiency
             learning_efficiency = (
                 filter_rate * 0.25 +
-                style_score * 0.30 +
-                jargon_score * 0.25 +
-                social_score * 0.20
+                style_score * 0.25 +
+                pattern_score * 0.25 +
+                session_quality * 0.25
             )
+
             logger.debug(
                 f"[Metrics] learning_efficiency={learning_efficiency:.1f} "
                 f"(filter={filter_rate:.1f}, style={style_score}, "
-                f"jargon={jargon_score}, social={social_score})"
+                f"pattern={pattern_score}, session_quality={session_quality:.1f})"
             )
 
         # Hook performance timing

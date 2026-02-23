@@ -186,301 +186,102 @@ class ExpressionPatternLearner:
     
     async def learn_expression_patterns(self, messages: List[MessageData], group_id: str) -> List[ExpressionPattern]:
         """
-        学习表达模式 - 使用MaiBot的prompt设计
-        
+        学习表达模式 - 从原始消息中直接提取 A/B 对话对（不调用LLM）
+
         Args:
             messages: 消息列表
             group_id: 群组ID
-            
+
         Returns:
             学习到的表达模式列表
         """
         try:
-            # 构建聊天上下文
-            chat_context = self._build_anonymous_chat_context(messages)
-            
-            # 使用MaiBot的表达学习prompt
-            prompt = f"""
-{chat_context}
+            # 直接从消息中提取对话对作为 few-shot 样本（不调用LLM）
+            patterns = self._extract_few_shot_pairs(messages, group_id)
 
-请从上面这段群聊中概括除了人名为"SELF"之外的人的语言风格
-1. 只考虑文字，不要考虑表情包和图片
-2. 不要涉及具体的人名，但是可以涉及具体名词 
-3. 思考有没有特殊的梗，一并总结成语言风格
-4. 例子仅供参考，请严格根据群聊内容总结!!!
-
-注意：总结成如下格式的规律，总结的内容要详细，但具有概括性：
-例如：当"AAAAA"时，可以"BBBBB", AAAAA代表某个具体的场景，不超过20个字。BBBBB代表对应的语言风格，特定句式或表达方式，不超过20个字。
-
-例如：
-当"对某件事表示十分惊叹"时，使用"我嘞个xxxx"
-当"表示讽刺的赞同，不讲道理"时，使用"对对对"
-当"想说明某个具体的事实观点，但懒得明说"时，使用"懂的都懂"
-当"涉及游戏相关时，夸赞，略带戏谑意味"时，使用"这么强！"
-
-请注意：不要总结你自己（SELF）的发言，尽量保证总结内容的逻辑性
-现在请你概括
-"""
-            
-            logger.debug(f"表达模式学习prompt: {prompt}")
-            
-            # 调用LLM生成回复 - 使用通用的generate_response方法
-            if self.llm_adapter and hasattr(self.llm_adapter, 'generate_response'):
-                try:
-                    response = await self.llm_adapter.generate_response(
-                        prompt, 
-                        temperature=0.3, # 使用MaiBot的temperature设置
-                        model_type="refine" # 使用精炼模型
-                    )
-                    
-                    # 检查response是否有效
-                    if not response:
-                        logger.warning(f"LLM生成的response为空或None，可能是模型调用失败，尝试使用简化算法")
-                        # 使用简化的规则生成基本表达模式
-                        response = self._generate_fallback_expression_patterns(messages)
-                    
-                except Exception as llm_error:
-                    logger.warning(f"LLM调用异常: {llm_error}，使用简化算法生成表达模式")
-                    response = self._generate_fallback_expression_patterns(messages)
+            if patterns:
+                logger.info(f"从消息中提取到 {len(patterns)} 个 few-shot 对话对 (group: {group_id})")
             else:
-                logger.warning("LLM适配器未正确配置或缺少generate_response方法，使用简化算法")
-                response = self._generate_fallback_expression_patterns(messages)
-            
-            logger.debug(f"表达模式学习response: {response}")
-            
-            # 解析响应
-            patterns = self._parse_expression_response(response, group_id)
-            
+                logger.debug(f"未从消息中提取到对话对 (group: {group_id})")
+
             return patterns
-            
+
         except Exception as e:
             logger.error(f"学习表达模式失败: {e}")
             raise ExpressionLearningError(f"表达模式学习失败: {e}")
-    
-    def _build_anonymous_chat_context(self, messages: List[MessageData]) -> str:
-        """
-        构建匿名化的聊天上下文 - 参考MaiBot的build_anonymous_messages
-        """
-        context_lines = []
-        
-        for msg in messages:
-            # 获取发送者信息 - 处理字典和对象两种情况
-            if hasattr(msg, 'sender_id'):
-                # 如果是对象
-                is_bot = msg.sender_id == "bot"
-                sender = msg.sender_name or msg.sender_id or 'Unknown'
-                content = msg.message.strip() if msg.message else ''
-                timestamp = msg.timestamp
-            else:
-                # 如果是字典
-                is_bot = msg.get('sender_id') == "bot"
-                sender = msg.get('sender_name') or msg.get('sender_id') or 'Unknown'
-                content = msg.get('message', '').strip()
-                timestamp = msg.get('timestamp', time.time())
-            
-            # 只保留文本内容，过滤掉图片、表情包等
-            if content and not content.startswith('[') and not content.startswith('http'):
-                timestamp_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
-                context_lines.append(f"{timestamp_str} {sender}: {content}")
-        
-        return '\n'.join(context_lines)
-    
-    def _generate_fallback_expression_patterns(self, messages: List[MessageData]) -> str:
-        """
-        当LLM不可用时的降级方案：使用简单规则生成基本表达模式
 
-        Args:
-            messages: 消息列表
-
-        Returns:
-            str: JSON格式的表达模式字符串
+    def _extract_few_shot_pairs(self, messages: List[MessageData], group_id: str) -> List[ExpressionPattern]:
         """
-        try:
-            patterns = []
-
-            # 分析消息特征
-            for msg in messages[:10]: # 只分析前10条消息
-                # 兼容处理MessageData对象和字典类型
-                if hasattr(msg, 'message'):
-                    # 如果是MessageData对象
-                    content = msg.message.strip() if msg.message else ''
-                else:
-                    # 如果是字典
-                    content = msg.get('message', '').strip()
-
-                if len(content) < 5:
-                    continue
-                
-                # 基于简单规则创建表达模式
-                pattern_data = {}
-                
-                # 检测感叹类型
-                if '！' in content or '!' in content:
-                    if '太' in content or '好' in content or '棒' in content:
-                        pattern_data = {
-                            "situation": "对某件事表示惊喜或赞赏",
-                            "expression": content[:15] + ('...' if len(content) > 15 else ''),
-                            "weight": 0.7,
-                            "context": "积极情感表达"
-                        }
-                    elif '什么' in content or '怎么' in content:
-                        pattern_data = {
-                            "situation": "对某事感到意外或疑问",
-                            "expression": content[:15] + ('...' if len(content) > 15 else ''),
-                            "weight": 0.6,
-                            "context": "疑问情感表达"
-                        }
-                
-                # 检测疑问类型
-                elif '？' in content or '?' in content:
-                    pattern_data = {
-                        "situation": "询问或疑问",
-                        "expression": content[:20] + ('...' if len(content) > 20 else ''),
-                        "weight": 0.5,
-                        "context": "疑问表达"
-                    }
-                
-                # 检测口语化表达
-                elif any(word in content for word in ['哈哈', '呵呵', '嗯嗯', '啊啊', '哦哦']):
-                    pattern_data = {
-                        "situation": "轻松愉快的对话",
-                        "expression": content[:12] + ('...' if len(content) > 12 else ''),
-                        "weight": 0.4,
-                        "context": "口语化表达"
-                    }
-                
-                # 检测表情符号
-                elif any(emoji in content for emoji in ['', '', '', '', '', '', '']):
-                    pattern_data = {
-                        "situation": "表达情感状态",
-                        "expression": content[:10] + ('...' if len(content) > 10 else ''),
-                        "weight": 0.6,
-                        "context": "表情符号表达"
-                    }
-                
-                if pattern_data:
-                    patterns.append(pattern_data)
-            
-            # 如果没有找到任何模式，创建一个默认模式
-            if not patterns:
-                patterns.append({
-                    "situation": "日常对话",
-                    "expression": "正常交流",
-                    "weight": 0.3,
-                    "context": "基本对话模式"
-                })
-            
-            # 返回JSON格式
-            return json.dumps({"patterns": patterns[:5]}, ensure_ascii=False, indent=2)
-            
-        except Exception as e:
-            logger.error(f"降级表达模式生成失败: {e}")
-            # 返回最简单的默认响应
-            default_patterns = {
-                "patterns": [
-                    {
-                        "situation": "日常对话",
-                        "expression": "自然交流",
-                        "weight": 0.3,
-                        "context": "默认对话模式"
-                    }
-                ]
-            }
-            return json.dumps(default_patterns, ensure_ascii=False)
-    
-    def _parse_expression_response(self, response: str, group_id: str) -> List[ExpressionPattern]:
+        从原始消息中提取用户-bot 对话对作为 few-shot 样本。
+        寻找「用户发言 → bot回复」的连续对，直接作为 situation/expression 保存。
         """
-        解析LLM返回的表达模式 - 完全参考MaiBot的解析逻辑,同时支持JSON格式
-
-        Args:
-            response: LLM响应
-            group_id: 群组ID
-
-        Returns:
-            解析出的表达模式列表
-        """
-        patterns = []
+        pairs = []
         current_time = time.time()
 
-        # 检查response是否为None或空字符串
-        if not response:
-            logger.warning(f"LLM返回的response为空或None，无法解析表达模式")
-            return patterns
+        for i in range(len(messages) - 1):
+            msg = messages[i]
+            next_msg = messages[i + 1]
 
-        # 尝试解析JSON格式(降级方案)
-        try:
-            response_stripped = response.strip()
-            if response_stripped.startswith('{') or response_stripped.startswith('['):
-                data = json.loads(response_stripped)
-                # 处理{"patterns": [...]}格式
-                if isinstance(data, dict) and 'patterns' in data:
-                    pattern_list = data['patterns']
-                elif isinstance(data, list):
-                    pattern_list = data
-                else:
-                    pattern_list = []
+            # 兼容字典和对象
+            if hasattr(msg, 'sender_id'):
+                msg_is_bot = msg.sender_id == "bot"
+                msg_content = (msg.message or '').strip()
+                next_is_bot = next_msg.sender_id == "bot"
+                next_content = (next_msg.message or '').strip()
+            else:
+                msg_is_bot = msg.get('sender_id') == "bot"
+                msg_content = msg.get('message', '').strip()
+                next_is_bot = next_msg.get('sender_id') == "bot"
+                next_content = next_msg.get('message', '').strip()
 
-                for p in pattern_list:
-                    if isinstance(p, dict) and 'situation' in p and 'expression' in p:
-                        pattern = ExpressionPattern(
-                            situation=p['situation'],
-                            expression=p['expression'],
-                            weight=p.get('weight', 1.0),
-                            last_active_time=current_time,
-                            create_time=current_time,
-                            group_id=group_id
-                        )
-                        patterns.append(pattern)
+            # 用户发言 → bot回复
+            if not msg_is_bot and next_is_bot and msg_content and next_content:
+                # 过滤过短或纯链接/图片/@的消息
+                if len(msg_content) < 3 or len(next_content) < 3:
+                    continue
+                if msg_content.startswith(('[', 'http', '@')):
+                    continue
+                if next_content.startswith(('[', 'http', '@')):
+                    continue
+                if '@' in msg_content or '@' in next_content:
+                    continue
 
-                if patterns:
-                    logger.info(f"成功从JSON格式解析出{len(patterns)}个表达模式")
-                    return patterns
-        except json.JSONDecodeError:
-            # 不是JSON格式,继续使用文本解析
-            pass
-
-        # 文本格式解析(MaiBot原格式)
-        for line in response.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-
-            # 查找"当"和下一个引号
-            idx_when = line.find('当"')
-            if idx_when == -1:
-                continue
-
-            idx_quote1 = idx_when + 1
-            idx_quote2 = line.find('"', idx_quote1 + 1)
-            if idx_quote2 == -1:
-                continue
-
-            situation = line[idx_quote1 + 1:idx_quote2]
-
-            # 查找"使用"或"时，使用"
-            idx_use = line.find('使用"', idx_quote2)
-            if idx_use == -1:
-                continue
-
-            idx_quote3 = idx_use + 2
-            idx_quote4 = line.find('"', idx_quote3 + 1)
-            if idx_quote4 == -1:
-                continue
-
-            expression = line[idx_quote3 + 1:idx_quote4]
-
-            if situation and expression:
-                pattern = ExpressionPattern(
-                    situation=situation,
-                    expression=expression,
+                pairs.append(ExpressionPattern(
+                    situation=msg_content[:50],
+                    expression=next_content[:100],
                     weight=1.0,
                     last_active_time=current_time,
                     create_time=current_time,
                     group_id=group_id
-                )
-                patterns.append(pattern)
+                ))
 
-        return patterns
+        return pairs
+
+    # ---- 以下为旧版 LLM 分析代码，已停用 ----
+
+    # def _build_anonymous_chat_context(self, messages: List[MessageData]) -> str:
+    #     """
+    #     构建匿名化的聊天上下文 - 参考MaiBot的build_anonymous_messages
+    #     """
+    #     context_lines = []
+    #     for msg in messages:
+    #         if hasattr(msg, 'sender_id'):
+    #             is_bot = msg.sender_id == "bot"
+    #             sender = msg.sender_name or msg.sender_id or 'Unknown'
+    #             content = msg.message.strip() if msg.message else ''
+    #             timestamp = msg.timestamp
+    #         else:
+    #             is_bot = msg.get('sender_id') == "bot"
+    #             sender = msg.get('sender_name') or msg.get('sender_id') or 'Unknown'
+    #             content = msg.get('message', '').strip()
+    #             timestamp = msg.get('timestamp', time.time())
+    #         if content and not content.startswith('[') and not content.startswith('http'):
+    #             timestamp_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
+    #             context_lines.append(f"{timestamp_str} {sender}: {content}")
+    #     return '\n'.join(context_lines)
+
+    # def _generate_fallback_expression_patterns(self, messages): ...
+    # def _parse_expression_response(self, response, group_id): ...
     
     async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):
         """保存表达模式到数据库（ORM 版本）"""

@@ -555,8 +555,6 @@ window.AppDashboard = {
               llmModels.length) *
             100
           : 0;
-      // 学习质量
-      var learningQuality = stats.learning_efficiency || 0;
       // 响应速度
       var avgResponseTime =
         llmModels.length > 0
@@ -580,7 +578,6 @@ window.AppDashboard = {
               { name: "消息抓取", max: 100 },
               { name: "数据筛选", max: 100 },
               { name: "LLM调用", max: 100 },
-              { name: "学习质量", max: 100 },
               { name: "响应速度", max: 100 },
               { name: "系统稳定性", max: 100 },
             ],
@@ -597,7 +594,6 @@ window.AppDashboard = {
                     Math.round(messageCapture),
                     Math.round(filteringQuality),
                     Math.round(avgSuccessRate),
-                    Math.round(learningQuality),
                     Math.round(responseSpeed),
                     Math.round(systemStability),
                   ],
