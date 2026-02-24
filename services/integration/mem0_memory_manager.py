@@ -17,8 +17,9 @@ Design notes:
     - Embedding calls are bridged to the AstrBot framework's embedding
       provider via a custom ``EmbeddingBase`` subclass, so no separate
       embedding API credentials are needed.
-    - LLM credentials are extracted from the AstrBot framework providers
-      at initialisation time so users only configure providers once.
+    - LLM calls are bridged to the AstrBot framework's LLM provider
+      via a custom ``LLMBase`` subclass, so no separate LLM API
+      credentials are needed.
     - Blocking mem0 calls are offloaded to a thread pool via
       ``asyncio.to_thread`` to keep the event loop responsive.
     - Graceful import guard: if ``mem0ai`` is not installed the class
@@ -40,11 +41,13 @@ _MEM0_AVAILABLE = False
 try:
     from mem0 import Memory as Mem0Memory
     from mem0.embeddings.base import EmbeddingBase
+    from mem0.llms.base import LLMBase
 
     _MEM0_AVAILABLE = True
 except ImportError:
     Mem0Memory = None # type: ignore[assignment,misc]
     EmbeddingBase = None # type: ignore[assignment,misc]
+    LLMBase = None # type: ignore[assignment,misc]
 
 
 def _create_framework_embedder(embedding_provider):
@@ -78,6 +81,67 @@ def _create_framework_embedder(embedding_provider):
             return future.result(timeout=30)
 
     return _FrameworkEmbedder()
+
+
+def _create_framework_llm(llm_adapter):
+    """Build a mem0-compatible LLM that delegates to the framework.
+
+    Returns a subclass of ``mem0.llms.base.LLMBase`` whose
+    ``generate_response()`` method calls the AstrBot framework's LLM
+    adapter directly, eliminating the need to extract API credentials.
+
+    Because mem0 calls ``generate_response()`` synchronously (from within
+    ``asyncio.to_thread``), we use ``asyncio.run_coroutine_threadsafe``
+    to bridge back into the running event loop.
+    """
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    adapter = llm_adapter
+
+    class _FrameworkLLM(LLMBase):
+        def __init__(self):
+            # Skip parent __init__ to avoid BaseLlmConfig validation.
+            self.config = type("_Cfg", (), {
+                "model": "framework",
+                "temperature": 0.1,
+                "max_tokens": 2000,
+                "top_p": 0.1,
+            })()
+
+        def generate_response(self, messages, tools=None, tool_choice="auto", **kwargs):
+            system_prompt = None
+            prompt = None
+            contexts = []
+
+            for msg in messages:
+                role = msg.get("role", "user")
+                content = msg.get("content", "")
+                if role == "system":
+                    system_prompt = content
+                else:
+                    if role == "user" and prompt is not None:
+                        contexts.append({"role": "user", "content": prompt})
+                    if role == "user":
+                        prompt = content
+                    else:
+                        contexts.append(msg)
+
+            if prompt is None:
+                return ""
+
+            future = asyncio.run_coroutine_threadsafe(
+                adapter.filter_chat_completion(
+                    prompt=prompt,
+                    contexts=contexts or None,
+                    system_prompt=system_prompt,
+                ),
+                loop,
+            )
+            result = future.result(timeout=120)
+            return result or ""
+
+    return _FrameworkLLM()
 
 
 class Mem0MemoryManager:
@@ -130,15 +194,21 @@ class Mem0MemoryManager:
     async def start(self) -> bool:
         """Initialise the mem0 Memory instance.
 
-        After construction, replaces mem0's internal embedding model with
-        a bridge to the framework's embedding provider so that all
-        embedding API calls go through AstrBot's provider system.
+        After construction, replaces mem0's internal LLM and embedding
+        model with bridges to the framework's providers so that all
+        API calls go through AstrBot's provider system.
         """
         try:
             mem0_config = self._build_config()
             self._memory = await asyncio.to_thread(
                 Mem0Memory.from_config, mem0_config
             )
+
+            # Replace mem0's LLM with framework bridge.
+            if self._llm_adapter:
+                self._memory.llm = _create_framework_llm(
+                    self._llm_adapter
+                )
 
             # Replace mem0's embedding model with framework bridge.
             if self._embedding_provider:
@@ -277,17 +347,29 @@ class Mem0MemoryManager:
     def _build_config(self) -> dict:
         """Build the mem0 configuration dict.
 
-        LLM credentials are extracted from the AstrBot framework providers.
-        Embedding is handled separately: after Memory creation, the
-        embedding model is replaced with a framework bridge (see ``start``),
-        so no embedding credentials are needed here.
+        LLM and embedding are handled separately: after Memory creation,
+        both are replaced with framework bridges (see ``start``), so no
+        API credentials are needed here.
         """
         config: Dict[str, Any] = {"version": "v1.1"}
 
-        # -- LLM config --
-        llm_cfg = self._extract_llm_credentials()
-        if llm_cfg:
-            config["llm"] = llm_cfg
+        # Provide placeholder LLM and embedder configs so Memory.__init__
+        # can construct OpenAI clients without error.  Both instances are
+        # replaced with framework bridges immediately after (see start()).
+        config["llm"] = {
+            "provider": "openai",
+            "config": {
+                "model": "gpt-4o-mini",
+                "api_key": "placeholder-replaced-by-framework-bridge",
+            },
+        }
+        config["embedder"] = {
+            "provider": "openai",
+            "config": {
+                "model": "text-embedding-3-small",
+                "api_key": "placeholder-replaced-by-framework-bridge",
+            },
+        }
 
         # -- Vector store (local Qdrant, no external server) --
         qdrant_path = os.path.join(self._config.data_dir, "mem0_qdrant")
@@ -311,46 +393,3 @@ class Mem0MemoryManager:
         }
 
         return config
-
-    def _extract_llm_credentials(self) -> Optional[Dict[str, Any]]:
-        """Try to extract LLM API credentials from the framework adapter."""
-        try:
-            provider = (
-                self._llm_adapter.filter_provider
-                or self._llm_adapter.refine_provider
-                or self._llm_adapter.reinforce_provider
-            )
-            if not provider:
-                return None
-
-            pc = getattr(provider, "provider_config", {})
-            api_key = None
-            if hasattr(provider, "get_current_key"):
-                api_key = provider.get_current_key()
-            if not api_key:
-                keys = pc.get("key", [])
-                api_key = keys[0] if keys else None
-
-            base_url = pc.get("api_base") or None
-            model = provider.get_model() if hasattr(provider, "get_model") else None
-
-            if not api_key:
-                return None
-
-            llm_config: Dict[str, Any] = {
-                "model": model or "gpt-4o-mini",
-                "temperature": 0.1,
-                "max_tokens": 1500,
-                "api_key": api_key,
-            }
-            if base_url:
-                llm_config["openai_base_url"] = base_url
-
-            return {"provider": "openai", "config": llm_config}
-
-        except Exception as exc:
-            logger.debug(
-                f"[Mem0] Could not extract LLM credentials, "
-                f"using mem0 defaults: {exc}"
-            )
-            return None
