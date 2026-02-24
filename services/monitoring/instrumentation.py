@@ -34,11 +34,13 @@ import functools
 import time
 from typing import Any, Callable, Dict, Optional
 
-from prometheus_client import Counter, Histogram
-
 from astrbot.api import logger
 
-from .metrics import REGISTRY
+from .metrics import REGISTRY, has_prometheus
+
+# Re-import Counter / Histogram from our own metrics module (which provides
+# stubs when prometheus_client is unavailable).
+from .metrics import Counter, Histogram
 
 # prometheus-async is an optional runtime dependency.  When missing the
 # decorators fall back to a lightweight pure-Python implementation so
