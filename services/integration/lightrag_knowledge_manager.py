@@ -169,7 +169,7 @@ class LightRAGKnowledgeManager:
         self,
         query: str,
         group_id: str,
-        mode: str = "hybrid",
+        mode: str = "local",
         top_k: int = 10,
     ) -> str:
         """Retrieve knowledge context for a query without LLM QA.
@@ -178,7 +178,9 @@ class LightRAGKnowledgeManager:
             query: The user query or topic.
             group_id: Chat group to search within.
             mode: LightRAG query mode (``naive``, ``local``, ``global``,
-                ``hybrid``, ``mix``).
+                ``hybrid``, ``mix``). Defaults to ``local`` for lower
+                latency; ``hybrid`` adds global community aggregation at
+                the cost of significantly higher query time.
             top_k: Number of top items to retrieve.
 
         Returns:

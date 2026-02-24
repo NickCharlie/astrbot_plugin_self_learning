@@ -30,6 +30,12 @@ class CacheManager:
         self.state_cache = TTLCache(maxsize=500, ttl=60) # 1分钟
         self.relation_cache = TTLCache(maxsize=1000, ttl=60) # 1分钟
 
+        # V2 上下文检索结果缓存 - 避免 LightRAG/Mem0/Exemplar 重复查询
+        self.context_cache = TTLCache(maxsize=128, ttl=300) # 5分钟
+
+        # 查询 embedding 缓存 - 避免相同 query 重复调用 embedding API
+        self.embedding_query_cache = TTLCache(maxsize=256, ttl=600) # 10分钟
+
         # LRU 缓存 - 用于需要保持热点数据的场景
         self.conversation_cache = LRUCache(maxsize=500)
         self.summary_cache = LRUCache(maxsize=200)
@@ -103,6 +109,8 @@ class CacheManager:
         self.memory_cache.clear()
         self.state_cache.clear()
         self.relation_cache.clear()
+        self.context_cache.clear()
+        self.embedding_query_cache.clear()
         self.conversation_cache.clear()
         self.summary_cache.clear()
         self.general_cache.clear()
@@ -115,6 +123,8 @@ class CacheManager:
             'memory': self.memory_cache,
             'state': self.state_cache,
             'relation': self.relation_cache,
+            'context': self.context_cache,
+            'embedding_query': self.embedding_query_cache,
             'conversation': self.conversation_cache,
             'summary': self.summary_cache,
             'general': self.general_cache,

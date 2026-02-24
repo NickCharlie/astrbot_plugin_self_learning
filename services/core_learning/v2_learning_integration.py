@@ -29,18 +29,27 @@ Design notes:
 """
 
 import asyncio
+import hashlib
+from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...core.interfaces import MessageData
+from ...utils.cache_manager import get_cache_manager
 from ..monitoring.instrumentation import monitored
 from ..quality import (
     BatchTriggerPolicy,
     TieredLearningTrigger,
     TriggerResult,
 )
+
+# Minimum message length to consider for LLM-heavy ingestion operations.
+_MIN_INGESTION_LENGTH = 15
+
+# Maximum buffered messages per group before force-flushing.
+_INGESTION_BUFFER_MAX = 10
 
 
 class V2LearningIntegration:
@@ -77,6 +86,15 @@ class V2LearningIntegration:
         self._exemplar_library = self._create_exemplar_library()
         self._social_analyzer = self._create_social_analyzer()
         self._jargon_filter = self._create_jargon_filter()
+
+        # --- Query result cache via CacheManager ----------------------
+        self._cache = get_cache_manager()
+
+        # --- Message buffer for batch ingestion -----------------------
+        # Knowledge and memory ingestion are LLM-heavy operations and
+        # must not run per-message. Instead, messages are buffered here
+        # and flushed as a batch in a Tier 2 operation.
+        self._ingestion_buffer: Dict[str, List[MessageData]] = defaultdict(list)
 
         # --- Tiered trigger ------------------------------------------
         self._trigger = TieredLearningTrigger()
@@ -118,7 +136,21 @@ class V2LearningIntegration:
         logger.info("[V2Integration] All modules started")
 
     async def stop(self) -> None:
-        """Stop all active v2 modules and release resources."""
+        """Stop all active v2 modules and release resources.
+
+        Flushes any remaining buffered messages before stopping modules
+        to prevent data loss on graceful shutdown.
+        """
+        # Flush remaining buffered messages before shutdown.
+        for group_id in list(self._ingestion_buffer.keys()):
+            try:
+                await self._flush_ingestion_buffer(group_id)
+            except Exception as exc:
+                logger.warning(
+                    f"[V2Integration] Buffer flush failed on stop "
+                    f"for group {group_id}: {exc}"
+                )
+
         modules: List[Tuple[str, Any]] = [
             ("knowledge_manager", self._knowledge_manager),
             ("memory_manager", self._memory_manager),
@@ -185,9 +217,21 @@ class V2LearningIntegration:
         reranked by relevance and only the top-k are returned. Few-shot
         exemplars and graph stats are returned unmodified.
 
+        Results are cached per (group_id, query_hash) with a configurable
+        TTL to avoid redundant retrieval on repeated or similar queries.
+
         All retrieval tasks run concurrently via ``asyncio.gather`` to
         minimise total latency.
         """
+        # --- Check query result cache ---
+        cache_key = self._make_cache_key(query, group_id)
+        cached_result = self._cache.get("context", cache_key)
+        if cached_result is not None:
+            logger.debug(
+                f"[V2Integration] Context cache hit (group={group_id})"
+            )
+            return cached_result
+
         context: Dict[str, Any] = {}
 
         # --- Build concurrent retrieval tasks ---
@@ -198,7 +242,8 @@ class V2LearningIntegration:
             try:
                 if hasattr(self._knowledge_manager, "query_knowledge"):
                     ctx = await self._knowledge_manager.query_knowledge(
-                        query, group_id
+                        query, group_id,
+                        mode=self._config.lightrag_query_mode,
                     )
                 elif hasattr(
                     self._knowledge_manager,
@@ -267,11 +312,30 @@ class V2LearningIntegration:
             _fetch_graph_stats(),
         )
 
-        # --- Reranking (optional, knowledge + memory only) ---
-        if self._rerank_provider and context:
+        # --- Conditional reranking ---
+        # Only invoke the reranker when there are enough candidates to
+        # justify the additional API round-trip latency.
+        rerank_candidates = len(context.get("related_memories", []))
+        if "knowledge_context" in context:
+            rerank_candidates += 1
+        min_candidates = getattr(
+            self._config, "rerank_min_candidates", 3
+        )
+        if self._rerank_provider and rerank_candidates >= min_candidates:
             context = await self._rerank_context(query, context, top_k)
 
+        # --- Store result in cache ---
+        self._cache.set("context", cache_key, context)
+
         return context
+
+    # Cache helpers
+
+    @staticmethod
+    def _make_cache_key(query: str, group_id: str) -> str:
+        """Generate a compact cache key from query text and group ID."""
+        query_hash = hashlib.md5(query.encode("utf-8")).hexdigest()[:12]
+        return f"{group_id}:{query_hash}"
 
     def get_trigger_stats(self, group_id: str) -> Dict[str, Any]:
         """Return tiered trigger statistics for a group."""
@@ -387,7 +451,28 @@ class V2LearningIntegration:
     # Trigger wiring
 
     def _register_trigger_operations(self) -> None:
-        """Register all available modules with the tiered trigger."""
+        """Register all available modules with the tiered trigger.
+
+        Architecture:
+            Tier 1 (per-message, sub-millisecond):
+                - jargon_stats: in-memory statistical counters
+                - ingestion_buffer: append message to buffer (no I/O)
+                - exemplar: embedding + DB insert (< 1s)
+
+            Tier 2 (batch, LLM-gated, cooldown-protected):
+                - ingestion_flush: batch-process buffered messages through
+                  LightRAG and Mem0, amortising LLM overhead across
+                  multiple messages
+                - jargon: LLM-based jargon meaning inference
+                - social: community detection and influence ranking
+
+        Knowledge graph ingestion (LightRAG) and memory ingestion (Mem0)
+        are intentionally registered as Tier 2 batch operations rather
+        than Tier 1 per-message callbacks because they each invoke one
+        or more LLM round-trips (entity extraction, fact extraction)
+        that take 3-10 seconds per message. Running them per-message
+        would dominate the event loop and block subsequent processing.
+        """
 
         # ---- Tier 1: per-message lightweight operations ----
 
@@ -401,34 +486,22 @@ class V2LearningIntegration:
 
             self._trigger.register_tier1("jargon_stats", _jargon_update)
 
-        if self._memory_manager:
-            self._trigger.register_tier1(
-                "memory", self._memory_manager.add_memory_from_message
-            )
+        # Buffer messages for batch ingestion (knowledge + memory).
+        # This replaces the previous per-message LightRAG/Mem0 callbacks
+        # with a sub-millisecond append operation.
+        if self._knowledge_manager or self._memory_manager:
+            buf = self._ingestion_buffer
 
-        if self._knowledge_manager:
-            # Resolve the correct ingestion method name.
-            if hasattr(
-                self._knowledge_manager,
-                "process_message_for_knowledge_graph",
-            ):
-                method_name = "process_message_for_knowledge_graph"
-            elif hasattr(
-                self._knowledge_manager, "process_message_for_knowledge"
-            ):
-                method_name = "process_message_for_knowledge"
-            else:
-                method_name = None
-                logger.warning(
-                    "[V2Integration] Knowledge manager has no recognised "
-                    "ingestion method; knowledge tier-1 op skipped"
-                )
+            async def _buffer_message(
+                message: MessageData, group_id: str
+            ) -> None:
+                if (
+                    message.message
+                    and len(message.message.strip()) >= _MIN_INGESTION_LENGTH
+                ):
+                    buf[group_id].append(message)
 
-            if method_name:
-                self._trigger.register_tier1(
-                    "knowledge",
-                    getattr(self._knowledge_manager, method_name),
-                )
+            self._trigger.register_tier1("ingestion_buffer", _buffer_message)
 
         if self._exemplar_library:
             lib = self._exemplar_library
@@ -443,6 +516,19 @@ class V2LearningIntegration:
             self._trigger.register_tier1("exemplar", _exemplar_add)
 
         # ---- Tier 2: batch operations (LLM-heavy) ----
+
+        # Batch ingestion: flush buffered messages through LightRAG
+        # and Mem0. Fires every 5 messages or 60 seconds, whichever
+        # comes first. This amortises the per-message LLM overhead
+        # and reduces total API calls.
+        if self._knowledge_manager or self._memory_manager:
+            self._trigger.register_tier2(
+                "ingestion_flush",
+                self._flush_ingestion_buffer,
+                BatchTriggerPolicy(
+                    message_threshold=5, cooldown_seconds=60
+                ),
+            )
 
         if self._jargon_filter:
             jf2 = self._jargon_filter
@@ -516,6 +602,68 @@ class V2LearningIntegration:
                     message_threshold=50, cooldown_seconds=600
                 ),
             )
+
+    # Batch ingestion
+
+    async def _flush_ingestion_buffer(self, group_id: str) -> None:
+        """Flush buffered messages for a group through knowledge and memory.
+
+        Processes all buffered messages concurrently through LightRAG and
+        Mem0 in a single batch operation, then clears the buffer. Messages
+        within each engine are processed sequentially to avoid overwhelming
+        the underlying LLM providers with concurrent requests.
+        """
+        messages = self._ingestion_buffer.pop(group_id, [])
+        if not messages:
+            return
+
+        logger.debug(
+            f"[V2Integration] Flushing ingestion buffer: "
+            f"group={group_id}, count={len(messages)}"
+        )
+
+        async def _ingest_knowledge() -> None:
+            if not self._knowledge_manager:
+                return
+            method = None
+            if hasattr(
+                self._knowledge_manager,
+                "process_message_for_knowledge_graph",
+            ):
+                method = self._knowledge_manager.process_message_for_knowledge_graph
+            elif hasattr(
+                self._knowledge_manager, "process_message_for_knowledge"
+            ):
+                method = self._knowledge_manager.process_message_for_knowledge
+            if not method:
+                return
+            for msg in messages:
+                try:
+                    await method(msg, group_id)
+                except Exception as exc:
+                    logger.debug(
+                        f"[V2Integration] Knowledge ingestion failed: {exc}"
+                    )
+
+        async def _ingest_memory() -> None:
+            if not self._memory_manager:
+                return
+            for msg in messages:
+                try:
+                    await self._memory_manager.add_memory_from_message(
+                        msg, group_id
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        f"[V2Integration] Memory ingestion failed: {exc}"
+                    )
+
+        # Run knowledge and memory ingestion concurrently across engines,
+        # but sequentially within each engine to avoid provider overload.
+        await asyncio.gather(
+            _ingest_knowledge(),
+            _ingest_memory(),
+        )
 
     # Reranking
 

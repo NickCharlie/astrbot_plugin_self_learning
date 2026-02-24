@@ -44,9 +44,11 @@ class PluginConfig(BaseModel):
     # v2 Architecture: Reranker provider (framework-managed)
     rerank_provider_id: Optional[str] = None
     rerank_top_k: int = 5
+    rerank_min_candidates: int = 3 # 候选文档数低于此阈值时跳过 rerank 以节省延迟
 
     # v2 Architecture: Knowledge engine
     knowledge_engine: str = "legacy" # "lightrag" | "legacy"
+    lightrag_query_mode: str = "local" # "naive" | "local" | "global" | "hybrid" | "mix"
 
     # v2 Architecture: Memory engine
     memory_engine: str = "legacy" # "mem0" | "legacy"
@@ -252,7 +254,9 @@ class PluginConfig(BaseModel):
             embedding_provider_id=v2_settings.get('embedding_provider_id', None),
             rerank_provider_id=v2_settings.get('rerank_provider_id', None),
             rerank_top_k=v2_settings.get('rerank_top_k', 5),
+            rerank_min_candidates=v2_settings.get('rerank_min_candidates', 3),
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
+            lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),
             memory_engine=v2_settings.get('memory_engine', 'legacy'),
 
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),

@@ -5,13 +5,14 @@ Replaces the legacy fixed-threshold trigger system with a two-tier
 architecture that separates lightweight per-message operations (Tier 1)
 from LLM-heavy batch operations (Tier 2).
 
-Tier 1 (per message, < 5 ms each):
-    * Statistical jargon filter update
-    * Memory ingestion (mem0 / legacy)
-    * Knowledge graph ingestion (LightRAG / legacy)
-    * Exemplar candidate screening
+Tier 1 (per message, sub-millisecond to sub-second each):
+    * Statistical jargon filter update (in-memory counters)
+    * Message buffer append for deferred ingestion (no I/O)
+    * Exemplar candidate screening (embedding + DB insert)
 
 Tier 2 (batch, LLM-gated, cooldown-protected):
+    * Knowledge graph ingestion via LightRAG (batched LLM entity extraction)
+    * Memory ingestion via Mem0 (batched LLM fact extraction)
     * Jargon meaning inference on top statistical candidates
     * Social sentiment batch analysis
     * Expression pattern learning
