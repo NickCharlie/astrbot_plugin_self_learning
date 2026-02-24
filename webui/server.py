@@ -171,9 +171,18 @@ class Server:
                 except Exception:
                     pass
 
-            # 等待线程退出
+            # 在线程池中等待线程退出，避免阻塞事件循环
             if self.server_thread:
-                self.server_thread.join(timeout=5.0)
+                loop = asyncio.get_event_loop()
+                try:
+                    await asyncio.wait_for(
+                        loop.run_in_executor(
+                            None, self.server_thread.join, 5.0,
+                        ),
+                        timeout=6.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("[WebUI] 服务器线程退出超时，强制继续")
                 self.server_thread = None
 
             self._thread_loop = None

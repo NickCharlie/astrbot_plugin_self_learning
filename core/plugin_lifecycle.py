@@ -243,11 +243,15 @@ class PluginLifecycle:
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:
-                asyncio.create_task(self._webui_manager.immediate_start(p.db_manager))
+                _t = asyncio.create_task(self._webui_manager.immediate_start(p.db_manager))
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
             # ------ 自动学习启动（必须在 _group_orchestrator 创建之后）------
             if plugin_config.enable_auto_learning:
-                asyncio.create_task(p._group_orchestrator.delayed_auto_start_learning())
+                _t = asyncio.create_task(p._group_orchestrator.delayed_auto_start_learning())
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
             logger.info(StatusMessages.FACTORY_SERVICES_INIT_COMPLETE)
 
@@ -296,7 +300,9 @@ class PluginLifecycle:
         p.learning_scheduler = component_factory.create_learning_scheduler(p)
         p.background_tasks = set()
 
-        asyncio.create_task(self._delayed_provider_reinitialization())
+        _t = asyncio.create_task(self._delayed_provider_reinitialization())
+        p.background_tasks.add(_t)
+        _t.add_done_callback(p.background_tasks.discard)
 
     # Phase 2: 异步启动（on_load 阶段调用）
 
@@ -375,8 +381,23 @@ class PluginLifecycle:
 
     # Phase 3: 有序关停（terminate 阶段调用）
 
+    _STEP_TIMEOUT = 8  # 每个关停步骤的超时秒数
+    _TASK_CANCEL_TIMEOUT = 3  # 每个后台任务取消等待的超时秒数
+
+    async def _safe_step(self, label: str, coro, timeout: float = None) -> None:
+        """执行一个关停步骤，超时或异常均不阻塞后续步骤"""
+        if timeout is None:
+            timeout = self._STEP_TIMEOUT
+        try:
+            await asyncio.wait_for(coro, timeout=timeout)
+            logger.info(f"{label} 完成")
+        except asyncio.TimeoutError:
+            logger.warning(f"{label} 超时 ({timeout}s)，跳过")
+        except Exception as e:
+            logger.error(f"{label} 失败: {e}")
+
     async def shutdown(self) -> None:
-        """有序关停所有服务"""
+        """有序关停所有服务（每步带超时，避免卡死）"""
         p = self._plugin
         try:
             logger.info("开始插件清理工作...")
@@ -384,25 +405,30 @@ class PluginLifecycle:
             # 1. 停止学习任务
             logger.info("停止所有学习任务...")
             if getattr(p, "_group_orchestrator", None):
-                await p._group_orchestrator.cancel_all()
+                await self._safe_step(
+                    "停止学习任务",
+                    p._group_orchestrator.cancel_all(),
+                )
 
             # 2. 停止学习调度器
             if hasattr(p, "learning_scheduler"):
-                try:
-                    await p.learning_scheduler.stop()
-                    logger.info("学习调度器已停止")
-                except Exception as e:
-                    logger.error(f"停止学习调度器失败: {e}")
+                await self._safe_step(
+                    "停止学习调度器",
+                    p.learning_scheduler.stop(),
+                )
 
-            # 3. 取消后台任务
+            # 3. 取消后台任务（每个任务单独超时）
             logger.info("取消所有后台任务...")
             for task in list(p.background_tasks):
                 try:
                     if not task.done():
                         task.cancel()
                         try:
-                            await task
-                        except asyncio.CancelledError:
+                            await asyncio.wait_for(
+                                asyncio.shield(task),
+                                timeout=self._TASK_CANCEL_TIMEOUT,
+                            )
+                        except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
                 except Exception as e:
                     logger.error(
@@ -411,21 +437,18 @@ class PluginLifecycle:
             p.background_tasks.clear()
 
             # 4. 停止服务工厂
-            logger.info("停止所有服务...")
             if hasattr(p, "factory_manager"):
-                try:
-                    await p.factory_manager.cleanup()
-                    logger.info("服务工厂已清理")
-                except Exception as e:
-                    logger.error(f"清理服务工厂失败: {e}")
+                await self._safe_step(
+                    "清理服务工厂",
+                    p.factory_manager.cleanup(),
+                )
 
             # 4.5 停止 V2
             if getattr(p, "v2_integration", None):
-                try:
-                    await p.v2_integration.stop()
-                    logger.info("V2LearningIntegration stopped")
-                except Exception as e:
-                    logger.error(f"V2LearningIntegration stop failed: {e}")
+                await self._safe_step(
+                    "停止 V2LearningIntegration",
+                    p.v2_integration.stop(),
+                )
 
             # 4.6 重置单例
             try:
@@ -437,25 +460,34 @@ class PluginLifecycle:
             except Exception:
                 pass
 
+            try:
+                from .patterns import SingletonABCMeta
+
+                SingletonABCMeta._instances.clear()
+                logger.info("SingletonABCMeta 实例缓存已清理")
+            except Exception:
+                pass
+
             # 5. 清理临时人格
             if hasattr(p, "temporary_persona_updater"):
-                try:
-                    await p.temporary_persona_updater.cleanup_temp_personas()
-                    logger.info("临时人格已清理")
-                except Exception as e:
-                    logger.error(f"清理临时人格失败: {e}")
+                await self._safe_step(
+                    "清理临时人格",
+                    p.temporary_persona_updater.cleanup_temp_personas(),
+                )
 
             # 6. 保存状态
             if hasattr(p, "message_collector"):
-                try:
-                    await p.message_collector.save_state()
-                    logger.info("消息收集器状态已保存")
-                except Exception as e:
-                    logger.error(f"保存消息收集器状态失败: {e}")
+                await self._safe_step(
+                    "保存消息收集器状态",
+                    p.message_collector.save_state(),
+                )
 
             # 7. 停止 WebUI
             if self._webui_manager:
-                await self._webui_manager.stop()
+                await self._safe_step(
+                    "停止 WebUI",
+                    self._webui_manager.stop(),
+                )
 
             # 8. 保存配置
             try:

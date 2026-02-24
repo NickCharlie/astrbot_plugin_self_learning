@@ -9,6 +9,14 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from ....repositories.style_profile_repository import StyleProfileRepository
+from sqlalchemy import desc, func, select
+from ....models.orm.expression import (
+    ExpressionPattern,
+    LanguageStylePattern,
+    StyleLearningRecord,
+    StyleProfile,
+)
+from ....repositories.expression_repository import ExpressionPatternRepository
 
 
 class ExpressionFacade(BaseFacade):
@@ -18,7 +26,6 @@ class ExpressionFacade(BaseFacade):
         """获取所有群组的表达模式"""
         try:
             async with self.get_session() as session:
-                from ....repositories.expression_repository import ExpressionPatternRepository
 
                 repo = ExpressionPatternRepository(session)
                 all_patterns = await repo.get_all(limit=1000)
@@ -38,8 +45,6 @@ class ExpressionFacade(BaseFacade):
         """获取表达模式统计"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.expression import ExpressionPattern
 
                 total_stmt = select(func.count()).select_from(ExpressionPattern)
                 total_result = await session.execute(total_stmt)
@@ -60,7 +65,6 @@ class ExpressionFacade(BaseFacade):
         """获取指定群组的表达模式"""
         try:
             async with self.get_session() as session:
-                from ....repositories.expression_repository import ExpressionPatternRepository
 
                 repo = ExpressionPatternRepository(session)
                 patterns = await repo.find_many(
@@ -77,8 +81,6 @@ class ExpressionFacade(BaseFacade):
         """获取最近指定时间范围的表达模式"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.expression import ExpressionPattern
 
                 cutoff = time.time() - (hours * 3600)
                 stmt = select(ExpressionPattern).where(
@@ -124,8 +126,6 @@ class ExpressionFacade(BaseFacade):
         """保存风格画像（upsert）"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.expression import StyleProfile
 
                 stmt = select(StyleProfile).where(StyleProfile.profile_name == profile_name)
                 result = await session.execute(stmt)
@@ -154,7 +154,6 @@ class ExpressionFacade(BaseFacade):
         """保存风格学习记录"""
         try:
             async with self.get_session() as session:
-                from ....models.orm.expression import StyleLearningRecord
 
                 rec = StyleLearningRecord(
                     style_type=record_data.get('style_type', 'unknown'),
@@ -176,8 +175,6 @@ class ExpressionFacade(BaseFacade):
         """保存语言风格模式（upsert）"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.expression import LanguageStylePattern
 
                 stmt = select(LanguageStylePattern).where(
                     LanguageStylePattern.language_style == language_style

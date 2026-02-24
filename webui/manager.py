@@ -156,7 +156,22 @@ class WebUIManager:
         """有序停止 WebUI 服务器"""
         global _server_instance, _server_cleanup_lock
 
-        async with _server_cleanup_lock:
+        try:
+            await asyncio.wait_for(
+                _server_cleanup_lock.acquire(), timeout=3.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[WebUI] 获取清理锁超时，强制继续清理")
+            # 拿不到锁也要继续清理
+            if _server_instance:
+                try:
+                    await _server_instance.stop()
+                except Exception:
+                    pass
+                _server_instance = None
+            return
+
+        try:
             if not _server_instance:
                 return
             try:
@@ -173,6 +188,8 @@ class WebUIManager:
             except Exception as e:
                 logger.error(f"停止 Web 服务器失败: {e}", exc_info=True)
                 _server_instance = None
+        finally:
+            _server_cleanup_lock.release()
 
     # 内部方法
 

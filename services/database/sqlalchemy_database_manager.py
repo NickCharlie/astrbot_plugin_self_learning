@@ -73,7 +73,7 @@ class SQLAlchemyDatabaseManager:
                 self.engine = DatabaseEngine(db_url, echo=False)
                 logger.info("[DomainRouter] 数据库引擎已创建")
 
-                await self.engine.create_tables()
+                await self.engine.create_tables(enable_auto_migration=True)
 
                 if await self.engine.health_check():
                     self._init_facades()

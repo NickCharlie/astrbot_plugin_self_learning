@@ -8,6 +8,16 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
+from sqlalchemy import delete as sa_delete, desc, func, select
+from ....models.orm.learning import (
+    LearningBatch,
+    LearningSession,
+    PersonaLearningReview,
+    StyleLearningPattern,
+    StyleLearningReview,
+)
+from ....models.orm.message import FilteredMessage
+from ....models.orm.performance import LearningPerformanceHistory
 
 
 class LearningFacade(BaseFacade):
@@ -26,7 +36,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.learning import PersonaLearningReview
 
                 metadata = review_data.get('metadata', {})
                 record = PersonaLearningReview(
@@ -59,8 +68,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = (
                     select(PersonaLearningReview)
@@ -117,8 +124,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == record_id
@@ -148,8 +153,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, delete as sa_delete
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == record_id
@@ -183,8 +186,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == record_id
@@ -227,8 +228,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import PersonaLearningReview
 
                 if status_filter:
                     stmt = (
@@ -285,8 +284,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = (
                     select(PersonaLearningReview)
@@ -337,8 +334,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import PersonaLearningReview
 
                 if status_filter:
                     stmt = (
@@ -391,8 +386,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, delete as sa_delete
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == review_id
@@ -443,8 +436,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == review_id
@@ -483,7 +474,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.learning import StyleLearningReview
 
                 learned_patterns = review_data.get('learned_patterns', [])
                 record = StyleLearningReview(
@@ -519,8 +509,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import StyleLearningReview
 
                 stmt = (
                     select(StyleLearningReview)
@@ -570,8 +558,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import StyleLearningReview
 
                 stmt = (
                     select(StyleLearningReview.few_shots_content)
@@ -605,8 +591,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import StyleLearningReview
 
                 if status_filter:
                     stmt = (
@@ -663,8 +647,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.learning import StyleLearningReview
 
                 stmt = select(StyleLearningReview).where(
                     StyleLearningReview.id == review_id
@@ -694,8 +676,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, delete as sa_delete
-                from ....models.orm.learning import StyleLearningReview
 
                 stmt = select(StyleLearningReview).where(
                     StyleLearningReview.id == review_id
@@ -732,8 +712,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import LearningBatch
 
                 stmt = (
                     select(LearningBatch)
@@ -761,8 +739,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import LearningBatch
 
                 stmt = (
                     select(LearningBatch)
@@ -788,8 +764,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import LearningSession
 
                 stmt = (
                     select(LearningSession)
@@ -815,8 +789,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import LearningSession
 
                 cutoff = time.time() - (days * 24 * 3600)
                 stmt = (
@@ -845,8 +817,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.learning import LearningSession
-                from sqlalchemy import select
 
                 sid = session_data.get('session_id', '')
 
@@ -895,7 +865,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.performance import LearningPerformanceHistory
 
                 metadata = performance_data.get('metadata', {})
                 record = LearningPerformanceHistory(
@@ -941,8 +910,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = (
                     select(func.count())
@@ -963,8 +930,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.learning import StyleLearningPattern
 
                 stmt = select(func.count()).select_from(StyleLearningPattern)
                 result = await session.execute(stmt)
@@ -981,8 +946,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.message import FilteredMessage
 
                 stmt = select(func.count()).select_from(FilteredMessage)
                 result = await session.execute(stmt)
@@ -999,8 +962,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.learning import StyleLearningReview
 
                 total_stmt = select(func.count()).select_from(StyleLearningReview)
                 total_result = await session.execute(total_stmt)
@@ -1048,8 +1009,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import LearningBatch
 
                 stmt = (
                     select(LearningBatch)
@@ -1097,8 +1056,6 @@ class LearningFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.learning import StyleLearningPattern
 
                 stmt = select(
                     StyleLearningPattern.pattern_type,

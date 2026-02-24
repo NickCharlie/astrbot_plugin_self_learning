@@ -12,6 +12,8 @@ from ....repositories.reinforcement_repository import (
     PersonaFusionRepository,
     StrategyOptimizationRepository,
 )
+from sqlalchemy import desc, select
+from ....models.orm.performance import LearningPerformanceHistory
 
 
 class ReinforcementFacade(BaseFacade):
@@ -23,8 +25,6 @@ class ReinforcementFacade(BaseFacade):
         """获取用于强化学习的历史数据"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.performance import LearningPerformanceHistory
 
                 stmt = (
                     select(LearningPerformanceHistory)
@@ -90,8 +90,6 @@ class ReinforcementFacade(BaseFacade):
         """获取学习性能历史"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.performance import LearningPerformanceHistory
 
                 stmt = (
                     select(LearningPerformanceHistory)

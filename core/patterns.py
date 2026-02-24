@@ -348,16 +348,22 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
         
         return all(results)
     
+    _SERVICE_STOP_TIMEOUT = 5  # 每个服务停止的超时秒数
+
     async def stop_all_services(self) -> bool:
-        """停止所有服务"""
+        """停止所有服务（每个服务带超时，避免卡死）"""
+        import asyncio
+
         self._logger.info("停止所有服务")
         results = []
-        
+
         for name, service in self._services.items():
             try:
-                # 检查服务是否有stop方法
                 if hasattr(service, 'stop') and callable(getattr(service, 'stop')):
-                    result = await service.stop()
+                    result = await asyncio.wait_for(
+                        service.stop(),
+                        timeout=self._SERVICE_STOP_TIMEOUT,
+                    )
                     results.append(result)
                     if not result:
                         self._logger.error(f"服务 {name} 停止失败")
@@ -365,14 +371,16 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
                         self._logger.info(f"服务 {name} 已停止")
                 else:
                     self._logger.warning(f"服务 {name} 没有stop方法，跳过停止")
-                    results.append(True)  # 没有stop方法就认为成功
-            except AttributeError as e:
-                self._logger.error(f"停止服务 {name} 异常：{e}")
+                    results.append(True)
+            except asyncio.TimeoutError:
+                self._logger.warning(
+                    f"服务 {name} 停止超时 ({self._SERVICE_STOP_TIMEOUT}s)，跳过"
+                )
                 results.append(False)
             except Exception as e:
                 self._logger.error(f"停止服务 {name} 异常: {e}")
                 results.append(False)
-        
+
         return all(results)
     
     def get_service_status(self) -> Dict[str, str]:

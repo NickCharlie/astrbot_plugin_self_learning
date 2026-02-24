@@ -287,10 +287,13 @@ class DatabaseEngine:
                             col_type = col.type.compile(self.engine.dialect)
                             nullable = "NULL" if col.nullable else "NOT NULL"
                             default = ""
-                            if col.server_default is not None:
-                                default = f" DEFAULT {col.server_default.arg!r}"
-                            elif col.default is not None and col.default.is_scalar:
-                                default = f" DEFAULT {col.default.arg!r}"
+                            # MySQL 不允许 TEXT/BLOB 列有 DEFAULT 值
+                            is_text_type = col_type.upper() in ("TEXT", "BLOB", "MEDIUMTEXT", "LONGTEXT", "JSON")
+                            if not is_text_type:
+                                if col.server_default is not None:
+                                    default = f" DEFAULT {col.server_default.arg!r}"
+                                elif col.default is not None and col.default.is_scalar:
+                                    default = f" DEFAULT {col.default.arg!r}"
                             alter_statements.append(
                                 f"ALTER TABLE `{table.name}` ADD COLUMN "
                                 f"`{col.name}` {col_type} {nullable}{default}"

@@ -10,6 +10,9 @@ from ._base import BaseFacade
 from ....repositories.raw_message_repository import RawMessageRepository
 from ....repositories.filtered_message_repository import FilteredMessageRepository
 from ....repositories.bot_message_repository import BotMessageRepository
+from sqlalchemy import and_, desc, distinct, func, select
+from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
+from ....models.orm.social_relation import SocialRelation
 
 
 class MessageFacade(BaseFacade):
@@ -28,7 +31,6 @@ class MessageFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from ....models.orm.message import RawMessage
 
                 if hasattr(message_data, '__dict__'):
                     data = message_data.__dict__
@@ -146,8 +148,6 @@ class MessageFacade(BaseFacade):
         """获取用于记忆重放的消息"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc, and_
-                from ....models.orm.message import RawMessage
 
                 cutoff_time = time.time() - (days * 24 * 3600)
                 stmt = (
@@ -272,8 +272,6 @@ class MessageFacade(BaseFacade):
 
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func, and_
-                from ....models.orm.message import RawMessage, FilteredMessage
 
                 total_stmt = select(func.count()).select_from(RawMessage).where(
                     RawMessage.group_id == group_id
@@ -308,8 +306,6 @@ class MessageFacade(BaseFacade):
         """获取全局消息统计"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func
-                from ....models.orm.message import RawMessage, FilteredMessage, BotMessage
 
                 raw_count = (await session.execute(
                     select(func.count()).select_from(RawMessage)
@@ -367,8 +363,6 @@ class MessageFacade(BaseFacade):
         """
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, func, distinct
-                from ....models.orm.message import RawMessage
 
                 # 查询 1: 从 RawMessage 获取群组列表、消息数、成员数
                 msg_stmt = (
@@ -393,7 +387,6 @@ class MessageFacade(BaseFacade):
                 # 查询 2: 从 SocialRelation 获取每个群组的关系数（可选）
                 if groups:
                     try:
-                        from ....models.orm.social_relation import SocialRelation
                         rel_stmt = (
                             select(
                                 SocialRelation.group_id,

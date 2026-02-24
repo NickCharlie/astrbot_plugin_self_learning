@@ -9,6 +9,9 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from ....repositories.persona_backup_repository import PersonaBackupRepository
+from sqlalchemy import desc, select
+from ....models.orm.learning import PersonaLearningReview
+from ....models.orm.psychological import PersonaBackup
 
 
 class PersonaFacade(BaseFacade):
@@ -18,7 +21,6 @@ class PersonaFacade(BaseFacade):
         """创建人格备份"""
         try:
             async with self.get_session() as session:
-                from ....models.orm.psychological import PersonaBackup
 
                 now = time.time()
                 backup = PersonaBackup(
@@ -31,6 +33,7 @@ class PersonaFacade(BaseFacade):
                     imitation_dialogues=json.dumps(backup_data.get('imitation_dialogues', []), ensure_ascii=False),
                     backup_reason=backup_data.get('backup_reason', ''),
                     backup_time=now,
+                    persona_content=backup_data.get('persona_content', ''),
                 )
                 session.add(backup)
                 await session.commit()
@@ -88,8 +91,6 @@ class PersonaFacade(BaseFacade):
         """获取人格更新历史"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select, desc
-                from ....models.orm.learning import PersonaLearningReview
 
                 stmt = select(PersonaLearningReview).order_by(
                     desc(PersonaLearningReview.timestamp)

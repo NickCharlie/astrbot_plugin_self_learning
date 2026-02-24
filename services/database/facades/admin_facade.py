@@ -6,6 +6,11 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
+from sqlalchemy import delete as sa_delete, select
+from ....models.orm.learning import LearningBatch
+from ....models.orm.message import FilteredMessage, RawMessage
+from ....models.orm.performance import LearningPerformanceHistory
+from ....models.orm.reinforcement import PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult
 
 
 class AdminFacade(BaseFacade):
@@ -15,14 +20,6 @@ class AdminFacade(BaseFacade):
         """清除所有消息与学习数据（批量删除多个表）"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import delete as sa_delete
-                from ....models.orm.message import RawMessage, FilteredMessage
-                from ....models.orm.learning import LearningBatch
-                from ....models.orm.reinforcement import (
-                    ReinforcementLearningResult, PersonaFusionHistory,
-                    StrategyOptimizationResult
-                )
-                from ....models.orm.performance import LearningPerformanceHistory
 
                 tables = [
                     FilteredMessage, RawMessage, LearningBatch,
@@ -50,8 +47,6 @@ class AdminFacade(BaseFacade):
         """导出原始消息和筛选消息"""
         try:
             async with self.get_session() as session:
-                from sqlalchemy import select
-                from ....models.orm.message import RawMessage, FilteredMessage
 
                 raw_stmt = select(RawMessage)
                 filtered_stmt = select(FilteredMessage)

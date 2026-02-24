@@ -2,6 +2,30 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.1] - 2026-02-23
+
+### 🔧 Bug 修复
+
+#### 插件卸载/重载卡死 (100% CPU)
+- 修复 5 个后台 `while True` 任务（`_daily_mood_updater`、`_periodic_memory_sync`、`_periodic_context_cleanup`、`_periodic_knowledge_update`、`_periodic_recommendation_refresh`）未被跟踪和取消的问题
+- `plugin_lifecycle.py` 中 3 个 `asyncio.create_task()` 调用现在全部注册到 `background_tasks` 集合，确保关停时被取消
+- 所有关停步骤添加 `asyncio.wait_for` 超时保护（每步 8s），避免单个服务阻塞整个关停流程
+- `ServiceRegistry.stop_all_services()` 每个服务添加 5s 超时
+- `GroupLearningOrchestrator.cancel_all()` 添加 per-task 超时
+- `Server.stop()` 将 `thread.join()` 移至线程池执行器，避免阻塞事件循环
+- `WebUIManager.stop()` 添加锁获取超时，防止死锁
+- 关停时清理 `SingletonABCMeta._instances`，防止重载后单例残留
+
+#### MySQL 兼容性修复
+- 修复 `persona_content` 列 INSERT 时传入 `None` 导致 `IntegrityError (1048)` 的问题
+- 修复 `TEXT` 列不能有 `DEFAULT` 值的 MySQL 严格模式错误
+- 启用启动时自动列迁移，跳过 TEXT/BLOB/JSON 列的 DEFAULT 生成
+- Facade 文件中 65 处方法内延迟导入移至模块级别，修复热重载后 `ModuleNotFoundError`
+
+#### 人格审批修复
+- 传统审批路径（纯数字 ID）改为通过 `PersonaWebManager` 路由，解决跨线程调用导致的卡死
+- 修复 `save_or_update_jargon` 参数顺序和类型错误
+
 ## [Next-2.0.0] - 2026-02-22
 
 ### 🎯 新功能
