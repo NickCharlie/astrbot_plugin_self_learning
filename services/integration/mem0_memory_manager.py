@@ -14,9 +14,11 @@ Design notes:
       external server required).
     - Group isolation achieved by using ``agent_id=group_id`` as the
       mem0 scoping parameter.
-    - LLM and embedding credentials are extracted from the AstrBot
-      framework providers at initialisation time so users only configure
-      providers once.
+    - Embedding calls are bridged to the AstrBot framework's embedding
+      provider via a custom ``EmbeddingBase`` subclass, so no separate
+      embedding API credentials are needed.
+    - LLM credentials are extracted from the AstrBot framework providers
+      at initialisation time so users only configure providers once.
     - Blocking mem0 calls are offloaded to a thread pool via
       ``asyncio.to_thread`` to keep the event loop responsive.
     - Graceful import guard: if ``mem0ai`` is not installed the class
@@ -37,10 +39,45 @@ from ..monitoring.instrumentation import monitored
 _MEM0_AVAILABLE = False
 try:
     from mem0 import Memory as Mem0Memory
+    from mem0.embeddings.base import EmbeddingBase
 
     _MEM0_AVAILABLE = True
 except ImportError:
     Mem0Memory = None # type: ignore[assignment,misc]
+    EmbeddingBase = None # type: ignore[assignment,misc]
+
+
+def _create_framework_embedder(embedding_provider):
+    """Build a mem0-compatible embedder that delegates to the framework.
+
+    Returns a subclass of ``mem0.embeddings.base.EmbeddingBase`` whose
+    ``embed()`` method calls the AstrBot framework's embedding provider
+    directly, eliminating the need to extract API credentials.
+
+    Because mem0 calls ``embed()`` synchronously (from within
+    ``asyncio.to_thread``), we use ``asyncio.run_coroutine_threadsafe``
+    to bridge back into the running event loop.
+    """
+    import asyncio
+
+    loop = asyncio.get_event_loop()
+    provider = embedding_provider
+
+    class _FrameworkEmbedder(EmbeddingBase):
+        def __init__(self):
+            # Skip parent __init__ to avoid BaseEmbedderConfig dependency.
+            self.config = type("_Cfg", (), {
+                "model": "framework",
+                "embedding_dims": provider.get_dim(),
+            })()
+
+        def embed(self, text, memory_action=None):
+            future = asyncio.run_coroutine_threadsafe(
+                provider.get_embedding(text), loop,
+            )
+            return future.result(timeout=30)
+
+    return _FrameworkEmbedder()
 
 
 class Mem0MemoryManager:
@@ -91,12 +128,24 @@ class Mem0MemoryManager:
     # Lifecycle
 
     async def start(self) -> bool:
-        """Initialise the mem0 Memory instance."""
+        """Initialise the mem0 Memory instance.
+
+        After construction, replaces mem0's internal embedding model with
+        a bridge to the framework's embedding provider so that all
+        embedding API calls go through AstrBot's provider system.
+        """
         try:
             mem0_config = self._build_config()
             self._memory = await asyncio.to_thread(
                 Mem0Memory.from_config, mem0_config
             )
+
+            # Replace mem0's embedding model with framework bridge.
+            if self._embedding_provider:
+                self._memory.embedding_model = _create_framework_embedder(
+                    self._embedding_provider
+                )
+
             self._status = ServiceLifecycle.RUNNING
             logger.info("[Mem0] Memory manager started")
             return True
@@ -228,9 +277,10 @@ class Mem0MemoryManager:
     def _build_config(self) -> dict:
         """Build the mem0 configuration dict.
 
-        Attempts to extract LLM and embedding API credentials from the
-        AstrBot framework providers. Falls back to env variables if
-        extraction fails (mem0 reads ``OPENAI_API_KEY`` by default).
+        LLM credentials are extracted from the AstrBot framework providers.
+        Embedding is handled separately: after Memory creation, the
+        embedding model is replaced with a framework bridge (see ``start``),
+        so no embedding credentials are needed here.
         """
         config: Dict[str, Any] = {"version": "v1.1"}
 
@@ -238,11 +288,6 @@ class Mem0MemoryManager:
         llm_cfg = self._extract_llm_credentials()
         if llm_cfg:
             config["llm"] = llm_cfg
-
-        # -- Embedding config --
-        emb_cfg = self._extract_embedding_credentials()
-        if emb_cfg:
-            config["embedder"] = emb_cfg
 
         # -- Vector store (local Qdrant, no external server) --
         qdrant_path = os.path.join(self._config.data_dir, "mem0_qdrant")
@@ -306,46 +351,6 @@ class Mem0MemoryManager:
         except Exception as exc:
             logger.debug(
                 f"[Mem0] Could not extract LLM credentials, "
-                f"using mem0 defaults: {exc}"
-            )
-            return None
-
-    def _extract_embedding_credentials(self) -> Optional[Dict[str, Any]]:
-        """Try to extract embedding API credentials from the framework."""
-        try:
-            emb = self._embedding_provider
-            if not emb:
-                return None
-
-            # Unwrap the FrameworkEmbeddingAdapter to reach the underlying
-            # AstrBot EmbeddingProvider which holds provider_config.
-            underlying = getattr(emb, "_provider", None)
-            if not underlying:
-                return None
-
-            pc = getattr(underlying, "provider_config", {})
-            api_key = pc.get("embedding_api_key") or None
-            base_url = pc.get("embedding_api_base") or None
-            model = underlying.get_model() if hasattr(underlying, "get_model") else None
-
-            if not api_key:
-                return None
-
-            emb_config: Dict[str, Any] = {
-                "model": model or "text-embedding-3-small",
-                "api_key": api_key,
-            }
-            if base_url:
-                emb_config["openai_base_url"] = base_url
-
-            dim = emb.get_dim() if hasattr(emb, "get_dim") else 1536
-            emb_config["embedding_dims"] = dim
-
-            return {"provider": "openai", "config": emb_config}
-
-        except Exception as exc:
-            logger.debug(
-                f"[Mem0] Could not extract embedding credentials, "
                 f"using mem0 defaults: {exc}"
             )
             return None

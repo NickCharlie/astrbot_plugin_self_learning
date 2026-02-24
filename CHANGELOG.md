@@ -24,6 +24,15 @@
 - 修复 `V2LearningIntegration.stop()` 中 buffer flush 无超时保护，LLM API 无响应时无限阻塞关停流程的问题。每个群的 flush 现在受 `task_cancel_timeout` 限制，超时后丢弃缓冲区继续关停
 - 修复 `DatabaseEngine.close()` 中 `engine.dispose()` 无超时保护，MySQL 连接池在有未完成查询时可能无限等待的问题。每个引擎 dispose 现在带 5 秒超时
 
+#### Mem0 记忆引擎 Embedding 调用失败
+- 修复 Mem0 通过提取 API 凭证重建 embedding 客户端的方式，当框架 Embedding Provider 的模型名在第三方 API 不存在时报 `Model does not exist` 错误
+- 改为直接桥接框架的 `EmbeddingProvider`：自定义 `EmbeddingBase` 子类通过 `asyncio.run_coroutine_threadsafe()` 调用框架的 `get_embedding()` 方法，无需提取任何 embedding API 凭证
+- 移除 `_extract_embedding_credentials()` 方法
+
+#### 黑话并发插入 IntegrityError
+- 修复 `jargon_miner` 中 TOCTOU 竞态：`get_jargon()` 与 `insert_jargon()` 之间无原子保护，并发任务同时插入相同 `chat_id + content` 触发唯一约束冲突
+- `JargonFacade.insert_jargon()` 新增 `IntegrityError` 捕获，冲突时回退查询已有记录并返回其 ID
+
 ### 性能优化
 
 #### LightRAG 首次查询冷启动优化
