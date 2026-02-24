@@ -15,6 +15,11 @@
 - 修复 `asyncio.shield(task)` 反模式：`wait_for` 超时后只取消 shield 而非实际任务，导致超时后任务变为不可回收的僵尸。已从 `plugin_lifecycle.py` 和 `group_orchestrator.py` 中移除 `asyncio.shield`
 - 调整关停顺序：V2LearningIntegration 在服务工厂之前停止，确保 buffer flush 可使用完整服务
 
+#### 插件重启后每条消息都触发学习任务
+- 修复 `GroupLearningOrchestrator` 中 `_last_learning_start` 时间戳为纯内存字典，插件重启后清空导致每个群的首条消息无条件触发学习的问题
+- 新增 `_load_last_learning_ts()` 懒加载方法，从 `learning_batches` 表恢复上次学习时间戳，每个群仅查询一次
+- 修复学习触发条件使用 `total_messages`（累计总数）而非 `unprocessed_messages`（未处理数），导致活跃群组阈值检查形同虚设的问题
+
 ## [Next-2.0.3] - 2026-02-24
 
 ### 性能优化
