@@ -890,44 +890,46 @@ class IntelligenceEnhancementService(AsyncServiceBase):
         """定期更新知识图谱"""
         try:
             while True:
-                await asyncio.sleep(3600)  # 每小时更新一次
+                await asyncio.sleep(3600)
+                try:
+                    current_time = time.time()
+                    expired_entities = []
 
-                # 清理过期实体
-                current_time = time.time()
-                expired_entities = []
+                    for entity_id, entity in self.knowledge_entities.items():
+                        if current_time - entity.last_mentioned > 86400 * 7:
+                            expired_entities.append(entity_id)
 
-                for entity_id, entity in self.knowledge_entities.items():
-                    if current_time - entity.last_mentioned > 86400 * 7:  # 7天未提及
-                        expired_entities.append(entity_id)
+                    for entity_id in expired_entities:
+                        del self.knowledge_entities[entity_id]
+                        if self.knowledge_graph.has_node(entity_id):
+                            self.knowledge_graph.remove_node(entity_id)
 
-                for entity_id in expired_entities:
-                    del self.knowledge_entities[entity_id]
-                    if self.knowledge_graph.has_node(entity_id):
-                        self.knowledge_graph.remove_node(entity_id)
-
-                self._logger.info(f"清理过期知识实体: {len(expired_entities)}")
+                    self._logger.info(f"清理过期知识实体: {len(expired_entities)}")
+                except Exception as e:
+                    self._logger.error(f"知识图谱更新失败: {e}")
         except asyncio.CancelledError:
             self._logger.debug("知识图谱更新任务已取消")
-    
+
     async def _periodic_recommendation_refresh(self):
         """定期刷新推荐缓存"""
         try:
             while True:
-                await asyncio.sleep(1800)  # 30分钟刷新一次
+                await asyncio.sleep(1800)
+                try:
+                    current_time = time.time()
+                    for user_key in list(self.recommendation_cache.keys()):
+                        recommendations = self.recommendation_cache[user_key]
+                        fresh_recommendations = [
+                            rec for rec in recommendations
+                            if current_time - rec.timestamp < 3600
+                        ]
 
-                # 清理过期推荐
-                current_time = time.time()
-                for user_key in list(self.recommendation_cache.keys()):
-                    recommendations = self.recommendation_cache[user_key]
-                    fresh_recommendations = [
-                        rec for rec in recommendations
-                        if current_time - rec.timestamp < 3600  # 1小时内的推荐
-                    ]
-
-                    if fresh_recommendations:
-                        self.recommendation_cache[user_key] = fresh_recommendations
-                    else:
-                        del self.recommendation_cache[user_key]
+                        if fresh_recommendations:
+                            self.recommendation_cache[user_key] = fresh_recommendations
+                        else:
+                            del self.recommendation_cache[user_key]
+                except Exception as e:
+                    self._logger.error(f"推荐缓存刷新失败: {e}")
         except asyncio.CancelledError:
             self._logger.debug("推荐缓存刷新任务已取消")
     

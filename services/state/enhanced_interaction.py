@@ -460,7 +460,10 @@ class EnhancedInteractionService(AsyncServiceBase):
         try:
             while True:
                 await asyncio.sleep(self.memory_sync_interval)
-                await self._save_cross_group_memories()
+                try:
+                    await self._save_cross_group_memories()
+                except Exception as e:
+                    self._logger.error(f"记忆同步失败: {e}")
         except asyncio.CancelledError:
             self._logger.debug("记忆同步任务已取消")
 
@@ -469,16 +472,19 @@ class EnhancedInteractionService(AsyncServiceBase):
         try:
             while True:
                 await asyncio.sleep(600)  # 10分钟清理一次
-                current_time = time.time()
+                try:
+                    current_time = time.time()
 
-                expired_contexts = [
-                    group_id for group_id, context in self.conversation_contexts.items()
-                    if current_time - context.last_activity > self.context_retention_time
-                ]
+                    expired_contexts = [
+                        group_id for group_id, context in self.conversation_contexts.items()
+                        if current_time - context.last_activity > self.context_retention_time
+                    ]
 
-                for group_id in expired_contexts:
-                    del self.conversation_contexts[group_id]
-                    self._logger.debug(f"清理过期对话上下文: {group_id}")
+                    for group_id in expired_contexts:
+                        del self.conversation_contexts[group_id]
+                        self._logger.debug(f"清理过期对话上下文: {group_id}")
+                except Exception as e:
+                    self._logger.error(f"上下文清理失败: {e}")
         except asyncio.CancelledError:
             self._logger.debug("上下文清理任务已取消")
     
