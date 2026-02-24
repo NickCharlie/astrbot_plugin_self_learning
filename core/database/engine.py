@@ -9,6 +9,7 @@ SQLAlchemy 数据库引擎封装
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool, QueuePool, StaticPool
+from sqlalchemy import types as sa_types
 from astrbot.api import logger
 from typing import Optional
 import asyncio
@@ -287,9 +288,14 @@ class DatabaseEngine:
                             col_type = col.type.compile(self.engine.dialect)
                             nullable = "NULL" if col.nullable else "NOT NULL"
                             default = ""
-                            # MySQL 不允许 TEXT/BLOB 列有 DEFAULT 值
-                            is_text_type = col_type.upper() in ("TEXT", "BLOB", "MEDIUMTEXT", "LONGTEXT", "JSON")
-                            if not is_text_type:
+                            # MySQL/MariaDB 不允许 TEXT/BLOB 列有 DEFAULT 值
+                            is_mysql = self.engine.dialect.name in ("mysql", "mariadb")
+                            is_text_type = isinstance(
+                                col.type,
+                                (sa_types.Text, sa_types.LargeBinary, sa_types.JSON),
+                            )
+                            skip_default = is_mysql and is_text_type
+                            if not skip_default:
                                 if col.server_default is not None:
                                     default = f" DEFAULT {col.server_default.arg!r}"
                                 elif col.default is not None and col.default.is_scalar:
