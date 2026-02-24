@@ -68,7 +68,10 @@ class WebUIManager:
                     _server_instance = None
 
             if _server_instance is None:
-                _server_instance = Server(port=self._config.web_interface_port)
+                _server_instance = Server(
+                    host=self._config.web_interface_host,
+                    port=self._config.web_interface_port,
+                )
                 if _server_instance:
                     logger.info(
                         f"Web 服务器实例已创建 "

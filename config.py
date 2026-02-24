@@ -21,6 +21,7 @@ class PluginConfig(BaseModel):
     enable_realtime_llm_filter: bool = False # 新增：控制实时LLM筛选
     enable_web_interface: bool = True
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
+    web_interface_host: str = "0.0.0.0" # Web 界面监听地址
 
     # MaiBot增强功能（默认启用）
     enable_maibot_features: bool = True # 启用MaiBot增强功能
@@ -240,7 +241,8 @@ class PluginConfig(BaseModel):
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
             enable_realtime_learning=basic_settings.get('enable_realtime_learning', False),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
-            web_interface_port=basic_settings.get('web_interface_port', 7833), # Web 界面端口配置
+            web_interface_port=basic_settings.get('web_interface_port', 7833),
+            web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),

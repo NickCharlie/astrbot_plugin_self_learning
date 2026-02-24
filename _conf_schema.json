@@ -39,6 +39,12 @@
         "type": "int",
         "hint": "Web管理界面的访问端口号",
         "default": 7833
+      },
+      "web_interface_host": {
+        "description": "Web界面监听地址",
+        "type": "string",
+        "hint": "Web管理界面绑定的地址。0.0.0.0 表示监听所有网卡（局域网可访问），127.0.0.1 表示仅本机可访问",
+        "default": "0.0.0.0"
       }
     }
   },
