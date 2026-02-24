@@ -8,7 +8,7 @@ SQLAlchemy 数据库引擎封装
 避免 "Task got Future attached to a different loop" 错误。
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool, QueuePool, StaticPool
+from sqlalchemy.pool import StaticPool
 from sqlalchemy import types as sa_types
 from astrbot.api import logger
 from typing import Optional
@@ -131,14 +131,17 @@ class DatabaseEngine:
         engine = create_async_engine(
             db_url,
             echo=self.echo,
-            poolclass=NullPool,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=3600,
+            pool_pre_ping=True,
             connect_args={
                 'connect_timeout': 10,
                 'charset': 'utf8mb4',
             }
         )
 
-        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (NullPool)")
+        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (QueuePool, pre_ping=True)")
         return engine
 
     def _get_engine_for_current_loop(self):

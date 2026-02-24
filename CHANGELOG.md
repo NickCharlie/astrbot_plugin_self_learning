@@ -29,6 +29,10 @@
 - LLM 和 Embedding 均改为直接桥接框架 Provider：自定义 `LLMBase` / `EmbeddingBase` 子类通过 `asyncio.run_coroutine_threadsafe()` 调用框架的 `text_chat()` / `get_embedding()` 方法，无需提取任何 API 凭证
 - 移除 `_extract_llm_credentials()` 和 `_extract_embedding_credentials()` 方法
 
+#### MySQL 连接 Packet sequence number wrong
+- 修复 `DatabaseEngine` 的 MySQL 引擎使用 `NullPool`（无连接池），高并发下连接状态混乱导致 `Packet sequence number wrong` 错误
+- 改为 SQLAlchemy 默认 `QueuePool`（pool_size=5, max_overflow=10），启用 `pool_pre_ping=True` 自动检测失效连接，`pool_recycle=3600` 防止 MySQL 超时断开
+
 #### 黑话并发插入 IntegrityError
 - 修复 `jargon_miner` 中 TOCTOU 竞态：`get_jargon()` 与 `insert_jargon()` 之间无原子保护，并发任务同时插入相同 `chat_id + content` 触发唯一约束冲突
 - `JargonFacade.insert_jargon()` 新增 `IntegrityError` 捕获，冲突时回退查询已有记录并返回其 ID
