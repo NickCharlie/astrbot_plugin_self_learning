@@ -2,6 +2,19 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.5] - 2026-02-24
+
+### Bug 修复
+
+#### 插件卸载/重载 CPU 100%（间歇性）
+- 修复 `on_message` 中 `asyncio.create_task()` 产生的后台任务（`process_learning`、`process_affection`、`mine_jargon`、`process_realtime_background`）未被跟踪的问题，卸载时无法取消导致僵尸任务持续消耗 CPU
+- `main.py` 新增 `_track_task()` 方法，所有 fire-and-forget 任务注册到 `background_tasks` 集合
+- `MessagePipeline` 新增 `_subtasks` 跟踪集合和 `_spawn()` 方法，替代裸 `asyncio.create_task()`
+- 新增 `cancel_subtasks()` 方法，关停时批量取消流水线内部子任务
+- 新增 `_shutting_down` 标志位，关停序列第一步即设置，阻止 `on_message` 继续产生新任务
+- 修复 `asyncio.shield(task)` 反模式：`wait_for` 超时后只取消 shield 而非实际任务，导致超时后任务变为不可回收的僵尸。已从 `plugin_lifecycle.py` 和 `group_orchestrator.py` 中移除 `asyncio.shield`
+- 调整关停顺序：V2LearningIntegration 在服务工厂之前停止，确保 buffer flush 可使用完整服务
+
 ## [Next-2.0.3] - 2026-02-24
 
 ### 性能优化
