@@ -233,9 +233,7 @@ class GroupLearningOrchestrator:
                 if not task.done():
                     task.cancel()
                     try:
-                        await asyncio.wait_for(
-                            asyncio.shield(task), timeout=_timeout,
-                        )
+                        await asyncio.wait_for(task, timeout=_timeout)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
                 logger.info(f"群组 {group_id} 学习任务已停止")

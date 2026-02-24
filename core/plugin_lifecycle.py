@@ -399,6 +399,9 @@ class PluginLifecycle:
         try:
             logger.info("开始插件清理工作...")
 
+            # 0. 阻止新消息产生后台任务
+            p._shutting_down = True
+
             # 1. 停止学习任务
             logger.info("停止所有学习任务...")
             if getattr(p, "_group_orchestrator", None):
@@ -414,17 +417,23 @@ class PluginLifecycle:
                     p.learning_scheduler.stop(),
                 )
 
+            # 2.5 取消流水线子任务
+            pipeline = getattr(p, "_pipeline", None)
+            if pipeline and hasattr(pipeline, "cancel_subtasks"):
+                await self._safe_step(
+                    "取消流水线子任务",
+                    pipeline.cancel_subtasks(),
+                )
+
             # 3. 取消后台任务（每个任务单独超时）
             logger.info("取消所有后台任务...")
+            _timeout = self._plugin.plugin_config.task_cancel_timeout
             for task in list(p.background_tasks):
                 try:
                     if not task.done():
                         task.cancel()
                         try:
-                            await asyncio.wait_for(
-                                asyncio.shield(task),
-                                timeout=self._plugin.plugin_config.task_cancel_timeout,
-                            )
+                            await asyncio.wait_for(task, timeout=_timeout)
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
                 except Exception as e:
@@ -433,21 +442,21 @@ class PluginLifecycle:
                     )
             p.background_tasks.clear()
 
-            # 4. 停止服务工厂
-            if hasattr(p, "factory_manager"):
-                await self._safe_step(
-                    "清理服务工厂",
-                    p.factory_manager.cleanup(),
-                )
-
-            # 4.5 停止 V2
+            # 4. 停止 V2（在服务工厂之前，确保 buffer flush 可使用完整服务）
             if getattr(p, "v2_integration", None):
                 await self._safe_step(
                     "停止 V2LearningIntegration",
                     p.v2_integration.stop(),
                 )
 
-            # 4.6 重置单例
+            # 5. 停止服务工厂
+            if hasattr(p, "factory_manager"):
+                await self._safe_step(
+                    "清理服务工厂",
+                    p.factory_manager.cleanup(),
+                )
+
+            # 5.5 重置单例
             try:
                 from ..services.state import EnhancedMemoryGraphManager
 
@@ -465,28 +474,28 @@ class PluginLifecycle:
             except Exception:
                 pass
 
-            # 5. 清理临时人格
+            # 6. 清理临时人格
             if hasattr(p, "temporary_persona_updater"):
                 await self._safe_step(
                     "清理临时人格",
                     p.temporary_persona_updater.cleanup_temp_personas(),
                 )
 
-            # 6. 保存状态
+            # 7. 保存状态
             if hasattr(p, "message_collector"):
                 await self._safe_step(
                     "保存消息收集器状态",
                     p.message_collector.save_state(),
                 )
 
-            # 7. 停止 WebUI
+            # 8. 停止 WebUI
             if self._webui_manager:
                 await self._safe_step(
                     "停止 WebUI",
                     self._webui_manager.stop(),
                 )
 
-            # 8. 保存配置
+            # 9. 保存配置
             try:
                 config_path = os.path.join(p.plugin_config.data_dir, "config.json")
                 with open(config_path, "w", encoding="utf-8") as f:

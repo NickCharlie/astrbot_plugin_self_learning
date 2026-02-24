@@ -1,7 +1,7 @@
 """消息处理流水线 — 协调后台学习、黑话挖掘、好感度更新"""
 import asyncio
 import time
-from typing import Any, Optional
+from typing import Any, Optional, Set
 
 from astrbot.api import logger
 
@@ -37,6 +37,7 @@ class MessagePipeline:
         self._conversation_goal_manager = conversation_goal_manager
         self._affection_manager = affection_manager
         self._db_manager = db_manager
+        self._subtasks: Set[asyncio.Task] = set()
 
     # 后台学习流水线（6 步）
 
@@ -97,7 +98,7 @@ class MessagePipeline:
             stats = await self._message_collector.get_statistics(group_id)
             raw_message_count = stats.get("raw_messages", 0)
             if raw_message_count % 10 == 0 and raw_message_count >= 10:
-                asyncio.create_task(self.mine_jargon(group_id))
+                self._spawn(self.mine_jargon(group_id))
 
             # 3.5 V2 per-message processing
             if self._v2_integration:
@@ -116,7 +117,7 @@ class MessagePipeline:
 
             # 4. 实时学习
             if self._config.enable_realtime_learning:
-                asyncio.create_task(
+                self._spawn(
                     self._realtime_processor.process_realtime_background(
                         group_id, message_text, sender_id
                     )
@@ -243,3 +244,21 @@ class MessagePipeline:
                 )
         except Exception as e:
             logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
+
+    # Task tracking
+
+    def _spawn(self, coro) -> asyncio.Task:
+        """Create a background task and track it for shutdown cancellation."""
+        task = asyncio.create_task(coro)
+        self._subtasks.add(task)
+        task.add_done_callback(self._subtasks.discard)
+        return task
+
+    async def cancel_subtasks(self) -> None:
+        """Cancel all tracked subtasks (called during plugin shutdown)."""
+        for task in list(self._subtasks):
+            if not task.done():
+                task.cancel()
+        if self._subtasks:
+            await asyncio.gather(*self._subtasks, return_exceptions=True)
+        self._subtasks.clear()
