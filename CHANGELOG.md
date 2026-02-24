@@ -2,6 +2,56 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.3] - 2026-02-24
+
+### 性能优化
+
+#### V2 上下文检索延迟优化（LLM Hook 响应加速）
+- 新增查询结果级 TTL 缓存（基于 CacheManager），`get_enhanced_context` 缓存命中时延迟降低约 40%
+- LightRAG 默认查询模式从 `hybrid` 调整为 `local`，省去全局社区聚合步骤，单次查询延迟降低约 35-40%
+- ExemplarLibrary 查询 embedding 结果缓存至 CacheManager，避免相同 query 重复调用 embedding API
+- Rerank 改为条件执行：候选文档数低于 `rerank_min_candidates`（默认 3）时跳过，减少不必要的 API 调用
+
+#### 消息摄入架构重构（process_message 加速）
+- 将 LightRAG 知识图谱摄入和 Mem0 记忆摄入从 Tier 1（每条消息执行）降级为 Tier 2（批量执行）
+- Tier 1 延迟降低约 47%，仅执行轻量缓冲操作，重量级 LLM 操作在 Tier 2 批量触发
+- 批量策略：每 5 条消息或 60 秒触发一次 flush，知识和记忆引擎并发处理
+- 短消息过滤：长度低于 15 字符的消息跳过 LLM 摄入，减少无效 API 调用
+- 关停时自动 flush 残余缓冲，防止数据丢失
+
+#### CacheManager 扩展
+- 新增 `context` TTL 缓存（128 条目, 5 分钟），用于 V2 上下文检索结果
+- 新增 `embedding_query` TTL 缓存（256 条目, 10 分钟），用于查询 embedding 向量
+
+### 新增配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `lightrag_query_mode` | `local` | LightRAG 检索模式（local/hybrid/naive/global/mix） |
+| `rerank_min_candidates` | `3` | 触发 Reranker 的最低候选文档数 |
+
+## [Next-2.0.2] - 2026-02-24
+
+### Bug 修复
+
+#### MySQL 方言兼容
+- 修复 SQLAlchemy 列类型定义在 MySQL 方言下的兼容性问题
+
+#### 监控模块可选依赖
+- `prometheus_client` 导入失败时优雅降级，不再阻断插件启动
+
+#### Windows 控制台兼容
+- 新增 GBK 安全字符串转换辅助函数，防止 Windows 中文控制台输出含 emoji/特殊字符时崩溃
+
+### 重构
+
+#### 关停超时集中管理
+- 将 `shutdown_step_timeout`、`task_cancel_timeout`、`service_stop_timeout` 三个超时参数集中到 `PluginConfig`
+
+### CI/CD
+
+- Issue triage workflow 重写为双段式报告格式
+
 ## [Next-2.0.1] - 2026-02-23
 
 ### 🔧 Bug 修复

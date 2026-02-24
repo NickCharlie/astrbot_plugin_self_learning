@@ -1,5 +1,5 @@
 # AstrBot 自学习插件
-__version__ = "Next-1.2.5"
+__version__ = "Next-2.0.3"
 
 # Ensure parent namespace packages ("data", "data.plugins") are
 # durably registered in sys.modules.  AstrBot loads plugins via
