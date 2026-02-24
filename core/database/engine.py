@@ -361,16 +361,34 @@ class DatabaseEngine:
         """
         关闭所有数据库引擎（包括跨线程创建的）
 
-        释放所有连接池资源
+        释放所有连接池资源。每个 dispose() 调用带超时保护，
+        避免数据库无响应时阻塞关停流程。
         """
+        _dispose_timeout = 5.0
+
         # 关闭主引擎
         if self.engine:
-            await self.engine.dispose()
+            try:
+                await asyncio.wait_for(
+                    self.engine.dispose(), timeout=_dispose_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[DatabaseEngine] 主引擎 dispose 超时 ({_dispose_timeout}s)，跳过"
+                )
+            except Exception as e:
+                logger.debug(f"[DatabaseEngine] 主引擎 dispose 异常: {e}")
 
         # 关闭所有 per-loop 引擎
         for loop_id, engine in list(self._loop_engines.items()):
             try:
-                await engine.dispose()
+                await asyncio.wait_for(
+                    engine.dispose(), timeout=_dispose_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[DatabaseEngine] loop {loop_id} 引擎 dispose 超时，跳过"
+                )
             except Exception as e:
                 logger.debug(f"[DatabaseEngine] 关闭 loop {loop_id} 引擎时忽略错误: {e}")
 

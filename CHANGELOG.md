@@ -20,6 +20,10 @@
 - 新增 `_load_last_learning_ts()` 懒加载方法，从 `learning_batches` 表恢复上次学习时间戳，每个群仅查询一次
 - 修复学习触发条件使用 `total_messages`（累计总数）而非 `unprocessed_messages`（未处理数），导致活跃群组阈值检查形同虚设的问题
 
+#### 插件卸载时阻塞
+- 修复 `V2LearningIntegration.stop()` 中 buffer flush 无超时保护，LLM API 无响应时无限阻塞关停流程的问题。每个群的 flush 现在受 `task_cancel_timeout` 限制，超时后丢弃缓冲区继续关停
+- 修复 `DatabaseEngine.close()` 中 `engine.dispose()` 无超时保护，MySQL 连接池在有未完成查询时可能无限等待的问题。每个引擎 dispose 现在带 5 秒超时
+
 ## [Next-2.0.3] - 2026-02-24
 
 ### 性能优化

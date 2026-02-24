@@ -138,13 +138,24 @@ class V2LearningIntegration:
     async def stop(self) -> None:
         """Stop all active v2 modules and release resources.
 
-        Flushes any remaining buffered messages before stopping modules
-        to prevent data loss on graceful shutdown.
+        Attempts to flush remaining buffered messages with a per-group
+        timeout. Timed-out buffers are discarded to avoid blocking
+        the shutdown sequence.
         """
-        # Flush remaining buffered messages before shutdown.
+        _flush_timeout = self._config.task_cancel_timeout
+
         for group_id in list(self._ingestion_buffer.keys()):
             try:
-                await self._flush_ingestion_buffer(group_id)
+                await asyncio.wait_for(
+                    self._flush_ingestion_buffer(group_id),
+                    timeout=_flush_timeout,
+                )
+            except asyncio.TimeoutError:
+                dropped = len(self._ingestion_buffer.pop(group_id, []))
+                logger.warning(
+                    f"[V2Integration] Buffer flush timeout for group "
+                    f"{group_id}, dropped {dropped} messages"
+                )
             except Exception as exc:
                 logger.warning(
                     f"[V2Integration] Buffer flush failed on stop "
