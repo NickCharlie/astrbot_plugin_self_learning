@@ -68,6 +68,19 @@ You will be given:
 
 Use ALL of the above context — especially the source code — to provide an accurate, code-aware analysis.
 
+Your report must be split into TWO distinct sections:
+
+1. **user_resolution** (for the issue reporter):
+   Determine whether this issue can be resolved by the user themselves — e.g. missing dependency, \
+   misconfigured setting, wrong Python version, environment issue, missing config field, etc.
+   - If YES: provide clear, step-by-step instructions the user can follow to fix it.
+   - If NO (it is genuinely a code bug or feature request): set is_user_fixable to false and \
+     leave resolution_steps as an empty array.
+
+2. **developer_fix** (for project maintainers):
+   Provide code-level analysis — root cause, specific files/functions to modify, and a suggested fix.
+   This section is always present regardless of whether the user can self-resolve.
+
 Analyze the issue and respond in **valid JSON** with these fields:
 
 {
@@ -76,10 +89,16 @@ Analyze the issue and respond in **valid JSON** with these fields:
     "is_complete": true/false,
     "missing_fields": ["<field1>", ...]
   },
-  "analysis": {
-    "summary": "<1-2 sentence summary of the issue>",
-    "possible_cause": "<likely root cause based on the source code, or null>",
-    "suggested_solution": "<actionable suggestion referencing specific files/functions, or null>",
+  "user_resolution": {
+    "is_user_fixable": true/false,
+    "category": "<one of: missing_dependency, misconfiguration, environment_issue, usage_error, not_user_fixable>",
+    "summary": "<1-2 sentence description of what went wrong from the user's perspective>",
+    "resolution_steps": ["<step1>", "<step2>", ...]
+  },
+  "developer_fix": {
+    "summary": "<1-2 sentence technical summary for developers>",
+    "root_cause": "<technical root cause referencing specific code, or null>",
+    "suggested_fix": "<actionable code-level suggestion referencing files/functions, or null>",
     "related_modules": ["<module1>", ...],
     "related_files": ["<file_path1>", ...]
   },
@@ -91,9 +110,16 @@ Rules:
 - labels: pick from """ + json.dumps(VALID_LABELS) + """
 - completeness: for bug reports, check for: version, reproduction steps, expected behavior, actual behavior, logs. \
 For feature requests, check for: problem statement, proposed solution.
-- analysis.possible_cause: reference actual code (file name, function name, line) when possible
-- analysis.suggested_solution: be specific — point to exact files/functions to modify
-- analysis.related_files: list the source files most likely related to this issue
+- user_resolution.category: choose the most fitting category
+  - missing_dependency: a Python package or system library is not installed
+  - misconfiguration: a config field is wrong, missing, or has an invalid value
+  - environment_issue: Python version, OS compatibility, encoding, path, or permission problem
+  - usage_error: user is using the plugin incorrectly
+  - not_user_fixable: this is a genuine code bug or feature request
+- user_resolution.resolution_steps: concrete commands or config changes the user can try (e.g. "pip install xxx", "set xxx in config")
+- developer_fix.root_cause: reference actual code (file name, function name, line) when possible
+- developer_fix.suggested_fix: be specific — point to exact files/functions to modify
+- developer_fix.related_files: list the source files most likely related to this issue
 - language: detect whether the issue is written in Chinese ("zh") or English ("en")
 - priority: critical = data loss / crash on startup; high = core feature broken; medium = minor bug or important feature; low = cosmetic / question
 - Return ONLY the JSON object, no markdown fences, no extra text.
@@ -301,11 +327,13 @@ def gather_source_context(title: str, body: str) -> str:
 # ---------------------------------------------------------------------------
 
 def build_comment(result: dict) -> str:
-    """Build the triage comment in the detected language."""
+    """Build a two-section triage comment: user resolution + developer fix."""
     lang = result.get("language", "zh")
-    analysis = result.get("analysis", {})
+    user_res = result.get("user_resolution", {})
+    dev_fix = result.get("developer_fix", {})
     completeness = result.get("completeness", {})
     priority = result.get("priority", "medium")
+    is_user_fixable = user_res.get("is_user_fixable", False)
 
     priority_emoji = {
         "critical": "\U0001f534",
@@ -313,35 +341,77 @@ def build_comment(result: dict) -> str:
         "medium": "\U0001f7e1",
         "low": "\U0001f7e2",
     }
+    category_zh = {
+        "missing_dependency": "\u7f3a\u5c11\u4f9d\u8d56",
+        "misconfiguration": "\u914d\u7f6e\u9519\u8bef",
+        "environment_issue": "\u73af\u5883\u95ee\u9898",
+        "usage_error": "\u4f7f\u7528\u65b9\u5f0f\u9519\u8bef",
+        "not_user_fixable": "\u4ee3\u7801\u95ee\u9898",
+    }
     p_emoji = priority_emoji.get(priority, "\u26aa")
 
     if lang == "zh":
         lines = [
-            "## \U0001f916 Issue \u5ba1\u67e5\u62a5\u544a",
+            f"## \U0001f916 Issue \u5ba1\u67e5\u62a5\u544a",
             "",
             f"**\u4f18\u5148\u7ea7**: {p_emoji} `{priority}`",
             "",
-            f"**\u6458\u8981**: {analysis.get('summary', 'N/A')}",
-            "",
         ]
 
-        if analysis.get("related_modules"):
-            lines.append(f"**\u76f8\u5173\u6a21\u5757**: {', '.join(analysis['related_modules'])}")
+        # --- Section 1: User resolution ---
+        lines.append("### \U0001f4cb \u7528\u6237\u5904\u7406\u610f\u89c1")
+        lines.append("")
+        lines.append(f"**\u95ee\u9898\u6458\u8981**: {user_res.get('summary', 'N/A')}")
+        lines.append("")
+
+        cat = user_res.get("category", "not_user_fixable")
+        cat_label = category_zh.get(cat, cat)
+        lines.append(f"**\u95ee\u9898\u5206\u7c7b**: {cat_label}")
+        lines.append("")
+
+        if is_user_fixable:
+            steps = user_res.get("resolution_steps", [])
+            if steps:
+                lines.append("**\u5efa\u8bae\u64cd\u4f5c**\uff1a")
+                lines.append("")
+                for i, step in enumerate(steps, 1):
+                    lines.append(f"{i}. {step}")
+                lines.append("")
+        else:
+            lines.append("> \u8be5\u95ee\u9898\u9700\u8981\u5f00\u53d1\u8005\u4fee\u590d\uff0c\u8bf7\u7b49\u5f85\u540e\u7eed\u7248\u672c\u66f4\u65b0\u3002")
             lines.append("")
 
-        if analysis.get("related_files"):
-            files_str = ", ".join(f"`{f}`" for f in analysis["related_files"])
+        # --- Section 2: Developer fix ---
+        lines.append("---")
+        lines.append("")
+        lines.append("<details>")
+        lines.append("<summary><b>\U0001f527 \u5f00\u53d1\u8005\u4fee\u590d\u5efa\u8bae</b>\uff08\u70b9\u51fb\u5c55\u5f00\uff09</summary>")
+        lines.append("")
+
+        lines.append(f"**\u6280\u672f\u6458\u8981**: {dev_fix.get('summary', 'N/A')}")
+        lines.append("")
+
+        if dev_fix.get("related_modules"):
+            lines.append(f"**\u76f8\u5173\u6a21\u5757**: {', '.join(dev_fix['related_modules'])}")
+            lines.append("")
+
+        if dev_fix.get("related_files"):
+            files_str = ", ".join(f"`{f}`" for f in dev_fix["related_files"])
             lines.append(f"**\u76f8\u5173\u6587\u4ef6**: {files_str}")
             lines.append("")
 
-        if analysis.get("possible_cause"):
-            lines.append(f"**\u53ef\u80fd\u539f\u56e0**: {analysis['possible_cause']}")
+        if dev_fix.get("root_cause"):
+            lines.append(f"**\u6839\u56e0\u5206\u6790**: {dev_fix['root_cause']}")
             lines.append("")
 
-        if analysis.get("suggested_solution"):
-            lines.append(f"**\u5efa\u8bae\u65b9\u6848**: {analysis['suggested_solution']}")
+        if dev_fix.get("suggested_fix"):
+            lines.append(f"**\u4fee\u590d\u5efa\u8bae**: {dev_fix['suggested_fix']}")
             lines.append("")
 
+        lines.append("</details>")
+        lines.append("")
+
+        # --- Completeness check ---
         if not completeness.get("is_complete", True):
             missing = completeness.get("missing_fields", [])
             lines.append("---")
@@ -354,33 +424,66 @@ def build_comment(result: dict) -> str:
 
         lines.append("---")
         lines.append("<sub>\U0001f916 \u6b64\u62a5\u544a\u7531 AI \u81ea\u52a8\u751f\u6210\uff0c\u5df2\u5206\u6790\u4ed3\u5e93\u6e90\u7801\uff0c\u4ec5\u4f9b\u53c2\u8003\u3002\u5f00\u53d1\u8005\u4f1a\u5c3d\u5feb\u5ba1\u9605\u60a8\u7684 issue\u3002</sub>")
+
     else:
         lines = [
-            "## \U0001f916 Issue Triage Report",
+            f"## \U0001f916 Issue Triage Report",
             "",
             f"**Priority**: {p_emoji} `{priority}`",
             "",
-            f"**Summary**: {analysis.get('summary', 'N/A')}",
-            "",
         ]
 
-        if analysis.get("related_modules"):
-            lines.append(f"**Related Modules**: {', '.join(analysis['related_modules'])}")
+        # --- Section 1: User resolution ---
+        lines.append("### \U0001f4cb User Resolution")
+        lines.append("")
+        lines.append(f"**Summary**: {user_res.get('summary', 'N/A')}")
+        lines.append("")
+        lines.append(f"**Category**: {user_res.get('category', 'not_user_fixable')}")
+        lines.append("")
+
+        if is_user_fixable:
+            steps = user_res.get("resolution_steps", [])
+            if steps:
+                lines.append("**Suggested Steps**:")
+                lines.append("")
+                for i, step in enumerate(steps, 1):
+                    lines.append(f"{i}. {step}")
+                lines.append("")
+        else:
+            lines.append("> This issue requires a code fix from the maintainers. Please wait for an upcoming release.")
             lines.append("")
 
-        if analysis.get("related_files"):
-            files_str = ", ".join(f"`{f}`" for f in analysis["related_files"])
+        # --- Section 2: Developer fix ---
+        lines.append("---")
+        lines.append("")
+        lines.append("<details>")
+        lines.append("<summary><b>\U0001f527 Developer Fix Suggestions</b> (click to expand)</summary>")
+        lines.append("")
+
+        lines.append(f"**Technical Summary**: {dev_fix.get('summary', 'N/A')}")
+        lines.append("")
+
+        if dev_fix.get("related_modules"):
+            lines.append(f"**Related Modules**: {', '.join(dev_fix['related_modules'])}")
+            lines.append("")
+
+        if dev_fix.get("related_files"):
+            files_str = ", ".join(f"`{f}`" for f in dev_fix["related_files"])
             lines.append(f"**Related Files**: {files_str}")
             lines.append("")
 
-        if analysis.get("possible_cause"):
-            lines.append(f"**Possible Cause**: {analysis['possible_cause']}")
+        if dev_fix.get("root_cause"):
+            lines.append(f"**Root Cause**: {dev_fix['root_cause']}")
             lines.append("")
 
-        if analysis.get("suggested_solution"):
-            lines.append(f"**Suggested Solution**: {analysis['suggested_solution']}")
+        if dev_fix.get("suggested_fix"):
+            lines.append(f"**Suggested Fix**: {dev_fix['suggested_fix']}")
             lines.append("")
 
+        lines.append("</details>")
+        lines.append("")
+
+        # --- Completeness check ---
         if not completeness.get("is_complete", True):
             missing = completeness.get("missing_fields", [])
             lines.append("---")
