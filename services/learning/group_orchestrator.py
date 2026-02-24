@@ -216,11 +216,13 @@ class GroupLearningOrchestrator:
 
     async def cancel_all(self) -> None:
         """Cancel all running learning tasks (called during shutdown)."""
+        _timeout = self._config.task_cancel_timeout
+
         # Signal all groups to stop first (non-blocking)
         try:
             await asyncio.wait_for(
                 self._progressive_learning.stop_learning(),
-                timeout=3,
+                timeout=_timeout,
             )
         except (asyncio.TimeoutError, Exception) as e:
             logger.warning(f"stop_learning 超时或失败: {e}")
@@ -232,7 +234,7 @@ class GroupLearningOrchestrator:
                     task.cancel()
                     try:
                         await asyncio.wait_for(
-                            asyncio.shield(task), timeout=2,
+                            asyncio.shield(task), timeout=_timeout,
                         )
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass

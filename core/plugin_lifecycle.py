@@ -381,13 +381,10 @@ class PluginLifecycle:
 
     # Phase 3: 有序关停（terminate 阶段调用）
 
-    _STEP_TIMEOUT = 8  # 每个关停步骤的超时秒数
-    _TASK_CANCEL_TIMEOUT = 3  # 每个后台任务取消等待的超时秒数
-
     async def _safe_step(self, label: str, coro, timeout: float = None) -> None:
         """执行一个关停步骤，超时或异常均不阻塞后续步骤"""
         if timeout is None:
-            timeout = self._STEP_TIMEOUT
+            timeout = self._plugin.plugin_config.shutdown_step_timeout
         try:
             await asyncio.wait_for(coro, timeout=timeout)
             logger.info(f"{label} 完成")
@@ -426,7 +423,7 @@ class PluginLifecycle:
                         try:
                             await asyncio.wait_for(
                                 asyncio.shield(task),
-                                timeout=self._TASK_CANCEL_TIMEOUT,
+                                timeout=self._plugin.plugin_config.task_cancel_timeout,
                             )
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass

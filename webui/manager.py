@@ -158,7 +158,8 @@ class WebUIManager:
 
         try:
             await asyncio.wait_for(
-                _server_cleanup_lock.acquire(), timeout=3.0,
+                _server_cleanup_lock.acquire(),
+                timeout=self._config.task_cancel_timeout,
             )
         except asyncio.TimeoutError:
             logger.warning("[WebUI] 获取清理锁超时，强制继续清理")

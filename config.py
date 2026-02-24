@@ -88,6 +88,11 @@ class PluginConfig(BaseModel):
     save_raw_messages: bool = True # 保存原始消息
     auto_backup_interval_days: int = 7 # 自动备份间隔
 
+    # 关停超时（秒）
+    shutdown_step_timeout: int = 8       # 每个关停步骤的超时
+    task_cancel_timeout: int = 3         # 后台任务取消等待超时
+    service_stop_timeout: int = 5        # 单个服务停止超时
+
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
     max_mood_imitation_dialogs: int = 20 # 最大对话风格模仿数量
