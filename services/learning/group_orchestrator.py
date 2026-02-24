@@ -128,7 +128,7 @@ class GroupLearningOrchestrator:
             for group_id in active_groups:
                 try:
                     await self.smart_start_learning_for_group(group_id)
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(1)
                 except Exception as e:
                     logger.error(f"延迟启动群组 {group_id} 学习失败: {e}")
 

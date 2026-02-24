@@ -108,6 +108,41 @@ class LightRAGKnowledgeManager:
         logger.info("[LightRAG] Knowledge manager started")
         return True
 
+    async def warmup_instances(self, group_ids: List[str]) -> int:
+        """Pre-create LightRAG instances for known active groups.
+
+        Eliminates the cold-start penalty that occurs when ``_get_rag``
+        is first called during a user query. Instances that fail to
+        initialise are silently skipped.
+
+        Returns:
+            Number of instances that are ready after this call.
+        """
+        already_warm = sum(1 for gid in group_ids if gid in self._instances)
+        newly_warmed = 0
+        for gid in group_ids:
+            if gid in self._instances:
+                continue
+            try:
+                await self._get_rag(gid)
+                newly_warmed += 1
+            except Exception as exc:
+                logger.debug(
+                    f"[LightRAG] Warmup failed for group {gid}: {exc}"
+                )
+        total_ready = already_warm + newly_warmed
+        if newly_warmed:
+            logger.info(
+                f"[LightRAG] Pre-warmed {newly_warmed} new instance(s); "
+                f"{total_ready}/{len(group_ids)} total ready"
+            )
+        elif group_ids:
+            logger.warning(
+                f"[LightRAG] Warmup attempted for {len(group_ids)} group(s) "
+                "but all failed; cold-start penalty will apply on first query"
+            )
+        return total_ready
+
     async def stop(self) -> bool:
         """Stop the service and release all LightRAG storage handles."""
         self._status = ServiceLifecycle.STOPPING

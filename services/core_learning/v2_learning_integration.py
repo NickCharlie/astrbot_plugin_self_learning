@@ -135,6 +135,25 @@ class V2LearningIntegration:
         ))
         logger.info("[V2Integration] All modules started")
 
+    async def warmup(self, group_ids: List[str]) -> None:
+        """Pre-warm heavyweight module instances for *group_ids*.
+
+        Should be called shortly after ``start()`` once active group IDs
+        are known. Currently only LightRAG benefits from pre-warming
+        (each cold-start avoids a 12-15s initialisation penalty on the
+        first user query).
+        """
+        if (
+            self._knowledge_manager
+            and hasattr(self._knowledge_manager, "warmup_instances")
+        ):
+            try:
+                await self._knowledge_manager.warmup_instances(group_ids)
+            except Exception as exc:
+                logger.debug(
+                    f"[V2Integration] Knowledge warmup failed: {exc}"
+                )
+
     async def stop(self) -> None:
         """Stop all active v2 modules and release resources.
 

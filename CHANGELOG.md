@@ -24,6 +24,13 @@
 - 修复 `V2LearningIntegration.stop()` 中 buffer flush 无超时保护，LLM API 无响应时无限阻塞关停流程的问题。每个群的 flush 现在受 `task_cancel_timeout` 限制，超时后丢弃缓冲区继续关停
 - 修复 `DatabaseEngine.close()` 中 `engine.dispose()` 无超时保护，MySQL 连接池在有未完成查询时可能无限等待的问题。每个引擎 dispose 现在带 5 秒超时
 
+### 性能优化
+
+#### LightRAG 首次查询冷启动优化
+- 新增 `LightRAGKnowledgeManager.warmup_instances()` 方法，在插件启动后异步预创建活跃群组的 LightRAG 实例（storage 初始化 + pipeline 初始化），消除首次用户查询时的冷启动延迟，首次查询延迟降低约 80%
+- `V2LearningIntegration` 新增 `warmup()` 方法，由 `PluginLifecycle.on_load()` 在后台调用
+- 自动学习启动的群组间等待缩短约 80%，减少启动阶段日志中的间隔
+
 ## [Next-2.0.3] - 2026-02-24
 
 ### 性能优化

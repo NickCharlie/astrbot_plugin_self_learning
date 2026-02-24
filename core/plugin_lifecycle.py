@@ -354,12 +354,33 @@ class PluginLifecycle:
                 logger.error(f"好感度管理服务启动失败: {e}", exc_info=True)
 
         # ------ V2 学习集成 ------
+        v2_started = False
         if getattr(p, "v2_integration", None):
             try:
                 await p.v2_integration.start()
                 logger.info("V2LearningIntegration started successfully")
+                v2_started = True
             except Exception as e:
                 logger.error(f"V2LearningIntegration start failed: {e}", exc_info=True)
+
+            # Pre-warm LightRAG instances for active groups in the background
+            # to eliminate the cold-start penalty on the first user query.
+            if v2_started and getattr(p, "_group_orchestrator", None):
+                async def _warmup_v2() -> None:
+                    await asyncio.sleep(5)
+                    try:
+                        v2 = getattr(p, "v2_integration", None)
+                        if v2 is None:
+                            return
+                        groups = await p._group_orchestrator.get_active_groups()
+                        if groups:
+                            await v2.warmup(groups)
+                    except Exception as exc:
+                        logger.debug(f"V2 warmup failed: {exc}")
+
+                _t = asyncio.create_task(_warmup_v2())
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
         # ------ 函数级性能监控 ------
         if plugin_config.debug_mode:
