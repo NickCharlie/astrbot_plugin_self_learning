@@ -20,6 +20,21 @@ from .services.hooks.perf_tracker import PerfTracker
 from .statics.messages import StatusMessages, FileNames
 
 
+def _safe(value: object) -> str:
+    """将任意值转为对 GBK 控制台安全的字符串。
+
+    Windows 中文版默认控制台编码为 GBK，logger 输出包含 emoji 或
+    生僻 Unicode 时会抛出 UnicodeEncodeError。此函数将不可编码
+    字符替换为 ``?``，保证日志不会因编码问题而中断。
+    """
+    try:
+        s = str(value)
+        s.encode("gbk")
+        return s
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s.encode("gbk", errors="replace").decode("gbk")
+
+
 @dataclass
 class LearningStats:
     """学习统计信息"""
