@@ -223,6 +223,24 @@
         "hint": "人设prompt累计追加N次增量更新后自动触发整理合并",
         "default": 5
       },
+      "enable_persona_reflection": {
+        "description": "启用人设反思信号收集(ACE Reflection)",
+        "type": "bool",
+        "hint": "收集对话质量信号，为人设整理提供有效性标注",
+        "default": true
+      },
+      "persona_reflection_lookback_hours": {
+        "description": "反思信号回溯时间(小时)",
+        "type": "int",
+        "hint": "收集最近N小时内的对话质量数据用于人设段落标注",
+        "default": 48
+      },
+      "persona_reflection_tag_threshold": {
+        "description": "反思标注阈值",
+        "type": "float",
+        "hint": "质量分数偏离均值超过此阈值时标为helpful/harmful",
+        "default": 0.05
+      },
       "enable_exemplar_effectiveness": {
         "description": "启用fewshot样本有效性追踪",
         "type": "bool",
