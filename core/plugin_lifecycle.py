@@ -137,6 +137,18 @@ class PluginLifecycle:
                     )
                     p.v2_integration = None
 
+            # ------ ACE pattern services (conditional) ------
+            p.persona_curator = None
+            if plugin_config.enable_persona_curation:
+                try:
+                    p.persona_curator = p.service_factory.create_persona_curator()
+                    logger.info("PersonaCurator initialised")
+                except Exception as exc:
+                    logger.warning(f"PersonaCurator init failed: {exc}")
+
+            # ExemplarDeduplicator is managed internally by
+            # V2LearningIntegration as a Tier-2 batch operation.
+
             # ------ 依赖后创建的服务 ------
             p.intelligent_responder = p.service_factory.create_intelligent_responder()
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()

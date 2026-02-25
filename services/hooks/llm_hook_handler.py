@@ -155,6 +155,20 @@ class LLMHookHandler:
             else:
                 logger.debug("[LLM Hook] 没有可注入的增量内容")
 
+            # Track used exemplar IDs for feedback loop
+            if (
+                v2_result
+                and v2_result.get("_used_exemplar_ids")
+                and self._config.enable_exemplar_effectiveness
+            ):
+                from ...utils.cache_manager import get_cache_manager
+                cache = get_cache_manager()
+                cache.set(
+                    "used_exemplars",
+                    f"{group_id}:latest",
+                    v2_result["_used_exemplar_ids"],
+                )
+
             # Record perf data
             total_ms = (time.time() - hook_start) * 1000
             self._perf_tracker.record(

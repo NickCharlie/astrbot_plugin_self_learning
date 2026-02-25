@@ -87,6 +87,9 @@ class V2LearningIntegration:
         self._social_analyzer = self._create_social_analyzer()
         self._jargon_filter = self._create_jargon_filter()
 
+        # --- ACE-inspired deduplicator --------------------------------
+        self._exemplar_deduplicator = self._create_exemplar_deduplicator()
+
         # --- Query result cache via CacheManager ----------------------
         self._cache = get_cache_manager()
 
@@ -310,11 +313,22 @@ class V2LearningIntegration:
             if not self._exemplar_library:
                 return
             try:
-                examples = await self._exemplar_library.get_few_shot_examples(
-                    query, group_id, k=top_k
-                )
-                if examples:
-                    context["few_shot_examples"] = examples
+                if self._config.enable_exemplar_effectiveness:
+                    # Retrieve exemplars with IDs for feedback tracking.
+                    pairs = await self._exemplar_library.get_few_shot_examples_with_ids(
+                        query, group_id, k=top_k
+                    )
+                    if pairs:
+                        context["few_shot_examples"] = [c for _, c in pairs]
+                        # Store used exemplar IDs so the feedback loop can
+                        # later record helpful/harmful signals.
+                        context["_used_exemplar_ids"] = [eid for eid, _ in pairs]
+                else:
+                    examples = await self._exemplar_library.get_few_shot_examples(
+                        query, group_id, k=top_k
+                    )
+                    if examples:
+                        context["few_shot_examples"] = examples
             except Exception as exc:
                 logger.debug(
                     f"[V2Integration] Exemplar retrieval failed: {exc}"
@@ -478,6 +492,30 @@ class V2LearningIntegration:
             )
             return None
 
+    def _create_exemplar_deduplicator(self) -> Optional[Any]:
+        """Create ExemplarDeduplicator if dedup is enabled."""
+        if not self._config.enable_exemplar_dedup:
+            return None
+        if not self._embedding_provider:
+            logger.debug(
+                "[V2Integration] No embedding provider, "
+                "ExemplarDeduplicator disabled"
+            )
+            return None
+        try:
+            from ..analysis.exemplar_deduplicator import ExemplarDeduplicator
+            return ExemplarDeduplicator(
+                db_manager=self._db,
+                embedding_provider=self._embedding_provider,
+                llm_adapter=self._llm,
+                similarity_threshold=self._config.exemplar_dedup_threshold,
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[V2Integration] ExemplarDeduplicator init failed: {exc}"
+            )
+            return None
+
     # Trigger wiring
 
     def _register_trigger_operations(self) -> None:
@@ -630,6 +668,34 @@ class V2LearningIntegration:
                 _social_batch,
                 BatchTriggerPolicy(
                     message_threshold=50, cooldown_seconds=600
+                ),
+            )
+
+        # Exemplar deduplication: semantic merge of redundant exemplars.
+        # Runs infrequently (every 100 messages or 30 minutes).
+        if self._exemplar_deduplicator:
+            dedup = self._exemplar_deduplicator
+
+            async def _dedup_batch(group_id: str) -> None:
+                try:
+                    if await dedup.should_deduplicate(group_id):
+                        result = await dedup.deduplicate(group_id)
+                        if result.merged_count > 0:
+                            logger.info(
+                                f"[V2Integration] Dedup: merged "
+                                f"{result.merged_count} exemplars in "
+                                f"group {group_id}"
+                            )
+                except Exception as exc:
+                    logger.debug(
+                        f"[V2Integration] Exemplar dedup failed: {exc}"
+                    )
+
+            self._trigger.register_tier2(
+                "exemplar_dedup",
+                _dedup_batch,
+                BatchTriggerPolicy(
+                    message_threshold=100, cooldown_seconds=1800
                 ),
             )
 

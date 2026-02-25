@@ -701,7 +701,10 @@ class PersonaUpdater(IPersonaUpdater):
             
             if success:
                 self._logger.info(f"群组 {group_id} PersonaManager增量更新成功")
-                
+
+                # If enabled, run persona curation to prevent prompt bloat.
+                await self._try_curate_persona(group_id)
+
                 # 如果启用自动应用且是自动学习模式
                 if self.config.auto_apply_persona_updates:
                     # 清理旧版本（保留最近5个）
@@ -715,6 +718,78 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             self._logger.error(f"PersonaManager更新失败: {e}")
             return False
+
+    async def _try_curate_persona(self, group_id: str) -> None:
+        """Run PersonaCurator if the prompt exceeds the token budget.
+
+        This is a best-effort operation; failures are logged but do not
+        propagate to callers.
+        """
+        if not getattr(self.config, 'enable_persona_curation', True):
+            return
+        try:
+            from .persona_curator import PersonaCurator
+            umo = self._resolve_umo(group_id)
+            persona = await self.context.persona_manager.get_default_persona_v3(umo)
+            if not persona:
+                return
+
+            # Persona may be a Personality object or dict-like; use safe access.
+            if hasattr(persona, 'system_prompt'):
+                current_prompt = persona.system_prompt
+            elif isinstance(persona, dict):
+                current_prompt = persona.get('prompt', '') or persona.get('system_prompt', '')
+            else:
+                current_prompt = ''
+            if not current_prompt:
+                return
+
+            # Reuse the cached PersonaCurator from the service factory if
+            # available, avoiding a new FrameworkLLMAdapter per invocation.
+            curator = None
+            if hasattr(self, '_service_factory') and self._service_factory:
+                try:
+                    curator = self._service_factory.create_persona_curator()
+                except Exception:
+                    pass
+            if curator is None:
+                from ...core.framework_llm_adapter import FrameworkLLMAdapter
+                llm_adapter = FrameworkLLMAdapter(self.context)
+                llm_adapter.initialize_providers(self.config)
+                curator = PersonaCurator(self.config, llm_adapter)
+
+            if not curator.should_curate(current_prompt):
+                return
+
+            result = await curator.curate(group_id, current_prompt)
+            if result.success and result.curated_prompt != current_prompt:
+                persona_id = (
+                    persona.persona_id
+                    if hasattr(persona, 'persona_id')
+                    else persona.get('persona_id') or persona.get('id')
+                )
+                begin_dialogs = (
+                    persona.begin_dialogs
+                    if hasattr(persona, 'begin_dialogs')
+                    else persona.get('begin_dialogs') if isinstance(persona, dict) else None
+                )
+                tools = (
+                    persona.tools
+                    if hasattr(persona, 'tools')
+                    else persona.get('tools') if isinstance(persona, dict) else None
+                )
+                await self.context.persona_manager.update_persona(
+                    persona_id=persona_id,
+                    system_prompt=result.curated_prompt,
+                    begin_dialogs=begin_dialogs,
+                    tools=tools,
+                )
+                self._logger.info(
+                    f"[PersonaCurator] Persona curated for group {group_id}: "
+                    f"{result.original_token_count} -> {result.curated_token_count} tokens"
+                )
+        except Exception as exc:
+            self._logger.debug(f"[PersonaCurator] Curation skipped: {exc}")
 
     async def _create_backup_persona_with_manager(self, group_id: str) -> bool:
         """使用PersonaManager创建备份persona，格式：原人格名_年月日时间_备份人格"""

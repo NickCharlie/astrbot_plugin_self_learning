@@ -356,6 +356,55 @@ class ServiceFactory(IServiceFactory):
         except ImportError as e:
             self._logger.error(f"导入PersonaManager更新器失败: {e}", exc_info=True)
             raise ServiceError(f"创建PersonaManager更新器失败: {str(e)}")
+
+    @cached_service("persona_curator")
+    def create_persona_curator(self):
+        """Create PersonaCurator for persona prompt structured curation."""
+        try:
+            from ..services.persona import PersonaCurator
+
+            llm_adapter = self.create_framework_llm_adapter()
+            service = PersonaCurator(self.config, llm_adapter)
+            self._logger.info("PersonaCurator created")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"Failed to import PersonaCurator: {e}")
+            raise ServiceError(f"Failed to create PersonaCurator: {e}")
+
+    @cached_service("exemplar_deduplicator")
+    def create_exemplar_deduplicator(self):
+        """Create ExemplarDeduplicator for fewshot exemplar deduplication."""
+        try:
+            from ..services.analysis import ExemplarDeduplicator
+
+            db_manager = self.create_database_manager()
+            llm_adapter = self.create_framework_llm_adapter()
+
+            # Embedding provider is optional.
+            embedding_provider = None
+            try:
+                from ..services.embedding import EmbeddingProviderFactory
+                embedding_provider = EmbeddingProviderFactory.create(
+                    self.config, self.context
+                )
+            except Exception:
+                self._logger.debug(
+                    "No embedding provider for ExemplarDeduplicator"
+                )
+
+            service = ExemplarDeduplicator(
+                db_manager=db_manager,
+                embedding_provider=embedding_provider,
+                llm_adapter=llm_adapter,
+                similarity_threshold=self.config.exemplar_dedup_threshold,
+            )
+            self._logger.info("ExemplarDeduplicator created")
+            return service
+
+        except ImportError as e:
+            self._logger.error(f"Failed to import ExemplarDeduplicator: {e}")
+            raise ServiceError(f"Failed to create ExemplarDeduplicator: {e}")
     
     @cached_service("multidimensional_analyzer")
     def create_multidimensional_analyzer(self):
