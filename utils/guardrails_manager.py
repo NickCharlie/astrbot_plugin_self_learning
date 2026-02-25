@@ -126,6 +126,48 @@ class ConversationIntentAnalysis(BaseModel):
     )
 
 
+# Pydantic 模型定义 - 用于人设整理(PersonaCurator)
+
+class CurationOperationItem(BaseModel):
+    """Single curation operation proposed by the LLM."""
+    op: str = Field(
+        description="Operation type: KEEP, MERGE, UPDATE, or DELETE"
+    )
+    target_ids: List[str] = Field(
+        default_factory=list,
+        description="Section IDs targeted by this operation"
+    )
+    new_content: str = Field(
+        default="",
+        description="Merged or updated text (empty for KEEP/DELETE)"
+    )
+    reason: str = Field(
+        default="",
+        description="Brief explanation for the operation"
+    )
+
+    @field_validator('op')
+    @classmethod
+    def validate_op(cls, v: str) -> str:
+        v = v.strip().upper()
+        if v not in ("KEEP", "MERGE", "UPDATE", "DELETE"):
+            raise ValueError(f"Invalid op type: {v}")
+        return v
+
+
+class CurationOperationList(BaseModel):
+    """Wrapper for a list of curation operations.
+
+    Guardrails ``Guard.for_pydantic`` requires a single top-level model,
+    so we wrap the list inside this model.
+    """
+    operations: List[CurationOperationItem] = Field(
+        description="List of curation operations",
+        min_length=1,
+        max_length=50,
+    )
+
+
 # Pydantic 模型定义 - 用于社交关系分析
 
 class RelationChange(BaseModel):
@@ -205,6 +247,7 @@ class GuardrailsManager:
         self._relation_guard: Optional[Guard] = None
         self._goal_analysis_guard: Optional[Guard] = None
         self._intent_analysis_guard: Optional[Guard] = None
+        self._curation_guard: Optional[Guard] = None
 
         logger.info(f"[Guardrails] 管理器初始化完成 (max_reasks={max_reasks})")
 
@@ -238,6 +281,74 @@ class GuardrailsManager:
             logger.debug("[Guardrails] 社交关系分析 Guard 已创建")
 
         return self._relation_guard
+
+    def get_curation_guard(self) -> Guard:
+        """Get the Guard instance for persona curation operations."""
+        if self._curation_guard is None:
+            self._curation_guard = Guard.for_pydantic(
+                output_class=CurationOperationList,
+            )
+            logger.debug("[Guardrails] PersonaCurator Guard created")
+        return self._curation_guard
+
+    def parse_curation_operations(
+        self,
+        response_text: str,
+    ) -> Optional[CurationOperationList]:
+        """Parse persona curation operations from LLM response text.
+
+        The LLM returns a JSON array of operations. Since Guardrails
+        expects a top-level object, we first try wrapping the array in
+        ``{"operations": [...]}`` and parsing via the Guard.  Falls back
+        to ``validate_and_clean_json`` if Guard parsing fails.
+
+        Args:
+            response_text: Raw LLM response.
+
+        Returns:
+            ``CurationOperationList`` on success, ``None`` on failure.
+        """
+        import json as _json
+
+        try:
+            guard = self.get_curation_guard()
+
+            # The LLM is instructed to return a bare JSON array.
+            # Wrap it in the expected object envelope.
+            cleaned = self.validate_and_clean_json(
+                response_text, expected_type="auto"
+            )
+            if cleaned is None:
+                return None
+
+            if isinstance(cleaned, list):
+                wrapped_text = _json.dumps({"operations": cleaned})
+            elif isinstance(cleaned, dict) and "operations" in cleaned:
+                wrapped_text = _json.dumps(cleaned)
+            else:
+                logger.warning(
+                    "[Guardrails] Curation response is neither list nor "
+                    "wrapped object"
+                )
+                return None
+
+            result = guard.parse(wrapped_text)
+            if result.validation_passed:
+                validated = result.validated_output
+                if isinstance(validated, dict):
+                    return CurationOperationList(**validated)
+                if isinstance(validated, CurationOperationList):
+                    return validated
+            else:
+                logger.warning(
+                    f"[Guardrails] Curation validation failed: "
+                    f"{result.validation_summaries}"
+                )
+        except Exception as exc:
+            logger.warning(
+                f"[Guardrails] Curation parse failed: {exc}"
+            )
+        return None
 
     async def parse_state_transition(
         self,
