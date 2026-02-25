@@ -23,15 +23,20 @@ Design principles:
       declarative and testable.
 """
 
+from __future__ import annotations
+
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from astrbot.api import logger
 
 from ...config import PluginConfig
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 from ...utils.guardrails_manager import get_guardrails_manager
+
+if TYPE_CHECKING:
+    from .persona_reflector import ReflectionContext
 
 
 # Section header pattern used by PersonaManagerUpdater.
@@ -119,6 +124,7 @@ class PersonaCurator:
         group_id: str,
         current_prompt: str,
         token_budget: Optional[int] = None,
+        reflection_context: Optional[ReflectionContext] = None,
     ) -> CurationResult:
         """Execute a curation pass on the given persona prompt.
 
@@ -126,6 +132,9 @@ class PersonaCurator:
             group_id: Identifier of the chat group.
             current_prompt: The full current persona system prompt.
             token_budget: Override the configured token budget.
+            reflection_context: Optional ``ReflectionContext`` from
+                PersonaReflector, providing per-section effectiveness
+                tags for data-driven curation decisions.
 
         Returns:
             A ``CurationResult`` describing what was done.
@@ -153,7 +162,7 @@ class PersonaCurator:
 
         # Request LLM-driven curation.
         operations = await self._request_curation(
-            sections, budget, group_id
+            sections, budget, group_id, reflection_context
         )
 
         if not operations:
@@ -210,6 +219,16 @@ class PersonaCurator:
             1 for s in sections if s.section_type == "incremental"
         )
         return incremental_count >= self._min_sections
+
+    def parse_prompt_sections(
+        self, prompt: str
+    ) -> List[PromptSection]:
+        """Public interface for prompt section parsing.
+
+        Used by PersonaReflector to analyse sections without duplicating
+        the parsing regex logic.
+        """
+        return self._parse_prompt_sections(prompt)
 
     # Parsing
 
@@ -302,6 +321,7 @@ class PersonaCurator:
         sections: List[PromptSection],
         token_budget: int,
         group_id: str,
+        reflection_context: Optional[ReflectionContext] = None,
     ) -> List[CurationOperation]:
         """Ask the LLM to propose curation operations."""
         if not self._llm:
@@ -341,6 +361,9 @@ class PersonaCurator:
             '"reason": "brief explanation"}]'
         )
 
+        # Inject reflection signals if available (ACE Reflection pattern).
+        prompt += self._build_reflection_prompt_section(reflection_context)
+
         try:
             response = await self._llm.filter_chat_completion(prompt=prompt)
             if not response:
@@ -370,6 +393,45 @@ class PersonaCurator:
                 f"[PersonaCurator] LLM curation request failed: {exc}"
             )
             return self._fallback_truncation(sections, token_budget)
+
+    @staticmethod
+    def _build_reflection_prompt_section(
+        reflection_context: Optional[ReflectionContext],
+    ) -> str:
+        """Build the reflection signals block for the LLM prompt.
+
+        Returns an empty string when no reflection context is available,
+        keeping the prompt identical to the pre-reflection behaviour.
+        """
+        if reflection_context is None:
+            return ""
+
+        signals = getattr(reflection_context, "section_signals", None)
+        if not signals:
+            return ""
+
+        lines = []
+        for sig in signals:
+            lines.append(
+                f"[{sig.section_id}] tag={sig.tag} "
+                f"score={sig.composite_score:.2f} "
+                f"samples={sig.sample_count} "
+                f"reason={sig.reason}"
+            )
+
+        trend = getattr(reflection_context, "overall_quality_trend", "stable")
+        avg = getattr(reflection_context, "avg_quality_score", 0.0)
+
+        return (
+            "\n\nReflection signals (conversation quality after each "
+            "section was added):\n"
+            + "\n".join(lines)
+            + f"\n\nOverall quality trend: {trend}"
+            + f"\nAverage quality: {avg:.2f}"
+            + "\n\nUse these signals to prioritize: "
+            "DELETE or UPDATE harmful sections, KEEP helpful sections, "
+            "MERGE neutral sections that overlap."
+        )
 
     def _fallback_truncation(
         self,
