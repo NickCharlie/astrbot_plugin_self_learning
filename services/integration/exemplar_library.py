@@ -107,9 +107,9 @@ class ExemplarLibrary:
         Returns:
             The record ID if saved, or ``None`` if rejected.
         """
-        # One-time schema migration for existing MySQL tables (TEXT -> MEDIUMTEXT).
+        # One-time schema migration for existing tables.
         if not ExemplarLibrary._schema_migrated:
-            await self._migrate_embedding_column()
+            await self._migrate_schema()
             ExemplarLibrary._schema_migrated = True
 
         if not content or len(content.strip()) < _MIN_CONTENT_LENGTH:
@@ -147,10 +147,11 @@ class ExemplarLibrary:
                 session.add(record)
                 await session.flush()
                 record_id = record.id
-                await session.commit()
 
-                # Evict excess exemplars if over capacity.
+                # Evict excess exemplars if over capacity (before commit).
                 await self._evict_excess(session, group_id)
+
+                await session.commit()
 
                 # Invalidate vector cache so next query picks up the new data.
                 self._vector_cache.pop(group_id, None)
@@ -193,6 +194,40 @@ class ExemplarLibrary:
 
         return await self._weight_based_search(group_id, k)
 
+    @monitored
+    async def get_few_shot_examples_with_ids(
+        self,
+        query: str,
+        group_id: str,
+        k: int = _DEFAULT_TOP_K,
+    ) -> List[Tuple[int, str]]:
+        """Retrieve exemplars with their record IDs for feedback tracking.
+
+        Same logic as ``get_few_shot_examples`` but returns ``(id, content)``
+        tuples so that callers can track which exemplars were used and
+        later record helpful/harmful feedback.
+
+        Args:
+            query: The current query or context string.
+            group_id: Chat group to search within.
+            k: Number of exemplars to return.
+
+        Returns:
+            List of (exemplar_id, content) tuples, most relevant first.
+        """
+        if self._embedding:
+            try:
+                return await self._similarity_search_with_ids(
+                    query, group_id, k
+                )
+            except Exception as exc:
+                logger.debug(
+                    f"[ExemplarLibrary] Similarity search (with IDs) "
+                    f"failed, falling back: {exc}"
+                )
+
+        return await self._weight_based_search_with_ids(group_id, k)
+
     async def adjust_weight(
         self, exemplar_id: int, delta: float
     ) -> bool:
@@ -211,7 +246,10 @@ class ExemplarLibrary:
                     update(Exemplar)
                     .where(Exemplar.id == exemplar_id)
                     .values(
-                        weight=func.max(0.0, Exemplar.weight + delta),
+                        weight=case(
+                            (Exemplar.weight + delta < 0.0, 0.0),
+                            else_=Exemplar.weight + delta,
+                        ),
                         updated_at=int(time.time()),
                     )
                 )
@@ -221,6 +259,94 @@ class ExemplarLibrary:
         except Exception as exc:
             logger.warning(
                 f"[ExemplarLibrary] Weight adjustment failed: {exc}"
+            )
+            return False
+
+    async def record_helpful(self, exemplar_id: int) -> bool:
+        """Increment the helpful counter for an exemplar.
+
+        Called when a positive feedback signal is detected after using
+        the exemplar in prompt generation (e.g. user continues conversation,
+        sends positive response).
+
+        Args:
+            exemplar_id: Record ID of the exemplar.
+
+        Returns:
+            ``True`` if the update succeeded.
+        """
+        return await self._increment_feedback(exemplar_id, helpful=True)
+
+    async def record_harmful(self, exemplar_id: int) -> bool:
+        """Increment the harmful counter for an exemplar.
+
+        Called when a negative feedback signal is detected (e.g. user
+        expresses dissatisfaction, long silence after bot response).
+
+        Args:
+            exemplar_id: Record ID of the exemplar.
+
+        Returns:
+            ``True`` if the update succeeded.
+        """
+        return await self._increment_feedback(exemplar_id, helpful=False)
+
+    async def record_feedback_batch(
+        self, exemplar_ids: List[int], helpful: bool
+    ) -> int:
+        """Record the same feedback signal for multiple exemplars.
+
+        Args:
+            exemplar_ids: List of exemplar record IDs.
+            helpful: ``True`` for positive feedback, ``False`` for negative.
+
+        Returns:
+            Number of records updated.
+        """
+        if not exemplar_ids:
+            return 0
+        try:
+            col = Exemplar.helpful_count if helpful else Exemplar.harmful_count
+            async with self._db.get_session() as session:
+                stmt = (
+                    update(Exemplar)
+                    .where(Exemplar.id.in_(exemplar_ids))
+                    .values(
+                        **{col.key: col + 1},
+                        updated_at=int(time.time()),
+                    )
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount
+        except Exception as exc:
+            logger.warning(
+                f"[ExemplarLibrary] Batch feedback update failed: {exc}"
+            )
+            return 0
+
+    async def _increment_feedback(
+        self, exemplar_id: int, helpful: bool
+    ) -> bool:
+        """Increment helpful or harmful counter for a single exemplar."""
+        try:
+            col = Exemplar.helpful_count if helpful else Exemplar.harmful_count
+            async with self._db.get_session() as session:
+                stmt = (
+                    update(Exemplar)
+                    .where(Exemplar.id == exemplar_id)
+                    .values(
+                        **{col.key: col + 1},
+                        updated_at=int(time.time()),
+                    )
+                )
+                result = await session.execute(stmt)
+                await session.commit()
+                return result.rowcount > 0
+        except Exception as exc:
+            logger.warning(
+                f"[ExemplarLibrary] Feedback update failed "
+                f"(id={exemplar_id}, helpful={helpful}): {exc}"
             )
             return False
 
@@ -237,20 +363,29 @@ class ExemplarLibrary:
                             else_=0,
                         )
                     ),
+                    func.sum(Exemplar.helpful_count),
+                    func.sum(Exemplar.harmful_count),
                 ).where(Exemplar.group_id == group_id)
                 result = await session.execute(stmt)
                 row = result.one_or_none()
 
                 if row:
+                    total_helpful = row[3] or 0
+                    total_harmful = row[4] or 0
                     return {
                         "total_exemplars": row[0] or 0,
                         "avg_weight": round(float(row[1] or 0), 3),
                         "with_embeddings": row[2] or 0,
+                        "total_helpful": total_helpful,
+                        "total_harmful": total_harmful,
                     }
         except Exception as exc:
             logger.debug(f"[ExemplarLibrary] Stats query failed: {exc}")
 
-        return {"total_exemplars": 0, "avg_weight": 0.0, "with_embeddings": 0}
+        return {
+            "total_exemplars": 0, "avg_weight": 0.0,
+            "with_embeddings": 0, "total_helpful": 0, "total_harmful": 0,
+        }
 
     async def delete_exemplar(self, exemplar_id: int) -> bool:
         """Delete a specific exemplar by ID."""
@@ -266,27 +401,64 @@ class ExemplarLibrary:
 
     # Internal helpers
 
-    async def _migrate_embedding_column(self) -> None:
-        """Upgrade ``embedding_json`` from TEXT to MEDIUMTEXT on MySQL.
+    async def _migrate_schema(self) -> None:
+        """Run one-time schema migrations for existing tables.
 
-        TEXT has a 65 KB limit which is too small for high-dimensional
-        embeddings (e.g. 3072-dim ~ 69 KB JSON). This runs once per
-        process and is a no-op on SQLite (syntax error caught silently).
+        Uses SQLAlchemy Inspector to detect missing columns and only
+        applies migrations that are actually needed. Dialect-aware:
+        handles both SQLite and MySQL/PostgreSQL.
         """
         try:
-            from sqlalchemy import text
             async with self._db.get_session() as session:
-                await session.execute(
-                    text("ALTER TABLE exemplar MODIFY COLUMN embedding_json MEDIUMTEXT")
+                bind = session.get_bind()
+                from sqlalchemy import inspect as sa_inspect, text
+
+                def _run_migrations(sync_conn):
+                    inspector = sa_inspect(sync_conn)
+                    if not inspector.has_table("exemplar"):
+                        return
+
+                    existing_cols = {
+                        c["name"] for c in inspector.get_columns("exemplar")
+                    }
+                    dialect_name = sync_conn.dialect.name
+
+                    # Migration 1: Add helpful_count if missing
+                    if "helpful_count" not in existing_cols:
+                        sync_conn.execute(text(
+                            "ALTER TABLE exemplar "
+                            "ADD COLUMN helpful_count INTEGER NOT NULL DEFAULT 0"
+                        ))
+
+                    # Migration 2: Add harmful_count if missing
+                    if "harmful_count" not in existing_cols:
+                        sync_conn.execute(text(
+                            "ALTER TABLE exemplar "
+                            "ADD COLUMN harmful_count INTEGER NOT NULL DEFAULT 0"
+                        ))
+
+                    # Migration 3: MySQL-specific MEDIUMTEXT upgrade
+                    if dialect_name == "mysql":
+                        try:
+                            sync_conn.execute(text(
+                                "ALTER TABLE exemplar "
+                                "MODIFY COLUMN embedding_json MEDIUMTEXT"
+                            ))
+                        except Exception:
+                            pass
+
+                await session.run_sync(
+                    lambda sync_session: _run_migrations(
+                        sync_session.connection()
+                    )
                 )
                 await session.commit()
                 logger.info(
-                    "[ExemplarLibrary] Migrated embedding_json column to MEDIUMTEXT"
+                    "[ExemplarLibrary] Schema migration check completed"
                 )
         except Exception as exc:
-            # SQLite doesn't support MODIFY COLUMN, or column already migrated.
             logger.debug(
-                f"[ExemplarLibrary] embedding_json migration skipped: {exc}"
+                f"[ExemplarLibrary] Schema migration skipped: {exc}"
             )
 
     async def _similarity_search(
@@ -340,10 +512,15 @@ class ExemplarLibrary:
     ) -> Tuple[List[str], Any, List[float]]:
         """Load exemplar vectors from DB and build an in-memory index.
 
+        The effective weight blends the base weight with the effectiveness
+        ratio derived from helpful/harmful feedback counters. This ensures
+        that exemplars with strong positive feedback rank higher in
+        similarity searches.
+
         Returns:
-            ``(contents, vectors, weights)`` where *vectors* is a numpy
-            matrix (N, D) when numpy is available, or a list of lists
-            otherwise. Returns empty lists if no data.
+            ``(contents, vectors, effective_weights)`` where *vectors* is
+            a numpy matrix (N, D) when numpy is available, or a list of
+            lists otherwise. Returns empty lists if no data.
         """
         async with self._db.get_session() as session:
             stmt = (
@@ -351,6 +528,8 @@ class ExemplarLibrary:
                     Exemplar.content,
                     Exemplar.embedding_json,
                     Exemplar.weight,
+                    Exemplar.helpful_count,
+                    Exemplar.harmful_count,
                 )
                 .where(
                     Exemplar.group_id == group_id,
@@ -368,12 +547,16 @@ class ExemplarLibrary:
         contents: List[str] = []
         raw_vectors: List[List[float]] = []
         weights: List[float] = []
-        for content, emb_json, weight in rows:
+        for content, emb_json, weight, helpful, harmful in rows:
             try:
                 vec = json.loads(emb_json)
                 contents.append(content)
                 raw_vectors.append(vec)
-                weights.append(weight or 1.0)
+                # Blend base weight with Laplace-smoothed effectiveness ratio
+                h = helpful or 0
+                m = harmful or 0
+                effectiveness = (h + 1) / (h + m + 2)
+                weights.append((weight or 1.0) * effectiveness)
             except (json.JSONDecodeError, TypeError):
                 continue
 
@@ -404,6 +587,118 @@ class ExemplarLibrary:
             logger.debug(f"[ExemplarLibrary] Weight search failed: {exc}")
             return []
 
+    async def _similarity_search_with_ids(
+        self, query: str, group_id: str, k: int
+    ) -> List[Tuple[int, str]]:
+        """Similarity search returning (id, content) tuples for tracking."""
+        cache = get_cache_manager()
+        cache_key = f"exemplar:{query[:80]}"
+        query_vec = cache.get("embedding_query", cache_key)
+        if query_vec is None:
+            query_vec = await self._embedding.get_embedding(query)
+            cache.set("embedding_query", cache_key, query_vec)
+
+        ids, contents, vectors, weights = await self._load_vectors_with_ids(
+            group_id
+        )
+        if not contents:
+            return await self._weight_based_search_with_ids(group_id, k)
+
+        if _HAS_NUMPY and isinstance(vectors, np.ndarray):
+            scores = self._numpy_cosine_scores(query_vec, vectors, weights)
+            top_k = min(k, len(contents))
+            top_indices = np.argsort(scores)[-top_k:][::-1]
+            return [(ids[i], contents[i]) for i in top_indices]
+
+        scored = []
+        for idx, (eid, content, vec, weight) in enumerate(
+            zip(ids, contents, vectors, weights)
+        ):
+            sim = self._cosine_similarity(query_vec, vec)
+            score = sim * 0.8 + (weight or 1.0) * 0.2
+            scored.append((eid, content, score))
+        scored.sort(key=lambda x: x[2], reverse=True)
+        return [(eid, c) for eid, c, _ in scored[:k]]
+
+    async def _weight_based_search_with_ids(
+        self, group_id: str, k: int
+    ) -> List[Tuple[int, str]]:
+        """Fallback: return highest-weight exemplars with IDs."""
+        try:
+            async with self._db.get_session() as session:
+                stmt = (
+                    select(Exemplar.id, Exemplar.content)
+                    .where(Exemplar.group_id == group_id)
+                    .order_by(
+                        desc(Exemplar.weight), desc(Exemplar.created_at)
+                    )
+                    .limit(k)
+                )
+                result = await session.execute(stmt)
+                return [(row[0], row[1]) for row in result.all()]
+        except Exception as exc:
+            logger.debug(
+                f"[ExemplarLibrary] Weight search (with IDs) failed: {exc}"
+            )
+            return []
+
+    async def _load_vectors_with_ids(
+        self, group_id: str
+    ) -> Tuple[List[int], List[str], Any, List[float]]:
+        """Load exemplar vectors including record IDs for tracking.
+
+        Returns:
+            ``(ids, contents, vectors, effective_weights)``
+        """
+        async with self._db.get_session() as session:
+            stmt = (
+                select(
+                    Exemplar.id,
+                    Exemplar.content,
+                    Exemplar.embedding_json,
+                    Exemplar.weight,
+                    Exemplar.helpful_count,
+                    Exemplar.harmful_count,
+                )
+                .where(
+                    Exemplar.group_id == group_id,
+                    Exemplar.embedding_json.isnot(None),
+                )
+                .order_by(desc(Exemplar.weight))
+                .limit(_SIMILARITY_SEARCH_LIMIT)
+            )
+            result = await session.execute(stmt)
+            rows = result.all()
+
+        if not rows:
+            return [], [], None, []
+
+        ids: List[int] = []
+        contents: List[str] = []
+        raw_vectors: List[List[float]] = []
+        weights: List[float] = []
+        for eid, content, emb_json, weight, helpful, harmful in rows:
+            try:
+                vec = json.loads(emb_json)
+                ids.append(eid)
+                contents.append(content)
+                raw_vectors.append(vec)
+                h = helpful or 0
+                m = harmful or 0
+                effectiveness = (h + 1) / (h + m + 2)
+                weights.append((weight or 1.0) * effectiveness)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+        if not contents:
+            return [], [], None, []
+
+        if _HAS_NUMPY:
+            matrix = np.array(raw_vectors, dtype=np.float32)
+            return ids, contents, matrix, weights
+
+        return ids, contents, raw_vectors, weights
+
     async def _evict_excess(self, session, group_id: str) -> None:
         """Remove lowest-weight exemplars when over capacity."""
         try:
@@ -430,7 +725,6 @@ class ExemplarLibrary:
             if ids_to_delete:
                 del_stmt = delete(Exemplar).where(Exemplar.id.in_(ids_to_delete))
                 await session.execute(del_stmt)
-                await session.commit()
                 logger.debug(
                     f"[ExemplarLibrary] Evicted {len(ids_to_delete)} "
                     f"excess exemplars from group {group_id}"
