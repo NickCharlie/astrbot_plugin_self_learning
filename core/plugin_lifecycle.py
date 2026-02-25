@@ -449,7 +449,7 @@ class PluginLifecycle:
             # 3. 取消后台任务（每个任务单独超时）
             logger.info("取消所有后台任务...")
             _timeout = self._plugin.plugin_config.task_cancel_timeout
-            for task in list(p.background_tasks):
+            for task in list(getattr(p, "background_tasks", set())):
                 try:
                     if not task.done():
                         task.cancel()
@@ -461,7 +461,8 @@ class PluginLifecycle:
                     logger.error(
                         LogMessages.BACKGROUND_TASK_CANCEL_ERROR.format(error=e)
                     )
-            p.background_tasks.clear()
+            if hasattr(p, "background_tasks"):
+                p.background_tasks.clear()
 
             # 4. 停止 V2（在服务工厂之前，确保 buffer flush 可使用完整服务）
             if getattr(p, "v2_integration", None):
