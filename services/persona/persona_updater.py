@@ -761,7 +761,24 @@ class PersonaUpdater(IPersonaUpdater):
             if not curator.should_curate(current_prompt):
                 return
 
-            result = await curator.curate(group_id, current_prompt)
+            # Collect reflection context if enabled (ACE Reflection pattern).
+            reflection_context = None
+            if getattr(self.config, 'enable_persona_reflection', True):
+                try:
+                    from .persona_reflector import PersonaReflector
+                    reflector = PersonaReflector(self.config, self.db_manager)
+                    reflection_context = await reflector.collect_reflection_context(
+                        group_id, current_prompt
+                    )
+                except Exception as ref_exc:
+                    self._logger.debug(
+                        f"[PersonaReflector] Collection skipped: {ref_exc}"
+                    )
+
+            result = await curator.curate(
+                group_id, current_prompt,
+                reflection_context=reflection_context,
+            )
             if result.success and result.curated_prompt != current_prompt:
                 persona_id = (
                     persona.persona_id
