@@ -6,6 +6,7 @@ from .persona_updater import PersonaUpdater
 from .persona_backup_manager import PersonaBackupManager
 from .temporary_persona_updater import TemporaryPersonaUpdater
 from .persona_curator import PersonaCurator
+from .persona_reflector import PersonaReflector
 
 __all__ = [
     "PersonaManagerService",
@@ -14,4 +15,5 @@ __all__ = [
     "PersonaBackupManager",
     "TemporaryPersonaUpdater",
     "PersonaCurator",
+    "PersonaReflector",
 ]
