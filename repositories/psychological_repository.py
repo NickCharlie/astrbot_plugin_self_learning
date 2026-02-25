@@ -98,51 +98,57 @@ class PsychologicalComponentRepository(BaseRepository[PsychologicalStateComponen
         获取状态的所有组件
 
         Args:
-            state_id: 状态 ID
+            state_id: 复合心理状态记录的主键 ID
 
         Returns:
             List[PsychologicalStateComponent]: 组件列表
         """
-        return await self.find_many(state_id=state_id)
+        return await self.find_many(composite_state_id=state_id)
 
     async def update_component(
         self,
         state_id: int,
         component_name: str,
         value: float,
-        threshold: float = None
+        threshold: float = None,
+        group_id: str = "",
+        state_id_str: str = ""
     ) -> Optional[PsychologicalStateComponent]:
         """
         更新组件值
 
         Args:
-            state_id: 状态 ID
-            component_name: 组件名称
+            state_id: 复合心理状态记录的主键 ID
+            component_name: 组件类别名称(category)
             value: 组件值
             threshold: 阈值
+            group_id: 群组 ID (创建新组件时使用)
+            state_id_str: 状态标识符 (创建新组件时使用)
 
         Returns:
             Optional[PsychologicalStateComponent]: 组件对象
         """
         component = await self.find_one(
-            state_id=state_id,
-            component_name=component_name
+            composite_state_id=state_id,
+            category=component_name
         )
 
         if component:
             component.value = value
             if threshold is not None:
                 component.threshold = threshold
-            component.updated_at = int(time.time())
             return await self.update(component)
         else:
+            now = int(time.time())
             return await self.create(
-                state_id=state_id,
-                component_name=component_name,
+                composite_state_id=state_id,
+                group_id=group_id,
+                state_id=state_id_str or f"{group_id}:{component_name}",
+                category=component_name,
+                state_type=component_name,
                 value=value,
-                threshold=threshold or 0.5,
-                created_at=int(time.time()),
-                updated_at=int(time.time())
+                threshold=threshold or 0.3,
+                start_time=now,
             )
 
 
@@ -158,7 +164,9 @@ class PsychologicalHistoryRepository(BaseRepository[PsychologicalStateHistory]):
         from_state: str,
         to_state: str,
         trigger_event: str = None,
-        intensity_change: float = 0.0
+        intensity_change: float = 0.0,
+        group_id: str = "",
+        category: str = ""
     ) -> Optional[PsychologicalStateHistory]:
         """
         添加历史记录
@@ -169,16 +177,21 @@ class PsychologicalHistoryRepository(BaseRepository[PsychologicalStateHistory]):
             to_state: 结束状态
             trigger_event: 触发事件
             intensity_change: 强度变化
+            group_id: 群组 ID
+            category: 状态类别
 
         Returns:
             Optional[PsychologicalStateHistory]: 历史记录
         """
         return await self.create(
-            state_id=state_id,
-            from_state=from_state,
-            to_state=to_state,
-            trigger_event=trigger_event,
-            intensity_change=intensity_change,
+            group_id=group_id,
+            state_id=str(state_id),
+            category=category or "unknown",
+            old_state_type=from_state,
+            new_state_type=to_state or "",
+            old_value=0.0,
+            new_value=intensity_change,
+            change_reason=trigger_event,
             timestamp=int(time.time())
         )
 

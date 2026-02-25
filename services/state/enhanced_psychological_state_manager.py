@@ -200,10 +200,12 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                     state_components = []
                     for comp in components:
                         state_components.append(PsychologicalStateComponent(
-                            dimension=comp.component_name,
-                            state_type=comp.component_name, # TODO: 需要解析类型
+                            category=comp.category,
+                            state_type=comp.state_type,
                             value=comp.value,
-                            threshold=comp.threshold
+                            threshold=comp.threshold,
+                            description=comp.description or "",
+                            start_time=float(comp.start_time) if comp.start_time else time.time()
                         ))
 
                     composite_state = CompositePsychologicalState(
@@ -267,7 +269,9 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                     await component_repo.update_component(
                         state.id,
                         dimension,
-                        new_value
+                        new_value,
+                        group_id=group_id,
+                        state_id_str=f"{group_id}:{user_id}"
                     )
 
                     # 记录历史
@@ -276,7 +280,9 @@ class EnhancedPsychologicalStateManager(AsyncServiceBase):
                         from_state=state.overall_state,
                         to_state=str(new_state_type),
                         trigger_event=trigger_event,
-                        intensity_change=0.0
+                        intensity_change=0.0,
+                        group_id=group_id,
+                        category=dimension
                     )
 
                     # 清除缓存

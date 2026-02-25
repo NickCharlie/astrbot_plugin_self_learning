@@ -243,6 +243,10 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
+        # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
+        if contexts is None:
+            contexts = []
+
         if not self.filter_provider:
             logger.warning("筛选Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
@@ -301,6 +305,10 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
+        # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
+        if contexts is None:
+            contexts = []
+
         if not self.refine_provider:
             logger.warning("提炼Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
@@ -358,6 +366,10 @@ class FrameworkLLMAdapter:
         """使用强化模型进行对话补全"""
         # 尝试延迟初始化
         self._try_lazy_init()
+
+        # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
+        if contexts is None:
+            contexts = []
 
         if not self.reinforce_provider:
             logger.warning("强化Provider未配置，尝试使用备选Provider或降级处理")

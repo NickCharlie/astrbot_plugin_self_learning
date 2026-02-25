@@ -55,7 +55,14 @@ class BotMoodRepository(BaseRepository[BotMood]):
             mood = BotMood(**mood_data)
             self.session.add(mood)
             await self.session.commit()
-            await self.session.refresh(mood)
+            try:
+                await self.session.refresh(mood)
+            except Exception as refresh_err:
+                # 部分 async 驱动在 commit 后 refresh 可能失败，
+                # 此时 mood 对象已持久化且 ID 已赋值，可安全返回
+                logger.debug(
+                    f"[BotMoodRepository] refresh after commit skipped: {refresh_err}"
+                )
             return mood
         except Exception as e:
             await self.session.rollback()

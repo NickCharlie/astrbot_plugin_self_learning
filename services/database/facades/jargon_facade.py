@@ -743,8 +743,12 @@ class JargonFacade(BaseFacade):
                 groups = []
                 for row in rows:
                     try:
+                        chat_id = row.chat_id or ''
                         groups.append({
-                            'chat_id': row.chat_id,
+                            'group_id': chat_id,
+                            'group_name': chat_id,
+                            'id': chat_id,
+                            'chat_id': chat_id,
                             'count': row.count or 0
                         })
                     except Exception as row_error:
