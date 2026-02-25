@@ -143,8 +143,9 @@ class PersonaWebManager:
     async def get_default_persona_for_web(self) -> Dict[str, Any]:
         """获取默认人格，格式化为Web界面需要的格式
 
-        使用 group_id_to_unified_origin 映射中的 UMO 来获取当前活跃配置的人格，
-        而非始终返回 default 配置的人格。
+        始终传入 None 调用 get_default_persona_v3 以获取 AstrBot 全局默认人格，
+        避免在多配置文件场景下因随机选取 UMO 而导致每次返回不同人格。
+        如需查看特定配置的人格，应通过 get_persona_for_group 并明确指定 group_id。
         """
         fallback = {
             "persona_id": "default",
@@ -157,14 +158,9 @@ class PersonaWebManager:
             return fallback
 
         try:
-            # 尝试从映射中获取一个 UMO，以加载当前活跃配置的人格
-            umo = None
-            if self.group_id_to_unified_origin:
-                # 取任意一个 UMO（通常同一配置文件下的群组共享同一配置）
-                umo = next(iter(self.group_id_to_unified_origin.values()), None)
-
+            # 获取全局默认人格，不依赖 group_id_to_unified_origin 映射
             default_persona = await self._run_on_main_loop(
-                self.persona_manager.get_default_persona_v3(umo)
+                self.persona_manager.get_default_persona_v3(None)
             )
 
             if default_persona:
