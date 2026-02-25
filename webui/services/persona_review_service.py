@@ -400,31 +400,54 @@ class PersonaReviewService:
                 return True, msg
 
             try:
-                # 获取审查记录中的新内容
+                # 获取审查记录中的增量内容
                 record = await self.database_manager.get_persona_update_record_by_id(int(update_id))
                 if not record:
                     return True, f"人格更新 {update_id} 已批准，但无法获取记录详情"
 
-                new_content = modified_content or record.get('new_content', '')
                 group_id = record.get('group_id', 'default')
 
-                if not new_content:
+                # 从审查记录中提取增量部分：
+                # new_content 是学习时的完整快照 (original + changes)
+                # original_content 是学习时的原始人格
+                # 增量 = new_content - original_content
+                full_new = modified_content or record.get('new_content', '')
+                original_snapshot = record.get('original_content', '')
+
+                if not full_new:
                     return True, f"人格更新 {update_id} 已批准，但缺少新内容"
 
-                # 通过 persona_web_manager 获取/更新（线程安全）
+                # 提取增量内容（审批时追加到当前人格，而非替换）
+                if original_snapshot and full_new.startswith(original_snapshot.rstrip()):
+                    incremental_content = full_new[len(original_snapshot.rstrip()):].strip()
+                else:
+                    # 无法提取增量，可能是手动修改过，使用完整内容作为增量
+                    incremental_content = full_new.strip()
+
+                if not incremental_content:
+                    return True, f"人格更新 {update_id} 已批准，但增量内容为空"
+
+                # 通过 persona_web_manager 获取当前人格并追加（线程安全）
                 current = await self.persona_web_manager.get_persona_for_group(group_id)
                 persona_name = current.get('persona_id', 'default')
+                current_prompt = current.get('system_prompt', '')
                 logger.info(
                     f"[传统审批] 获取到人格: name={persona_name}, "
-                    f"new_content长度={len(new_content)}, group_id={group_id}"
+                    f"current_prompt长度={len(current_prompt)}, "
+                    f"incremental长度={len(incremental_content)}, group_id={group_id}"
                 )
 
+                # 追加增量内容到当前人格末尾（与人格学习审查路径一致）
+                appended_prompt = current_prompt.strip() + "\n\n" + incremental_content
+
                 update_result = await self.persona_web_manager.update_persona_via_web(
-                    persona_name, {"system_prompt": new_content}
+                    persona_name, {"system_prompt": appended_prompt}
                 )
                 if update_result.get('success'):
-                    logger.info(f"人格更新 {update_id} 已批准并应用到人格 [{persona_name}]")
-                    return True, f"人格更新 {update_id} 已批准，已应用到人格 [{persona_name}]"
+                    logger.info(
+                        f"人格更新 {update_id} 已批准，增量内容已追加到人格 [{persona_name}]"
+                    )
+                    return True, f"人格更新 {update_id} 已批准，已追加到人格 [{persona_name}]"
                 else:
                     err = update_result.get('error', '未知错误')
                     logger.error(f"[传统审批] 更新人格失败: {err}")
