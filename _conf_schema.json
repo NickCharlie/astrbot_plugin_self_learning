@@ -204,6 +204,42 @@
         "type": "bool",
         "hint": "【危险功能 - 谨慎开启】批准人格审查后自动将内容直接应用到当前使用的默认人格，而非创建新人格副本。开启后将直接覆盖正在使用的默认人格的系统提示词，此操作不可逆（除非从备份恢复）。强烈建议同时开启人格自动备份功能以防止数据丢失",
         "default": false
+      },
+      "enable_persona_curation": {
+        "description": "启用人设prompt整理",
+        "type": "bool",
+        "hint": "定期整理人设prompt，合并重复描述，删除矛盾特征，控制prompt长度",
+        "default": true
+      },
+      "persona_prompt_token_budget": {
+        "description": "人设prompt token上限",
+        "type": "int",
+        "hint": "人设prompt超过此token数时触发自动整理",
+        "default": 4000
+      },
+      "persona_curation_min_sections": {
+        "description": "最少增量段数才触发整理",
+        "type": "int",
+        "hint": "人设prompt至少有N个增量更新段落才会触发自动整理",
+        "default": 3
+      },
+      "enable_exemplar_effectiveness": {
+        "description": "启用fewshot样本有效性追踪",
+        "type": "bool",
+        "hint": "追踪fewshot样本的有效/无效反馈，自动调整权重",
+        "default": true
+      },
+      "enable_exemplar_dedup": {
+        "description": "启用fewshot样本语义去重",
+        "type": "bool",
+        "hint": "定期对fewshot样本进行语义相似度分析，合并冗余样本",
+        "default": true
+      },
+      "exemplar_dedup_threshold": {
+        "description": "去重相似度阈值",
+        "type": "float",
+        "hint": "余弦相似度超过此阈值的样本将被合并(0-1)",
+        "default": 0.85
       }
     }
   },

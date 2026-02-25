@@ -195,6 +195,21 @@ class PluginConfig(BaseModel):
     recent_interactions_limit: int = 20 # 近期交互查询数量
     trend_analysis_days: int = 7 # 趋势分析天数
 
+    # PersonaCurator -- persona prompt curation (ACE Curator pattern)
+    enable_persona_curation: bool = True # 启用人设prompt整理
+    persona_prompt_token_budget: int = 4000 # 人设prompt token上限
+    persona_curation_interval_hours: int = 24 # 定时整理间隔(小时)
+    persona_curation_min_sections: int = 3 # 至少有N个增量段才触发整理
+
+    # Exemplar effectiveness tracking (ACE helpful/harmful pattern)
+    enable_exemplar_effectiveness: bool = True # 启用fewshot样本有效性追踪
+    exemplar_feedback_window: int = 300 # 反馈采集窗口(秒)
+
+    # ExemplarDeduplicator -- fewshot exemplar deduplication
+    enable_exemplar_dedup: bool = True # 启用fewshot样本语义去重
+    exemplar_dedup_threshold: float = 0.85 # 余弦相似度合并阈值
+    exemplar_dedup_interval_hours: int = 48 # 定时去重间隔(小时)
+
     @classmethod
     def create_from_config(cls, config: dict, data_dir: Optional[str] = None) -> 'PluginConfig':
         """从AstrBot配置创建插件配置"""
@@ -361,6 +376,17 @@ class PluginConfig(BaseModel):
             top_patterns_limit=repository_settings.get('top_patterns_limit', 10),
             recent_interactions_limit=repository_settings.get('recent_interactions_limit', 20),
             trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
+
+            # ACE pattern integration: persona curation & exemplar management
+            enable_persona_curation=advanced_settings.get('enable_persona_curation', True),
+            persona_prompt_token_budget=advanced_settings.get('persona_prompt_token_budget', 4000),
+            persona_curation_interval_hours=advanced_settings.get('persona_curation_interval_hours', 24),
+            persona_curation_min_sections=advanced_settings.get('persona_curation_min_sections', 3),
+            enable_exemplar_effectiveness=advanced_settings.get('enable_exemplar_effectiveness', True),
+            exemplar_feedback_window=advanced_settings.get('exemplar_feedback_window', 300),
+            enable_exemplar_dedup=advanced_settings.get('enable_exemplar_dedup', True),
+            exemplar_dedup_threshold=advanced_settings.get('exemplar_dedup_threshold', 0.85),
+            exemplar_dedup_interval_hours=advanced_settings.get('exemplar_dedup_interval_hours', 48),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
