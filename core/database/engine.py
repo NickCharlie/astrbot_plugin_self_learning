@@ -8,7 +8,8 @@ SQLAlchemy 数据库引擎封装
 避免 "Task got Future attached to a different loop" 错误。
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import NullPool, QueuePool, StaticPool
+from sqlalchemy.pool import StaticPool
+from sqlalchemy import types as sa_types
 from astrbot.api import logger
 from typing import Optional
 import asyncio
@@ -130,14 +131,17 @@ class DatabaseEngine:
         engine = create_async_engine(
             db_url,
             echo=self.echo,
-            poolclass=NullPool,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=3600,
+            pool_pre_ping=True,
             connect_args={
                 'connect_timeout': 10,
                 'charset': 'utf8mb4',
             }
         )
 
-        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (NullPool)")
+        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (QueuePool, pre_ping=True)")
         return engine
 
     def _get_engine_for_current_loop(self):
@@ -287,9 +291,14 @@ class DatabaseEngine:
                             col_type = col.type.compile(self.engine.dialect)
                             nullable = "NULL" if col.nullable else "NOT NULL"
                             default = ""
-                            # MySQL 不允许 TEXT/BLOB 列有 DEFAULT 值
-                            is_text_type = col_type.upper() in ("TEXT", "BLOB", "MEDIUMTEXT", "LONGTEXT", "JSON")
-                            if not is_text_type:
+                            # MySQL/MariaDB 不允许 TEXT/BLOB 列有 DEFAULT 值
+                            is_mysql = self.engine.dialect.name in ("mysql", "mariadb")
+                            is_text_type = isinstance(
+                                col.type,
+                                (sa_types.Text, sa_types.LargeBinary, sa_types.JSON),
+                            )
+                            skip_default = is_mysql and is_text_type
+                            if not skip_default:
                                 if col.server_default is not None:
                                     default = f" DEFAULT {col.server_default.arg!r}"
                                 elif col.default is not None and col.default.is_scalar:
@@ -355,16 +364,34 @@ class DatabaseEngine:
         """
         关闭所有数据库引擎（包括跨线程创建的）
 
-        释放所有连接池资源
+        释放所有连接池资源。每个 dispose() 调用带超时保护，
+        避免数据库无响应时阻塞关停流程。
         """
+        _dispose_timeout = 5.0
+
         # 关闭主引擎
         if self.engine:
-            await self.engine.dispose()
+            try:
+                await asyncio.wait_for(
+                    self.engine.dispose(), timeout=_dispose_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[DatabaseEngine] 主引擎 dispose 超时 ({_dispose_timeout}s)，跳过"
+                )
+            except Exception as e:
+                logger.debug(f"[DatabaseEngine] 主引擎 dispose 异常: {e}")
 
         # 关闭所有 per-loop 引擎
         for loop_id, engine in list(self._loop_engines.items()):
             try:
-                await engine.dispose()
+                await asyncio.wait_for(
+                    engine.dispose(), timeout=_dispose_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    f"[DatabaseEngine] loop {loop_id} 引擎 dispose 超时，跳过"
+                )
             except Exception as e:
                 logger.debug(f"[DatabaseEngine] 关闭 loop {loop_id} 引擎时忽略错误: {e}")
 

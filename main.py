@@ -20,6 +20,21 @@ from .services.hooks.perf_tracker import PerfTracker
 from .statics.messages import StatusMessages, FileNames
 
 
+def _safe(value: object) -> str:
+    """将任意值转为对 GBK 控制台安全的字符串。
+
+    Windows 中文版默认控制台编码为 GBK，logger 输出包含 emoji 或
+    生僻 Unicode 时会抛出 UnicodeEncodeError。此函数将不可编码
+    字符替换为 ``?``，保证日志不会因编码问题而中断。
+    """
+    try:
+        s = str(value)
+        s.encode("gbk")
+        return s
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return s.encode("gbk", errors="replace").decode("gbk")
+
+
 @dataclass
 class LearningStats:
     """学习统计信息"""
@@ -105,6 +120,7 @@ class SelfLearningPlugin(star.Star):
         self.group_id_to_unified_origin: Dict[str, str] = {}
         self.update_system_prompt_callback = None
         self._perf_tracker = PerfTracker(maxlen=200)
+        self._shutting_down = False
 
         # ------ 委托生命周期编排 ------
         # Wrapped in try/except: if bootstrap() raises, AstrBot's
@@ -140,6 +156,9 @@ class SelfLearningPlugin(star.Star):
     async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
         try:
+            if self._shutting_down:
+                return
+
             db = getattr(self, 'db_manager', None)
             if not db or not db.engine:
                 return
@@ -159,9 +178,9 @@ class SelfLearningPlugin(star.Star):
                 and self.plugin_config.enable_affection_system
                 and pipeline
             ):
-                asyncio.create_task(
+                self._track_task(asyncio.create_task(
                     pipeline.process_affection(group_id, sender_id, message_text)
-                )
+                ))
 
             if not self.plugin_config or not self.plugin_config.enable_message_capture:
                 return
@@ -180,15 +199,22 @@ class SelfLearningPlugin(star.Star):
                 return
 
             # 后台学习流水线
-            asyncio.create_task(
+            self._track_task(asyncio.create_task(
                 pipeline.process_learning(group_id, sender_id, message_text, event)
-            )
+            ))
 
             self.learning_stats.total_messages_collected += 1
             self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
 
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
+
+    def _track_task(self, task: asyncio.Task) -> None:
+        """Register a fire-and-forget task for cancellation during shutdown."""
+        bg = getattr(self, 'background_tasks', None)
+        if bg is not None:
+            bg.add(task)
+            task.add_done_callback(bg.discard)
 
     # LLM Hook
 

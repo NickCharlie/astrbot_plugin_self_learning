@@ -8,6 +8,7 @@ import json
 from typing import Dict, List, Optional, Any
 
 from sqlalchemy import select, and_, func, desc, or_, case
+from sqlalchemy.exc import IntegrityError
 from astrbot.api import logger
 
 from ._base import BaseFacade
@@ -50,6 +51,9 @@ class JargonFacade(BaseFacade):
     # 2. insert_jargon
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
         """插入新的黑话记录
+
+        当唯一约束冲突（chat_id + content 重复）时，回退到查询并返回
+        已有记录的 ID，避免并发插入导致的 IntegrityError。
 
         Args:
             jargon_data: 黑话数据字典
@@ -102,6 +106,16 @@ class JargonFacade(BaseFacade):
                 )
                 return record.id
 
+        except IntegrityError:
+            # 并发插入导致的唯一约束冲突，回退到查询已有记录
+            chat_id = jargon_data.get('chat_id', '')
+            content = jargon_data.get('content', '')
+            self._logger.debug(
+                f"[JargonFacade] 黑话已存在，跳过插入: "
+                f"chat_id={chat_id}, content='{content}'"
+            )
+            existing = await self.get_jargon(chat_id, content)
+            return existing.get('id') if existing else None
         except Exception as e:
             self._logger.error(f"[JargonFacade] 插入黑话失败: {e}", exc_info=True)
             return None

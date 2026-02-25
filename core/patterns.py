@@ -309,10 +309,11 @@ class StrategyFactory:
 
 class ServiceRegistry(metaclass=SingletonABCMeta):
     """服务注册表 - 管理所有服务实例"""
-    
-    def __init__(self):
+
+    def __init__(self, service_stop_timeout: int = 5):
         self._services: Dict[str, IAsyncService] = {}
         self._logger = logger
+        self.service_stop_timeout = service_stop_timeout
     
     def register_service(self, name: str, service: IAsyncService):
         """注册服务"""
@@ -348,8 +349,6 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
         
         return all(results)
     
-    _SERVICE_STOP_TIMEOUT = 5  # 每个服务停止的超时秒数
-
     async def stop_all_services(self) -> bool:
         """停止所有服务（每个服务带超时，避免卡死）"""
         import asyncio
@@ -362,7 +361,7 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
                 if hasattr(service, 'stop') and callable(getattr(service, 'stop')):
                     result = await asyncio.wait_for(
                         service.stop(),
-                        timeout=self._SERVICE_STOP_TIMEOUT,
+                        timeout=self.service_stop_timeout,
                     )
                     results.append(result)
                     if not result:
@@ -374,7 +373,7 @@ class ServiceRegistry(metaclass=SingletonABCMeta):
                     results.append(True)
             except asyncio.TimeoutError:
                 self._logger.warning(
-                    f"服务 {name} 停止超时 ({self._SERVICE_STOP_TIMEOUT}s)，跳过"
+                    f"服务 {name} 停止超时 ({self.service_stop_timeout}s)，跳过"
                 )
                 results.append(False)
             except Exception as e:

@@ -39,6 +39,12 @@
         "type": "int",
         "hint": "Web管理界面的访问端口号",
         "default": 7833
+      },
+      "web_interface_host": {
+        "description": "Web界面监听地址",
+        "type": "string",
+        "hint": "Web管理界面绑定的地址。0.0.0.0 表示监听所有网卡（局域网可访问），127.0.0.1 表示仅本机可访问",
+        "default": "0.0.0.0"
       }
     }
   },
@@ -576,11 +582,23 @@
         "hint": "Reranker重排序后保留的Top-K结果数量，值越小越精准但可能遗漏",
         "default": 5
       },
+      "rerank_min_candidates": {
+        "description": "触发重排序的最低候选文档数",
+        "type": "int",
+        "hint": "当知识+记忆候选文档数量低于此阈值时，跳过Reranker以节省延迟。设为0则始终执行重排序",
+        "default": 3
+      },
       "knowledge_engine": {
         "description": "知识引擎",
         "type": "string",
         "hint": "知识存储引擎类型。legacy=现有NetworkX实现，lightrag=使用LightRAG进行向量+图谱混合检索（需配置Embedding提供商）",
         "default": "legacy"
+      },
+      "lightrag_query_mode": {
+        "description": "LightRAG 查询模式",
+        "type": "string",
+        "hint": "LightRAG检索模式。local=仅实体邻域检索（低延迟），hybrid=实体邻域+全局社区聚合（高质量但慢约4-5秒），naive=纯向量检索，global=仅全局社区，mix=混合模式",
+        "default": "local"
       },
       "memory_engine": {
         "description": "记忆引擎",

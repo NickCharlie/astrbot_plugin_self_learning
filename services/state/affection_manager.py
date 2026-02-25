@@ -1003,9 +1003,12 @@ class AffectionManager(AsyncServiceBase):
         """每日情绪更新任务"""
         try:
             while True:
-                current_hour = datetime.now().hour
-                if current_hour == self.config.mood_change_hour:
-                    pass
+                try:
+                    current_hour = datetime.now().hour
+                    if current_hour == self.config.mood_change_hour:
+                        pass
+                except Exception as e:
+                    self._logger.error(f"每日情绪更新失败: {e}")
 
                 await asyncio.sleep(3600)
         except asyncio.CancelledError:

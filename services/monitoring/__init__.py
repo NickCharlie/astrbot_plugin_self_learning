@@ -17,6 +17,7 @@ Quick start::
 from .metrics import (
     REGISTRY,
     get_registry,
+    has_prometheus,
     LLM_REQUEST_DURATION,
     LLM_REQUESTS_TOTAL,
     LLM_ERRORS_TOTAL,
@@ -41,6 +42,7 @@ __all__ = [
     # Registry
     "REGISTRY",
     "get_registry",
+    "has_prometheus",
     # Metric instances
     "LLM_REQUEST_DURATION",
     "LLM_REQUESTS_TOTAL",

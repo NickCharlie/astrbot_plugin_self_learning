@@ -46,7 +46,9 @@ class ServiceFactory(IServiceFactory):
         self.config = config
         self.context = context
         self._logger = logger
-        self._registry = ServiceRegistry()
+        self._registry = ServiceRegistry(
+            service_stop_timeout=config.service_stop_timeout,
+        )
 
         # 服务实例缓存
         self._service_cache: Dict[str, Any] = {}

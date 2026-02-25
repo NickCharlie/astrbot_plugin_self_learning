@@ -354,12 +354,33 @@ class PluginLifecycle:
                 logger.error(f"好感度管理服务启动失败: {e}", exc_info=True)
 
         # ------ V2 学习集成 ------
+        v2_started = False
         if getattr(p, "v2_integration", None):
             try:
                 await p.v2_integration.start()
                 logger.info("V2LearningIntegration started successfully")
+                v2_started = True
             except Exception as e:
                 logger.error(f"V2LearningIntegration start failed: {e}", exc_info=True)
+
+            # Pre-warm LightRAG instances for active groups in the background
+            # to eliminate the cold-start penalty on the first user query.
+            if v2_started and getattr(p, "_group_orchestrator", None):
+                async def _warmup_v2() -> None:
+                    await asyncio.sleep(5)
+                    try:
+                        v2 = getattr(p, "v2_integration", None)
+                        if v2 is None:
+                            return
+                        groups = await p._group_orchestrator.get_active_groups()
+                        if groups:
+                            await v2.warmup(groups)
+                    except Exception as exc:
+                        logger.debug(f"V2 warmup failed: {exc}")
+
+                _t = asyncio.create_task(_warmup_v2())
+                p.background_tasks.add(_t)
+                _t.add_done_callback(p.background_tasks.discard)
 
         # ------ 函数级性能监控 ------
         if plugin_config.debug_mode:
@@ -381,13 +402,10 @@ class PluginLifecycle:
 
     # Phase 3: 有序关停（terminate 阶段调用）
 
-    _STEP_TIMEOUT = 8  # 每个关停步骤的超时秒数
-    _TASK_CANCEL_TIMEOUT = 3  # 每个后台任务取消等待的超时秒数
-
     async def _safe_step(self, label: str, coro, timeout: float = None) -> None:
         """执行一个关停步骤，超时或异常均不阻塞后续步骤"""
         if timeout is None:
-            timeout = self._STEP_TIMEOUT
+            timeout = self._plugin.plugin_config.shutdown_step_timeout
         try:
             await asyncio.wait_for(coro, timeout=timeout)
             logger.info(f"{label} 完成")
@@ -401,6 +419,9 @@ class PluginLifecycle:
         p = self._plugin
         try:
             logger.info("开始插件清理工作...")
+
+            # 0. 阻止新消息产生后台任务
+            p._shutting_down = True
 
             # 1. 停止学习任务
             logger.info("停止所有学习任务...")
@@ -417,40 +438,47 @@ class PluginLifecycle:
                     p.learning_scheduler.stop(),
                 )
 
+            # 2.5 取消流水线子任务
+            pipeline = getattr(p, "_pipeline", None)
+            if pipeline and hasattr(pipeline, "cancel_subtasks"):
+                await self._safe_step(
+                    "取消流水线子任务",
+                    pipeline.cancel_subtasks(),
+                )
+
             # 3. 取消后台任务（每个任务单独超时）
             logger.info("取消所有后台任务...")
-            for task in list(p.background_tasks):
+            _timeout = self._plugin.plugin_config.task_cancel_timeout
+            for task in list(getattr(p, "background_tasks", set())):
                 try:
                     if not task.done():
                         task.cancel()
                         try:
-                            await asyncio.wait_for(
-                                asyncio.shield(task),
-                                timeout=self._TASK_CANCEL_TIMEOUT,
-                            )
+                            await asyncio.wait_for(task, timeout=_timeout)
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
                 except Exception as e:
                     logger.error(
                         LogMessages.BACKGROUND_TASK_CANCEL_ERROR.format(error=e)
                     )
-            p.background_tasks.clear()
+            if hasattr(p, "background_tasks"):
+                p.background_tasks.clear()
 
-            # 4. 停止服务工厂
-            if hasattr(p, "factory_manager"):
-                await self._safe_step(
-                    "清理服务工厂",
-                    p.factory_manager.cleanup(),
-                )
-
-            # 4.5 停止 V2
+            # 4. 停止 V2（在服务工厂之前，确保 buffer flush 可使用完整服务）
             if getattr(p, "v2_integration", None):
                 await self._safe_step(
                     "停止 V2LearningIntegration",
                     p.v2_integration.stop(),
                 )
 
-            # 4.6 重置单例
+            # 5. 停止服务工厂
+            if hasattr(p, "factory_manager"):
+                await self._safe_step(
+                    "清理服务工厂",
+                    p.factory_manager.cleanup(),
+                )
+
+            # 5.5 重置单例
             try:
                 from ..services.state import EnhancedMemoryGraphManager
 
@@ -468,28 +496,28 @@ class PluginLifecycle:
             except Exception:
                 pass
 
-            # 5. 清理临时人格
+            # 6. 清理临时人格
             if hasattr(p, "temporary_persona_updater"):
                 await self._safe_step(
                     "清理临时人格",
                     p.temporary_persona_updater.cleanup_temp_personas(),
                 )
 
-            # 6. 保存状态
+            # 7. 保存状态
             if hasattr(p, "message_collector"):
                 await self._safe_step(
                     "保存消息收集器状态",
                     p.message_collector.save_state(),
                 )
 
-            # 7. 停止 WebUI
+            # 8. 停止 WebUI
             if self._webui_manager:
                 await self._safe_step(
                     "停止 WebUI",
                     self._webui_manager.stop(),
                 )
 
-            # 8. 保存配置
+            # 9. 保存配置
             try:
                 config_path = os.path.join(p.plugin_config.data_dir, "config.json")
                 with open(config_path, "w", encoding="utf-8") as f:

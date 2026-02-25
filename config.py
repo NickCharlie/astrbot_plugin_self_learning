@@ -21,6 +21,7 @@ class PluginConfig(BaseModel):
     enable_realtime_llm_filter: bool = False # 新增：控制实时LLM筛选
     enable_web_interface: bool = True
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
+    web_interface_host: str = "0.0.0.0" # Web 界面监听地址
 
     # MaiBot增强功能（默认启用）
     enable_maibot_features: bool = True # 启用MaiBot增强功能
@@ -44,9 +45,11 @@ class PluginConfig(BaseModel):
     # v2 Architecture: Reranker provider (framework-managed)
     rerank_provider_id: Optional[str] = None
     rerank_top_k: int = 5
+    rerank_min_candidates: int = 3 # 候选文档数低于此阈值时跳过 rerank 以节省延迟
 
     # v2 Architecture: Knowledge engine
     knowledge_engine: str = "legacy" # "lightrag" | "legacy"
+    lightrag_query_mode: str = "local" # "naive" | "local" | "global" | "hybrid" | "mix"
 
     # v2 Architecture: Memory engine
     memory_engine: str = "legacy" # "mem0" | "legacy"
@@ -87,6 +90,11 @@ class PluginConfig(BaseModel):
     debug_mode: bool = False # 调试模式
     save_raw_messages: bool = True # 保存原始消息
     auto_backup_interval_days: int = 7 # 自动备份间隔
+
+    # 关停超时（秒）
+    shutdown_step_timeout: int = 8       # 每个关停步骤的超时
+    task_cancel_timeout: int = 3         # 后台任务取消等待超时
+    service_stop_timeout: int = 5        # 单个服务停止超时
 
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
@@ -233,7 +241,8 @@ class PluginConfig(BaseModel):
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
             enable_realtime_learning=basic_settings.get('enable_realtime_learning', False),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
-            web_interface_port=basic_settings.get('web_interface_port', 7833), # Web 界面端口配置
+            web_interface_port=basic_settings.get('web_interface_port', 7833),
+            web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),
@@ -247,7 +256,9 @@ class PluginConfig(BaseModel):
             embedding_provider_id=v2_settings.get('embedding_provider_id', None),
             rerank_provider_id=v2_settings.get('rerank_provider_id', None),
             rerank_top_k=v2_settings.get('rerank_top_k', 5),
+            rerank_min_candidates=v2_settings.get('rerank_min_candidates', 3),
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
+            lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),
             memory_engine=v2_settings.get('memory_engine', 'legacy'),
 
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),

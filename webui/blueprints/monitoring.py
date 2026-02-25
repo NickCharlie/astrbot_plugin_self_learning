@@ -3,15 +3,24 @@
 import time
 from quart import Blueprint, request, jsonify
 
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-
 from astrbot.api import logger
 from ..dependencies import get_container
 from ..middleware.auth import require_auth
 from ..utils.response import success_response, error_response
-from ...services.monitoring.metrics import REGISTRY
+from ...services.monitoring.metrics import REGISTRY, has_prometheus
 from ...services.monitoring.health_checker import HealthChecker
 from ...services.monitoring.profiler import ProfileSession
+
+# Lazy import: generate_latest / CONTENT_TYPE_LATEST only available
+# when prometheus_client is present.
+_generate_latest = None
+_CONTENT_TYPE_LATEST = "text/plain; charset=utf-8"
+if has_prometheus():
+    try:
+        from prometheus_client import generate_latest as _generate_latest
+        from prometheus_client import CONTENT_TYPE_LATEST as _CONTENT_TYPE_LATEST
+    except Exception:
+        pass
 
 monitoring_bp = Blueprint("monitoring", __name__, url_prefix="/api/monitoring")
 
@@ -27,8 +36,10 @@ async def prometheus_metrics():
     This endpoint can be scraped by a Prometheus server directly.
     """
     try:
-        data = generate_latest(REGISTRY)
-        return data, 200, {"Content-Type": CONTENT_TYPE_LATEST}
+        if _generate_latest is None:
+            return error_response("prometheus_client 不可用", 503)
+        data = _generate_latest(REGISTRY)
+        return data, 200, {"Content-Type": _CONTENT_TYPE_LATEST}
     except Exception as e:
         logger.error(f"[Monitoring] Failed to generate metrics: {e}")
         return error_response(str(e), 500)

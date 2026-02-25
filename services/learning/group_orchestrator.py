@@ -43,6 +43,8 @@ class GroupLearningOrchestrator:
 
         # Per-group last-start timestamps (keyed by group_id)
         self._last_learning_start: Dict[str, float] = {}
+        # Groups whose timestamps have already been loaded from DB
+        self._loaded_groups: set = set()
 
     # Public API
 
@@ -51,6 +53,11 @@ class GroupLearningOrchestrator:
         try:
             if group_id in self.learning_tasks:
                 return
+
+            # 懒加载: 从数据库恢复上次学习时间戳（每个群仅查询一次）
+            if group_id not in self._loaded_groups:
+                if await self._load_last_learning_ts(group_id):
+                    self._loaded_groups.add(group_id)
 
             current_time = time.time()
             last_start = self._last_learning_start.get(group_id, 0)
@@ -71,10 +78,10 @@ class GroupLearningOrchestrator:
                 )
                 return
 
-            total_messages = self._safe_int(
-                stats.get("total_messages", 0), "total_messages"
+            unprocessed_count = self._safe_int(
+                stats.get("unprocessed_messages", 0), "unprocessed_messages"
             )
-            if total_messages is None:
+            if unprocessed_count is None:
                 return
 
             min_messages = self._safe_int(
@@ -83,10 +90,10 @@ class GroupLearningOrchestrator:
                 default=10,
             )
 
-            if total_messages < min_messages:
+            if unprocessed_count < min_messages:
                 logger.debug(
-                    f"群组 {group_id} 消息数量未达到学习阈值: "
-                    f"{total_messages}/{min_messages}"
+                    f"群组 {group_id} 未处理消息数量未达到学习阈值: "
+                    f"{unprocessed_count}/{min_messages}"
                 )
                 return
 
@@ -121,7 +128,7 @@ class GroupLearningOrchestrator:
             for group_id in active_groups:
                 try:
                     await self.smart_start_learning_for_group(group_id)
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(1)
                 except Exception as e:
                     logger.error(f"延迟启动群组 {group_id} 学习失败: {e}")
 
@@ -216,11 +223,13 @@ class GroupLearningOrchestrator:
 
     async def cancel_all(self) -> None:
         """Cancel all running learning tasks (called during shutdown)."""
+        _timeout = self._config.task_cancel_timeout
+
         # Signal all groups to stop first (non-blocking)
         try:
             await asyncio.wait_for(
                 self._progressive_learning.stop_learning(),
-                timeout=3,
+                timeout=_timeout,
             )
         except (asyncio.TimeoutError, Exception) as e:
             logger.warning(f"stop_learning 超时或失败: {e}")
@@ -231,9 +240,7 @@ class GroupLearningOrchestrator:
                 if not task.done():
                     task.cancel()
                     try:
-                        await asyncio.wait_for(
-                            asyncio.shield(task), timeout=2,
-                        )
+                        await asyncio.wait_for(task, timeout=_timeout)
                     except (asyncio.CancelledError, asyncio.TimeoutError):
                         pass
                 logger.info(f"群组 {group_id} 学习任务已停止")
@@ -242,6 +249,43 @@ class GroupLearningOrchestrator:
         self.learning_tasks.clear()
 
     # Internal helpers
+
+    def _db_ready(self) -> bool:
+        """Return True if the database manager is available and started."""
+        if not self._db_manager:
+            return False
+        if hasattr(self._db_manager, "_started") and not self._db_manager._started:
+            return False
+        return True
+
+    async def _load_last_learning_ts(self, group_id: str) -> bool:
+        """Seed ``_last_learning_start`` for *group_id* from ``learning_batches``.
+
+        Called lazily on first access per group.  If the DB is unavailable
+        or contains no batch history, the entry remains unset (defaults to 0).
+
+        Returns:
+            True if the DB was successfully queried (even if no results).
+        """
+        if not self._db_ready():
+            return False
+        try:
+            batches = await self._db_manager.get_learning_batch_history(
+                group_id=group_id, limit=1
+            )
+            if batches:
+                start_time = batches[0].get("start_time", 0)
+                if start_time:
+                    self._last_learning_start[group_id] = float(start_time)
+                    logger.debug(
+                        f"从数据库恢复群组 {group_id} 上次学习时间: {start_time}"
+                    )
+            return True
+        except Exception as e:
+            logger.debug(
+                f"从数据库加载群组 {group_id} 学习时间失败 (回退到内存): {e}"
+            )
+            return False
 
     async def _start_group_learning(self, group_id: str) -> None:
         """Start the progressive learning session for a single group."""

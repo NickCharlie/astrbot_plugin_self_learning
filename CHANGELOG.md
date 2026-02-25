@@ -2,6 +2,98 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.5] - 2026-02-24
+
+### Bug 修复
+
+#### 插件卸载/重载 CPU 100%（间歇性）
+- 修复 `on_message` 中 `asyncio.create_task()` 产生的后台任务（`process_learning`、`process_affection`、`mine_jargon`、`process_realtime_background`）未被跟踪的问题，卸载时无法取消导致僵尸任务持续消耗 CPU
+- `main.py` 新增 `_track_task()` 方法，所有 fire-and-forget 任务注册到 `background_tasks` 集合
+- `MessagePipeline` 新增 `_subtasks` 跟踪集合和 `_spawn()` 方法，替代裸 `asyncio.create_task()`
+- 新增 `cancel_subtasks()` 方法，关停时批量取消流水线内部子任务
+- 新增 `_shutting_down` 标志位，关停序列第一步即设置，阻止 `on_message` 继续产生新任务
+- 修复 `asyncio.shield(task)` 反模式：`wait_for` 超时后只取消 shield 而非实际任务，导致超时后任务变为不可回收的僵尸。已从 `plugin_lifecycle.py` 和 `group_orchestrator.py` 中移除 `asyncio.shield`
+- 调整关停顺序：V2LearningIntegration 在服务工厂之前停止，确保 buffer flush 可使用完整服务
+
+#### 插件重启后每条消息都触发学习任务
+- 修复 `GroupLearningOrchestrator` 中 `_last_learning_start` 时间戳为纯内存字典，插件重启后清空导致每个群的首条消息无条件触发学习的问题
+- 新增 `_load_last_learning_ts()` 懒加载方法，从 `learning_batches` 表恢复上次学习时间戳，每个群仅查询一次
+- 修复学习触发条件使用 `total_messages`（累计总数）而非 `unprocessed_messages`（未处理数），导致活跃群组阈值检查形同虚设的问题
+
+#### 插件卸载时阻塞
+- 修复 `V2LearningIntegration.stop()` 中 buffer flush 无超时保护，LLM API 无响应时无限阻塞关停流程的问题。每个群的 flush 现在受 `task_cancel_timeout` 限制，超时后丢弃缓冲区继续关停
+- 修复 `DatabaseEngine.close()` 中 `engine.dispose()` 无超时保护，MySQL 连接池在有未完成查询时可能无限等待的问题。每个引擎 dispose 现在带 5 秒超时
+
+#### Mem0 记忆引擎 API 调用失败
+- 修复 Mem0 通过提取 API 凭证重建 LLM / Embedding 客户端的方式，当凭证提取失败或模型名不可用时报 `api_key client option must be set` 或 `Model does not exist` 错误
+- LLM 和 Embedding 均改为直接桥接框架 Provider：自定义 `LLMBase` / `EmbeddingBase` 子类通过 `asyncio.run_coroutine_threadsafe()` 调用框架的 `text_chat()` / `get_embedding()` 方法，无需提取任何 API 凭证
+- 移除 `_extract_llm_credentials()` 和 `_extract_embedding_credentials()` 方法
+
+#### MySQL 连接 Packet sequence number wrong
+- 修复 `DatabaseEngine` 的 MySQL 引擎使用 `NullPool`（无连接池），高并发下连接状态混乱导致 `Packet sequence number wrong` 错误
+- 改为 SQLAlchemy 默认 `QueuePool`（pool_size=5, max_overflow=10），启用 `pool_pre_ping=True` 自动检测失效连接，`pool_recycle=3600` 防止 MySQL 超时断开
+
+#### 黑话并发插入 IntegrityError
+- 修复 `jargon_miner` 中 TOCTOU 竞态：`get_jargon()` 与 `insert_jargon()` 之间无原子保护，并发任务同时插入相同 `chat_id + content` 触发唯一约束冲突
+- `JargonFacade.insert_jargon()` 新增 `IntegrityError` 捕获，冲突时回退查询已有记录并返回其 ID
+
+### 性能优化
+
+#### LightRAG 首次查询冷启动优化
+- 新增 `LightRAGKnowledgeManager.warmup_instances()` 方法，在插件启动后异步预创建活跃群组的 LightRAG 实例（storage 初始化 + pipeline 初始化），消除首次用户查询时的冷启动延迟，首次查询延迟降低约 80%
+- `V2LearningIntegration` 新增 `warmup()` 方法，由 `PluginLifecycle.on_load()` 在后台调用
+- 自动学习启动的群组间等待缩短约 80%，减少启动阶段日志中的间隔
+
+## [Next-2.0.3] - 2026-02-24
+
+### 性能优化
+
+#### V2 上下文检索延迟优化（LLM Hook 响应加速）
+- 新增查询结果级 TTL 缓存（基于 CacheManager），`get_enhanced_context` 缓存命中时延迟降低约 40%
+- LightRAG 默认查询模式从 `hybrid` 调整为 `local`，省去全局社区聚合步骤，单次查询延迟降低约 35-40%
+- ExemplarLibrary 查询 embedding 结果缓存至 CacheManager，避免相同 query 重复调用 embedding API
+- Rerank 改为条件执行：候选文档数低于 `rerank_min_candidates`（默认 3）时跳过，减少不必要的 API 调用
+
+#### 消息摄入架构重构（process_message 加速）
+- 将 LightRAG 知识图谱摄入和 Mem0 记忆摄入从 Tier 1（每条消息执行）降级为 Tier 2（批量执行）
+- Tier 1 延迟降低约 47%，仅执行轻量缓冲操作，重量级 LLM 操作在 Tier 2 批量触发
+- 批量策略：每 5 条消息或 60 秒触发一次 flush，知识和记忆引擎并发处理
+- 短消息过滤：长度低于 15 字符的消息跳过 LLM 摄入，减少无效 API 调用
+- 关停时自动 flush 残余缓冲，防止数据丢失
+
+#### CacheManager 扩展
+- 新增 `context` TTL 缓存（128 条目, 5 分钟），用于 V2 上下文检索结果
+- 新增 `embedding_query` TTL 缓存（256 条目, 10 分钟），用于查询 embedding 向量
+
+### 新增配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `lightrag_query_mode` | `local` | LightRAG 检索模式（local/hybrid/naive/global/mix） |
+| `rerank_min_candidates` | `3` | 触发 Reranker 的最低候选文档数 |
+
+## [Next-2.0.2] - 2026-02-24
+
+### Bug 修复
+
+#### MySQL 方言兼容
+- 修复 SQLAlchemy 列类型定义在 MySQL 方言下的兼容性问题
+
+#### 监控模块可选依赖
+- `prometheus_client` 导入失败时优雅降级，不再阻断插件启动
+
+#### Windows 控制台兼容
+- 新增 GBK 安全字符串转换辅助函数，防止 Windows 中文控制台输出含 emoji/特殊字符时崩溃
+
+### 重构
+
+#### 关停超时集中管理
+- 将 `shutdown_step_timeout`、`task_cancel_timeout`、`service_stop_timeout` 三个超时参数集中到 `PluginConfig`
+
+### CI/CD
+
+- Issue triage workflow 重写为双段式报告格式
+
 ## [Next-2.0.1] - 2026-02-23
 
 ### 🔧 Bug 修复

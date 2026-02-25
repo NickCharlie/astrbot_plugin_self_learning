@@ -6,9 +6,62 @@ instrumentation in the host process and simplifying test isolation.
 
 Metric naming follows the Prometheus convention:
     <namespace>_<subsystem>_<unit>
+
+When ``prometheus_client`` is unavailable (e.g. stripped Python on Windows
+where ``wsgiref.simple_server`` is missing), lightweight no-op stubs are
+used so that the rest of the plugin can still function normally.
 """
 
-from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+from astrbot.api import logger
+
+# -- Graceful degradation when prometheus_client is unavailable ---------------
+
+_HAS_PROMETHEUS = False
+
+try:
+    from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram
+    _HAS_PROMETHEUS = True
+except Exception:
+    logger.warning(
+        "[Monitoring] prometheus_client 不可用，性能指标将以 no-op 模式运行"
+    )
+
+    # ---- Lightweight stubs that mirror the prometheus_client API we use ----
+
+    class _StubLabeled:
+        """Returned by .labels(); all mutation methods are no-ops."""
+        def inc(self, amount=1): pass
+        def dec(self, amount=1): pass
+        def set(self, value): pass
+        def observe(self, amount): pass
+
+    class _StubMetric:
+        """Base stub for Counter / Gauge / Histogram."""
+        def __init__(self, *args, **kwargs):
+            self._labeled = _StubLabeled()
+        def labels(self, *args, **kwargs):
+            return self._labeled
+        def inc(self, amount=1): pass
+        def dec(self, amount=1): pass
+        def set(self, value): pass
+        def observe(self, amount): pass
+        def collect(self):
+            return []
+
+    class CollectorRegistry:                    # type: ignore[no-redef]
+        def get_all(self): return []
+        def collect(self): return []
+        def get_sample_value(self, *a, **kw): return None
+
+    Counter = _StubMetric                       # type: ignore[misc,assignment]
+    Gauge = _StubMetric                         # type: ignore[misc,assignment]
+    Histogram = _StubMetric                     # type: ignore[misc,assignment]
+
+
+def has_prometheus() -> bool:
+    """Return whether the real prometheus_client is available."""
+    return _HAS_PROMETHEUS
+
 
 # Dedicated registry (isolated from the global default registry).
 REGISTRY = CollectorRegistry()

@@ -68,7 +68,10 @@ class WebUIManager:
                     _server_instance = None
 
             if _server_instance is None:
-                _server_instance = Server(port=self._config.web_interface_port)
+                _server_instance = Server(
+                    host=self._config.web_interface_host,
+                    port=self._config.web_interface_port,
+                )
                 if _server_instance:
                     logger.info(
                         f"Web 服务器实例已创建 "
@@ -158,7 +161,8 @@ class WebUIManager:
 
         try:
             await asyncio.wait_for(
-                _server_cleanup_lock.acquire(), timeout=3.0,
+                _server_cleanup_lock.acquire(),
+                timeout=self._config.task_cancel_timeout,
             )
         except asyncio.TimeoutError:
             logger.warning("[WebUI] 获取清理锁超时，强制继续清理")

@@ -31,6 +31,7 @@ from sqlalchemy import case, delete, desc, select, update
 from sqlalchemy.sql import func
 
 from ...models.orm.exemplar import Exemplar
+from ...utils.cache_manager import get_cache_manager
 from ..monitoring.instrumentation import monitored
 
 # Optional numpy for vectorised cosine similarity.
@@ -291,8 +292,17 @@ class ExemplarLibrary:
     async def _similarity_search(
         self, query: str, group_id: str, k: int
     ) -> List[str]:
-        """Vector cosine similarity search with in-memory caching."""
-        query_vec = await self._embedding.get_embedding(query)
+        """Vector cosine similarity search with in-memory caching.
+
+        Query embeddings are cached via CacheManager to avoid redundant
+        embedding API calls for repeated or identical queries.
+        """
+        cache = get_cache_manager()
+        cache_key = f"exemplar:{query[:80]}"
+        query_vec = cache.get("embedding_query", cache_key)
+        if query_vec is None:
+            query_vec = await self._embedding.get_embedding(query)
+            cache.set("embedding_query", cache_key, query_vec)
 
         # Use cached vectors or load from DB.
         cached = self._vector_cache.get(group_id)
