@@ -14,7 +14,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-Next--2.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-Next--2.1.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 [Features](#what-we-can-do) · [Quick Start](#quick-start) · [Web UI](#visual-management-interface) · [Community](#community) · [Contributing](CONTRIBUTING.md)
 
@@ -220,6 +220,7 @@ This project is licensed under the [GPLv3 License](LICENSE).
 
 - **[MaiBot](https://github.com/Mai-with-u/MaiBot)** — Core design concepts including expression pattern learning and knowledge graph management
 - **[AstrBot](https://github.com/Soulter/AstrBot)** — Excellent chatbot framework
+- **[ACE (Agentic Context Engineering)](https://github.com/ace-agent/ace)** — Design patterns for automated persona prompt curation (Curator pattern), few-shot exemplar effectiveness tracking (helpful/harmful dual counters), and semantic deduplication (BulletpointAnalyzer pattern). See the paper [*Agentic Context Engineering*](https://arxiv.org/abs/2510.04618)
 
 ### Contributors
 

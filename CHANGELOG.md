@@ -2,6 +2,61 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.1.0] - 2026-02-26
+
+### 新功能
+
+#### ACE 模式集成（借鉴 [ACE](https://github.com/ace-agent/ace) 项目设计思路）
+
+##### PersonaCurator — 人设 Prompt 自动整理
+- 新增 `PersonaCurator` 服务，定期对人设 prompt 进行结构化整理
+- 将人设 prompt 解析为多个 section（基础描述、增量更新、群组标记、学习增强特征），由 LLM 提出 KEEP/MERGE/UPDATE/DELETE 操作
+- 通过 Guardrails-AI Pydantic 模型（`CurationOperationItem`/`CurationOperationList`）验证 LLM 输出，替代手动 JSON 解析
+- Token 预算机制：超过配置阈值（默认 4000 token）时自动触发整理，支持 CJK/ASCII 混合文本的 token 估算
+- 整理失败时自动回退到截断策略，保留最新内容
+- 集成到 `PersonaUpdater`，每次增量更新后自动检查是否需要整理
+
+##### Fewshot 样本有效性追踪
+- `Exemplar` ORM 新增 `helpful_count` 和 `harmful_count` 双计数器列，使用 Laplace 平滑（`(h+1)/(h+m+2)`）避免冷启动偏差
+- 新增 `effectiveness_ratio` 和 `effective_weight` 属性，将基础权重与反馈信号融合
+- `ExemplarLibrary` 新增 `record_helpful()`、`record_harmful()`、`record_feedback_batch()` 反馈接口
+- 新增 `get_few_shot_examples_with_ids()` 方法，返回 `(id, content)` 元组用于反馈追踪
+- 向量相似度搜索的权重计算融合 effectiveness ratio，高质量样本排名更靠前
+- `V2LearningIntegration` 在上下文检索时自动记录使用的样本 ID，供后续反馈循环消费
+- `LLMHookHandler` 将使用的样本 ID 写入 CacheManager，打通反馈链路
+
+##### ExemplarDeduplicator — Fewshot 样本语义去重
+- 新增 `ExemplarDeduplicator` 服务，基于 Union-Find 聚类算法对语义相似的样本进行合并
+- 余弦相似度矩阵计算支持 numpy 加速（无 numpy 时自动回退纯 Python）
+- 大聚类（≥3 条）通过 LLM 生成合并文本，小聚类选取最高权重样本为代表
+- 自动为缺失 embedding 的样本批量补充向量
+- 注册为 V2 Tier-2 批量操作（每 100 条消息或 30 分钟触发一次）
+
+##### Guardrails-AI 扩展
+- `GuardrailsManager` 新增 `CurationOperationItem`、`CurationOperationList` Pydantic 模型
+- 新增 `get_curation_guard()` 和 `parse_curation_operations()` 方法
+- 支持将 LLM 返回的裸 JSON 数组自动包装为 Guard 可解析的对象信封
+
+#### 数据库 Schema 自动迁移
+- `ExemplarLibrary` 新增 `_migrate_schema()` 方法，使用 SQLAlchemy Inspector 检测并添加缺失列
+- 方言感知：SQLite 和 MySQL 分别处理，MySQL 自动升级 `embedding_json` 为 `MEDIUMTEXT`
+- 每进程仅执行一次迁移检查，避免重复开销
+
+### 新增配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `enable_persona_curation` | `true` | 启用人设 prompt 自动整理 |
+| `persona_prompt_token_budget` | `4000` | 人设 prompt token 上限，超过触发整理 |
+| `persona_curation_min_sections` | `3` | 最少增量段数才触发整理 |
+| `enable_exemplar_effectiveness` | `true` | 启用 fewshot 样本有效性追踪 |
+| `enable_exemplar_dedup` | `true` | 启用 fewshot 样本语义去重 |
+| `exemplar_dedup_threshold` | `0.85` | 去重余弦相似度阈值 |
+
+### 致谢
+
+- 感谢 [ACE (Agentic Context Engineering)](https://github.com/ace-agent/ace) 项目及论文 [arXiv:2510.04618](https://arxiv.org/abs/2510.04618) 提供的 Curator、helpful/harmful 双计数器和 BulletpointAnalyzer 设计模式参考
+
 ## [Next-2.0.5] - 2026-02-24
 
 ### Bug 修复

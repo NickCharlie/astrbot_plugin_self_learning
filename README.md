@@ -14,7 +14,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-Next--2.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-Next--2.1.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 [核心功能](#-我们能做什么) · [快速开始](#-快速开始) · [管理界面](#-可视化管理界面) · [社区交流](#-社区交流) · [贡献指南](CONTRIBUTING.md)
 
@@ -220,6 +220,7 @@ http://localhost:7833
 
 - **[MaiBot](https://github.com/Mai-with-u/MaiBot)** — 表达模式学习、知识图谱管理等核心设计思路
 - **[AstrBot](https://github.com/Soulter/AstrBot)** — 优秀的聊天机器人框架
+- **[ACE (Agentic Context Engineering)](https://github.com/ace-agent/ace)** — 人设 Prompt 自动整理（Curator 模式）、Fewshot 样本有效性追踪（helpful/harmful 双计数器）和语义去重（BulletpointAnalyzer 模式）等设计思路。详见论文 [*Agentic Context Engineering*](https://arxiv.org/abs/2510.04618)
 
 ### 贡献者
 
