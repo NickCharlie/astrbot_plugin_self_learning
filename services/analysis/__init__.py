@@ -5,6 +5,7 @@ from .ml_analyzer import LightweightMLAnalyzer
 from .intelligence_enhancement import IntelligenceEnhancementService
 from .expression_pattern_learner import ExpressionPatternLearner
 from .intelligence_metrics import IntelligenceMetricsService
+from .exemplar_deduplicator import ExemplarDeduplicator
 
 __all__ = [
     "MultidimensionalAnalyzer",
@@ -12,4 +13,5 @@ __all__ = [
     "IntelligenceEnhancementService",
     "ExpressionPatternLearner",
     "IntelligenceMetricsService",
+    "ExemplarDeduplicator",
 ]
