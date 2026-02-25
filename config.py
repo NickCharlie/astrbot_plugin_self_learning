@@ -199,7 +199,7 @@ class PluginConfig(BaseModel):
     enable_persona_curation: bool = True # 启用人设prompt整理
     persona_prompt_token_budget: int = 4000 # 人设prompt token上限
     persona_curation_interval_hours: int = 24 # 定时整理间隔(小时)
-    persona_curation_min_sections: int = 3 # 至少有N个增量段才触发整理
+    persona_curation_min_sections: int = 5 # 追加N次增量段后触发整理
 
     # Exemplar effectiveness tracking (ACE helpful/harmful pattern)
     enable_exemplar_effectiveness: bool = True # 启用fewshot样本有效性追踪
@@ -381,7 +381,7 @@ class PluginConfig(BaseModel):
             enable_persona_curation=advanced_settings.get('enable_persona_curation', True),
             persona_prompt_token_budget=advanced_settings.get('persona_prompt_token_budget', 4000),
             persona_curation_interval_hours=advanced_settings.get('persona_curation_interval_hours', 24),
-            persona_curation_min_sections=advanced_settings.get('persona_curation_min_sections', 3),
+            persona_curation_min_sections=advanced_settings.get('persona_curation_min_sections', 5),
             enable_exemplar_effectiveness=advanced_settings.get('enable_exemplar_effectiveness', True),
             exemplar_feedback_window=advanced_settings.get('exemplar_feedback_window', 300),
             enable_exemplar_dedup=advanced_settings.get('enable_exemplar_dedup', True),

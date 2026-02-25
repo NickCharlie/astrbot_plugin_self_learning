@@ -720,7 +720,7 @@ class PersonaUpdater(IPersonaUpdater):
             return False
 
     async def _try_curate_persona(self, group_id: str) -> None:
-        """Run PersonaCurator if the prompt exceeds the token budget.
+        """Run PersonaCurator if incremental sections exceed the threshold.
 
         This is a best-effort operation; failures are logged but do not
         propagate to callers.

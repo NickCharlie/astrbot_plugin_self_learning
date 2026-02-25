@@ -212,16 +212,16 @@
         "default": true
       },
       "persona_prompt_token_budget": {
-        "description": "人设prompt token上限",
+        "description": "人设prompt整理目标token数",
         "type": "int",
-        "hint": "人设prompt超过此token数时触发自动整理",
+        "hint": "整理触发后，LLM会尝试将prompt压缩到此token数以内",
         "default": 4000
       },
       "persona_curation_min_sections": {
-        "description": "最少增量段数才触发整理",
+        "description": "触发整理的追加次数",
         "type": "int",
-        "hint": "人设prompt至少有N个增量更新段落才会触发自动整理",
-        "default": 3
+        "hint": "人设prompt累计追加N次增量更新后自动触发整理合并",
+        "default": 5
       },
       "enable_exemplar_effectiveness": {
         "description": "启用fewshot样本有效性追踪",

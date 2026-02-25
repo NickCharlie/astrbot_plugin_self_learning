@@ -12,8 +12,10 @@ The Curator executes four operation types on prompt sections:
     DELETE - Remove an obsolete or contradictory section.
 
 Design principles:
-    - Token budget enforcement: the curated prompt must not exceed a
-      configurable token limit.
+    - Section-count trigger: curation fires after N incremental append
+      sections accumulate (default 5), rather than a fixed token budget.
+    - Token budget target: once triggered, the LLM is instructed to
+      compress the prompt down to a configurable token limit.
     - Safety validation: a consistency check rejects curations that
       would alter the core personality beyond an acceptable threshold.
     - LLM-driven: the actual merge/rewrite decisions are delegated to
@@ -107,7 +109,7 @@ class PersonaCurator:
             config, "persona_prompt_token_budget", 4000
         )
         self._min_sections = getattr(
-            config, "persona_curation_min_sections", 3
+            config, "persona_curation_min_sections", 5
         )
 
     # Public API
@@ -130,14 +132,6 @@ class PersonaCurator:
         """
         budget = token_budget if token_budget is not None else self._token_budget
         original_tokens = _estimate_tokens(current_prompt)
-
-        if original_tokens <= budget:
-            return CurationResult(
-                success=True,
-                original_token_count=original_tokens,
-                curated_token_count=original_tokens,
-                curated_prompt=current_prompt,
-            )
 
         sections = self._parse_prompt_sections(current_prompt)
 
@@ -206,8 +200,16 @@ class PersonaCurator:
         )
 
     def should_curate(self, current_prompt: str) -> bool:
-        """Check whether the prompt exceeds the token budget."""
-        return _estimate_tokens(current_prompt) > self._token_budget
+        """Check whether the prompt has accumulated enough incremental sections.
+
+        Triggers curation when the number of incremental/enhancement sections
+        reaches ``persona_curation_min_sections`` (default 5).
+        """
+        sections = self._parse_prompt_sections(current_prompt)
+        incremental_count = sum(
+            1 for s in sections if s.section_type == "incremental"
+        )
+        return incremental_count >= self._min_sections
 
     # Parsing
 
