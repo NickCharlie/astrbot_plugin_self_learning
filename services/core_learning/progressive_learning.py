@@ -250,7 +250,26 @@ class ProgressiveLearningService:
                 logger.debug("没有通过筛选的消息")
                 await self._mark_messages_processed(unprocessed_messages)
                 return
-            
+
+            # 2.5 将筛选后的消息写入 FilteredMessage 表（供 WebUI 统计）
+            saved_count = 0
+            for msg in filtered_messages:
+                try:
+                    await self.message_collector.add_filtered_message({
+                        "raw_message_id": msg.get("id"),
+                        "message": msg.get("message", ""),
+                        "sender_id": msg.get("sender_id", ""),
+                        "group_id": msg.get("group_id", group_id),
+                        "timestamp": msg.get("timestamp", int(time.time())),
+                        "confidence": msg.get("relevance_score", 1.0),
+                        "filter_reason": msg.get("filter_reason", "batch_learning"),
+                    })
+                    saved_count += 1
+                except Exception:
+                    pass  # best-effort, don't block learning
+            if saved_count:
+                logger.debug(f"已保存 {saved_count}/{len(filtered_messages)} 条筛选消息到 FilteredMessage 表")
+
             # 3. 获取当前人格设置 (针对特定群组)
             current_persona = await self._get_current_persona(group_id)
             
