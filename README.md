@@ -229,10 +229,19 @@ http://localhost:7833
 
 ---
 
+---
+
 <div align="center">
 
 **如果觉得有帮助，欢迎 Star 支持！**
 
+### 赞助支持
+
+如果这个项目对你有帮助，欢迎通过爱发电赞助支持开发者持续维护：
+
+<img src="image/afdian-NickMo.jpeg" alt="爱发电赞助二维码" width="200"/>
+
 [回到顶部](#astrbot-自主学习插件)
 
 </div>
+
