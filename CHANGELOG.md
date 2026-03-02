@@ -2,6 +2,50 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Next-2.0.6] - 2026-03-02
+
+### 新功能
+
+#### WebUI 监听地址可配置
+- 新增 `web_interface_host` 配置项，允许用户自定义 WebUI 监听地址（默认 `0.0.0.0`）
+
+### Bug 修复
+
+#### SQLite 并发访问错误
+- 修复 SQLite 连接池使用 `StaticPool`（共享单连接）导致 WebUI 并发请求事务状态污染的问题
+- 改为 `NullPool`，每个会话获取独立连接，消除 "Cannot operate on a closed database" 错误
+
+#### 插件卸载 CPU 100%
+- 移除 WebUI 关停流程中 `server.py` 和 `manager.py` 的两次 `gc.collect()` 调用
+- 每次 `gc.collect()` 遍历 ~200 个模块的对象图耗时 80+ 秒，导致卸载期间 CPU 满载
+
+#### 命令处理器空指针
+- 为全部 6 个管理命令（`learning_status`、`start_learning`、`stop_learning`、`force_learning`、`affection_status`、`set_mood`）添加空值守卫
+- 当 `bootstrap()` 失败导致 `_command_handlers` 为 `None` 时，返回友好提示而非抛出 `'NoneType' object has no attribute` 异常
+
+#### 人格审查系统
+- 修复撤回操作崩溃和已审查列表数据缺失问题
+- 修复风格学习审查记录在已审查历史中显示空内容、类型"未知"、置信度 0.0% 的问题，补全 `StyleLearningReview` 到前端统一格式的字段映射
+- WebUI 风格统计查询改用 Facade 而非直接 Repository 调用
+
+#### MySQL 8 连接
+- 禁用 MySQL 8 默认 SSL 要求，解决 `ssl.SSLError` 连接失败
+- 强化会话生命周期管理
+
+#### ORM 字段映射
+- 修正心理状态和情绪持久化的 ORM 字段映射
+- 使用防御性 `getattr` 处理 ORM-to-dataclass 组件映射中的缺失属性
+
+#### 其他修复
+- WebUI 使用全局默认人格代替随机 UMO
+- WebUI 响应速度指标无 LLM 数据时使用中性回退值
+- 黑话 meaning 字段 dict/list 类型序列化为 JSON 字符串后写入数据库
+- 批量学习路径中正确保存筛选后的消息到数据库
+- 防护 `background_tasks` 在关停序列中的访问安全
+
+### 测试
+- 新增核心模块单元测试，扩展覆盖率配置
+
 ## [Next-2.0.5] - 2026-02-24
 
 ### Bug 修复
