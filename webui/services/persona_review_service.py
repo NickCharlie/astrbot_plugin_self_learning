@@ -596,25 +596,53 @@ class PersonaReviewService:
 
         # 从传统人格更新审查获取
         if self.persona_updater:
-            traditional_updates = await self.persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
-            reviewed_updates.extend(traditional_updates)
+            try:
+                traditional_updates = await self.persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
+                if traditional_updates:
+                    reviewed_updates.extend(traditional_updates)
+            except Exception as e:
+                logger.warning(f"获取传统已审查人格更新失败: {e}")
 
         # 从人格学习审查获取
         if self.database_manager:
-            persona_learning_updates = await self.database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
-            reviewed_updates.extend(persona_learning_updates)
+            try:
+                persona_learning_updates = await self.database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
+                if persona_learning_updates:
+                    # 为人格学习记录添加前缀 ID
+                    for update in persona_learning_updates:
+                        if update.get('id') is not None:
+                            update['id'] = f"persona_learning_{update['id']}"
+                    reviewed_updates.extend(persona_learning_updates)
+            except Exception as e:
+                logger.warning(f"获取已审查人格学习更新失败: {e}")
 
         # 从风格学习审查获取
         if self.database_manager:
-            style_updates = await self.database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
-            # 将风格审查转换为统一格式
-            for update in style_updates:
-                if 'id' in update:
-                    update['id'] = f"style_{update['id']}"
-            reviewed_updates.extend(style_updates)
+            try:
+                style_updates = await self.database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
+                if style_updates:
+                    for update in style_updates:
+                        # 转换风格学习字段为前端统一格式
+                        update['id'] = f"style_{update['id']}" if update.get('id') is not None else None
+                        update['update_type'] = update.get('type', UPDATE_TYPE_STYLE_LEARNING)
+                        update['original_content'] = update.get('original_content', '')
+                        update['new_content'] = update.get('few_shots_content', '')
+                        update['proposed_content'] = update.get('few_shots_content', '')
+                        update['confidence_score'] = update.get('confidence_score', 0.9)
+                        update['reason'] = update.get('description', '')
+                        update['review_source'] = 'style_learning'
+                    reviewed_updates.extend(style_updates)
+            except Exception as e:
+                logger.warning(f"获取已审查风格学习更新失败: {e}")
+
+        # 过滤掉无效记录（id 为 None 或空的条目）
+        reviewed_updates = [
+            u for u in reviewed_updates
+            if u and u.get('id') is not None
+        ]
 
         # 按审查时间排序
-        reviewed_updates.sort(key=lambda x: x.get('review_time', 0), reverse=True)
+        reviewed_updates.sort(key=lambda x: x.get('review_time') or 0, reverse=True)
 
         return {
             "success": True,

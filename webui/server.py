@@ -4,7 +4,6 @@ WebUI 服务器
 """
 import os
 import sys
-import gc
 import asyncio
 import socket
 import threading
@@ -192,7 +191,6 @@ class Server:
             Server._instance = None
             self._initialized = False
 
-            gc.collect()
             logger.info("[WebUI] 服务器已停止")
 
         except Exception as e:

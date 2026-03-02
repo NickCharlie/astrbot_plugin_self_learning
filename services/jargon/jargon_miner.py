@@ -116,7 +116,13 @@ class JargonInferenceEngine:
                 logger.info(f"黑话 {content} 信息不足，等待下次推断")
                 return {'no_info': True}
 
-            meaning1 = inference1.get('meaning', '').strip()
+            meaning1_raw = inference1.get('meaning', '')
+            if isinstance(meaning1_raw, dict):
+                meaning1 = json.dumps(meaning1_raw, ensure_ascii=False)
+            elif isinstance(meaning1_raw, list):
+                meaning1 = json.dumps(meaning1_raw, ensure_ascii=False)
+            else:
+                meaning1 = str(meaning1_raw).strip() if meaning1_raw else ''
             if not meaning1:
                 return {'no_info': True}
 
@@ -153,9 +159,18 @@ class JargonInferenceEngine:
             is_similar = comparison.get('is_similar', False)
             is_jargon = not is_similar
 
+            if is_jargon:
+                final_meaning = meaning1
+            else:
+                meaning2_raw = inference2.get('meaning', '')
+                if isinstance(meaning2_raw, (dict, list)):
+                    final_meaning = json.dumps(meaning2_raw, ensure_ascii=False)
+                else:
+                    final_meaning = str(meaning2_raw).strip() if meaning2_raw else ''
+
             return {
                 'is_jargon': is_jargon,
-                'meaning': meaning1 if is_jargon else inference2.get('meaning', ''),
+                'meaning': final_meaning,
                 'no_info': False
             }
 

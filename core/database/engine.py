@@ -8,7 +8,7 @@ SQLAlchemy 数据库引擎封装
 避免 "Task got Future attached to a different loop" 错误。
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool
 from sqlalchemy import types as sa_types
 from astrbot.api import logger
 from typing import Optional
@@ -90,11 +90,13 @@ class DatabaseEngine:
             logger.info(f"[DatabaseEngine] 创建数据库目录: {db_dir}")
 
         # SQLite 配置
-        # StaticPool reuses a single connection, avoiding per-query overhead
+        # NullPool: 每个 session 独立创建/关闭连接，避免 StaticPool
+        # 单连接共享导致的并发事务状态污染和 "closed database" 错误。
+        # SQLite 建连成本极低（打开文件句柄），配合 WAL 模式可安全并发读。
         engine = create_async_engine(
             db_url,
             echo=self.echo,
-            poolclass=StaticPool,
+            poolclass=NullPool,
             connect_args={
                 'check_same_thread': False,
                 'timeout': 30,
@@ -138,6 +140,7 @@ class DatabaseEngine:
             connect_args={
                 'connect_timeout': 10,
                 'charset': 'utf8mb4',
+                'ssl': False,
             }
         )
 

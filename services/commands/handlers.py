@@ -257,6 +257,10 @@ class PluginCommandHandlers:
                 yield event.plain_result(CommandMessages.AFFECTION_DISABLED)
                 return
 
+            if not self._affection_manager:
+                yield event.plain_result("好感度管理器未初始化，请检查启动日志")
+                return
+
             affection_status = await self._affection_manager.get_affection_status(group_id)
 
             current_mood = None
@@ -322,6 +326,14 @@ class PluginCommandHandlers:
         try:
             if not self._config.enable_affection_system:
                 yield event.plain_result(CommandMessages.AFFECTION_DISABLED)
+                return
+
+            if not self._temporary_persona_updater:
+                yield event.plain_result("临时人格更新器未初始化，无法设置情绪")
+                return
+
+            if not self._affection_manager:
+                yield event.plain_result("好感度管理器未初始化，无法设置情绪")
                 return
 
             args = event.get_message_str().split()[1:]

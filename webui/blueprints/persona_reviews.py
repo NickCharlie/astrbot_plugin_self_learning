@@ -37,6 +37,8 @@ async def review_persona_update(update_id: str):
     """审查人格更新内容 (批准/拒绝)"""
     try:
         data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
         action = data.get("action")
         comment = data.get("comment", "")
         modified_content = data.get("modified_content")
@@ -84,7 +86,7 @@ async def get_reviewed_persona_updates():
 async def revert_persona_update(update_id: str):
     """撤回人格更新审查"""
     try:
-        data = await request.get_json()
+        data = await request.get_json() or {}
         reason = data.get("reason", "撤回审查决定")
 
         container = get_container()
@@ -128,6 +130,8 @@ async def batch_delete_persona_updates():
     """批量删除人格更新审查记录"""
     try:
         data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
         update_ids = data.get('update_ids', [])
 
         if not update_ids or not isinstance(update_ids, list):
@@ -153,6 +157,8 @@ async def batch_review_persona_updates():
     """批量审查人格更新记录"""
     try:
         data = await request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
         update_ids = data.get('update_ids', [])
         action = data.get('action')
         comment = data.get('comment', '')

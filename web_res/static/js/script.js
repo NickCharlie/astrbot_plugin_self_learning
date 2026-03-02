@@ -938,8 +938,9 @@ function initializeSystemStatusRadar() {
           (sum, model) => sum + (model.avg_response_time_ms || 0),
           0,
         ) / llmModels.length
-      : 2000;
-  const responseSpeed = Math.max(0, 100 - avgResponseTime / 20); // 2000ms = 0分，0ms = 100分
+      : 0;
+  const responseSpeed =
+    llmModels.length > 0 ? Math.max(0, 100 - avgResponseTime / 20) : 50;
 
   // 系统稳定性 (基于CPU和内存使用率)
   const systemMetrics = stats.system_metrics || {};

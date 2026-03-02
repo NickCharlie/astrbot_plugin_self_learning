@@ -555,14 +555,15 @@ window.AppDashboard = {
               llmModels.length) *
             100
           : 0;
-      // 响应速度
+      // 响应速度（无 LLM 数据时不显示为 0，而是显示为中性值）
       var avgResponseTime =
         llmModels.length > 0
           ? llmModels.reduce(function (s, m) {
               return s + (m.avg_response_time_ms || 0);
             }, 0) / llmModels.length
-          : 2000;
-      var responseSpeed = Math.max(0, 100 - avgResponseTime / 20);
+          : 0;
+      var responseSpeed =
+        llmModels.length > 0 ? Math.max(0, 100 - avgResponseTime / 20) : 50;
       // 系统稳定性
       var sm = stats.system_metrics || {};
       var systemStability =

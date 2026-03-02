@@ -152,7 +152,13 @@ class JargonFacade(BaseFacade):
                 if 'raw_content' in jargon_data:
                     record.raw_content = jargon_data['raw_content']
                 if 'meaning' in jargon_data:
-                    record.meaning = jargon_data['meaning']
+                    meaning_val = jargon_data['meaning']
+                    if isinstance(meaning_val, dict):
+                        record.meaning = json.dumps(meaning_val, ensure_ascii=False)
+                    elif isinstance(meaning_val, list):
+                        record.meaning = json.dumps(meaning_val, ensure_ascii=False)
+                    else:
+                        record.meaning = str(meaning_val) if meaning_val is not None else None
                 if 'is_jargon' in jargon_data:
                     record.is_jargon = jargon_data['is_jargon']
                 if 'count' in jargon_data:
@@ -743,8 +749,12 @@ class JargonFacade(BaseFacade):
                 groups = []
                 for row in rows:
                     try:
+                        chat_id = row.chat_id or ''
                         groups.append({
-                            'chat_id': row.chat_id,
+                            'group_id': chat_id,
+                            'group_name': chat_id,
+                            'id': chat_id,
+                            'chat_id': chat_id,
                             'count': row.count or 0
                         })
                     except Exception as row_error:

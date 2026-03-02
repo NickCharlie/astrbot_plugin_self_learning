@@ -150,37 +150,53 @@ class SQLAlchemyDatabaseManager:
         return f"sqlite:///{db_path}"
 
     async def _ensure_mysql_database_exists(self):
-        """确保 MySQL 数据库存在"""
-        try:
-            import aiomysql
-            host = getattr(self.config, 'mysql_host', 'localhost')
-            port = getattr(self.config, 'mysql_port', 3306)
-            user = getattr(self.config, 'mysql_user', 'root')
-            password = getattr(self.config, 'mysql_password', '')
-            database = getattr(self.config, 'mysql_database', 'astrbot_self_learning')
+        """确保 MySQL 数据库存在
 
-            conn = await aiomysql.connect(
-                host=host, port=port, user=user,
-                password=password, charset='utf8mb4',
+        使用 aiomysql 直连 MySQL 服务器以检查/创建目标数据库。
+        显式禁用 SSL 以避免 MySQL 8 默认 TLS 握手导致的
+        struct.unpack 解包异常。
+        """
+        import aiomysql
+        host = getattr(self.config, 'mysql_host', 'localhost')
+        port = getattr(self.config, 'mysql_port', 3306)
+        user = getattr(self.config, 'mysql_user', 'root')
+        password = getattr(self.config, 'mysql_password', '')
+        database = getattr(self.config, 'mysql_database', 'astrbot_self_learning')
+
+        try:
+            conn = await asyncio.wait_for(
+                aiomysql.connect(
+                    host=host, port=port, user=user,
+                    password=password, charset='utf8mb4',
+                    ssl=False, connect_timeout=10,
+                ),
+                timeout=15,
             )
-            try:
-                async with conn.cursor() as cursor:
+        except asyncio.TimeoutError:
+            logger.error("[DomainRouter] 连接 MySQL 超时 (15s)")
+            raise
+        except Exception as e:
+            logger.error(f"[DomainRouter] 连接 MySQL 失败: {e}")
+            raise
+
+        try:
+            async with conn.cursor() as cursor:
+                await cursor.execute(
+                    "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = %s",
+                    (database,),
+                )
+                if not await cursor.fetchone():
+                    logger.info(f"[DomainRouter] 数据库 {database} 不存在，正在创建...")
                     await cursor.execute(
-                        "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = %s",
-                        (database,),
+                        f"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     )
-                    if not await cursor.fetchone():
-                        logger.info(f"[DomainRouter] 数据库 {database} 不存在，正在创建…")
-                        await cursor.execute(
-                            f"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-                        )
-                        await conn.commit()
-                        logger.info(f"[DomainRouter] 数据库 {database} 创建成功")
-            finally:
-                conn.close()
+                    await conn.commit()
+                    logger.info(f"[DomainRouter] 数据库 {database} 创建成功")
         except Exception as e:
             logger.error(f"[DomainRouter] 确保 MySQL 数据库存在失败: {e}")
             raise
+        finally:
+            conn.close()
 
     # Infrastructure: session
 
@@ -206,8 +222,8 @@ class SQLAlchemyDatabaseManager:
         try:
             async with session:
                 yield session
-        finally:
-            await session.close()
+        except Exception:
+            raise
 
     # Domain delegates: AffectionFacade
 

@@ -1,6 +1,5 @@
 """WebUI 服务器全生命周期管理 — 创建、启动、停止、服务注册"""
 import asyncio
-import gc
 import sys
 from typing import Optional, Any, Dict, TYPE_CHECKING
 
@@ -181,7 +180,6 @@ class WebUIManager:
             try:
                 logger.info(f"正在停止 Web 服务器 (端口: {_server_instance.port})...")
                 await _server_instance.stop()
-                gc.collect()
 
                 if sys.platform == "win32":
                     logger.info("Windows 环境：等待端口资源释放...")

@@ -26,13 +26,20 @@ class BaseFacade:
 
     @asynccontextmanager
     async def get_session(self):
-        """获取异步数据库会话（上下文管理器）"""
+        """获取异步数据库会话（上下文管理器）
+
+        自动处理会话的创建、提交和回滚。
+        使用 ``async with session`` 确保事务完整性，
+        不再在 finally 中重复调用 close 以避免连接状态异常。
+        """
+        if self.engine is None or self.engine.engine is None:
+            raise RuntimeError("数据库引擎未初始化或已关闭")
         session = self.engine.get_session()
         try:
             async with session:
                 yield session
-        finally:
-            await session.close()
+        except Exception:
+            raise
 
     @staticmethod
     def _row_to_dict(obj: Any, fields: Optional[List[str]] = None) -> Dict[str, Any]:
