@@ -231,6 +231,9 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def learning_status_command(self, event: AstrMessageEvent):
         """查看学习状态"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.learning_status(event):
             yield result
 
@@ -238,6 +241,9 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def start_learning_command(self, event: AstrMessageEvent):
         """手动启动学习"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.start_learning(event):
             yield result
 
@@ -245,6 +251,9 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def stop_learning_command(self, event: AstrMessageEvent):
         """停止学习"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.stop_learning(event):
             yield result
 
@@ -252,6 +261,9 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def force_learning_command(self, event: AstrMessageEvent):
         """强制执行一次学习周期"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.force_learning(event):
             yield result
 
@@ -259,6 +271,9 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def affection_status_command(self, event: AstrMessageEvent):
         """查看好感度状态"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.affection_status(event):
             yield result
 
@@ -266,5 +281,8 @@ class SelfLearningPlugin(star.Star):
     @filter.permission_type(PermissionType.ADMIN)
     async def set_mood_command(self, event: AstrMessageEvent):
         """手动设置bot情绪"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
         async for result in self._command_handlers.set_mood(event):
             yield result
