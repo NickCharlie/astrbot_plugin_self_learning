@@ -40,9 +40,13 @@ class LearningService:
 
         if self.db_manager:
             try:
-                # 优先使用ORM Repository获取统计数据
-                if hasattr(self.db_manager, 'get_session'):
-                    # 使用ORM方式获取统计
+                # 优先使用 Facade 方法获取统计数据
+                if hasattr(self.db_manager, 'get_style_learning_statistics'):
+                    real_stats = await self.db_manager.get_style_learning_statistics()
+                    if real_stats:
+                        results_data['statistics'].update(real_stats)
+                elif hasattr(self.db_manager, 'get_session'):
+                    # 降级到 Repository 方式
                     from ...repositories.learning_repository import StyleLearningReviewRepository
 
                     async with self.db_manager.get_session() as session:
@@ -52,11 +56,6 @@ class LearningService:
                             results_data['statistics'].update(real_stats)
 
                     logger.debug(f"使用ORM获取风格学习统计: {real_stats}")
-                else:
-                    # 降级到传统数据库方法
-                    real_stats = await self.db_manager.get_style_learning_statistics()
-                    if real_stats:
-                        results_data['statistics'].update(real_stats)
 
                 # 获取进度数据（保持原有逻辑）
                 real_progress = await self.db_manager.get_style_progress_data()
