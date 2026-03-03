@@ -238,10 +238,14 @@ class SocialService:
 
             analyzer = SocialRelationAnalyzer(plugin_config, llm_adapter, db_manager)
 
-            result = await analyzer.analyze_group_social_relations(group_id)
+            relations = await analyzer.analyze_group_social_relations(group_id)
 
-            logger.info(f"群组 {group_id} 的社交关系分析已完成")
-            return True, f"群组 {group_id} 的社交关系分析已完成"
+            if relations:
+                logger.info(f"群组 {group_id} 的社交关系分析已完成，发现 {len(relations)} 条关系")
+                return True, f"群组 {group_id} 的社交关系分析已完成，发现 {len(relations)} 条关系"
+            else:
+                logger.warning(f"群组 {group_id} 的社交关系分析完成，但未发现有效关系（可能消息数量不足或用户过少）")
+                return False, f"群组 {group_id} 分析完成但未发现有效关系，请确保群组内有足够的消息记录（至少10条）和至少2位活跃用户"
 
         except ImportError:
             return False, "社交关系分析器模块未找到"

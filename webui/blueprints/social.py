@@ -68,10 +68,11 @@ async def trigger_social_relation_analysis(group_id: str):
                 "message": message
             }), 200
         else:
+            # 分析完成但无结果（数据不足等），返回200而非500
             return jsonify({
                 "success": False,
-                "error": message
-            }), 500
+                "message": message
+            }), 200
 
     except Exception as e:
         logger.error(f"触发社交关系分析失败: {e}", exc_info=True)
