@@ -11,6 +11,7 @@ from .bug_report_service import BugReportService
 from .metrics_service import MetricsService
 from .social_service import SocialService
 from .persona_review_service import PersonaReviewService
+from .graph_share_service import GraphShareService
 
 __all__ = [
     'AuthService',
@@ -22,5 +23,6 @@ __all__ = [
     'BugReportService',
     'MetricsService',
     'SocialService',
-    'PersonaReviewService'
+    'PersonaReviewService',
+    'GraphShareService'
 ]

@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>社交关系图谱分享</title>
+  <script src="/static/vendor/echarts.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: #f5f7fb;
+      color: #1f2937;
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+      padding: 16px;
+    }
+
+    .title {
+      margin: 0 0 6px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin: 0;
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .stats {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar {
+      margin-top: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-label {
+      font-size: 12px;
+      color: #4b5563;
+      font-weight: 600;
+    }
+
+    .toolbar-select {
+      min-width: 180px;
+      padding: 6px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 12px;
+      background: #fff;
+      color: #1f2937;
+    }
+
+    .layout-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 2px;
+    }
+
+    .layout-option {
+      border: none;
+      background: transparent;
+      color: #6b7280;
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .layout-option.active {
+      background: #007aff;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .stat-item {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #4b5563;
+    }
+
+    #chart {
+      margin-top: 14px;
+      width: 100%;
+      height: 72vh;
+      min-height: 480px;
+    }
+
+    .error {
+      color: #dc2626;
+      margin-top: 14px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1 class="title">社交关系图谱</h1>
+      <p class="subtitle">
+        可拖动节点、缩放查看。该页面仅用于浏览，不提供任何管理操作。
+      </p>
+      <div id="stats" class="stats"></div>
+      <div class="toolbar">
+        <label for="memberFilter" class="toolbar-label">筛选成员</label>
+        <select id="memberFilter" class="toolbar-select">
+          <option value="">全部成员</option>
+        </select>
+        <div class="layout-switch" aria-label="图谱布局">
+          <button id="layoutForce" class="layout-option active" type="button">力导向</button>
+          <button id="layoutCircular" class="layout-option" type="button">环形</button>
+        </div>
+      </div>
+      <div id="chart"></div>
+      <div id="error" class="error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var token = {{ share_token | tojson }};
+      var chartDom = document.getElementById("chart");
+      var chart = window.echarts ? window.echarts.init(chartDom) : null;
+      var statsEl = document.getElementById("stats");
+      var errorEl = document.getElementById("error");
+      var memberFilterEl = document.getElementById("memberFilter");
+      var layoutForceEl = document.getElementById("layoutForce");
+      var layoutCircularEl = document.getElementById("layoutCircular");
+
+      var rawMembers = [];
+      var rawRelations = [];
+      var graphLayout = "force";
+
+      function showError(message) {
+        errorEl.style.display = "block";
+        errorEl.textContent = message;
+      }
+
+      function formatExpiresAt(value) {
+        if (!value) return "-";
+        return String(value).replace("T", " ");
+      }
+
+      function setLayout(layout) {
+        graphLayout = layout === "circular" ? "circular" : "force";
+        if (layoutForceEl && layoutCircularEl) {
+          layoutForceEl.classList.toggle("active", graphLayout === "force");
+          layoutCircularEl.classList.toggle("active", graphLayout === "circular");
+        }
+        renderGraph(getFilteredGraphData());
+      }
+
+      function renderStats(graph, share) {
+        var items = [
+          "群组: " + (graph.group_id || "-"),
+          "成员: " + (graph.member_count || 0),
+          "关系: " + (graph.relation_count || 0),
+          "有效期至: " + formatExpiresAt(share.expires_at),
+        ];
+        statsEl.innerHTML = items
+          .map(function (x) {
+            return '<div class="stat-item">' + x + "</div>";
+          })
+          .join("");
+      }
+
+      function updateMemberFilter(members) {
+        if (!memberFilterEl) return;
+        var options = ['<option value="">全部成员</option>'];
+        members.forEach(function (m) {
+          var userId = String(m.user_id || "");
+          var displayName = m.nickname || userId;
+          options.push(
+            '<option value="' + userId + '">' + displayName + "</option>"
+          );
+        });
+        memberFilterEl.innerHTML = options.join("");
+      }
+
+      function getFilteredGraphData() {
+        var userId = memberFilterEl ? String(memberFilterEl.value || "") : "";
+        if (!userId) {
+          return buildData(rawMembers, rawRelations);
+        }
+
+        var filteredRelations = rawRelations.filter(function (r) {
+          var source = String(r.source || "");
+          var target = String(r.target || "");
+          return source === userId || target === userId;
+        });
+
+        var relatedIds = {};
+        relatedIds[userId] = true;
+        filteredRelations.forEach(function (r) {
+          if (r.source) relatedIds[String(r.source)] = true;
+          if (r.target) relatedIds[String(r.target)] = true;
+        });
+
+        var filteredMembers = rawMembers.filter(function (m) {
+          return !!relatedIds[String(m.user_id || "")];
+        });
+
+        return buildData(filteredMembers, filteredRelations);
+      }
+
+      function buildData(members, relations) {
+        var nodes = members.map(function (m) {
+          var msgCount = Number(m.message_count || 0);
+          return {
+            id: String(m.user_id || ""),
+            name: m.nickname || String(m.user_id || ""),
+            value: msgCount,
+            symbolSize: Math.max(16, Math.min(56, 10 + msgCount / 10)),
+            itemStyle: { color: "#1976d2" },
+          };
+        });
+
+        var links = relations.map(function (r) {
+          var strength = Number(r.strength || 0);
+          return {
+            source: String(r.source || ""),
+            target: String(r.target || ""),
+            value: strength,
+            relationTypeText: r.type_text || "互动",
+            frequency: Number(r.frequency || 0),
+            lineStyle: {
+              width: Math.max(1, Math.min(8, strength * 4)),
+              opacity: 0.75,
+            },
+          };
+        });
+
+        return { nodes: nodes, links: links };
+      }
+
+      function renderGraph(data) {
+        if (!chart) {
+          showError("图表库加载失败，请刷新页面重试。");
+          return;
+        }
+
+        if (!data.nodes.length) {
+          chart.setOption(
+            {
+              title: {
+                text: "暂无图谱数据",
+                left: "center",
+                top: "middle",
+                textStyle: { color: "#9ca3af", fontSize: 16 },
+              },
+              series: [],
+            },
+            true
+          );
+          return;
+        }
+
+        var idToName = {};
+        data.nodes.forEach(function (n) {
+          idToName[n.id] = n.name;
+        });
+
+        var isCircular = graphLayout === "circular";
+        var seriesConfig = {
+          type: "graph",
+          layout: isCircular ? "circular" : "force",
+          roam: true,
+          draggable: true,
+          data: data.nodes,
+          links: data.links,
+          label: {
+            show: true,
+            position: "right",
+            fontSize: 11,
+            color: "#374151",
+          },
+          lineStyle: {
+            color: "source",
+            curveness: 0.22,
+          },
+          emphasis: {
+            focus: "adjacency",
+          },
+        };
+
+        if (isCircular) {
+          seriesConfig.circular = {
+            rotateLabel: true,
+          };
+        } else {
+          seriesConfig.force = {
+            repulsion: 220,
+            gravity: 0.08,
+            edgeLength: [40, 180],
+          };
+        }
+
+        chart.setOption(
+          {
+            tooltip: {
+              trigger: "item",
+              formatter: function (params) {
+                if (params.dataType === "node") {
+                  return (
+                    "<b>" +
+                    params.name +
+                    "</b><br/>消息数: " +
+                    (params.data.value || 0)
+                  );
+                }
+                if (params.dataType === "edge") {
+                  var src = idToName[params.data.source] || params.data.source;
+                  var tgt = idToName[params.data.target] || params.data.target;
+                  return (
+                    "<b>" +
+                    src +
+                    "</b> <-> <b>" +
+                    tgt +
+                    "</b><br/>关系: " +
+                    (params.data.relationTypeText || "互动") +
+                    "<br/>强度: " +
+                    Number(params.data.value || 0).toFixed(2) +
+                    "<br/>互动次数: " +
+                    (params.data.frequency || 0)
+                  );
+                }
+                return "";
+              },
+            },
+            series: [seriesConfig],
+          },
+          true
+        );
+      }
+
+      async function loadSharedGraph() {
+        try {
+          var resp = await fetch(
+            "/api/public/social_graph/" + encodeURIComponent(token)
+          );
+          var data = await resp.json();
+
+          if (!resp.ok || !data.success) {
+            showError((data && data.error) || "分享链接无效或已过期。");
+            return;
+          }
+
+          var graph = data.graph || {};
+          var share = data.share || {};
+          rawMembers = graph.members || [];
+          rawRelations = graph.relations || [];
+          renderStats(graph, share);
+          updateMemberFilter(rawMembers);
+          renderGraph(getFilteredGraphData());
+        } catch (e) {
+          showError("加载失败：" + (e && e.message ? e.message : "网络错误"));
+        }
+      }
+
+      if (memberFilterEl) {
+        memberFilterEl.addEventListener("change", function () {
+          renderGraph(getFilteredGraphData());
+        });
+      }
+
+      if (layoutForceEl) {
+        layoutForceEl.addEventListener("click", function () {
+          setLayout("force");
+        });
+      }
+
+      if (layoutCircularEl) {
+        layoutCircularEl.addEventListener("click", function () {
+          setLayout("circular");
+        });
+      }
+
+      window.addEventListener("resize", function () {
+        if (chart) chart.resize();
+      });
+
+      loadSharedGraph();
+    })();
+  </script>
+</body>
+</html>
