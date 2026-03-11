@@ -13,6 +13,7 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from ....models.orm.jargon import Jargon
+from ....utils.text_utils import truncate_for_db
 
 
 class JargonFacade(BaseFacade):
@@ -85,7 +86,7 @@ class JargonFacade(BaseFacade):
 
                 record = Jargon(
                     content=jargon_data.get('content', ''),
-                    raw_content=jargon_data.get('raw_content', '[]'),
+                    raw_content=truncate_for_db(jargon_data.get('raw_content', '[]')),
                     meaning=jargon_data.get('meaning'),
                     is_jargon=jargon_data.get('is_jargon'),
                     count=jargon_data.get('count', 1),
@@ -150,7 +151,7 @@ class JargonFacade(BaseFacade):
                 if 'content' in jargon_data:
                     record.content = jargon_data['content']
                 if 'raw_content' in jargon_data:
-                    record.raw_content = jargon_data['raw_content']
+                    record.raw_content = truncate_for_db(jargon_data['raw_content'])
                 if 'meaning' in jargon_data:
                     meaning_val = jargon_data['meaning']
                     if isinstance(meaning_val, dict):
@@ -646,7 +647,7 @@ class JargonFacade(BaseFacade):
                     # 插入新记录
                     new_record = Jargon(
                         content=content,
-                        raw_content=jargon_data.get('raw_content', '[]'),
+                        raw_content=truncate_for_db(jargon_data.get('raw_content', '[]')),
                         meaning=jargon_data.get('meaning'),
                         is_jargon=jargon_data.get('is_jargon', True),
                         count=jargon_data.get('count', 1),
