@@ -1075,6 +1075,17 @@ class ProgressiveLearningService:
 
             # 1. 保存表达模式到 expression_patterns 表
             expression_patterns = style_analysis_dict.get('expression_patterns', [])
+
+            # 在 fewshot 模式下，style_analysis 可能不包含 expression_patterns。
+            # 此时从数据库获取 bot 消息与用户消息合并，提取 user->bot 对话对。
+            if not expression_patterns and messages:
+                try:
+                    merged = await self._merge_bot_messages_for_pairs(group_id, messages)
+                    if merged:
+                        expression_patterns = self._extract_fewshot_pairs_from_merged(merged, group_id)
+                except Exception as pair_err:
+                    logger.debug(f"提取 fewshot 对话对失败: {pair_err}")
+
             if expression_patterns:
                 await self._save_expression_patterns(group_id, expression_patterns)
 
@@ -1106,12 +1117,14 @@ class ProgressiveLearningService:
             description = f"群组 {group_id} 的对话风格学习结果（处理 {message_count} 条消息，提取 {pattern_count} 个表达模式）"
 
             # 6. 保存风格学习记录（使用 ORM）
+            # 提取到有效对话对时设为 pending 等待审查，否则自动批准
             try:
                 async with self.db_manager.get_session() as session:
                     from ...models.orm.learning import StyleLearningReview
                     from datetime import datetime
 
                     current_timestamp = time.time()
+                    has_patterns = bool(learned_patterns)
 
                     review = StyleLearningReview(
                         type='对话风格学习',
@@ -1119,12 +1132,12 @@ class ProgressiveLearningService:
                         timestamp=current_timestamp,
                         learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),
                         few_shots_content=few_shots_content,
-                        status='approved', # 直接批准，不需要审查
+                        status='pending' if has_patterns else 'approved',
                         description=description,
-                        reviewer_comment='自动批准',
-                        review_time=current_timestamp,
-                        created_at=datetime.fromtimestamp(current_timestamp), # 转换为datetime对象
-                        updated_at=datetime.fromtimestamp(current_timestamp) # 转换为datetime对象
+                        reviewer_comment=None if has_patterns else '自动批准（无有效对话对）',
+                        review_time=None if has_patterns else current_timestamp,
+                        created_at=datetime.fromtimestamp(current_timestamp),
+                        updated_at=datetime.fromtimestamp(current_timestamp),
                     )
 
                     session.add(review)
@@ -1150,6 +1163,89 @@ class ProgressiveLearningService:
                 few_shots += f"A: {situation}\nB: {expression}\n\n"
 
         return few_shots.strip()
+
+    async def _merge_bot_messages_for_pairs(
+        self, group_id: str, user_messages: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Merge user messages with bot messages from DB to form a timeline.
+
+        Fetches recent bot messages for the group and interleaves them with
+        user messages sorted by timestamp, producing a unified stream that
+        allows user->bot pair extraction.
+        """
+        bot_texts = await self.db_manager.get_recent_bot_responses(group_id, limit=50)
+        if not bot_texts:
+            return []
+
+        # bot_texts is List[str]; build dicts with bot sender_id
+        bot_msgs = []
+        # Retrieve full BotMessage records to get timestamps
+        async with self.db_manager.get_session() as session:
+            from ...models.orm.message import BotMessage
+            from sqlalchemy import select, desc
+            stmt = (
+                select(BotMessage)
+                .where(BotMessage.group_id == group_id)
+                .order_by(desc(BotMessage.timestamp))
+                .limit(50)
+            )
+            result = await session.execute(stmt)
+            for row in result.scalars().all():
+                bot_msgs.append({
+                    'sender_id': 'bot',
+                    'message': row.message,
+                    'timestamp': row.timestamp,
+                })
+
+        if not bot_msgs:
+            return []
+
+        merged = list(user_messages) + bot_msgs
+        merged.sort(key=lambda m: m.get('timestamp', 0))
+        return merged
+
+    @staticmethod
+    def _extract_fewshot_pairs_from_merged(
+        merged: List[Dict[str, Any]], group_id: str
+    ) -> List[Dict[str, Any]]:
+        """Extract user->bot conversation pairs from a merged message timeline.
+
+        Mirrors the logic of ExpressionPatternLearner._extract_few_shot_pairs
+        but operates on plain dicts and returns expression pattern dicts.
+        """
+        pairs = []
+        current_time = time.time()
+
+        for i in range(len(merged) - 1):
+            msg = merged[i]
+            nxt = merged[i + 1]
+
+            msg_is_bot = msg.get('sender_id') == 'bot'
+            nxt_is_bot = nxt.get('sender_id') == 'bot'
+            msg_text = msg.get('message', '').strip()
+            nxt_text = nxt.get('message', '').strip()
+
+            if not msg_is_bot and nxt_is_bot and msg_text and nxt_text:
+                if len(msg_text) < 3 or len(nxt_text) < 3:
+                    continue
+                if msg_text.startswith(('[', 'http', '@')):
+                    continue
+                if nxt_text.startswith(('[', 'http', '@')):
+                    continue
+                if '@' in msg_text or '@' in nxt_text:
+                    continue
+
+                pairs.append({
+                    'situation': msg_text[:50],
+                    'expression': nxt_text[:100],
+                    'weight': 1.0,
+                    'confidence': 0.8,
+                    'group_id': group_id,
+                    'last_active_time': current_time,
+                    'create_time': current_time,
+                })
+
+        return pairs
 
     async def _save_expression_patterns(self, group_id: str, patterns: List[Dict[str, Any]]):
         """
