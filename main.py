@@ -123,20 +123,13 @@ class SelfLearningPlugin(star.Star):
         self._shutting_down = False
 
         # ------ 委托生命周期编排 ------
-        # Wrapped in try/except: if bootstrap() raises, AstrBot's
-        # star_manager catches the exception at the outer BaseException
-        # handler, which skips functools.partial handler binding entirely.
-        # The unbound handlers then remain in star_handlers_registry and
-        # get invoked without `self`, causing the "missing argument" crash.
+        # 若 bootstrap() 抛出异常则让其向上传播，
+        # AstrBot 的 star_manager 会将插件标记为加载失败并记录到 failed_plugin_dict，
+        # 用户可在面板查看失败原因并尝试重载。
         self._lifecycle = PluginLifecycle(self)
-        try:
-            self._lifecycle.bootstrap(
-                self.plugin_config, self.context, self.group_id_to_unified_origin
-            )
-        except Exception as e:
-            logger.error(
-                f"插件服务编排失败，部分功能将不可用: {e}", exc_info=True
-            )
+        self._lifecycle.bootstrap(
+            self.plugin_config, self.context, self.group_id_to_unified_origin
+        )
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
