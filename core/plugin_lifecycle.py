@@ -165,7 +165,15 @@ class PluginLifecycle:
             from ..services.learning.dialog_analyzer import DialogAnalyzer
             from ..services.learning.realtime_processor import RealtimeProcessor
             from ..services.learning.group_orchestrator import GroupLearningOrchestrator
-            from ..services.hooks.llm_hook_handler import LLMHookHandler
+
+            try:
+                from ..services.hooks.llm_hook_handler import LLMHookHandler
+            except ImportError as e:
+                logger.warning(
+                    f"LLMHookHandler 不可用，LLM 上下文注入将被禁用: {e}",
+                    exc_info=True,
+                )
+                LLMHookHandler = None
 
             p._dialog_analyzer = DialogAnalyzer(p.factory_manager, p.db_manager)
             p._realtime_processor = RealtimeProcessor(
@@ -186,17 +194,20 @@ class PluginLifecycle:
                 qq_filter=p.qq_filter,
                 db_manager=p.db_manager,
             )
-            p._hook_handler = LLMHookHandler(
-                plugin_config=plugin_config,
-                diversity_manager=getattr(p, "diversity_manager", None),
-                social_context_injector=getattr(p, "social_context_injector", None),
-                v2_integration=getattr(p, "v2_integration", None),
-                jargon_query_service=getattr(p, "jargon_query_service", None),
-                temporary_persona_updater=getattr(p, "temporary_persona_updater", None),
-                perf_tracker=p._perf_tracker,
-                group_id_to_unified_origin=group_id_to_unified_origin,
-                db_manager=getattr(p, "db_manager", None),
-            )
+            if LLMHookHandler is not None:
+                p._hook_handler = LLMHookHandler(
+                    plugin_config=plugin_config,
+                    diversity_manager=getattr(p, "diversity_manager", None),
+                    social_context_injector=getattr(p, "social_context_injector", None),
+                    v2_integration=getattr(p, "v2_integration", None),
+                    jargon_query_service=getattr(p, "jargon_query_service", None),
+                    temporary_persona_updater=getattr(p, "temporary_persona_updater", None),
+                    perf_tracker=p._perf_tracker,
+                    group_id_to_unified_origin=group_id_to_unified_origin,
+                    db_manager=getattr(p, "db_manager", None),
+                )
+            else:
+                p._hook_handler = None
 
             # ------ 消息处理流水线 ------
             from ..services.learning.message_pipeline import MessagePipeline
