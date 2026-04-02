@@ -599,6 +599,8 @@ class PersonaReviewService:
             try:
                 traditional_updates = await self.persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
                 if traditional_updates:
+                    for update in traditional_updates:
+                        update.setdefault('review_source', 'traditional')
                     reviewed_updates.extend(traditional_updates)
             except Exception as e:
                 logger.warning(f"获取传统已审查人格更新失败: {e}")
@@ -608,10 +610,10 @@ class PersonaReviewService:
             try:
                 persona_learning_updates = await self.database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
                 if persona_learning_updates:
-                    # 为人格学习记录添加前缀 ID
                     for update in persona_learning_updates:
                         if update.get('id') is not None:
                             update['id'] = f"persona_learning_{update['id']}"
+                        update.setdefault('review_source', 'persona_learning')
                     reviewed_updates.extend(persona_learning_updates)
             except Exception as e:
                 logger.warning(f"获取已审查人格学习更新失败: {e}")
@@ -621,17 +623,22 @@ class PersonaReviewService:
             try:
                 style_updates = await self.database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
                 if style_updates:
+                    valid_style_updates = []
                     for update in style_updates:
+                        # 跳过 few_shots_content 为空的无效记录
+                        if not update.get('few_shots_content'):
+                            continue
                         # 转换风格学习字段为前端统一格式
                         update['id'] = f"style_{update['id']}" if update.get('id') is not None else None
                         update['update_type'] = update.get('type', UPDATE_TYPE_STYLE_LEARNING)
-                        update['original_content'] = update.get('original_content', '')
+                        update['original_content'] = ''
                         update['new_content'] = update.get('few_shots_content', '')
                         update['proposed_content'] = update.get('few_shots_content', '')
-                        update['confidence_score'] = update.get('confidence_score', 0.9)
-                        update['reason'] = update.get('description', '')
+                        update['confidence_score'] = 0.9
+                        update['reason'] = update.get('description', '') or '风格学习审查'
                         update['review_source'] = 'style_learning'
-                    reviewed_updates.extend(style_updates)
+                        valid_style_updates.append(update)
+                    reviewed_updates.extend(valid_style_updates)
             except Exception as e:
                 logger.warning(f"获取已审查风格学习更新失败: {e}")
 

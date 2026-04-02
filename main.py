@@ -123,20 +123,13 @@ class SelfLearningPlugin(star.Star):
         self._shutting_down = False
 
         # ------ 委托生命周期编排 ------
-        # Wrapped in try/except: if bootstrap() raises, AstrBot's
-        # star_manager catches the exception at the outer BaseException
-        # handler, which skips functools.partial handler binding entirely.
-        # The unbound handlers then remain in star_handlers_registry and
-        # get invoked without `self`, causing the "missing argument" crash.
+        # 若 bootstrap() 抛出异常则让其向上传播，
+        # AstrBot 的 star_manager 会将插件标记为加载失败并记录到 failed_plugin_dict，
+        # 用户可在面板查看失败原因并尝试重载。
         self._lifecycle = PluginLifecycle(self)
-        try:
-            self._lifecycle.bootstrap(
-                self.plugin_config, self.context, self.group_id_to_unified_origin
-            )
-        except Exception as e:
-            logger.error(
-                f"插件服务编排失败，部分功能将不可用: {e}", exc_info=True
-            )
+        self._lifecycle.bootstrap(
+            self.plugin_config, self.context, self.group_id_to_unified_origin
+        )
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
@@ -224,6 +217,38 @@ class SelfLearningPlugin(star.Star):
         handler = getattr(self, '_hook_handler', None)
         if handler:
             await handler.handle(event, req)
+
+    # Bot 出站消息捕获
+
+    @filter.after_message_sent()
+    async def on_bot_message_sent(self, event: AstrMessageEvent):
+        """捕获 Bot 发送的消息并存入数据库，用于 fewshot 对话对提取。"""
+        try:
+            if self._shutting_down:
+                return
+            if not self.plugin_config or not self.plugin_config.enable_message_capture:
+                return
+            db = getattr(self, 'db_manager', None)
+            if not db or not db.engine:
+                return
+            result = event.get_result()
+            if not result or not result.chain:
+                return
+            from astrbot.core.message.components import Plain
+            text_parts = []
+            for comp in result.chain:
+                if isinstance(comp, Plain):
+                    text_parts.append(comp.text)
+            bot_text = "".join(text_parts).strip()
+            if not bot_text:
+                return
+            group_id = event.get_group_id() or event.get_sender_id()
+            await db.save_bot_message(
+                group_id=group_id,
+                message=bot_text,
+            )
+        except Exception as e:
+            logger.warning(f"保存Bot出站消息失败: {e}", exc_info=True)
 
     # 命令处理器（薄委托）
 

@@ -211,6 +211,9 @@ class JargonMiner(AsyncServiceBase):
         # 候选提取Prompt
         self._init_extract_prompt()
 
+        # LLM批量验证Prompt
+        self._init_validate_prompt()
+
     def _init_extract_prompt(self):
         """初始化黑话提取Prompt"""
         self.extract_prompt_template = """**聊天内容**
@@ -246,6 +249,31 @@ class JargonMiner(AsyncServiceBase):
 如果没有找到符合条件的黑话，输出空数组 []
 
 现在请输出："""
+
+    def _init_validate_prompt(self):
+        """初始化LLM批量验证Prompt"""
+        self.validate_prompt_template = """**近期聊天片段**
+{chat_snippet}
+
+**候选词列表**
+{term_list}
+
+请判断以上候选词中，哪些是该群组的黑话/俚语/暗语/缩写/群内特有用语。
+
+**是黑话的特征：**
+- 脱离该群组语境后普通人无法理解
+- 拼音首字母缩写、谐音梗、群内暗语
+- 群成员自创或圈内流行的特殊表达
+
+**不是黑话（请排除）：**
+- 含义清晰的日常词语，即使不太常见
+- 常见名词、动词、形容词
+- 人名、地名、品牌名
+
+以JSON数组输出可能是黑话的词条（只输出词条文本）：
+["词1", "词2"]
+
+如果都不是黑话，输出空数组 []"""
 
     def should_trigger(self, recent_message_count: int) -> bool:
         """判断是否应该触发学习"""
@@ -392,6 +420,62 @@ class JargonMiner(AsyncServiceBase):
             return True
 
         return False
+
+    async def _llm_batch_validate_candidates(
+        self,
+        candidates: List[Dict[str, Any]],
+        chat_context: str = "",
+    ) -> List[Dict[str, Any]]:
+        """Use a single LLM call to batch-validate candidates as jargon.
+
+        Filters out standard vocabulary that passed earlier heuristic filters.
+        Returns only candidates the LLM confirms as potential jargon.
+        """
+        if not candidates:
+            return []
+
+        terms = [c['content'] for c in candidates]
+        term_list_str = "\n".join(f"- {t}" for t in terms)
+        chat_snippet = chat_context[-2000:] if chat_context else ""
+
+        prompt = self.validate_prompt_template.format(
+            chat_snippet=chat_snippet,
+            term_list=term_list_str,
+        )
+
+        try:
+            response = await self.llm.generate_response(prompt, temperature=0.2)
+            if not response:
+                logger.warning(
+                    f"[{self.chat_id}] LLM pre-gate returned empty, keeping all candidates"
+                )
+                return candidates
+
+            confirmed = safe_parse_llm_json(response.strip())
+            if not isinstance(confirmed, list):
+                logger.warning(
+                    f"[{self.chat_id}] LLM pre-gate parse failed, keeping all candidates"
+                )
+                return candidates
+
+            confirmed_set = {str(t).strip() for t in confirmed}
+            validated = [c for c in candidates if c['content'] in confirmed_set]
+
+            filtered_count = len(candidates) - len(validated)
+            if filtered_count > 0:
+                filtered_terms = [c['content'] for c in candidates if c['content'] not in confirmed_set]
+                logger.info(
+                    f"[{self.chat_id}] LLM pre-gate: {len(candidates)} → "
+                    f"{len(validated)} passed, filtered: {filtered_terms}"
+                )
+
+            return validated
+
+        except Exception as e:
+            logger.error(
+                f"[{self.chat_id}] LLM pre-gate failed: {e}, keeping all candidates"
+            )
+            return candidates
 
     async def save_or_update_jargon(
         self,
@@ -558,9 +642,19 @@ class JargonMiner(AsyncServiceBase):
                 candidates = await self.extract_candidates(chat_messages)
 
             if not candidates:
+                self.last_learning_time = time.time()
                 return
 
             logger.info(f"[{self.chat_id}] 提取到 {len(candidates)} 个疑似黑话")
+
+            # 1.5. LLM batch validation — filter out non-jargon in one call.
+            candidates = await self._llm_batch_validate_candidates(
+                candidates, chat_messages
+            )
+            if not candidates:
+                logger.info(f"[{self.chat_id}] All candidates filtered by LLM pre-gate")
+                self.last_learning_time = time.time()
+                return
 
             # 2. 保存或更新数据库
             saved_count = 0

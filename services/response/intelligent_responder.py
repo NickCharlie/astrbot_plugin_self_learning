@@ -201,20 +201,8 @@ class IntelligentResponder:
                             except Exception as sanitize_error:
                                 logger.warning(f"回复消毒失败(不影响回复): {sanitize_error}")
 
-                        # 保存Bot消息到数据库 (用于多样性分析和避免同质化)
-                        try:
-                            await self.db_manager.save_bot_message(
-                                group_id=group_id,
-                                user_id=sender_id,
-                                message=response_text,
-                                response_to_message_id=None, # TODO: 可以关联原始消息ID
-                                context_type='normal',
-                                temperature=temperature,
-                                language_style=current_language_style,
-                                response_pattern=current_response_pattern
-                            )
-                        except Exception as save_error:
-                            logger.warning(f"保存Bot消息失败(不影响回复): {save_error}")
+                        # Bot 消息由 main.py 的 after_message_sent hook 统一捕获入库，
+                        # 此处不再重复保存，避免双写。
 
                         # 记录回复 (原有的记录逻辑,记录到filtered_messages)
                         await self._record_response(group_id, sender_id, message_text, response_text)

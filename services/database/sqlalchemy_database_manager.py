@@ -750,3 +750,24 @@ class SQLAlchemyDatabaseManager:
         self, group_id: str = None,
     ) -> Dict[str, Any]:
         return await self._admin.export_messages_learning_data(group_id)
+
+    async def clear_messages_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_messages_data()
+
+    async def clear_persona_reviews_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_persona_reviews_data()
+
+    async def clear_style_learning_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_style_learning_data()
+
+    async def clear_jargon_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_jargon_data()
+
+    async def clear_learning_history_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_learning_history_data()
+
+    async def clear_all_plugin_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_all_plugin_data()
+
+    async def get_data_statistics(self) -> Dict[str, int]:
+        return await self._admin.get_data_statistics()

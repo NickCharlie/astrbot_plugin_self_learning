@@ -13,7 +13,10 @@ from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
 
 from ..monitoring.instrumentation import monitored
-from astrbot.core.agent.message import TextPart
+try:
+    from astrbot.core.agent.message import TextPart
+except ImportError:
+    TextPart = None
 
 from .perf_tracker import PerfTracker
 
@@ -351,7 +354,7 @@ class LLMHookHandler:
         # This keeps system_prompt stable for LLM API prefix caching,
         # while appending dynamic context as extra content blocks after
         # the user message.
-        if hasattr(req, "extra_user_content_parts"):
+        if hasattr(req, "extra_user_content_parts") and TextPart is not None:
             req.extra_user_content_parts.append(
                 TextPart(text=f"<context>\n{injection_text}\n</context>")
             )

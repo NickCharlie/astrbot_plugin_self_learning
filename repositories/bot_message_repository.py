@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from astrbot.api import logger
 from .base_repository import BaseRepository
 from ..models.orm.message import BotMessage
+from ..utils.text_utils import truncate_for_db
 
 
 class BotMessageRepository(BaseRepository[BotMessage]):
@@ -31,7 +32,7 @@ class BotMessageRepository(BaseRepository[BotMessage]):
             now = int(time.time())
             return await self.create(
                 group_id=message_data.get('group_id', ''),
-                message=message_data.get('message', ''),
+                message=truncate_for_db(message_data.get('message', '')),
                 timestamp=message_data.get('timestamp', now),
                 created_at=now,
             )

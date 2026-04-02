@@ -31,6 +31,15 @@ _MIN_FREQUENCY = 5
 # Maximum number of context examples to retain per term.
 _MAX_CONTEXT_EXAMPLES = 10
 
+# Jieba dictionary frequency threshold.
+# Words with frequency > this value in jieba's built-in dictionary are treated
+# as standard vocabulary and excluded from jargon candidate tracking.
+# Common words (的=318825, 是=796991) have very high frequencies, while
+# internet slang recently added to jieba (破防=3, 躺平=3) have very low
+# frequencies. Threshold of 100 filters standard vocabulary while preserving
+# low-frequency slang entries that may be genuine jargon.
+_JIEBA_FREQ_THRESHOLD = 100
+
 # Score component weights.
 _WEIGHT_IDF = 0.4
 _WEIGHT_BURST = 0.3
@@ -82,6 +91,7 @@ class JargonStatisticalFilter:
 
         # jieba instance (lazy-loaded).
         self._jieba_loaded = False
+        self._jieba_freq: Dict[str, int] = {}  # cached reference to jieba.dt.FREQ
 
     # Public API
 
@@ -260,6 +270,9 @@ class JargonStatisticalFilter:
                 continue
             if re.match(r'^[^\w]+$', word):
                 continue
+            # 过滤jieba词典中的标准词汇（频率 > 阈值即为已知词）
+            if self._is_standard_vocabulary(word):
+                continue
             tokens.append(word)
         return tokens
 
@@ -269,12 +282,36 @@ class JargonStatisticalFilter:
             try:
                 import jieba
                 jieba.setLogLevel(20) # Suppress jieba's verbose logging.
+                # Trigger dictionary load so jieba.dt.FREQ is populated.
+                if not jieba.dt.initialized:
+                    jieba.initialize()
+                self._jieba_freq = jieba.dt.FREQ  # cache reference for fast lookup
                 self._jieba_loaded = True
+                logger.info(
+                    f"[JargonFilter] jieba loaded, dictionary contains "
+                    f"{len(self._jieba_freq)} entries for standard vocabulary filtering "
+                    f"(threshold={_JIEBA_FREQ_THRESHOLD})"
+                )
             except ImportError:
                 logger.warning(
                     "[JargonFilter] jieba is not installed. "
                     "Install via: pip install jieba"
                 )
+
+    def _is_standard_vocabulary(self, word: str) -> bool:
+        """Check if a word is standard vocabulary using jieba's frequency dictionary.
+
+        Words with high frequency in jieba's built-in dictionary are known
+        standard Chinese vocabulary. Group-specific jargon (abbreviations,
+        inside jokes, memes) either won't appear in the dictionary or will
+        have very low frequency.
+
+        Uses the cached ``_jieba_freq`` reference for O(1) lookup per token.
+        Returns ``False`` (don't filter) if jieba is not loaded.
+        """
+        if not self._jieba_loaded:
+            return False
+        return self._jieba_freq.get(word, 0) > _JIEBA_FREQ_THRESHOLD
 
     def _calc_burst_score(self, term: str, group_id: str) -> float:
         """Calculate burst frequency: freq / age_in_days.

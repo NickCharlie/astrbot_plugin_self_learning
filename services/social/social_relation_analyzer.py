@@ -122,13 +122,13 @@ class SocialRelationAnalyzer:
             messages = await self._get_group_messages(group_id, message_limit)
 
             if len(messages) < 10:
-                self.logger.warning(f"群组 {group_id} 消息数量不足 ({len(messages)} 条)，无法进行有效的社交关系分析")
+                self.logger.warning(f"群组 {group_id} 消息数量不足 ({len(messages)} 条)，至少需要10条消息才能进行有效的社交关系分析")
                 return []
 
             # 2. 提取用户列表
             users = self._extract_users_from_messages(messages)
             if len(users) < 2:
-                self.logger.warning(f"群组 {group_id} 有效用户数量不足 ({len(users)} 人)")
+                self.logger.warning(f"群组 {group_id} 有效用户数量不足 ({len(users)} 人)，至少需要2人")
                 return []
 
             self.logger.info(f"群组 {group_id} 共有 {len(users)} 个活跃用户，{len(messages)} 条消息")
@@ -141,7 +141,7 @@ class SocialRelationAnalyzer:
                 await self._save_relations_to_database(group_id, relations)
                 self.logger.info(f"成功分析并保存 {len(relations)} 条社交关系")
             else:
-                self.logger.warning(f"未能分析出有效的社交关系")
+                self.logger.warning(f"群组 {group_id} 的LLM分析未能识别出有效社交关系（{len(messages)} 条消息，{len(users)} 个用户）")
 
             return relations
 

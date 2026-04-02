@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any
 from astrbot.api import logger
 from .base_repository import BaseRepository
 from ..models.orm.message import RawMessage
+from ..utils.text_utils import truncate_for_db
 
 
 class RawMessageRepository(BaseRepository[RawMessage]):
@@ -32,7 +33,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             return await self.create(
                 sender_id=message_data.get('sender_id', ''),
                 sender_name=message_data.get('sender_name', ''),
-                message=message_data.get('message', ''),
+                message=truncate_for_db(message_data.get('message', '')),
                 group_id=message_data.get('group_id', ''),
                 timestamp=message_data.get('timestamp', now),
                 platform=message_data.get('platform', ''),
