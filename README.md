@@ -22,6 +22,18 @@
 
 <br>
 
+> **版权与许可 / Copyright and License**
+>
+> **作者**: NickMo / Mo Zhiping (莫志平) — nickmo318@outlook.com / max318515692@gmail.com
+> **版权所有**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
+> **许可协议**: 本项目采用 [**GPLv3**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 GPLv3）。基于本仓库的修改或衍生作品必须以相同协议分发。
+>
+> **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com
+> **Copyright**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
+> **License**: Licensed under [**GPLv3**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also GPLv3). Any modifications or derivative works must be distributed under the same license.
+
+<br>
+
 > [!WARNING]
 > **使用前必读：请务必先手动备份人格到本地，以防出现 BUG 导致人格混乱**
 

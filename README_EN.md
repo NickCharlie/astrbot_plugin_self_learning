@@ -22,6 +22,18 @@
 
 <br>
 
+> **Copyright and License / 版权与许可**
+>
+> **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com
+> **Copyright**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
+> **License**: Licensed under [**GPLv3**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also GPLv3). Any modifications or derivative works must be distributed under the same license.
+>
+> **作者**: NickMo / Mo Zhiping (莫志平) — nickmo318@outlook.com / max318515692@gmail.com
+> **版权所有**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
+> **许可协议**: 本项目采用 [**GPLv3**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 GPLv3）。基于本仓库的修改或衍生作品必须以相同协议分发。
+
+<br>
+
 > [!WARNING]
 > **Please manually back up your persona files before use, in case bugs cause persona corruption.**
 
