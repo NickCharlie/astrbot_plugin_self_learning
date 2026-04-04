@@ -163,6 +163,9 @@ class PluginConfig(BaseModel):
     include_affection_info: bool = True # 注入好感度信息
     include_mood_info: bool = True # 注入Bot情绪信息
     context_injection_position: str = "start" # 上下文注入位置: "start" 或 "end"
+    
+    # 新增：工具调用兼容性设置
+    disable_reply_mode_injection_when_tools_present: bool = True # 当工具注册时，跳过回复模式注入
 
     # LLM Hook 注入位置设置（v1.1.1新增）
     # 控制注入内容添加到 req.system_prompt 还是 req.prompt
@@ -343,6 +346,9 @@ class PluginConfig(BaseModel):
             include_mood_info=social_context_settings.get('include_mood_info', True),
             context_injection_position=social_context_settings.get('context_injection_position', 'start'),
             expression_patterns_hours=social_context_settings.get('expression_patterns_hours', 24),
+            
+            # 工具调用兼容性设置
+            disable_reply_mode_injection_when_tools_present=social_context_settings.get('disable_reply_mode_injection_when_tools_present', True),
 
             # 目标驱动对话设置
             enable_goal_driven_chat=goal_driven_chat_settings.get('enable_goal_driven_chat', False),
