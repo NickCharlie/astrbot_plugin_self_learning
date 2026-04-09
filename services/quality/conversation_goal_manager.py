@@ -3,8 +3,11 @@
 集成到现有的心理状态管理体系
 """
 from typing import Optional, Dict, List
+from typing import Any
 from datetime import datetime
 import hashlib
+import json
+import re
 from astrbot.api import logger
 
 from ...repositories.conversation_goal_repository import ConversationGoalRepository
@@ -282,17 +285,113 @@ class ConversationGoalManager:
         from ..response import PromptProtectionService
         self.prompt_protection = PromptProtectionService(wrapper_template_index=0)
 
-        # 初始化Guardrails管理器用于JSON验证
-        from ...utils.guardrails_manager import get_guardrails_manager, GoalAnalysisResult, ConversationIntentAnalysis
-        self.guardrails = get_guardrails_manager()
-        self.GoalAnalysisResult = GoalAnalysisResult
-        self.ConversationIntentAnalysis = ConversationIntentAnalysis
+        # 初始化Guardrails管理器用于JSON验证。
+        # 某些 guardrails 版本依赖旧版 openai.error 接口；在当前环境中
+        # 导入失败时降级为基础 JSON 解析，避免整个 goal manager 无法启动。
+        try:
+            from ...utils.guardrails_manager import (
+                get_guardrails_manager,
+                GoalAnalysisResult,
+                ConversationIntentAnalysis,
+            )
+
+            self.guardrails = get_guardrails_manager()
+            self.GoalAnalysisResult = GoalAnalysisResult
+            self.ConversationIntentAnalysis = ConversationIntentAnalysis
+        except ImportError as e:
+            logger.warning(
+                f"Guardrails 初始化失败，将降级为基础 JSON 解析: {e}",
+                exc_info=True,
+            )
+            self.guardrails = None
+            self.GoalAnalysisResult = None
+            self.ConversationIntentAnalysis = None
 
     def _generate_session_id(self, group_id: str, user_id: str) -> str:
         """生成会话ID (24小时内保持不变)"""
         date_key = datetime.now().strftime("%Y%m%d")
         base = f"{group_id}_{user_id}_{date_key}"
         return f"sess_{hashlib.md5(base.encode()).hexdigest()[:12]}"
+
+    def _extract_json_candidate(self, text: str, expected_type: str = "object") -> Optional[str]:
+        """提取最可能的 JSON 片段，避免使用贪婪正则。"""
+        if not text:
+            return None
+
+        # 优先使用现有的通用清洗逻辑，保持行为一致。
+        if self.guardrails:
+            parsed = self.guardrails.validate_and_clean_json(text, expected_type=expected_type)
+            if parsed is not None:
+                try:
+                    return json.dumps(parsed, ensure_ascii=False)
+                except Exception:
+                    pass
+
+        decoder = json.JSONDecoder()
+        open_char = "{" if expected_type == "object" else "["
+
+        for index, char in enumerate(text):
+            if char != open_char:
+                continue
+            try:
+                parsed, end = decoder.raw_decode(text[index:])
+                if expected_type == "object" and isinstance(parsed, dict):
+                    return text[index:index + end]
+                if expected_type == "array" and isinstance(parsed, list):
+                    return text[index:index + end]
+            except Exception:
+                continue
+
+        return None
+
+    def _to_bool(self, value: Any, default: bool = False) -> bool:
+        """安全地将 LLM 输出归一化为布尔值。"""
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "y", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "n", "off", "", "null", "none"}:
+                return False
+        return default
+
+    def _to_float(self, value: Any, default: float = 0.5) -> float:
+        """安全地将 LLM 输出归一化为浮点数。"""
+        if value is None:
+            return default
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip())
+            except Exception:
+                return default
+        return default
+
+    def _parse_object_fallback(self, text: str) -> Optional[Dict[str, Any]]:
+        candidate = self._extract_json_candidate(text, expected_type="object")
+        if not candidate:
+            return None
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
+    def _parse_array_fallback(self, text: str) -> Optional[List[Any]]:
+        candidate = self._extract_json_candidate(text, expected_type="array")
+        if not candidate:
+            return None
+        try:
+            parsed = json.loads(candidate)
+            return parsed if isinstance(parsed, list) else None
+        except Exception:
+            return None
 
     async def get_or_create_conversation_goal(
         self,
@@ -505,29 +604,38 @@ class ConversationGoalManager:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response # 使用原始响应
 
-            # 使用Guardrails Pydantic模型验证和解析JSON
-            try:
-                # 直接解析已有的响应文本
-                parsed_result = self.guardrails.parse_json_direct(
-                    sanitized_response,
-                    model_class=self.GoalAnalysisResult # 使用正确的模型引用
-                )
+            result = None
+            if self.guardrails and self.GoalAnalysisResult:
+                try:
+                    parsed_result = self.guardrails.parse_json_direct(
+                        sanitized_response,
+                        model_class=self.GoalAnalysisResult,
+                    )
 
-                if parsed_result:
-                    # 转换为字典格式
-                    result = {
-                        "goal_type": parsed_result.goal_type,
-                        "topic": parsed_result.topic,
-                        "confidence": parsed_result.confidence,
-                        "reasoning": parsed_result.reasoning
-                    }
-                    logger.debug(f" [对话目标] Pydantic验证成功: goal_type={result['goal_type']}")
-                else:
-                    result = None
+                    if parsed_result:
+                        result = {
+                            "goal_type": parsed_result.goal_type,
+                            "topic": parsed_result.topic,
+                            "confidence": parsed_result.confidence,
+                            "reasoning": parsed_result.reasoning,
+                        }
+                        logger.debug(f" [对话目标] Pydantic验证成功: goal_type={result['goal_type']}")
+                except Exception as validation_error:
+                    logger.error(f"Pydantic验证失败: {validation_error}", exc_info=True)
 
-            except Exception as validation_error:
-                logger.error(f"Pydantic验证失败: {validation_error}", exc_info=True)
-                result = None
+            if result is None:
+                try:
+                    parsed = self._parse_object_fallback(sanitized_response)
+                    if parsed is not None:
+                        result = {
+                            "goal_type": str(parsed.get("goal_type", "casual_chat")).strip() or "casual_chat",
+                            "topic": str(parsed.get("topic", "闲聊")).strip() or "闲聊",
+                            "confidence": self._to_float(parsed.get("confidence", 0.5), 0.5),
+                            "reasoning": str(parsed.get("reasoning", "")).strip(),
+                        }
+                        logger.debug(f" [对话目标] 基础JSON解析成功: goal_type={result['goal_type']}")
+                except Exception as json_error:
+                    logger.error(f"基础JSON解析失败: {json_error}", exc_info=True)
 
             # 如果验证失败,使用回退值
             if result is None:
@@ -614,15 +722,23 @@ class ConversationGoalManager:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response # 使用原始响应
 
-            # 使用guardrails验证和清理JSON
-            try:
-                stages = self.guardrails.validate_and_clean_json(
-                    sanitized_response,
-                    expected_type="array"
-                )
-            except Exception as validation_error:
-                logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
-                stages = None
+            stages = None
+            if self.guardrails:
+                try:
+                    stages = self.guardrails.validate_and_clean_json(
+                        sanitized_response,
+                        expected_type="array"
+                    )
+                except Exception as validation_error:
+                    logger.error(f"JSON验证失败: {validation_error}", exc_info=True)
+
+            if stages is None:
+                try:
+                    parsed = self._parse_array_fallback(sanitized_response)
+                    if isinstance(parsed, list):
+                        stages = [str(stage).strip() for stage in parsed if str(stage).strip()]
+                except Exception as json_error:
+                    logger.error(f"阶段规划基础JSON解析失败: {json_error}", exc_info=True)
 
             # 如果验证成功且是有效列表,返回
             if isinstance(stages, list) and len(stages) >= 2:
@@ -817,35 +933,57 @@ Bot: {bot_response}
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response # 使用原始响应
 
-            # 使用Guardrails Pydantic模型验证和解析JSON
-            try:
-                # 直接解析已有的响应文本
-                parsed_result = self.guardrails.parse_json_direct(
-                    sanitized_response,
-                    model_class=self.ConversationIntentAnalysis # 使用正确的模型引用
-                )
+            analysis = None
+            if self.guardrails and self.ConversationIntentAnalysis:
+                try:
+                    parsed_result = self.guardrails.parse_json_direct(
+                        sanitized_response,
+                        model_class=self.ConversationIntentAnalysis,
+                    )
 
-                if parsed_result:
-                    # 转换为字典格式
-                    analysis = {
-                        "goal_switch_needed": parsed_result.goal_switch_needed,
-                        "new_goal_type": parsed_result.new_goal_type,
-                        "new_topic": parsed_result.new_topic,
-                        "topic_completed": parsed_result.topic_completed,
-                        "stage_completed": parsed_result.stage_completed,
-                        "stage_adjustment_needed": parsed_result.stage_adjustment_needed,
-                        "suggested_stage": parsed_result.suggested_stage,
-                        "completion_signals": parsed_result.completion_signals,
-                        "user_engagement": parsed_result.user_engagement,
-                        "reasoning": parsed_result.reasoning
-                    }
-                    logger.debug(f" [对话目标] 意图分析Pydantic验证成功")
-                else:
-                    analysis = None
+                    if parsed_result:
+                        analysis = {
+                            "goal_switch_needed": parsed_result.goal_switch_needed,
+                            "new_goal_type": parsed_result.new_goal_type,
+                            "new_topic": parsed_result.new_topic,
+                            "topic_completed": parsed_result.topic_completed,
+                            "stage_completed": parsed_result.stage_completed,
+                            "stage_adjustment_needed": parsed_result.stage_adjustment_needed,
+                            "suggested_stage": parsed_result.suggested_stage,
+                            "completion_signals": parsed_result.completion_signals,
+                            "user_engagement": parsed_result.user_engagement,
+                            "reasoning": parsed_result.reasoning,
+                        }
+                        logger.debug(f" [对话目标] 意图分析Pydantic验证成功")
+                except Exception as validation_error:
+                    logger.error(f"意图分析Pydantic验证失败: {validation_error}", exc_info=True)
 
-            except Exception as validation_error:
-                logger.error(f"意图分析Pydantic验证失败: {validation_error}", exc_info=True)
-                analysis = None
+            if analysis is None:
+                try:
+                    parsed = self._parse_object_fallback(sanitized_response)
+                    if parsed is not None:
+                        completion_signals = parsed.get("completion_signals", 0)
+                        if isinstance(completion_signals, list):
+                            completion_signals = len(completion_signals)
+                        try:
+                            completion_signals = int(completion_signals)
+                        except Exception:
+                            completion_signals = 0
+
+                        analysis = {
+                            "goal_switch_needed": self._to_bool(parsed.get("goal_switch_needed", False), False),
+                            "new_goal_type": str(parsed.get("new_goal_type", "")).strip(),
+                            "new_topic": str(parsed.get("new_topic", "")).strip(),
+                            "topic_completed": self._to_bool(parsed.get("topic_completed", False), False),
+                            "stage_completed": self._to_bool(parsed.get("stage_completed", False), False),
+                            "stage_adjustment_needed": self._to_bool(parsed.get("stage_adjustment_needed", False), False),
+                            "suggested_stage": str(parsed.get("suggested_stage", "")).strip(),
+                            "completion_signals": max(0, completion_signals),
+                            "user_engagement": self._to_float(parsed.get("user_engagement", 0.5), 0.5),
+                            "reasoning": str(parsed.get("reasoning", "")).strip(),
+                        }
+                except Exception as json_error:
+                    logger.error(f"意图分析基础JSON解析失败: {json_error}", exc_info=True)
 
             # 如果验证失败,使用回退值
             if analysis is None:

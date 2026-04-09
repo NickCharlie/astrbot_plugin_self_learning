@@ -84,6 +84,16 @@ class PluginLifecycle:
             # ------ 社交上下文注入器（必须在 intelligent_responder 之前）------
             p.social_context_injector = component_factory.create_social_context_injector()
 
+            # create_social_context_injector() currently reads goal_manager from the
+            # factory cache, which may not contain the instance we just created above.
+            # Wire it explicitly so social context injection can use conversation goals.
+            if (
+                getattr(p, "social_context_injector", None)
+                and getattr(p, "conversation_goal_manager", None)
+            ):
+                p.social_context_injector.goal_manager = p.conversation_goal_manager
+                logger.info("已将conversation_goal_manager注入social_context_injector")
+
             # ------ 黑话服务 ------
             from ..services.jargon import (
                 JargonQueryService,
