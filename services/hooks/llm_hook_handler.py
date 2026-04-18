@@ -19,6 +19,7 @@ except ImportError:
     TextPart = None
 
 from .perf_tracker import PerfTracker
+from .persona_anchor_retriever import PersonaAnchorRetriever
 
 
 class LLMHookHandler:
@@ -60,6 +61,10 @@ class LLMHookHandler:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._db_manager = db_manager
+        self._persona_anchor = (
+            PersonaAnchorRetriever(db_manager, plugin_config)
+            if db_manager else None
+        )
 
     # Public API
 
@@ -67,7 +72,7 @@ class LLMHookHandler:
     async def handle(self, event: AstrMessageEvent, req: Any) -> None:
         """Process an LLM request hook — inject context into *req*."""
         hook_start = time.time()
-        social_ms = v2_ms = diversity_ms = jargon_ms = few_shots_ms = 0.0
+        social_ms = v2_ms = diversity_ms = jargon_ms = few_shots_ms = persona_anchor_ms = 0.0
 
         try:
             if req is None:
@@ -105,6 +110,7 @@ class LLMHookHandler:
             diversity_result: Optional[str] = None
             jargon_result: Optional[str] = None
             few_shots_result: Optional[str] = None
+            persona_anchor_result: Optional[str] = None
 
             async def _timed_social() -> None:
                 nonlocal social_result, social_ms
@@ -136,13 +142,22 @@ class LLMHookHandler:
                 few_shots_result = await self._fetch_few_shots(group_id)
                 few_shots_ms = (time.time() - t0) * 1000
 
-            await asyncio.gather(
+            async def _timed_persona_anchor() -> None:
+                nonlocal persona_anchor_result, persona_anchor_ms
+                t0 = time.time()
+                persona_anchor_result = await self._fetch_persona_anchor(req.prompt, group_id, user_id)
+                persona_anchor_ms = (time.time() - t0) * 1000
+
+            tasks = [
                 _timed_social(),
                 _timed_v2(),
                 _timed_diversity(),
                 _timed_jargon(),
                 _timed_few_shots(),
-            )
+            ]
+            if self._persona_anchor:
+                tasks.append(_timed_persona_anchor())
+            await asyncio.gather(*tasks)
 
             # Merge results in priority order
             self._collect_social(social_result, group_id, prompt_injections)
@@ -150,6 +165,7 @@ class LLMHookHandler:
             self._collect_diversity(diversity_result, prompt_injections)
             self._collect_jargon(jargon_result, prompt_injections)
             self._collect_few_shots(few_shots_result, prompt_injections)
+            self._collect_persona_anchor(persona_anchor_result, prompt_injections)
             self._collect_session_updates(group_id, prompt_injections)
 
             # Inject into request
@@ -169,6 +185,7 @@ class LLMHookHandler:
                     "diversity_ms": round(diversity_ms, 1),
                     "jargon_ms": round(jargon_ms, 1),
                     "few_shots_ms": round(few_shots_ms, 1),
+                    "persona_anchor_ms": round(persona_anchor_ms, 1),
                     "group_id": group_id,
                 }
             )
@@ -265,6 +282,18 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] Failed to fetch approved few-shots: {e}")
         return None
 
+    @monitored
+    async def _fetch_persona_anchor(
+        self, query: str, group_id: str, user_id: str
+    ) -> Optional[str]:
+        if not self._persona_anchor:
+            return None
+        try:
+            return await self._persona_anchor.retrieve(query, group_id, user_id)
+        except Exception as e:
+            logger.debug(f"[LLM Hook] Persona anchor fetch failed: {e}")
+            return None
+
     # Result collectors
 
     @staticmethod
@@ -319,6 +348,14 @@ class LLMHookHandler:
             logger.debug(f"[LLM Hook] Few-shot dialogue injected (len={len(result)})")
         else:
             logger.debug("[LLM Hook] No approved few-shot dialogues available")
+
+    @staticmethod
+    def _collect_persona_anchor(result: Optional[str], out: List[str]) -> None:
+        if result:
+            out.append(result)
+            logger.debug(f"[LLM Hook] Persona anchor injected (len={len(result)})")
+        else:
+            logger.debug("[LLM Hook] No persona anchor available")
 
     def _collect_session_updates(
         self, group_id: str, out: List[str]
