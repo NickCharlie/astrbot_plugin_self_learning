@@ -48,6 +48,12 @@ class PersonaAnchorRetriever:
         bot_top = self._score_and_pick(current_query, bot_pool, k_bot)
         user_top = self._score_and_pick(current_query, user_pool, k_user)
 
+        # If scoring filters out all bot messages, skip persona anchoring entirely.
+        # Returning a persona-anchored block with no bot messages would be misleading.
+        if not bot_top:
+            logger.debug("[PersonaAnchor] no scored bot messages after filtering, skipped")
+            return None
+
         return self._format(bot_top, user_top)
 
     async def _fetch_bot_pool(self, group_id: str, limit: int) -> List:
@@ -93,7 +99,11 @@ class PersonaAnchorRetriever:
             if overlap == 0:
                 continue
             # Time decay: halve every 24 hours
-            hours_ago = (now - msg.timestamp) / 3600.0
+            ts = msg.timestamp
+            # Defensive: normalize if timestamp appears to be in milliseconds
+            if ts > 1e12:
+                ts = ts / 1000.0
+            hours_ago = (now - ts) / 3600.0
             time_weight = exp(-hours_ago / 24.0)
             score = overlap * time_weight
             scored.append((score, msg))

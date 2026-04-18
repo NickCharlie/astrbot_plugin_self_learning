@@ -148,14 +148,16 @@ class LLMHookHandler:
                 persona_anchor_result = await self._fetch_persona_anchor(req.prompt, group_id, user_id)
                 persona_anchor_ms = (time.time() - t0) * 1000
 
-            await asyncio.gather(
+            tasks = [
                 _timed_social(),
                 _timed_v2(),
                 _timed_diversity(),
                 _timed_jargon(),
                 _timed_few_shots(),
-                _timed_persona_anchor(),
-            )
+            ]
+            if self._persona_anchor:
+                tasks.append(_timed_persona_anchor())
+            await asyncio.gather(*tasks)
 
             # Merge results in priority order
             self._collect_social(social_result, group_id, prompt_injections)
