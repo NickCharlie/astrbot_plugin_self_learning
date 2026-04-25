@@ -196,7 +196,10 @@ class SQLAlchemyDatabaseManager:
             logger.error(f"[DomainRouter] 确保 MySQL 数据库存在失败: {e}")
             raise
         finally:
-            conn.close()
+            try:
+                await conn.close()
+            except Exception:
+                pass
 
     # Infrastructure: session
 
