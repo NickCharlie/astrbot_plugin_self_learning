@@ -4,6 +4,7 @@ Manages per-group learning tasks, throttling, and automatic scheduling.
 """
 
 import asyncio
+import random
 import time
 from typing import Any, Dict, List
 
@@ -45,6 +46,13 @@ class GroupLearningOrchestrator:
         self._last_learning_start: Dict[str, float] = {}
         # Groups whose timestamps have already been loaded from DB
         self._loaded_groups: set = set()
+
+        # Concurrency control: limit simultaneous group learning tasks
+        max_concurrent_groups = max(1, int(getattr(plugin_config, 'max_concurrent_requests', 3)))
+        self._group_sem = asyncio.Semaphore(max_concurrent_groups)
+        logger.info(
+            f"[GroupLearningOrchestrator] 并发学习槽位: {max_concurrent_groups}"
+        )
 
     # Public API
 
@@ -125,10 +133,12 @@ class GroupLearningOrchestrator:
             await asyncio.sleep(30)
             active_groups = await self.get_active_groups()
 
-            for group_id in active_groups:
+            for idx, group_id in enumerate(active_groups):
                 try:
+                    # Add random jitter between group starts to avoid request storms
+                    jitter = random.uniform(1.0, 5.0) * (idx + 1)
+                    await asyncio.sleep(jitter)
                     await self.smart_start_learning_for_group(group_id)
-                    await asyncio.sleep(1)
                 except Exception as e:
                     logger.error(f"延迟启动群组 {group_id} 学习失败: {e}")
 
@@ -289,14 +299,15 @@ class GroupLearningOrchestrator:
 
     async def _start_group_learning(self, group_id: str) -> None:
         """Start the progressive learning session for a single group."""
-        try:
-            success = await self._progressive_learning.start_learning(group_id)
-            if success:
-                logger.info(f"群组 {group_id} 学习任务启动成功")
-            else:
-                logger.warning(f"群组 {group_id} 学习任务启动失败")
-        except Exception as e:
-            logger.error(f"群组 {group_id} 学习任务启动异常: {e}")
+        async with self._group_sem:
+            try:
+                success = await self._progressive_learning.start_learning(group_id)
+                if success:
+                    logger.info(f"群组 {group_id} 学习任务启动成功")
+                else:
+                    logger.warning(f"群组 {group_id} 学习任务启动失败")
+            except Exception as e:
+                logger.error(f"群组 {group_id} 学习任务启动异常: {e}")
 
     @staticmethod
     def _safe_int(

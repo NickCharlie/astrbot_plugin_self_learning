@@ -285,6 +285,7 @@ class DatabaseEngine:
 
                 # 对比 ORM 定义，收集需要 ALTER 的列
                 alter_statements = []
+                is_sqlite = self.engine.dialect.name == "sqlite"
                 for table in Base.metadata.sorted_tables:
                     if table.name not in existing:
                         continue  # 刚创建的新表，无需 ALTER
@@ -303,12 +304,14 @@ class DatabaseEngine:
                             skip_default = is_mysql and is_text_type
                             if not skip_default:
                                 if col.server_default is not None:
-                                    default = f" DEFAULT {col.server_default.arg!r}"
+                                    default = f" DEFAULT {self._format_default(col.server_default.arg, col.type, is_sqlite)}"
                                 elif col.default is not None and col.default.is_scalar:
-                                    default = f" DEFAULT {col.default.arg!r}"
+                                    default = f" DEFAULT {self._format_default(col.default.arg, col.type, is_sqlite)}"
+                            # SQLite 使用双引号标识符，MySQL 使用反引号
+                            quote_char = '"' if is_sqlite else '`'
                             alter_statements.append(
-                                f"ALTER TABLE `{table.name}` ADD COLUMN "
-                                f"`{col.name}` {col_type} {nullable}{default}"
+                                f"ALTER TABLE {quote_char}{table.name}{quote_char} ADD COLUMN "
+                                f"{quote_char}{col.name}{quote_char} {col_type} {nullable}{default}"
                             )
 
                 if alter_statements:
@@ -318,7 +321,10 @@ class DatabaseEngine:
                             logger.info(f"[DatabaseEngine] 自动迁移: {stmt}")
                         except Exception as col_err:
                             # 列可能已经被其他实例添加
-                            if 'duplicate column' in str(col_err).lower():
+                            err_lower = str(col_err).lower()
+                            if ('duplicate column' in err_lower or
+                                    'duplicate column name' in err_lower or
+                                    'already exists' in err_lower):
                                 pass
                             else:
                                 logger.warning(
@@ -435,6 +441,23 @@ class DatabaseEngine:
             'max_overflow': getattr(self.engine.pool, 'overflow', 'N/A'),
             'active_loops': len(self._loop_engines) + 1,
         }
+
+    @staticmethod
+    def _format_default(value, col_type, is_sqlite: bool) -> str:
+        """格式化 ALTER TABLE 中的 DEFAULT 值，生成正确的 SQL 字面量。
+
+        Python repr() 会产生 'True'/'False' 等 SQL 无法识别的值，
+        此方法将其转换为合法的 SQL 字面量。
+        """
+        if isinstance(value, bool):
+            return '1' if value else '0'
+        if isinstance(value, (int, float)):
+            return str(value)
+        if value is None:
+            return 'NULL'
+        # 字符串值：用单引号包裹，并转义内部单引号
+        str_val = str(value).replace("'", "''")
+        return f"'{str_val}'"
 
     @staticmethod
     def _mask_password(url: str) -> str:

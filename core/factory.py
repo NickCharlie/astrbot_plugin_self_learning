@@ -16,6 +16,7 @@ from .interfaces import (
 )
 from .patterns import StrategyFactory, ServiceRegistry
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
+from ..utils.rate_limiter import init_rate_limiter
 
 # 使用单例模式导入配置和异常
 from ..config import PluginConfig
@@ -55,6 +56,25 @@ class ServiceFactory(IServiceFactory):
         
         # 框架适配器
         self._framework_llm_adapter: Optional[FrameworkLLMAdapter] = None
+
+        # 初始化全局限流器
+        if getattr(config, 'enable_global_rate_limit', True):
+            init_rate_limiter(
+                max_requests_per_minute=getattr(config, 'max_requests_per_minute', 60),
+                max_concurrent_requests=getattr(config, 'max_concurrent_requests', 3),
+                retry_max_attempts=getattr(config, 'retry_max_attempts', 4),
+                retry_base_delay=getattr(config, 'retry_base_delay_seconds', 2.0),
+                retry_max_delay=getattr(config, 'retry_max_delay_seconds', 60.0),
+                retry_jitter=getattr(config, 'retry_jitter', True),
+            )
+            self._logger.info("[ServiceFactory] 全局 LLM 限流器已初始化")
+        else:
+            # 仍创建一个不限流的实例，避免调用方检查 None
+            init_rate_limiter(
+                max_requests_per_minute=0,
+                max_concurrent_requests=0,
+            )
+            self._logger.info("[ServiceFactory] 全局 LLM 限流器已禁用")
 
     def create_framework_llm_adapter(self) -> FrameworkLLMAdapter:
         """创建或获取框架LLM适配器（带延迟初始化）"""

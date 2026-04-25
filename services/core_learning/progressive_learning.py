@@ -3,6 +3,7 @@
 """
 import asyncio
 import json
+import random
 import time
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
@@ -72,6 +73,11 @@ class ProgressiveLearningService:
         self.batch_size = config.max_messages_per_batch
         self.learning_interval = config.learning_interval_hours * 3600 # 转换为秒
         self.quality_threshold = config.style_update_threshold
+
+        # Concurrency control for learning batches
+        self._batch_sem = asyncio.Semaphore(
+            max(1, int(getattr(config, 'max_concurrent_requests', 3)))
+        )
 
         logger.info("渐进式学习服务初始化完成")
 
@@ -191,8 +197,10 @@ class ProgressiveLearningService:
                     # 执行一个学习批次 - 在后台执行
                     await self._execute_learning_batch_background(group_id)
                     
-                    # 等待下一个学习周期
-                    await asyncio.sleep(self.learning_interval)
+                    # 等待下一个学习周期（加入 ±10% 抖动，避免多群组同时对齐）
+                    jitter = self.learning_interval * 0.1
+                    sleep_time = self.learning_interval + random.uniform(-jitter, jitter)
+                    await asyncio.sleep(max(60, sleep_time))
                     
                 except asyncio.CancelledError:
                     logger.info(f"群组 {group_id} 学习任务被取消")
@@ -368,64 +376,65 @@ class ProgressiveLearningService:
 
     async def _execute_learning_batch_background(self, group_id: str):
         """在后台执行学习批次 - 使用线程池避免阻塞主协程"""
-        try:
-            batch_start_time = datetime.now()
-            
-            # 1. 异步获取数据
-            unprocessed_messages = await self.message_collector.get_unprocessed_messages(
-                limit=self.batch_size
-            )
-            
-            if not unprocessed_messages:
-                logger.debug("没有未处理的消息，跳过此批次")
-                return
-            
-            logger.info(f"开始后台处理 {len(unprocessed_messages)} 条消息")
-            
-            # 2. 并行执行筛选和获取人格
-            filtered_messages, current_persona = await asyncio.gather(
-                self._filter_messages_with_context(unprocessed_messages),
-                self._get_current_persona(group_id),
-                return_exceptions=True
-            )
-            
-            # 处理异常结果
-            if isinstance(filtered_messages, Exception):
-                logger.error(f"消息筛选异常: {filtered_messages}")
-                filtered_messages = []
-            
-            if isinstance(current_persona, Exception):
-                logger.error(f"获取人格异常: {current_persona}")
-                current_persona = {}
-            
-            if not filtered_messages:
-                logger.debug("没有通过筛选的消息")
-                await self._mark_messages_processed(unprocessed_messages)
-                return
-            
-            # 3. 跳过LLM分析，仅记录消息统计
-            from ...core.interfaces import AnalysisResult
+        async with self._batch_sem:
+            try:
+                batch_start_time = datetime.now()
+                
+                # 1. 异步获取数据
+                unprocessed_messages = await self.message_collector.get_unprocessed_messages(
+                    limit=self.batch_size
+                )
+                
+                if not unprocessed_messages:
+                    logger.debug("没有未处理的消息，跳过此批次")
+                    return
+                
+                logger.info(f"开始后台处理 {len(unprocessed_messages)} 条消息")
+                
+                # 2. 并行执行筛选和获取人格
+                filtered_messages, current_persona = await asyncio.gather(
+                    self._filter_messages_with_context(unprocessed_messages),
+                    self._get_current_persona(group_id),
+                    return_exceptions=True
+                )
+                
+                # 处理异常结果
+                if isinstance(filtered_messages, Exception):
+                    logger.error(f"消息筛选异常: {filtered_messages}")
+                    filtered_messages = []
+                
+                if isinstance(current_persona, Exception):
+                    logger.error(f"获取人格异常: {current_persona}")
+                    current_persona = {}
+                
+                if not filtered_messages:
+                    logger.debug("没有通过筛选的消息")
+                    await self._mark_messages_processed(unprocessed_messages)
+                    return
+                
+                # 3. 跳过LLM分析，仅记录消息统计
+                from ...core.interfaces import AnalysisResult
 
-            style_analysis = AnalysisResult(
-                success=True,
-                confidence=0.7,
-                data={
-                    'message_count': len(filtered_messages),
-                    'analysis_timestamp': datetime.now().isoformat(),
-                },
-                timestamp=time.time()
-            )
+                style_analysis = AnalysisResult(
+                    success=True,
+                    confidence=0.7,
+                    data={
+                        'message_count': len(filtered_messages),
+                        'analysis_timestamp': datetime.now().isoformat(),
+                    },
+                    timestamp=time.time()
+                )
 
-            updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
+                updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
 
-            # 4. 质量评估和应用更新
-            await self._finalize_learning_batch(
-                group_id, current_persona, updated_persona, filtered_messages,
-                unprocessed_messages, batch_start_time, style_analysis # 传递 style_analysis
-            )
-            
-        except Exception as e:
-            logger.error(f"后台学习批次执行失败: {e}", exc_info=True)
+                # 4. 质量评估和应用更新
+                await self._finalize_learning_batch(
+                    group_id, current_persona, updated_persona, filtered_messages,
+                    unprocessed_messages, batch_start_time, style_analysis # 传递 style_analysis
+                )
+                
+            except Exception as e:
+                logger.error(f"后台学习批次执行失败: {e}", exc_info=True)
 
     async def _execute_reinforcement_learning_background(self, group_id: str, filtered_messages, current_persona):
         """在后台执行强化学习"""
