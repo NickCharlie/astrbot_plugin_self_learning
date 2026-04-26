@@ -251,6 +251,7 @@ class PluginLifecycle:
                 factory_manager=p.factory_manager,
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
+                hook_handler=getattr(p, '_hook_handler', None),
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:

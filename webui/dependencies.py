@@ -59,6 +59,9 @@ class ServiceContainer:
         self.metric_collector: Optional[Any] = None
         self.health_checker: Optional[Any] = None
 
+        # Hook handler（用于获取人格锚点等指标）
+        self.hook_handler: Optional[Any] = None
+
         self._initialized = True
 
     def initialize(

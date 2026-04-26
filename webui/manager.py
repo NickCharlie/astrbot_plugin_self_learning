@@ -31,12 +31,14 @@ class WebUIManager:
         factory_manager: "FactoryManager",
         perf_tracker: Any,
         group_id_to_unified_origin: Dict[str, str],
+        hook_handler: Any = None,
     ):
         self._config = plugin_config
         self._context = context
         self._factory_manager = factory_manager
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
+        self._hook_handler = hook_handler
 
     # 创建
 
@@ -238,4 +240,7 @@ class WebUIManager:
             astrbot_persona_manager,
             self._group_id_to_unified_origin,
         )
-        _get_webui_container().perf_collector = self._perf_tracker
+        container = _get_webui_container()
+        container.perf_collector = self._perf_tracker
+        if self._hook_handler is not None:
+            container.hook_handler = self._hook_handler

@@ -282,6 +282,12 @@ class LLMHookHandler:
             logger.warning(f"[LLM Hook] Failed to fetch approved few-shots: {e}")
         return None
 
+    @property
+    def persona_anchor_metrics(self) -> Optional[dict]:
+        if not self._persona_anchor:
+            return None
+        return self._persona_anchor.get_metrics()
+
     @monitored
     async def _fetch_persona_anchor(
         self, query: str, group_id: str, user_id: str
