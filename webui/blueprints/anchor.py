@@ -17,10 +17,12 @@ async def get_anchor_metrics():
     try:
         container = get_container()
         hook_handler = getattr(container, "hook_handler", None)
+        config = getattr(container, "plugin_config", None)
+        cfg_enabled = getattr(config, "enable_persona_anchor", False) if config else False
 
         if hook_handler is None:
             return jsonify({
-                "enabled": False,
+                "enabled": cfg_enabled,
                 "reason": "hook_handler not initialized",
                 "total_calls": 0,
                 "successful_injections": 0,
@@ -37,8 +39,8 @@ async def get_anchor_metrics():
         metrics = hook_handler.persona_anchor_metrics
         if metrics is None:
             return jsonify({
-                "enabled": False,
-                "reason": "persona_anchor not initialized",
+                "enabled": cfg_enabled,
+                "reason": "persona_anchor not initialized (db_manager may be None during init)",
                 "total_calls": 0,
                 "successful_injections": 0,
                 "injection_rate": 0.0,
