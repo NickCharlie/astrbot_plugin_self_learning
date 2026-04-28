@@ -151,15 +151,15 @@ window.AppPersonaAnchor = {
     async loadData() {
       try {
         const [metricsRes, configRes] = await Promise.all([
-          this.tool.get("/api/anchor/metrics"),
-          this.tool.get("/api/anchor/config"),
+          fetch("/api/anchor/metrics").then(function (r) { return r.json(); }),
+          fetch("/api/anchor/config").then(function (r) { return r.json(); }),
         ]);
 
-        if (metricsRes && metricsRes.data) {
-          this.metrics = metricsRes.data;
+        if (metricsRes) {
+          this.metrics = metricsRes;
         }
-        if (configRes && configRes.data) {
-          this.config = configRes.data;
+        if (configRes) {
+          this.config = configRes;
         }
       } catch (e) {
         console.error("[PersonaAnchor] loadData failed:", e);
