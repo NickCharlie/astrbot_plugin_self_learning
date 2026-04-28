@@ -4,10 +4,14 @@ AstrBot 框架 LLM 适配器
 """
 import asyncio
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Callable, Awaitable, TypeVar
 from astrbot.api import logger
 from astrbot.core.provider.provider import Provider
 from astrbot.core.provider.entities import LLMResponse
+
+from ..utils.rate_limiter import get_rate_limiter
+
+T = TypeVar('T')
 
 class FrameworkLLMAdapter:
     """AstrBot框架LLM适配器，用于替换自定义LLMClient"""
@@ -232,6 +236,75 @@ class FrameworkLLMAdapter:
         except Exception as e:
             logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
+    async def _make_rate_limited_call(
+        self,
+        provider_type: str,
+        call_fn: Callable[[], Awaitable[T]],
+    ) -> Optional[T]:
+        """通过全局限流器执行 provider.text_chat()，含 429 指数退避/抖动重试。
+
+        Args:
+            provider_type: 调用类型标识（'filter' / 'refine' / 'reinforce'），用于统计。
+            call_fn: 实际的 provider.text_chat() 协程工厂函数。
+
+        Returns:
+            LLM 响应文本或 None。
+        """
+        rate_limiter = get_rate_limiter()
+        max_retries = rate_limiter.retry_max_attempts
+
+        for attempt in range(max_retries + 1):
+            # 1) 等待令牌 + 获取并发槽位
+            await rate_limiter.wait_for_token()
+            await rate_limiter.acquire_concurrency_slot()
+
+            try:
+                start_time = time.time()
+                stats = self.call_stats.get(provider_type)
+                if stats:
+                    stats['total_calls'] += 1
+
+                result = await call_fn()
+
+                elapsed = time.time() - start_time
+                if stats:
+                    stats['total_time'] += elapsed
+
+                # 成功后释放并发槽位
+                rate_limiter.release_concurrency_slot()
+                return result.completion_text if result else None
+
+            except Exception as e:
+                # 释放并发槽位
+                rate_limiter.release_concurrency_slot()
+
+                elapsed = time.time() - start_time
+                stats = self.call_stats.get(provider_type)
+                if stats:
+                    stats['total_time'] += elapsed
+                    stats['errors'] += 1
+
+                # 检查是否为 429 速率限制错误
+                is_429 = '429' in str(e).lower() or 'rate_limit' in str(e).lower()
+                if is_429 and attempt < max_retries:
+                    logger.warning(
+                        f"[{provider_type}] 触发 429 限流，"
+                        f"将在退避后重试 ({attempt + 1}/{max_retries}): {e}"
+                    )
+                    await rate_limiter.backoff_delay_async(attempt)
+                    continue
+
+                # 非 429 错误或已达最大重试
+                if is_429:
+                    logger.error(
+                        f"[{provider_type}] 429 限流在 {max_retries} 次重试后仍然失败: {e}"
+                    )
+                else:
+                    logger.error(f"[{provider_type}] 调用失败: {e}")
+                return None
+
+        return None
+
     async def filter_chat_completion(
         self,
         prompt: str,
@@ -254,45 +327,31 @@ class FrameworkLLMAdapter:
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
-                    response = await fallback_provider.text_chat(
-                        prompt=prompt,
-                        contexts=contexts,
-                        system_prompt=system_prompt,
-                        **kwargs
-                    )
-                    return response.completion_text if response else None
+                    async def _call():
+                        return await fallback_provider.text_chat(
+                            prompt=prompt,
+                            contexts=contexts,
+                            system_prompt=system_prompt,
+                            **kwargs
+                        )
+                    return await self._make_rate_limited_call('filter', _call)
                 except Exception as e:
                     logger.error(f"备选Provider调用失败: {e}")
                     return None
             else:
                 logger.error("没有可用的Provider，无法执行筛选任务")
                 return None
-            
-        try:
-            start_time = time.time()
-            self.call_stats['filter']['total_calls'] += 1
-            
+
+        async def _call():
             logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
-            response = await self.filter_provider.text_chat(
+            return await self.filter_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
                 **kwargs
             )
-            
-            # 统计调用时间
-            elapsed_time = time.time() - start_time
-            self.call_stats['filter']['total_time'] += elapsed_time
-            
-            return response.completion_text if response else None
-        except Exception as e:
-            # 统计错误
-            elapsed_time = time.time() - start_time
-            self.call_stats['filter']['total_time'] += elapsed_time
-            self.call_stats['filter']['errors'] += 1
-            
-            logger.error(f"筛选模型调用失败: {e}")
-            return None
+
+        return await self._make_rate_limited_call('filter', _call)
     
     async def refine_chat_completion(
         self,
@@ -316,45 +375,31 @@ class FrameworkLLMAdapter:
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
-                    response = await fallback_provider.text_chat(
-                        prompt=prompt,
-                        contexts=contexts,
-                        system_prompt=system_prompt,
-                        **kwargs
-                    )
-                    return response.completion_text if response else None
+                    async def _call():
+                        return await fallback_provider.text_chat(
+                            prompt=prompt,
+                            contexts=contexts,
+                            system_prompt=system_prompt,
+                            **kwargs
+                        )
+                    return await self._make_rate_limited_call('refine', _call)
                 except Exception as e:
                     logger.error(f"备选Provider调用失败: {e}")
                     return None
             else:
                 logger.error("没有可用的Provider，无法执行提炼任务")
                 return None
-            
-        try:
-            start_time = time.time()
-            self.call_stats['refine']['total_calls'] += 1
-            
+
+        async def _call():
             logger.debug(f"调用提炼Provider: {self.refine_provider.meta().id}")
-            response = await self.refine_provider.text_chat(
+            return await self.refine_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
                 **kwargs
             )
-            
-            # 统计调用时间
-            elapsed_time = time.time() - start_time
-            self.call_stats['refine']['total_time'] += elapsed_time
-            
-            return response.completion_text if response else None
-        except Exception as e:
-            # 统计错误
-            elapsed_time = time.time() - start_time
-            self.call_stats['refine']['total_time'] += elapsed_time
-            self.call_stats['refine']['errors'] += 1
-            
-            logger.error(f"提炼模型调用失败: {e}")
-            return None
+
+        return await self._make_rate_limited_call('refine', _call)
     
     async def reinforce_chat_completion(
         self,
@@ -378,45 +423,31 @@ class FrameworkLLMAdapter:
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
-                    response = await fallback_provider.text_chat(
-                        prompt=prompt,
-                        contexts=contexts,
-                        system_prompt=system_prompt,
-                        **kwargs
-                    )
-                    return response.completion_text if response else None
+                    async def _call():
+                        return await fallback_provider.text_chat(
+                            prompt=prompt,
+                            contexts=contexts,
+                            system_prompt=system_prompt,
+                            **kwargs
+                        )
+                    return await self._make_rate_limited_call('reinforce', _call)
                 except Exception as e:
                     logger.error(f"备选Provider调用失败: {e}")
                     return None
             else:
                 logger.error("没有可用的Provider，无法执行强化任务")
                 return None
-            
-        try:
-            start_time = time.time()
-            self.call_stats['reinforce']['total_calls'] += 1
-            
+
+        async def _call():
             logger.debug(f"调用强化Provider: {self.reinforce_provider.meta().id}")
-            response = await self.reinforce_provider.text_chat(
+            return await self.reinforce_provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
                 **kwargs
             )
-            
-            # 统计调用时间
-            elapsed_time = time.time() - start_time
-            self.call_stats['reinforce']['total_time'] += elapsed_time
-            
-            return response.completion_text if response else None
-        except Exception as e:
-            # 统计错误
-            elapsed_time = time.time() - start_time
-            self.call_stats['reinforce']['total_time'] += elapsed_time
-            self.call_stats['reinforce']['errors'] += 1
-            
-            logger.error(f"强化模型调用失败: {e}")
-            return None
+
+        return await self._make_rate_limited_call('reinforce', _call)
 
     def get_call_statistics(self) -> Dict[str, Any]:
         """获取调用统计信息"""

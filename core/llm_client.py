@@ -5,6 +5,8 @@ import aiohttp
 
 from astrbot.api import logger
 
+from ..utils.rate_limiter import get_rate_limiter
+
 class LLMResponse:
     """
     模拟 AstrBot 内部 LLMResponse 的简化类。
@@ -23,7 +25,8 @@ class LLMClient:
     """
     封装自定义 LLM API 调用的客户端。
     用于根据配置的 API URL 和 API Key 调用不同的 LLM。
-    ！！！已弃用！！！
+    ！！！已弃用！！！已由 FrameworkLLMAdapter 取代，但保留此文件以防其他模块引用。
+    限流逻辑已迁移至 FrameworkLLMAdapter。
     """
 
     def __init__(self):

@@ -195,6 +195,15 @@ class PluginConfig(BaseModel):
     recent_interactions_limit: int = 20 # 近期交互查询数量
     trend_analysis_days: int = 7 # 趋势分析天数
 
+    # LLM 全局限流配置（新增）
+    enable_global_rate_limit: bool = True # 启用全局 LLM 请求限流
+    max_requests_per_minute: int = 60 # 每分钟最大请求数（0=不限制）
+    max_concurrent_requests: int = 3 # 最大并发 LLM 请求数（0=不限制）
+    retry_max_attempts: int = 4 # 429 后最大重试次数
+    retry_base_delay_seconds: float = 2.0 # 指数退避基数（秒）
+    retry_max_delay_seconds: float = 60.0 # 最大退避延迟（秒）
+    retry_jitter: bool = True # 启用全抖动（避免重试风暴）
+
     @classmethod
     def create_from_config(cls, config: dict, data_dir: Optional[str] = None) -> 'PluginConfig':
         """从AstrBot配置创建插件配置"""
@@ -361,6 +370,15 @@ class PluginConfig(BaseModel):
             top_patterns_limit=repository_settings.get('top_patterns_limit', 10),
             recent_interactions_limit=repository_settings.get('recent_interactions_limit', 20),
             trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
+
+            # LLM 全局限流配置
+            enable_global_rate_limit=advanced_settings.get('enable_global_rate_limit', True),
+            max_requests_per_minute=advanced_settings.get('max_requests_per_minute', 60),
+            max_concurrent_requests=advanced_settings.get('max_concurrent_requests', 3),
+            retry_max_attempts=advanced_settings.get('retry_max_attempts', 4),
+            retry_base_delay_seconds=advanced_settings.get('retry_base_delay_seconds', 2.0),
+            retry_max_delay_seconds=advanced_settings.get('retry_max_delay_seconds', 60.0),
+            retry_jitter=advanced_settings.get('retry_jitter', True),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
