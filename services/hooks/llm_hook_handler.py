@@ -359,9 +359,9 @@ class LLMHookHandler:
     def _collect_persona_anchor(result: Optional[str], out: List[str]) -> None:
         if result:
             out.append(result)
-            logger.debug(f"[LLM Hook] Persona anchor injected (len={len(result)})")
+            logger.info(f"[PersonaAnchor] 已注入 {len(result)} 字: {result[:120]}...")
         else:
-            logger.debug("[LLM Hook] No persona anchor available")
+            logger.info("[PersonaAnchor] 本次无匹配样本，跳过注入")
 
     def _collect_session_updates(
         self, group_id: str, out: List[str]
