@@ -54,6 +54,7 @@
   app.component("AppJargonLearning", window.AppJargonLearning);
   app.component("AppBugReport", window.AppBugReport);
   app.component("AppPerformanceMonitor", window.AppPerformanceMonitor);
+  app.component("AppPersonaAnchor", window.AppPersonaAnchor);
 
   // 挂载
   app.mount("#app");

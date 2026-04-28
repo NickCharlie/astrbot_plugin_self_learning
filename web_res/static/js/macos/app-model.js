@@ -268,6 +268,25 @@
           },
         ],
       },
+      {
+        key: "app_persona_anchor",
+        component: "AppPersonaAnchor",
+        icon: "icon-anchor",
+        title: "人格锚点",
+        iconColor: "#fff",
+        iconBgColor: "#007aff",
+        width: Math.min(W, 900),
+        height: H,
+        hideInDesktop: false,
+        keepInDock: true,
+        menu: [
+          {
+            key: "anchor",
+            title: "锚点",
+            sub: [{ key: "close", title: "关闭" }],
+          },
+        ],
+      },
     ],
   };
 })();
