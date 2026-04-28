@@ -1,5 +1,7 @@
 """Persona Anchor Retriever — query-aware dual-track few-shot retrieval."""
 import asyncio
+import json
+import os
 import time
 from math import exp
 from typing import List, Optional
@@ -35,6 +37,7 @@ class PersonaAnchorRetriever:
         self._config = config
         self._metrics = self._default_metrics()
         self._metrics_lock = asyncio.Lock()
+        self._load_metrics()
 
     @classmethod
     def _default_metrics(cls) -> dict:
@@ -196,6 +199,7 @@ class PersonaAnchorRetriever:
         history.append(entry)
         if len(history) > 100:
             history.pop(0)
+        self.save_metrics()
 
     def get_metrics(self) -> dict:
         m = self._metrics
@@ -221,6 +225,32 @@ class PersonaAnchorRetriever:
 
     def reset_metrics(self) -> None:
         self._metrics = self._default_metrics()
+
+    def _metrics_file(self) -> str:
+        return os.path.join(self._config.data_dir, "persona_anchor_metrics.json")
+
+    def save_metrics(self) -> None:
+        try:
+            with open(self._metrics_file(), "w", encoding="utf-8") as f:
+                json.dump(self._metrics, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[PersonaAnchor] 保存指标失败: {e}")
+
+    def _load_metrics(self) -> None:
+        try:
+            path = self._metrics_file()
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                # 只加载已知的键，防止 schema 变更导致问题
+                for key in self._METRIC_KEYS:
+                    if key in loaded:
+                        self._metrics[key] = loaded[key]
+                if "injection_history" in loaded:
+                    self._metrics["injection_history"] = loaded["injection_history"]
+                logger.info(f"[PersonaAnchor] 已恢复历史指标: {self._metrics['total_calls']} 次调用")
+        except Exception as e:
+            logger.warning(f"[PersonaAnchor] 加载指标失败: {e}")
 
     @staticmethod
     def _format(bot_msgs: list, user_msgs: list) -> str:

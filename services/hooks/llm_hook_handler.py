@@ -288,6 +288,10 @@ class LLMHookHandler:
             return None
         return self._persona_anchor.get_metrics()
 
+    def save_persona_anchor_metrics(self) -> None:
+        if self._persona_anchor:
+            self._persona_anchor.save_metrics()
+
     @monitored
     async def _fetch_persona_anchor(
         self, query: str, group_id: str, user_id: str

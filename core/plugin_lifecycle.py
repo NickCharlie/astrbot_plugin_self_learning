@@ -522,6 +522,14 @@ class PluginLifecycle:
                     p.message_collector.save_state(),
                 )
 
+            # 7.5 保存人格锚点指标
+            if getattr(p, "_hook_handler", None):
+                try:
+                    p._hook_handler.save_persona_anchor_metrics()
+                    logger.info("人格锚点指标已保存")
+                except Exception as e:
+                    logger.warning(f"保存人格锚点指标失败: {e}")
+
             # 8. 停止 WebUI
             if self._webui_manager:
                 await self._safe_step(
