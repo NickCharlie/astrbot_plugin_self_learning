@@ -48,7 +48,7 @@ window.AppDashboard = {
           </div>
           <div class="stat-card">
             <div class="stat-number">{{ formatNum(personaAnchorPoolSize) }}</div>
-            <div class="stat-label">人格锚点池</div>
+            <div class="stat-label">人格锚点 主轨池</div>
             <div class="stat-trend" :class="personaAnchorEnabled ? 'positive' : 'negative'">
               {{ personaAnchorEnabled ? '已启用' : '未启用' }}
             </div>
@@ -179,7 +179,7 @@ window.AppDashboard = {
     personaAnchorPoolSize() {
       const pa = this.metrics.persona_anchor;
       if (!pa) return 0;
-      return pa.avg_bot_pool_size || 0;
+      return pa.avg_user_pool_size || 0;
     },
     personaAnchorEnabled() {
       const pa = this.metrics.persona_anchor;

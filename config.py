@@ -370,12 +370,12 @@ class PluginConfig(BaseModel):
             recent_interactions_limit=repository_settings.get('recent_interactions_limit', 20),
             trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
 
-            # Persona Anchor Settings
+            # Persona Anchor Settings (swapped primary/secondary track defaults)
             enable_persona_anchor=persona_anchor_settings.get('enable_persona_anchor', True),
-            persona_anchor_bot_k=persona_anchor_settings.get('persona_anchor_bot_k', 3),
-            persona_anchor_user_k=persona_anchor_settings.get('persona_anchor_user_k', 2),
-            persona_anchor_pool=persona_anchor_settings.get('persona_anchor_pool', 30),
-            persona_anchor_min_samples=persona_anchor_settings.get('persona_anchor_min_samples', 3),
+            persona_anchor_bot_k=persona_anchor_settings.get('persona_anchor_bot_k', 2),
+            persona_anchor_user_k=persona_anchor_settings.get('persona_anchor_user_k', 3),
+            persona_anchor_pool=persona_anchor_settings.get('persona_anchor_pool', 50),
+            persona_anchor_min_samples=persona_anchor_settings.get('persona_anchor_min_samples', 2),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")

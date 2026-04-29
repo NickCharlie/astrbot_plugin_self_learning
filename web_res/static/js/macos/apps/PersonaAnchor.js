@@ -29,8 +29,8 @@ window.AppPersonaAnchor = {
           <!-- ========== Config Bar ========== -->
           <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
             <el-tag size="small" type="success">已启用</el-tag>
-            <el-tag size="small">Bot 样本: {{ config.persona_anchor_bot_k }}</el-tag>
-            <el-tag size="small">用户样本: {{ config.persona_anchor_user_k }}</el-tag>
+            <el-tag size="small">主轨 用户样本: {{ config.persona_anchor_user_k }}</el-tag>
+            <el-tag size="small">副轨 Bot 样本: {{ config.persona_anchor_bot_k }}</el-tag>
             <el-tag size="small">候选池: {{ config.persona_anchor_pool }}</el-tag>
             <el-tag size="small">最小样本: {{ config.persona_anchor_min_samples }}</el-tag>
           </div>
@@ -70,12 +70,12 @@ window.AppPersonaAnchor = {
             <h4 style="margin:0 0 8px 0;font-size:14px;color:var(--text-primary);">平均池大小</h4>
             <div class="stat-grid" style="grid-template-columns:repeat(2,1fr);">
               <div class="stat-card">
-                <div class="stat-number">{{ metrics.avg_bot_pool_size }}</div>
-                <div class="stat-label">Bot 候选池</div>
+                <div class="stat-number">{{ metrics.avg_user_pool_size }}</div>
+                <div class="stat-label">主轨 用户候选池</div>
               </div>
               <div class="stat-card">
-                <div class="stat-number">{{ metrics.avg_user_pool_size }}</div>
-                <div class="stat-label">用户候选池</div>
+                <div class="stat-number">{{ metrics.avg_bot_pool_size }}</div>
+                <div class="stat-label">副轨 Bot 候选池</div>
               </div>
             </div>
           </div>
@@ -96,8 +96,8 @@ window.AppPersonaAnchor = {
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="bot_pool_size" label="Bot池" width="80" />
-              <el-table-column prop="user_pool_size" label="用户池" width="80" />
+              <el-table-column prop="user_pool_size" label="用户池(主)" width="90" />
+              <el-table-column prop="bot_pool_size" label="Bot池(副)" width="90" />
               <el-table-column prop="score" label="相关性" width="90" />
             </el-table>
             <div v-if="metrics.recent_history.length === 0" style="text-align:center;padding:20px;color:#86868b;font-size:13px;">

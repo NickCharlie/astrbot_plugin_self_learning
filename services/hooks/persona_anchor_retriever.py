@@ -16,8 +16,8 @@ from ...repositories.filtered_message_repository import FilteredMessageRepositor
 class PersonaAnchorRetriever:
     """Query-aware dual-track few-shot retriever.
 
-    Primary track: Bot's own historical responses (persona anchoring)
-    Secondary track: Current user's historical messages (natural conversation flow)
+    Primary track: Current user's historical messages (learn real human style).
+    Secondary track: Bot's own historical responses (persona consistency ref).
     """
 
     _METRIC_KEYS = [
@@ -60,7 +60,11 @@ class PersonaAnchorRetriever:
         group_id: str,
         user_id: str,
     ) -> Optional[str]:
-        """Return formatted few-shot text block; return None if insufficient samples."""
+        """Return formatted few-shot text block; return None if insufficient samples.
+
+        Primary track: user's historical messages (learn real human speaking style).
+        Secondary track: Bot's own historical responses (persona consistency).
+        """
         async with self._metrics_lock:
             self._metrics["total_calls"] += 1
 
@@ -74,46 +78,45 @@ class PersonaAnchorRetriever:
         candidate_pool = self._config.persona_anchor_pool
         min_samples = self._config.persona_anchor_min_samples
 
-        # Primary track: Bot historical responses
-        bot_pool = await self._fetch_bot_pool(group_id, candidate_pool)
-
-        async with self._metrics_lock:
-            self._metrics["total_bot_samples"] += len(bot_pool)
-
-        if len(bot_pool) < min_samples:
-            logger.debug("[PersonaAnchor] insufficient bot samples, skipped")
-            async with self._metrics_lock:
-                self._metrics["skips_insufficient"] += 1
-                self._record_history(False, len(bot_pool), None, 0.0)
-            return None
-
-        # Secondary track: user's historical messages
+        # Primary track: user's historical messages
         user_pool = await self._fetch_user_pool(group_id, user_id, candidate_pool)
 
         async with self._metrics_lock:
             self._metrics["total_user_samples"] += len(user_pool)
 
-        bot_top = self._score_and_pick(current_query, bot_pool, k_bot)
-        user_top = self._score_and_pick(current_query, user_pool, k_user)
+        if len(user_pool) < min_samples:
+            logger.debug("[PersonaAnchor] insufficient user samples, skipped")
+            async with self._metrics_lock:
+                self._metrics["skips_insufficient"] += 1
+                self._record_history(False, 0, len(user_pool), 0.0)
+            return None
 
-        # If scoring filters out all bot messages, skip persona anchoring entirely.
-        # Returning a persona-anchored block with no bot messages would be misleading.
-        if not bot_top:
-            logger.debug("[PersonaAnchor] no scored bot messages after filtering, skipped")
+        # Secondary track: Bot historical responses
+        bot_pool = await self._fetch_bot_pool(group_id, candidate_pool)
+
+        async with self._metrics_lock:
+            self._metrics["total_bot_samples"] += len(bot_pool)
+
+        user_top = self._score_and_pick(current_query, user_pool, k_user)
+        bot_top = self._score_and_pick(current_query, bot_pool, k_bot)
+
+        # If scoring filters out all user messages, skip — user pool is primary.
+        if not user_top:
+            logger.debug("[PersonaAnchor] no scored user messages after filtering, skipped")
             async with self._metrics_lock:
                 self._metrics["skips_no_scored"] += 1
                 self._record_history(False, len(bot_pool), len(user_pool), 0.0)
             return None
 
-        # Calculate average relevance score for bot_top
-        avg_score = self._calc_avg_score(current_query, bot_top)
+        # Calculate average relevance score for user_top (primary track)
+        avg_score = self._calc_avg_score(current_query, user_top)
         async with self._metrics_lock:
             self._metrics["total_relevance_score"] += avg_score
             self._metrics["scored_count"] += 1
             self._metrics["successful_injections"] += 1
             self._record_history(True, len(bot_pool), len(user_pool), avg_score)
 
-        return self._format(bot_top, user_top)
+        return self._format(user_top, bot_top)
 
     async def _fetch_bot_pool(self, group_id: str, limit: int) -> List:
         if not self._db_manager or not self._db_manager.engine:
@@ -253,13 +256,14 @@ class PersonaAnchorRetriever:
             logger.warning(f"[PersonaAnchor] 加载指标失败: {e}")
 
     @staticmethod
-    def _format(bot_msgs: list, user_msgs: list) -> str:
-        lines = ["[Persona Anchor — your past responses in similar contexts]"]
-        for msg in bot_msgs:
-            lines.append(f"You: {msg.message}")
-        if user_msgs:
+    def _format(user_msgs: list, bot_msgs: list) -> str:
+        """Format with user style as primary, Bot persona as secondary."""
+        lines = ["[Speaking style reference — how this user typically talks]"]
+        for msg in user_msgs:
+            lines.append(f"User: {msg.message}")
+        if bot_msgs:
             lines.append("")
-            lines.append("[How this user typically speaks]")
-            for msg in user_msgs:
-                lines.append(f"User: {msg.message}")
+            lines.append("[Your past responses in similar contexts]")
+            for msg in bot_msgs:
+                lines.append(f"You: {msg.message}")
         return "\n".join(lines)
