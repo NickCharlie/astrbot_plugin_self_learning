@@ -611,7 +611,7 @@
   "Persona_Anchor_Settings": {
     "description": "Few-shot 人格锚点（动态检索 Bot 历史回复作为人格锚点）",
     "type": "object",
-    "hint": "根据当前对话情境动态检索 Bot 自己的历史回复和该用户的历史发言，注入为 in-context examples",
+    "hint": "根据当前对话情境动态检索 Bot 自己的历史回复和该用户的历史发言，注入为 in-context examples。【注意】本功能与「对话风格学习」的 few-shots 注入机制不同：后者是离线周期性学习并审核后注入静态的已批准学习成果，每次请求内容相同；而本功能是每次请求时根据当前 query 的相关性动态打分、从原始消息中实时检索注入，每轮对话注入的 few-shot 内容都不同。两者同时开启时，prompt 中可能出现重复的 few-shot 内容，增加 token 消耗。建议二选一使用：若追求动态上下文感知和每轮不同的个性化示例可开启本功能并关闭自动学习；若追求质量可控和审核机制则关闭本功能、保留自动学习。",
     "items": {
       "enable_persona_anchor": {
         "description": "启用人格锚点注入",
