@@ -118,6 +118,39 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
             logger.error(f"[FilteredMessageRepository] 批量标记已处理失败: {e}")
             return 0
 
+    async def get_recent_by_sender(
+        self,
+        group_id: str,
+        sender_id: str,
+        limit: int = 50
+    ) -> List[FilteredMessage]:
+        """
+        获取指定用户在指定群组的最近筛选消息
+
+        Args:
+            group_id: 群组 ID
+            sender_id: 发送者 ID
+            limit: 最大返回数量
+
+        Returns:
+            List[FilteredMessage]: 消息列表（按时间倒序）
+        """
+        try:
+            stmt = (
+                select(FilteredMessage)
+                .where(and_(
+                    FilteredMessage.group_id == group_id,
+                    FilteredMessage.sender_id == sender_id,
+                ))
+                .order_by(desc(FilteredMessage.timestamp))
+                .limit(limit)
+            )
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"[FilteredMessageRepository] 获取用户最近筛选消息失败: {e}")
+            return []
+
     async def get_recent(
         self,
         group_id: Optional[str] = None,

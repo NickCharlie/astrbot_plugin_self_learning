@@ -137,8 +137,7 @@ class PersonaAnchorRetriever:
             session = self._db_manager.engine.get_session()
             async with session as s:
                 repo = FilteredMessageRepository(s)
-                msgs = await repo.get_recent(group_id, limit)
-                return [m for m in msgs if m.sender_id == user_id]
+                return await repo.get_recent_by_sender(group_id, user_id, limit)
         except Exception as e:
             logger.warning(f"[PersonaAnchor] user pool fetch failed: {e}")
             return []
