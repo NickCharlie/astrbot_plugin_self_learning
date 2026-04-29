@@ -5,9 +5,17 @@ AstrBot 框架 LLM 适配器
 import asyncio
 import time
 from typing import Optional, List, Dict, Any
+from urllib.parse import urljoin, urlparse
 from astrbot.api import logger
 from astrbot.core.provider.provider import Provider
 from astrbot.core.provider.entities import LLMResponse
+
+
+try:
+    import aiohttp
+    _HAS_AIOHTTP = True
+except ImportError:
+    _HAS_AIOHTTP = False
 
 class FrameworkLLMAdapter:
     """AstrBot框架LLM适配器，用于替换自定义LLMClient"""
@@ -232,6 +240,139 @@ class FrameworkLLMAdapter:
         except Exception as e:
             logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
+    # ------------------------------------------------------------------
+    # Bare (context-free) chat-completion helpers
+    # ------------------------------------------------------------------
+
+    def _get_provider_api_config(self, provider: Provider) -> Optional[Dict[str, str]]:
+        """通过反射从 Provider 对象提取 API 配置（URL / Key / Model）。
+
+        不同 Provider 子类的属性命名可能不同，这里按常见命名逐一探测。
+        """
+        # API Key
+        api_key = (
+            getattr(provider, '_api_key', None)
+            or getattr(provider, 'api_key', None)
+            or getattr(provider, 'key', None)
+        )
+
+        # Base URL / endpoint
+        base_url = (
+            getattr(provider, '_base_url', None)
+            or getattr(provider, 'base_url', None)
+            or getattr(provider, 'url', None)
+            or getattr(provider, '_api_base', None)
+            or getattr(provider, 'api_base', None)
+            or getattr(provider, 'api_url', None)
+        )
+
+        # Model name
+        model = (
+            getattr(provider, '_model', None)
+            or getattr(provider, 'model', None)
+            or getattr(provider, '_model_name', None)
+            or getattr(provider, 'model_name', None)
+        )
+        if not model:
+            try:
+                model = provider.meta().model
+            except Exception as exc:
+                logger.debug(f"[BareLLM] 获取 Provider model 失败: {exc}")
+                model = None
+
+        if not all([api_key, base_url, model]):
+            return None
+
+        return {'api_key': api_key, 'base_url': base_url, 'model': model}
+
+    async def _bare_chat_completion(
+        self,
+        provider: Provider,
+        prompt: str,
+        temperature: float = 0.7,
+        **kwargs
+    ) -> Optional[str]:
+        """绕过 Provider 的上下文管理，直接发起最小化 HTTP 调用。
+
+        请求体中**仅包含**一条 user 消息，不携带系统提示、不携带历史上下文，
+        从而避免 AstrBot Provider 内部自动附加人格描述 / 会话历史导致的 token 浪费。
+
+        目前仅支持 OpenAI 兼容格式；若探测不到 Provider 的 API 配置或请求失败，
+        返回 None，由调用方回退到常规 ``text_chat`` 路径。
+        """
+        if not _HAS_AIOHTTP:
+            logger.debug("[BareLLM] aiohttp 未安装，跳过裸调用")
+            return None
+
+        cfg = self._get_provider_api_config(provider)
+        if not cfg:
+            logger.debug("[BareLLM] 无法提取 Provider API 配置，跳过裸调用")
+            return None
+
+        api_key = cfg['api_key']
+        base_url = cfg['base_url']
+        model = cfg['model']
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}',
+        }
+
+        payload: Dict[str, Any] = {
+            'model': model,
+            'messages': [{'role': 'user', 'content': prompt}],
+            'temperature': temperature,
+        }
+        # 透传其他有效参数（排除已经单独处理的以及上下文相关参数）
+        skip_keys = {'contexts', 'system_prompt', 'prompt', 'model', 'temperature', 'messages'}
+        for k, v in kwargs.items():
+            if k not in skip_keys:
+                payload[k] = v
+
+        # 某些 Provider 的 base_url 可能不是完整路径，尝试补全
+        parsed = urlparse(base_url)
+        if parsed.path.rstrip('/').endswith('/chat/completions'):
+            urls_to_try = [base_url]
+        else:
+            urls_to_try = [
+                base_url,
+                urljoin(base_url.rstrip('/') + '/', 'chat/completions'),
+            ]
+
+        last_error = None
+        for url in urls_to_try:
+            try:
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=30.0)
+                ) as session:
+                    async with session.post(
+                        url, headers=headers, json=payload
+                    ) as response:
+                        if response.status != 200:
+                            text = await response.text()
+                            logger.debug(
+                                f"[BareLLM] HTTP {response.status} from {url}: {text[:200]}"
+                            )
+                            last_error = f"HTTP {response.status}"
+                            continue
+
+                        data = await response.json()
+                        choices = data.get('choices', [])
+                        if choices:
+                            content = choices[0].get('message', {}).get('content', '')
+                            logger.debug(
+                                f"[BareLLM] 成功获取响应 ({len(content)} chars)"
+                            )
+                            return content
+                        return None
+            except Exception as exc:
+                logger.debug(f"[BareLLM] 请求失败 {url}: {exc}")
+                last_error = str(exc)
+                continue
+
+        logger.debug(f"[BareLLM] 所有端点均失败，最后错误: {last_error}")
+        return None
+
     async def filter_chat_completion(
         self,
         prompt: str,
@@ -243,16 +384,15 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
-        # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
-        if contexts is None:
-            contexts = []
-
         if not self.filter_provider:
             logger.warning("筛选Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
             fallback_provider = self.refine_provider or self.reinforce_provider
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
+                # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
+                if contexts is None:
+                    contexts = []
                 try:
                     response = await fallback_provider.text_chat(
                         prompt=prompt,
@@ -267,11 +407,32 @@ class FrameworkLLMAdapter:
             else:
                 logger.error("没有可用的Provider，无法执行筛选任务")
                 return None
-            
+
         try:
             start_time = time.time()
             self.call_stats['filter']['total_calls'] += 1
-            
+
+            # 当调用方未提供任何上下文和系统提示时，尝试裸调用以节省 token。
+            # 裸调用绕过 AstrBot Provider 内部的上下文管理，只发送纯 prompt。
+            bare_result = None
+            if not contexts and system_prompt is None:
+                bare_result = await self._bare_chat_completion(
+                    self.filter_provider, prompt, **kwargs
+                )
+
+            if bare_result is not None:
+                elapsed_time = time.time() - start_time
+                self.call_stats['filter']['total_time'] += elapsed_time
+                logger.debug(
+                    f"[BareLLM] 筛选Provider裸调用成功: {self.filter_provider.meta().id}"
+                )
+                return bare_result
+
+            # 裸调用未命中或失败，回退到常规 Provider 调用
+            # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
+            if contexts is None:
+                contexts = []
+
             logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
             response = await self.filter_provider.text_chat(
                 prompt=prompt,
@@ -279,18 +440,18 @@ class FrameworkLLMAdapter:
                 system_prompt=system_prompt,
                 **kwargs
             )
-            
+
             # 统计调用时间
             elapsed_time = time.time() - start_time
             self.call_stats['filter']['total_time'] += elapsed_time
-            
+
             return response.completion_text if response else None
         except Exception as e:
             # 统计错误
             elapsed_time = time.time() - start_time
             self.call_stats['filter']['total_time'] += elapsed_time
             self.call_stats['filter']['errors'] += 1
-            
+
             logger.error(f"筛选模型调用失败: {e}")
             return None
     
