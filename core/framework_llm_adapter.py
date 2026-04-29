@@ -39,6 +39,9 @@ class FrameworkLLMAdapter:
             'reinforce': {'total_calls': 0, 'total_time': 0, 'errors': 0},
             'general': {'total_calls': 0, 'total_time': 0, 'errors': 0}
         }
+
+        # 共享 aiohttp session，避免每次裸调用都新建连接池
+        self._bare_session: Optional[Any] = None
         
     def initialize_providers(self, config):
         """根据配置初始化Provider"""
@@ -329,48 +332,48 @@ class FrameworkLLMAdapter:
             if k not in skip_keys:
                 payload[k] = v
 
-        # 某些 Provider 的 base_url 可能不是完整路径，尝试补全
+        # 构造目标 URL：若 base_url 本身已指向 chat/completions 则直接使用；
+        # 否则仅拼接 /chat/completions，避免向非 chat 端点发送无效请求产生噪音。
         parsed = urlparse(base_url)
-        if parsed.path.rstrip('/').endswith('/chat/completions'):
-            urls_to_try = [base_url]
+        path = parsed.path.rstrip('/')
+        if path.endswith('/chat/completions'):
+            url = base_url
         else:
-            urls_to_try = [
-                base_url,
-                urljoin(base_url.rstrip('/') + '/', 'chat/completions'),
-            ]
+            # 空路径、/v1 或其他路径统一拼接 /chat/completions
+            url = urljoin(base_url.rstrip('/') + '/', 'chat/completions')
+
+        # 惰性初始化共享 session，避免高频裸调用时反复创建连接池
+        if self._bare_session is None and _HAS_AIOHTTP:
+            self._bare_session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=30.0)
+            )
 
         last_error = None
-        for url in urls_to_try:
-            try:
-                async with aiohttp.ClientSession(
-                    timeout=aiohttp.ClientTimeout(total=30.0)
-                ) as session:
-                    async with session.post(
-                        url, headers=headers, json=payload
-                    ) as response:
-                        if response.status != 200:
-                            text = await response.text()
-                            logger.debug(
-                                f"[BareLLM] HTTP {response.status} from {url}: {text[:200]}"
-                            )
-                            last_error = f"HTTP {response.status}"
-                            continue
+        try:
+            async with self._bare_session.post(
+                url, headers=headers, json=payload
+            ) as response:
+                if response.status != 200:
+                    text = await response.text()
+                    logger.debug(
+                        f"[BareLLM] HTTP {response.status} from {url}: {text[:200]}"
+                    )
+                    last_error = f"HTTP {response.status}"
+                else:
+                    data = await response.json()
+                    choices = data.get('choices', [])
+                    if choices:
+                        content = choices[0].get('message', {}).get('content', '')
+                        logger.debug(
+                            f"[BareLLM] 成功获取响应 ({len(content)} chars)"
+                        )
+                        return content
+                    return None
+        except Exception as exc:
+            logger.debug(f"[BareLLM] 请求失败 {url}: {exc}")
+            last_error = str(exc)
 
-                        data = await response.json()
-                        choices = data.get('choices', [])
-                        if choices:
-                            content = choices[0].get('message', {}).get('content', '')
-                            logger.debug(
-                                f"[BareLLM] 成功获取响应 ({len(content)} chars)"
-                            )
-                            return content
-                        return None
-            except Exception as exc:
-                logger.debug(f"[BareLLM] 请求失败 {url}: {exc}")
-                last_error = str(exc)
-                continue
-
-        logger.debug(f"[BareLLM] 所有端点均失败，最后错误: {last_error}")
+        logger.debug(f"[BareLLM] 裸调用失败，回退到常规路径。最后错误: {last_error}")
         return None
 
     async def filter_chat_completion(
