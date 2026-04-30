@@ -2,15 +2,42 @@
 import asyncio
 import json
 import os
+import re
 import time
 from math import exp
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import jieba
 from astrbot.api import logger
 
 from ...repositories.bot_message_repository import BotMessageRepository
 from ...repositories.raw_message_repository import RawMessageRepository
+
+
+class _PoolEntry:
+    """Lightweight entry for persona-anchor user sample pool."""
+
+    __slots__ = ("message", "timestamp", "sender_id")
+
+    def __init__(self, message: str, timestamp: float, sender_id: str = "") -> None:
+        self.message = message
+        self.timestamp = timestamp
+        self.sender_id = sender_id
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "message": self.message,
+            "timestamp": self.timestamp,
+            "sender_id": self.sender_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "_PoolEntry":
+        return cls(
+            message=data.get("message", ""),
+            timestamp=data.get("timestamp", 0.0),
+            sender_id=data.get("sender_id", ""),
+        )
 
 
 class PersonaAnchorRetriever:
@@ -31,6 +58,12 @@ class PersonaAnchorRetriever:
         "total_relevance_score",
         "scored_count",
     ]
+
+    _AT_PATTERN = re.compile(r"@[^\s]+\s*")
+    _URL_PATTERN = re.compile(r"https?://\S+|www\.\S+")
+    _TONE_WORDS = {"吧", "呢", "啊", "呀", "哦", "嘛", "呗", "咯", "哈", "哇", "耶", "捏", "噜"}
+    _MEANINGLESS = {"", "???", "。。。", "...", "嗯", "哦", "额", "啊", "呃", "唔", "嗯嗯", "哦哦"}
+    _REPETITIVE_PATTERN = re.compile(r"(.)\1{4,}")
 
     def __init__(self, db_manager, config) -> None:
         self._db_manager = db_manager
@@ -75,11 +108,10 @@ class PersonaAnchorRetriever:
 
         k_bot = self._config.persona_anchor_bot_k
         k_user = self._config.persona_anchor_user_k
-        candidate_pool = self._config.persona_anchor_pool
         min_samples = self._config.persona_anchor_min_samples
 
-        # Primary track: user's historical messages
-        user_pool = await self._fetch_user_pool(group_id, user_id, candidate_pool)
+        # Primary track: user's historical messages (from managed pool)
+        user_pool = await self._fetch_user_pool(group_id, user_id)
 
         async with self._metrics_lock:
             self._metrics["total_user_samples"] += len(user_pool)
@@ -92,7 +124,9 @@ class PersonaAnchorRetriever:
             return None
 
         # Secondary track: Bot historical responses
-        bot_pool = await self._fetch_bot_pool(group_id, candidate_pool)
+        bot_pool = await self._fetch_bot_pool(
+            group_id, self._config.persona_anchor_pool
+        )
 
         async with self._metrics_lock:
             self._metrics["total_bot_samples"] += len(bot_pool)
@@ -102,7 +136,9 @@ class PersonaAnchorRetriever:
 
         # If scoring filters out all user messages, skip — user pool is primary.
         if not user_top:
-            logger.debug("[PersonaAnchor] no scored user messages after filtering, skipped")
+            logger.debug(
+                "[PersonaAnchor] no scored user messages after filtering, skipped"
+            )
             async with self._metrics_lock:
                 self._metrics["skips_no_scored"] += 1
                 self._record_history(False, len(bot_pool), len(user_pool), 0.0)
@@ -130,7 +166,52 @@ class PersonaAnchorRetriever:
             logger.warning(f"[PersonaAnchor] bot pool fetch failed: {e}")
             return []
 
-    async def _fetch_user_pool(self, group_id: str, user_id: str, limit: int) -> List:
+    async def _fetch_user_pool(self, group_id: str, user_id: str) -> List:
+        """Fetch from managed sample pool — syncs from raw_messages on demand."""
+        enable_filter = getattr(self._config, "persona_anchor_enable_filter", True)
+        if not enable_filter:
+            # Fallback: direct raw message query without pool management
+            return await self._fetch_raw_user_pool(group_id, user_id)
+
+        # 1. Load existing pool
+        pool = self._load_pool(group_id, user_id)
+
+        # 2. Determine cutoff timestamp (latest message already in pool)
+        cutoff = max((e.timestamp for e in pool), default=0.0)
+
+        # 3. Fetch newer raw messages
+        new_raw = await self._fetch_raw_user_pool(group_id, user_id, limit=200)
+        new_entries = [
+            _PoolEntry(
+                message=m.message,
+                timestamp=m.timestamp / 1000.0 if m.timestamp > 1e12 else m.timestamp,
+                sender_id=getattr(m, "sender_id", ""),
+            )
+            for m in new_raw
+            if (m.timestamp / 1000.0 if m.timestamp > 1e12 else m.timestamp) > cutoff
+        ]
+
+        if not new_entries:
+            return pool
+
+        # 4. Filter noise
+        filtered = self._filter_noise(new_entries)
+
+        # 5. Merge with existing pool
+        pool.extend(filtered)
+
+        # 6. Clean if over threshold
+        max_size = getattr(self._config, "persona_anchor_pool_max_size", 200)
+        if len(pool) > max_size:
+            pool = self._clean_pool(pool)
+
+        # 7. Save
+        self._save_pool(group_id, user_id, pool)
+        return pool
+
+    async def _fetch_raw_user_pool(
+        self, group_id: str, user_id: str, limit: int = 200
+    ) -> List:
         if not self._db_manager or not self._db_manager.engine:
             return []
         try:
@@ -139,13 +220,157 @@ class PersonaAnchorRetriever:
                 repo = RawMessageRepository(s)
                 msgs = await repo.get_recent_by_sender(group_id, user_id, limit)
                 logger.debug(
-                    f"[PersonaAnchor] user_pool query: group={group_id}, "
+                    f"[PersonaAnchor] raw query: group={group_id}, "
                     f"user={user_id}, limit={limit}, returned={len(msgs)}"
                 )
                 return msgs
         except Exception as e:
-            logger.warning(f"[PersonaAnchor] user pool fetch failed: {e}")
+            logger.warning(f"[PersonaAnchor] raw user pool fetch failed: {e}")
             return []
+
+    # -- Pool persistence --
+
+    def _pool_file(self, group_id: str, user_id: str) -> str:
+        pool_dir = os.path.join(self._config.data_dir, "persona_anchor_pools")
+        os.makedirs(pool_dir, exist_ok=True)
+        safe_name = re.sub(r"[^\w\-_]", "_", f"{group_id}_{user_id}")
+        return os.path.join(pool_dir, f"{safe_name}.json")
+
+    def _load_pool(self, group_id: str, user_id: str) -> List[_PoolEntry]:
+        path = self._pool_file(group_id, user_id)
+        if not os.path.exists(path):
+            return []
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return [_PoolEntry.from_dict(item) for item in data]
+        except Exception as e:
+            logger.warning(f"[PersonaAnchor] pool load failed: {e}")
+        return []
+
+    def _save_pool(self, group_id: str, user_id: str, pool: List[_PoolEntry]) -> None:
+        path = self._pool_file(group_id, user_id)
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump([e.to_dict() for e in pool], f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[PersonaAnchor] pool save failed: {e}")
+
+    # -- Quality filtering & cleaning --
+
+    def _filter_noise(self, entries: List[_PoolEntry]) -> List[_PoolEntry]:
+        """Rule-based noise filtering (no LLM calls)."""
+        result: List[_PoolEntry] = []
+        for e in entries:
+            text = e.message
+            if not text:
+                continue
+
+            stripped = text.strip()
+
+            # Length guard
+            if len(stripped) < 5 or len(stripped) > 300:
+                continue
+
+            # Meaningless content
+            if stripped in self._MEANINGLESS:
+                continue
+
+            # Commands
+            if stripped.startswith(("/", "!", "#", ".")):
+                continue
+
+            # @mentions
+            if self._AT_PATTERN.search(stripped):
+                continue
+
+            # URLs
+            if self._URL_PATTERN.search(stripped):
+                continue
+
+            # Pure digits
+            if stripped.replace(" ", "").isdigit():
+                continue
+
+            # Pure punctuation / emoji-only (no CJK or letters)
+            if not any("一" <= c <= "鿿" or c.isalpha() for c in stripped):
+                continue
+
+            result.append(e)
+        return result
+
+    def _deduplicate(self, entries: List[_PoolEntry]) -> List[_PoolEntry]:
+        """Remove near-duplicate entries, keeping the newest."""
+        # Sort by timestamp descending — keep newest
+        sorted_entries = sorted(entries, key=lambda e: e.timestamp, reverse=True)
+        seen_tokens: List[set] = []
+        result: List[_PoolEntry] = []
+        for e in sorted_entries:
+            tokens = set(jieba.cut_for_search(e.message))
+            if not tokens:
+                continue
+            is_dup = False
+            for seen in seen_tokens:
+                overlap = len(tokens & seen)
+                union = len(tokens | seen)
+                if union > 0 and overlap / union > 0.75:
+                    is_dup = True
+                    break
+            if not is_dup:
+                seen_tokens.append(tokens)
+                result.append(e)
+        return result
+
+    def _score_quality(self, text: str) -> float:
+        """Heuristic quality score for style-learning suitability."""
+        score = 0.0
+
+        # 1. Length sweet spot (10-150 chars)
+        length = len(text)
+        if 10 <= length <= 150:
+            score += 3.0
+        elif 5 <= length < 10:
+            score += 1.0
+        else:
+            score -= 1.0
+
+        # 2. Tone words (strong style signature)
+        found_tones = sum(1 for w in self._TONE_WORDS if w in text)
+        score += min(found_tones * 0.6, 2.5)
+
+        # 3. Emotional punctuation
+        if any(p in text for p in "！？…~～"):
+            score += 1.0
+
+        # 4. Question marks (interactive style)
+        if "?" in text or "？" in text:
+            score += 0.8
+
+        # 5. Multiple sentence breaks (complex expression)
+        breaks = text.count("。") + text.count("！") + text.count("？")
+        if breaks >= 2:
+            score += 0.5
+
+        # 6. Repetitive chars penalty
+        if self._REPETITIVE_PATTERN.search(text):
+            score -= 1.5
+
+        # 7. Excessive length penalty
+        if length > 200:
+            score -= 1.0
+
+        return score
+
+    def _clean_pool(self, entries: List[_PoolEntry]) -> List[_PoolEntry]:
+        """Clean pool: deduplicate then keep highest-quality samples."""
+        deduped = self._deduplicate(entries)
+        scored = [(self._score_quality(e.message), e) for e in deduped]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        keep_size = getattr(self._config, "persona_anchor_pool_keep_size", 100)
+        return [e for _, e in scored[:keep_size]]
+
+    # -- Scoring --
 
     def _score_and_pick(self, query: str, pool: list, k: int) -> list:
         if not query:
@@ -155,6 +380,7 @@ class PersonaAnchorRetriever:
             return pool[:k]
 
         now = time.time()
+        decay_hours = getattr(self._config, "persona_anchor_time_decay_hours", 0.0)
         scored = []
         for msg in pool:
             text = msg.message
@@ -164,13 +390,14 @@ class PersonaAnchorRetriever:
             overlap = len(query_tokens & msg_tokens)
             if overlap == 0:
                 continue
-            # Time decay: halve every 24 hours
+            # Time decay (optional — 0 means disabled)
             ts = msg.timestamp
-            # Defensive: normalize if timestamp appears to be in milliseconds
             if ts > 1e12:
                 ts = ts / 1000.0
-            hours_ago = (now - ts) / 3600.0
-            time_weight = exp(-hours_ago / 24.0)
+            time_weight = 1.0
+            if decay_hours > 0:
+                hours_ago = (now - ts) / 3600.0
+                time_weight = exp(-hours_ago / decay_hours)
             score = overlap * time_weight
             scored.append((score, msg))
 
@@ -193,7 +420,9 @@ class PersonaAnchorRetriever:
             scores.append(overlap)
         return sum(scores) / len(scores) if scores else 0.0
 
-    def _record_history(self, success: bool, bot_pool_size: int, user_pool_size: Optional[int], score: float) -> None:
+    def _record_history(
+        self, success: bool, bot_pool_size: int, user_pool_size: Optional[int], score: float
+    ) -> None:
         history = self._metrics["injection_history"]
         entry = {
             "ts": time.time(),
@@ -214,10 +443,18 @@ class PersonaAnchorRetriever:
         successful = m["successful_injections"]
         avg_bot = m["total_bot_samples"] / total_calls if total_calls > 0 else 0
         avg_user = m["total_user_samples"] / total_calls if total_calls > 0 else 0
-        avg_score = m["total_relevance_score"] / m["scored_count"] if m["scored_count"] > 0 else 0
+        avg_score = (
+            m["total_relevance_score"] / m["scored_count"]
+            if m["scored_count"] > 0
+            else 0
+        )
         injection_rate = successful / total_calls * 100 if total_calls > 0 else 0
         return {
-            "enabled": getattr(self._config, 'enable_persona_anchor', False) if self._config else False,
+            "enabled": (
+                getattr(self._config, "enable_persona_anchor", False)
+                if self._config
+                else False
+            ),
             "total_calls": total_calls,
             "successful_injections": successful,
             "injection_rate": round(injection_rate, 1),
@@ -249,13 +486,14 @@ class PersonaAnchorRetriever:
             if os.path.exists(path):
                 with open(path, "r", encoding="utf-8") as f:
                     loaded = json.load(f)
-                # 只加载已知的键，防止 schema 变更导致问题
                 for key in self._METRIC_KEYS:
                     if key in loaded:
                         self._metrics[key] = loaded[key]
                 if "injection_history" in loaded:
                     self._metrics["injection_history"] = loaded["injection_history"]
-                logger.info(f"[PersonaAnchor] 已恢复历史指标: {self._metrics['total_calls']} 次调用")
+                logger.info(
+                    f"[PersonaAnchor] 已恢复历史指标: {self._metrics['total_calls']} 次调用"
+                )
         except Exception as e:
             logger.warning(f"[PersonaAnchor] 加载指标失败: {e}")
 

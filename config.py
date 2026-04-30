@@ -201,6 +201,10 @@ class PluginConfig(BaseModel):
     persona_anchor_user_k: int = 2
     persona_anchor_pool: int = 30
     persona_anchor_min_samples: int = 3
+    persona_anchor_enable_filter: bool = True
+    persona_anchor_pool_max_size: int = 200
+    persona_anchor_pool_keep_size: int = 100
+    persona_anchor_time_decay_hours: float = 0.0
 
     @classmethod
     def create_from_config(cls, config: dict, data_dir: Optional[str] = None) -> 'PluginConfig':
@@ -376,6 +380,10 @@ class PluginConfig(BaseModel):
             persona_anchor_user_k=persona_anchor_settings.get('persona_anchor_user_k', 3),
             persona_anchor_pool=persona_anchor_settings.get('persona_anchor_pool', 50),
             persona_anchor_min_samples=persona_anchor_settings.get('persona_anchor_min_samples', 2),
+            persona_anchor_enable_filter=persona_anchor_settings.get('persona_anchor_enable_filter', True),
+            persona_anchor_pool_max_size=persona_anchor_settings.get('persona_anchor_pool_max_size', 200),
+            persona_anchor_pool_keep_size=persona_anchor_settings.get('persona_anchor_pool_keep_size', 100),
+            persona_anchor_time_decay_hours=persona_anchor_settings.get('persona_anchor_time_decay_hours', 0.0),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
