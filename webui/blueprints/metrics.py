@@ -205,6 +205,15 @@ async def get_metrics():
             except Exception as e:
                 logger.warning(f"获取Hook性能数据失败: {e}")
 
+        # Persona anchor metrics
+        persona_anchor_metrics = None
+        hook_handler = getattr(container, 'hook_handler', None)
+        if hook_handler and hasattr(hook_handler, 'persona_anchor_metrics'):
+            try:
+                persona_anchor_metrics = hook_handler.persona_anchor_metrics
+            except Exception as e:
+                logger.warning(f"获取人格锚点指标失败: {e}")
+
         import time
         metrics = {
             "llm_calls": llm_stats,
@@ -215,6 +224,7 @@ async def get_metrics():
             "learning_efficiency": round(learning_efficiency, 1),
             "learning_dimensions": learning_dimensions,
             "hook_performance": hook_performance,
+            "persona_anchor": persona_anchor_metrics,
             "last_updated": time.time()
         }
 

@@ -46,6 +46,13 @@ window.AppDashboard = {
               {{ trends.sessions_growth >= 0 ? '+' : '' }}{{ trends.sessions_growth }}%
             </div>
           </div>
+          <div class="stat-card">
+            <div class="stat-number">{{ formatNum(personaAnchorPoolSize) }}</div>
+            <div class="stat-label">人格锚点 主轨池</div>
+            <div class="stat-trend" :class="personaAnchorEnabled ? 'positive' : 'negative'">
+              {{ personaAnchorEnabled ? '已启用' : '未启用' }}
+            </div>
+          </div>
         </div>
 
         <!-- ========== 图表网格 ========== -->
@@ -95,6 +102,12 @@ window.AppDashboard = {
           <div class="chart-box">
             <h4>系统状态监控</h4>
             <div ref="systemRadarChart" class="chart-area"></div>
+          </div>
+
+          <!-- 5.6 人格锚点学习进度 - 仪表盘 -->
+          <div class="chart-box">
+            <h4>人格锚点学习进度</h4>
+            <div ref="personaAnchorChart" class="chart-area"></div>
           </div>
 
           <!-- 5.5 Hook注入耗时分析 - 堆叠柱状图 -->
@@ -162,6 +175,16 @@ window.AppDashboard = {
       return Object.values(calls).reduce(function (sum, m) {
         return sum + (m.total_calls || 0);
       }, 0);
+    },
+    personaAnchorPoolSize() {
+      const pa = this.metrics.persona_anchor;
+      if (!pa) return 0;
+      return pa.avg_user_pool_size || 0;
+    },
+    personaAnchorEnabled() {
+      const pa = this.metrics.persona_anchor;
+      if (!pa) return false;
+      return pa.enabled || false;
     },
   },
 
@@ -295,6 +318,7 @@ window.AppDashboard = {
       this.updateResponseTime();
       this.updateLearningGauge();
       this.updateSystemRadar();
+      this.updatePersonaAnchor();
       this.updateHookPerf();
       this.updateStyleChart();
       this.updateHeatmap();
@@ -528,6 +552,93 @@ window.AppDashboard = {
       );
     },
 
+    /* ---------- 5.6 人格锚点学习进度 - 仪表盘 ---------- */
+    updatePersonaAnchor() {
+      var chart =
+        this.chartInstances["personaAnchorChart"] ||
+        this.initChart("personaAnchorChart");
+      if (!chart) return;
+
+      var pa = this.metrics.persona_anchor;
+      var injectionRate = 0;
+      var avgScore = 0;
+      if (pa) {
+        injectionRate = pa.injection_rate || 0;
+        avgScore = pa.avg_relevance_score || 0;
+      }
+
+      chart.setOption(
+        {
+          tooltip: {
+            formatter: function (params) {
+              return (
+                params.name +
+                "<br/>" +
+                params.value.toFixed(1) +
+                "%"
+              );
+            },
+          },
+          series: [
+            {
+              type: "gauge",
+              startAngle: 180,
+              endAngle: 0,
+              center: ["50%", "75%"],
+              radius: "90%",
+              min: 0,
+              max: 100,
+              splitNumber: 10,
+              axisLine: {
+                lineStyle: {
+                  width: 6,
+                  color: [
+                    [0.3, "#ff4444"],
+                    [0.6, "#ff9800"],
+                    [0.8, "#4caf50"],
+                    [1, "#1976d2"],
+                  ],
+                },
+              },
+              pointer: {
+                icon: "path://M12.8,0.7l12,40.1H0.7L12.8,0.7z",
+                length: "12%",
+                width: 20,
+                offsetCenter: [0, "-60%"],
+                itemStyle: { color: "auto" },
+              },
+              axisTick: { length: 12, lineStyle: { color: "auto", width: 2 } },
+              splitLine: { length: 20, lineStyle: { color: "auto", width: 5 } },
+              axisLabel: {
+                color: "#464646",
+                fontSize: 10,
+                distance: -60,
+                formatter: function (value) {
+                  if (value === 100) return "优秀";
+                  if (value === 80) return "良好";
+                  if (value === 60) return "一般";
+                  if (value === 30) return "较差";
+                  return "";
+                },
+              },
+              title: { offsetCenter: [0, "-10%"], fontSize: 14 },
+              detail: {
+                fontSize: 24,
+                offsetCenter: [0, "-35%"],
+                valueAnimation: true,
+                formatter: function (v) {
+                  return Math.round(v) + "%";
+                },
+                color: "auto",
+              },
+              data: [{ value: injectionRate, name: "注入率" }],
+            },
+          ],
+        },
+        true,
+      );
+    },
+
     /* ---------- 5. 系统状态监控 - 雷达图 ---------- */
     updateSystemRadar() {
       var chart =
@@ -648,6 +759,9 @@ window.AppDashboard = {
       var jargonData = recent.map(function (s) {
         return Math.round(s.jargon_ms || 0);
       });
+      var personaAnchorData = recent.map(function (s) {
+        return Math.round(s.persona_anchor_ms || 0);
+      });
 
       chart.setOption(
         {
@@ -667,7 +781,7 @@ window.AppDashboard = {
             },
           },
           legend: {
-            data: ["社交上下文", "V2上下文", "多样性", "黑话"],
+            data: ["社交上下文", "V2上下文", "多样性", "黑话", "人格锚点"],
             bottom: 0,
             textStyle: { fontSize: 10 },
           },
@@ -712,6 +826,13 @@ window.AppDashboard = {
               stack: "hook",
               data: jargonData,
               itemStyle: { color: "#7b1fa2" },
+            },
+            {
+              name: "人格锚点",
+              type: "bar",
+              stack: "hook",
+              data: personaAnchorData,
+              itemStyle: { color: "#00bcd4" },
             },
           ],
         },
@@ -929,6 +1050,7 @@ window.AppDashboard = {
         self.updateResponseTime();
         self.updateLearningGauge();
         self.updateSystemRadar();
+        self.updatePersonaAnchor();
         self.updateHookPerf();
         self.updateStyleChart();
         self.updateHeatmap();

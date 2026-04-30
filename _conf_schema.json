@@ -607,5 +607,42 @@
         "default": "legacy"
       }
     }
+  },
+  "Persona_Anchor_Settings": {
+    "description": "Few-shot 人格锚点（动态检索 Bot 历史回复作为人格锚点）",
+    "type": "object",
+    "hint": "根据当前对话情境动态检索 Bot 自己的历史回复和该用户的历史发言，注入为 in-context examples。【注意】本功能与「对话风格学习」的 few-shots 注入机制不同：后者是离线周期性学习并审核后注入静态的已批准学习成果，每次请求内容相同；而本功能是每次请求时根据当前 query 的相关性动态打分、从原始消息中实时检索注入，每轮对话注入的 few-shot 内容都不同。两者同时开启时，prompt 中可能出现重复的 few-shot 内容，增加 token 消耗。建议二选一使用：若追求动态上下文感知和每轮不同的个性化示例可开启本功能并关闭自动学习；若追求质量可控和审核机制则关闭本功能、保留自动学习。",
+    "items": {
+      "enable_persona_anchor": {
+        "description": "启用人格锚点注入",
+        "type": "bool",
+        "hint": "根据当前消息动态检索 Bot 历史回复作为人格锚点注入到 prompt",
+        "default": true
+      },
+      "persona_anchor_bot_k": {
+        "description": "副轨：注入的 Bot 历史回复条数",
+        "type": "int",
+        "hint": "人格一致性参考，建议 1-3，0 关闭副轨",
+        "default": 2
+      },
+      "persona_anchor_user_k": {
+        "description": "主轨：注入的当前用户历史发言条数",
+        "type": "int",
+        "hint": "学习真人说话风格，建议 2-4",
+        "default": 3
+      },
+      "persona_anchor_pool": {
+        "description": "候选池大小（从最近 N 条里打分挑选）",
+        "type": "int",
+        "hint": "主轨需要更多候选，建议 40-80",
+        "default": 50
+      },
+      "persona_anchor_min_samples": {
+        "description": "最小样本阈值（主轨用户池不足则跳过）",
+        "type": "int",
+        "hint": "冷启动用户还没说够话时跳过注入，建议 1-2",
+        "default": 2
+      }
+    }
   }
 }

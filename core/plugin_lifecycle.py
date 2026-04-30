@@ -251,6 +251,7 @@ class PluginLifecycle:
                 factory_manager=p.factory_manager,
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
+                hook_handler=getattr(p, '_hook_handler', None),
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:
@@ -520,6 +521,14 @@ class PluginLifecycle:
                     "保存消息收集器状态",
                     p.message_collector.save_state(),
                 )
+
+            # 7.5 保存人格锚点指标
+            if getattr(p, "_hook_handler", None):
+                try:
+                    p._hook_handler.save_persona_anchor_metrics()
+                    logger.info("人格锚点指标已保存")
+                except Exception as e:
+                    logger.warning(f"保存人格锚点指标失败: {e}")
 
             # 8. 停止 WebUI
             if self._webui_manager:

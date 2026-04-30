@@ -195,6 +195,17 @@ class PluginConfig(BaseModel):
     recent_interactions_limit: int = 20 # 近期交互查询数量
     trend_analysis_days: int = 7 # 趋势分析天数
 
+    # Persona Anchor Settings
+    enable_persona_anchor: bool = True
+    persona_anchor_bot_k: int = 3
+    persona_anchor_user_k: int = 2
+    persona_anchor_pool: int = 30
+    persona_anchor_min_samples: int = 3
+    persona_anchor_enable_filter: bool = True
+    persona_anchor_pool_max_size: int = 200
+    persona_anchor_pool_keep_size: int = 100
+    persona_anchor_time_decay_hours: float = 0.0
+
     @classmethod
     def create_from_config(cls, config: dict, data_dir: Optional[str] = None) -> 'PluginConfig':
         """从AstrBot配置创建插件配置"""
@@ -231,6 +242,7 @@ class PluginConfig(BaseModel):
         repository_settings = config.get('Repository_Settings', {}) # 新增：Repository配置
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {}) # 新增：目标驱动对话设置
         v2_settings = config.get('V2_Architecture_Settings', {}) # v2架构升级设置
+        persona_anchor_settings = config.get('Persona_Anchor_Settings', {})
 
         # 添加调试日志：显示目标驱动对话配置数据
         logger.info(f" [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
@@ -361,6 +373,17 @@ class PluginConfig(BaseModel):
             top_patterns_limit=repository_settings.get('top_patterns_limit', 10),
             recent_interactions_limit=repository_settings.get('recent_interactions_limit', 20),
             trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
+
+            # Persona Anchor Settings (swapped primary/secondary track defaults)
+            enable_persona_anchor=persona_anchor_settings.get('enable_persona_anchor', True),
+            persona_anchor_bot_k=persona_anchor_settings.get('persona_anchor_bot_k', 2),
+            persona_anchor_user_k=persona_anchor_settings.get('persona_anchor_user_k', 3),
+            persona_anchor_pool=persona_anchor_settings.get('persona_anchor_pool', 50),
+            persona_anchor_min_samples=persona_anchor_settings.get('persona_anchor_min_samples', 2),
+            persona_anchor_enable_filter=persona_anchor_settings.get('persona_anchor_enable_filter', True),
+            persona_anchor_pool_max_size=persona_anchor_settings.get('persona_anchor_pool_max_size', 200),
+            persona_anchor_pool_keep_size=persona_anchor_settings.get('persona_anchor_pool_keep_size', 100),
+            persona_anchor_time_decay_hours=persona_anchor_settings.get('persona_anchor_time_decay_hours', 0.0),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
