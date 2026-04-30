@@ -10,7 +10,7 @@ import jieba
 from astrbot.api import logger
 
 from ...repositories.bot_message_repository import BotMessageRepository
-from ...repositories.filtered_message_repository import FilteredMessageRepository
+from ...repositories.raw_message_repository import RawMessageRepository
 
 
 class PersonaAnchorRetriever:
@@ -136,7 +136,7 @@ class PersonaAnchorRetriever:
         try:
             session = self._db_manager.engine.get_session()
             async with session as s:
-                repo = FilteredMessageRepository(s)
+                repo = RawMessageRepository(s)
                 return await repo.get_recent_by_sender(group_id, user_id, limit)
         except Exception as e:
             logger.warning(f"[PersonaAnchor] user pool fetch failed: {e}")

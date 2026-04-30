@@ -119,6 +119,39 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             logger.error(f"[RawMessageRepository] 批量标记已处理失败: {e}")
             return 0
 
+    async def get_recent_by_sender(
+        self,
+        group_id: str,
+        sender_id: str,
+        limit: int = 50
+    ) -> List[RawMessage]:
+        """
+        获取指定用户在指定群组的最近原始消息
+
+        Args:
+            group_id: 群组 ID
+            sender_id: 发送者 ID
+            limit: 最大返回数量
+
+        Returns:
+            List[RawMessage]: 消息列表（按时间倒序）
+        """
+        try:
+            stmt = (
+                select(RawMessage)
+                .where(and_(
+                    RawMessage.group_id == group_id,
+                    RawMessage.sender_id == sender_id,
+                ))
+                .order_by(desc(RawMessage.timestamp))
+                .limit(limit)
+            )
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"[RawMessageRepository] 获取用户最近原始消息失败: {e}")
+            return []
+
     async def get_recent(
         self,
         group_id: Optional[str] = None,
