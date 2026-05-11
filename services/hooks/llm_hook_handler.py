@@ -307,7 +307,12 @@ class LLMHookHandler:
     @staticmethod
     def _collect_jargon(result: Optional[str], out: List[str]) -> None:
         if result:
-            out.append(result)
+            out.append(
+                "[Jargon Comprehension Context]\n"
+                "以下黑话解释只用于理解用户当前消息。回复时不要主动复读、"
+                "模仿、扩散这些黑话，也不要把解释原样输出；仅在用户明确询问含义时才说明。\n"
+                f"{result}"
+            )
             logger.debug(f"[LLM Hook] 已准备黑话理解内容 (长度: {len(result)})")
         else:
             logger.debug("[LLM Hook] 用户消息中未检测到已知黑话")

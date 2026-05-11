@@ -4,6 +4,7 @@
 提供给LLM使用的黑话查询工具,用于在生成回复时理解群组黑话
 """
 from typing import Optional, List, Dict, Any
+import re
 from astrbot.api import logger
 from cachetools import TTLCache
 
@@ -180,26 +181,61 @@ class JargonQueryService:
             if not jargon_list:
                 return None
 
-            # 检查文本中是否包含黑话
+            # 检查文本中是否包含黑话，避免短词/英文缩写的误命中导致污染
             found_jargon = []
+            seen_contents = set()
             for j in jargon_list:
-                if j['content'] and j['content'] in text:
-                    found_jargon.append(j)
+                content = str(j.get('content') or '').strip()
+                meaning = str(j.get('meaning') or '').strip()
+                if not content or content in seen_contents:
+                    continue
+                if not meaning or meaning == '含义待推断':
+                    continue
+                if not self._contains_jargon(text, content):
+                    continue
+                found_jargon.append(j)
+                seen_contents.add(content)
+                if len(found_jargon) >= 5:
+                    break
 
             if not found_jargon:
                 return None
 
-            # 格式化解释
-            lines = ["文本中包含的黑话:"]
+            # 格式化解释：强调理解用途，避免模型把黑话当作回复风格
+            lines = ["用户消息中命中的已确认群组黑话（仅供理解，不代表回复风格）:"]
             for j in found_jargon:
-                meaning = j['meaning'] if j['meaning'] else '含义待推断'
-                lines.append(f"- 「{j['content']}」: {meaning}")
+                content = str(j.get('content') or '').strip()
+                meaning = str(j.get('meaning') or '').strip()
+                lines.append(f"- 「{content}」: {meaning}")
 
             return "\n".join(lines)
 
         except Exception as e:
             logger.error(f"检查黑话失败: {e}")
             return None
+
+    @staticmethod
+    def _contains_jargon(text: str, content: str) -> bool:
+        """判断文本是否真正命中黑话，减少子串误匹配。"""
+        if not text or not content:
+            return False
+
+        # ASCII/数字缩写使用边界匹配，避免 abc 命中 xabcx。
+        if re.fullmatch(r'[A-Za-z0-9_+-]+', content):
+            return re.search(
+                rf'(?<![A-Za-z0-9_+-]){re.escape(content)}(?![A-Za-z0-9_+-])',
+                text,
+                flags=re.IGNORECASE,
+            ) is not None
+
+        # 两字中文词太容易误命中，要求完整出现且不被更长连续中文串包裹。
+        if len(content) <= 2 and re.fullmatch(r'[\u4e00-\u9fff]+', content):
+            return re.search(
+                rf'(?<![\u4e00-\u9fff]){re.escape(content)}(?![\u4e00-\u9fff])',
+                text,
+            ) is not None
+
+        return content in text
 
 
 # LLM工具函数定义 - 可直接注册为LLM工具

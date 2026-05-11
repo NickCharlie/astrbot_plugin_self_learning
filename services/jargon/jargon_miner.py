@@ -260,8 +260,12 @@ class JargonMiner(AsyncServiceBase):
 
 请判断以上候选词中，哪些是该群组的黑话/俚语/暗语/缩写/群内特有用语。
 
-**是黑话的特征：**
+**必须同时满足：**
 - 脱离该群组语境后普通人无法理解
+- 在近期聊天中有明确上下文支撑
+- 不是普通词、昵称、人名、地名、品牌名或完整句子
+
+**是黑话的特征：**
 - 拼音首字母缩写、谐音梗、群内暗语
 - 群成员自创或圈内流行的特殊表达
 
@@ -269,6 +273,7 @@ class JargonMiner(AsyncServiceBase):
 - 含义清晰的日常词语，即使不太常见
 - 常见名词、动词、形容词
 - 人名、地名、品牌名
+- 问句、感叹句、长短语、完整句子
 
 以JSON数组输出可能是黑话的词条（只输出词条文本）：
 ["词1", "词2"]
@@ -392,8 +397,16 @@ class JargonMiner(AsyncServiceBase):
         if re.match(r'^[^\w\u4e00-\u9fff]+$', content):
             return True
 
-        # 太短（单字）或太长（>15字符）
-        if len(content) < 2 or len(content) > 15:
+        # 太短（单字）或太长（>8字符），与提取提示保持一致
+        if len(content) < 2 or len(content) > 8:
+            return True
+
+        # 句子/短句不像词条，容易污染黑话库
+        if re.search(r'[，。！？!?、；;：:\s]', content):
+            return True
+
+        # 纯英文长词通常是普通单词/品牌/ID，保留短缩写
+        if re.match(r'^[A-Za-z]+$', content) and len(content) > 6:
             return True
 
         # [图片] [表情] 等标记
@@ -447,16 +460,16 @@ class JargonMiner(AsyncServiceBase):
             response = await self.llm.generate_response(prompt, temperature=0.2)
             if not response:
                 logger.warning(
-                    f"[{self.chat_id}] LLM pre-gate returned empty, keeping all candidates"
+                    f"[{self.chat_id}] LLM pre-gate returned empty, dropping candidates"
                 )
-                return candidates
+                return []
 
             confirmed = safe_parse_llm_json(response.strip())
             if not isinstance(confirmed, list):
                 logger.warning(
-                    f"[{self.chat_id}] LLM pre-gate parse failed, keeping all candidates"
+                    f"[{self.chat_id}] LLM pre-gate parse failed, dropping candidates"
                 )
-                return candidates
+                return []
 
             confirmed_set = {str(t).strip() for t in confirmed}
             validated = [c for c in candidates if c['content'] in confirmed_set]
@@ -473,9 +486,9 @@ class JargonMiner(AsyncServiceBase):
 
         except Exception as e:
             logger.error(
-                f"[{self.chat_id}] LLM pre-gate failed: {e}, keeping all candidates"
+                f"[{self.chat_id}] LLM pre-gate failed: {e}, dropping candidates"
             )
-            return candidates
+            return []
 
     async def save_or_update_jargon(
         self,
