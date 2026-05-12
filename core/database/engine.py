@@ -9,7 +9,9 @@ SQLAlchemy 数据库引擎封装
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
-from sqlalchemy import types as sa_types
+from sqlalchemy.schema import CreateColumn
+from sqlalchemy.sql.schema import Column
+from sqlalchemy.types import JSON, LargeBinary, Text
 from astrbot.api import logger
 from typing import Optional
 import asyncio
@@ -285,30 +287,17 @@ class DatabaseEngine:
 
                 # 对比 ORM 定义，收集需要 ALTER 的列
                 alter_statements = []
+                dialect = self.engine.dialect
+                quote = dialect.identifier_preparer.quote
                 for table in Base.metadata.sorted_tables:
                     if table.name not in existing:
                         continue  # 刚创建的新表，无需 ALTER
                     db_cols = existing[table.name]
                     for col in table.columns:
                         if col.name not in db_cols:
-                            col_type = col.type.compile(self.engine.dialect)
-                            nullable = "NULL" if col.nullable else "NOT NULL"
-                            default = ""
-                            # MySQL/MariaDB 不允许 TEXT/BLOB 列有 DEFAULT 值
-                            is_mysql = self.engine.dialect.name in ("mysql", "mariadb")
-                            is_text_type = isinstance(
-                                col.type,
-                                (sa_types.Text, sa_types.LargeBinary, sa_types.JSON),
-                            )
-                            skip_default = is_mysql and is_text_type
-                            if not skip_default:
-                                if col.server_default is not None:
-                                    default = f" DEFAULT {col.server_default.arg!r}"
-                                elif col.default is not None and col.default.is_scalar:
-                                    default = f" DEFAULT {col.default.arg!r}"
+                            compiled_col = self._compile_add_column(col, dialect)
                             alter_statements.append(
-                                f"ALTER TABLE `{table.name}` ADD COLUMN "
-                                f"`{col.name}` {col_type} {nullable}{default}"
+                                f"ALTER TABLE {quote(table.name)} ADD COLUMN {compiled_col}"
                             )
 
                 if alter_statements:
@@ -329,6 +318,20 @@ class DatabaseEngine:
 
         except Exception as e:
             logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
+
+    @staticmethod
+    def _compile_add_column(col: Column, dialect) -> str:
+        """编译 ADD COLUMN 子句，保留 MySQL 对 TEXT/BLOB/JSON 默认值限制。"""
+        if dialect.name not in ('mysql', 'mariadb'):
+            return str(CreateColumn(col).compile(dialect=dialect))
+
+        if not isinstance(col.type, (Text, LargeBinary, JSON)):
+            return str(CreateColumn(col).compile(dialect=dialect))
+
+        copied_col = col.copy()
+        copied_col.default = None
+        copied_col.server_default = None
+        return str(CreateColumn(copied_col).compile(dialect=dialect))
 
     async def drop_tables(self):
         """
