@@ -2,7 +2,6 @@ aiohttp
 emoji==2.14.1
 hypercorn==0.17.3
 jieba
-networkx>=3.2,<3.5
 psutil
 quart
 quart_cors==0.8.0

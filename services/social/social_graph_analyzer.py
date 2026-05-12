@@ -26,7 +26,10 @@ Design notes:
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None  # type: ignore[assignment]
 from pydantic import BaseModel, Field, field_validator
 
 from astrbot.api import logger
@@ -34,6 +37,35 @@ from astrbot.api import logger
 from ..monitoring.instrumentation import monitored
 
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
+
+
+class SimpleDiGraph:
+    def __init__(self):
+        self.nodes: Set[str] = set()
+        self._edges: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    def add_edge(self, source: str, target: str, **attrs):
+        self.nodes.add(source)
+        self.nodes.add(target)
+        self._edges.setdefault(source, {})[target] = dict(attrs)
+        self._edges.setdefault(target, {})
+
+    def number_of_nodes(self) -> int:
+        return len(self.nodes)
+
+    def number_of_edges(self) -> int:
+        return sum(len(edges) for edges in self._edges.values())
+
+    def to_undirected(self) -> 'SimpleDiGraph':
+        graph = SimpleDiGraph()
+        for source, edges in self._edges.items():
+            for target, attrs in edges.items():
+                graph.add_edge(source, target, **attrs)
+                graph.add_edge(target, source, **attrs)
+        return graph
+
+    def degree(self):
+        return {node: len(self._edges.get(node, {})) + sum(node in edges for edges in self._edges.values()) for node in self.nodes}.items()
 
 
 # Pydantic models for guardrails-ai structured output validation.
@@ -109,13 +141,13 @@ class SocialGraphAnalyzer:
 
     # Public API
 
-    async def build_social_graph(self, group_id: str) -> nx.DiGraph:
+    async def build_social_graph(self, group_id: str) -> Any:
         """Build a directed graph from stored social relation components.
 
         Nodes are user IDs; edges carry ``weight`` (relation value) and
         ``relation_type`` attributes.
         """
-        graph = nx.DiGraph()
+        graph = nx.DiGraph() if nx else SimpleDiGraph()
 
         if not self._db or not hasattr(self._db, "get_session"):
             return graph
@@ -170,17 +202,20 @@ class SocialGraphAnalyzer:
         if graph.number_of_nodes() < 2:
             return []
 
-        # Louvain requires an undirected graph.
-        undirected = graph.to_undirected()
-        try:
-            communities = list(
-                nx.community.louvain_communities(
-                    undirected, resolution=resolution, seed=42
-                )
-            )
-        except Exception as exc:
-            logger.debug(f"[SocialGraph] Community detection failed: {exc}")
+        if nx is None:
             communities = []
+        else:
+            # Louvain requires an undirected graph.
+            undirected = graph.to_undirected()
+            try:
+                communities = list(
+                    nx.community.louvain_communities(
+                        undirected, resolution=resolution, seed=42
+                    )
+                )
+            except Exception as exc:
+                logger.debug(f"[SocialGraph] Community detection failed: {exc}")
+                communities = []
 
         self._community_cache[group_id] = (time.time(), communities)
         return communities
@@ -199,7 +234,7 @@ class SocialGraphAnalyzer:
             return []
 
         try:
-            pr = nx.pagerank(graph, weight="weight")
+            pr = nx.pagerank(graph, weight="weight") if nx else {n: 0.0 for n in graph.nodes}
         except Exception:
             pr = {n: 0.0 for n in graph.nodes}
 
@@ -304,7 +339,9 @@ class SocialGraphAnalyzer:
         }
 
         if graph.number_of_nodes() > 1:
-            stats["density"] = round(nx.density(graph), 4)
+            edge_count = graph.number_of_edges()
+            node_count = graph.number_of_nodes()
+            stats["density"] = round(nx.density(graph), 4) if nx else round(edge_count / (node_count * (node_count - 1)), 4)
             communities = await self.detect_communities(group_id)
             stats["communities"] = len(communities)
 
