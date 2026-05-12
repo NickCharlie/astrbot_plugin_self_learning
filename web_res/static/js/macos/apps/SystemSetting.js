@@ -422,7 +422,7 @@ window.SystemSetting = {
         <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
           <div style="min-width:0;">
             <div style="font-size:13px;font-weight:500;">手动安装完整依赖</div>
-            <div style="font-size:11px;color:#86868b;margin-top:4px;">插件安装阶段仅安装最小依赖；如需知识图谱、机器学习、LightRAG、Mem0 等增强能力，请在安装完成后点击此按钮执行 pip install。</div>
+            <div style="font-size:11px;color:#86868b;margin-top:4px;">插件安装阶段不会自动安装依赖；安装完成后请点击此按钮安装运行所需及增强功能依赖。</div>
           </div>
           <button type="button"
                   @click="installDependencies()"
