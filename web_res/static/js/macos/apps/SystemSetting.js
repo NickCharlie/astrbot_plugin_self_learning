@@ -166,7 +166,8 @@ window.SystemSetting = {
       } catch (e) {
         console.error("[SystemSetting] loadPluginConfig error:", e);
         if (typeof ElMessage !== "undefined") {
-          ElMessage.error("加载学习功能开关失败: " + e.message);
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("加载学习功能开关失败: " + msg);
         }
       } finally {
         this.configLoading = false;
@@ -198,7 +199,8 @@ window.SystemSetting = {
         this.pluginConfig = oldConfig;
         console.error("[SystemSetting] toggleLearningFeature error:", e);
         if (typeof ElMessage !== "undefined") {
-          ElMessage.error("保存失败: " + e.message);
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("保存失败: " + msg);
         }
       } finally {
         this.savingConfigKey = null;
