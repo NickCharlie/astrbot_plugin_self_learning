@@ -3,8 +3,9 @@ Guardrails AI 管理器
 用于管理 LLM 的结构化输出,确保数据格式正确且符合约束
 """
 from typing import Dict, List, Optional, Any, Type
+import json
+import re
 from pydantic import BaseModel, Field, field_validator
-from guardrails import Guard
 from astrbot.api import logger
 
 
@@ -200,44 +201,26 @@ class GuardrailsManager:
         """
         self.max_reasks = max_reasks
 
-        # 创建不同用途的 Guard 实例
-        self._state_guard: Optional[Guard] = None
-        self._relation_guard: Optional[Guard] = None
-        self._goal_analysis_guard: Optional[Guard] = None
-        self._intent_analysis_guard: Optional[Guard] = None
-
         logger.info(f"[Guardrails] 管理器初始化完成 (max_reasks={max_reasks})")
 
-    def get_state_transition_guard(self) -> Guard:
-        """
-        获取心理状态转换的 Guard 实例
+    def _parse_model_from_text(
+        self,
+        response_text: str,
+        model_class: Type[BaseModel],
+        expected_type: str = "object",
+    ) -> Optional[BaseModel]:
+        """从文本中提取 JSON 并用 Pydantic 校验。"""
+        parsed = self.validate_and_clean_json(response_text, expected_type=expected_type)
+        if parsed is None:
+            return None
 
-        Returns:
-            Guard 实例
-        """
-        if self._state_guard is None:
-            self._state_guard = Guard.for_pydantic(
-                output_class=PsychologicalStateTransition,
-                # 不使用额外的验证器,保持高性能
-            )
-            logger.debug("[Guardrails] 心理状态转换 Guard 已创建")
-
-        return self._state_guard
-
-    def get_relation_analysis_guard(self) -> Guard:
-        """
-        获取社交关系分析的 Guard 实例
-
-        Returns:
-            Guard 实例
-        """
-        if self._relation_guard is None:
-            self._relation_guard = Guard.for_pydantic(
-                output_class=SocialRelationAnalysis,
-            )
-            logger.debug("[Guardrails] 社交关系分析 Guard 已创建")
-
-        return self._relation_guard
+        try:
+            if isinstance(parsed, model_class):
+                return parsed
+            return model_class.model_validate(parsed)
+        except Exception as e:
+            logger.error(f" [Guardrails] Pydantic 校验失败: {e}", exc_info=True)
+            return None
 
     async def parse_state_transition(
         self,
@@ -259,8 +242,6 @@ class GuardrailsManager:
             PsychologicalStateTransition 对象,失败返回 None
         """
         try:
-            guard = self.get_state_transition_guard()
-
             # 使用 JSON 模式获取结构化输出
             # 为提示词添加 JSON 输出要求
             enhanced_prompt = f"""{prompt}
@@ -276,15 +257,14 @@ class GuardrailsManager:
             # 调用 LLM(通过用户提供的 callable)
             response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
 
-            # 使用 Guard 验证
-            result = guard.parse(response_text)
-
-            if result.validation_passed:
-                logger.debug(f" [Guardrails] 心理状态解析成功: {result.validated_output.new_state}")
-                return result.validated_output
-            else:
-                logger.warning(f" [Guardrails] 心理状态验证失败: {result.validation_summaries}")
-                return None
+            result = self._parse_model_from_text(
+                response_text,
+                PsychologicalStateTransition,
+                expected_type="object",
+            )
+            if result:
+                logger.debug(f" [Guardrails] 心理状态解析成功: {result.new_state}")
+            return result
 
         except Exception as e:
             logger.error(f" [Guardrails] 心理状态解析失败: {e}", exc_info=True)
@@ -310,8 +290,6 @@ class GuardrailsManager:
             SocialRelationAnalysis 对象,失败返回 None
         """
         try:
-            guard = self.get_relation_analysis_guard()
-
             # 增强提示词
             enhanced_prompt = f"""{prompt}
 
@@ -333,50 +311,19 @@ class GuardrailsManager:
             # 调用 LLM
             response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
 
-            # 使用 Guard 验证
-            result = guard.parse(response_text)
-
-            if result.validation_passed:
-                relation_count = len(result.validated_output.relations)
+            result = self._parse_model_from_text(
+                response_text,
+                SocialRelationAnalysis,
+                expected_type="object",
+            )
+            if result:
+                relation_count = len(result.relations)
                 logger.debug(f" [Guardrails] 社交关系解析成功: {relation_count}个关系")
-                return result.validated_output
-            else:
-                logger.warning(f" [Guardrails] 社交关系验证失败: {result.validation_summaries}")
-                return None
+            return result
 
         except Exception as e:
             logger.error(f" [Guardrails] 社交关系解析失败: {e}", exc_info=True)
             return None
-
-    def get_goal_analysis_guard(self) -> Guard:
-        """
-        获取对话目标分析的 Guard 实例
-
-        Returns:
-            Guard 实例
-        """
-        if self._goal_analysis_guard is None:
-            self._goal_analysis_guard = Guard.for_pydantic(
-                output_class=GoalAnalysisResult,
-            )
-            logger.debug("[Guardrails] 对话目标分析 Guard 已创建")
-
-        return self._goal_analysis_guard
-
-    def get_intent_analysis_guard(self) -> Guard:
-        """
-        获取对话意图分析的 Guard 实例
-
-        Returns:
-            Guard 实例
-        """
-        if self._intent_analysis_guard is None:
-            self._intent_analysis_guard = Guard.for_pydantic(
-                output_class=ConversationIntentAnalysis,
-            )
-            logger.debug("[Guardrails] 对话意图分析 Guard 已创建")
-
-        return self._intent_analysis_guard
 
     async def parse_goal_analysis(
         self,
@@ -398,8 +345,6 @@ class GuardrailsManager:
             GoalAnalysisResult 对象,失败返回 None
         """
         try:
-            guard = self.get_goal_analysis_guard()
-
             # 增强提示词
             enhanced_prompt = f"""{prompt}
 
@@ -420,25 +365,14 @@ class GuardrailsManager:
             # 调用 LLM
             response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
 
-            # 使用 Guard 验证
-            result = guard.parse(response_text)
-
-            if result.validation_passed:
-                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
-                validated_data = result.validated_output
-                if isinstance(validated_data, dict):
-                    goal_result = GoalAnalysisResult(**validated_data)
-                    logger.debug(f" [Guardrails] 对话目标解析成功: {goal_result.goal_type}")
-                    return goal_result
-                elif isinstance(validated_data, GoalAnalysisResult):
-                    logger.debug(f" [Guardrails] 对话目标解析成功: {validated_data.goal_type}")
-                    return validated_data
-                else:
-                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
-                    return None
-            else:
-                logger.warning(f" [Guardrails] 对话目标验证失败: {result.validation_summaries}")
-                return None
+            result = self._parse_model_from_text(
+                response_text,
+                GoalAnalysisResult,
+                expected_type="object",
+            )
+            if result:
+                logger.debug(f" [Guardrails] 对话目标解析成功: {result.goal_type}")
+            return result
 
         except Exception as e:
             logger.error(f" [Guardrails] 对话目标解析失败: {e}", exc_info=True)
@@ -464,8 +398,6 @@ class GuardrailsManager:
             ConversationIntentAnalysis 对象,失败返回 None
         """
         try:
-            guard = self.get_intent_analysis_guard()
-
             # 增强提示词
             enhanced_prompt = f"""{prompt}
 
@@ -493,25 +425,14 @@ class GuardrailsManager:
             # 调用 LLM
             response_text = await llm_callable(enhanced_prompt, model=model, **kwargs)
 
-            # 使用 Guard 验证
-            result = guard.parse(response_text)
-
-            if result.validation_passed:
-                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
-                validated_data = result.validated_output
-                if isinstance(validated_data, dict):
-                    intent_result = ConversationIntentAnalysis(**validated_data)
-                    logger.debug(f" [Guardrails] 对话意图解析成功")
-                    return intent_result
-                elif isinstance(validated_data, ConversationIntentAnalysis):
-                    logger.debug(f" [Guardrails] 对话意图解析成功")
-                    return validated_data
-                else:
-                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
-                    return None
-            else:
-                logger.warning(f" [Guardrails] 对话意图验证失败: {result.validation_summaries}")
-                return None
+            result = self._parse_model_from_text(
+                response_text,
+                ConversationIntentAnalysis,
+                expected_type="object",
+            )
+            if result:
+                logger.debug(" [Guardrails] 对话意图解析成功")
+            return result
 
         except Exception as e:
             logger.error(f" [Guardrails] 对话意图解析失败: {e}", exc_info=True)
@@ -533,24 +454,11 @@ class GuardrailsManager:
             模型实例,失败返回 None
         """
         try:
-            guard = Guard.for_pydantic(output_class=model_class)
-            result = guard.parse(response_text)
-
-            if result.validation_passed:
-                # 修复：validated_output 可能是 dict，需要转换为 Pydantic 模型
-                validated_data = result.validated_output
-                if isinstance(validated_data, dict):
-                    # 将 dict 转换为 Pydantic 模型实例
-                    return model_class(**validated_data)
-                elif isinstance(validated_data, model_class):
-                    # 已经是模型实例，直接返回
-                    return validated_data
-                else:
-                    logger.warning(f" [Guardrails] 意外的输出类型: {type(validated_data)}")
-                    return None
-            else:
-                logger.warning(f" [Guardrails] JSON 验证失败: {result.validation_summaries}")
-                return None
+            return self._parse_model_from_text(
+                response_text,
+                model_class,
+                expected_type="object",
+            )
 
         except Exception as e:
             logger.error(f" [Guardrails] JSON 解析失败: {e}", exc_info=True)
@@ -571,9 +479,6 @@ class GuardrailsManager:
         Returns:
             清洗后的 JSON 对象/数组，失败返回 None
         """
-        import json
-        import re
-
         try:
             # 检查输入是否为空
             if not response_text:
