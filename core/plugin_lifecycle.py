@@ -269,7 +269,7 @@ class PluginLifecycle:
                 _t.add_done_callback(p.background_tasks.discard)
 
             # ------ 自动学习启动（必须在 _group_orchestrator 创建之后）------
-            if plugin_config.enable_auto_learning:
+            if plugin_config.enable_auto_learning and plugin_config.enable_style_learning:
                 _t = asyncio.create_task(p._group_orchestrator.delayed_auto_start_learning())
                 p.background_tasks.add(_t)
                 _t.add_done_callback(p.background_tasks.discard)

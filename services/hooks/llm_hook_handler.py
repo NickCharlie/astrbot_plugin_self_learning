@@ -192,7 +192,7 @@ class LLMHookHandler:
                 include_social_relations=self._config.include_social_relations,
                 include_affection=self._config.include_affection_info,
                 include_mood=False,
-                include_expression_patterns=True,
+                include_expression_patterns=self._config.enable_expression_patterns,
                 include_psychological=True,
                 include_behavior_guidance=True,
                 include_conversation_goal=self._config.enable_goal_driven_chat,
@@ -236,8 +236,8 @@ class LLMHookHandler:
     async def _fetch_jargon(
         self, event: AstrMessageEvent, group_id: str
     ) -> Optional[str]:
-        if not self._jargon_query_service:
-            logger.debug("[LLM Hook] jargon_query_service未初始化，跳过黑话注入")
+        if not self._jargon_query_service or not self._config.enable_jargon_learning:
+            logger.debug("[LLM Hook] jargon_query_service未初始化或黑话学习已关闭，跳过黑话注入")
             return None
         try:
             user_message = (
