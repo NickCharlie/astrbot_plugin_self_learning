@@ -13,6 +13,8 @@ window.SystemSetting = {
       pluginConfig: null,
       configLoading: false,
       savingConfigKey: null,
+      dependencyInstalling: false,
+      dependencyInstallOutput: "",
       // 数据管理
       dataStats: null,
       dataLoading: false,
@@ -207,6 +209,34 @@ window.SystemSetting = {
       }
     },
 
+    async installDependencies() {
+      if (this.dependencyInstalling) return;
+      this.dependencyInstalling = true;
+      this.dependencyInstallOutput = "";
+      try {
+        var api = window.MacOSApi;
+        var result = api ? await api.post("/api/dependencies/install", {}) : await fetch("/api/dependencies/install", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        }).then(function (resp) { return resp.json(); });
+        var data = result.data || result;
+        this.dependencyInstallOutput = data.output || data.message || "依赖安装完成";
+        if (typeof ElMessage !== "undefined") {
+          ElMessage.success(data.message || "依赖安装完成");
+        }
+      } catch (e) {
+        console.error("[SystemSetting] installDependencies error:", e);
+        if (typeof ElMessage !== "undefined") {
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("依赖安装失败: " + msg);
+        }
+      } finally {
+        this.dependencyInstalling = false;
+      }
+    },
+
     // ── 数据管理 ──────────────────────────────────
 
     async loadDataStatistics() {
@@ -384,6 +414,31 @@ window.SystemSetting = {
             }"></span>
           </button>
         </div>
+      </div>
+
+      <!-- 依赖安装 -->
+      <h3 style="margin:30px 0 16px 0;font-size:16px;font-weight:600;">依赖安装</h3>
+      <div :style="{padding:'14px 16px',background:cardBg,borderRadius:'10px',border:'1px solid '+cardBorder,marginBottom:'20px'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:500;">手动安装完整依赖</div>
+            <div style="font-size:11px;color:#86868b;margin-top:4px;">插件安装阶段仅安装最小依赖；如需知识图谱、机器学习、LightRAG、Mem0 等增强能力，请在安装完成后点击此按钮执行 pip install。</div>
+          </div>
+          <button type="button"
+                  @click="installDependencies()"
+                  :disabled="dependencyInstalling"
+                  :style="{
+                    display:'inline-flex',alignItems:'center',gap:'6px',flexShrink:0,
+                    padding:'8px 16px',borderRadius:'8px',border:'none',fontFamily:'inherit',fontSize:'13px',fontWeight:'500',
+                    cursor: dependencyInstalling ? 'not-allowed' : 'pointer',
+                    background: dependencyInstalling ? (isDark ? '#3a3a3c' : '#e5e5e5') : '#007aff',
+                    color: dependencyInstalling ? '#86868b' : '#fff',
+                  }">
+            <i class="material-icons" style="font-size:16px;">{{ dependencyInstalling ? 'hourglass_empty' : 'download' }}</i>
+            {{ dependencyInstalling ? '安装中...' : '安装依赖' }}
+          </button>
+        </div>
+        <pre v-if="dependencyInstallOutput" :style="{margin:'12px 0 0 0',padding:'10px',maxHeight:'180px',overflow:'auto',whiteSpace:'pre-wrap',fontSize:'11px',lineHeight:'1.4',borderRadius:'8px',background:isDark ? '#1c1c1e' : '#f5f5f7',color:panelColor,border:'1px solid '+dividerColor}">{{ dependencyInstallOutput }}</pre>
       </div>
 
       <!-- 数据管理 -->

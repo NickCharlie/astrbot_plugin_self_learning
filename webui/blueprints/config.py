@@ -1,15 +1,43 @@
 """
 配置蓝图 - 处理插件配置管理
 """
+import asyncio
+import os
+import sys
 from quart import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
 from ..services.config_service import ConfigService
 from ..middleware.auth import require_auth
-from ..utils.response import success_response, error_response
+from ..utils.response import error_response
 
 config_bp = Blueprint('config', __name__, url_prefix='/api')
+
+DEPENDENCY_PACKAGES = [
+    "aiohttp",
+    "emoji==2.14.1",
+    "jieba",
+    "psutil",
+    "quart",
+    "quart_cors==0.8.0",
+    "pydantic",
+    "aiomysql",
+    "sqlalchemy[asyncio]",
+    "aiosqlite",
+    "cachetools>=5.3.0",
+    "apscheduler",
+    "psutil",
+    "prometheus_client>=0.20.0",
+    "prometheus-async>=22.2.0",
+    "networkx>=3.2,<3.5",
+    "numpy>=1.26,<2.3",
+    "pandas>=2.1,<2.4",
+    "scikit_learn>=1.4,<1.8",
+    "lightrag-hku>=1.4.0",
+    "mem0ai>=1.0.0",
+]
+_dependency_install_lock = asyncio.Lock()
 
 
 @config_bp.route("/config", methods=["GET"])
@@ -54,3 +82,42 @@ async def update_plugin_config():
     except Exception as e:
         logger.error(f"更新配置失败: {e}", exc_info=True)
         return error_response(f"更新配置失败: {str(e)}", 500)
+
+
+@config_bp.route("/dependencies/install", methods=["POST"])
+@require_auth
+async def install_plugin_dependencies():
+    """手动安装插件的可选依赖。"""
+    if _dependency_install_lock.locked():
+        return error_response("依赖安装正在进行中，请稍后再试", 409)
+
+    async with _dependency_install_lock:
+        cmd = [sys.executable, "-m", "pip", "install", *DEPENDENCY_PACKAGES]
+        logger.info("[WebUI] 开始手动安装插件依赖")
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await process.communicate()
+            output = stdout.decode("utf-8", errors="replace")
+            error = stderr.decode("utf-8", errors="replace")
+            combined_output = (output + "\n" + error).strip()
+
+            if process.returncode == 0:
+                logger.info("[WebUI] 插件依赖安装完成")
+                return jsonify({
+                    "message": "依赖安装完成",
+                    "output": combined_output[-8000:],
+                }), 200
+
+            logger.error(f"[WebUI] 插件依赖安装失败，退出码: {process.returncode}\n{combined_output}")
+            return jsonify({
+                "message": f"依赖安装失败，退出码: {process.returncode}",
+                "output": combined_output[-8000:],
+            }), 500
+        except Exception as e:
+            logger.error(f"[WebUI] 插件依赖安装异常: {e}", exc_info=True)
+            return error_response(f"依赖安装异常: {str(e)}", 500)
