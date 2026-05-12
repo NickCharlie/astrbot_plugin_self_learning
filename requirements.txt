@@ -3,12 +3,9 @@ emoji==2.14.1
 hypercorn==0.17.3
 jieba
 networkx>=3.2,<3.5
-numpy>=1.26,<2.3
-pandas>=2.1,<2.4
 psutil
 quart
 quart_cors==0.8.0
-scikit_learn>=1.4,<1.8
 aiomysql
 pydantic
 sqlalchemy[asyncio]
