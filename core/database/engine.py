@@ -10,6 +10,8 @@ SQLAlchemy 数据库引擎封装
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateColumn
+from sqlalchemy.sql.schema import Column
+from sqlalchemy.types import JSON, LargeBinary, Text
 from astrbot.api import logger
 from typing import Optional
 import asyncio
@@ -293,7 +295,7 @@ class DatabaseEngine:
                     db_cols = existing[table.name]
                     for col in table.columns:
                         if col.name not in db_cols:
-                            compiled_col = str(CreateColumn(col).compile(dialect=dialect))
+                            compiled_col = self._compile_add_column(col, dialect)
                             alter_statements.append(
                                 f"ALTER TABLE {quote(table.name)} ADD COLUMN {compiled_col}"
                             )
@@ -316,6 +318,20 @@ class DatabaseEngine:
 
         except Exception as e:
             logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
+
+    @staticmethod
+    def _compile_add_column(col: Column, dialect) -> str:
+        """编译 ADD COLUMN 子句，保留 MySQL 对 TEXT/BLOB/JSON 默认值限制。"""
+        if dialect.name not in ('mysql', 'mariadb'):
+            return str(CreateColumn(col).compile(dialect=dialect))
+
+        if not isinstance(col.type, (Text, LargeBinary, JSON)):
+            return str(CreateColumn(col).compile(dialect=dialect))
+
+        copied_col = col.copy()
+        copied_col.default = None
+        copied_col.server_default = None
+        return str(CreateColumn(copied_col).compile(dialect=dialect))
 
     async def drop_tables(self):
         """
