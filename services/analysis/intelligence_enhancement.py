@@ -11,7 +11,10 @@ from datetime import datetime, timedelta
 from collections import defaultdict, Counter
 from dataclasses import dataclass, asdict
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None  # type: ignore[assignment]
 
 from astrbot.api import logger
 
@@ -20,6 +23,67 @@ from ...core.patterns import AsyncServiceBase
 from ...utils.json_utils import safe_parse_llm_json
 from ...core.interfaces import IDataStorage, IPersonaManager, ServiceLifecycle
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
+
+
+class SimpleDiGraph:
+    def __init__(self):
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self._edges: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    def add_node(self, node: str, **attrs):
+        self.nodes.setdefault(node, {}).update(attrs)
+        self._edges.setdefault(node, {})
+
+    def add_edge(self, node1: str, node2: str, **attrs):
+        self.add_node(node1)
+        self.add_node(node2)
+        self._edges[node1][node2] = dict(attrs)
+
+    def neighbors(self, node: str) -> List[str]:
+        outgoing = set(self._edges.get(node, {}).keys())
+        incoming = {source for source, edges in self._edges.items() if node in edges}
+        return list(outgoing | incoming)
+
+    def has_node(self, node: str) -> bool:
+        return node in self.nodes
+
+    def remove_node(self, node: str):
+        self.nodes.pop(node, None)
+        self._edges.pop(node, None)
+        for edges in self._edges.values():
+            edges.pop(node, None)
+
+    def number_of_nodes(self) -> int:
+        return len(self.nodes)
+
+    def number_of_edges(self) -> int:
+        return sum(len(edges) for edges in self._edges.values())
+
+    def to_node_link_data(self) -> Dict[str, Any]:
+        links = []
+        for source, edges in self._edges.items():
+            for target, attrs in edges.items():
+                links.append({"source": source, "target": target, **attrs})
+        return {
+            "directed": True,
+            "multigraph": False,
+            "nodes": [{"id": node, **attrs} for node, attrs in self.nodes.items()],
+            "links": links,
+        }
+
+    @classmethod
+    def from_node_link_data(cls, data: Dict[str, Any]) -> 'SimpleDiGraph':
+        graph = cls()
+        for node in data.get("nodes", []):
+            node_data = dict(node)
+            node_id = str(node_data.pop("id"))
+            graph.add_node(node_id, **node_data)
+        for link in data.get("links", []):
+            link_data = dict(link)
+            source = str(link_data.pop("source"))
+            target = str(link_data.pop("target"))
+            graph.add_edge(source, target, **link_data)
+        return graph
 
 
 @dataclass
@@ -82,7 +146,7 @@ class IntelligenceEnhancementService(AsyncServiceBase):
         self.emotion_keywords = self._load_emotion_keywords()
         
         # 知识图谱
-        self.knowledge_graph: nx.DiGraph = nx.DiGraph()
+        self.knowledge_graph: Any = nx.DiGraph() if nx else SimpleDiGraph()
         self.knowledge_entities: Dict[str, KnowledgeEntity] = {}
         self.entity_extractor_patterns = self._compile_entity_patterns()
         
@@ -970,8 +1034,8 @@ class IntelligenceEnhancementService(AsyncServiceBase):
                 with open(graph_file, 'r', encoding='utf-8') as f:
                     graph_data = json.load(f)
                     
-                # 重建NetworkX图
-                self.knowledge_graph = nx.node_link_graph(graph_data)
+                # 重建知识图谱
+                self.knowledge_graph = nx.node_link_graph(graph_data) if nx else SimpleDiGraph.from_node_link_data(graph_data)
             
             # 加载知识实体
             entities_file = os.path.join(self.config.data_dir, "knowledge_entities.json")
@@ -998,8 +1062,8 @@ class IntelligenceEnhancementService(AsyncServiceBase):
     async def _save_knowledge_graph(self):
         """保存知识图谱"""
         try:
-            # 保存NetworkX图
-            graph_data = nx.node_link_data(self.knowledge_graph)
+            # 保存知识图谱
+            graph_data = nx.node_link_data(self.knowledge_graph) if nx else self.knowledge_graph.to_node_link_data()
             graph_file = os.path.join(self.config.data_dir, "knowledge_graph.json")
             with open(graph_file, 'w', encoding='utf-8') as f:
                 json.dump(graph_data, f, ensure_ascii=False, indent=2)

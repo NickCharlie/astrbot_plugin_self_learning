@@ -11,7 +11,10 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from collections import Counter
 
-import networkx as nx
+try:
+    import networkx as nx
+except ImportError:
+    nx = None  # type: ignore[assignment]
 
 from astrbot.api import logger
 
@@ -27,6 +30,40 @@ from ...repositories import (
     MemoryEmbeddingRepository,
     MemorySummaryRepository
 )
+
+
+class SimpleGraph:
+    def __init__(self):
+        self.nodes: Dict[str, Dict[str, Any]] = {}
+        self._edges: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    def __contains__(self, node: str) -> bool:
+        return node in self.nodes
+
+    def has_edge(self, node1: str, node2: str) -> bool:
+        return node2 in self._edges.get(node1, {})
+
+    def add_node(self, node: str, **attrs):
+        self.nodes.setdefault(node, {}).update(attrs)
+        self._edges.setdefault(node, {})
+
+    def add_edge(self, node1: str, node2: str, **attrs):
+        self.add_node(node1)
+        self.add_node(node2)
+        self._edges[node1][node2] = dict(attrs)
+        self._edges[node2][node1] = dict(attrs)
+
+    def __getitem__(self, node: str) -> Dict[str, Dict[str, Any]]:
+        return self._edges[node]
+
+    def neighbors(self, node: str) -> List[str]:
+        return list(self._edges.get(node, {}).keys())
+
+    def number_of_nodes(self) -> int:
+        return len(self.nodes)
+
+    def number_of_edges(self) -> int:
+        return sum(len(edges) for edges in self._edges.values()) // 2
 
 
 # 数据类
@@ -71,7 +108,7 @@ class MemoryGraph:
     """
 
     def __init__(self):
-        self.G = nx.Graph()
+        self.G = nx.Graph() if nx else SimpleGraph()
 
     def connect_concepts(self, concept1: str, concept2: str):
         """连接两个概念"""
@@ -196,12 +233,25 @@ class MemoryGraph:
 
     def get_graph_statistics(self) -> Dict[str, Any]:
         """获取图的统计信息"""
+        nodes_count = self.G.number_of_nodes()
+        edges_count = self.G.number_of_edges()
+        if nx is None:
+            density = 0.0 if nodes_count <= 1 else (2 * edges_count) / (nodes_count * (nodes_count - 1))
+            return {
+                "nodes_count": nodes_count,
+                "edges_count": edges_count,
+                "density": density,
+                "connected_components": 0,
+                "average_clustering": 0,
+                "average_shortest_path": 0,
+            }
+
         return {
-            "nodes_count": self.G.number_of_nodes(),
-            "edges_count": self.G.number_of_edges(),
+            "nodes_count": nodes_count,
+            "edges_count": edges_count,
             "density": nx.density(self.G),
             "connected_components": nx.number_connected_components(self.G),
-            "average_clustering": nx.average_clustering(self.G) if self.G.number_of_nodes() > 0 else 0,
+            "average_clustering": nx.average_clustering(self.G) if nodes_count > 0 else 0,
             "average_shortest_path": nx.average_shortest_path_length(self.G) if nx.is_connected(self.G) else 0
         }
 
