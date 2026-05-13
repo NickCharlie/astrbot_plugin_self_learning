@@ -139,11 +139,10 @@ class GroupLearningOrchestrator:
         """Discover active groups using ORM queries with whitelist/blacklist."""
         try:
             if not self._db_manager:
-                logger.warning("数据库管理器未初始化，无法获取活跃群组")
+                logger.debug("数据库管理器未初始化，跳过活跃群组查询")
                 return []
 
-            if hasattr(self._db_manager, "_started") and not self._db_manager._started:
-                logger.warning("SQLAlchemy 数据库管理器未启动，无法获取活跃群组")
+            if not await self._wait_for_db_ready():
                 return []
 
             allowed_groups = self._qq_filter.get_allowed_group_ids()
@@ -257,6 +256,15 @@ class GroupLearningOrchestrator:
         if hasattr(self._db_manager, "_started") and not self._db_manager._started:
             return False
         return True
+
+    async def _wait_for_db_ready(self, timeout: float = 5.0) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._db_ready():
+                return True
+            await asyncio.sleep(0.2)
+        logger.debug("数据库管理器未在启动等待窗口内就绪，跳过活跃群组查询")
+        return False
 
     async def _load_last_learning_ts(self, group_id: str) -> bool:
         """Seed ``_last_learning_start`` for *group_id* from ``learning_batches``.
