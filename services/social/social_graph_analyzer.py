@@ -65,7 +65,11 @@ class SimpleDiGraph:
         return graph
 
     def degree(self):
-        return {node: len(self._edges.get(node, {})) + sum(node in edges for edges in self._edges.values()) for node in self.nodes}.items()
+        return {
+            node: len(self._edges.get(node, {}))
+            + sum(node in edges for edges in self._edges.values())
+            for node in self.nodes
+        }
 
 
 # Pydantic models for guardrails-ai structured output validation.

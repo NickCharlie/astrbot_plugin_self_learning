@@ -4,7 +4,7 @@
 import asyncio
 import os
 import sys
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, current_app, request, jsonify, session
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -88,12 +88,42 @@ async def update_plugin_config():
 @require_auth
 async def install_plugin_dependencies():
     """手动安装插件的可选依赖。"""
+    client_ip = request.remote_addr or "unknown"
+    user_id = "authenticated" if session.get("authenticated") else "unknown"
+
+    if not current_app.config.get("ENABLE_WEB_DEP_INSTALL", True):
+        logger.warning(
+            f"[WebUI] 拒绝插件依赖安装请求：功能未启用，user={user_id}, remote_addr={client_ip}"
+        )
+        return error_response("当前环境未启用依赖安装功能", 403)
+
+    allowed_packages = current_app.config.get("ALLOWED_DEPENDENCY_PACKAGES")
+    if allowed_packages:
+        allowed_set = set(allowed_packages)
+        packages_to_install = [pkg for pkg in DEPENDENCY_PACKAGES if pkg in allowed_set]
+    else:
+        packages_to_install = DEPENDENCY_PACKAGES
+
+    if not packages_to_install:
+        logger.warning(
+            f"[WebUI] 插件依赖安装请求被拒绝：依赖列表为空，user={user_id}, remote_addr={client_ip}"
+        )
+        return error_response("依赖列表为空，无法安装", 400)
+
+    logger.info(
+        f"[WebUI] 收到插件依赖安装请求，user={user_id}, remote_addr={client_ip}, "
+        f"packages={packages_to_install}"
+    )
+
     if _dependency_install_lock.locked():
+        logger.info(
+            f"[WebUI] 插件依赖安装请求被拒绝：已有安装任务进行中，user={user_id}, remote_addr={client_ip}"
+        )
         return error_response("依赖安装正在进行中，请稍后再试", 409)
 
     async with _dependency_install_lock:
-        cmd = [sys.executable, "-m", "pip", "install", *DEPENDENCY_PACKAGES]
-        logger.info("[WebUI] 开始手动安装插件依赖")
+        cmd = [sys.executable, "-m", "pip", "install", *packages_to_install]
+        logger.info(f"[WebUI] 开始手动安装插件依赖，user={user_id}, packages={packages_to_install}")
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
