@@ -362,7 +362,7 @@ class LightweightMLAnalyzer:
             logger.error(f"保守融合失败: {e}")
             return original_prompt
 
-    async def replay_memory(self, group_id: str, new_messages: List[Dict[str, Any]], current_persona: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def replay_memory(self, group_id: str, new_messages: List[Dict[str, Any]], current_persona: Dict[str, Any], from_learning_batch: bool = False) -> List[Dict[str, Any]]:
         """
         记忆重放：将历史数据与新数据混合，并交给提炼模型进行处理。
         这模拟了LLM的"增量微调"过程，通过重新暴露历史数据来巩固学习。

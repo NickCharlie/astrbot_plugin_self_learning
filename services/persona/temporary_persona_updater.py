@@ -1336,8 +1336,8 @@ class TemporaryPersonaUpdater:
                 backup_persona = await persona_manager.create_persona(
                     persona_id=backup_persona_id,
                     system_prompt=original_prompt,
-                    begin_dialogs=getattr(current_persona, 'begin_dialogs', []) if hasattr(current_persona, 'begin_dialogs') else current_persona.get('begin_dialogs', []),
-                    tools=getattr(current_persona, 'tools', None) if hasattr(current_persona, 'tools') else current_persona.get('tools')
+                    begin_dialogs=getattr(persona, 'begin_dialogs', []) if hasattr(persona, 'begin_dialogs') else persona.get('begin_dialogs', []),
+                    tools=getattr(persona, 'tools', None) if hasattr(persona, 'tools') else persona.get('tools')
                 )
                 
                 if backup_persona:
