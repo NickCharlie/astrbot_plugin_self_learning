@@ -72,6 +72,8 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
     # 存储配置到应用上下文
     if webui_config:
         app.config['WEBUI_CONFIG'] = webui_config
+        app.config['ENABLE_WEB_DEP_INSTALL'] = webui_config.enable_web_dependency_install
+        app.config['ALLOWED_DEPENDENCY_PACKAGES'] = webui_config.allowed_dependency_packages
 
     # 注册错误处理
     register_error_handlers(app)

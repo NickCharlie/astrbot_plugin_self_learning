@@ -1,0 +1,17 @@
+target-version = "py311"
+line-length = 100
+
+exclude = [
+  ".git",
+  ".venv",
+  "__pycache__",
+]
+
+[lint]
+select = ["E9", "F63", "F7", "F82"]
+ignore = ["F401"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

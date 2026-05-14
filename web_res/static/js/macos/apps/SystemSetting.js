@@ -9,6 +9,12 @@ window.SystemSetting = {
       currentWallpaper:
         localStorage.getItem("macos-wallpaper") || "/static/img/bg.jpg",
       presetWallpapers: ["/static/img/bg.jpg"],
+      // 学习功能开关
+      pluginConfig: null,
+      configLoading: false,
+      savingConfigKey: null,
+      dependencyInstalling: false,
+      dependencyInstallOutput: "",
       // 数据管理
       dataStats: null,
       dataLoading: false,
@@ -33,6 +39,26 @@ window.SystemSetting = {
     },
     dividerColor() {
       return this.isDark ? "#3a3a3c" : "#f0f0f0";
+    },
+    learningFeatureToggles() {
+      var cfg = this.pluginConfig || {};
+      return [
+        { key: "enable_message_capture", label: "消息抓取", desc: "收集用户与 Bot 消息，作为所有学习功能的数据来源", icon: "chat_bubble" },
+        { key: "enable_style_learning", label: "对话风格学习", desc: "自动启动风格学习、表达模式与学习批次处理", icon: "style" },
+        { key: "enable_jargon_learning", label: "黑话学习", desc: "启用黑话统计预筛、黑话挖掘和黑话上下文能力", icon: "translate" },
+        { key: "enable_realtime_learning", label: "实时学习", desc: "收到消息后立即进行后台学习处理，会增加实时负载", icon: "bolt" },
+        { key: "enable_realtime_llm_filter", label: "实时 LLM 筛选", desc: "对实时消息使用 LLM 筛选，关闭可减少模型调用", icon: "filter_alt" },
+        { key: "enable_goal_driven_chat", label: "目标驱动对话", desc: "自动检测对话目标并维护阶段规划", icon: "flag" },
+        { key: "enable_expression_patterns", label: "表达模式学习", desc: "学习并注入群聊表达习惯和常用句式", icon: "text_fields" },
+        { key: "enable_ml_analysis", label: "机器学习分析", desc: "启用文本聚类、行为分析与强化记忆回放", icon: "analytics" },
+        { key: "enable_memory_graph", label: "记忆图系统", desc: "启用记忆关系图相关能力", icon: "hub" },
+        { key: "enable_knowledge_graph", label: "知识图谱", desc: "启用实体关系和知识图谱增强能力", icon: "schema" },
+        { key: "enable_affection_system", label: "好感度学习", desc: "根据互动更新用户好感度数据", icon: "favorite" },
+        { key: "enable_daily_mood", label: "每日情绪", desc: "按日更新 Bot 情绪状态", icon: "mood" },
+      ].map(function (item) {
+        item.enabled = cfg[item.key] !== false;
+        return item;
+      });
     },
     dataCategories() {
       var stats = this.dataStats || {};
@@ -93,6 +119,7 @@ window.SystemSetting = {
   },
   mounted() {
     this.loadDataStatistics();
+    this.loadPluginConfig();
   },
   methods: {
     setTheme(theme) {
@@ -128,6 +155,86 @@ window.SystemSetting = {
         this.setWallpaper(e.target.result);
       };
       reader.readAsDataURL(file);
+    },
+
+    // ── 学习功能开关 ────────────────────────────────
+
+    async loadPluginConfig() {
+      this.configLoading = true;
+      try {
+        var api = window.MacOSApi;
+        var result = api ? await api.get("/api/config") : await fetch("/api/config", { credentials: "include" }).then(function (resp) { return resp.json(); });
+        this.pluginConfig = result.data || result;
+      } catch (e) {
+        console.error("[SystemSetting] loadPluginConfig error:", e);
+        if (typeof ElMessage !== "undefined") {
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("加载学习功能开关失败: " + msg);
+        }
+      } finally {
+        this.configLoading = false;
+      }
+    },
+
+    async toggleLearningFeature(item) {
+      if (!this.pluginConfig || this.savingConfigKey) return;
+      var nextValue = !item.enabled;
+      var oldConfig = Object.assign({}, this.pluginConfig);
+      this.pluginConfig[item.key] = nextValue;
+      this.savingConfigKey = item.key;
+      try {
+        var patch = {};
+        patch[item.key] = nextValue;
+        var api = window.MacOSApi;
+        var result = api ? await api.post("/api/config", patch) : await fetch("/api/config", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        }).then(function (resp) { return resp.json(); });
+        var data = result.data || result;
+        this.pluginConfig = data.new_config || data;
+        if (typeof ElMessage !== "undefined") {
+          ElMessage.success(item.label + (nextValue ? "已启用" : "已关闭"));
+        }
+      } catch (e) {
+        this.pluginConfig = oldConfig;
+        console.error("[SystemSetting] toggleLearningFeature error:", e);
+        if (typeof ElMessage !== "undefined") {
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("保存失败: " + msg);
+        }
+      } finally {
+        this.savingConfigKey = null;
+      }
+    },
+
+    async installDependencies() {
+      if (this.dependencyInstalling) return;
+      this.dependencyInstalling = true;
+      this.dependencyInstallOutput = "";
+      try {
+        var api = window.MacOSApi;
+        var result = api ? await api.post("/api/dependencies/install", {}) : await fetch("/api/dependencies/install", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        }).then(function (resp) { return resp.json(); });
+        var data = result.data || result;
+        this.dependencyInstallOutput = data.output || data.message || "依赖安装完成";
+        if (typeof ElMessage !== "undefined") {
+          ElMessage.success(data.message || "依赖安装完成");
+        }
+      } catch (e) {
+        console.error("[SystemSetting] installDependencies error:", e);
+        if (typeof ElMessage !== "undefined") {
+          var msg = (e && e.message) || String(e);
+          ElMessage.error("依赖安装失败: " + msg);
+        }
+      } finally {
+        this.dependencyInstalling = false;
+      }
     },
 
     // ── 数据管理 ──────────────────────────────────
@@ -273,6 +380,65 @@ window.SystemSetting = {
         <div v-for="wp in presetWallpapers" :key="wp" @click="setWallpaper(wp)"
              :style="{width:'140px',height:'90px',borderRadius:'8px',backgroundImage:'url('+wp+')',backgroundSize:'cover',backgroundPosition:'center',cursor:'pointer',border: currentWallpaper===wp ? '3px solid #007aff' : '3px solid transparent'}">
         </div>
+      </div>
+
+      <!-- 学习功能开关 -->
+      <h3 style="margin:30px 0 16px 0;font-size:16px;font-weight:600;">学习功能开关</h3>
+      <div v-if="configLoading" style="padding:16px 0;font-size:13px;color:#86868b;">
+        加载学习功能配置中...
+      </div>
+      <div v-else :style="{background:cardBg,borderRadius:'10px',border:'1px solid '+cardBorder,overflow:'hidden'}">
+        <div v-for="(item, idx) in learningFeatureToggles" :key="item.key"
+             :style="{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'16px',padding:'12px 16px',borderTop: idx > 0 ? '1px solid '+dividerColor : 'none'}">
+          <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
+            <i class="material-icons" :style="{fontSize:'20px',color:item.enabled ? '#007aff' : '#86868b'}">{{ item.icon }}</i>
+            <div style="min-width:0;">
+              <div style="font-size:13px;font-weight:500;">{{ item.label }}</div>
+              <div style="font-size:11px;color:#86868b;margin-top:2px;">{{ item.desc }}</div>
+            </div>
+          </div>
+          <button type="button"
+                  @click="toggleLearningFeature(item)"
+                  :disabled="!pluginConfig || savingConfigKey !== null"
+                  :style="{
+                    width:'46px',height:'26px',padding:'2px',borderRadius:'13px',border:'none',flexShrink:0,
+                    cursor: !pluginConfig || savingConfigKey !== null ? 'not-allowed' : 'pointer',
+                    background: item.enabled ? '#34c759' : (isDark ? '#3a3a3c' : '#d1d1d6'),
+                    opacity: savingConfigKey === item.key ? 0.6 : 1,
+                    transition:'background .2s ease',
+                  }">
+            <span :style="{
+              display:'block',width:'22px',height:'22px',borderRadius:'50%',background:'#fff',
+              transform: item.enabled ? 'translateX(20px)' : 'translateX(0)',
+              transition:'transform .2s ease',boxShadow:'0 1px 3px rgba(0,0,0,.25)',
+            }"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 依赖安装 -->
+      <h3 style="margin:30px 0 16px 0;font-size:16px;font-weight:600;">依赖安装</h3>
+      <div :style="{padding:'14px 16px',background:cardBg,borderRadius:'10px',border:'1px solid '+cardBorder,marginBottom:'20px'}">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:500;">手动安装完整依赖</div>
+            <div style="font-size:11px;color:#86868b;margin-top:4px;">插件安装阶段不会自动安装依赖；安装完成后请点击此按钮安装运行所需及增强功能依赖。</div>
+          </div>
+          <button type="button"
+                  @click="installDependencies()"
+                  :disabled="dependencyInstalling"
+                  :style="{
+                    display:'inline-flex',alignItems:'center',gap:'6px',flexShrink:0,
+                    padding:'8px 16px',borderRadius:'8px',border:'none',fontFamily:'inherit',fontSize:'13px',fontWeight:'500',
+                    cursor: dependencyInstalling ? 'not-allowed' : 'pointer',
+                    background: dependencyInstalling ? (isDark ? '#3a3a3c' : '#e5e5e5') : '#007aff',
+                    color: dependencyInstalling ? '#86868b' : '#fff',
+                  }">
+            <i class="material-icons" style="font-size:16px;">{{ dependencyInstalling ? 'hourglass_empty' : 'download' }}</i>
+            {{ dependencyInstalling ? '安装中...' : '安装依赖' }}
+          </button>
+        </div>
+        <pre v-if="dependencyInstallOutput" :style="{margin:'12px 0 0 0',padding:'10px',maxHeight:'180px',overflow:'auto',whiteSpace:'pre-wrap',fontSize:'11px',lineHeight:'1.4',borderRadius:'8px',background:isDark ? '#1c1c1e' : '#f5f5f7',color:panelColor,border:'1px solid '+dividerColor}">{{ dependencyInstallOutput }}</pre>
       </div>
 
       <!-- 数据管理 -->

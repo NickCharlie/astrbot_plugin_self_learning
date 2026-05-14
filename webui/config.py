@@ -3,7 +3,7 @@ WebUI 配置管理
 """
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 
 @dataclass
@@ -27,6 +27,8 @@ class WebUIConfig:
 
     # 安全配置
     max_upload_size: int = 8 * 1024 * 1024  # 8MB
+    enable_web_dependency_install: bool = True
+    allowed_dependency_packages: Optional[List[str]] = None
 
     @classmethod
     def from_plugin_config(cls, plugin_config) -> 'WebUIConfig':
@@ -43,5 +45,9 @@ class WebUIConfig:
                 "ASTRBOT_BUG_CLOUD_URL",
                 "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
             ),
-            bug_cloud_verify_code=os.getenv("ASTRBOT_BUG_CLOUD_VERIFY_CODE", "zentao123")
+            bug_cloud_verify_code=os.getenv("ASTRBOT_BUG_CLOUD_VERIFY_CODE", "zentao123"),
+            enable_web_dependency_install=(
+                os.getenv("ASTRBOT_ENABLE_WEB_DEP_INSTALL", "true").lower()
+                in ("1", "true", "yes", "on")
+            ),
         )

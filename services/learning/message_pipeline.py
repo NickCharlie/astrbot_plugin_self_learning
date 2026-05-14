@@ -86,7 +86,7 @@ class MessagePipeline:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
 
             # 2.5 黑话统计预筛（<1ms, 零 LLM 成本）
-            if self._jargon_statistical_filter:
+            if self._config.enable_jargon_learning and self._jargon_statistical_filter:
                 try:
                     self._jargon_statistical_filter.update_from_message(
                         message_text, group_id, sender_id
@@ -95,10 +95,11 @@ class MessagePipeline:
                     pass # best-effort
 
             # 3. 黑话挖掘 — 每收集 10 条消息触发一次
-            stats = await self._message_collector.get_statistics(group_id)
-            raw_message_count = stats.get("raw_messages", 0)
-            if raw_message_count % 10 == 0 and raw_message_count >= 10:
-                self._spawn(self.mine_jargon(group_id))
+            if self._config.enable_jargon_learning:
+                stats = await self._message_collector.get_statistics(group_id)
+                raw_message_count = stats.get("raw_messages", 0)
+                if raw_message_count % 10 == 0 and raw_message_count >= 10:
+                    self._spawn(self.mine_jargon(group_id))
 
             # 3.5 V2 per-message processing
             if self._v2_integration:
@@ -124,7 +125,8 @@ class MessagePipeline:
                 )
 
             # 5. 智能启动学习任务
-            await self._group_orchestrator.smart_start_learning_for_group(group_id)
+            if self._config.enable_style_learning:
+                await self._group_orchestrator.smart_start_learning_for_group(group_id)
 
             # 6. 对话目标管理
             if self._config.enable_goal_driven_chat:
@@ -162,6 +164,10 @@ class MessagePipeline:
         4. 保存/更新到数据库并在阈值处触发推理
         """
         try:
+            if not self._config.enable_jargon_learning:
+                logger.debug("[JargonMining] Jargon learning disabled, skip")
+                return
+
             if not self._jargon_miner_manager:
                 logger.debug("[JargonMining] JargonMinerManager not initialised, skip")
                 return

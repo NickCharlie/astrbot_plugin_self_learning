@@ -88,9 +88,10 @@ class RealtimeProcessor:
                 return
 
             # Expression-style learning (bypasses filtering)
-            await self._process_expression_style_learning(
-                group_id, message_text, sender_id
-            )
+            if self._config.enable_expression_patterns:
+                await self._process_expression_style_learning(
+                    group_id, message_text, sender_id
+                )
 
             # Batch mode: skip LLM filtering if disabled
             if not self._config.enable_realtime_llm_filter:
