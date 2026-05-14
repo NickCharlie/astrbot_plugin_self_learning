@@ -38,6 +38,7 @@ DEPENDENCY_PACKAGES = [
     "mem0ai>=1.0.0",
 ]
 _dependency_install_lock = asyncio.Lock()
+MANUAL_DEPENDENCY_INSTALL_SOURCE = "system_settings"
 
 
 @config_bp.route("/config", methods=["GET"])
@@ -90,6 +91,18 @@ async def install_plugin_dependencies():
     """手动安装插件的可选依赖。"""
     client_ip = request.remote_addr or "unknown"
     user_id = "authenticated" if session.get("authenticated") else "unknown"
+    payload = await request.get_json(silent=True) or {}
+
+    if (
+        not isinstance(payload, dict)
+        or payload.get("manual_confirmed") is not True
+        or payload.get("source") != MANUAL_DEPENDENCY_INSTALL_SOURCE
+    ):
+        logger.warning(
+            f"[WebUI] 拒绝插件依赖安装请求：缺少设置页手动确认，"
+            f"user={user_id}, remote_addr={client_ip}"
+        )
+        return error_response("依赖安装只能在设置界面手动确认后触发", 400)
 
     if not current_app.config.get("ENABLE_WEB_DEP_INSTALL", True):
         logger.warning(
@@ -122,7 +135,15 @@ async def install_plugin_dependencies():
         return error_response("依赖安装正在进行中，请稍后再试", 409)
 
     async with _dependency_install_lock:
-        cmd = [sys.executable, "-m", "pip", "install", *packages_to_install]
+        cmd = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--disable-pip-version-check",
+            "--no-input",
+            *packages_to_install,
+        ]
         logger.info(f"[WebUI] 开始手动安装插件依赖，user={user_id}, packages={packages_to_install}")
         try:
             process = await asyncio.create_subprocess_exec(
