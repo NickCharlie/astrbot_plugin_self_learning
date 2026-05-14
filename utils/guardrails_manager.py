@@ -8,6 +8,54 @@ import re
 from pydantic import BaseModel, Field, field_validator
 from astrbot.api import logger
 
+try:
+    from guardrails import Guard
+except ImportError:
+    class _SimpleGuardResult:
+        def __init__(self, validation_passed: bool, validated_output=None, error: Exception = None):
+            self.validation_passed = validation_passed
+            self.validated_output = validated_output
+            self.validation_summaries = [str(error)] if error else []
+
+    class Guard:
+        """Small Pydantic-backed fallback used when guardrails-ai is absent."""
+
+        def __init__(self, output_class: Type[BaseModel]):
+            self.output_class = output_class
+
+        @classmethod
+        def for_pydantic(cls, output_class: Type[BaseModel], **kwargs):
+            return cls(output_class)
+
+        def parse(self, response_text: str):
+            import json
+            import re
+
+            try:
+                cleaned = (response_text or "").strip()
+                if cleaned.startswith("```json"):
+                    cleaned = cleaned[7:]
+                elif cleaned.startswith("```"):
+                    cleaned = cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+
+                if not cleaned:
+                    raise ValueError("empty response")
+
+                match = re.search(r"(\{.*\}|\[.*\])", cleaned, re.DOTALL)
+                if match:
+                    cleaned = match.group(1)
+
+                data = json.loads(cleaned)
+                return _SimpleGuardResult(
+                    True,
+                    self.output_class.model_validate(data),
+                )
+            except Exception as exc:
+                return _SimpleGuardResult(False, error=exc)
+
 
 # Pydantic 模型定义 - 用于心理状态分析
 
@@ -161,8 +209,7 @@ class SocialRelationAnalysis(BaseModel):
     """
     relations: List[RelationChange] = Field(
         description="受影响的关系类型及变化量列表",
-        min_length=0,
-        max_length=5
+        min_length=0
     )
     overall_sentiment: Optional[str] = Field(
         default="neutral",

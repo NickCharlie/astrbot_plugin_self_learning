@@ -12,13 +12,13 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
+from core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
 
-from ...config import PluginConfig
+from config import PluginConfig
 
-from ...exceptions import StyleAnalysisError
+from exceptions import StyleAnalysisError
 
-from ...utils.json_utils import safe_parse_llm_json
+from utils.json_utils import safe_parse_llm_json
 
 
 @dataclass
@@ -350,7 +350,7 @@ class LearningQualityMonitor:
     def _simple_emotional_balance(self, messages: List[Dict[str, Any]]) -> float:
         """简化的情感平衡性计算（备用）"""
         positive_words = ['好', '棒', '赞', '喜欢', '开心', '高兴', '哈哈']
-        negative_words = ['不', '没', '坏', '烦', '讨厌', '生气', '难过']
+        negative_words = ['不好', '坏', '烦', '讨厌', '生气', '难过']
         
         pos_count = 0
         neg_count = 0
@@ -473,12 +473,18 @@ class LearningQualityMonitor:
 
     def _count_emoji(self, text: str) -> int:
         """统计表情符号数量"""
-        # 简单的表情符号检测
-        emoji_patterns = ['', '', '', '', '', '', '']
-        count = 0
-        for emoji in emoji_patterns:
-            count += text.count(emoji)
-        return count
+        if not text:
+            return 0
+
+        emoji_pattern = re.compile(
+            "["
+            "\U0001F300-\U0001FAFF"
+            "\U00002700-\U000027BF"
+            "\U00002600-\U000026FF"
+            "]+",
+            flags=re.UNICODE,
+        )
+        return len(emoji_pattern.findall(text))
 
     async def get_quality_report(self) -> Dict[str, Any]:
         """获取质量报告"""

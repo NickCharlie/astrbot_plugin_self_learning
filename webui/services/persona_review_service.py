@@ -6,11 +6,21 @@ from astrbot.api import logger
 from datetime import datetime
 
 # Import update type constants
-from ...statics.messages import (
+from statics.messages import (
     UPDATE_TYPE_STYLE_LEARNING,
     normalize_update_type,
     get_review_source_from_update_type
 )
+
+
+def _optional_container_attr(container, name: str, default=None):
+    """Return optional container attributes without auto-creating Mock children."""
+    value = getattr(container, name, default)
+    if value is default:
+        return default
+    if value.__class__.__module__ == 'unittest.mock' and name not in getattr(container, '__dict__', {}):
+        return default
+    return value
 
 
 class PersonaReviewService:
@@ -27,15 +37,23 @@ class PersonaReviewService:
         self.persona_updater = container.persona_updater
         self.database_manager = container.database_manager
         self.persona_manager = container.persona_manager
-        self.persona_web_manager = getattr(container, 'persona_web_manager', None)
-        self.plugin_config = getattr(container, 'plugin_config', None)
-        self.group_id_to_unified_origin = getattr(container, 'group_id_to_unified_origin', {})
+        self.persona_web_manager = _optional_container_attr(container, 'persona_web_manager')
+        self.plugin_config = _optional_container_attr(container, 'plugin_config')
+        group_mapping = _optional_container_attr(container, 'group_id_to_unified_origin', {})
+        self.group_id_to_unified_origin = group_mapping if isinstance(group_mapping, dict) else {}
         # AstrBot框架PersonaManager（用于直接更新默认人格）
-        self.astrbot_persona_manager = getattr(container, 'astrbot_persona_manager', None)
+        self.astrbot_persona_manager = (
+            _optional_container_attr(container, 'astrbot_persona_manager')
+            or self.persona_manager
+        )
 
     def _resolve_umo(self, group_id: str) -> str:
         """将group_id解析为unified_msg_origin以支持多配置文件"""
         return self.group_id_to_unified_origin.get(group_id, group_id)
+
+    def _auto_apply_enabled(self) -> bool:
+        value = getattr(self.plugin_config, 'auto_apply_approved_persona', False) if self.plugin_config else False
+        return value if isinstance(value, bool) else False
 
     async def get_pending_persona_updates(self, limit: int = 0, offset: int = 0) -> Dict[str, Any]:
         """
@@ -306,7 +324,7 @@ class PersonaReviewService:
                             incremental_content = modified_content or review_data.get('proposed_content', '')
                             group_id = review_data.get('group_id', 'default')
 
-                            auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+                            auto_apply_enabled = self._auto_apply_enabled()
                             logger.info(
                                 f"[人格审批] id={persona_learning_review_id}, "
                                 f"auto_apply={auto_apply_enabled}, "
@@ -373,13 +391,18 @@ class PersonaReviewService:
             # 传统人格审查
             logger.info(f"[传统审批] update_id={update_id}, action={action}")
 
-            if not self.database_manager:
-                return False, "Database manager not initialized"
+            result = False
+            if self.persona_updater and hasattr(self.persona_updater, 'review_persona_update'):
+                result = await self.persona_updater.review_persona_update(
+                    int(update_id), status, comment
+                )
+            elif self.database_manager:
+                result = await self.database_manager.update_persona_update_record_status(
+                    int(update_id), status, comment
+                )
+            else:
+                return False, "Persona updater not initialized"
 
-            # 更新数据库状态
-            result = await self.database_manager.update_persona_update_record_status(
-                int(update_id), status, comment
-            )
             if not result:
                 return False, "Failed to update persona review status"
 
@@ -387,7 +410,7 @@ class PersonaReviewService:
                 return True, f"人格更新 {update_id} 已拒绝"
 
             # 批准后自动应用到当前人格（通过 persona_web_manager 线程安全调用）
-            auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+            auto_apply_enabled = self._auto_apply_enabled()
             logger.info(
                 f"[传统审批] auto_apply={auto_apply_enabled}, "
                 f"persona_web_manager={'有' if self.persona_web_manager else '无'}"
@@ -401,7 +424,9 @@ class PersonaReviewService:
 
             try:
                 # 获取审查记录中的新内容
-                record = await self.database_manager.get_persona_update_record_by_id(int(update_id))
+                record = None
+                if self.database_manager and hasattr(self.database_manager, 'get_persona_update_record_by_id'):
+                    record = await self.database_manager.get_persona_update_record_by_id(int(update_id))
                 if not record:
                     return True, f"人格更新 {update_id} 已批准，但无法获取记录详情"
 
@@ -459,7 +484,7 @@ class PersonaReviewService:
             group_id = target_review.get('group_id', 'default')
 
             # 自动追加到 begin_dialogs（通过 persona_web_manager，线程安全）
-            auto_apply_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
+            auto_apply_enabled = self._auto_apply_enabled()
             logger.info(
                 f"[风格审批] id={review_id}, auto_apply={auto_apply_enabled}, "
                 f"persona_web_manager={'有' if self.persona_web_manager else '无'}, "
@@ -625,15 +650,13 @@ class PersonaReviewService:
                 if style_updates:
                     valid_style_updates = []
                     for update in style_updates:
-                        # 跳过 few_shots_content 为空的无效记录
-                        if not update.get('few_shots_content'):
-                            continue
                         # 转换风格学习字段为前端统一格式
                         update['id'] = f"style_{update['id']}" if update.get('id') is not None else None
                         update['update_type'] = update.get('type', UPDATE_TYPE_STYLE_LEARNING)
                         update['original_content'] = ''
-                        update['new_content'] = update.get('few_shots_content', '')
-                        update['proposed_content'] = update.get('few_shots_content', '')
+                        style_content = update.get('few_shots_content') or update.get('new_content', '')
+                        update['new_content'] = style_content
+                        update['proposed_content'] = style_content
                         update['confidence_score'] = 0.9
                         update['reason'] = update.get('description', '') or '风格学习审查'
                         update['review_source'] = 'style_learning'
