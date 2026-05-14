@@ -171,6 +171,8 @@ git clone https://github.com/NickCharlie/astrbot_plugin_self_learning.git
 
 启动 AstrBot，插件自动加载。
 
+插件安装和启动阶段不会自动安装依赖。安装完成后，请进入管理界面的「系统设置」并手动点击「安装依赖」按钮；只有这个手动确认动作会触发依赖安装。
+
 ### 访问管理界面
 
 ```

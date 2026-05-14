@@ -171,6 +171,8 @@ git clone https://github.com/NickCharlie/astrbot_plugin_self_learning.git
 
 Start AstrBot and the plugin loads automatically.
 
+The plugin does not install dependencies during install or startup. After the plugin is installed, open the Web UI System Settings page and manually click "Install Dependencies"; dependency installation is triggered only by that manual confirmation.
+
 ### Access the Management Interface
 
 ```

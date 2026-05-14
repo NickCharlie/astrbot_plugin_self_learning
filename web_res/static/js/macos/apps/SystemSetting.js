@@ -213,15 +213,32 @@ window.SystemSetting = {
       if (this.dependencyInstalling) return;
       this.dependencyInstalling = true;
       this.dependencyInstallOutput = "";
+      var payload = {
+        manual_confirmed: true,
+        source: "system_settings",
+      };
       try {
         var api = window.MacOSApi;
-        var result = api ? await api.post("/api/dependencies/install", {}) : await fetch("/api/dependencies/install", {
+        var result = api ? await api.post("/api/dependencies/install", payload) : await fetch("/api/dependencies/install", {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: "{}",
-        }).then(function (resp) { return resp.json(); });
+          body: JSON.stringify(payload),
+        }).then(function (resp) {
+          return resp.json().then(function (data) {
+            if (!resp.ok) {
+              throw new Error(data.message || "依赖安装失败");
+            }
+            return data;
+          });
+        });
+        if (result && result.ok === false) {
+          throw new Error((result.data && result.data.message) || "依赖安装失败");
+        }
         var data = result.data || result;
+        if (data && data.success === false) {
+          throw new Error(data.message || "依赖安装失败");
+        }
         this.dependencyInstallOutput = data.output || data.message || "依赖安装完成";
         if (typeof ElMessage !== "undefined") {
           ElMessage.success(data.message || "依赖安装完成");
