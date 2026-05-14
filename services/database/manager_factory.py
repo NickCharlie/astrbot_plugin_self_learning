@@ -5,9 +5,14 @@
 from typing import Optional, Union
 from astrbot.api import logger
 
-from config import PluginConfig
-from core.interfaces import IDataStorage
-from core.framework_llm_adapter import FrameworkLLMAdapter
+try:
+    from ...config import PluginConfig
+    from ...core.interfaces import IDataStorage
+    from ...core.framework_llm_adapter import FrameworkLLMAdapter
+except ImportError:
+    from config import PluginConfig
+    from core.interfaces import IDataStorage
+    from core.framework_llm_adapter import FrameworkLLMAdapter
 
 
 class ManagerFactory:

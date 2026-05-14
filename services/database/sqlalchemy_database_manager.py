@@ -12,8 +12,12 @@ from contextlib import asynccontextmanager
 
 from astrbot.api import logger
 
-from config import PluginConfig
-from core.database.engine import DatabaseEngine
+try:
+    from ...config import PluginConfig
+    from ...core.database.engine import DatabaseEngine
+except ImportError:
+    from config import PluginConfig
+    from core.database.engine import DatabaseEngine
 
 
 class SQLAlchemyDatabaseManager:
