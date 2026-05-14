@@ -6,11 +6,18 @@ from astrbot.api import logger
 from datetime import datetime
 
 # Import update type constants
-from statics.messages import (
-    UPDATE_TYPE_STYLE_LEARNING,
-    normalize_update_type,
-    get_review_source_from_update_type
-)
+try:
+    from ...statics.messages import (
+        UPDATE_TYPE_STYLE_LEARNING,
+        normalize_update_type,
+        get_review_source_from_update_type,
+    )
+except ImportError:
+    from statics.messages import (
+        UPDATE_TYPE_STYLE_LEARNING,
+        normalize_update_type,
+        get_review_source_from_update_type,
+    )
 
 
 def _optional_container_attr(container, name: str, default=None):
