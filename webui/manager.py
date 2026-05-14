@@ -5,15 +5,13 @@ from typing import Optional, Any, Dict, TYPE_CHECKING
 
 from astrbot.api import logger
 
-from .server import Server
-from .dependencies import get_container as _get_webui_container, set_plugin_services
-
 if TYPE_CHECKING:
     from ..config import PluginConfig
     from ..core.factory import FactoryManager
+    from .server import Server
 
 # 模块级服务器实例（原 main.py 中的 global server_instance）
-_server_instance: Optional[Server] = None
+_server_instance: Optional["Server"] = None
 _server_cleanup_lock = asyncio.Lock()
 
 
@@ -67,6 +65,14 @@ class WebUIManager:
                     _server_instance = None
 
             if _server_instance is None:
+                try:
+                    from .server import Server
+                except ImportError as e:
+                    logger.warning(
+                        f"WebUI 依赖未安装，跳过 Web 服务器创建；请在插件设置页面手动安装依赖: {e}"
+                    )
+                    return False
+
                 _server_instance = Server(
                     host=self._config.web_interface_host,
                     port=self._config.web_interface_port,
@@ -231,6 +237,8 @@ class WebUIManager:
 
     async def _setup_services(self, astrbot_persona_manager: Any) -> None:
         """调用 set_plugin_services 注册服务到 WebUI 容器"""
+        from .dependencies import get_container as _get_webui_container, set_plugin_services
+
         await set_plugin_services(
             self._config,
             self._factory_manager,
