@@ -453,4 +453,27 @@ class AnalysisType(Enum):
 
 
 # 异常类型 (从 exceptions.py 导入，避免重复定义)
-from exceptions import SelfLearningError, ConfigurationError, DataStorageError, MessageCollectionError, StyleAnalysisError, PersonaUpdateError, ModelAccessError, LearningSchedulerError, ServiceError
+try:
+    from ..exceptions import (
+        SelfLearningError,
+        ConfigurationError,
+        DataStorageError,
+        MessageCollectionError,
+        StyleAnalysisError,
+        PersonaUpdateError,
+        ModelAccessError,
+        LearningSchedulerError,
+        ServiceError,
+    )
+except ImportError:
+    from exceptions import (
+        SelfLearningError,
+        ConfigurationError,
+        DataStorageError,
+        MessageCollectionError,
+        StyleAnalysisError,
+        PersonaUpdateError,
+        ModelAccessError,
+        LearningSchedulerError,
+        ServiceError,
+    )

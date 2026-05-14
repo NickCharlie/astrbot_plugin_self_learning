@@ -6,9 +6,14 @@ database layer was split into the ``services.database`` package.
 """
 from typing import Any, Dict, List, Optional
 
-from services.database.sqlalchemy_database_manager import (
-    SQLAlchemyDatabaseManager as _SQLAlchemyDatabaseManager,
-)
+try:
+    from .database.sqlalchemy_database_manager import (
+        SQLAlchemyDatabaseManager as _SQLAlchemyDatabaseManager,
+    )
+except ImportError:
+    from services.database.sqlalchemy_database_manager import (
+        SQLAlchemyDatabaseManager as _SQLAlchemyDatabaseManager,
+    )
 
 
 class SQLAlchemyDatabaseManager(_SQLAlchemyDatabaseManager):

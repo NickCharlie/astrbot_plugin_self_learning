@@ -7,12 +7,20 @@ import time
 from typing import Tuple, Dict, Any, Optional
 from astrbot.api import logger
 
-from utils.security_utils import (
-    PasswordHasher,
-    login_attempt_tracker,
-    verify_password_with_migration,
-    SecurityValidator
-)
+try:
+    from ...utils.security_utils import (
+        PasswordHasher,
+        login_attempt_tracker,
+        verify_password_with_migration,
+        SecurityValidator,
+    )
+except ImportError:
+    from utils.security_utils import (
+        PasswordHasher,
+        login_attempt_tracker,
+        verify_password_with_migration,
+        SecurityValidator,
+    )
 
 
 DEFAULT_PASSWORD_CONFIG = {"password": "self_learning_pwd", "must_change": True}
