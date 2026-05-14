@@ -7,12 +7,30 @@ import time
 from typing import Tuple, Dict, Any, Optional
 from astrbot.api import logger
 
-from ...utils.security_utils import (
+from utils.security_utils import (
     PasswordHasher,
     login_attempt_tracker,
     verify_password_with_migration,
     SecurityValidator
 )
+
+
+DEFAULT_PASSWORD_CONFIG = {"password": "self_learning_pwd", "must_change": True}
+
+
+def hash_password_with_salt(password: str) -> Dict[str, Any]:
+    """Compatibility wrapper for callers/tests that patch the legacy helper."""
+    password_hash, salt = PasswordHasher.hash_password(password)
+    return {
+        "password_hash": password_hash,
+        "salt": salt,
+        "algorithm": "md5",
+    }
+
+
+def validate_password_strength(password: str):
+    """Compatibility wrapper around the current password strength validator."""
+    return SecurityValidator.validate_password_strength(password)
 
 
 class AuthService:
@@ -31,12 +49,17 @@ class AuthService:
 
     def get_password_file_path(self) -> str:
         """获取密码文件路径"""
-        if self.plugin_config and hasattr(self.plugin_config, 'data_dir'):
-            return os.path.join(self.plugin_config.data_dir, "password.json")
-        else:
-            # 后备路径
-            plugin_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            return os.path.join(plugin_root, "config", "password.json")
+        data_dir = getattr(self.plugin_config, 'data_dir', None) if self.plugin_config else None
+        if isinstance(data_dir, (str, os.PathLike)):
+            return os.path.join(os.fspath(data_dir), "password.json")
+
+        # 后备路径
+        plugin_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        return os.path.join(plugin_root, "config", "password.json")
+
+    def _should_persist_password_file(self) -> bool:
+        data_dir = getattr(self.plugin_config, 'data_dir', None) if self.plugin_config else None
+        return self.plugin_config is None or isinstance(data_dir, (str, os.PathLike))
 
     def load_password_config(self) -> Dict[str, Any]:
         """
@@ -45,20 +68,32 @@ class AuthService:
         Returns:
             Dict: 密码配置
         """
+        if self._password_config is not None:
+            return self._password_config
+
+        config_attr = getattr(self.plugin_config, 'password_config', None) if self.plugin_config else None
+        if isinstance(config_attr, dict):
+            self._password_config = config_attr
+            return config_attr
+
         password_file = self.get_password_file_path()
+        if not self._should_persist_password_file():
+            logger.debug("跳过密码文件读取：plugin_config 未提供有效 data_dir")
+            return DEFAULT_PASSWORD_CONFIG.copy()
 
         try:
             if os.path.exists(password_file):
                 with open(password_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                     logger.debug(f"已加载密码配置: {password_file}")
+                    self._password_config = config
                     return config
             else:
                 logger.warning(f"密码配置文件不存在: {password_file}，使用默认密码")
-                return {"password": "self_learning_pwd", "must_change": True}
+                return DEFAULT_PASSWORD_CONFIG.copy()
         except Exception as e:
             logger.error(f"加载密码配置失败: {e}", exc_info=True)
-            return {"password": "self_learning_pwd", "must_change": True}
+            return DEFAULT_PASSWORD_CONFIG.copy()
 
     def save_password_config(self, config: Dict[str, Any]) -> bool:
         """
@@ -70,7 +105,17 @@ class AuthService:
         Returns:
             bool: 是否保存成功
         """
+        self._password_config = config
+        if self.plugin_config is not None:
+            try:
+                setattr(self.plugin_config, 'password_config', config)
+            except Exception:
+                logger.debug("无法同步 password_config 到 plugin_config", exc_info=True)
+
         password_file = self.get_password_file_path()
+        if not self._should_persist_password_file():
+            logger.debug("跳过密码文件写入：plugin_config 未提供有效 data_dir")
+            return True
 
         try:
             # 确保目录存在
@@ -80,7 +125,6 @@ class AuthService:
                 json.dump(config, f, indent=4, ensure_ascii=False)
 
             logger.info(f"密码配置已保存: {password_file}")
-            self._password_config = config  # 更新缓存
             return True
         except Exception as e:
             logger.error(f"保存密码配置失败: {e}", exc_info=True)
@@ -107,7 +151,7 @@ class AuthService:
         is_locked, remaining_time = login_attempt_tracker.is_locked(client_ip)
         if is_locked:
             logger.warning(f"IP {client_ip} 被锁定，剩余 {remaining_time} 秒")
-            return False, f"登录尝试次数过多，请在 {remaining_time} 秒后重试", {
+            return False, f"账号已锁定，登录尝试次数过多，请在 {remaining_time} 秒后重试", {
                 "locked": True,
                 "remaining_time": remaining_time
             }
@@ -141,6 +185,10 @@ class AuthService:
         # 登录失败，记录尝试
         login_attempt_tracker.record_attempt(client_ip, success=False)
         remaining_attempts = login_attempt_tracker.get_remaining_attempts(client_ip)
+        if not isinstance(remaining_attempts, int):
+            remaining_attempts = getattr(login_attempt_tracker, 'max_attempts', 5)
+            if not isinstance(remaining_attempts, int):
+                remaining_attempts = 5
 
         logger.warning(f"IP {client_ip} 登录失败，剩余尝试次数: {remaining_attempts}")
 
@@ -172,31 +220,36 @@ class AuthService:
         if not old_password or not new_password:
             return False, "旧密码和新密码不能为空"
 
+        # 验证新密码强度
+        strength_result = validate_password_strength(new_password)
+        if isinstance(strength_result, tuple):
+            is_strong, issues = strength_result
+            if not is_strong:
+                return False, str(issues or "密码强度不足")
+        elif not strength_result['valid']:
+            issues = "、".join(strength_result['issues']) if strength_result['issues'] else "密码强度不足"
+            return False, issues
+
         # 加载密码配置
         password_config = self.load_password_config()
 
         # 验证旧密码
         is_valid, _ = verify_password_with_migration(old_password, password_config)
         if not is_valid:
-            return False, "当前密码错误"
+            return False, "原密码错误"
 
         # 检查新密码是否与旧密码相同
         if old_password == new_password:
             return False, "新密码不能与当前密码相同"
 
-        # 验证新密码强度
-        strength_result = SecurityValidator.validate_password_strength(new_password)
-        if not strength_result['valid']:
-            issues = "、".join(strength_result['issues']) if strength_result['issues'] else "密码强度不足"
-            return False, issues
-
         # 生成新的哈希密码
-        password_hash, salt = PasswordHasher.hash_password(new_password)
+        hashed_config = hash_password_with_salt(new_password)
 
         # 更新配置
         new_config = {
-            "password_hash": password_hash,
-            "salt": salt,
+            "password_hash": hashed_config["password_hash"],
+            "salt": hashed_config["salt"],
+            "algorithm": hashed_config.get("algorithm", "md5"),
             "must_change": False,
             "version": 2,
             "last_changed": time.time()

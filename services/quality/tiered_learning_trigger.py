@@ -37,7 +37,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 
-from ...core.interfaces import MessageData
+from core.interfaces import MessageData
 
 
 # Type aliases

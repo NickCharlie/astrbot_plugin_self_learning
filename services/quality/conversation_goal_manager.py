@@ -10,7 +10,7 @@ import json
 import re
 from astrbot.api import logger
 
-from ...repositories.conversation_goal_repository import ConversationGoalRepository
+from repositories.conversation_goal_repository import ConversationGoalRepository
 
 
 class ConversationGoalManager:
@@ -289,7 +289,7 @@ class ConversationGoalManager:
         # 某些 guardrails 版本依赖旧版 openai.error 接口；在当前环境中
         # 导入失败时降级为基础 JSON 解析，避免整个 goal manager 无法启动。
         try:
-            from ...utils.guardrails_manager import (
+            from utils.guardrails_manager import (
                 get_guardrails_manager,
                 GoalAnalysisResult,
                 ConversationIntentAnalysis,

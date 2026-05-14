@@ -1,6 +1,7 @@
 """
 认证蓝图 - 处理用户登录、登出、修改密码
 """
+import os
 from quart import Blueprint, render_template, request, jsonify, session, redirect, url_for
 from astrbot.api import logger
 
@@ -9,7 +10,11 @@ from ..services.auth_service import AuthService
 from ..middleware.auth import require_auth, is_authenticated
 from ..utils.response import success_response, error_response
 
-auth_bp = Blueprint('auth', __name__, url_prefix='/api')
+_TEMPLATE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..', '..', 'web_res', 'static', 'html')
+)
+
+auth_bp = Blueprint('auth', __name__, url_prefix='/api', template_folder=_TEMPLATE_DIR)
 
 
 @auth_bp.route("/")
@@ -70,6 +75,8 @@ async def login():
 @auth_bp.route("/index")
 async def read_root_index():
     """主页面 - 渲染 MacOS UI"""
+    if not is_authenticated():
+        return redirect(url_for('auth.login_page'))
     return await render_template("macos.html")
 
 
@@ -105,7 +112,7 @@ async def change_password():
         success, message = await auth_service.change_password(old_password, new_password)
 
         if success:
-            return jsonify({"message": message}), 200
+            return jsonify({"success": True, "message": message}), 200
         else:
             return jsonify({"error": message}), 400
 

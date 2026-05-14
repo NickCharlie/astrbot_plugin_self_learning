@@ -18,7 +18,7 @@ import asyncio
 import threading
 import os
 
-from ...models.orm import Base
+from models.orm import Base
 
 
 class DatabaseEngine:

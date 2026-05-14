@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager
 
 from astrbot.api import logger
 
-from ...config import PluginConfig
-from ...core.database.engine import DatabaseEngine
+from config import PluginConfig
+from core.database.engine import DatabaseEngine
 
 
 class SQLAlchemyDatabaseManager:
@@ -378,7 +378,10 @@ class SQLAlchemyDatabaseManager:
         return await self._learning.get_persona_update_record_by_id(record_id)
 
     async def get_reviewed_persona_update_records(
-        self, limit: int = 50, offset: int = 0, status_filter: str = None,
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        status_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         return await self._learning.get_reviewed_persona_update_records(
             limit=limit, offset=offset, status_filter=status_filter,

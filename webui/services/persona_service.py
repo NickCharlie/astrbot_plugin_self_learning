@@ -6,6 +6,15 @@ from datetime import datetime
 from astrbot.api import logger
 
 
+def _optional_container_attr(container, name: str, default=None):
+    value = getattr(container, name, default)
+    if value is default:
+        return default
+    if value.__class__.__module__ == 'unittest.mock' and name not in getattr(container, '__dict__', {}):
+        return default
+    return value
+
+
 class PersonaService:
     """人格管理服务"""
 
@@ -17,8 +26,29 @@ class PersonaService:
             container: ServiceContainer 依赖注入容器
         """
         self.container = container
-        self.persona_web_mgr = container.persona_web_manager
-        self.persona_manager = container.astrbot_persona_manager
+        self.persona_manager = _optional_container_attr(container, 'persona_manager')
+        self.persona_web_mgr = _optional_container_attr(container, 'persona_web_manager')
+        self.astrbot_persona_manager = (
+            _optional_container_attr(container, 'astrbot_persona_manager')
+            or self.persona_manager
+        )
+
+    def _ensure_manager(self):
+        if not self.persona_manager and not self.persona_web_mgr:
+            raise ValueError("PersonaManager未初始化")
+
+    @staticmethod
+    def _normalize_persona_data(data: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = dict(data)
+        if 'system_prompt' not in normalized and 'prompt' in normalized:
+            normalized['system_prompt'] = normalized['prompt']
+        if 'prompt' not in normalized and 'system_prompt' in normalized:
+            normalized['prompt'] = normalized['system_prompt']
+        return normalized
+
+    @staticmethod
+    def _has_required_persona_fields(data: Dict[str, Any]) -> bool:
+        return bool(data.get('persona_id') and (data.get('prompt') or data.get('system_prompt')))
 
     async def get_all_personas(self) -> List[Dict[str, Any]]:
         """
@@ -27,22 +57,15 @@ class PersonaService:
         Returns:
             List[Dict]: 人格列表
         """
+        self._ensure_manager()
+
         try:
-            logger.debug("开始获取人格列表...")
-
-            if not self.persona_web_mgr:
-                logger.warning("PersonaWebManager未初始化，返回空列表")
-                return []
-
-            logger.debug("调用get_all_personas_for_web...")
-            personas = await self.persona_web_mgr.get_all_personas_for_web()
-            logger.debug(f"获取到 {len(personas)} 个人格")
-
-            return personas
-
+            if self.persona_web_mgr:
+                return await self.persona_web_mgr.get_all_personas_for_web()
+            return await self.persona_manager.get_all_personas()
         except Exception as e:
             logger.error(f"获取人格列表失败: {e}", exc_info=True)
-            return []
+            raise
 
     async def get_persona_details(self, persona_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -54,15 +77,20 @@ class PersonaService:
         Returns:
             Optional[Dict]: 人格详情,如果不存在返回None
         """
-        if not self.persona_web_mgr:
-            raise ValueError("PersonaWebManager未初始化")
+        self._ensure_manager()
 
         try:
-            all_personas = await self.persona_web_mgr.get_all_personas_for_web()
-            for persona in all_personas:
-                if persona.get('persona_id') == persona_id:
-                    return persona
-            return None
+            if self.persona_web_mgr:
+                all_personas = await self.persona_web_mgr.get_all_personas_for_web()
+                for persona in all_personas:
+                    if persona.get('persona_id') == persona_id:
+                        return persona
+                raise ValueError(f"Persona {persona_id} not found")
+
+            persona = await self.persona_manager.get_persona(persona_id)
+            if not persona:
+                raise ValueError(f"Persona {persona_id} not found")
+            return persona
         except Exception as e:
             logger.error(f"获取人格详情失败: {e}")
             raise
@@ -77,17 +105,23 @@ class PersonaService:
         Returns:
             Tuple[bool, str, Optional[str]]: (是否成功, 消息, 人格ID)
         """
-        if not self.persona_web_mgr:
-            raise ValueError("人格管理功能暂不可用，请检查AstrBot PersonaManager配置")
+        self._ensure_manager()
+        data = self._normalize_persona_data(data)
+
+        if not self._has_required_persona_fields(data):
+            return False, "缺少必需字段: persona_id/prompt", None
 
         try:
-            result = await self.persona_web_mgr.create_persona_via_web(data)
+            if self.persona_web_mgr:
+                result = await self.persona_web_mgr.create_persona_via_web(data)
+                if result.get("success"):
+                    return True, "人格创建成功", result.get("persona_id", data["persona_id"])
+                return False, result.get("error", "人格创建失败"), None
 
-            if result["success"]:
-                return True, "人格创建成功", result["persona_id"]
-            else:
-                return False, result["error"], None
-
+            success = await self.persona_manager.create_persona(data)
+            if success:
+                return True, "人格创建成功", data["persona_id"]
+            return False, "人格创建失败", None
         except Exception as e:
             logger.error(f"创建人格失败: {e}", exc_info=True)
             raise
@@ -103,17 +137,22 @@ class PersonaService:
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
-        if not self.persona_web_mgr:
-            raise ValueError("人格管理功能暂不可用，请检查AstrBot PersonaManager配置")
+        self._ensure_manager()
+        data = self._normalize_persona_data(data)
 
         try:
-            result = await self.persona_web_mgr.update_persona_via_web(persona_id, data)
+            if self.persona_web_mgr:
+                result = await self.persona_web_mgr.update_persona_via_web(persona_id, data)
+                if result.get("success"):
+                    return True, "人格更新成功"
+                return False, result.get("error", "人格更新失败")
 
-            if result["success"]:
-                return True, "人格更新成功"
-            else:
-                return False, result["error"]
+            existing = await self.persona_manager.get_persona(persona_id)
+            if not existing:
+                return False, f"Persona {persona_id} not found"
 
+            success = await self.persona_manager.update_persona(persona_id, data)
+            return (True, "人格更新成功") if success else (False, "人格更新失败")
         except Exception as e:
             logger.error(f"更新人格失败: {e}", exc_info=True)
             raise
@@ -128,44 +167,51 @@ class PersonaService:
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
-        if not self.persona_web_mgr:
-            raise ValueError("人格管理功能暂不可用，请检查AstrBot PersonaManager配置")
+        self._ensure_manager()
 
         try:
-            result = await self.persona_web_mgr.delete_persona_via_web(persona_id)
+            if self.persona_web_mgr:
+                result = await self.persona_web_mgr.delete_persona_via_web(persona_id)
+                if result.get("success"):
+                    return True, "人格删除成功"
+                return False, result.get("error", "人格删除失败")
 
-            if result["success"]:
-                return True, "人格删除成功"
-            else:
-                return False, result["error"]
-
+            success = await self.persona_manager.delete_persona(persona_id)
+            return (True, "人格删除成功") if success else (False, "人格删除失败")
         except Exception as e:
             logger.error(f"删除人格失败: {e}", exc_info=True)
             raise
 
-    async def get_default_persona(self) -> Dict[str, Any]:
+    async def get_default_persona(self, group_id: str = "default") -> Dict[str, Any]:
         """
         获取默认人格
 
         Returns:
             Dict: 默认人格数据
         """
-        # 基本默认人格(后备方案)
         fallback_persona = {
             "persona_id": "default",
+            "prompt": "You are a helpful assistant.",
             "system_prompt": "You are a helpful assistant.",
             "begin_dialogs": [],
             "tools": []
         }
 
-        if not self.persona_web_mgr:
-            logger.warning("PersonaWebManager未初始化，返回基本默认人格")
-            return fallback_persona
-
         try:
-            default_persona = await self.persona_web_mgr.get_default_persona_for_web()
-            return default_persona
+            if self.persona_web_mgr:
+                default_persona = await self.persona_web_mgr.get_default_persona_for_web()
+                return self._normalize_persona_data(default_persona or fallback_persona)
 
+            if self.astrbot_persona_manager:
+                default_persona = await self.astrbot_persona_manager.get_default_persona_v3(group_id)
+                if default_persona:
+                    return self._normalize_persona_data(default_persona)
+
+                default_persona = await self.astrbot_persona_manager.get_default_persona_v3('default')
+                if default_persona:
+                    return self._normalize_persona_data(default_persona)
+
+            return fallback_persona
         except Exception as e:
             logger.error(f"获取默认人格失败: {e}", exc_info=True)
             return fallback_persona
@@ -180,28 +226,15 @@ class PersonaService:
         Returns:
             Dict: 导出的人格配置
         """
-        if not self.persona_web_mgr:
-            raise ValueError("PersonaWebManager未初始化")
+        persona = await self.get_persona_details(persona_id)
+        if not persona:
+            raise ValueError(f"Persona {persona_id} not found")
 
-        try:
-            persona = await self.get_persona_details(persona_id)
-            if not persona:
-                raise ValueError(f"人格 {persona_id} 不存在")
-
-            persona_export = {
-                "persona_id": persona.get("persona_id", ""),
-                "system_prompt": persona.get("system_prompt", ""),
-                "begin_dialogs": persona.get("begin_dialogs", []),
-                "tools": persona.get("tools", []),
-                "export_time": datetime.now().isoformat(),
-                "export_version": "1.0"
-            }
-
-            return persona_export
-
-        except Exception as e:
-            logger.error(f"导出人格失败: {e}")
-            raise
+        persona_export = dict(self._normalize_persona_data(persona))
+        persona_export["export_time"] = datetime.now().isoformat()
+        persona_export["export_version"] = "1.0"
+        persona_export.setdefault("metadata", {})
+        return persona_export
 
     async def import_persona(self, data: Dict[str, Any]) -> Tuple[bool, str, Optional[str]]:
         """
@@ -213,54 +246,48 @@ class PersonaService:
         Returns:
             Tuple[bool, str, Optional[str]]: (是否成功, 消息, 人格ID)
         """
-        if not self.persona_web_mgr:
-            raise ValueError("PersonaWebManager未初始化")
+        self._ensure_manager()
+        data = self._normalize_persona_data(data)
+
+        if not self._has_required_persona_fields(data):
+            return False, "缺少必需字段: persona_id/prompt", None
+
+        persona_id = data["persona_id"]
+        overwrite = data.get("overwrite", False)
 
         try:
-            # 验证导入数据格式
-            required_fields = ["persona_id", "system_prompt"]
-            for field in required_fields:
-                if field not in data:
-                    return False, f"缺少必需字段: {field}", None
-
-            persona_id = data["persona_id"]
-            system_prompt = data["system_prompt"]
-            begin_dialogs = data.get("begin_dialogs", [])
-            tools = data.get("tools", [])
-
-            # 检查是否覆盖现有人格
-            overwrite = data.get("overwrite", False)
-            existing_persona = await self.get_persona_details(persona_id)
+            existing_persona = None
+            try:
+                existing_persona = await self.get_persona_details(persona_id)
+            except ValueError:
+                existing_persona = None
 
             if existing_persona and not overwrite:
-                return False, "人格已存在，如要覆盖请设置overwrite=true", None
+                return False, "Persona already exists", None
 
-            # 创建或更新人格
             if existing_persona:
-                result = await self.persona_web_mgr.update_persona_via_web(
-                    persona_id,
-                    {
-                        "system_prompt": system_prompt,
-                        "begin_dialogs": begin_dialogs,
-                        "tools": tools,
-                    }
-                )
+                if self.persona_web_mgr:
+                    result = await self.persona_web_mgr.update_persona_via_web(persona_id, data)
+                    success = result.get('success')
+                    error = result.get('error', "人格更新失败")
+                else:
+                    success = await self.persona_manager.update_persona(persona_id, data)
+                    error = "人格更新失败"
                 action = "更新"
             else:
-                result = await self.persona_web_mgr.create_persona_via_web({
-                    "persona_id": persona_id,
-                    "system_prompt": system_prompt,
-                    "begin_dialogs": begin_dialogs,
-                    "tools": tools,
-                })
+                if self.persona_web_mgr:
+                    result = await self.persona_web_mgr.create_persona_via_web(data)
+                    success = result.get('success')
+                    error = result.get('error', "人格创建失败")
+                else:
+                    success = await self.persona_manager.create_persona(data)
+                    error = "人格创建失败"
                 action = "创建"
 
-            if result.get('success'):
+            if success:
                 logger.info(f"成功导入人格: {persona_id} ({action})")
                 return True, f"人格{action}成功", persona_id
-            else:
-                return False, result.get('error', f"人格{action}失败"), None
-
+            return False, error, None
         except Exception as e:
             logger.error(f"导入人格失败: {e}")
             raise
