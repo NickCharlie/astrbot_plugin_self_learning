@@ -59,6 +59,15 @@ def test_webui_persona_review_service_imports_under_astrbot_package_path():
         _cleanup_alias(alias)
 
 
+def test_webui_manager_uses_deferred_annotations_for_lazy_server_import():
+    """Python 3.11 evaluates annotations unless this future import is present."""
+    manager_source = (PLUGIN_ROOT / "webui" / "manager.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from __future__ import annotations" in manager_source
+
+
 def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
     """Plugin startup modules should import before settings-triggered pip install."""
     import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
