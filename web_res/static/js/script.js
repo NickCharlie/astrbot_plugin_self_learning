@@ -5,7 +5,6 @@ async function checkAuthStatus() {
   try {
     const response = await fetch("/api/config");
     if (response.status === 401) {
-      window.location.href = "/api/login";
       return false;
     }
     return true;
@@ -26,7 +25,7 @@ async function logout() {
     });
 
     if (response.ok) {
-      window.location.href = "/api/login";
+      window.location.href = "/api/index";
     } else {
       console.error("登出失败");
     }

@@ -5,9 +5,7 @@ Tests the auth blueprint routes with mock dependencies
 """
 import pytest
 from quart import Quart
-from unittest.mock import Mock, AsyncMock, patch
 from webui.blueprints.auth import auth_bp
-from webui.dependencies import ServiceContainer
 
 
 @pytest.fixture
@@ -20,9 +18,7 @@ async def app(mock_container):
     # Register blueprint
     app.register_blueprint(auth_bp)
 
-    # Mock get_container to return our mock
-    with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-        yield app
+    yield app
 
 
 @pytest.fixture
@@ -36,135 +32,79 @@ class TestAuthBlueprint:
 
     @pytest.mark.asyncio
     async def test_login_get(self, client):
-        """Test GET /api/login returns login page"""
+        """GET /api/login is kept as a compatibility redirect."""
         response = await client.get('/api/login')
 
-        assert response.status_code == 200
+        assert response.status_code in [302, 303, 307]
+        assert response.headers["Location"].endswith("/api/index")
 
     @pytest.mark.asyncio
     async def test_login_post_success(self, client, mock_container):
-        """Test POST /api/login with correct credentials"""
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            with patch('webui.blueprints.auth.AuthService') as MockAuthService:
-                # Mock successful login
-                mock_service = MockAuthService.return_value
-                mock_service.login = AsyncMock(return_value=(
-                    True,
-                    'Login successful',
-                    {'must_change': False, 'redirect': '/api/index'}
-                ))
+        """POST /api/login succeeds without credentials in pack branch."""
+        response = await client.post('/api/login', json={})
 
-                response = await client.post('/api/login', json={
-                    'password': 'correct_password'
-                })
-
-                assert response.status_code == 200
-                data = await response.get_json()
-                assert data['message'] == 'Login successful'
-                assert data['must_change'] is False
+        assert response.status_code == 200
+        data = await response.get_json()
+        assert data['message'] == 'Passwordless WebUI access granted'
+        assert data['must_change'] is False
+        assert data['redirect'] == '/api/index'
 
     @pytest.mark.asyncio
     async def test_login_post_incorrect(self, client, mock_container):
-        """Test POST /api/login with incorrect credentials"""
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            with patch('webui.blueprints.auth.AuthService') as MockAuthService:
-                # Mock failed login
-                mock_service = MockAuthService.return_value
-                mock_service.login = AsyncMock(return_value=(
-                    False,
-                    'Incorrect password',
-                    {'attempts_remaining': 4}
-                ))
+        """Password payloads are ignored in passwordless mode."""
+        response = await client.post('/api/login', json={
+            'password': 'wrong_password'
+        })
 
-                response = await client.post('/api/login', json={
-                    'password': 'wrong_password'
-                })
-
-                assert response.status_code == 401
-                data = await response.get_json()
-                assert 'error' in data
+        assert response.status_code == 200
+        data = await response.get_json()
+        assert data['redirect'] == '/api/index'
 
     @pytest.mark.asyncio
     async def test_login_post_locked(self, client, mock_container):
-        """Test POST /api/login when IP is locked"""
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            with patch('webui.blueprints.auth.AuthService') as MockAuthService:
-                # Mock locked account
-                mock_service = MockAuthService.return_value
-                mock_service.login = AsyncMock(return_value=(
-                    False,
-                    'Account locked',
-                    {'locked': True, 'remaining_time': 300}
-                ))
+        """Passwordless mode does not apply login lockout."""
+        response = await client.post('/api/login', json={
+            'password': 'any_password'
+        })
 
-                response = await client.post('/api/login', json={
-                    'password': 'any_password'
-                })
-
-                assert response.status_code == 429
-                data = await response.get_json()
-                assert data.get('locked') is True
-                assert data.get('remaining_time') == 300
+        assert response.status_code == 200
+        data = await response.get_json()
+        assert data['must_change'] is False
 
     @pytest.mark.asyncio
     async def test_logout(self, client):
-        """Test POST /api/logout"""
-        # First login to create session
-        async with client.session_transaction() as session:
-            session['authenticated'] = True
+        """Logout is a compatibility no-op in passwordless mode."""
 
         response = await client.post('/api/logout')
 
         assert response.status_code == 200
         data = await response.get_json()
-        assert data.get('message') is not None
+        assert data.get('redirect') == '/api/index'
 
     @pytest.mark.asyncio
     async def test_change_password_success(self, client, mock_container):
-        """Test POST /api/plugin_change_password with valid data"""
-        # Setup authenticated session
-        async with client.session_transaction() as session:
-            session['authenticated'] = True
+        """Password change is disabled because there is no WebUI password."""
+        response = await client.post('/api/plugin_change_password', json={
+            'old_password': 'OldPass123!',
+            'new_password': 'NewPass456!'
+        })
 
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            with patch('webui.blueprints.auth.AuthService') as MockAuthService:
-                mock_service = MockAuthService.return_value
-                mock_service.change_password = AsyncMock(return_value=(
-                    True,
-                    'Password changed successfully'
-                ))
-
-                response = await client.post('/api/plugin_change_password', json={
-                    'old_password': 'OldPass123!',
-                    'new_password': 'NewPass456!'
-                })
-
-                assert response.status_code == 200
-                data = await response.get_json()
-                assert data.get('success') is True
+        assert response.status_code == 410
+        data = await response.get_json()
+        assert data.get('success') is False
+        assert data.get('redirect') == '/api/index'
 
     @pytest.mark.asyncio
     async def test_change_password_weak(self, client, mock_container):
-        """Test POST /api/plugin_change_password with weak password"""
-        async with client.session_transaction() as session:
-            session['authenticated'] = True
+        """Password strength is irrelevant when password changes are disabled."""
+        response = await client.post('/api/plugin_change_password', json={
+            'old_password': 'OldPass123!',
+            'new_password': 'weak'
+        })
 
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            with patch('webui.blueprints.auth.AuthService') as MockAuthService:
-                mock_service = MockAuthService.return_value
-                mock_service.change_password = AsyncMock(return_value=(
-                    False,
-                    'Password too weak'
-                ))
-
-                response = await client.post('/api/plugin_change_password', json={
-                    'old_password': 'OldPass123!',
-                    'new_password': 'weak'
-                })
-
-                assert response.status_code == 400
-                data = await response.get_json()
-                assert 'weak' in data.get('error', '').lower()
+        assert response.status_code == 410
+        data = await response.get_json()
+        assert '免密访问' in data.get('error', '')
 
     @pytest.mark.asyncio
     async def test_index_authenticated(self, client):
@@ -178,11 +118,10 @@ class TestAuthBlueprint:
 
     @pytest.mark.asyncio
     async def test_index_not_authenticated(self, client):
-        """Test GET /api/index redirects when not authenticated"""
+        """GET /api/index opens directly without an authenticated session."""
         response = await client.get('/api/index')
 
-        # Should redirect to login
-        assert response.status_code in [302, 303, 307]
+        assert response.status_code == 200
 
 
 class TestAuthMiddleware:
@@ -194,23 +133,13 @@ class TestAuthMiddleware:
         async with client.session_transaction() as session:
             session['authenticated'] = True
 
-        with patch('webui.blueprints.auth.get_container', return_value=mock_container):
-            # Try accessing a protected route
-            response = await client.post('/api/logout')
+        response = await client.post('/api/logout')
 
-            # Should not redirect, should process request
-            assert response.status_code == 200
+        assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_require_auth_decorator_not_authenticated(self, client):
-        """Test @require_auth blocks unauthenticated requests"""
-        # Don't set session
+        """@require_auth is pass-through in pack passwordless mode."""
+        response = await client.post('/api/logout')
 
-        # Try accessing a protected route (change password requires auth)
-        response = await client.post('/api/plugin_change_password', json={
-            'old_password': 'old',
-            'new_password': 'new'
-        })
-
-        # Should redirect or return 401/403
-        assert response.status_code in [401, 403, 302, 303, 307]
+        assert response.status_code == 200

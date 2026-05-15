@@ -1,7 +1,6 @@
 /**
  * MacOSRoot - Root application component using Composition API (setup()).
- * Orchestrates the boot sequence: loading -> login -> desktop.
- * Auth check via GET /api/config to skip loading if already authenticated.
+ * Orchestrates the passwordless boot sequence: desktop is shown directly.
  * Manages visibility of Bg, Loading, Login, DeskTop, and LaunchPad sub-components.
  */
 window.MacOSRoot = {
@@ -16,47 +15,33 @@ window.MacOSRoot = {
     var isLaunchPad = ref(false);
 
     /**
-     * Check if user is already authenticated by probing /api/config.
-     * Returns true if authenticated (non-401), false otherwise.
+     * Pack 分支 WebUI 免密访问，始终直接进入桌面。
      */
     var checkAuth = async function () {
-      try {
-        var resp = await fetch("/api/config", { credentials: "same-origin" });
-        return resp.status !== 401;
-      } catch (e) {
-        return false;
-      }
+      return true;
     };
 
     /**
      * Boot sequence:
-     *  - If already authenticated, skip loading animation and go straight to desktop.
-     *  - Otherwise, show loading screen which will emit 'loaded' when done.
+     *  - Skip login and go straight to desktop.
      */
     var boot = async function () {
-      var authed = await checkAuth();
-      if (authed) {
-        // Already authenticated - go straight to desktop
-        isBg.value = true;
-        isLoading.value = false;
-        isLogin.value = false;
-        isDeskTop.value = true;
-      } else {
-        // Not authenticated - go straight to login (no loading animation)
-        isBg.value = true;
-        isLoading.value = false;
-        isLogin.value = true;
-      }
+      await checkAuth();
+      isBg.value = true;
+      isLoading.value = false;
+      isLogin.value = false;
+      isDeskTop.value = true;
     };
 
     /**
      * Called when Loading component finishes its progress bar.
-     * Hides loading, shows login.
+     * Hides loading, shows desktop.
      */
     var loaded = function () {
       isLoading.value = false;
       isBg.value = true;
-      isLogin.value = true;
+      isLogin.value = false;
+      isDeskTop.value = true;
     };
 
     /**
@@ -69,14 +54,15 @@ window.MacOSRoot = {
     };
 
     /**
-     * Lock screen - show login overlay on top of desktop.
+     * Lock screen is disabled in passwordless mode.
      */
     var lockScreen = function () {
-      isLogin.value = true;
+      isLogin.value = false;
+      isDeskTop.value = true;
     };
 
     /**
-     * Logout - POST /api/logout, then hide desktop and show login.
+     * Logout is a no-op in passwordless mode; keep desktop visible.
      */
     var logout = async function () {
       try {
@@ -88,9 +74,9 @@ window.MacOSRoot = {
         // ignore network errors during logout
       }
       localStorage.removeItem("user_name");
-      isDeskTop.value = false;
+      isDeskTop.value = true;
       isLaunchPad.value = false;
-      isLogin.value = true;
+      isLogin.value = false;
     };
 
     /**

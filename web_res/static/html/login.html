@@ -158,7 +158,7 @@
 
                     if (response.ok) {
                         if (data.must_change) {
-                            showSuccess('登录成功，需要更改默认密码');
+                            showSuccess('免密模式已启用，正在跳转...');
                             setTimeout(function() {
                                 window.location.href = '/api/plugin_change_password';
                             }, 1500);

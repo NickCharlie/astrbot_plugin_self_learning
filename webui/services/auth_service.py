@@ -3,27 +3,22 @@
 """
 import os
 import json
-import time
 from typing import Tuple, Dict, Any, Optional
 from astrbot.api import logger
 
 try:
     from ...utils.security_utils import (
         PasswordHasher,
-        login_attempt_tracker,
-        verify_password_with_migration,
         SecurityValidator,
     )
 except ImportError:
     from utils.security_utils import (
         PasswordHasher,
-        login_attempt_tracker,
-        verify_password_with_migration,
         SecurityValidator,
     )
 
 
-DEFAULT_PASSWORD_CONFIG = {"password": "1145141919810", "must_change": True}
+DEFAULT_PASSWORD_CONFIG = {"must_change": False}
 
 
 def hash_password_with_salt(password: str) -> Dict[str, Any]:
@@ -97,7 +92,7 @@ class AuthService:
                     self._password_config = config
                     return config
             else:
-                logger.warning(f"密码配置文件不存在: {password_file}，使用默认密码")
+                logger.warning(f"密码配置文件不存在: {password_file}，使用免密配置")
                 return DEFAULT_PASSWORD_CONFIG.copy()
         except Exception as e:
             logger.error(f"加载密码配置失败: {e}", exc_info=True)
@@ -140,7 +135,7 @@ class AuthService:
 
     async def login(self, password: str, client_ip: str) -> Tuple[bool, str, Optional[Dict[str, Any]]]:
         """
-        处理用户登录
+        处理用户登录。pack 分支 WebUI 为免密访问，保留该方法仅兼容旧调用。
 
         Args:
             password: 用户输入的密码
@@ -149,62 +144,10 @@ class AuthService:
         Returns:
             Tuple[bool, str, Optional[Dict]]: (是否成功, 消息, 额外数据)
         """
-        # 清理输入
-        password = SecurityValidator.sanitize_input(password, max_length=128)
-
-        if not password:
-            return False, "密码不能为空", None
-
-        # 检查IP是否被锁定
-        is_locked, remaining_time = login_attempt_tracker.is_locked(client_ip)
-        if is_locked:
-            logger.warning(f"IP {client_ip} 被锁定，剩余 {remaining_time} 秒")
-            return False, f"账号已锁定，登录尝试次数过多，请在 {remaining_time} 秒后重试", {
-                "locked": True,
-                "remaining_time": remaining_time
-            }
-
-        # 加载密码配置
-        password_config = self.load_password_config()
-
-        # 验证密码（支持自动迁移）
-        is_valid, updated_config = verify_password_with_migration(password, password_config)
-
-        if is_valid:
-            # 如果配置被更新（迁移），保存新配置
-            if updated_config != password_config:
-                self.save_password_config(updated_config)
-                password_config = updated_config
-
-            # 登录成功，清除失败记录
-            login_attempt_tracker.record_attempt(client_ip, success=True)
-
-            # 检查是否需要强制修改密码
-            must_change = password_config.get("must_change", False)
-
-            extra_data = {
-                "must_change": must_change,
-                "redirect": "/api/plugin_change_password" if must_change else "/api/index"
-            }
-
-            message = "Login successful, but password must be changed" if must_change else "Login successful"
-            return True, message, extra_data
-
-        # 登录失败，记录尝试
-        login_attempt_tracker.record_attempt(client_ip, success=False)
-        remaining_attempts = login_attempt_tracker.get_remaining_attempts(client_ip)
-        if not isinstance(remaining_attempts, int):
-            remaining_attempts = getattr(login_attempt_tracker, 'max_attempts', 5)
-            if not isinstance(remaining_attempts, int):
-                remaining_attempts = 5
-
-        logger.warning(f"IP {client_ip} 登录失败，剩余尝试次数: {remaining_attempts}")
-
-        error_msg = "密码错误"
-        if remaining_attempts <= 2:
-            error_msg = f"密码错误，还剩 {remaining_attempts} 次尝试机会"
-
-        return False, error_msg, {"remaining_attempts": remaining_attempts}
+        return True, "Passwordless WebUI access granted", {
+            "must_change": False,
+            "redirect": "/api/index",
+        }
 
     async def change_password(
         self,
@@ -221,53 +164,7 @@ class AuthService:
         Returns:
             Tuple[bool, str]: (是否成功, 消息)
         """
-        # 清理输入
-        old_password = SecurityValidator.sanitize_input(old_password, max_length=128)
-        new_password = SecurityValidator.sanitize_input(new_password, max_length=128)
-
-        if not old_password or not new_password:
-            return False, "旧密码和新密码不能为空"
-
-        # 验证新密码强度
-        strength_result = validate_password_strength(new_password)
-        if isinstance(strength_result, tuple):
-            is_strong, issues = strength_result
-            if not is_strong:
-                return False, str(issues or "密码强度不足")
-        elif not strength_result['valid']:
-            issues = "、".join(strength_result['issues']) if strength_result['issues'] else "密码强度不足"
-            return False, issues
-
-        # 加载密码配置
-        password_config = self.load_password_config()
-
-        # 验证旧密码
-        is_valid, _ = verify_password_with_migration(old_password, password_config)
-        if not is_valid:
-            return False, "原密码错误"
-
-        # 检查新密码是否与旧密码相同
-        if old_password == new_password:
-            return False, "新密码不能与当前密码相同"
-
-        # 生成新的哈希密码
-        hashed_config = hash_password_with_salt(new_password)
-
-        # 更新配置
-        new_config = {
-            "password_hash": hashed_config["password_hash"],
-            "salt": hashed_config["salt"],
-            "algorithm": hashed_config.get("algorithm", "md5"),
-            "must_change": False,
-            "version": 2,
-            "last_changed": time.time()
-        }
-
-        if self.save_password_config(new_config):
-            logger.info("密码已更新为MD5哈希格式")
-            return True, "密码修改成功"
-        else:
-            return False, "保存密码配置失败"
+        return False, "WebUI 已启用免密访问，无需修改密码"
 
     def check_must_change_password(self) -> bool:
         """
@@ -276,5 +173,4 @@ class AuthService:
         Returns:
             bool: 是否需要强制修改
         """
-        password_config = self.load_password_config()
-        return password_config.get("must_change", False)
+        return False

@@ -17,8 +17,8 @@ window.MacOSApi = {
     try {
       const response = await fetch(url, merged);
       if (response.status === 401) {
-        window.location.href = '/api/login';
-        return null;
+        const data = await response.json().catch(() => ({}));
+        throw { status: 401, data };
       }
       if (response.status === 429) {
         const data = await response.json().catch(() => ({}));
@@ -60,11 +60,6 @@ window.MacOSApi = {
    * 检查认证状态
    */
   async checkAuth() {
-    try {
-      const resp = await fetch('/api/config', { credentials: 'same-origin' });
-      return resp.status !== 401;
-    } catch {
-      return false;
-    }
+    return true;
   }
 };

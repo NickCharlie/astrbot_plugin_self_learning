@@ -179,7 +179,7 @@ git clone https://github.com/NickCharlie/astrbot_plugin_self_learning.git
 http://localhost:7833
 ```
 
-默认密码：`1145141919810`（首次登录后请立即修改）
+pack 分支 WebUI 默认免密访问，打开后直接进入管理界面。
 
 ### 基础配置
 
