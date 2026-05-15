@@ -105,3 +105,51 @@ def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
         assert job.id == "startup_probe"
     finally:
         _cleanup_alias(alias)
+
+
+def test_webui_manager_imports_without_manual_web_dependencies(monkeypatch):
+    """WebUI package imports must not require quart/hypercorn before manual install."""
+    import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
+
+    alias = "data.plugins.astrbot_plugin_self_learning_webdeps_pkgtest"
+    _cleanup_alias(alias)
+
+    blocked_roots = {"hypercorn", "quart", "quart_cors"}
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if level == 0 and name.split(".", 1)[0] in blocked_roots:
+            root = name.split(".", 1)[0]
+            raise ModuleNotFoundError(f"No module named '{root}'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    class _Config:
+        enable_web_interface = True
+        web_interface_port = 7833
+        web_interface_host = "127.0.0.1"
+
+    try:
+        _load_plugin_package(alias)
+        webui_pkg = importlib.import_module(f"{alias}.webui")
+        manager_module = importlib.import_module(f"{alias}.webui.manager")
+
+        manager = manager_module.WebUIManager(
+            plugin_config=_Config(),
+            context=object(),
+            factory_manager=object(),
+            perf_tracker=None,
+            group_id_to_unified_origin={},
+        )
+
+        assert manager.create_server() is False
+
+        try:
+            getattr(webui_pkg, "Server")
+        except ModuleNotFoundError as exc:
+            assert "hypercorn" in str(exc)
+        else:
+            raise AssertionError("Server should remain unavailable until WebUI deps exist")
+    finally:
+        _cleanup_alias(alias)
