@@ -281,7 +281,7 @@ class ValidationMessages:
 
 class DefaultValues:
     """默认值"""
-    DEFAULT_PASSWORD_CONFIG = {"password": "self_learning_pwd", "must_change": True}
+    DEFAULT_PASSWORD_CONFIG = {"password": "1145141919810", "must_change": True}
     VALID_MOOD_TYPES = ['happy', 'sad', 'excited', 'calm', 'angry', 'anxious', 'playful', 'serious', 'nostalgic', 'curious']
 
 

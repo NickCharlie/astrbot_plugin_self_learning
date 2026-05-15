@@ -179,7 +179,7 @@ The plugin does not install dependencies during install or startup. After the pl
 http://localhost:7833
 ```
 
-Default password: `self_learning_pwd` (change immediately after first login)
+Default password: `1145141919810` (change immediately after first login)
 
 ### Basic Configuration
 

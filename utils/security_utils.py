@@ -323,7 +323,7 @@ def migrate_password_to_hashed(password_config: Dict[str, Any]) -> Dict[str, Any
         return password_config
 
     # 获取旧密码
-    old_password = password_config.get('password', 'self_learning_pwd')
+    old_password = password_config.get('password', '1145141919810')
 
     # 生成MD5哈希（带盐值）
     password_hash, salt = PasswordHasher.hash_password(old_password)

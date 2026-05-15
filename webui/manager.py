@@ -100,7 +100,10 @@ class WebUIManager:
 
         global _server_instance
         if not _server_instance or not self._config.enable_web_interface:
-            logger.error("server_instance 为空或 web_interface 未启用")
+            if not self._config.enable_web_interface:
+                logger.info("WebUI 未启用，跳过立即启动")
+            else:
+                logger.info("WebUI 服务器未创建，跳过立即启动；如需使用请在插件设置页面手动安装 WebUI 依赖")
             return
 
         # 启动数据库
@@ -137,7 +140,7 @@ class WebUIManager:
             if not self._config.enable_web_interface:
                 logger.info("WebUI 未启用，跳过启动")
             if not _server_instance:
-                logger.error("server_instance 为空，无法启动 Web 服务器")
+                logger.info("WebUI 服务器未创建，跳过启动；如需使用请在插件设置页面手动安装 WebUI 依赖")
             return
 
         # 设置 WebUI 服务

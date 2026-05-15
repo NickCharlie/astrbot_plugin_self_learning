@@ -4,9 +4,13 @@ Quart 应用工厂
 import os
 import secrets
 from datetime import timedelta
-from quart import Quart, redirect
-from quart_cors import cors
+from quart import Quart, redirect, request
 from astrbot.api import logger
+
+try:
+    from quart_cors import cors as _quart_cors
+except ImportError:
+    _quart_cors = None
 
 from .config import WebUIConfig
 from .middleware.error_handler import register_error_handlers
@@ -35,6 +39,30 @@ def _get_or_create_secret_key(data_dir: str) -> str:
     except Exception as e:
         logger.warning(f" [WebUI] 无法持久化 secret_key ({e})，将使用临时密钥")
         return secrets.token_hex(32)
+
+
+def _enable_cors(app: Quart) -> None:
+    """启用 CORS；优先使用 quart_cors，缺失时使用内置回退。"""
+    if _quart_cors is not None:
+        _quart_cors(app)
+        return
+
+    @app.after_request
+    async def _add_cors_headers(response):
+        origin = request.headers.get("Origin")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Vary"] = "Origin"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers.setdefault(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, X-Requested-With",
+        )
+        response.headers.setdefault(
+            "Access-Control-Allow-Methods",
+            "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+        )
+        return response
 
 
 def create_app(webui_config: WebUIConfig = None) -> Quart:
@@ -67,7 +95,7 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
     # 启用 CORS
-    cors(app)
+    _enable_cors(app)
 
     # 存储配置到应用上下文
     if webui_config:

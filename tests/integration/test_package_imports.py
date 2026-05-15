@@ -162,3 +162,33 @@ def test_webui_manager_imports_without_manual_web_dependencies(monkeypatch):
             raise AssertionError("Server should remain unavailable until WebUI deps exist")
     finally:
         _cleanup_alias(alias)
+
+
+def test_webui_app_imports_without_quart_cors(monkeypatch):
+    """WebUI app should fall back cleanly when quart_cors is absent."""
+    import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
+
+    alias = "data.plugins.astrbot_plugin_self_learning_webapp_pkgtest"
+    _cleanup_alias(alias)
+
+    blocked_roots = {"quart_cors"}
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if level == 0 and name.split(".", 1)[0] in blocked_roots:
+            root = name.split(".", 1)[0]
+            raise ModuleNotFoundError(f"No module named '{root}'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    try:
+        _load_plugin_package(alias)
+        app_module = importlib.import_module(f"{alias}.webui.app")
+
+        app = app_module.create_app()
+
+        assert app is not None
+        assert app.secret_key is not None
+    finally:
+        _cleanup_alias(alias)

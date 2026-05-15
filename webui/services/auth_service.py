@@ -23,7 +23,7 @@ except ImportError:
     )
 
 
-DEFAULT_PASSWORD_CONFIG = {"password": "self_learning_pwd", "must_change": True}
+DEFAULT_PASSWORD_CONFIG = {"password": "1145141919810", "must_change": True}
 
 
 def hash_password_with_salt(password: str) -> Dict[str, Any]:
