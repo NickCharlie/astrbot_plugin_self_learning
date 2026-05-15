@@ -18,7 +18,10 @@ import asyncio
 import threading
 import os
 
-from models.orm import Base
+try:
+    from ...models.orm import Base
+except ImportError:
+    from models.orm import Base
 
 
 class DatabaseEngine:
