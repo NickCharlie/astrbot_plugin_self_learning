@@ -1,4 +1,5 @@
 """Package-path import coverage for AstrBot plugin loading."""
+import builtins
 import importlib
 import importlib.util
 import sys
@@ -54,5 +55,53 @@ def test_webui_persona_review_service_imports_under_astrbot_package_path():
 
         assert module.UPDATE_TYPE_STYLE_LEARNING
         assert module.normalize_update_type("style_learning")
+    finally:
+        _cleanup_alias(alias)
+
+
+def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
+    """Plugin startup modules should import before settings-triggered pip install."""
+    import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
+
+    alias = "data.plugins.astrbot_plugin_self_learning_optional_pkgtest"
+    _cleanup_alias(alias)
+
+    blocked_roots = {"apscheduler", "cachetools", "emoji", "psutil"}
+    real_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if level == 0 and name.split(".", 1)[0] in blocked_roots:
+            root = name.split(".", 1)[0]
+            raise ModuleNotFoundError(f"No module named '{root}'")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    try:
+        _load_plugin_package(alias)
+
+        module_names = [
+            f"{alias}.utils.cache_manager",
+            f"{alias}.utils.task_scheduler",
+            f"{alias}.services.core_learning",
+            f"{alias}.services.social.social_context_injector",
+            f"{alias}.services.jargon.jargon_query",
+            f"{alias}.services.monitoring.health_checker",
+            f"{alias}.services.monitoring.collector",
+            f"{alias}.services.analysis.multidimensional_analyzer",
+            f"{alias}.services.state.enhanced_psychological_state_manager",
+        ]
+        modules = {
+            name: importlib.import_module(name)
+            for name in module_names
+        }
+
+        cache_manager = modules[f"{alias}.utils.cache_manager"].CacheManager()
+        cache_manager.set("general", "startup", "ok")
+        assert cache_manager.get("general", "startup") == "ok"
+
+        scheduler = modules[f"{alias}.utils.task_scheduler"].TaskSchedulerManager()
+        job = scheduler.add_interval_job(lambda: None, "startup_probe", seconds=1)
+        assert job.id == "startup_probe"
     finally:
         _cleanup_alias(alias)

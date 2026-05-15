@@ -9,12 +9,15 @@ import time
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-import psutil
-from cachetools import TTLCache
+try:
+    import psutil
+except ModuleNotFoundError:
+    psutil = None
 from astrbot.api import logger
 
 from ...core.patterns import ServiceRegistry
 from ...core.interfaces import ServiceLifecycle
+from ...utils.cache_manager import TTLCache
 
 
 class HealthStatus(Enum):
@@ -114,6 +117,12 @@ class HealthChecker:
 
     def _check_cpu(self) -> Dict[str, Any]:
         """Check CPU usage via psutil."""
+        if psutil is None:
+            return {
+                "status": HealthStatus.DEGRADED,
+                "detail": {"error": "psutil unavailable"},
+            }
+
         try:
             cpu = psutil.cpu_percent(interval=0)
             t = self._thresholds["cpu_percent"]
@@ -130,6 +139,12 @@ class HealthChecker:
 
     def _check_memory(self) -> Dict[str, Any]:
         """Check memory usage via psutil."""
+        if psutil is None:
+            return {
+                "status": HealthStatus.DEGRADED,
+                "detail": {"error": "psutil unavailable"},
+            }
+
         try:
             mem = psutil.virtual_memory()
             t = self._thresholds["memory_percent"]

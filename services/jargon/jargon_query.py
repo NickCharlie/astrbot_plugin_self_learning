@@ -6,9 +6,13 @@
 from typing import Optional, List, Dict, Any
 import re
 from astrbot.api import logger
-from cachetools import TTLCache
 
 from ..monitoring.instrumentation import monitored
+
+try:
+    from ...utils.cache_manager import TTLCache
+except ImportError:
+    from utils.cache_manager import TTLCache
 
 
 class JargonQueryService:

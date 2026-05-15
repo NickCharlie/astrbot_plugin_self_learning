@@ -10,11 +10,15 @@
 import asyncio
 import time
 from typing import Dict, Any, List, Optional, Tuple
-from cachetools import TTLCache
 
 from astrbot.api import logger
 
 from ..monitoring.instrumentation import monitored
+
+try:
+    from ...utils.cache_manager import TTLCache
+except ImportError:
+    from utils.cache_manager import TTLCache
 
 
 class SocialContextInjector:

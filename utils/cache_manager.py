@@ -1,13 +1,109 @@
 """
-统一缓存管理器 - 使用 Cachetools
+统一缓存管理器 - 优先使用 Cachetools，未安装时降级到内置简易缓存
 高性能、支持 TTL、LRU 等多种淘汰策略
 """
-from typing import Any, Dict, Optional, Callable
-from collections import defaultdict
+from typing import Any, Dict, Optional, Callable, Iterator
+from collections import OrderedDict, defaultdict
+from collections.abc import MutableMapping
 from functools import wraps
 import asyncio
-from cachetools import TTLCache, LRUCache, Cache
+import time
 from astrbot.api import logger
+
+try:
+    from cachetools import TTLCache, LRUCache, Cache
+    _HAS_CACHETOOLS = True
+except ModuleNotFoundError:
+    _HAS_CACHETOOLS = False
+
+    class Cache(MutableMapping):
+        """Small dict-like cache fallback used before optional deps are installed."""
+
+        def __init__(self, maxsize: int = 128, ttl: Optional[float] = None):
+            self.maxsize = max(1, int(maxsize))
+            self.ttl = ttl
+            self._data: OrderedDict[Any, tuple[Any, Optional[float]]] = OrderedDict()
+
+        @property
+        def currsize(self) -> int:
+            self._expire()
+            return len(self._data)
+
+        def _expires_at(self) -> Optional[float]:
+            return time.monotonic() + self.ttl if self.ttl is not None else None
+
+        def _is_expired(self, expires_at: Optional[float]) -> bool:
+            return expires_at is not None and expires_at <= time.monotonic()
+
+        def _expire(self) -> None:
+            if self.ttl is None:
+                return
+            expired_keys = [
+                key for key, (_, expires_at) in self._data.items()
+                if self._is_expired(expires_at)
+            ]
+            for key in expired_keys:
+                self._data.pop(key, None)
+
+        def _evict(self) -> None:
+            while len(self._data) > self.maxsize:
+                self._data.popitem(last=False)
+
+        def __getitem__(self, key: Any) -> Any:
+            value, expires_at = self._data[key]
+            if self._is_expired(expires_at):
+                del self._data[key]
+                raise KeyError(key)
+            self._data.move_to_end(key)
+            return value
+
+        def __setitem__(self, key: Any, value: Any) -> None:
+            self._data[key] = (value, self._expires_at())
+            self._data.move_to_end(key)
+            self._expire()
+            self._evict()
+
+        def __delitem__(self, key: Any) -> None:
+            del self._data[key]
+
+        def __iter__(self) -> Iterator[Any]:
+            self._expire()
+            return iter(list(self._data.keys()))
+
+        def __len__(self) -> int:
+            self._expire()
+            return len(self._data)
+
+        def __contains__(self, key: object) -> bool:
+            try:
+                self[key]
+                return True
+            except KeyError:
+                return False
+
+    class TTLCache(Cache):
+        def __init__(self, maxsize: int = 128, ttl: float = 600):
+            super().__init__(maxsize=maxsize, ttl=ttl)
+
+    class LRUCache(Cache):
+        def __init__(self, maxsize: int = 128):
+            super().__init__(maxsize=maxsize, ttl=None)
+
+
+_fallback_warning_logged = False
+
+
+def _log_cachetools_fallback_once() -> None:
+    global _fallback_warning_logged
+
+    if _HAS_CACHETOOLS or _fallback_warning_logged:
+        return
+
+    _fallback_warning_logged = True
+    logger.warning(
+        "[缓存管理器] cachetools 未安装，使用内置简易缓存；"
+        "请在设置界面手动安装依赖以启用完整缓存策略"
+    )
 
 
 class CacheManager:
@@ -23,6 +119,8 @@ class CacheManager:
 
     def __init__(self):
         """初始化缓存管理器"""
+        _log_cachetools_fallback_once()
+
         # 不同用途的缓存实例
         # TTL 缓存 - 用于有明确过期时间的数据
         self.affection_cache = TTLCache(maxsize=2000, ttl=300) # 5分钟
