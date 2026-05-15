@@ -1,4 +1,6 @@
 """WebUI 服务器全生命周期管理 — 创建、启动、停止、服务注册"""
+from __future__ import annotations
+
 import asyncio
 import sys
 from typing import Optional, Any, Dict, TYPE_CHECKING
