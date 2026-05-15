@@ -9,7 +9,24 @@ from typing import Dict, List, Optional, Any, Set
 from datetime import datetime, timedelta
 from dataclasses import dataclass, asdict
 from collections import defaultdict, Counter
-import emoji # 导入 emoji 库
+
+try:
+    import emoji # 导入 emoji 库
+except ModuleNotFoundError:
+    class _EmojiFallback:
+        @staticmethod
+        def emoji_count(text: str) -> int:
+            emoji_pattern = re.compile(
+                "["
+                "\U0001F300-\U0001FAFF"
+                "\U00002700-\U000027BF"
+                "\U00002600-\U000026FF"
+                "]+",
+                flags=re.UNICODE,
+            )
+            return len(emoji_pattern.findall(text or ""))
+
+    emoji = _EmojiFallback()
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
@@ -150,7 +167,10 @@ class MultidimensionalAnalyzer:
                 logger.warning(f"从数据库加载社交关系失败: {e}")
             
             # 初始化分析缓存(使用TTLCache替代无界dict，防止内存泄漏)
-            from cachetools import TTLCache as _TTLCache
+            try:
+                from ...utils.cache_manager import TTLCache as _TTLCache
+            except ImportError:
+                from utils.cache_manager import TTLCache as _TTLCache
             self._emotional_cache = _TTLCache(maxsize=2000, ttl=900)
             self._style_cache = _TTLCache(maxsize=2000, ttl=1800)
 

@@ -3,13 +3,96 @@
 支持定时任务、周期任务、cron 任务
 """
 from typing import Callable, Optional
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.interval import IntervalTrigger
-from apscheduler.triggers.cron import CronTrigger
-from apscheduler.triggers.date import DateTrigger
-from apscheduler.job import Job
 from datetime import datetime, timedelta
 from astrbot.api import logger
+
+try:
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.date import DateTrigger
+    from apscheduler.job import Job
+    _HAS_APSCHEDULER = True
+except ModuleNotFoundError:
+    _HAS_APSCHEDULER = False
+
+    class _FallbackTrigger:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __str__(self):
+            args = ", ".join(
+                f"{key}={value}" for key, value in self.kwargs.items()
+                if value is not None
+            )
+            return f"{self.__class__.__name__}({args})"
+
+    class IntervalTrigger(_FallbackTrigger):
+        pass
+
+    class CronTrigger(_FallbackTrigger):
+        pass
+
+    class DateTrigger(_FallbackTrigger):
+        pass
+
+    class Job:
+        def __init__(self, job_id: str, func: Callable, trigger: _FallbackTrigger):
+            self.id = job_id
+            self.name = getattr(func, "__name__", job_id)
+            self.func = func
+            self.trigger = trigger
+            self.next_run_time = None
+            self.pending = False
+            self.paused = False
+
+    class AsyncIOScheduler:
+        """No-op scheduler fallback used until apscheduler is manually installed."""
+
+        def __init__(self, *args, **kwargs):
+            self._jobs = {}
+            self.running = False
+
+        def start(self):
+            self.running = True
+
+        def shutdown(self, wait: bool = True):
+            self.running = False
+
+        def add_job(
+            self,
+            func: Callable,
+            trigger: _FallbackTrigger,
+            id: str,
+            replace_existing: bool = True,
+            **kwargs
+        ) -> Job:
+            if id in self._jobs and not replace_existing:
+                raise ValueError(f"Job {id} already exists")
+            job = Job(id, func, trigger)
+            self._jobs[id] = job
+            return job
+
+        def remove_job(self, job_id: str):
+            self._jobs.pop(job_id, None)
+
+        def pause_job(self, job_id: str):
+            if job_id in self._jobs:
+                self._jobs[job_id].paused = True
+
+        def resume_job(self, job_id: str):
+            if job_id in self._jobs:
+                self._jobs[job_id].paused = False
+
+        def get_job(self, job_id: str):
+            return self._jobs.get(job_id)
+
+        def get_jobs(self):
+            return list(self._jobs.values())
+
+        def print_jobs(self):
+            for job in self.get_jobs():
+                logger.info(f"[任务调度器] {job.id}: {job.trigger}")
 
 
 class TaskSchedulerManager:
@@ -27,6 +110,12 @@ class TaskSchedulerManager:
 
     def __init__(self):
         """初始化任务调度器"""
+        if not _HAS_APSCHEDULER:
+            logger.warning(
+                "[任务调度器] apscheduler 未安装，定时任务将以占位模式注册；"
+                "请在设置界面手动安装依赖以启用调度执行"
+            )
+
         self.scheduler = AsyncIOScheduler(
             timezone='Asia/Shanghai', # 设置时区
             job_defaults={

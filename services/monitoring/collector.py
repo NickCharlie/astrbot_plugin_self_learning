@@ -13,7 +13,10 @@ for consistent querying via ``/api/monitoring/metrics``.
 import asyncio
 from typing import Any, Dict, List, Optional
 
-import psutil
+try:
+    import psutil
+except ModuleNotFoundError:
+    psutil = None
 from astrbot.api import logger
 
 from ...core.interfaces import IMetricsProvider, ServiceLifecycle
@@ -135,6 +138,10 @@ class MetricCollector(AsyncServiceBase):
 
     def _collect_system_metrics(self) -> None:
         """Read system resource usage via psutil."""
+        if psutil is None:
+            logger.debug("[MetricCollector] psutil unavailable")
+            return
+
         try:
             SYSTEM_CPU_PERCENT.set(psutil.cpu_percent(interval=0))
             mem = psutil.virtual_memory()
