@@ -7,10 +7,12 @@ DomainRouter — 薄路由层，将所有数据库方法委托给领域 Facade
 """
 import os
 import asyncio
+from pathlib import Path
 from typing import Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
 from astrbot.api import logger
+from sqlalchemy.engine import URL
 
 try:
     from ...config import PluginConfig
@@ -69,10 +71,14 @@ class SQLAlchemyDatabaseManager:
                 self._starting = True
                 logger.info("[DomainRouter] 开始启动…")
 
+                db_type = self._get_db_type()
                 db_url = self._get_database_url()
 
-                if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
+                if db_type == 'mysql':
                     await self._ensure_mysql_database_exists()
+                elif db_type == 'postgresql':
+                    await self._ensure_postgresql_database_exists()
+                    await self._ensure_postgresql_schema_exists()
 
                 self.engine = DatabaseEngine(db_url, echo=False)
                 logger.info("[DomainRouter] 数据库引擎已创建")
@@ -136,22 +142,62 @@ class SQLAlchemyDatabaseManager:
 
     # Infrastructure: database URL
 
+    def _get_db_type(self) -> str:
+        """获取标准化数据库类型。"""
+        db_type = (getattr(self.config, 'db_type', 'sqlite') or 'sqlite').strip().lower()
+        if db_type in ('postgres', 'pg'):
+            return 'postgresql'
+        return db_type
+
     def _get_database_url(self) -> str:
         """获取数据库连接 URL"""
-        if hasattr(self.config, 'db_type') and self.config.db_type.lower() == 'mysql':
+        db_type = self._get_db_type()
+        if db_type == 'mysql':
             host = getattr(self.config, 'mysql_host', 'localhost')
             port = getattr(self.config, 'mysql_port', 3306)
             user = getattr(self.config, 'mysql_user', 'root')
             password = getattr(self.config, 'mysql_password', '')
             database = getattr(self.config, 'mysql_database', 'astrbot_self_learning')
-            return f"mysql+aiomysql://{user}:{password}@{host}:{port}/{database}"
+            return URL.create(
+                'mysql+aiomysql',
+                username=user or None,
+                password=password or None,
+                host=host,
+                port=port,
+                database=database,
+            ).render_as_string(hide_password=False)
+
+        if db_type == 'postgresql':
+            host = getattr(self.config, 'postgresql_host', 'localhost')
+            port = getattr(self.config, 'postgresql_port', 5432)
+            user = getattr(self.config, 'postgresql_user', 'postgres')
+            password = getattr(self.config, 'postgresql_password', '')
+            database = getattr(self.config, 'postgresql_database', 'astrbot_self_learning')
+            schema = getattr(self.config, 'postgresql_schema', 'public') or 'public'
+            query = {'search_path': schema} if schema != 'public' else {}
+            return URL.create(
+                'postgresql+asyncpg',
+                username=user or None,
+                password=password or None,
+                host=host,
+                port=port,
+                database=database,
+                query=query,
+            ).render_as_string(hide_password=False)
+
+        if db_type != 'sqlite':
+            raise ValueError(f"不支持的数据库类型: {db_type}")
 
         db_path = getattr(self.config, 'messages_db_path', None)
         if not db_path:
             db_path = os.path.join(self.config.data_dir, 'messages.db')
+        db_path = os.path.expandvars(os.path.expanduser(str(db_path)))
         if not os.path.isabs(db_path):
             db_path = os.path.abspath(db_path)
-        return f"sqlite:///{db_path}"
+        return URL.create(
+            'sqlite+aiosqlite',
+            database=Path(db_path).as_posix(),
+        ).render_as_string(hide_password=False)
 
     async def _ensure_mysql_database_exists(self):
         """确保 MySQL 数据库存在
@@ -201,6 +247,100 @@ class SQLAlchemyDatabaseManager:
             raise
         finally:
             conn.close()
+
+    async def _ensure_postgresql_database_exists(self):
+        """确保 PostgreSQL 数据库存在。"""
+        try:
+            import asyncpg
+        except ImportError as e:
+            raise RuntimeError(
+                "缺少 PostgreSQL 异步驱动 asyncpg，请先安装依赖或使用打包版依赖"
+            ) from e
+
+        host = getattr(self.config, 'postgresql_host', 'localhost')
+        port = getattr(self.config, 'postgresql_port', 5432)
+        user = getattr(self.config, 'postgresql_user', 'postgres')
+        password = getattr(self.config, 'postgresql_password', '')
+        database = getattr(self.config, 'postgresql_database', 'astrbot_self_learning')
+
+        conn = await self._connect_postgresql(asyncpg, database='postgres')
+        try:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM pg_database WHERE datname = $1",
+                database,
+            )
+            if not exists:
+                logger.info(f"[DomainRouter] PostgreSQL 数据库 {database} 不存在，正在创建...")
+                await conn.execute(
+                    f"CREATE DATABASE {self._quote_postgresql_identifier(database)}"
+                )
+                logger.info(f"[DomainRouter] PostgreSQL 数据库 {database} 创建成功")
+        except Exception as e:
+            logger.error(
+                f"[DomainRouter] 确保 PostgreSQL 数据库存在失败 "
+                f"({user}@{host}:{port}/{database}): {e}"
+            )
+            raise
+        finally:
+            await conn.close()
+
+    async def _ensure_postgresql_schema_exists(self):
+        """确保 PostgreSQL schema 存在。"""
+        schema = getattr(self.config, 'postgresql_schema', 'public') or 'public'
+        if schema == 'public':
+            return
+
+        try:
+            import asyncpg
+        except ImportError as e:
+            raise RuntimeError(
+                "缺少 PostgreSQL 异步驱动 asyncpg，请先安装依赖或使用打包版依赖"
+            ) from e
+
+        database = getattr(self.config, 'postgresql_database', 'astrbot_self_learning')
+        conn = await self._connect_postgresql(asyncpg, database=database)
+        try:
+            await conn.execute(
+                f"CREATE SCHEMA IF NOT EXISTS {self._quote_postgresql_identifier(schema)}"
+            )
+            logger.info(f"[DomainRouter] PostgreSQL schema 已就绪: {schema}")
+        except Exception as e:
+            logger.error(f"[DomainRouter] 确保 PostgreSQL schema 存在失败: {e}")
+            raise
+        finally:
+            await conn.close()
+
+    async def _connect_postgresql(self, asyncpg, database: str):
+        """连接 PostgreSQL，统一超时和错误日志。"""
+        host = getattr(self.config, 'postgresql_host', 'localhost')
+        port = getattr(self.config, 'postgresql_port', 5432)
+        user = getattr(self.config, 'postgresql_user', 'postgres')
+        password = getattr(self.config, 'postgresql_password', '')
+        try:
+            return await asyncio.wait_for(
+                asyncpg.connect(
+                    host=host,
+                    port=port,
+                    user=user,
+                    password=password,
+                    database=database,
+                    timeout=10,
+                ),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            logger.error("[DomainRouter] 连接 PostgreSQL 超时 (15s)")
+            raise
+        except Exception as e:
+            logger.error(f"[DomainRouter] 连接 PostgreSQL 失败: {e}")
+            raise
+
+    @staticmethod
+    def _quote_postgresql_identifier(identifier: str) -> str:
+        """安全引用 PostgreSQL 标识符。"""
+        if not identifier or '\x00' in identifier:
+            raise ValueError("PostgreSQL 标识符不能为空或包含 NUL 字符")
+        return '"' + identifier.replace('"', '""') + '"'
 
     # Infrastructure: session
 

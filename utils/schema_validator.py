@@ -10,10 +10,12 @@
 6. 警告无法自动修复的问题
 """
 import asyncio
-from typing import Dict, List, Set, Tuple, Optional, Any
+from typing import Dict, List, Tuple, Optional, Any
 from dataclasses import dataclass
+from pathlib import Path
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy import text, inspect as sqlalchemy_inspect
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from astrbot.api import logger
 
 from ..models.orm import Base
@@ -52,25 +54,37 @@ class SchemaValidator:
 
         Args:
             db_url: 数据库连接URL
-            db_type: 数据库类型 ('sqlite' 或 'mysql')
+            db_type: 数据库类型 ('sqlite'、'mysql' 或 'postgresql')
         """
         self.db_url = db_url
-        self.db_type = db_type.lower()
+        self.db_type = self._normalize_db_type(db_type)
+        self.pg_schema = 'public'
 
         # 创建引擎
         if self.db_type == 'sqlite':
-            if db_url.startswith('sqlite:///'):
-                db_path = db_url.replace('sqlite:///', '')
-            else:
-                db_path = db_url
+            db_url = self._normalize_sqlite_url(db_url)
+            db_path = self._get_sqlite_file_path(db_url)
+            if db_path:
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
             self.engine = create_async_engine(
-                f"sqlite+aiosqlite:///{db_path}",
+                db_url,
                 echo=False
             )
         elif self.db_type == 'mysql':
-            if not db_url.startswith('mysql+aiomysql://'):
-                db_url = db_url.replace('mysql://', 'mysql+aiomysql://')
+            db_url = self._normalize_driver_url(db_url, 'mysql+aiomysql')
             self.engine = create_async_engine(db_url, echo=False)
+        elif self.db_type == 'postgresql':
+            db_url = self._normalize_driver_url(db_url, 'postgresql+asyncpg')
+            url = make_url(db_url)
+            query = dict(url.query)
+            self.pg_schema = query.pop('search_path', 'public') or 'public'
+            if query != dict(url.query):
+                url = url.set(query=query)
+                db_url = url.render_as_string(hide_password=False)
+            connect_args = {'timeout': 10}
+            if self.pg_schema:
+                connect_args['server_settings'] = {'search_path': self.pg_schema}
+            self.engine = create_async_engine(db_url, echo=False, connect_args=connect_args)
         else:
             raise ValueError(f"不支持的数据库类型: {db_type}")
 
@@ -163,6 +177,17 @@ class SchemaValidator:
                         text(f"SHOW TABLES LIKE :table_name"),
                         {"table_name": table_name}
                     )
+                elif self.db_type == 'postgresql':
+                    result = await session.execute(
+                        text(
+                            """
+                            SELECT 1
+                            FROM information_schema.tables
+                            WHERE table_schema = :schema AND table_name = :table_name
+                            """
+                        ),
+                        {"schema": self.pg_schema, "table_name": table_name},
+                    )
                 else:
                     return False
 
@@ -227,6 +252,49 @@ class SchemaValidator:
                         nullable = (row[2] == 'YES')
                         is_pk = (row[3] == 'PRI')
                         default_value = row[4]
+
+                        columns[col_name] = ColumnInfo(
+                            name=col_name,
+                            type=col_type,
+                            nullable=nullable,
+                            default=default_value,
+                            is_primary_key=is_pk
+                        )
+                elif self.db_type == 'postgresql':
+                    result = await session.execute(
+                        text(
+                            """
+                            SELECT
+                                c.column_name,
+                                c.data_type,
+                                c.is_nullable,
+                                c.column_default,
+                                EXISTS (
+                                    SELECT 1
+                                    FROM information_schema.table_constraints tc
+                                    JOIN information_schema.key_column_usage kcu
+                                      ON tc.constraint_name = kcu.constraint_name
+                                     AND tc.table_schema = kcu.table_schema
+                                   WHERE tc.constraint_type = 'PRIMARY KEY'
+                                     AND tc.table_schema = c.table_schema
+                                     AND tc.table_name = c.table_name
+                                     AND kcu.column_name = c.column_name
+                                ) AS is_primary_key
+                            FROM information_schema.columns c
+                            WHERE c.table_schema = :schema AND c.table_name = :table_name
+                            ORDER BY c.ordinal_position
+                            """
+                        ),
+                        {"schema": self.pg_schema, "table_name": table_name},
+                    )
+                    rows = result.fetchall()
+
+                    for row in rows:
+                        col_name = row[0]
+                        col_type = row[1]
+                        nullable = (row[2] == 'YES')
+                        default_value = row[3]
+                        is_pk = bool(row[4])
 
                         columns[col_name] = ColumnInfo(
                             name=col_name,
@@ -463,6 +531,27 @@ class SchemaValidator:
                 return 'DATETIME'
             else:
                 return 'TEXT'
+        elif self.db_type == 'postgresql':
+            if 'BOOLEAN' in col_type_str:
+                return 'BOOLEAN'
+            elif 'BIGINT' in col_type_str:
+                return 'BIGINT'
+            elif 'INTEGER' in col_type_str or 'INT' in col_type_str:
+                return 'INTEGER'
+            elif 'FLOAT' in col_type_str or 'DOUBLE' in col_type_str or 'REAL' in col_type_str:
+                return 'DOUBLE PRECISION'
+            elif 'VARCHAR' in col_type_str:
+                return col_type_str
+            elif 'STRING' in col_type_str:
+                return 'VARCHAR(255)'
+            elif 'TEXT' in col_type_str:
+                return 'TEXT'
+            elif 'DATETIME' in col_type_str or 'TIMESTAMP' in col_type_str:
+                return 'TIMESTAMP'
+            elif 'JSON' in col_type_str:
+                return 'JSONB'
+            else:
+                return 'TEXT'
 
         return 'TEXT'
 
@@ -485,6 +574,37 @@ class SchemaValidator:
     async def close(self):
         """关闭连接"""
         await self.engine.dispose()
+
+    @staticmethod
+    def _normalize_db_type(db_type: str) -> str:
+        db_type = (db_type or 'sqlite').strip().lower()
+        if db_type in ('postgres', 'pg'):
+            return 'postgresql'
+        return db_type
+
+    @staticmethod
+    def _normalize_driver_url(db_url: str, async_driver: str) -> str:
+        url = make_url(db_url)
+        if url.drivername == async_driver:
+            return url.render_as_string(hide_password=False)
+        return url.set(drivername=async_driver).render_as_string(hide_password=False)
+
+    @staticmethod
+    def _normalize_sqlite_url(db_url: str) -> str:
+        url = make_url(db_url)
+        if url.drivername == 'sqlite+aiosqlite':
+            return url.render_as_string(hide_password=False)
+        if url.drivername != 'sqlite':
+            raise ValueError(f"不支持的 SQLite URL: {db_url}")
+        return url.set(drivername='sqlite+aiosqlite').render_as_string(hide_password=False)
+
+    @staticmethod
+    def _get_sqlite_file_path(db_url: str) -> str:
+        url = make_url(db_url)
+        database = url.database or ''
+        if database in ('', ':memory:') or database.startswith('file:'):
+            return ''
+        return str(Path(database))
 
 
 # 便捷函数

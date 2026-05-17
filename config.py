@@ -401,6 +401,19 @@ class PluginConfig(BaseModel):
         if not 0 <= self.style_update_threshold <= 1:
             errors.append("风格更新阈值必须在0-1之间")
 
+        db_type = (self.db_type or 'sqlite').strip().lower()
+        if db_type in ('postgres', 'pg'):
+            db_type = 'postgresql'
+        if db_type not in {'sqlite', 'mysql', 'postgresql'}:
+            errors.append("数据库类型必须是 sqlite、mysql 或 postgresql")
+        if db_type == 'mysql' and self.mysql_port <= 0:
+            errors.append("MySQL 端口必须大于0")
+        if db_type == 'postgresql':
+            if self.postgresql_port <= 0:
+                errors.append("PostgreSQL 端口必须大于0")
+            if not (self.postgresql_schema or '').strip():
+                errors.append("PostgreSQL schema 不能为空")
+
         # 提示性警告而非错误
         provider_warnings = []
         if not self.filter_provider_id:

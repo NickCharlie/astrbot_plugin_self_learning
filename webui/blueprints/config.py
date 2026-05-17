@@ -23,6 +23,7 @@ DEPENDENCY_PACKAGES = [
     "quart",
     "quart_cors==0.8.0",
     "aiomysql",
+    "asyncpg",
     "pydantic",
     "sqlalchemy[asyncio]",
     "aiosqlite",

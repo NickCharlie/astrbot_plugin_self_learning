@@ -154,6 +154,29 @@ class TestPluginConfigFromDict:
         assert config.mysql_user == 'admin'
         assert config.mysql_database == 'test_db'
 
+    def test_create_from_config_with_postgresql_settings(self):
+        """Test config creation with PostgreSQL settings."""
+        raw_config = {
+            'Database_Settings': {
+                'db_type': 'postgresql',
+                'postgresql_host': '192.168.1.200',
+                'postgresql_port': 5433,
+                'postgresql_user': 'pg_admin',
+                'postgresql_password': 'secret',
+                'postgresql_database': 'learning_db',
+                'postgresql_schema': 'bot_space',
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.db_type == 'postgresql'
+        assert config.postgresql_host == '192.168.1.200'
+        assert config.postgresql_port == 5433
+        assert config.postgresql_user == 'pg_admin'
+        assert config.postgresql_database == 'learning_db'
+        assert config.postgresql_schema == 'bot_space'
+
     def test_create_from_config_with_v2_settings(self):
         """Test config creation with v2 architecture settings."""
         raw_config = {

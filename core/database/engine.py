@@ -12,11 +12,13 @@ from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateColumn
 from sqlalchemy.sql.schema import Column
 from sqlalchemy.types import JSON, LargeBinary, Text
+from sqlalchemy.engine import make_url
 from astrbot.api import logger
 from typing import Optional
 import asyncio
 import threading
 import os
+from pathlib import Path
 
 try:
     from ...models.orm import Base
@@ -29,7 +31,7 @@ class DatabaseEngine:
     SQLAlchemy 异步数据库引擎封装
 
     功能:
-    1. 自动识别数据库类型 (SQLite/MySQL)
+    1. 自动识别数据库类型 (SQLite/MySQL/PostgreSQL)
     2. 创建异步引擎和会话工厂
     3. 支持表结构创建和清理
     4. 跨线程/跨事件循环安全（per-loop engine）
@@ -43,6 +45,7 @@ class DatabaseEngine:
             database_url: 数据库连接 URL
                 - SQLite: "sqlite:///path/to/db.db"
                 - MySQL: "mysql+aiomysql://user:pass@host:port/dbname"
+                - PostgreSQL: "postgresql+asyncpg://user:pass@host:port/dbname"
             echo: 是否打印 SQL 语句（调试用）
         """
         self.database_url = database_url
@@ -71,25 +74,24 @@ class DatabaseEngine:
 
     def _create_engine(self):
         """根据数据库类型创建一个新的 async engine"""
-        if 'sqlite' in self.database_url.lower():
+        url = make_url(self.database_url)
+        backend = url.get_backend_name()
+        if backend == 'sqlite':
             return self._create_sqlite_engine()
-        elif 'mysql' in self.database_url.lower():
+        elif backend in ('mysql', 'mariadb'):
             return self._create_mysql_engine()
+        elif backend in ('postgresql', 'postgres'):
+            return self._create_postgresql_engine()
         else:
             raise ValueError(f"不支持的数据库类型: {self.database_url}")
 
     def _create_sqlite_engine(self):
         """创建 SQLite 引擎实例"""
-        # 转换为 aiosqlite 驱动
-        if not self.database_url.startswith('sqlite+aiosqlite'):
-            db_path = self.database_url.replace('sqlite:///', '')
-            db_url = f"sqlite+aiosqlite:///{db_path}"
-        else:
-            db_url = self.database_url
+        db_url = self._normalize_sqlite_url(self.database_url)
 
         # 确保数据库目录存在
-        db_path = db_url.replace('sqlite+aiosqlite:///', '')
-        db_dir = os.path.dirname(db_path)
+        db_path = self._get_sqlite_file_path(db_url)
+        db_dir = os.path.dirname(db_path) if db_path else ''
         if db_dir and not os.path.exists(db_dir):
             os.makedirs(db_dir, exist_ok=True)
             logger.info(f"[DatabaseEngine] 创建数据库目录: {db_dir}")
@@ -127,13 +129,7 @@ class DatabaseEngine:
 
     def _create_mysql_engine(self):
         """创建 MySQL 引擎实例"""
-        if not self.database_url.startswith('mysql+aiomysql'):
-            if self.database_url.startswith('mysql://'):
-                db_url = self.database_url.replace('mysql://', 'mysql+aiomysql://')
-            else:
-                db_url = self.database_url
-        else:
-            db_url = self.database_url
+        db_url = self._normalize_driver_url(self.database_url, 'mysql+aiomysql')
 
         engine = create_async_engine(
             db_url,
@@ -151,6 +147,60 @@ class DatabaseEngine:
 
         logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (QueuePool, pre_ping=True)")
         return engine
+
+    def _create_postgresql_engine(self):
+        """创建 PostgreSQL 引擎实例。"""
+        db_url = self._normalize_driver_url(self.database_url, 'postgresql+asyncpg')
+        url = make_url(db_url)
+        query = dict(url.query)
+        search_path = query.pop('search_path', None)
+        if query != dict(url.query):
+            url = url.set(query=query)
+            db_url = url.render_as_string(hide_password=False)
+
+        connect_args = {'timeout': 10}
+        if search_path:
+            connect_args['server_settings'] = {'search_path': search_path}
+
+        engine = create_async_engine(
+            db_url,
+            echo=self.echo,
+            pool_size=5,
+            max_overflow=10,
+            pool_recycle=3600,
+            pool_pre_ping=True,
+            connect_args=connect_args,
+        )
+
+        logger.debug("[DatabaseEngine] PostgreSQL 引擎创建成功 (asyncpg, pre_ping=True)")
+        return engine
+
+    @staticmethod
+    def _normalize_driver_url(database_url: str, async_driver: str) -> str:
+        """把同步 URL 标准化为 SQLAlchemy async driver URL。"""
+        url = make_url(database_url)
+        if url.drivername == async_driver:
+            return url.render_as_string(hide_password=False)
+        return url.set(drivername=async_driver).render_as_string(hide_password=False)
+
+    @staticmethod
+    def _normalize_sqlite_url(database_url: str) -> str:
+        """把 SQLite URL 标准化为 sqlite+aiosqlite URL，保留绝对路径和内存库。"""
+        url = make_url(database_url)
+        if url.drivername == 'sqlite+aiosqlite':
+            return url.render_as_string(hide_password=False)
+        if url.drivername != 'sqlite':
+            raise ValueError(f"不支持的 SQLite URL: {database_url}")
+        return url.set(drivername='sqlite+aiosqlite').render_as_string(hide_password=False)
+
+    @staticmethod
+    def _get_sqlite_file_path(database_url: str) -> str:
+        """从 SQLite URL 获取本地文件路径；内存库返回空字符串。"""
+        url = make_url(database_url)
+        database = url.database or ''
+        if database in ('', ':memory:') or database.startswith('file:'):
+            return ''
+        return str(Path(database))
 
     def _get_engine_for_current_loop(self):
         """
@@ -433,8 +483,17 @@ class DatabaseEngine:
         Returns:
             dict: 引擎配置信息
         """
+        url = make_url(self.database_url)
+        backend = url.get_backend_name()
+        database_type = {
+            'sqlite': 'SQLite',
+            'mysql': 'MySQL',
+            'mariadb': 'MySQL',
+            'postgresql': 'PostgreSQL',
+            'postgres': 'PostgreSQL',
+        }.get(backend, backend)
         return {
-            'database_type': 'SQLite' if 'sqlite' in self.database_url else 'MySQL',
+            'database_type': database_type,
             'database_url': self._mask_password(self.database_url),
             'echo': self.echo,
             'pool_size': getattr(self.engine.pool, 'size', 'N/A'),
@@ -472,5 +531,8 @@ def create_database_engine(database_url: str, echo: bool = False) -> DatabaseEng
 
         # MySQL
         engine = create_database_engine('mysql+aiomysql://user:pass@localhost/db')
+
+        # PostgreSQL
+        engine = create_database_engine('postgresql+asyncpg://user:pass@localhost/db')
     """
     return DatabaseEngine(database_url, echo)

@@ -42,7 +42,7 @@ class AffectionInteraction(Base):
 
     __table_args__ = (
         Index('idx_user_affection_interaction', 'user_affection_id'),
-        Index('idx_interaction_timestamp', 'timestamp'),
+        Index('idx_affection_interaction_timestamp', 'timestamp'),
     )
 
 

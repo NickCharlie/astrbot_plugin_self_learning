@@ -37,7 +37,7 @@ class SocialRelation(Base):
     updated_at = Column(BigInteger)
 
     __table_args__ = (
-        Index('idx_group', 'group_id'),
+        Index('idx_social_relations_group', 'group_id'),
         Index('idx_affection', 'affection_score'),
         # MySQL 的唯一索引
         Index('uk_user_group', 'user_id', 'group_id', unique=True),

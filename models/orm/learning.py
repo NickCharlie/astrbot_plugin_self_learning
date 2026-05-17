@@ -51,9 +51,9 @@ class StyleLearningReview(Base):
     updated_at = Column(DateTime) # 更新时间
 
     __table_args__ = (
-        Index('idx_status', 'status'),
-        Index('idx_group', 'group_id'),
-        Index('idx_timestamp', 'timestamp'),
+        Index('idx_style_review_status', 'status'),
+        Index('idx_style_review_group', 'group_id'),
+        Index('idx_style_review_timestamp', 'timestamp'),
     )
 
 
@@ -91,7 +91,7 @@ class InteractionRecord(Base):
 
     __table_args__ = (
         Index('idx_group_user_interaction', 'group_id', 'user_id'),
-        Index('idx_interaction_timestamp', 'timestamp'),
+        Index('idx_interaction_record_timestamp', 'timestamp'),
         Index('idx_interaction_type', 'interaction_type'),
     )
 
@@ -116,8 +116,8 @@ class LearningBatch(Base):
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
-        Index('idx_group', 'group_id'),
-        Index('idx_batch_id', 'batch_id'),
+        Index('idx_learning_batch_group', 'group_id'),
+        Index('idx_learning_batch_id', 'batch_id'),
         Index('idx_batch_name', 'batch_name'),
     )
 
@@ -157,9 +157,9 @@ class LearningSession(Base):
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
-        Index('idx_group', 'group_id'),
+        Index('idx_learning_session_group', 'group_id'),
         Index('idx_session_id', 'session_id'),
-        Index('idx_batch_id', 'batch_id'),
+        Index('idx_learning_session_batch_id', 'batch_id'),
     )
 
     def to_dict(self):
@@ -191,9 +191,9 @@ class LearningReinforcementFeedback(Base):
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
-        Index('idx_group', 'group_id'),
+        Index('idx_reinforcement_feedback_group', 'group_id'),
         Index('idx_feedback_type', 'feedback_type'),
-        Index('idx_applied_at', 'applied_at'),
+        Index('idx_reinforcement_feedback_applied_at', 'applied_at'),
     )
 
     def to_dict(self):
@@ -224,9 +224,9 @@ class LearningOptimizationLog(Base):
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
-        Index('idx_group', 'group_id'),
+        Index('idx_learning_optimization_group', 'group_id'),
         Index('idx_optimization_type', 'optimization_type'),
-        Index('idx_applied_at', 'applied_at'),
+        Index('idx_learning_optimization_applied_at', 'applied_at'),
     )
 
     def to_dict(self):
