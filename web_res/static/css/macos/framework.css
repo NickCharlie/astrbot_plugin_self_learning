@@ -2055,3 +2055,366 @@ body[data-theme="dark"] .text-diff-new {
     background: #1e3a2e;
     color: #6ee7b7;
 }
+
+/* ============================================================
+   16. Simplified WebUI Overrides
+   Keep the desktop shell, but make the management UI quieter.
+   ============================================================ */
+
+.macos-bg {
+    background-position: center center;
+}
+
+.macos-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(244, 247, 251, 0.9);
+}
+
+.macos-desktop {
+    color: #172033;
+    text-shadow: none;
+}
+
+.macos-desktop .top {
+    height: 32px;
+    background-color: rgba(255, 255, 255, 0.92);
+    border-bottom: 1px solid rgba(207, 216, 226, 0.9);
+    backdrop-filter: blur(8px);
+    color: #172033;
+    font-size: 13px;
+}
+
+.top .el-dropdown,
+.macos-desktop .top .menu .item,
+.macos-desktop .top .status,
+.macos-desktop .top .status .status-metrics {
+    color: #172033 !important;
+}
+
+.macos-desktop .top .menu .item {
+    padding: 0 10px;
+}
+
+.macos-desktop .top .logo {
+    padding: 0 12px;
+}
+
+.macos-desktop .top .logo:hover,
+.macos-desktop .top .menu .item:hover,
+.macos-desktop .top .status .audio:hover,
+.macos-desktop .top .status .datetime:hover,
+.macos-desktop .top .status .notification:hover {
+    background-color: rgba(37, 99, 235, 0.08);
+}
+
+.macos-desktop .top .status .audio,
+.macos-desktop .top .status .datetime,
+.macos-desktop .top .status .notification {
+    padding: 0 8px;
+}
+
+.macos-desktop .top .status .audio .iconfont,
+.macos-desktop .top .status .notification .iconfont {
+    font-size: 16px;
+}
+
+.macos-desktop .body .desktop-app {
+    display: none;
+}
+
+.macos-desktop .body .contextmenu {
+    background: #ffffff;
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.12);
+}
+
+.macos-movebg .isTop .box-center-center {
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18) !important;
+}
+
+.macos-movebg .box .box-center-center {
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    background: #ffffff;
+    backdrop-filter: none;
+    box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+    filter: none;
+}
+
+.macos-movebg .box .box-center-center .app-bar {
+    height: 36px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    backdrop-filter: none;
+}
+
+.macos-movebg .box .box-center-center .app-bar .title {
+    color: #172033;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.macos-movebg .box .box-center-center .app-bar .controll {
+    margin-left: 12px;
+}
+
+.macos-movebg .box .box-center-center .app-bar .controll div {
+    width: 11px;
+    height: 11px;
+    margin-right: 7px;
+}
+
+.macos-dock {
+    background-color: rgba(255, 255, 255, 0.94);
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12);
+    backdrop-filter: blur(8px);
+    gap: 2px;
+    padding: 5px 7px;
+    max-width: calc(100vw - 32px);
+    overflow-x: auto;
+}
+
+.macos-dock .item {
+    padding: 0 2px;
+    position: relative;
+}
+
+.macos-dock .item .iconfont,
+.macos-desktop .body .desktop-app .app-item .iconfont,
+.macos-launchpad .body .launchpad-app .app-item .iconfont {
+    background: #ffffff !important;
+    color: #334155 !important;
+    border: 1px solid #d8dee8;
+    box-shadow: none;
+}
+
+.macos-dock .item .iconfont {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 18px;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.macos-dock .item:hover .iconfont {
+    transform: none;
+    margin: 0;
+    background: #eff6ff !important;
+    border-color: #93c5fd;
+    color: #1d4ed8 !important;
+    box-shadow: none;
+}
+
+.macos-dock .item:hover .title {
+    background: #172033;
+    border-radius: 6px;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
+    color: #ffffff;
+    padding: 4px 8px;
+    animation: none;
+    transform: translateY(-36px);
+}
+
+.macos-dock .dot {
+    width: 4px;
+    height: 4px;
+    background: #2563eb;
+    bottom: -3px;
+}
+
+.macos-dock .jump {
+    animation: none;
+}
+
+.macos-launchpad {
+    margin-top: 0;
+    background: rgba(244, 247, 251, 0.96);
+    backdrop-filter: blur(8px);
+    color: #172033;
+}
+
+.macos-launchpad .body .launchpad-app {
+    position: static;
+    width: min(960px, calc(100vw - 48px));
+    padding: 40px 24px;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+}
+
+.macos-launchpad .body .launchpad-app .app-item {
+    width: 104px;
+    padding: 8px 0;
+    text-shadow: none;
+    border-radius: 8px;
+}
+
+.macos-launchpad .body .launchpad-app .app-item:hover {
+    background: rgba(37, 99, 235, 0.08);
+}
+
+.macos-launchpad .body .launchpad-app .app-item .iconfont {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border-radius: 8px;
+    font-size: 26px;
+    line-height: 44px;
+}
+
+.macos-launchpad .body .launchpad-app .app-item .title {
+    color: #334155;
+}
+
+.app-content {
+    padding: 12px;
+    background: #f4f7fb;
+    color: #172033;
+    font-size: 12px;
+}
+
+.app-content .section-card,
+.app-content .stat-card,
+.app-content .chart-box,
+.app-content .review-item,
+.app-content .filter-bar {
+    border-radius: 8px;
+    border-color: #d8dee8;
+    box-shadow: none;
+}
+
+.app-content .section-card,
+.app-content .chart-box {
+    padding: 12px;
+    margin-bottom: 10px;
+}
+
+.app-content .section-card h3,
+.app-content .chart-box h4 {
+    color: #172033;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.app-content .stat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.app-content .stat-card {
+    padding: 12px;
+}
+
+.app-content .stat-card .stat-number {
+    font-size: 22px;
+}
+
+.app-content .charts-grid {
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.app-content .chart-box .chart-area {
+    height: 240px;
+}
+
+.app-content .form-group {
+    padding: 8px 0;
+}
+
+.app-content .review-item {
+    padding: 12px;
+}
+
+.app-content .tab-bar .tab-item {
+    padding: 7px 12px;
+}
+
+.app-content .empty-state,
+.app-content .loading-center {
+    padding: 28px 16px;
+}
+
+body[data-theme="dark"] .macos-bg::after {
+    background: rgba(14, 18, 27, 0.92);
+}
+
+body[data-theme="dark"] .macos-desktop,
+body[data-theme="dark"] .macos-desktop .top,
+body[data-theme="dark"] .top .el-dropdown,
+body[data-theme="dark"] .macos-desktop .top .menu .item,
+body[data-theme="dark"] .macos-desktop .top .status,
+body[data-theme="dark"] .macos-desktop .top .status .status-metrics {
+    color: #e5e7eb !important;
+}
+
+body[data-theme="dark"] .macos-desktop .top,
+body[data-theme="dark"] .macos-dock {
+    background-color: rgba(24, 31, 42, 0.94);
+    border-color: #334155;
+}
+
+body[data-theme="dark"] .macos-movebg .box .box-center-center {
+    background: #111827;
+    border-color: #334155;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+}
+
+body[data-theme="dark"] .macos-movebg .box .box-center-center .app-bar {
+    background: #1f2937;
+    border-bottom-color: #334155;
+}
+
+body[data-theme="dark"] .macos-dock .item .iconfont,
+body[data-theme="dark"] .macos-launchpad .body .launchpad-app .app-item .iconfont {
+    background: #111827 !important;
+    color: #cbd5e1 !important;
+    border-color: #334155;
+}
+
+body[data-theme="dark"] .app-content {
+    background: #0f172a;
+    color: #e5e7eb;
+}
+
+body[data-theme="dark"] .app-content .section-card,
+body[data-theme="dark"] .app-content .stat-card,
+body[data-theme="dark"] .app-content .chart-box,
+body[data-theme="dark"] .app-content .review-item,
+body[data-theme="dark"] .app-content .filter-bar {
+    background: #111827;
+    border-color: #334155;
+}
+
+@media (max-width: 768px) {
+    .macos-desktop .top {
+        height: 36px;
+    }
+
+    .macos-dock {
+        border-radius: 8px;
+        padding: 5px;
+    }
+
+    .macos-dock .item .iconfont {
+        width: 34px;
+        height: 34px;
+        font-size: 20px;
+    }
+
+    .macos-launchpad .body .launchpad-app {
+        width: calc(100vw - 24px);
+        padding: 28px 12px;
+        gap: 8px;
+    }
+
+    .app-content {
+        padding: 10px;
+    }
+}

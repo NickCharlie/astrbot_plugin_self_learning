@@ -99,7 +99,6 @@
         height: 480,
         disableResize: true,
         hideInDesktop: false,
-        keepInDock: true,
       },
       // === 业务应用（全部在 Dock 中）===
       {
@@ -207,7 +206,6 @@
         iconBgColor: "#ff3b30",
         width: W,
         height: H,
-        keepInDock: true,
         menu: [
           {
             key: "social",
@@ -244,7 +242,6 @@
         width: Math.min(W, 700),
         height: H,
         hideInDesktop: false,
-        keepInDock: true,
         menu: [
           { key: "bug", title: "反馈", sub: [{ key: "close", title: "关闭" }] },
         ],
@@ -259,7 +256,6 @@
         width: Math.min(W, 960),
         height: H,
         hideInDesktop: false,
-        keepInDock: true,
         menu: [
           {
             key: "perf",
