@@ -12,7 +12,10 @@ from astrbot.api import logger
 from astrbot.api.star import Context
 
 from ...config import PluginConfig
-from ...constants import UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING
+from ...constants import (
+    UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
+    UPDATE_TYPE_STYLE_LEARNING,
+)
 from ...exceptions import LearningError
 
 from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
@@ -231,7 +234,8 @@ class ProgressiveLearningService:
             else:
                 # 正常模式：只获取未处理的消息
                 unprocessed_messages = await self.message_collector.get_unprocessed_messages(
-                    limit=self.batch_size
+                    limit=self.batch_size,
+                    group_id=group_id,
                 )
 
             if not unprocessed_messages:
@@ -373,7 +377,8 @@ class ProgressiveLearningService:
             
             # 1. 异步获取数据
             unprocessed_messages = await self.message_collector.get_unprocessed_messages(
-                limit=self.batch_size
+                limit=self.batch_size,
+                group_id=group_id,
             )
             
             if not unprocessed_messages:
@@ -1127,7 +1132,7 @@ class ProgressiveLearningService:
                     has_patterns = bool(learned_patterns)
 
                     review = StyleLearningReview(
-                        type='对话风格学习',
+                        type=UPDATE_TYPE_STYLE_LEARNING,
                         group_id=group_id,
                         timestamp=current_timestamp,
                         learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),

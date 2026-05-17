@@ -48,7 +48,7 @@ class ExpressionPatternLearner:
     MAX_EXPRESSION_COUNT = 300 # 最大表达式数量
     DECAY_DAYS = 15 # 15天衰减周期
     DECAY_MIN = 0.01 # 最小衰减值
-    MIN_MESSAGES_FOR_LEARNING = 25 # 触发学习所需的最少消息数
+    MIN_MESSAGES_FOR_LEARNING = 5 # 触发学习所需的最少消息数
     MIN_LEARNING_INTERVAL = 300 # 最短学习时间间隔（秒）
     
     _instance = None
@@ -225,9 +225,9 @@ class ExpressionPatternLearner:
             # 兼容字典和对象
             if hasattr(msg, 'sender_id'):
                 msg_is_bot = msg.sender_id == "bot"
-                msg_content = (msg.message or '').strip()
+                msg_content = (getattr(msg, 'message', '') or '').strip()
                 next_is_bot = next_msg.sender_id == "bot"
-                next_content = (next_msg.message or '').strip()
+                next_content = (getattr(next_msg, 'message', '') or '').strip()
             else:
                 msg_is_bot = msg.get('sender_id') == "bot"
                 msg_content = msg.get('message', '').strip()

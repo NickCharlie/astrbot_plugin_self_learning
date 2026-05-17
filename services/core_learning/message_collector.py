@@ -106,13 +106,20 @@ class MessageCollectorService:
             logger.error(f"消息缓存刷新失败: {e}")
             raise DataStorageError(f"消息缓存刷新失败: {str(e)}")
 
-    async def get_unprocessed_messages(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_unprocessed_messages(
+        self,
+        limit: Optional[int] = None,
+        group_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """获取未处理的消息"""
         try:
             # 先刷新缓存
             await self._flush_message_cache()
             
-            messages = await self.database_manager.get_unprocessed_messages(limit)
+            messages = await self.database_manager.get_unprocessed_messages(
+                limit=limit,
+                group_id=group_id,
+            )
             return messages
             
         except Exception as e:

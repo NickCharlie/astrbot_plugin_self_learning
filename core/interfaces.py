@@ -69,7 +69,11 @@ class IMessageCollector(ABC):
         pass
     
     @abstractmethod
-    async def get_unprocessed_messages(self, limit: int = 100) -> List[MessageData]:
+    async def get_unprocessed_messages(
+        self,
+        limit: int = 100,
+        group_id: Optional[str] = None,
+    ) -> List[MessageData]:
         """获取未处理的消息"""
         pass
     

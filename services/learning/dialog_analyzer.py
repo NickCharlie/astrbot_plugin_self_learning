@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 from astrbot.api import logger
 
+from ...constants import UPDATE_TYPE_STYLE_LEARNING
+
 
 class DialogAnalyzer:
     """Generates few-shot dialog examples and manages style-learning reviews.
@@ -193,7 +195,7 @@ class DialogAnalyzer:
                         return
 
             review_data = {
-                "type": "style_learning",
+                "type": UPDATE_TYPE_STYLE_LEARNING,
                 "group_id": group_id,
                 "timestamp": time.time(),
                 "learned_patterns": [p.to_dict() for p in learned_patterns],
@@ -225,7 +227,6 @@ class DialogAnalyzer:
                     .where(
                         StyleLearningReview.group_id == group_id,
                         StyleLearningReview.status == 'pending',
-                        StyleLearningReview.type == 'style_learning',
                     )
                     .order_by(desc(StyleLearningReview.timestamp))
                     .limit(10)

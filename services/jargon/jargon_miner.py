@@ -206,7 +206,7 @@ class JargonMiner(AsyncServiceBase):
         # 频率控制
         self.min_messages = getattr(config, 'jargon_min_messages', 10)
         self.min_interval = getattr(config, 'jargon_min_interval', 20)
-        self.last_learning_time = time.time()
+        self.last_learning_time = 0.0
 
         # 候选提取Prompt
         self._init_extract_prompt()
@@ -283,7 +283,7 @@ class JargonMiner(AsyncServiceBase):
     def should_trigger(self, recent_message_count: int) -> bool:
         """判断是否应该触发学习"""
         # 冷却时间检查
-        if time.time() - self.last_learning_time < self.min_interval:
+        if self.last_learning_time and time.time() - self.last_learning_time < self.min_interval:
             return False
 
         # 消息数量检查

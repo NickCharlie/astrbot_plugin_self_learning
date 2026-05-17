@@ -384,7 +384,7 @@ def normalize_update_type(raw_type: str) -> str:
     raw_lower = raw_type.lower().strip()
 
     # 风格学习相关
-    if any(k in raw_lower for k in ['style', 'few_shot', 'few-shot', 'fewshot']):
+    if any(k in raw_lower for k in ['style', 'few_shot', 'few-shot', 'fewshot', '风格学习']):
         return UPDATE_TYPE_STYLE_LEARNING
 
     # 表达学习相关

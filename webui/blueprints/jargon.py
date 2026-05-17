@@ -12,6 +12,14 @@ from ..utils.response import success_response, error_response
 jargon_bp = Blueprint('jargon', __name__, url_prefix='/api')
 
 
+def _hybrid_success(payload, data=None):
+    """Return a success body compatible with both legacy and current frontends."""
+    body = dict(payload)
+    body['success'] = True
+    body['data'] = payload if data is None else data
+    return jsonify(body), 200
+
+
 @jargon_bp.route("/jargon/stats", methods=["GET"])
 @require_auth
 async def get_jargon_stats():
@@ -23,7 +31,7 @@ async def get_jargon_stats():
         jargon_service = JargonService(container)
         stats = await jargon_service.get_jargon_stats(group_id=group_id)
 
-        return jsonify(stats), 200
+        return _hybrid_success(stats, data=stats)
 
     except Exception as e:
         logger.error(f"获取黑话统计失败: {e}", exc_info=True)
@@ -36,11 +44,20 @@ async def get_jargon_list():
     """获取黑话列表"""
     try:
         group_id = request.args.get('group_id')
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 20))
+        page = request.args.get('page', type=int)
+        page_size = request.args.get('page_size', type=int)
+        limit = request.args.get('limit', type=int)
+        offset = request.args.get('offset', type=int, default=0)
+
+        if page_size is None:
+            page_size = limit or 20
+        if page is None:
+            page = offset // page_size + 1 if page_size > 0 else 1
 
         # 解析 confirmed 过滤参数
         confirmed_param = request.args.get('confirmed')
+        if confirmed_param is None:
+            confirmed_param = request.args.get('only_confirmed')
         confirmed = None
         if confirmed_param == 'true':
             confirmed = True
@@ -58,16 +75,17 @@ async def get_jargon_list():
                 chat_id=group_id,
                 confirmed_only=(confirmed is True),
             )
-            return jsonify({
+            payload = {
                 'jargon_list': results,
                 'total': len(results),
-            }), 200
+            }
+            return _hybrid_success(payload, data=results)
 
         result = await jargon_service.get_jargon_list(
             group_id, confirmed=confirmed, page=page, page_size=page_size
         )
 
-        return jsonify(result), 200
+        return _hybrid_success(result, data=result.get('jargon_list', []))
 
     except ValueError as e:
         return error_response(str(e), 500)
@@ -86,7 +104,10 @@ async def search_jargon():
             return error_response("搜索关键词不能为空", 400)
 
         group_id = request.args.get('group_id')
-        confirmed_only = request.args.get('confirmed_only', 'false').lower() == 'true'
+        confirmed_param = request.args.get('confirmed_only')
+        if confirmed_param is None:
+            confirmed_param = request.args.get('confirmed', 'false')
+        confirmed_only = str(confirmed_param).lower() == 'true'
 
         container = get_container()
         jargon_service = JargonService(container)
@@ -96,10 +117,11 @@ async def search_jargon():
             confirmed_only=confirmed_only,
         )
 
-        return jsonify({
+        payload = {
             'jargon_list': results,
             'total': len(results)
-        }), 200
+        }
+        return _hybrid_success(payload, data=results)
 
     except ValueError as e:
         return error_response(str(e), 500)
@@ -163,10 +185,11 @@ async def get_jargon_groups():
         jargon_service = JargonService(container)
         groups = await jargon_service.get_jargon_groups()
 
-        return jsonify({
+        payload = {
             'groups': groups,
             'total': len(groups)
-        }), 200
+        }
+        return _hybrid_success(payload, data=groups)
 
     except ValueError as e:
         return error_response(str(e), 500)
@@ -217,10 +240,11 @@ async def get_global_jargon_list():
         jargon_service = JargonService(container)
         jargon_list = await jargon_service.get_global_jargon_list(limit=limit)
 
-        return jsonify({
+        payload = {
             'jargon_list': jargon_list,
             'total': len(jargon_list)
-        }), 200
+        }
+        return _hybrid_success(payload, data=jargon_list)
 
     except ValueError as e:
         return error_response(str(e), 500)

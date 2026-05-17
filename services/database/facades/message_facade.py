@@ -88,13 +88,16 @@ class MessageFacade(BaseFacade):
             raise RuntimeError(f"无法获取群组 {group_id} 的最近原始消息: {e}") from e
 
     async def get_unprocessed_messages(
-        self, limit: Optional[int] = None
+        self, limit: Optional[int] = None, group_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """获取未处理的原始消息"""
         try:
             async with self.get_session() as session:
                 repo = RawMessageRepository(session)
-                messages = await repo.get_unprocessed(limit=limit or 100)
+                messages = await repo.get_unprocessed(
+                    limit=limit or 100,
+                    group_id=group_id,
+                )
                 return [
                     {
                         'id': msg.id, 'sender_id': msg.sender_id,

@@ -74,17 +74,37 @@ class RealtimeProcessor:
                 f"实时学习后台处理失败 (group={group_id}): {e}", exc_info=True
             )
 
+    async def process_expression_learning_background(
+        self, group_id: str, message_text: str, sender_id: str
+    ) -> None:
+        """Run expression-style learning without enabling realtime filtering."""
+        try:
+            await self.process_expression_learning(group_id, message_text, sender_id)
+        except Exception as e:
+            logger.error(
+                f"表达风格学习后台处理失败 (group={group_id}): {e}",
+                exc_info=True,
+            )
+
+    async def process_expression_learning(
+        self, group_id: str, message_text: str, sender_id: str
+    ) -> None:
+        """Process a single message for expression-style learning only."""
+        if self._should_skip_message(message_text):
+            return
+        if not self._config.enable_expression_patterns:
+            return
+        await self._process_expression_style_learning(
+            group_id, message_text, sender_id
+        )
+
     async def process_message_realtime(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:
         """Process a single message in realtime — filter + expression learning."""
         try:
             # Basic guards
-            if len(message_text.strip()) < self._config.message_min_length:
-                return
-            if len(message_text) > self._config.message_max_length:
-                return
-            if message_text.strip() in ("", "???", "。。。", "...", "嗯", "哦", "额"):
+            if self._should_skip_message(message_text):
                 return
 
             # Expression-style learning (bypasses filtering)
@@ -130,6 +150,17 @@ class RealtimeProcessor:
                 exc_info=True,
             )
 
+    def _should_skip_message(self, message_text: str) -> bool:
+        """Apply the shared message guards for realtime sub-pipelines."""
+        stripped = message_text.strip()
+        if len(stripped) < self._config.message_min_length:
+            return True
+        if len(message_text) > self._config.message_max_length:
+            return True
+        if stripped in ("", "???", "。。。", "...", "嗯", "哦", "额"):
+            return True
+        return False
+
     # Expression-style learning
 
     async def _process_expression_style_learning(
@@ -163,6 +194,11 @@ class RealtimeProcessor:
             message_data_list = self._build_message_data_list(
                 recent_raw_messages, group_id, sender_id
             )
+            if message_data_list:
+                message_data_list = await self._merge_bot_messages_for_pairs(
+                    group_id,
+                    message_data_list,
+                )
 
             if len(message_data_list) < 3:
                 logger.debug(
@@ -294,9 +330,6 @@ class RealtimeProcessor:
         result: List[MessageData] = []
 
         for msg in recent_raw_messages:
-            if msg.get("sender_id") == sender_id:
-                continue
-
             content = msg.get("message", "")
             if len(content.strip()) < 5 or len(content) > 500:
                 continue
@@ -323,3 +356,44 @@ class RealtimeProcessor:
             )
 
         return result
+
+    async def _merge_bot_messages_for_pairs(
+        self,
+        group_id: str,
+        user_messages: List[MessageData],
+    ) -> List[MessageData]:
+        """Merge stored bot replies into the raw-message timeline."""
+        if not user_messages or not self._db_manager:
+            return user_messages
+
+        try:
+            async with self._db_manager.get_session() as session:
+                from sqlalchemy import select, desc
+                from ...models.orm.message import BotMessage
+
+                stmt = (
+                    select(BotMessage)
+                    .where(BotMessage.group_id == group_id)
+                    .order_by(desc(BotMessage.timestamp))
+                    .limit(len(user_messages))
+                )
+                result = await session.execute(stmt)
+                bot_messages = [
+                    MessageData(
+                        sender_id="bot",
+                        sender_name="bot",
+                        message=row.message,
+                        group_id=group_id,
+                        timestamp=float(row.timestamp),
+                        platform="bot",
+                        message_id=str(row.id),
+                    )
+                    for row in result.scalars().all()
+                ]
+        except Exception as exc:
+            logger.debug(f"合并 Bot 回复失败，使用用户消息继续: {exc}")
+            return user_messages
+
+        merged = user_messages + bot_messages
+        merged.sort(key=lambda msg: msg.timestamp)
+        return merged

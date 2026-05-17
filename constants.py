@@ -22,6 +22,7 @@ UPDATE_TYPE_TRADITIONAL = "traditional"
 LEGACY_UPDATE_TYPE_MAPPING = {
     "渐进式学习-风格分析": UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
     "渐进式学习-人格更新": UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
+    "对话风格学习": UPDATE_TYPE_STYLE_LEARNING,
     "progressive_learning": UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
     "style_learning": UPDATE_TYPE_STYLE_LEARNING,
     "expression_learning": UPDATE_TYPE_EXPRESSION_LEARNING,
@@ -52,8 +53,12 @@ def normalize_update_type(raw_update_type: str) -> str:
     if '渐进式学习' in raw_update_type or 'progressive' in raw_lower:
         return UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING
 
-    # 风格学习判断（必须精确匹配，避免误判）
-    if raw_update_type == 'style_learning' or raw_update_type == UPDATE_TYPE_STYLE_LEARNING:
+    # 风格学习判断
+    if (
+        raw_update_type == 'style_learning'
+        or raw_update_type == UPDATE_TYPE_STYLE_LEARNING
+        or '风格学习' in raw_update_type
+    ):
         return UPDATE_TYPE_STYLE_LEARNING
 
     # 表达学习判断

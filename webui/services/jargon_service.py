@@ -38,16 +38,46 @@ class JargonService:
         except (json.JSONDecodeError, TypeError):
             context_examples = []
 
+        content = j.get('content', '')
+        is_jargon = j.get('is_jargon', False)
+        count = j.get('count', 0)
+        chat_id = j.get('chat_id')
+
         return {
             'id': j.get('id'),
-            'term': j.get('content', ''),
+            'term': content,
+            'content': content,
             'meaning': j.get('meaning', ''),
-            'is_confirmed': bool(j.get('is_jargon', False)),
+            'is_confirmed': bool(is_jargon),
+            'is_jargon': is_jargon,
             'is_global': bool(j.get('is_global', False)),
-            'occurrences': j.get('count', 0),
-            'group_id': j.get('chat_id'),
+            'occurrences': count,
+            'count': count,
+            'group_id': chat_id,
+            'chat_id': chat_id,
             'context_examples': context_examples,
+            'raw_content': j.get('raw_content', '[]'),
+            'last_inference_count': j.get('last_inference_count', 0),
+            'is_complete': bool(j.get('is_complete', False)),
             'updated_at': j.get('updated_at'),
+        }
+
+    @staticmethod
+    def _format_group_for_frontend(group: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize jargon group payload for both old and new frontends."""
+        count = group.get('confirmed_jargon')
+        if count is None:
+            count = group.get('count', 0)
+
+        group_id = group.get('group_id') or group.get('chat_id') or group.get('id')
+        return {
+            'group_id': group_id,
+            'group_name': group.get('group_name') or group_id,
+            'id': group.get('id') or group_id,
+            'chat_id': group.get('chat_id') or group_id,
+            'count': count,
+            'confirmed_jargon': count,
+            'total_candidates': group.get('total_candidates', count),
         }
 
     async def get_jargon_stats(self, group_id: Optional[str] = None) -> Dict[str, Any]:
@@ -242,7 +272,7 @@ class JargonService:
             logger.error(f"切换黑话全局状态失败: {e}", exc_info=True)
             raise
 
-    async def get_jargon_groups(self) -> List[str]:
+    async def get_jargon_groups(self) -> List[Dict[str, Any]]:
         """
         获取包含黑话的群组列表
 
@@ -254,7 +284,7 @@ class JargonService:
 
         try:
             groups = await self.database_manager.get_jargon_groups()
-            return groups
+            return [self._format_group_for_frontend(group) for group in groups]
         except Exception as e:
             logger.error(f"获取黑话群组列表失败: {e}", exc_info=True)
             raise

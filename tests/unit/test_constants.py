@@ -38,6 +38,11 @@ class TestNormalizeUpdateType:
         result = normalize_update_type("style_learning")
         assert result == UPDATE_TYPE_STYLE_LEARNING
 
+    def test_exact_match_legacy_chinese_style_learning(self):
+        """Test legacy Chinese style-learning label."""
+        result = normalize_update_type("对话风格学习")
+        assert result == UPDATE_TYPE_STYLE_LEARNING
+
     def test_exact_match_expression_learning(self):
         """Test exact match for expression_learning."""
         result = normalize_update_type("expression_learning")
@@ -90,6 +95,11 @@ class TestGetReviewSourceFromUpdateType:
         result = get_review_source_from_update_type(UPDATE_TYPE_STYLE_LEARNING)
         assert result == 'style_learning'
 
+    def test_legacy_chinese_style_learning_source(self):
+        """Test legacy Chinese style-learning label maps to style_learning."""
+        result = get_review_source_from_update_type("对话风格学习")
+        assert result == 'style_learning'
+
     def test_expression_learning_source(self):
         """Test expression learning maps to persona_learning."""
         result = get_review_source_from_update_type(
@@ -127,6 +137,7 @@ class TestLegacyMapping:
         expected_keys = {
             "渐进式学习-风格分析",
             "渐进式学习-人格更新",
+            "对话风格学习",
             "progressive_learning",
             "style_learning",
             "expression_learning",

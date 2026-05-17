@@ -38,6 +38,8 @@ class MessagePipeline:
         self._affection_manager = affection_manager
         self._db_manager = db_manager
         self._subtasks: Set[asyncio.Task] = set()
+        self._active_jargon_groups: Set[str] = set()
+        self._last_jargon_trigger_counts: dict[str, int] = {}
 
     # 后台学习流水线（6 步）
 
@@ -98,8 +100,10 @@ class MessagePipeline:
             if self._config.enable_jargon_learning:
                 stats = await self._message_collector.get_statistics(group_id)
                 raw_message_count = stats.get("raw_messages", 0)
-                if raw_message_count % 10 == 0 and raw_message_count >= 10:
-                    self._spawn(self.mine_jargon(group_id))
+                if self._should_schedule_jargon_mining(
+                    group_id, raw_message_count
+                ):
+                    self._spawn_jargon_task(group_id, raw_message_count)
 
             # 3.5 V2 per-message processing
             if self._v2_integration:
@@ -120,6 +124,12 @@ class MessagePipeline:
             if self._config.enable_realtime_learning:
                 self._spawn(
                     self._realtime_processor.process_realtime_background(
+                        group_id, message_text, sender_id
+                    )
+                )
+            elif self._config.enable_expression_patterns:
+                self._spawn(
+                    self._realtime_processor.process_expression_learning_background(
                         group_id, message_text, sender_id
                     )
                 )
@@ -252,6 +262,28 @@ class MessagePipeline:
             logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
 
     # Task tracking
+
+    def _should_schedule_jargon_mining(
+        self, group_id: str, raw_message_count: int
+    ) -> bool:
+        """Trigger jargon mining once per additional 10 messages per group."""
+        if raw_message_count < 10:
+            return False
+        if group_id in self._active_jargon_groups:
+            return False
+        last_trigger = self._last_jargon_trigger_counts.get(group_id, 0)
+        return raw_message_count - last_trigger >= 10
+
+    def _spawn_jargon_task(self, group_id: str, raw_message_count: int) -> None:
+        """Spawn a jargon-mining task and track group-level trigger state."""
+        self._last_jargon_trigger_counts[group_id] = raw_message_count
+        self._active_jargon_groups.add(group_id)
+        task = self._spawn(self.mine_jargon(group_id))
+
+        def _on_complete(_: asyncio.Task) -> None:
+            self._active_jargon_groups.discard(group_id)
+
+        task.add_done_callback(_on_complete)
 
     def _spawn(self, coro) -> asyncio.Task:
         """Create a background task and track it for shutdown cancellation."""

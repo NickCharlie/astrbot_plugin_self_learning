@@ -50,13 +50,17 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             logger.error(f"[RawMessageRepository] 保存原始消息失败: {e}")
             return None
 
-    async def get_unprocessed(self, limit: int = 100) -> List[RawMessage]:
+    async def get_unprocessed(
+        self,
+        limit: int = 100,
+        group_id: Optional[str] = None,
+    ) -> List[RawMessage]:
         """
         获取未处理的消息
 
         Args:
             limit: 最大返回数量
-
+            group_id: 群组 ID（可选）
         Returns:
             List[RawMessage]: 未处理消息列表（按时间升序）
         """
@@ -64,13 +68,36 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             stmt = (
                 select(RawMessage)
                 .where(RawMessage.processed == False)  # noqa: E712
+            )
+            if group_id:
+                stmt = stmt.where(RawMessage.group_id == group_id)
+            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        except Exception as e:
+            logger.error(f"[RawMessageRepository] 获取未处理消息失败: {e}")
+            return []
+
+    async def get_unprocessed_by_group(
+        self,
+        group_id: str,
+        limit: int = 100,
+    ) -> List[RawMessage]:
+        """获取指定群组的未处理消息（按时间升序）。"""
+        try:
+            stmt = (
+                select(RawMessage)
+                .where(
+                    RawMessage.processed == False,  # noqa: E712
+                    RawMessage.group_id == group_id,
+                )
                 .order_by(RawMessage.timestamp.asc())
                 .limit(limit)
             )
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
-            logger.error(f"[RawMessageRepository] 获取未处理消息失败: {e}")
+            logger.error(f"[RawMessageRepository] 获取群组未处理消息失败: {e}")
             return []
 
     async def mark_processed(self, message_id: int) -> bool:

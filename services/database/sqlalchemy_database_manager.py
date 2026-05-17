@@ -410,9 +410,9 @@ class SQLAlchemyDatabaseManager:
         return await self._message.get_recent_raw_messages(group_id, limit)
 
     async def get_unprocessed_messages(
-        self, limit: Optional[int] = None,
+        self, limit: Optional[int] = None, group_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        return await self._message.get_unprocessed_messages(limit)
+        return await self._message.get_unprocessed_messages(limit, group_id)
 
     async def mark_messages_processed(self, message_ids: List[int]) -> bool:
         return await self._message.mark_messages_processed(message_ids)
