@@ -7,7 +7,10 @@ from typing import Optional, List
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
-from ..models.orm import Memory, MemoryEmbedding, MemorySummary
+try:
+    from ..models.orm import Memory, MemoryEmbedding, MemorySummary
+except ImportError:
+    from models.orm import Memory, MemoryEmbedding, MemorySummary
 
 
 class MemoryRepository(BaseRepository[Memory]):

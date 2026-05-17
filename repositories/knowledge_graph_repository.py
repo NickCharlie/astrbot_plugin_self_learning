@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.knowledge_graph import KGEntity, KGRelation, KGParagraphHash
+try:
+    from ..models.orm.knowledge_graph import KGEntity, KGRelation, KGParagraphHash
+except ImportError:
+    from models.orm.knowledge_graph import KGEntity, KGRelation, KGParagraphHash
 
 
 class KnowledgeEntityRepository(BaseRepository[KGEntity]):

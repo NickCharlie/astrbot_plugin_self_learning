@@ -9,15 +9,26 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from sqlalchemy import delete as sa_delete, desc, func, select
-from ....models.orm.learning import (
-    LearningBatch,
-    LearningSession,
-    PersonaLearningReview,
-    StyleLearningPattern,
-    StyleLearningReview,
-)
-from ....models.orm.message import FilteredMessage
-from ....models.orm.performance import LearningPerformanceHistory
+try:
+    from ....models.orm.learning import (
+        LearningBatch,
+        LearningSession,
+        PersonaLearningReview,
+        StyleLearningPattern,
+        StyleLearningReview,
+    )
+    from ....models.orm.message import FilteredMessage
+    from ....models.orm.performance import LearningPerformanceHistory
+except ImportError:
+    from models.orm.learning import (
+        LearningBatch,
+        LearningSession,
+        PersonaLearningReview,
+        StyleLearningPattern,
+        StyleLearningReview,
+    )
+    from models.orm.message import FilteredMessage
+    from models.orm.performance import LearningPerformanceHistory
 
 
 class LearningFacade(BaseFacade):

@@ -8,10 +8,15 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.persona_backup_repository import PersonaBackupRepository
 from sqlalchemy import desc, select
-from ....models.orm.learning import PersonaLearningReview
-from ....models.orm.psychological import PersonaBackup
+try:
+    from ....repositories.persona_backup_repository import PersonaBackupRepository
+    from ....models.orm.learning import PersonaLearningReview
+    from ....models.orm.psychological import PersonaBackup
+except ImportError:
+    from repositories.persona_backup_repository import PersonaBackupRepository
+    from models.orm.learning import PersonaLearningReview
+    from models.orm.psychological import PersonaBackup
 
 
 class PersonaFacade(BaseFacade):

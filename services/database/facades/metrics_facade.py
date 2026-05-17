@@ -8,13 +8,22 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from sqlalchemy import and_, func, select
-from ....models.orm.learning import (
-    LearningBatch,
-    PersonaLearningReview,
-    StyleLearningPattern,
-    StyleLearningReview,
-)
-from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
+try:
+    from ....models.orm.learning import (
+        LearningBatch,
+        PersonaLearningReview,
+        StyleLearningPattern,
+        StyleLearningReview,
+    )
+    from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
+except ImportError:
+    from models.orm.learning import (
+        LearningBatch,
+        PersonaLearningReview,
+        StyleLearningPattern,
+        StyleLearningReview,
+    )
+    from models.orm.message import BotMessage, FilteredMessage, RawMessage
 
 
 class MetricsFacade(BaseFacade):

@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.message import FilteredMessage
+try:
+    from ..models.orm.message import FilteredMessage
+except ImportError:
+    from models.orm.message import FilteredMessage
 
 
 class FilteredMessageRepository(BaseRepository[FilteredMessage]):

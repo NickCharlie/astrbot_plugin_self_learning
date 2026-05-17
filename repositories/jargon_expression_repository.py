@@ -9,13 +9,22 @@ from astrbot.api import logger
 import time
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    Jargon,
-    JargonUsageFrequency,
-    ExpressionPattern,
-    ExpressionGenerationResult,
-    AdaptiveResponseTemplate
-)
+try:
+    from ..models.orm import (
+        Jargon,
+        JargonUsageFrequency,
+        ExpressionPattern,
+        ExpressionGenerationResult,
+        AdaptiveResponseTemplate
+    )
+except ImportError:
+    from models.orm import (
+        Jargon,
+        JargonUsageFrequency,
+        ExpressionPattern,
+        ExpressionGenerationResult,
+        AdaptiveResponseTemplate
+    )
 
 
 class JargonUsageFrequencyRepository(BaseRepository[JargonUsageFrequency]):

@@ -8,16 +8,27 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.user_profile_repository import UserProfileRepository
-from ....repositories.user_preferences_repository import UserPreferencesRepository
 from sqlalchemy import and_, or_, select
-from ....models.orm.social_relation import (
-    UserPreferences,
-    UserProfile,
-    UserSocialProfile,
-    UserSocialRelationComponent,
-)
-from ....repositories.social_repository import SocialRelationComponentRepository
+try:
+    from ....repositories.user_profile_repository import UserProfileRepository
+    from ....repositories.user_preferences_repository import UserPreferencesRepository
+    from ....models.orm.social_relation import (
+        UserPreferences,
+        UserProfile,
+        UserSocialProfile,
+        UserSocialRelationComponent,
+    )
+    from ....repositories.social_repository import SocialRelationComponentRepository
+except ImportError:
+    from repositories.user_profile_repository import UserProfileRepository
+    from repositories.user_preferences_repository import UserPreferencesRepository
+    from models.orm.social_relation import (
+        UserPreferences,
+        UserProfile,
+        UserSocialProfile,
+        UserSocialRelationComponent,
+    )
+    from repositories.social_repository import SocialRelationComponentRepository
 
 
 class SocialFacade(BaseFacade):

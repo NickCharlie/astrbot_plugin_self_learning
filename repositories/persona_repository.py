@@ -9,11 +9,18 @@ from astrbot.api import logger
 import time
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    PersonaDiversityScore,
-    PersonaAttributeWeight,
-    PersonaEvolutionSnapshot
-)
+try:
+    from ..models.orm import (
+        PersonaDiversityScore,
+        PersonaAttributeWeight,
+        PersonaEvolutionSnapshot
+    )
+except ImportError:
+    from models.orm import (
+        PersonaDiversityScore,
+        PersonaAttributeWeight,
+        PersonaEvolutionSnapshot
+    )
 
 
 class PersonaDiversityScoreRepository(BaseRepository[PersonaDiversityScore]):

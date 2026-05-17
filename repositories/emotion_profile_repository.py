@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.psychological import EmotionProfile
+try:
+    from ..models.orm.psychological import EmotionProfile
+except ImportError:
+    from models.orm.psychological import EmotionProfile
 
 
 class EmotionProfileRepository(BaseRepository[EmotionProfile]):

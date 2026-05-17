@@ -8,8 +8,12 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.message import BotMessage
-from ..utils.text_utils import truncate_for_db
+try:
+    from ..models.orm.message import BotMessage
+    from ..utils.text_utils import truncate_for_db
+except ImportError:
+    from models.orm.message import BotMessage
+    from utils.text_utils import truncate_for_db
 
 
 class BotMessageRepository(BaseRepository[BotMessage]):

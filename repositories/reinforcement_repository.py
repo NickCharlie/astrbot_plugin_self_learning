@@ -13,11 +13,18 @@ def _serialize(value):
         return json.dumps(value, ensure_ascii=False)
     return value
 
-from ..models.orm.reinforcement import (
-    ReinforcementLearningResult,
-    PersonaFusionHistory,
-    StrategyOptimizationResult
-)
+try:
+    from ..models.orm.reinforcement import (
+        ReinforcementLearningResult,
+        PersonaFusionHistory,
+        StrategyOptimizationResult
+    )
+except ImportError:
+    from models.orm.reinforcement import (
+        ReinforcementLearningResult,
+        PersonaFusionHistory,
+        StrategyOptimizationResult
+    )
 
 
 class ReinforcementLearningRepository:

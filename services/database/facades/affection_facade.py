@@ -8,8 +8,12 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.affection_repository import AffectionRepository
-from ....repositories.bot_mood_repository import BotMoodRepository
+try:
+    from ....repositories.affection_repository import AffectionRepository
+    from ....repositories.bot_mood_repository import BotMoodRepository
+except ImportError:
+    from repositories.affection_repository import AffectionRepository
+    from repositories.bot_mood_repository import BotMoodRepository
 
 
 class AffectionFacade(BaseFacade):

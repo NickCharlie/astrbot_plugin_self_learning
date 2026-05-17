@@ -2,12 +2,14 @@ from collections import defaultdict
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 
 from config import PluginConfig
 from core.database.engine import DatabaseEngine
 from models.orm import Base
+from models.orm.learning import StyleLearningReview
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
 
 
@@ -44,6 +46,87 @@ async def test_sqlite_create_tables_creates_all_orm_tables(tmp_path):
         assert db_path.exists()
     finally:
         await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_database_manager_start_initializes_facades_and_learning_storage(tmp_path):
+    """Runtime manager startup must create tables and load domain facades."""
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), enable_web_interface=False)
+    )
+
+    try:
+        assert await manager.start() is True
+
+        async with manager.engine.engine.begin() as conn:
+            created_tables = await conn.run_sync(
+                lambda sync_conn: set(sa_inspect(sync_conn).get_table_names())
+            )
+
+        assert set(Base.metadata.tables) <= created_tables
+
+        message_id = await manager.save_raw_message(
+            {
+                "sender_id": "user-a",
+                "sender_name": "User A",
+                "message": "用于数据库启动回归的学习消息",
+                "group_id": "group-a",
+                "timestamp": 1234567890,
+                "platform": "test",
+            }
+        )
+        assert message_id > 0
+
+        pending_messages = await manager.get_unprocessed_messages(
+            limit=10,
+            group_id="group-a",
+        )
+        assert any(message["id"] == message_id for message in pending_messages)
+        assert await manager.mark_messages_processed([message_id]) is True
+
+        persona_review_id = await manager.add_persona_learning_review(
+            {
+                "timestamp": 1234567890.0,
+                "group_id": "group-a",
+                "update_type": "style_learning",
+                "new_content": "表达风格更新",
+                "proposed_content": "表达风格更新",
+                "confidence_score": 0.9,
+                "reason": "runtime regression",
+            }
+        )
+        assert persona_review_id > 0
+
+        jargon_id = await manager.save_or_update_jargon(
+            "group-a",
+            "测试黑话",
+            {
+                "raw_content": "[\"测试黑话在群里出现\"]",
+                "is_jargon": True,
+                "count": 1,
+                "is_complete": True,
+            },
+        )
+        assert jargon_id and jargon_id > 0
+
+        async with manager.get_session() as session:
+            session.add(
+                StyleLearningReview(
+                    type="style_learning",
+                    group_id="group-a",
+                    timestamp=1234567890.0,
+                    learned_patterns="[]",
+                    status="pending",
+                )
+            )
+            await session.commit()
+            rows = (
+                await session.execute(select(StyleLearningReview))
+            ).scalars().all()
+
+        assert rows
+    finally:
+        await manager.stop()
 
 
 def test_database_manager_sqlite_url_uses_aiosqlite_and_absolute_path(tmp_path):

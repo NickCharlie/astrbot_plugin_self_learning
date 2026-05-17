@@ -8,9 +8,13 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.emotion_profile_repository import EmotionProfileRepository
 from sqlalchemy import and_, select
-from ....models.orm.psychological import EmotionProfile
+try:
+    from ....repositories.emotion_profile_repository import EmotionProfileRepository
+    from ....models.orm.psychological import EmotionProfile
+except ImportError:
+    from repositories.emotion_profile_repository import EmotionProfileRepository
+    from models.orm.psychological import EmotionProfile
 
 
 class PsychologicalFacade(BaseFacade):

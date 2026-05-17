@@ -7,11 +7,18 @@ from typing import Optional, List
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    CompositePsychologicalState,
-    PsychologicalStateComponent,
-    PsychologicalStateHistory
-)
+try:
+    from ..models.orm import (
+        CompositePsychologicalState,
+        PsychologicalStateComponent,
+        PsychologicalStateHistory
+    )
+except ImportError:
+    from models.orm import (
+        CompositePsychologicalState,
+        PsychologicalStateComponent,
+        PsychologicalStateHistory
+    )
 
 
 class PsychologicalStateRepository(BaseRepository[CompositePsychologicalState]):

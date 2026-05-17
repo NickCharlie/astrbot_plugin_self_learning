@@ -8,7 +8,10 @@ from typing import List, Dict, Any
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
-from ..models.orm import ExpressionPattern
+try:
+    from ..models.orm import ExpressionPattern
+except ImportError:
+    from models.orm import ExpressionPattern
 
 
 class ExpressionPatternRepository(BaseRepository[ExpressionPattern]):

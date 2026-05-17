@@ -7,7 +7,10 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.expression import StyleProfile
+try:
+    from ..models.orm.expression import StyleProfile
+except ImportError:
+    from models.orm.expression import StyleProfile
 
 
 class StyleProfileRepository(BaseRepository[StyleProfile]):

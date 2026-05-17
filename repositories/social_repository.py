@@ -7,11 +7,18 @@ from typing import Optional, List
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    UserSocialProfile,
-    UserSocialRelationComponent,
-    SocialRelationHistory
-)
+try:
+    from ..models.orm import (
+        UserSocialProfile,
+        UserSocialRelationComponent,
+        SocialRelationHistory
+    )
+except ImportError:
+    from models.orm import (
+        UserSocialProfile,
+        UserSocialRelationComponent,
+        SocialRelationHistory
+    )
 
 
 class SocialProfileRepository(BaseRepository[UserSocialProfile]):

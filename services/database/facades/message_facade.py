@@ -7,12 +7,19 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.raw_message_repository import RawMessageRepository
-from ....repositories.filtered_message_repository import FilteredMessageRepository
-from ....repositories.bot_message_repository import BotMessageRepository
 from sqlalchemy import and_, desc, distinct, func, select
-from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
-from ....models.orm.social_relation import SocialRelation
+try:
+    from ....repositories.raw_message_repository import RawMessageRepository
+    from ....repositories.filtered_message_repository import FilteredMessageRepository
+    from ....repositories.bot_message_repository import BotMessageRepository
+    from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
+    from ....models.orm.social_relation import SocialRelation
+except ImportError:
+    from repositories.raw_message_repository import RawMessageRepository
+    from repositories.filtered_message_repository import FilteredMessageRepository
+    from repositories.bot_message_repository import BotMessageRepository
+    from models.orm.message import BotMessage, FilteredMessage, RawMessage
+    from models.orm.social_relation import SocialRelation
 
 
 class MessageFacade(BaseFacade):

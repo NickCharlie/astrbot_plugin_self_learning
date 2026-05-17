@@ -9,12 +9,20 @@ from astrbot.api import logger
 import time
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    ConversationContext,
-    ConversationTopicClustering,
-    ConversationQualityMetrics,
-    ContextSimilarityCache
-)
+try:
+    from ..models.orm import (
+        ConversationContext,
+        ConversationTopicClustering,
+        ConversationQualityMetrics,
+        ContextSimilarityCache
+    )
+except ImportError:
+    from models.orm import (
+        ConversationContext,
+        ConversationTopicClustering,
+        ConversationQualityMetrics,
+        ContextSimilarityCache
+    )
 
 
 class ConversationContextRepository(BaseRepository[ConversationContext]):

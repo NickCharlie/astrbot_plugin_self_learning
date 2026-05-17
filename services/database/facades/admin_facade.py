@@ -7,27 +7,50 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 from sqlalchemy import delete as sa_delete, select, func
-from ....models.orm.learning import (
-    LearningBatch, PersonaLearningReview, StyleLearningReview,
-    StyleLearningPattern, LearningSession, LearningReinforcementFeedback,
-    LearningOptimizationLog,
-)
-from ....models.orm.message import (
-    FilteredMessage, RawMessage, BotMessage,
-    ConversationContext, ConversationTopicClustering,
-    ConversationQualityMetrics, ContextSimilarityCache,
-)
-from ....models.orm.expression import (
-    ExpressionPattern, ExpressionGenerationResult,
-    AdaptiveResponseTemplate, StyleProfile,
-    StyleLearningRecord, LanguageStylePattern,
-)
-from ....models.orm.jargon import Jargon, JargonUsageFrequency
-from ....models.orm.performance import LearningPerformanceHistory
-from ....models.orm.reinforcement import (
-    PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult,
-)
-from ....models.orm.psychological import PersonaBackup
+try:
+    from ....models.orm.learning import (
+        LearningBatch, PersonaLearningReview, StyleLearningReview,
+        StyleLearningPattern, LearningSession, LearningReinforcementFeedback,
+        LearningOptimizationLog,
+    )
+    from ....models.orm.message import (
+        FilteredMessage, RawMessage, BotMessage,
+        ConversationContext, ConversationTopicClustering,
+        ConversationQualityMetrics, ContextSimilarityCache,
+    )
+    from ....models.orm.expression import (
+        ExpressionPattern, ExpressionGenerationResult,
+        AdaptiveResponseTemplate, StyleProfile,
+        StyleLearningRecord, LanguageStylePattern,
+    )
+    from ....models.orm.jargon import Jargon, JargonUsageFrequency
+    from ....models.orm.performance import LearningPerformanceHistory
+    from ....models.orm.reinforcement import (
+        PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult,
+    )
+    from ....models.orm.psychological import PersonaBackup
+except ImportError:
+    from models.orm.learning import (
+        LearningBatch, PersonaLearningReview, StyleLearningReview,
+        StyleLearningPattern, LearningSession, LearningReinforcementFeedback,
+        LearningOptimizationLog,
+    )
+    from models.orm.message import (
+        FilteredMessage, RawMessage, BotMessage,
+        ConversationContext, ConversationTopicClustering,
+        ConversationQualityMetrics, ContextSimilarityCache,
+    )
+    from models.orm.expression import (
+        ExpressionPattern, ExpressionGenerationResult,
+        AdaptiveResponseTemplate, StyleProfile,
+        StyleLearningRecord, LanguageStylePattern,
+    )
+    from models.orm.jargon import Jargon, JargonUsageFrequency
+    from models.orm.performance import LearningPerformanceHistory
+    from models.orm.reinforcement import (
+        PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult,
+    )
+    from models.orm.psychological import PersonaBackup
 
 
 class AdminFacade(BaseFacade):

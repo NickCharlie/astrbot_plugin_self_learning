@@ -7,12 +7,20 @@ from typing import Optional, List, Dict
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    UserAffection,
-    AffectionInteraction,
-    UserConversationHistory,
-    UserDiversity
-)
+try:
+    from ..models.orm import (
+        UserAffection,
+        AffectionInteraction,
+        UserConversationHistory,
+        UserDiversity
+    )
+except ImportError:
+    from models.orm import (
+        UserAffection,
+        AffectionInteraction,
+        UserConversationHistory,
+        UserDiversity
+    )
 
 
 class AffectionRepository(BaseRepository[UserAffection]):

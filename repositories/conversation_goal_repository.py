@@ -6,7 +6,10 @@ from datetime import datetime, timedelta
 from sqlalchemy import select, and_, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..models.orm.conversation_goal import ConversationGoal
+try:
+    from ..models.orm.conversation_goal import ConversationGoal
+except ImportError:
+    from models.orm.conversation_goal import ConversationGoal
 from astrbot.api import logger
 
 

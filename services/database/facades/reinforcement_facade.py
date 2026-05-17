@@ -7,13 +7,21 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.reinforcement_repository import (
-    ReinforcementLearningRepository,
-    PersonaFusionRepository,
-    StrategyOptimizationRepository,
-)
 from sqlalchemy import desc, select
-from ....models.orm.performance import LearningPerformanceHistory
+try:
+    from ....repositories.reinforcement_repository import (
+        ReinforcementLearningRepository,
+        PersonaFusionRepository,
+        StrategyOptimizationRepository,
+    )
+    from ....models.orm.performance import LearningPerformanceHistory
+except ImportError:
+    from repositories.reinforcement_repository import (
+        ReinforcementLearningRepository,
+        PersonaFusionRepository,
+        StrategyOptimizationRepository,
+    )
+    from models.orm.performance import LearningPerformanceHistory
 
 
 class ReinforcementFacade(BaseFacade):

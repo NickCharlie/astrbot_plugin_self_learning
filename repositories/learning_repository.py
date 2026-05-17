@@ -9,16 +9,28 @@ from astrbot.api import logger
 import time
 
 from .base_repository import BaseRepository
-from ..models.orm import (
-    PersonaLearningReview,
-    StyleLearningReview,
-    StyleLearningPattern,
-    InteractionRecord,
-    LearningBatch,
-    LearningSession,
-    LearningReinforcementFeedback,
-    LearningOptimizationLog
-)
+try:
+    from ..models.orm import (
+        PersonaLearningReview,
+        StyleLearningReview,
+        StyleLearningPattern,
+        InteractionRecord,
+        LearningBatch,
+        LearningSession,
+        LearningReinforcementFeedback,
+        LearningOptimizationLog
+    )
+except ImportError:
+    from models.orm import (
+        PersonaLearningReview,
+        StyleLearningReview,
+        StyleLearningPattern,
+        InteractionRecord,
+        LearningBatch,
+        LearningSession,
+        LearningReinforcementFeedback,
+        LearningOptimizationLog
+    )
 
 
 class PersonaLearningReviewRepository(BaseRepository[PersonaLearningReview]):

@@ -8,15 +8,25 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....repositories.style_profile_repository import StyleProfileRepository
 from sqlalchemy import desc, func, select
-from ....models.orm.expression import (
-    ExpressionPattern,
-    LanguageStylePattern,
-    StyleLearningRecord,
-    StyleProfile,
-)
-from ....repositories.expression_repository import ExpressionPatternRepository
+try:
+    from ....repositories.style_profile_repository import StyleProfileRepository
+    from ....models.orm.expression import (
+        ExpressionPattern,
+        LanguageStylePattern,
+        StyleLearningRecord,
+        StyleProfile,
+    )
+    from ....repositories.expression_repository import ExpressionPatternRepository
+except ImportError:
+    from repositories.style_profile_repository import StyleProfileRepository
+    from models.orm.expression import (
+        ExpressionPattern,
+        LanguageStylePattern,
+        StyleLearningRecord,
+        StyleProfile,
+    )
+    from repositories.expression_repository import ExpressionPatternRepository
 
 
 class ExpressionFacade(BaseFacade):

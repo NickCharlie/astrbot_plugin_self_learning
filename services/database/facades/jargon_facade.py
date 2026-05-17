@@ -12,8 +12,12 @@ from sqlalchemy.exc import IntegrityError
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from ....models.orm.jargon import Jargon
-from ....utils.text_utils import truncate_for_db
+try:
+    from ....models.orm.jargon import Jargon
+    from ....utils.text_utils import truncate_for_db
+except ImportError:
+    from models.orm.jargon import Jargon
+    from utils.text_utils import truncate_for_db
 
 
 class JargonFacade(BaseFacade):

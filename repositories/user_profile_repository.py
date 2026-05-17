@@ -8,7 +8,10 @@ from typing import List, Optional, Dict, Any
 
 from astrbot.api import logger
 from .base_repository import BaseRepository
-from ..models.orm.social_relation import UserProfile
+try:
+    from ..models.orm.social_relation import UserProfile
+except ImportError:
+    from models.orm.social_relation import UserProfile
 
 
 class UserProfileRepository(BaseRepository[UserProfile]):
