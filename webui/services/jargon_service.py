@@ -122,7 +122,8 @@ class JargonService:
         group_id: Optional[str] = None,
         confirmed: Optional[bool] = None,
         page: int = 1,
-        page_size: int = 20
+        page_size: int = 20,
+        pending_only: bool = False,
     ) -> Dict[str, Any]:
         """
         获取黑话列表
@@ -144,6 +145,7 @@ class JargonService:
             total = await self.database_manager.get_jargon_count(
                 chat_id=group_id,
                 only_confirmed=confirmed,
+                pending_only=pending_only,
             )
 
             # DB 层分页
@@ -153,9 +155,18 @@ class JargonService:
                 limit=page_size,
                 offset=offset,
                 only_confirmed=confirmed,
+                pending_only=pending_only,
             )
 
             formatted = [self._format_jargon_for_frontend(j) for j in jargons]
+            if pending_only:
+                unfiltered_count = len(formatted)
+                formatted = [
+                    item for item in formatted
+                    if not item.get('is_confirmed') and not item.get('is_complete')
+                ]
+                if unfiltered_count != len(formatted):
+                    total = len(formatted)
 
             return {
                 'jargon_list': formatted,
@@ -239,6 +250,49 @@ class JargonService:
                 return False, "删除失败"
         except Exception as e:
             logger.error(f"删除黑话失败: {e}", exc_info=True)
+            raise
+
+    async def review_jargon(
+        self,
+        jargon_id: int,
+        action: str,
+        meaning: Optional[str] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """确认或驳回黑话候选。"""
+        if not self.database_manager:
+            raise ValueError('数据库管理器未初始化')
+
+        if action not in {"approve", "reject"}:
+            return False, "action 必须是 approve 或 reject", {}
+
+        try:
+            current = await self.database_manager.get_jargon_by_id(jargon_id)
+            if not current:
+                return False, "黑话不存在", {}
+
+            payload = {
+                "id": jargon_id,
+                "is_jargon": action == "approve",
+                "is_complete": True,
+            }
+            if meaning is not None:
+                payload["meaning"] = meaning
+
+            success = await self.database_manager.update_jargon(payload)
+            if not success:
+                return False, "审查失败", current
+
+            updated = await self.database_manager.get_jargon_by_id(jargon_id) or {
+                **current,
+                **payload,
+            }
+            formatted = self._format_jargon_for_frontend(updated)
+            if action == "approve":
+                return True, f"已确认黑话「{formatted.get('term') or jargon_id}」", formatted
+            return True, f"已驳回候选「{formatted.get('term') or jargon_id}」", formatted
+
+        except Exception as e:
+            logger.error(f"审查黑话失败: {e}", exc_info=True)
             raise
 
     async def toggle_jargon_global(self, jargon_id: int) -> Tuple[bool, str, bool]:

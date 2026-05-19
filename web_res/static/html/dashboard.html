@@ -1,0 +1,3004 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SELF LEARNING 监控板</title>
+    <link rel="stylesheet" href="/static/vendor/material-icons/material-icons.css">
+    <script src="/static/vendor/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg: #f4f7fb;
+            --panel: #ffffff;
+            --panel-soft: #f8fbfd;
+            --text: #15212d;
+            --muted: #5f6c79;
+            --border: #d9e3ec;
+            --accent: #0f766e;
+            --accent-2: #2563eb;
+            --accent-3: #d97706;
+            --success: #15803d;
+            --warning: #b45309;
+            --danger: #b91c1c;
+            --shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+        }
+
+        [data-theme="dark"] {
+            --bg: #0d1218;
+            --panel: #111821;
+            --panel-soft: #0f1620;
+            --text: #e8edf3;
+            --muted: #8a96a3;
+            --border: #223040;
+            --accent: #2dd4bf;
+            --accent-2: #60a5fa;
+            --accent-3: #f59e0b;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #f97316;
+            --shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            min-height: 100%;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+            line-height: 1.5;
+        }
+
+        button, input, select {
+            font: inherit;
+        }
+
+        .shell {
+            position: relative;
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            padding: 6px 0 18px;
+        }
+
+        .brand {
+            min-width: 0;
+        }
+
+        .eyebrow {
+            color: var(--muted);
+            font-size: 12px;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        .brand h1 {
+            margin: 4px 0 0;
+            font-size: 28px;
+            line-height: 1.15;
+            letter-spacing: 0;
+        }
+
+        .brand p {
+            margin: 8px 0 0;
+            color: var(--muted);
+            max-width: 880px;
+        }
+
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            justify-content: flex-end;
+        }
+
+        .pill,
+        .icon-btn {
+            border: 1px solid var(--border);
+            background: var(--panel);
+            color: var(--text);
+            box-shadow: var(--shadow);
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .icon-btn {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .icon-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .hero {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            padding: 16px 18px;
+            margin-bottom: 16px;
+        }
+
+        .hero-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .hero-title {
+            min-width: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .hero-title strong {
+            font-size: 18px;
+        }
+
+        .hero-title span {
+            color: var(--muted);
+        }
+
+        .hero-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .tag b {
+            color: var(--text);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .metric {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            padding: 14px;
+            min-height: 110px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .metric .label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .accent-line {
+            width: 28px;
+            height: 3px;
+            border-radius: 999px;
+            background: var(--accent);
+        }
+
+        .accent-line.blue {
+            background: var(--accent-2);
+        }
+
+        .accent-line.amber {
+            background: var(--accent-3);
+        }
+
+        .metric .value {
+            margin: 10px 0 8px;
+            font-size: 30px;
+            line-height: 1;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .metric .note {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .grid2 {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .queue-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 16px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            min-height: 0;
+        }
+
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 16px 18px 0;
+        }
+
+        .panel-head h2 {
+            margin: 0;
+            font-size: 16px;
+            line-height: 1.2;
+        }
+
+        .panel-head .hint {
+            color: var(--muted);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .panel-body {
+            padding: 14px 18px 18px;
+        }
+
+        .chart {
+            width: 100%;
+            height: 320px;
+        }
+
+        .chart.tall {
+            height: 360px;
+        }
+
+        .side-stack {
+            display: grid;
+            gap: 16px;
+        }
+
+        .stack-section {
+            margin-top: 14px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .stack-section:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: 0;
+        }
+
+        .checks {
+            display: grid;
+            gap: 10px;
+        }
+
+        .check {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+        }
+
+        .check .name {
+            font-weight: 600;
+            font-size: 13px;
+        }
+
+        .check .desc {
+            margin-top: 4px;
+            color: var(--muted);
+            font-size: 12px;
+            word-break: break-word;
+        }
+
+        .state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            white-space: nowrap;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .state.healthy {
+            color: var(--success);
+        }
+
+        .state.degraded {
+            color: var(--warning);
+        }
+
+        .state.unhealthy {
+            color: var(--danger);
+        }
+
+        .state.unknown {
+            color: var(--muted);
+        }
+
+        .dim-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .dim {
+            display: grid;
+            gap: 6px;
+        }
+
+        .dim .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .dim .row span:last-child {
+            color: var(--muted);
+            white-space: nowrap;
+        }
+
+        .dim .bar {
+            height: 8px;
+            border-radius: 999px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+        }
+
+        .dim .bar span {
+            display: block;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .small-stat {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+        }
+
+        .small-stat .k {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .small-stat .v {
+            margin-top: 6px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .item {
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+        }
+
+        .item .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .item .title {
+            font-weight: 600;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .item .meta {
+            margin-top: 6px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .item .body {
+            margin-top: 8px;
+            color: var(--text);
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .item .body.clamp {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .item-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .action-btn,
+        .seg-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            min-height: 32px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        .action-btn:hover,
+        .seg-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .action-btn.success {
+            color: var(--success);
+        }
+
+        .action-btn.warning {
+            color: var(--warning);
+        }
+
+        .action-btn.danger {
+            color: var(--danger);
+        }
+
+        .action-btn:disabled,
+        .seg-btn:disabled {
+            cursor: progress;
+            opacity: 0.6;
+        }
+
+        .queue-status {
+            margin: 12px 0 16px;
+        }
+
+        .graphs-band {
+            margin-top: 16px;
+        }
+
+        .graph-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .graph-tabs {
+            display: inline-flex;
+            gap: 4px;
+            padding: 3px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+        }
+
+        .seg-btn {
+            min-height: 30px;
+            border-color: transparent;
+            background: transparent;
+            box-shadow: none;
+        }
+
+        .seg-btn.active {
+            background: var(--panel);
+            border-color: var(--border);
+            color: var(--accent);
+        }
+
+        .graph-input {
+            width: 180px;
+            height: 36px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 0 10px;
+        }
+
+        .graph-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .graph-chart {
+            height: 420px;
+        }
+
+        .graph-detail {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 12px;
+            min-height: 42px;
+            overflow-wrap: anywhere;
+        }
+
+        .subhead {
+            margin: 0 0 8px;
+            color: var(--muted);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .footer-note {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .icon-btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .icon-btn.primary:hover {
+            color: #fff;
+        }
+
+        .icon-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .settings-band {
+            margin-top: 18px;
+        }
+
+        .settings-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 14px;
+            align-items: flex-end;
+            margin-bottom: 12px;
+        }
+
+        .settings-title {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .settings-title h2 {
+            margin: 0;
+            font-size: 18px;
+            line-height: 1.2;
+        }
+
+        .settings-title p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            max-width: 960px;
+        }
+
+        .settings-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .settings-search {
+            min-width: min(340px, 100%);
+            height: 38px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 0 12px;
+            box-shadow: var(--shadow);
+        }
+
+        .settings-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel);
+            color: var(--muted);
+            font-size: 12px;
+            box-shadow: var(--shadow);
+        }
+
+        .chip b {
+            color: var(--text);
+            font-weight: 600;
+        }
+
+        .settings-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 12px;
+        }
+
+        .config-group {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .config-group summary {
+            list-style: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .config-group summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .group-title {
+            display: grid;
+            gap: 4px;
+            min-width: 0;
+        }
+
+        .group-title strong {
+            font-size: 15px;
+            line-height: 1.2;
+        }
+
+        .group-title span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .group-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: flex-end;
+        }
+
+        .group-meta .chip {
+            padding: 4px 8px;
+            box-shadow: none;
+        }
+
+        .config-fields {
+            display: grid;
+            gap: 12px;
+            padding: 0 16px 16px;
+        }
+
+        .config-field {
+            display: grid;
+            gap: 8px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+
+        .config-field:first-child {
+            padding-top: 0;
+            border-top: 0;
+        }
+
+        .field-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .field-label {
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.35;
+            font-weight: 600;
+        }
+
+        .field-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            justify-content: flex-end;
+        }
+
+        .field-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .field-hint {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+
+        .config-control input,
+        .config-control select,
+        .config-control textarea {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            color: var(--text);
+            padding: 10px 12px;
+            box-sizing: border-box;
+            box-shadow: none;
+        }
+
+        .config-control textarea {
+            min-height: 92px;
+            resize: vertical;
+        }
+
+        .config-control input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            padding: 0;
+            accent-color: var(--accent);
+        }
+
+        .config-control .bool-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 36px;
+            color: var(--text);
+            font-size: 13px;
+        }
+
+        .config-control .bool-row span {
+            color: var(--muted);
+        }
+
+        .config-status {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .config-status.success {
+            color: var(--success);
+        }
+
+        .config-status.warning {
+            color: var(--warning);
+        }
+
+        .config-status.error {
+            color: var(--danger);
+        }
+
+        .settings-empty {
+            padding: 24px 0 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        [hidden] {
+            display: none !important;
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        @media (max-width: 1100px) {
+            .metrics-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .grid2,
+            .queue-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .settings-head {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .settings-actions {
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 720px) {
+            .shell {
+                padding: 14px;
+            }
+
+            .topbar {
+                flex-direction: column;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+
+            .panel-head {
+                flex-direction: column;
+            }
+
+            .brand h1 {
+                font-size: 24px;
+            }
+
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .settings-search {
+                min-width: 0;
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body data-theme="light">
+    <div class="shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="eyebrow">SELF LEARNING / DASHBOARD</div>
+                <h1>监控板</h1>
+                <p id="summaryText">正在连接学习链路。</p>
+            </div>
+            <div class="toolbar">
+                <span class="pill">
+                    <span class="material-icons" style="font-size:18px;">schedule</span>
+                    <span id="lastUpdated">--</span>
+                </span>
+                <button class="icon-btn" id="refreshBtn" type="button" aria-label="刷新">
+                    <span class="material-icons">refresh</span>
+                </button>
+                <button class="icon-btn" id="settingsJumpBtn" type="button" aria-label="跳转到设置" title="跳转到设置">
+                    <span class="material-icons">tune</span>
+                </button>
+                <button class="icon-btn" id="themeBtn" type="button" aria-label="切换主题">
+                    <span class="material-icons" id="themeIcon">dark_mode</span>
+                </button>
+            </div>
+        </header>
+
+        <section class="hero">
+            <div class="hero-row">
+                <div class="hero-title">
+                    <strong id="heroHeadline">自学习监控板</strong>
+                    <span id="heroSubline">加载中。</span>
+                </div>
+                <div class="hero-meta">
+                    <span class="tag">
+                        <span class="material-icons" style="font-size:16px;">health_and_safety</span>
+                        健康 <b id="overallHealth">--</b>
+                    </span>
+                    <span class="tag">
+                        <span class="material-icons" style="font-size:16px;">psychology</span>
+                        效率 <b id="overallEfficiency">--</b>
+                    </span>
+                    <span class="tag">
+                        <span class="material-icons" style="font-size:16px;">assignment</span>
+                        待办 <b id="backlogCount">0</b>
+                    </span>
+                </div>
+            </div>
+        </section>
+
+        <section class="metrics-grid" aria-label="核心指标">
+            <div class="metric">
+                <div class="label"><span class="accent-line"></span>总消息</div>
+                <div class="value" id="metric-total-messages">0</div>
+                <div class="note"><span>累计采集</span><span id="metric-total-messages-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line blue"></span>筛选消息</div>
+                <div class="value" id="metric-filtered-messages">0</div>
+                <div class="note"><span>可学习样本</span><span id="metric-filtered-messages-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line amber"></span>筛选率</div>
+                <div class="value" id="metric-filter-rate">0%</div>
+                <div class="note"><span>消息筛选</span><span id="metric-filter-rate-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line"></span>学习效率</div>
+                <div class="value" id="metric-learning-efficiency">0%</div>
+                <div class="note"><span>综合得分</span><span id="metric-learning-efficiency-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line blue"></span>LLM 调用</div>
+                <div class="value" id="metric-llm-calls">0</div>
+                <div class="note"><span>模型调用</span><span id="metric-llm-calls-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line amber"></span>活跃会话</div>
+                <div class="value" id="metric-active-sessions">0</div>
+                <div class="note"><span>运行中</span><span id="metric-active-sessions-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line"></span>待审人格</div>
+                <div class="value" id="metric-persona-backlog">0</div>
+                <div class="note"><span>审查队列</span><span id="metric-persona-backlog-note">--</span></div>
+            </div>
+            <div class="metric">
+                <div class="label"><span class="accent-line blue"></span>待审风格</div>
+                <div class="value" id="metric-style-backlog">0</div>
+                <div class="note"><span>审查队列</span><span id="metric-style-backlog-note">--</span></div>
+            </div>
+        </section>
+
+        <section class="grid2">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>消息与学习趋势</h2>
+                    <span class="hint" id="trendHint">最近 7 天</span>
+                </div>
+                <div class="panel-body">
+                    <div id="trendChart" class="chart tall"></div>
+                </div>
+            </div>
+
+            <div class="side-stack">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>系统健康</h2>
+                        <span class="hint" id="healthHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="healthList" class="checks"></div>
+
+                        <div class="stack-section">
+                            <div class="panel-head" style="padding:0 0 8px;">
+                                <h2 style="font-size:14px;">监控热点</h2>
+                                <span class="hint" id="functionHint">--</span>
+                            </div>
+                            <div id="functionList" class="list"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>学习维度</h2>
+                        <span class="hint" id="dimensionHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="efficiencyChart" class="chart" style="height:220px;"></div>
+                        <div id="dimensionList" class="dim-list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="queue-grid">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>待审人格</h2>
+                    <span class="hint" id="personaCount">0</span>
+                </div>
+                <div class="panel-body">
+                    <div id="personaList" class="list"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>风格审查</h2>
+                    <span class="hint" id="styleCount">0</span>
+                </div>
+                <div class="panel-body">
+                    <div id="styleList" class="list"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>黑话与批次</h2>
+                    <span class="hint" id="jargonHint">--</span>
+                </div>
+                <div class="panel-body">
+                    <div class="stats-row" id="jargonStats"></div>
+
+                    <div class="stack-section">
+                        <div class="subhead">最近黑话</div>
+                        <div id="jargonList" class="list"></div>
+                    </div>
+
+                    <div class="stack-section">
+                        <div class="subhead">最近批次</div>
+                        <div id="batchList" class="list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <div id="queueStatus" class="config-status queue-status">审查操作就绪。</div>
+
+        <section class="graphs-band">
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>记忆与知识图谱</h2>
+                        <span class="hint" id="graphHint">可拖拽、缩放、点击节点查看详情</span>
+                    </div>
+                    <div class="graph-toolbar">
+                        <div class="graph-tabs" aria-label="图谱类型">
+                            <button class="seg-btn active" id="memoryGraphTab" type="button" data-graph-type="memory">
+                                <span class="material-icons" style="font-size:16px;">hub</span>
+                                记忆图
+                            </button>
+                            <button class="seg-btn" id="knowledgeGraphTab" type="button" data-graph-type="knowledge">
+                                <span class="material-icons" style="font-size:16px;">schema</span>
+                                知识图谱
+                            </button>
+                        </div>
+                        <input class="graph-input" id="graphGroupInput" type="text" placeholder="群组ID，可留空" autocomplete="off">
+                        <button class="icon-btn" id="graphLayoutBtn" type="button" aria-label="切换图布局" title="切换图布局">
+                            <span class="material-icons">scatter_plot</span>
+                        </button>
+                        <button class="icon-btn" id="graphReloadBtn" type="button" aria-label="刷新图谱" title="刷新图谱">
+                            <span class="material-icons">sync</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="graph-summary" id="graphSummary"></div>
+                    <div id="graphChart" class="chart graph-chart"></div>
+                    <div id="graphDetail" class="graph-detail">点击图谱节点查看详情。</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="settings-band" id="settingsSection">
+            <div class="settings-head">
+                <div class="settings-title">
+                    <div class="subhead">CONFIGURATION</div>
+                    <h2>全量设置</h2>
+                    <p>基础开关、模型、学习、存储与运行时参数集中管理。</p>
+                </div>
+                <div class="settings-actions">
+                    <input id="configSearch" class="settings-search" type="search" placeholder="搜索配置项" autocomplete="off">
+                    <button class="icon-btn" id="configReloadBtn" type="button" aria-label="重新加载配置" title="重新加载配置">
+                        <span class="material-icons">sync</span>
+                    </button>
+                    <button class="icon-btn" id="configResetBtn" type="button" aria-label="恢复已加载配置" title="恢复已加载配置">
+                        <span class="material-icons">undo</span>
+                    </button>
+                    <button class="icon-btn primary" id="configSaveBtn" type="button" aria-label="保存配置" title="保存配置">
+                        <span class="material-icons">save</span>
+                    </button>
+                </div>
+            </div>
+            <div class="settings-summary" id="configSummary"></div>
+            <div id="configGroups" class="settings-grid"></div>
+            <div id="configStatus" class="config-status">正在加载配置中。</div>
+        </section>
+    </div>
+
+    <script>
+        (function () {
+            const state = {
+                charts: {},
+                data: null,
+                theme: localStorage.getItem('sl-dashboard-theme') || 'light',
+                config: {
+                    schema: null,
+                    original: {},
+                    draft: {},
+                    dirtyKeys: new Set(),
+                    loading: false,
+                    saving: false,
+                    search: '',
+                },
+                actionBusy: new Set(),
+                graph: {
+                    type: 'memory',
+                    layout: 'force',
+                    groupId: '',
+                    data: null,
+                    loading: false,
+                },
+            };
+
+            const numberFmt = new Intl.NumberFormat('zh-CN', {
+                maximumFractionDigits: 1,
+            });
+
+            const $ = (id) => document.getElementById(id);
+
+            function safeNumber(value, fallback = 0) {
+                const num = Number(value);
+                return Number.isFinite(num) ? num : fallback;
+            }
+
+            function clamp(value, min = 0, max = 100) {
+                return Math.max(min, Math.min(max, value));
+            }
+
+            function formatCount(value) {
+                return numberFmt.format(Math.round(safeNumber(value)));
+            }
+
+            function formatPercent(value, digits = 0) {
+                return `${clamp(safeNumber(value), 0, 100).toFixed(digits)}%`;
+            }
+
+            function formatDecimal(value, digits = 2) {
+                return safeNumber(value).toFixed(digits);
+            }
+
+            function formatTime(value) {
+                if (value === null || value === undefined || value === '') {
+                    return '--';
+                }
+
+                let date = null;
+                if (typeof value === 'number') {
+                    date = new Date(value > 1e12 ? value : value * 1000);
+                } else if (typeof value === 'string' && /^\d+$/.test(value)) {
+                    const num = Number(value);
+                    date = new Date(num > 1e12 ? num : num * 1000);
+                } else {
+                    date = new Date(value);
+                }
+
+                if (!date || Number.isNaN(date.getTime())) {
+                    return String(value);
+                }
+
+                return new Intl.DateTimeFormat('zh-CN', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }).format(date);
+            }
+
+            function formatDuration(start, end) {
+                if (!start || !end) {
+                    return '--';
+                }
+
+                const s = new Date(start > 1e12 ? start : start * 1000);
+                const e = new Date(end > 1e12 ? end : end * 1000);
+                if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
+                    return '--';
+                }
+
+                const seconds = Math.max(0, (e - s) / 1000);
+                return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
+            }
+
+            function textOrDash(value) {
+                if (value === null || value === undefined || value === '') {
+                    return '--';
+                }
+                return String(value);
+            }
+
+            function escapeHtml(value) {
+                return textOrDash(value).replace(/[&<>"']/g, (char) => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#39;',
+                }[char]));
+            }
+
+            function safeArray(value) {
+                return Array.isArray(value) ? value : [];
+            }
+
+            function patternCount(value) {
+                if (Array.isArray(value)) {
+                    return value.length;
+                }
+
+                if (value && typeof value === 'object') {
+                    return Object.keys(value).length;
+                }
+
+                if (typeof value === 'string' && value.trim()) {
+                    try {
+                        const parsed = JSON.parse(value);
+                        return patternCount(parsed);
+                    } catch {
+                        return 1;
+                    }
+                }
+
+                return 0;
+            }
+
+            function collectLLMCalls(llmCalls) {
+                if (!llmCalls || typeof llmCalls !== 'object') {
+                    return { total: 0, providers: 0 };
+                }
+
+                const overall = llmCalls.overall && safeNumber(llmCalls.overall.total_calls);
+                if (overall) {
+                    return {
+                        total: overall,
+                        providers: Object.keys(llmCalls).filter((key) => key !== 'overall').length,
+                    };
+                }
+
+                const providerEntries = Object.entries(llmCalls).filter(([key, value]) => key !== 'overall' && value && typeof value === 'object');
+                const total = providerEntries.reduce((sum, [, value]) => sum + safeNumber(value.total_calls), 0);
+                return {
+                    total,
+                    providers: providerEntries.length,
+                };
+            }
+
+            function extractJargonStats(payload) {
+                return (payload && payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data))
+                    ? payload.data
+                    : (payload || {});
+            }
+
+            function extractJargonItems(payload) {
+                if (!payload) return [];
+                if (Array.isArray(payload.data)) return payload.data;
+                if (Array.isArray(payload.jargon_list)) return payload.jargon_list;
+                if (Array.isArray(payload)) return payload;
+                return [];
+            }
+
+            function iconForStatus(status) {
+                switch (status) {
+                    case 'healthy':
+                        return 'check_circle';
+                    case 'degraded':
+                        return 'warning';
+                    case 'unhealthy':
+                        return 'error';
+                    default:
+                        return 'help';
+                }
+            }
+
+            function stateLabel(status) {
+                const normalized = ['healthy', 'degraded', 'unhealthy'].includes(status) ? status : 'unknown';
+                return `<span class="state ${normalized}"><span class="material-icons" style="font-size:14px;">${iconForStatus(normalized)}</span>${normalized}</span>`;
+            }
+
+            function summarizeDetail(detail, key) {
+                if (detail === null || detail === undefined) {
+                    return '无详情';
+                }
+
+                if (typeof detail === 'string') {
+                    return detail;
+                }
+
+                if (typeof detail !== 'object') {
+                    return String(detail);
+                }
+
+                if (detail.error) {
+                    return detail.error;
+                }
+
+                const parts = [];
+                Object.entries(detail).forEach(([name, value]) => {
+                    if (value === null || value === undefined || value === '') {
+                        return;
+                    }
+
+                    if (Array.isArray(value)) {
+                        if (value.length) {
+                            parts.push(`${name}: ${value.slice(0, 3).join(', ')}`);
+                        }
+                        return;
+                    }
+
+                    if (typeof value === 'number') {
+                        if (name.includes('rate') || name.includes('percent')) {
+                            parts.push(`${name}: ${value <= 1 ? (value * 100).toFixed(1) + '%' : formatPercent(value)}`);
+                            return;
+                        }
+                        if (name.includes('latency') || name.includes('duration') || name.includes('time')) {
+                            parts.push(`${name}: ${formatDecimal(value, 3)}s`);
+                            return;
+                        }
+                        parts.push(`${name}: ${formatCount(value)}`);
+                        return;
+                    }
+
+                    parts.push(`${name}: ${String(value)}`);
+                });
+
+                if (!parts.length) {
+                    return key === 'services' ? '服务正常' : '无可展示详情';
+                }
+
+                return parts.join(' · ');
+            }
+
+            function ensureChart(id) {
+                const dom = $(id);
+                if (!dom || !window.echarts) {
+                    return null;
+                }
+
+                if (state.charts[id]) {
+                    state.charts[id].dispose();
+                }
+
+                state.charts[id] = echarts.init(dom);
+                return state.charts[id];
+            }
+
+            function confidenceLabel(value) {
+                if (value === null || value === undefined || value === '') {
+                    return null;
+                }
+
+                const score = safeNumber(value);
+                return `置信 ${formatPercent(score <= 1 ? score * 100 : score)}`;
+            }
+
+            function actionButton(action, id, icon, label, tone = '') {
+                if (id === undefined || id === null || id === '') {
+                    return '';
+                }
+                const busyKey = `${action}:${id}`;
+                const busy = state.actionBusy.has(busyKey);
+                return `
+                    <button
+                        class="action-btn ${tone}"
+                        type="button"
+                        data-dashboard-action="${escapeHtml(action)}"
+                        data-id="${escapeHtml(id)}"
+                        ${busy ? 'disabled' : ''}
+                    >
+                        <span class="material-icons" style="font-size:15px;">${escapeHtml(icon)}</span>
+                        <span>${escapeHtml(label)}</span>
+                    </button>
+                `;
+            }
+
+            function setQueueStatus(message, tone = '') {
+                const status = $('queueStatus');
+                if (!status) {
+                    return;
+                }
+                status.textContent = message || '审查操作就绪。';
+                status.className = `config-status queue-status${tone ? ` ${tone}` : ''}`;
+            }
+
+            function renderPersonaQueue(updates) {
+                const rows = safeArray(updates)
+                    .filter((item) => item && item.review_source !== 'style_learning')
+                    .slice(0, 5)
+                    .map((item) => {
+                        const id = item.id;
+                        const title = item.update_type || item.normalized_type || item.review_source || '人格更新';
+                        const sourceMap = {
+                            traditional: '传统',
+                            persona_learning: '人格学习',
+                        };
+                        const source = sourceMap[item.review_source] || '待审';
+                        const meta = [
+                            item.group_id ? `群组 ${item.group_id}` : null,
+                            item.timestamp ? formatTime(item.timestamp) : null,
+                            confidenceLabel(item.confidence_score),
+                        ].filter(Boolean).join(' · ');
+                        const body = item.proposed_content || item.new_content || item.reason || item.original_content || '暂无内容';
+
+                        return `
+                            <div class="item" data-review-id="${escapeHtml(id)}">
+                                <div class="top">
+                                    <div class="title">${escapeHtml(title)}</div>
+                                    <span class="state unknown">${escapeHtml(source)}</span>
+                                </div>
+                                <div class="meta">${escapeHtml(meta || '待审')}</div>
+                                <div class="body clamp">${escapeHtml(body)}</div>
+                                <div class="item-actions">
+                                    ${actionButton('persona-approve', id, 'check', '批准', 'success')}
+                                    ${actionButton('persona-reject', id, 'close', '拒绝', 'warning')}
+                                    ${actionButton('persona-delete', id, 'delete', '删除', 'danger')}
+                                </div>
+                            </div>
+                        `;
+                    });
+
+                return rows.length ? rows.join('') : '<div class="item">暂无待审人格更新。</div>';
+            }
+
+            function renderStyleQueue(reviews) {
+                const rows = safeArray(reviews).slice(0, 5).map((item) => {
+                    const reviewId = `style_${item.id}`;
+                    const count = patternCount(item.learned_patterns);
+                    const title = item.type || '对话风格学习';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.timestamp ? formatTime(item.timestamp) : (item.created_at ? formatTime(item.created_at) : null),
+                        count ? `模式 ${formatCount(count)}` : null,
+                    ].filter(Boolean).join(' · ');
+                    const body = item.description || item.few_shots_content || '暂无内容';
+
+                    return `
+                        <div class="item" data-review-id="${escapeHtml(reviewId)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${escapeHtml(item.status || 'pending')}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '待审')}</div>
+                            <div class="body clamp">${escapeHtml(body)}</div>
+                            <div class="item-actions">
+                                ${actionButton('persona-approve', reviewId, 'check', '批准', 'success')}
+                                ${actionButton('persona-reject', reviewId, 'close', '拒绝', 'warning')}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                return rows.length ? rows.join('') : '<div class="item">暂无风格审查记录。</div>';
+            }
+
+            function renderSummary(data) {
+                const metrics = data.metrics || {};
+                const trends = data.trends || {};
+                const health = data.health || {};
+                const persona = data.persona || {};
+                const style = data.style || {};
+                const jargon = data.jargonStats || {};
+
+                const totalMessages = safeNumber(metrics.total_messages_collected);
+                const filteredMessages = safeNumber(metrics.filtered_messages);
+                const filterRate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;
+                const learningEfficiency = safeNumber(metrics.learning_efficiency);
+                const llm = collectLLMCalls(metrics.llm_calls);
+                const activeSessions = safeNumber(metrics.learning_sessions && metrics.learning_sessions.active_sessions);
+                const personaUpdates = safeArray(persona.updates);
+                const styleBacklog = safeNumber(style.total);
+                const personaTotal = safeNumber(persona.total);
+                const personaPayloadIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
+                const personaBacklog = personaPayloadIncludesStyle ? Math.max(0, personaTotal - styleBacklog) : personaTotal;
+                const backlog = personaBacklog + styleBacklog;
+                const overallHealth = textOrDash(health.overall || 'unknown');
+
+                $('heroHeadline').textContent = '自学习监控板';
+                $('heroSubline').textContent = `总消息 ${formatCount(totalMessages)} · 筛选率 ${formatPercent(filterRate)} · 待办 ${formatCount(backlog)} 条`;
+                $('summaryText').textContent = buildSummaryText({
+                    overallHealth: health.overall || 'unknown',
+                    learningEfficiency,
+                    backlog,
+                    filteredMessages,
+                    totalMessages,
+                });
+
+                $('overallHealth').textContent = overallHealth;
+                $('overallEfficiency').textContent = formatPercent(learningEfficiency);
+                $('backlogCount').textContent = formatCount(backlog);
+
+                $('metric-total-messages').textContent = formatCount(totalMessages);
+                $('metric-total-messages-note').textContent = '截至现在';
+
+                $('metric-filtered-messages').textContent = formatCount(filteredMessages);
+                $('metric-filtered-messages-note').textContent = '进入学习';
+
+                $('metric-filter-rate').textContent = formatPercent(filterRate);
+                $('metric-filter-rate-note').textContent = '通过率';
+
+                $('metric-learning-efficiency').textContent = formatPercent(learningEfficiency);
+                $('metric-learning-efficiency-note').textContent = '综合得分';
+
+                $('metric-llm-calls').textContent = formatCount(llm.total);
+                $('metric-llm-calls-note').textContent = `${llm.providers} 个提供商`;
+
+                $('metric-active-sessions').textContent = formatCount(activeSessions);
+                $('metric-active-sessions-note').textContent = '当前运行';
+
+                $('metric-persona-backlog').textContent = formatCount(personaBacklog);
+                $('metric-persona-backlog-note').textContent = '待审队列';
+
+                $('metric-style-backlog').textContent = formatCount(styleBacklog);
+                $('metric-style-backlog-note').textContent = '待审队列';
+
+                const checks = health.checks || {};
+                const healthItems = Object.entries(checks).map(([key, item]) => {
+                    const status = item && item.status ? item.status : 'unknown';
+                    const detail = item ? item.detail : null;
+                    const labelMap = {
+                        cpu: 'CPU',
+                        memory: 'Memory',
+                        llm: 'LLM',
+                        cache: 'Cache',
+                        services: 'Services',
+                    };
+                    const name = labelMap[key] || key;
+                    return `
+                        <div class="check">
+                            <div>
+                                <div class="name">${escapeHtml(name)}</div>
+                                <div class="desc">${escapeHtml(summarizeDetail(detail, key))}</div>
+                            </div>
+                            <div>${stateLabel(status)}</div>
+                        </div>
+                    `;
+                });
+
+                $('healthList').innerHTML = healthItems.length ? healthItems.join('') : '<div class="item">暂无健康数据。</div>';
+                $('healthHint').textContent = `overall ${overallHealth}`;
+
+                const functionRows = safeArray(data.functions).slice(0, 5).map((item) => {
+                    const duration = item && item.duration ? item.duration : {};
+                    const avg = safeNumber(duration.avg);
+                    const calls = safeNumber(item.calls);
+                    const errors = safeNumber(item.errors);
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(item.name)}</div>
+                                <span class="state unknown">avg ${formatDecimal(avg, 4)}s</span>
+                            </div>
+                            <div class="meta">调用 ${formatCount(calls)} · 错误 ${formatCount(errors)} · ${errors ? formatPercent(item.error_rate * 100, 1) : '0.0%'}</div>
+                        </div>
+                    `;
+                });
+                $('functionHint').textContent = data.functions && data.functions.length ? `${Math.min(data.functions.length, 5)} 条热点` : '无热点';
+                $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="item">暂无函数热点。</div>';
+
+                const dimensions = metrics.learning_dimensions || {};
+                const dimensionEntries = Object.entries(dimensions).filter(([, value]) => Number.isFinite(Number(value)));
+                const dimensionMax = Math.max(100, ...dimensionEntries.map(([, value]) => safeNumber(value)));
+                $('dimensionHint').textContent = dimensionEntries.length ? `${dimensionEntries.length} 个维度` : '暂无维度';
+
+                const dimensionRows = dimensionEntries.map(([name, value]) => {
+                    const normalized = dimensionMax ? clamp((safeNumber(value) / dimensionMax) * 100) : 0;
+                    return `
+                        <div class="dim">
+                            <div class="row">
+                                <span>${escapeHtml(name)}</span>
+                                <span>${formatDecimal(value, safeNumber(value) >= 10 ? 0 : 1)}</span>
+                            </div>
+                            <div class="bar"><span style="width:${normalized}%"></span></div>
+                        </div>
+                    `;
+                });
+                $('dimensionList').innerHTML = dimensionRows.length ? dimensionRows.join('') : '<div class="item">暂无学习维度数据。</div>';
+
+                $('personaCount').textContent = `${formatCount(personaBacklog)} 条`;
+                $('styleCount').textContent = `${formatCount(styleBacklog)} 条`;
+                $('personaList').innerHTML = renderPersonaQueue(personaUpdates);
+                $('styleList').innerHTML = renderStyleQueue(style.reviews);
+
+                $('jargonHint').textContent = `候选 ${formatCount((jargon.total_candidates ?? jargon.totalCandidates) || 0)}`;
+
+                const jargonStats = extractJargonStats(data.jargonStats);
+                const jargonStatsMarkup = [
+                    ['候选', jargonStats.total_candidates],
+                    ['确认', jargonStats.confirmed_jargon],
+                    ['完成', jargonStats.completed_inference],
+                    ['出现', jargonStats.total_occurrences],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${label}</div>
+                        <div class="v">${formatCount(value)}</div>
+                    </div>
+                `);
+                $('jargonStats').innerHTML = jargonStatsMarkup.join('');
+
+                const jargonItems = extractJargonItems(data.jargonList).slice(0, 5).map((item) => {
+                    const id = item.id;
+                    const title = item.term || item.content || item.word || '未命名';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
+                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <div class="item" data-jargon-id="${escapeHtml(id)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
+                            <div class="body clamp">${escapeHtml(item.meaning || item.description || item.content || '暂无释义')}</div>
+                            <div class="item-actions">
+                                ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
+                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
+                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
+                                ${actionButton('jargon-delete', id, 'delete', '删除', 'danger')}
+                            </div>
+                        </div>
+                    `;
+                });
+                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="item">暂无黑话记录。</div>';
+
+                const batches = safeArray(trends.recent_batches).slice(0, 5).map((item) => {
+                    const quality = item.quality_score !== undefined ? safeNumber(item.quality_score) : null;
+                    const started = item.start_time ? formatTime(item.start_time) : '--';
+                    const finished = item.end_time ? formatTime(item.end_time) : '--';
+                    const duration = formatDuration(item.start_time, item.end_time);
+                    const title = item.batch_name || item.batch_id || '学习批次';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.processed_messages !== undefined ? `消息 ${formatCount(item.processed_messages)}` : null,
+                        item.success !== undefined ? (item.success ? '成功' : '失败') : null,
+                    ].filter(Boolean).join(' · ');
+                    const groupId = item.group_id || '';
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state ${item.success === false ? 'unhealthy' : 'healthy'}">${quality === null ? '--' : `quality ${formatDecimal(quality, quality < 1 ? 3 : 1)}`}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '批次记录')} · ${escapeHtml(duration)}</div>
+                            <div class="body clamp">开始 ${escapeHtml(started)} · 结束 ${escapeHtml(finished)}</div>
+                            <div class="item-actions">
+                                ${actionButton('batch-relearn', groupId, 'play_arrow', '重跑学习')}
+                            </div>
+                        </div>
+                    `;
+                });
+
+                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="item">暂无批次记录。</div>';
+                const batchCount = safeArray(trends.recent_batches).length;
+                $('trendHint').textContent = `最近 ${Object.keys(trends.daily_messages || {}).length || 7} 天`;
+                $('jargonHint').textContent = `候选 ${formatCount(jargonStats.total_candidates)} · 批次 ${formatCount(batchCount)}`;
+
+                updateLastUpdated();
+                renderSummaryText({
+                    metrics,
+                    health,
+                    personaBacklog,
+                    styleBacklog,
+                    backlog: personaBacklog + styleBacklog,
+                    jargonStats,
+                });
+            }
+
+            function buildSummaryText({ overallHealth, learningEfficiency, backlog, filteredMessages, totalMessages }) {
+                const healthText = {
+                    healthy: '系统状态稳定',
+                    degraded: '系统存在轻度降级',
+                    unhealthy: '系统出现异常',
+                }[overallHealth] || '状态待确认';
+
+                if (overallHealth !== 'healthy') {
+                    return `${healthText}，先处理健康面板中的异常项。`;
+                }
+
+                if (learningEfficiency < 50) {
+                    return `学习效率偏低，优先提升筛选率和审查闭环。`;
+                }
+
+                if (backlog > 0) {
+                    return `链路运行正常，但仍有 ${formatCount(backlog)} 条待审记录。`;
+                }
+
+                if (totalMessages === 0) {
+                    return '当前还没有消息进入学习链路。';
+                }
+
+                const rate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;
+                return `链路平稳，当前筛选率 ${formatPercent(rate)}，可以继续观察趋势。`;
+            }
+
+            function renderSummaryText(data) {
+                const overallHealth = (data.health && data.health.overall) || 'unknown';
+                const learningEfficiency = safeNumber(data.metrics && data.metrics.learning_efficiency);
+                const backlog = safeNumber(data.backlog);
+                const filteredMessages = safeNumber(data.metrics && data.metrics.filtered_messages);
+                const totalMessages = safeNumber(data.metrics && data.metrics.total_messages_collected);
+                $('summaryText').textContent = buildSummaryText({
+                    overallHealth,
+                    learningEfficiency,
+                    backlog,
+                    filteredMessages,
+                    totalMessages,
+                });
+            }
+
+            function renderTrendChart(trends) {
+                const chart = ensureChart('trendChart');
+                if (!chart) {
+                    return;
+                }
+
+                const entries = Object.entries(trends.daily_messages || {});
+                const sorted = entries
+                    .map(([day, count]) => ({ day, count: safeNumber(count) }))
+                    .sort((a, b) => a.day.localeCompare(b.day));
+
+                if (!sorted.length) {
+                    chart.setOption({
+                        graphic: [{
+                            type: 'text',
+                            left: 'center',
+                            top: 'middle',
+                            style: {
+                                text: '暂无趋势数据',
+                                fill: getTextColor(),
+                                fontSize: 14,
+                            },
+                        }],
+                    }, true);
+                    return;
+                }
+
+                const labels = sorted.map((item) => item.day);
+                const values = sorted.map((item) => item.count);
+                const moving = values.map((value, index) => {
+                    const start = Math.max(0, index - 2);
+                    const window = values.slice(start, index + 1);
+                    return window.length ? window.reduce((sum, item) => sum + item, 0) / window.length : value;
+                });
+
+                chart.setOption({
+                    animation: true,
+                    grid: { left: 40, right: 20, top: 30, bottom: 30 },
+                    tooltip: { trigger: 'axis' },
+                    xAxis: {
+                        type: 'category',
+                        data: labels,
+                        axisLine: { lineStyle: { color: getBorderColor() } },
+                        axisLabel: { color: getMutedColor() },
+                    },
+                    yAxis: {
+                        type: 'value',
+                        axisLine: { lineStyle: { color: getBorderColor() } },
+                        splitLine: { lineStyle: { color: getGridColor() } },
+                        axisLabel: { color: getMutedColor() },
+                    },
+                    series: [
+                        {
+                            name: '消息数',
+                            type: 'bar',
+                            data: values,
+                            barWidth: '44%',
+                            itemStyle: {
+                                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                    { offset: 0, color: 'rgba(15, 118, 110, 0.95)' },
+                                    { offset: 1, color: 'rgba(37, 99, 235, 0.75)' },
+                                ]),
+                                borderRadius: [6, 6, 0, 0],
+                            },
+                        },
+                        {
+                            name: '3日均线',
+                            type: 'line',
+                            data: moving,
+                            smooth: true,
+                            symbol: 'circle',
+                            symbolSize: 6,
+                            lineStyle: { width: 2, color: getLineColor() },
+                            itemStyle: { color: getLineColor() },
+                            areaStyle: { color: 'rgba(96, 165, 250, 0.08)' },
+                        },
+                    ],
+                }, true);
+            }
+
+            function renderEfficiencyChart(metrics) {
+                const chart = ensureChart('efficiencyChart');
+                if (!chart) {
+                    return;
+                }
+
+                const efficiency = clamp(safeNumber(metrics.learning_efficiency), 0, 100);
+                const rawDimensions = metrics.learning_dimensions || {};
+                const dimensionEntries = Object.entries(rawDimensions).filter(([, value]) => Number.isFinite(Number(value)));
+                const dimensionValue = dimensionEntries.reduce((sum, [, value]) => sum + safeNumber(value), 0);
+                const dimensionCount = dimensionEntries.length;
+
+                if (!dimensionCount) {
+                    chart.setOption({
+                        graphic: [{
+                            type: 'text',
+                            left: 'center',
+                            top: 'middle',
+                            style: {
+                                text: '暂无学习维度',
+                                fill: getTextColor(),
+                                fontSize: 14,
+                            },
+                        }],
+                    }, true);
+                    return;
+                }
+
+                chart.setOption({
+                    tooltip: { formatter: '{b}: {c}%' },
+                    series: [{
+                        type: 'gauge',
+                        startAngle: 210,
+                        endAngle: -30,
+                        radius: '92%',
+                        min: 0,
+                        max: 100,
+                        progress: {
+                            show: true,
+                            roundCap: true,
+                            width: 18,
+                            itemStyle: { color: getGaugeColor(efficiency) },
+                        },
+                        axisLine: {
+                            lineStyle: {
+                                width: 18,
+                                color: [[1, getGaugeRailColor()]],
+                            },
+                        },
+                        axisTick: { show: false },
+                        splitLine: { show: false },
+                        axisLabel: { show: false },
+                        pointer: { show: false },
+                        detail: {
+                            valueAnimation: true,
+                            formatter: (value) => `${Math.round(value)}%`,
+                            fontSize: 24,
+                            fontWeight: 700,
+                            color: getTextColor(),
+                            offsetCenter: [0, '12%'],
+                        },
+                        title: {
+                            show: true,
+                            offsetCenter: [0, '38%'],
+                            fontSize: 12,
+                            color: getMutedColor(),
+                        },
+                        data: [{
+                            value: efficiency,
+                            name: '学习效率',
+                        }],
+                    }],
+                }, true);
+
+                $('dimensionHint').textContent = `${dimensionCount} 个维度 · 总和 ${formatDecimal(dimensionValue, dimensionValue >= 10 ? 0 : 1)}`;
+            }
+
+            function cloneConfig(value) {
+                return JSON.parse(JSON.stringify(value || {}));
+            }
+
+            function normalizeFieldValue(field, value) {
+                if (field.widget === 'readonly') {
+                    return value;
+                }
+
+                if (field.type === 'bool') {
+                    return Boolean(value);
+                }
+
+                if (field.type === 'int') {
+                    if (value === '' || value === null || value === undefined) {
+                        return null;
+                    }
+                    const num = Number.parseInt(value, 10);
+                    return Number.isFinite(num) ? num : null;
+                }
+
+                if (field.type === 'float') {
+                    if (value === '' || value === null || value === undefined) {
+                        return null;
+                    }
+                    const num = Number.parseFloat(value);
+                    return Number.isFinite(num) ? num : null;
+                }
+
+                if (field.type === 'list') {
+                    if (Array.isArray(value)) {
+                        return value.map((item) => String(item).trim()).filter(Boolean);
+                    }
+                    const text = String(value || '').trim();
+                    if (!text) {
+                        return [];
+                    }
+                    return text
+                        .split(/[\n,]/)
+                        .map((item) => item.trim())
+                        .filter(Boolean);
+                }
+
+                if (value === null || value === undefined) {
+                    return field.nullable ? null : '';
+                }
+
+                const text = String(value);
+                if (!text && field.nullable) {
+                    return null;
+                }
+                return text;
+            }
+
+            function configValuesEqual(field, left, right) {
+                const normalizedLeft = normalizeFieldValue(field, left);
+                const normalizedRight = normalizeFieldValue(field, right);
+
+                if (field.type === 'list') {
+                    return JSON.stringify(normalizedLeft) === JSON.stringify(normalizedRight);
+                }
+
+                return normalizedLeft === normalizedRight;
+            }
+
+            function formatConfigValue(field, value) {
+                if (field.type === 'bool') {
+                    return Boolean(value);
+                }
+
+                if (field.type === 'int' || field.type === 'float') {
+                    if (value === null || value === undefined || value === '') {
+                        return '';
+                    }
+                    return String(value);
+                }
+
+                if (field.type === 'list') {
+                    if (Array.isArray(value)) {
+                        return value.join('\n');
+                    }
+                    if (typeof value === 'string') {
+                        const text = value.trim();
+                        if (!text) {
+                            return '';
+                        }
+                        try {
+                            const parsed = JSON.parse(text);
+                            if (Array.isArray(parsed)) {
+                                return parsed.join('\n');
+                            }
+                        } catch {}
+                        return text;
+                    }
+                    return '';
+                }
+
+                if (value === null || value === undefined) {
+                    return '';
+                }
+                return String(value);
+            }
+
+            function getConfigSchemaPayload() {
+                return state.config.schema || { groups: [], config: {} };
+            }
+
+            function getConfigEditableKeys() {
+                const payload = getConfigSchemaPayload();
+                return safeArray(payload.groups)
+                    .flatMap((group) => safeArray(group.fields))
+                    .filter((field) => field && field.editable)
+                    .map((field) => field.key);
+            }
+
+            function getConfigFieldByKey(key) {
+                const payload = getConfigSchemaPayload();
+                for (const group of safeArray(payload.groups)) {
+                    for (const field of safeArray(group.fields)) {
+                        if (field && field.key === key) {
+                            return field;
+                        }
+                    }
+                }
+                return null;
+            }
+
+            function renderConfigField(field) {
+                const fieldId = `config-${field.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+                const value = Object.prototype.hasOwnProperty.call(state.config.draft, field.key)
+                    ? state.config.draft[field.key]
+                    : field.value;
+                const displayValue = formatConfigValue(field, value);
+                const searchParts = [
+                    field.key,
+                    field.label,
+                    field.hint,
+                    field.type,
+                    field.widget,
+                    ...(safeArray(field.options).map((option) => `${option.label || ''} ${option.value || ''}`)),
+                ].filter(Boolean).join(' ').toLowerCase();
+
+                const badges = [];
+                if (!field.editable) {
+                    badges.push('只读');
+                }
+                if (field.restart_required) {
+                    badges.push('重启后生效');
+                }
+                if (field.widget === 'provider') {
+                    badges.push('Provider');
+                }
+                if (field.nullable) {
+                    badges.push('可空');
+                }
+
+                let controlHtml = '';
+                if (field.widget === 'toggle') {
+                    controlHtml = `
+                        <label class="bool-row" for="${fieldId}">
+                            <input
+                                id="${fieldId}"
+                                type="checkbox"
+                                data-config-key="${escapeHtml(field.key)}"
+                                data-config-type="${escapeHtml(field.type)}"
+                                data-config-widget="${escapeHtml(field.widget)}"
+                                ${displayValue ? 'checked' : ''}
+                                ${field.editable ? '' : 'disabled'}
+                            >
+                            <span>${displayValue ? '已启用' : '已关闭'}</span>
+                        </label>
+                    `;
+                } else if (field.widget === 'select') {
+                    const options = safeArray(field.options || []);
+                    const currentValue = displayValue || '';
+                    const optionSet = options.some((option) => option.value === currentValue);
+                    const selectOptions = [];
+                    if (field.nullable) {
+                        selectOptions.push(`<option value="">未设置</option>`);
+                    }
+                    options.forEach((option) => {
+                        const optionValue = option.value ?? '';
+                        selectOptions.push(`
+                            <option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>
+                                ${escapeHtml(option.label || optionValue)}
+                            </option>
+                        `);
+                    });
+                    if (currentValue && !optionSet) {
+                        selectOptions.push(`
+                            <option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)}（当前值）</option>
+                        `);
+                    }
+                    controlHtml = `
+                        <select
+                            id="${fieldId}"
+                            class="config-input"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            ${field.editable ? '' : 'disabled'}
+                        >${selectOptions.join('')}</select>
+                    `;
+                } else if (field.widget === 'provider' && safeArray(field.options).length) {
+                    const currentValue = displayValue || '';
+                    const options = safeArray(field.options || []);
+                    const optionSet = options.some((option) => option.value === currentValue);
+                    const selectOptions = [
+                        `<option value="">未设置</option>`,
+                        ...options.map((option) => {
+                            const optionValue = option.value ?? '';
+                            const label = option.label || optionValue;
+                            return `<option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                        }),
+                    ];
+                    if (currentValue && !optionSet) {
+                        selectOptions.push(`<option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)}（当前值）</option>`);
+                    }
+                    controlHtml = `
+                        <select
+                            id="${fieldId}"
+                            class="config-input"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            ${field.editable ? '' : 'disabled'}
+                        >${selectOptions.join('')}</select>
+                    `;
+                } else if (field.widget === 'provider') {
+                    controlHtml = `
+                        <input
+                            id="${fieldId}"
+                            class="config-input"
+                            type="text"
+                            value="${escapeHtml(displayValue)}"
+                            placeholder="未配置"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            ${field.editable ? '' : 'disabled'}
+                        >
+                    `;
+                } else if (field.widget === 'readonly') {
+                    controlHtml = `
+                        <input
+                            id="${fieldId}"
+                            class="config-input"
+                            type="text"
+                            value="${escapeHtml(displayValue)}"
+                            disabled
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                        >
+                    `;
+                } else if (field.type === 'list') {
+                    controlHtml = `
+                        <textarea
+                            id="${fieldId}"
+                            class="config-input"
+                            placeholder="一行一个，或使用逗号分隔"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            ${field.editable ? '' : 'disabled'}
+                        >${escapeHtml(displayValue)}</textarea>
+                    `;
+                } else {
+                    const inputType = field.type === 'int' || field.type === 'float' ? 'number' : 'text';
+                    const step = field.type === 'float' ? 'any' : (field.type === 'int' ? '1' : null);
+                    controlHtml = `
+                        <input
+                            id="${fieldId}"
+                            class="config-input"
+                            type="${inputType}"
+                            value="${escapeHtml(displayValue)}"
+                            ${step ? `step="${step}"` : ''}
+                            placeholder="${field.nullable ? '可留空' : ''}"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            data-config-nullable="${field.nullable ? '1' : '0'}"
+                            ${field.editable ? '' : 'disabled'}
+                        >
+                    `;
+                }
+
+                return `
+                    <div
+                        class="config-field"
+                        data-config-key="${escapeHtml(field.key)}"
+                        data-search="${escapeHtml(searchParts)}"
+                    >
+                        <div class="field-head">
+                            <p class="field-label">${escapeHtml(field.label)}</p>
+                            <div class="field-meta">
+                                ${badges.map((badge) => `<span class="field-pill">${badge}</span>`).join('')}
+                            </div>
+                        </div>
+                        <div class="config-control">${controlHtml}</div>
+                        ${field.hint ? `<div class="field-hint">${escapeHtml(field.hint)}</div>` : ''}
+                    </div>
+                `;
+            }
+
+            function renderConfigPanel() {
+                const payload = getConfigSchemaPayload();
+                const groups = safeArray(payload.groups);
+                const groupsMarkup = groups.map((group) => {
+                    const fields = safeArray(group.fields);
+                    const editableCount = fields.filter((field) => field && field.editable).length;
+                    const readonlyCount = fields.length - editableCount;
+                    const searchText = [
+                        group.key,
+                        group.title,
+                        group.hint,
+                        ...fields.map((field) => `${field.key} ${field.label} ${field.hint}`),
+                    ].filter(Boolean).join(' ').toLowerCase();
+
+                    return `
+                        <details class="config-group" data-group-key="${escapeHtml(group.key)}" data-search="${escapeHtml(searchText)}" open>
+                            <summary>
+                                <div class="group-title">
+                                    <strong>${escapeHtml(group.title)}</strong>
+                                    ${group.hint ? `<span>${escapeHtml(group.hint)}</span>` : ''}
+                                </div>
+                                <div class="group-meta">
+                                    <span class="chip"><b>${fields.length}</b> 项</span>
+                                    <span class="chip"><b>${editableCount}</b> 可改</span>
+                                    ${readonlyCount ? `<span class="chip"><b>${readonlyCount}</b> 只读</span>` : ''}
+                                </div>
+                            </summary>
+                            <div class="config-fields">
+                                ${fields.map((field) => renderConfigField(field)).join('')}
+                            </div>
+                        </details>
+                    `;
+                });
+
+                const configGroups = $('configGroups');
+                if (configGroups) {
+                    configGroups.innerHTML = groupsMarkup.length
+                        ? groupsMarkup.join('')
+                        : '<div class="settings-empty">暂无配置项。</div>';
+                }
+
+                state.config.dirtyKeys = new Set(state.config.dirtyKeys);
+                updateConfigSummary();
+                applyConfigSearch();
+                updateConfigStatus();
+            }
+
+            function updateConfigSummary() {
+                const payload = getConfigSchemaPayload();
+                const groups = safeArray(payload.groups);
+                const fields = groups.flatMap((group) => safeArray(group.fields));
+                const editableFields = fields.filter((field) => field && field.editable);
+                const draft = state.config.draft || {};
+                const providerFields = editableFields.filter((field) => field.key.endsWith('_provider_id'));
+                const providerCount = providerFields.filter((field) => draft[field.key]).length;
+                const summaryItems = [
+                    ['分组', groups.length],
+                    ['可改', editableFields.length],
+                    ['已改', state.config.dirtyKeys.size],
+                    ['数据库', draft.db_type || '--'],
+                    ['WebUI', `${draft.web_interface_host || '--'}:${draft.web_interface_port ?? '--'}`],
+                    ['提供商', `${providerCount}/${providerFields.length || 0}`],
+                ].map(([label, value]) => `<span class="chip">${escapeHtml(label)} <b>${escapeHtml(value)}</b></span>`);
+
+                const configSummary = $('configSummary');
+                if (configSummary) {
+                    configSummary.innerHTML = summaryItems.join('');
+                }
+            }
+
+            function updateConfigStatus(message, tone = '') {
+                const status = $('configStatus');
+                if (!status) {
+                    return;
+                }
+
+                const payload = getConfigSchemaPayload();
+                const dirtyCount = state.config.dirtyKeys.size;
+                if (message) {
+                    status.textContent = message;
+                } else if (state.config.loading) {
+                    status.textContent = '正在加载配置 schema。';
+                } else if (state.config.saving) {
+                    status.textContent = '正在保存配置。';
+                } else if (dirtyCount > 0) {
+                    status.textContent = `有 ${dirtyCount} 项未保存修改。`;
+                } else if (safeArray(payload.groups).length) {
+                    status.textContent = '配置已同步。';
+                } else {
+                    status.textContent = '配置面板尚未加载。';
+                }
+
+                status.className = `config-status${tone ? ` ${tone}` : ''}`;
+            }
+
+            function syncConfigDraftFromInput(target) {
+                const key = target.dataset.configKey;
+                if (!key) {
+                    return;
+                }
+
+                const field = getConfigFieldByKey(key);
+                if (!field || !field.editable) {
+                    return;
+                }
+
+                let nextValue = null;
+                if (field.type === 'bool') {
+                    nextValue = Boolean(target.checked);
+                } else if (field.type === 'int' || field.type === 'float') {
+                    nextValue = normalizeFieldValue(field, target.value);
+                    if (nextValue === null && !field.nullable) {
+                        nextValue = state.config.original[key];
+                    }
+                } else if (field.type === 'list') {
+                    nextValue = normalizeFieldValue(field, target.value);
+                } else if (field.widget === 'provider' && field.nullable) {
+                    const text = String(target.value || '').trim();
+                    nextValue = text ? text : null;
+                } else {
+                    nextValue = target.value;
+                    if (field.nullable && String(nextValue).trim() === '') {
+                        nextValue = null;
+                    }
+                }
+
+                state.config.draft[key] = nextValue;
+                if (configValuesEqual(field, nextValue, state.config.original[key])) {
+                    state.config.dirtyKeys.delete(key);
+                } else {
+                    state.config.dirtyKeys.add(key);
+                }
+                updateConfigSummary();
+                updateConfigStatus();
+            }
+
+            function applyConfigSearch() {
+                const query = String(state.config.search || '').trim().toLowerCase();
+                const groups = document.querySelectorAll('.config-group');
+
+                groups.forEach((groupEl) => {
+                    const groupMatch = !query || (groupEl.dataset.search || '').includes(query);
+                    const fields = groupEl.querySelectorAll('.config-field');
+                    let fieldMatch = false;
+
+                    fields.forEach((fieldEl) => {
+                        const match = !query || groupMatch || (fieldEl.dataset.search || '').includes(query);
+                        fieldEl.hidden = !match;
+                        if (match) {
+                            fieldMatch = true;
+                        }
+                    });
+
+                    const visible = !query || groupMatch || fieldMatch;
+                    groupEl.hidden = !visible;
+                    if (visible) {
+                        groupEl.open = true;
+                    }
+                });
+            }
+
+            async function loadConfigPanel(options = {}) {
+                const { quiet = false } = options;
+                state.config.loading = true;
+                if (!quiet) {
+                    updateConfigStatus('正在加载配置 schema。');
+                }
+
+                try {
+                    const payload = await safeFetch('/api/config/schema');
+                    if (!payload) {
+                        throw new Error('配置 schema 获取失败');
+                    }
+
+                    const schema = payload.data || payload;
+                    state.config.schema = schema;
+                    state.config.original = cloneConfig(schema.config || {});
+                    state.config.draft = cloneConfig(state.config.original);
+                    state.config.dirtyKeys = new Set();
+                    renderConfigPanel();
+                    updateConfigStatus('配置已从服务端加载。', 'success');
+                } catch (error) {
+                    console.error('加载配置 schema 失败:', error);
+                    if (!quiet) {
+                        updateConfigStatus(`加载配置失败: ${error.message}`, 'error');
+                    }
+                } finally {
+                    state.config.loading = false;
+                    if (!quiet && !state.config.schema) {
+                        updateConfigStatus('配置面板尚未加载。', 'error');
+                    }
+                }
+            }
+
+            async function saveConfigPanel() {
+                if (state.config.saving || !state.config.schema) {
+                    return;
+                }
+
+                const editableKeys = getConfigEditableKeys();
+                const payload = {};
+                editableKeys.forEach((key) => {
+                    payload[key] = state.config.draft[key];
+                });
+
+                state.config.saving = true;
+                updateConfigStatus('正在保存配置。');
+
+                try {
+                    const response = await fetch('/api/config', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(payload),
+                    });
+
+                    const text = await response.text();
+                    let body = {};
+                    if (text) {
+                        try {
+                            body = JSON.parse(text);
+                        } catch {
+                            body = { raw: text };
+                        }
+                    }
+
+                    if (!response.ok) {
+                        throw new Error(body.error || body.message || `HTTP ${response.status}`);
+                    }
+
+                    const updated = body.new_config || body.data || body.config || body;
+                    state.config.original = cloneConfig(updated);
+                    state.config.draft = cloneConfig(updated);
+                    state.config.dirtyKeys = new Set();
+                    renderConfigPanel();
+                    const tone = /重启后生效/.test(body.message || '') ? 'warning' : 'success';
+                    updateConfigStatus(body.message || '配置已保存。', tone);
+                    setTimeout(() => {
+                        loadDashboard();
+                    }, 0);
+                } catch (error) {
+                    console.error('保存配置失败:', error);
+                    updateConfigStatus(`保存失败: ${error.message}`, 'error');
+                } finally {
+                    state.config.saving = false;
+                    updateConfigSummary();
+                }
+            }
+
+            function resetConfigPanel() {
+                if (!state.config.schema) {
+                    return;
+                }
+
+                state.config.draft = cloneConfig(state.config.original);
+                state.config.dirtyKeys = new Set();
+                renderConfigPanel();
+                updateConfigStatus('已恢复为当前服务端配置。', 'success');
+            }
+
+            async function reloadConfigPanel() {
+                if (state.config.loading) {
+                    return;
+                }
+
+                if (state.config.dirtyKeys.size > 0) {
+                    const confirmed = window.confirm('将放弃未保存修改并重新加载配置，是否继续？');
+                    if (!confirmed) {
+                        return;
+                    }
+                }
+
+                await loadConfigPanel();
+            }
+
+            async function postJson(url, body = {}) {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch {
+                        payload = { raw: text };
+                    }
+                }
+                if (!response.ok) {
+                    throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+                }
+                return payload;
+            }
+
+            async function deleteJson(url) {
+                const response = await fetch(url, {
+                    method: 'DELETE',
+                    credentials: 'same-origin',
+                });
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch {
+                        payload = { raw: text };
+                    }
+                }
+                if (!response.ok) {
+                    throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+                }
+                return payload;
+            }
+
+            async function runDashboardAction(action, id) {
+                if (id === undefined || id === null || id === '') {
+                    setQueueStatus('缺少可操作的 ID。', 'error');
+                    return;
+                }
+
+                const busyKey = `${action}:${id}`;
+                if (state.actionBusy.has(busyKey)) {
+                    return;
+                }
+
+                state.actionBusy.add(busyKey);
+                renderAll(state.data || {});
+                setQueueStatus('正在处理操作。');
+
+                try {
+                    let payload = null;
+                    if (action === 'persona-approve' || action === 'persona-reject') {
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, {
+                            action: action === 'persona-approve' ? 'approve' : 'reject',
+                        });
+                    } else if (action === 'persona-delete') {
+                        if (!window.confirm('确定删除这条审查记录？')) {
+                            setQueueStatus('已取消操作。');
+                            return;
+                        }
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
+                    } else if (action === 'jargon-approve' || action === 'jargon-reject') {
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, {
+                            action: action === 'jargon-approve' ? 'approve' : 'reject',
+                        });
+                    } else if (action === 'jargon-toggle-global') {
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
+                    } else if (action === 'jargon-delete') {
+                        if (!window.confirm('确定删除这条黑话记录？')) {
+                            setQueueStatus('已取消操作。');
+                            return;
+                        }
+                        payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
+                    } else if (action === 'batch-relearn') {
+                        payload = await postJson('/api/relearn', { group_id: id });
+                    } else {
+                        throw new Error(`未知操作: ${action}`);
+                    }
+
+                    const message = payload && (payload.message || payload.error);
+                    setQueueStatus(message || '操作已完成。', 'success');
+                    await loadDashboard();
+                    if (action.startsWith('jargon') || action.startsWith('batch')) {
+                        await loadGraphPanel({ quiet: true });
+                    }
+                } catch (error) {
+                    console.error('Dashboard action failed:', error);
+                    setQueueStatus(`操作失败: ${error.message}`, 'error');
+                } finally {
+                    state.actionBusy.delete(busyKey);
+                    if (state.data) {
+                        renderAll(state.data);
+                    }
+                }
+            }
+
+            function renderGraphPanel(payload) {
+                const graphPayload = payload || state.graph.data || {};
+                const nodes = safeArray(graphPayload.nodes);
+                const links = safeArray(graphPayload.links);
+                const categories = safeArray(graphPayload.categories);
+                const chart = ensureChart('graphChart');
+
+                $('graphSummary').innerHTML = [
+                    ['节点', nodes.length],
+                    ['关系', links.length],
+                    ['群组', safeArray(graphPayload.groups).length],
+                    ['布局', state.graph.layout === 'force' ? '力导向' : '环形'],
+                ].map(([label, value]) => `<span class="chip">${escapeHtml(label)} <b>${escapeHtml(value)}</b></span>`).join('');
+
+                $('graphHint').textContent = state.graph.loading
+                    ? '图谱加载中'
+                    : `${state.graph.type === 'memory' ? '记忆图' : '知识图谱'} · ${nodes.length} 节点`;
+
+                if (!chart) {
+                    $('graphDetail').textContent = window.echarts
+                        ? '图谱容器尚未就绪。'
+                        : '图谱渲染库未加载，请确认 /static/vendor/echarts.min.js 已随插件打包。';
+                    return;
+                }
+
+                if (!nodes.length) {
+                    chart.setOption({
+                        graphic: [{
+                            type: 'text',
+                            left: 'center',
+                            top: 'middle',
+                            style: {
+                                text: '暂无图谱数据',
+                                fill: getTextColor(),
+                                fontSize: 14,
+                            },
+                        }],
+                    }, true);
+                    $('graphDetail').textContent = '暂无可展示节点。';
+                    return;
+                }
+
+                chart.setOption({
+                    animation: true,
+                    tooltip: {
+                        trigger: 'item',
+                        formatter: (params) => {
+                            if (params.dataType === 'edge') {
+                                const label = params.data && params.data.label && params.data.label.formatter;
+                                return escapeHtml(label || '关联');
+                            }
+                            const data = params.data || {};
+                            return `${escapeHtml(data.name)}<br>${escapeHtml(data.detail || data.category_name || '')}`;
+                        },
+                    },
+                    legend: [{
+                        data: categories.map((item) => item.name),
+                        textStyle: { color: getMutedColor() },
+                        top: 0,
+                    }],
+                    series: [{
+                        type: 'graph',
+                        layout: state.graph.layout,
+                        data: nodes,
+                        links,
+                        categories,
+                        roam: true,
+                        draggable: true,
+                        top: 40,
+                        label: {
+                            show: true,
+                            position: 'right',
+                            color: getTextColor(),
+                            fontSize: 11,
+                        },
+                        force: {
+                            repulsion: 170,
+                            gravity: 0.08,
+                            edgeLength: [60, 140],
+                        },
+                        circular: {
+                            rotateLabel: true,
+                        },
+                        lineStyle: {
+                            color: 'source',
+                            curveness: 0.12,
+                            opacity: 0.62,
+                        },
+                        emphasis: {
+                            focus: 'adjacency',
+                            lineStyle: { width: 4 },
+                        },
+                    }],
+                }, true);
+
+                chart.off('click');
+                chart.on('click', (params) => {
+                    if (params.dataType !== 'node') {
+                        return;
+                    }
+                    const data = params.data || {};
+                    $('graphDetail').textContent = [
+                        data.name,
+                        data.category_name ? `类型: ${data.category_name}` : null,
+                        data.group_id ? `群组: ${data.group_id}` : null,
+                        data.detail || null,
+                    ].filter(Boolean).join(' · ');
+                });
+            }
+
+            async function loadGraphPanel(options = {}) {
+                const { quiet = false } = options;
+                state.graph.loading = true;
+                if (!quiet) {
+                    $('graphHint').textContent = '图谱加载中';
+                }
+
+                try {
+                    const params = new URLSearchParams();
+                    params.set('limit', '160');
+                    if (state.graph.groupId) {
+                        params.set('group_id', state.graph.groupId);
+                    }
+                    const url = `/api/graphs/${state.graph.type}?${params.toString()}`;
+                    const payload = await safeFetch(url);
+                    state.graph.data = payload || { nodes: [], links: [], groups: [], categories: [] };
+                } catch (error) {
+                    console.warn('Graph load failed:', error);
+                    state.graph.data = { nodes: [], links: [], groups: [], categories: [] };
+                } finally {
+                    state.graph.loading = false;
+                    renderGraphPanel(state.graph.data);
+                }
+            }
+
+            function renderAll(data) {
+                state.data = data;
+                renderSummary(data);
+                renderTrendChart(data.trends || {});
+                renderEfficiencyChart(data.metrics || {});
+                if (state.graph.data) {
+                    renderGraphPanel(state.graph.data);
+                }
+                if (Object.values(state.charts).length) {
+                    Object.values(state.charts).forEach((chart) => chart && chart.resize());
+                }
+            }
+
+            function getTextColor() {
+                return getComputedStyle(document.body).getPropertyValue('--text').trim() || '#15212d';
+            }
+
+            function getMutedColor() {
+                return getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#5f6c79';
+            }
+
+            function getBorderColor() {
+                return getComputedStyle(document.body).getPropertyValue('--border').trim() || '#d9e3ec';
+            }
+
+            function getGridColor() {
+                return state.theme === 'dark' ? 'rgba(138, 150, 163, 0.12)' : 'rgba(95, 108, 121, 0.1)';
+            }
+
+            function getLineColor() {
+                return state.theme === 'dark' ? '#60a5fa' : '#2563eb';
+            }
+
+            function getGaugeRailColor() {
+                return state.theme === 'dark' ? 'rgba(138, 150, 163, 0.18)' : '#e6edf5';
+            }
+
+            function getGaugeColor(value) {
+                if (value >= 80) return '#0f766e';
+                if (value >= 60) return '#2563eb';
+                if (value >= 40) return '#d97706';
+                return '#b91c1c';
+            }
+
+            function updateThemeIcon() {
+                $('themeIcon').textContent = state.theme === 'dark' ? 'light_mode' : 'dark_mode';
+            }
+
+            function applyTheme(theme) {
+                state.theme = theme === 'dark' ? 'dark' : 'light';
+                document.body.setAttribute('data-theme', state.theme);
+                localStorage.setItem('sl-dashboard-theme', state.theme);
+                updateThemeIcon();
+                if (state.data) {
+                    renderAll(state.data);
+                }
+            }
+
+            function updateLastUpdated() {
+                $('lastUpdated').textContent = new Intl.DateTimeFormat('zh-CN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                }).format(new Date());
+            }
+
+            async function safeFetch(url) {
+                try {
+                    const response = await fetch(url, {
+                        credentials: 'same-origin',
+                        headers: { Accept: 'application/json' },
+                    });
+                    const text = await response.text();
+                    let payload = {};
+                    if (text) {
+                        try {
+                            payload = JSON.parse(text);
+                        } catch {
+                            payload = { raw: text };
+                        }
+                    }
+                    if (!response.ok) {
+                        throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+                    }
+                    return payload;
+                } catch (error) {
+                    console.warn(`[dashboard] ${url} failed`, error);
+                    return null;
+                }
+            }
+
+            async function loadDashboard() {
+                $('summaryText').textContent = '正在刷新监控数据。';
+
+                const [
+                    metrics,
+                    trends,
+                    health,
+                    functionsData,
+                    persona,
+                    style,
+                    jargonStats,
+                    jargonList,
+                ] = await Promise.all([
+                    safeFetch('/api/metrics'),
+                    safeFetch('/api/metrics/trends'),
+                    safeFetch('/api/monitoring/health'),
+                    safeFetch('/api/monitoring/functions'),
+                    safeFetch('/api/persona_updates?limit=10'),
+                    safeFetch('/api/style_learning/reviews?limit=5'),
+                    safeFetch('/api/jargon/stats'),
+                    safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
+                ]);
+
+                const merged = {
+                    metrics: metrics || {},
+                    trends: trends || {},
+                    health: health || {},
+                    functions: safeArray(functionsData && functionsData.functions).slice(0, 5),
+                    persona: persona || { updates: [], total: 0 },
+                    style: style || { reviews: [], total: 0 },
+                    jargonStats: extractJargonStats(jargonStats),
+                    jargonList: extractJargonItems(jargonList),
+                };
+
+                renderAll(merged);
+            }
+
+            function bindEvents() {
+                $('refreshBtn').addEventListener('click', loadDashboard);
+                $('settingsJumpBtn').addEventListener('click', () => {
+                    const section = $('settingsSection');
+                    if (section) {
+                        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }
+                });
+                $('themeBtn').addEventListener('click', () => {
+                    applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+                });
+                $('configSearch').addEventListener('input', (event) => {
+                    state.config.search = event.target.value || '';
+                    applyConfigSearch();
+                });
+                $('configGroups').addEventListener('input', (event) => {
+                    const target = event.target;
+                    if (target && target.dataset && target.dataset.configKey) {
+                        syncConfigDraftFromInput(target);
+                    }
+                });
+                $('configGroups').addEventListener('change', (event) => {
+                    const target = event.target;
+                    if (target && target.dataset && target.dataset.configKey) {
+                        syncConfigDraftFromInput(target);
+                    }
+                });
+                $('configSaveBtn').addEventListener('click', saveConfigPanel);
+                $('configResetBtn').addEventListener('click', resetConfigPanel);
+                $('configReloadBtn').addEventListener('click', reloadConfigPanel);
+
+                document.body.addEventListener('click', (event) => {
+                    const actionTarget = event.target.closest('[data-dashboard-action]');
+                    if (actionTarget) {
+                        runDashboardAction(actionTarget.dataset.dashboardAction, actionTarget.dataset.id);
+                        return;
+                    }
+
+                    const graphTab = event.target.closest('[data-graph-type]');
+                    if (graphTab) {
+                        state.graph.type = graphTab.dataset.graphType === 'knowledge' ? 'knowledge' : 'memory';
+                        document.querySelectorAll('[data-graph-type]').forEach((tab) => {
+                            tab.classList.toggle('active', tab.dataset.graphType === state.graph.type);
+                        });
+                        loadGraphPanel();
+                    }
+                });
+
+                $('graphGroupInput').addEventListener('change', (event) => {
+                    state.graph.groupId = String(event.target.value || '').trim();
+                    loadGraphPanel();
+                });
+                $('graphGroupInput').addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') {
+                        state.graph.groupId = String(event.target.value || '').trim();
+                        loadGraphPanel();
+                    }
+                });
+                $('graphReloadBtn').addEventListener('click', () => loadGraphPanel());
+                $('graphLayoutBtn').addEventListener('click', () => {
+                    state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
+                    renderGraphPanel(state.graph.data);
+                });
+
+                window.addEventListener('resize', () => {
+                    Object.values(state.charts).forEach((chart) => chart && chart.resize());
+                });
+            }
+
+            function init() {
+                applyTheme(state.theme);
+                bindEvents();
+                loadDashboard();
+                loadConfigPanel();
+                loadGraphPanel();
+                setInterval(loadDashboard, 60000);
+            }
+
+            init();
+        })();
+    </script>
+</body>
+</html>

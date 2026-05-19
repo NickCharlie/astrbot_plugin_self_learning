@@ -263,7 +263,8 @@ class JargonFacade(BaseFacade):
         chat_id: str = None,
         limit: int = 10,
         offset: int = 0,
-        only_confirmed: bool = None
+        only_confirmed: bool = None,
+        pending_only: bool = False,
     ) -> List[Dict]:
         """获取最近的黑话列表
 
@@ -273,6 +274,7 @@ class JargonFacade(BaseFacade):
             limit: 返回数量限制
             offset: 偏移量（用于分页）
             only_confirmed: 是否只返回已确认的黑话
+            pending_only: 是否只返回尚未完成审查的候选
 
         Returns:
             黑话列表
@@ -297,6 +299,12 @@ class JargonFacade(BaseFacade):
                 elif only_confirmed is False:
                     stmt = stmt.where(
                         (Jargon.is_jargon == False) | (Jargon.is_jargon == None)
+                    )
+
+                if pending_only:
+                    stmt = stmt.where(
+                        ((Jargon.is_jargon == False) | (Jargon.is_jargon == None))
+                        & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
                     )
 
                 # 按更新时间倒序排列，分页
@@ -344,12 +352,14 @@ class JargonFacade(BaseFacade):
         self,
         chat_id: Optional[str] = None,
         only_confirmed: Optional[bool] = None,
+        pending_only: bool = False,
     ) -> int:
         """获取黑话记录总数（用于分页）
 
         Args:
             chat_id: 群组ID（可选，None 表示所有群组）
             only_confirmed: None=全部, True=已确认, False=未确认
+            pending_only: 是否只统计尚未完成审查的候选
 
         Returns:
             记录总数
@@ -367,6 +377,12 @@ class JargonFacade(BaseFacade):
                 elif only_confirmed is False:
                     stmt = stmt.where(
                         (Jargon.is_jargon == False) | (Jargon.is_jargon == None)
+                    )
+
+                if pending_only:
+                    stmt = stmt.where(
+                        ((Jargon.is_jargon == False) | (Jargon.is_jargon == None))
+                        & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
                     )
 
                 result = await session.execute(stmt)

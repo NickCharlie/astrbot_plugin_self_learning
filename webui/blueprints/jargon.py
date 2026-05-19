@@ -63,6 +63,7 @@ async def get_jargon_list():
             confirmed = True
         elif confirmed_param == 'false':
             confirmed = False
+        pending_only = str(request.args.get('pending', 'false')).lower() == 'true'
 
         # 如果带了 keyword，走搜索逻辑
         keyword = request.args.get('keyword', '').strip()
@@ -82,7 +83,11 @@ async def get_jargon_list():
             return _hybrid_success(payload, data=results)
 
         result = await jargon_service.get_jargon_list(
-            group_id, confirmed=confirmed, page=page, page_size=page_size
+            group_id,
+            confirmed=confirmed,
+            page=page,
+            page_size=page_size,
+            pending_only=pending_only,
         )
 
         return _hybrid_success(result, data=result.get('jargon_list', []))
@@ -148,6 +153,37 @@ async def delete_jargon(jargon_id: int):
         return error_response(str(e), 500)
     except Exception as e:
         logger.error(f"删除黑话失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@jargon_bp.route("/jargon/<int:jargon_id>/review", methods=["POST"])
+@require_auth
+async def review_jargon(jargon_id: int):
+    """确认或驳回黑话候选"""
+    try:
+        data = await request.get_json() or {}
+        action = data.get('action')
+        meaning = data.get('meaning')
+
+        container = get_container()
+        jargon_service = JargonService(container)
+        success, message, item = await jargon_service.review_jargon(
+            jargon_id, action, meaning=meaning
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message,
+                'item': item,
+                'data': item,
+            }), 200
+        return error_response(message, 400 if 'action' in message else 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"审查黑话失败: {e}", exc_info=True)
         return error_response(str(e), 500)
 
 

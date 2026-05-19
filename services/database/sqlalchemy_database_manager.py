@@ -667,15 +667,17 @@ class SQLAlchemyDatabaseManager:
     async def get_recent_jargon_list(
         self, group_id: str = None, chat_id: str = None,
         limit: int = 50, offset: int = 0, only_confirmed: bool = False,
+        pending_only: bool = False,
     ) -> List[Dict[str, Any]]:
         return await self._jargon.get_recent_jargon_list(
-            group_id, chat_id, limit, offset, only_confirmed,
+            group_id, chat_id, limit, offset, only_confirmed, pending_only,
         )
 
     async def get_jargon_count(
         self, chat_id: str = None, only_confirmed: bool = False,
+        pending_only: bool = False,
     ) -> int:
-        return await self._jargon.get_jargon_count(chat_id, only_confirmed)
+        return await self._jargon.get_jargon_count(chat_id, only_confirmed, pending_only)
 
     async def search_jargon(
         self, keyword: str, chat_id: str = None,

@@ -65,3 +65,104 @@ async def test_get_jargon_groups_adds_legacy_count_aliases():
             "total_candidates": 2,
         }
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_review_jargon_updates_candidate_status():
+    database_manager = SimpleNamespace(
+        get_jargon_by_id=AsyncMock(
+            side_effect=[
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "",
+                    "is_jargon": False,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "加大力度",
+                    "is_jargon": True,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+            ]
+        ),
+        update_jargon=AsyncMock(return_value=True),
+    )
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    success, message, item = await service.review_jargon(
+        7,
+        "approve",
+        meaning="加大力度",
+    )
+
+    assert success is True
+    assert "已确认" in message
+    assert item["is_confirmed"] is True
+    assert item["meaning"] == "加大力度"
+    database_manager.update_jargon.assert_awaited_once_with(
+        {
+            "id": 7,
+            "is_jargon": True,
+            "is_complete": True,
+            "meaning": "加大力度",
+        }
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_get_jargon_list_can_filter_pending_candidates():
+    database_manager = SimpleNamespace(
+        get_jargon_count=AsyncMock(return_value=3),
+        get_recent_jargon_list=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "content": "待审",
+                    "is_jargon": False,
+                    "is_complete": False,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 2,
+                    "content": "已驳回",
+                    "is_jargon": False,
+                    "is_complete": True,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 3,
+                    "content": "已确认",
+                    "is_jargon": True,
+                    "is_complete": True,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+            ]
+        ),
+    )
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.get_jargon_list(
+        "group-a",
+        confirmed=False,
+        page=1,
+        page_size=10,
+        pending_only=True,
+    )
+
+    assert result["total"] == 1
+    assert [item["term"] for item in result["jargon_list"]] == ["待审"]
