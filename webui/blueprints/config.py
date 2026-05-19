@@ -58,6 +58,22 @@ async def get_plugin_config():
         return error_response(f"获取配置失败: {str(e)}", 500)
 
 
+@config_bp.route("/config/schema", methods=["GET"])
+@require_auth
+async def get_plugin_config_schema():
+    """获取 dashboard 全量设置 schema。"""
+    try:
+        container = get_container()
+        config_service = ConfigService(container)
+        schema = await config_service.get_config_schema()
+        return jsonify(schema), 200
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"获取配置 schema 失败: {e}", exc_info=True)
+        return error_response(f"获取配置 schema 失败: {str(e)}", 500)
+
+
 @config_bp.route("/config", methods=["POST"])
 @require_auth
 async def update_plugin_config():

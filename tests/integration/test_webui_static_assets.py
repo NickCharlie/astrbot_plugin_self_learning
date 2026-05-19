@@ -6,6 +6,8 @@ from pathlib import Path
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 HTML_FILES = [
     PLUGIN_ROOT / "web_res" / "static" / "html" / "change_password.html",
+    PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html",
+    PLUGIN_ROOT / "web_res" / "static" / "html" / "graph_share.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "index.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "login.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "macos.html",
@@ -30,10 +32,9 @@ def test_webui_html_templates_no_external_frontend_cdn_refs():
 
 def test_webui_frontend_vendor_assets_exist():
     expected_paths = [
+        PLUGIN_ROOT / "web_res" / "static" / "vendor" / "echarts.min.js",
         PLUGIN_ROOT / "web_res" / "static" / "vendor" / "material-icons" / "material-icons.css",
         PLUGIN_ROOT / "web_res" / "static" / "vendor" / "material-icons" / "material-icons.woff2",
-        PLUGIN_ROOT / "web_res" / "static" / "vendor" / "three" / "three.min.js",
-        PLUGIN_ROOT / "web_res" / "static" / "vendor" / "three" / "OrbitControls.js",
     ]
 
     for path in expected_paths:

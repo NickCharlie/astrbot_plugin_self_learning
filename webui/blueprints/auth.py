@@ -1,5 +1,5 @@
 """
-认证蓝图 - pack 分支 WebUI 免密访问
+认证蓝图 - WebUI 免密访问
 """
 import os
 from quart import Blueprint, render_template, jsonify, redirect, url_for
@@ -17,8 +17,8 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/api', template_folder=_TEMPLA
 
 @auth_bp.route("/")
 async def read_root():
-    """根目录 - 免密渲染 MacOS UI。"""
-    return await render_template("macos.html")
+    """根目录 - 免密渲染监控板。"""
+    return await render_template("dashboard.html")
 
 
 @auth_bp.route("/login", methods=["GET"])
@@ -43,8 +43,8 @@ async def login():
 
 @auth_bp.route("/index")
 async def read_root_index():
-    """主页面 - 免密渲染 MacOS UI。"""
-    return await render_template("macos.html")
+    """主页面 - 免密渲染监控板。"""
+    return await render_template("dashboard.html")
 
 
 @auth_bp.route("/plugin_change_password", methods=["GET"])
