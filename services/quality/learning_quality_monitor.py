@@ -9,19 +9,23 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
 from dataclasses import dataclass
 
-from astrbot.api import logger
 from astrbot.api.star import Context
 
 try:
+    from ...utils.logging_utils import get_astrbot_logger
     from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
     from ...config import PluginConfig
     from ...exceptions import StyleAnalysisError
     from ...utils.json_utils import safe_parse_llm_json
 except ImportError:
+    from utils.logging_utils import get_astrbot_logger
     from core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
     from config import PluginConfig
     from exceptions import StyleAnalysisError
     from utils.json_utils import safe_parse_llm_json
+
+
+logger = get_astrbot_logger("self_learning.quality.monitor")
 
 
 @dataclass
@@ -67,7 +71,14 @@ class LearningQualityMonitor:
         self.historical_metrics: List[PersonaMetrics] = []
         self.alerts_history: List[LearningAlert] = []
         
-        logger.info("学习质量监控服务初始化完成")
+        logger.info(
+            "学习质量监控服务初始化完成: consistency_threshold=%.2f, "
+            "stability_threshold=%.2f, drift_threshold=%.2f, llm_adapter=%s",
+            self.consistency_threshold,
+            self.stability_threshold,
+            self.drift_threshold,
+            "enabled" if self.llm_adapter else "disabled",
+        )
 
     async def evaluate_learning_batch(self, 
                                     original_persona: Dict[str, Any],
@@ -75,6 +86,12 @@ class LearningQualityMonitor:
                                     learning_messages: List[Dict[str, Any]]) -> PersonaMetrics:
         """评估学习批次质量"""
         try:
+            logger.debug(
+                "开始评估学习批次: messages=%s, original_prompt_len=%s, updated_prompt_len=%s",
+                len(learning_messages or []),
+                len((original_persona or {}).get('prompt', '') or ''),
+                len((updated_persona or {}).get('prompt', '') or ''),
+            )
             # 并行计算各项指标
             (
                 consistency_score,
@@ -97,6 +114,7 @@ class LearningQualityMonitor:
                 emotional_balance=emotional_balance,
                 coherence_score=coherence_score
             )
+            logger.debug(f"学习批次质量评估完成: {metrics}")
             
             # 存储历史指标
             self.historical_metrics.append(metrics)

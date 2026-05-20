@@ -2,22 +2,26 @@
 人格审查服务 - 处理人格更新审查相关业务逻辑
 """
 from typing import Dict, Any, List, Tuple, Optional
-from astrbot.api import logger
 from datetime import datetime
 
 # Import update type constants
 try:
+    from ...utils.logging_utils import get_astrbot_logger
     from ...statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
         normalize_update_type,
         get_review_source_from_update_type,
     )
 except ImportError:
+    from utils.logging_utils import get_astrbot_logger
     from statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
         normalize_update_type,
         get_review_source_from_update_type,
     )
+
+
+logger = get_astrbot_logger("self_learning.webui.persona_review")
 
 
 def _optional_container_attr(container, name: str, default=None):

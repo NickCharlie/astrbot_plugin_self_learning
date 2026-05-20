@@ -539,6 +539,101 @@
             margin: 12px 0 16px;
         }
 
+        .learning-content-band {
+            margin-top: 16px;
+        }
+
+        .content-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .content-search {
+            width: 220px;
+            height: 36px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            padding: 0 10px;
+        }
+
+        .content-summary {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 10px;
+        }
+
+        .content-item {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            min-height: 132px;
+        }
+
+        .content-item[open] {
+            background: var(--panel);
+        }
+
+        .content-item summary {
+            cursor: pointer;
+            list-style: none;
+        }
+
+        .content-item summary::-webkit-details-marker {
+            display: none;
+        }
+
+        .content-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .content-title strong {
+            font-size: 13px;
+            overflow-wrap: anywhere;
+        }
+
+        .content-text,
+        .content-detail,
+        .content-raw {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .content-text {
+            display: -webkit-box;
+            -webkit-line-clamp: 4;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .content-detail {
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+
+        .content-raw {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
         .graphs-band {
             margin-top: 16px;
         }
@@ -1132,6 +1227,45 @@
 
         <div id="queueStatus" class="config-status queue-status">审查操作就绪。</div>
 
+        <section class="learning-content-band">
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>学习内容</h2>
+                        <span class="hint" id="contentHint">查看原始对话、分析结果、表达模式与批次</span>
+                    </div>
+                    <div class="content-toolbar">
+                        <div class="graph-tabs" aria-label="学习内容类型">
+                            <button class="seg-btn active" type="button" data-content-type="dialogues">
+                                <span class="material-icons" style="font-size:16px;">forum</span>
+                                对话
+                            </button>
+                            <button class="seg-btn" type="button" data-content-type="analysis">
+                                <span class="material-icons" style="font-size:16px;">fact_check</span>
+                                分析
+                            </button>
+                            <button class="seg-btn" type="button" data-content-type="features">
+                                <span class="material-icons" style="font-size:16px;">auto_awesome</span>
+                                表达
+                            </button>
+                            <button class="seg-btn" type="button" data-content-type="history">
+                                <span class="material-icons" style="font-size:16px;">history</span>
+                                批次
+                            </button>
+                        </div>
+                        <input class="content-search" id="contentSearch" type="search" placeholder="搜索学习内容" autocomplete="off">
+                        <button class="icon-btn" id="contentReloadBtn" type="button" aria-label="刷新学习内容" title="刷新学习内容">
+                            <span class="material-icons">sync</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="content-summary" id="contentSummary"></div>
+                    <div id="contentList" class="content-grid"></div>
+                </div>
+            </div>
+        </section>
+
         <section class="graphs-band">
             <div class="panel">
                 <div class="panel-head">
@@ -1213,6 +1347,12 @@
                     type: 'memory',
                     layout: 'force',
                     groupId: '',
+                    data: null,
+                    loading: false,
+                },
+                content: {
+                    type: 'dialogues',
+                    query: '',
                     data: null,
                     loading: false,
                 },
@@ -2791,6 +2931,128 @@
                 }
             }
 
+            function getContentPayload() {
+                return state.content.data || {
+                    dialogues: [],
+                    analysis: [],
+                    features: [],
+                    history: [],
+                };
+            }
+
+            function contentTypeLabel(type) {
+                return {
+                    dialogues: '原始对话',
+                    analysis: '分析结果',
+                    features: '表达模式',
+                    history: '学习批次',
+                }[type] || type;
+            }
+
+            function renderObjectSummary(value) {
+                if (!value || typeof value !== 'object') {
+                    return '';
+                }
+
+                const parts = Object.entries(value)
+                    .filter(([, item]) => item !== null && item !== undefined && item !== '')
+                    .slice(0, 8)
+                    .map(([key, item]) => {
+                        if (Array.isArray(item)) {
+                            return `${key}: ${item.length}项`;
+                        }
+                        if (typeof item === 'object') {
+                            return `${key}: ${Object.keys(item).length}项`;
+                        }
+                        return `${key}: ${String(item)}`;
+                    });
+
+                return parts.join('\n');
+            }
+
+            function renderLearningContent() {
+                const payload = getContentPayload();
+                const activeType = state.content.type;
+                const query = String(state.content.query || '').trim().toLowerCase();
+                const rows = safeArray(payload[activeType]).filter((item) => {
+                    if (!query) {
+                        return true;
+                    }
+                    const haystack = [
+                        item.title,
+                        item.text,
+                        item.detail,
+                        item.metadata,
+                        item.status,
+                        renderObjectSummary(item.raw),
+                    ].filter(Boolean).join('\n').toLowerCase();
+                    return haystack.includes(query);
+                });
+
+                $('contentSummary').innerHTML = ['dialogues', 'analysis', 'features', 'history']
+                    .map((type) => `<span class="chip">${escapeHtml(contentTypeLabel(type))} <b>${formatCount(safeArray(payload[type]).length)}</b></span>`)
+                    .join('');
+
+                $('contentHint').textContent = state.content.loading
+                    ? '学习内容加载中'
+                    : `${contentTypeLabel(activeType)} · ${formatCount(rows.length)} 条`;
+
+                const markup = rows.slice(0, 40).map((item) => {
+                    const title = item.title || item.type || contentTypeLabel(activeType);
+                    const timestamp = item.timestamp ? formatTime(item.timestamp) : '--';
+                    const meta = [item.metadata, item.status ? `状态 ${item.status}` : null, item.type].filter(Boolean).join(' · ');
+                    const detail = item.detail || '';
+                    const rawSummary = renderObjectSummary(item.raw);
+                    return `
+                        <details class="content-item">
+                            <summary>
+                                <div class="content-title">
+                                    <strong>${escapeHtml(title)}</strong>
+                                    <span class="state unknown">${escapeHtml(timestamp)}</span>
+                                </div>
+                                <div class="meta">${escapeHtml(meta || '学习内容')}</div>
+                                <div class="content-text">${escapeHtml(item.text || detail || '暂无内容')}</div>
+                            </summary>
+                            ${detail ? `<div class="content-detail">${escapeHtml(detail)}</div>` : ''}
+                            ${rawSummary ? `<div class="content-raw">${escapeHtml(rawSummary)}</div>` : ''}
+                        </details>
+                    `;
+                });
+
+                $('contentList').innerHTML = markup.length
+                    ? markup.join('')
+                    : `<div class="item">暂无${escapeHtml(contentTypeLabel(activeType))}。</div>`;
+            }
+
+            async function loadLearningContent(options = {}) {
+                const { quiet = false } = options;
+                state.content.loading = true;
+                if (!quiet) {
+                    $('contentHint').textContent = '学习内容加载中';
+                }
+
+                try {
+                    const payload = await safeFetch('/api/style_learning/content_text');
+                    state.content.data = payload || {
+                        dialogues: [],
+                        analysis: [],
+                        features: [],
+                        history: [],
+                    };
+                } catch (error) {
+                    console.warn('Learning content load failed:', error);
+                    state.content.data = {
+                        dialogues: [],
+                        analysis: [],
+                        features: [],
+                        history: [],
+                    };
+                } finally {
+                    state.content.loading = false;
+                    renderLearningContent();
+                }
+            }
+
             function renderAll(data) {
                 state.data = data;
                 renderSummary(data);
@@ -2798,6 +3060,9 @@
                 renderEfficiencyChart(data.metrics || {});
                 if (state.graph.data) {
                     renderGraphPanel(state.graph.data);
+                }
+                if (state.content.data) {
+                    renderLearningContent();
                 }
                 if (Object.values(state.charts).length) {
                     Object.values(state.charts).forEach((chart) => chart && chart.resize());
@@ -2964,6 +3229,18 @@
                             tab.classList.toggle('active', tab.dataset.graphType === state.graph.type);
                         });
                         loadGraphPanel();
+                        return;
+                    }
+
+                    const contentTab = event.target.closest('[data-content-type]');
+                    if (contentTab) {
+                        state.content.type = ['dialogues', 'analysis', 'features', 'history'].includes(contentTab.dataset.contentType)
+                            ? contentTab.dataset.contentType
+                            : 'dialogues';
+                        document.querySelectorAll('[data-content-type]').forEach((tab) => {
+                            tab.classList.toggle('active', tab.dataset.contentType === state.content.type);
+                        });
+                        renderLearningContent();
                     }
                 });
 
@@ -2982,6 +3259,11 @@
                     state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
                     renderGraphPanel(state.graph.data);
                 });
+                $('contentSearch').addEventListener('input', (event) => {
+                    state.content.query = event.target.value || '';
+                    renderLearningContent();
+                });
+                $('contentReloadBtn').addEventListener('click', () => loadLearningContent());
 
                 window.addEventListener('resize', () => {
                     Object.values(state.charts).forEach((chart) => chart && chart.resize());
@@ -2994,6 +3276,7 @@
                 loadDashboard();
                 loadConfigPanel();
                 loadGraphPanel();
+                loadLearningContent();
                 setInterval(loadDashboard, 60000);
             }
 

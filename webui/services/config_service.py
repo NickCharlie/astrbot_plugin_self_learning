@@ -12,8 +12,10 @@ from astrbot.api import logger
 
 try:
     from ...statics.messages import FileNames
+    from ...utils.logging_utils import apply_astrbot_log_level
 except ImportError:
     from statics.messages import FileNames
+    from utils.logging_utils import apply_astrbot_log_level
 
 
 @lru_cache(maxsize=1)
@@ -231,6 +233,12 @@ _ENUM_FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
     "context_injection_position": [
         {"value": "start", "label": "start"},
         {"value": "end", "label": "end"},
+    ],
+    "log_level": [
+        {"value": "error", "label": "error"},
+        {"value": "warning", "label": "warning"},
+        {"value": "info", "label": "info"},
+        {"value": "debug", "label": "debug"},
     ],
 }
 
@@ -517,6 +525,15 @@ class ConfigService:
         for field_name, value in validated_config.model_dump().items():
             if hasattr(self.plugin_config, field_name):
                 setattr(self.plugin_config, field_name, value)
+
+        if "log_level" in changed_keys or "debug_mode" in changed_keys:
+            applied_level = apply_astrbot_log_level(
+                getattr(self.plugin_config, "log_level", "info"),
+                debug_mode=getattr(self.plugin_config, "debug_mode", False),
+                fallback="info",
+            )
+            self.plugin_config.log_level = applied_level
+            logger.info(f"AstrBot 日志等级已更新为: {applied_level}")
 
         if getattr(self.plugin_config, "data_dir", None):
             self.plugin_config.messages_db_path = os.path.join(

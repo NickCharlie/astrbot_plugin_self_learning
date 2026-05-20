@@ -32,6 +32,7 @@ class TestPluginConfigDefaults:
         assert config.enable_web_interface is True
         assert config.web_interface_port == 7833
         assert config.web_interface_host == "0.0.0.0"
+        assert config.log_level == "info"
 
     def test_create_default_classmethod(self):
         """Test the create_default classmethod."""
@@ -110,6 +111,33 @@ class TestPluginConfigFromDict:
         assert config.enable_auto_learning is False
         assert config.web_interface_port == 8080
         assert config.data_dir == "/tmp/test"
+
+    def test_create_from_config_with_log_level(self):
+        """Test creating config with an explicit AstrBot log level."""
+        raw_config = {
+            'Advanced_Settings': {
+                'debug_mode': False,
+                'log_level': 'warning',
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.debug_mode is False
+        assert config.log_level == 'warning'
+
+    def test_create_from_config_debug_mode_defaults_to_debug_log_level(self):
+        """debug_mode remains a shorthand for verbose logging when log_level is omitted."""
+        raw_config = {
+            'Advanced_Settings': {
+                'debug_mode': True,
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.debug_mode is True
+        assert config.log_level == 'debug'
 
     def test_create_from_config_with_model_settings(self):
         """Test config creation with model configuration."""
@@ -295,6 +323,11 @@ class TestPluginConfigValidation:
         blocking_errors = [e for e in errors if not e.startswith(" ")]
         assert len(blocking_errors) == 0
 
+    def test_invalid_log_level_rejected(self):
+        """Test validation catches invalid log levels."""
+        with pytest.raises(ValueError):
+            PluginConfig(log_level="trace")
+
 
 @pytest.mark.unit
 @pytest.mark.config
@@ -342,6 +375,7 @@ class TestPluginConfigSerialization:
             'enable_message_capture': False,
             'web_interface_port': 9999,
             'learning_interval_hours': 12,
+            'log_level': 'error',
         }
 
         with tempfile.NamedTemporaryFile(
@@ -356,6 +390,7 @@ class TestPluginConfigSerialization:
             assert loaded_config.enable_message_capture is False
             assert loaded_config.web_interface_port == 9999
             assert loaded_config.learning_interval_hours == 12
+            assert loaded_config.log_level == 'error'
         finally:
             os.unlink(filepath)
 

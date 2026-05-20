@@ -5,8 +5,14 @@ import os
 import json
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
-from astrbot.api import logger
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+try:
+    from .utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
+except ImportError:
+    from utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
+
+logger = get_astrbot_logger("self_learning.config")
 
 
 class PluginConfig(BaseModel):
@@ -90,6 +96,7 @@ class PluginConfig(BaseModel):
 
     # 高级设置
     debug_mode: bool = False # 调试模式
+    log_level: str = "info" # AstrBot日志等级: error, warning, info, debug
     save_raw_messages: bool = True # 保存原始消息
     auto_backup_interval_days: int = 7 # 自动备份间隔
 
@@ -197,6 +204,28 @@ class PluginConfig(BaseModel):
     recent_interactions_limit: int = 20 # 近期交互查询数量
     trend_analysis_days: int = 7 # 趋势分析天数
 
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def _normalize_log_level_field(cls, value) -> str:
+        normalized = normalize_log_level(value, fallback="")
+        if normalized not in {"error", "warning", "info", "debug"}:
+            raise ValueError("日志等级必须是 error、warning、info 或 debug")
+        return normalized
+
+    def model_post_init(self, __context) -> None:
+        """Normalize and apply the configured AstrBot log level."""
+        normalized_level = normalize_log_level(
+            self.log_level,
+            debug_mode=self.debug_mode,
+            fallback="info",
+        )
+        self.log_level = normalized_level
+        apply_astrbot_log_level(
+            normalized_level,
+            debug_mode=self.debug_mode,
+            fallback="info",
+        )
+
     @classmethod
     def create_from_config(cls, config: dict, data_dir: Optional[str] = None) -> 'PluginConfig':
         """从AstrBot配置创建插件配置"""
@@ -222,6 +251,7 @@ class PluginConfig(BaseModel):
         filter_params = config.get('Filter_Parameters', {})
         style_analysis = config.get('Style_Analysis', {})
         advanced_settings = config.get('Advanced_Settings', {})
+        debug_mode = advanced_settings.get('debug_mode', False)
         ml_settings = config.get('Machine_Learning_Settings', {})
         persona_backup_settings = config.get('Persona_Backup_Settings', {})
         affection_settings = config.get('Affection_System_Settings', {})
@@ -289,7 +319,8 @@ class PluginConfig(BaseModel):
             max_backups_per_group=persona_backup_settings.get('max_backups_per_group', 10),
             auto_apply_approved_persona=advanced_settings.get('auto_apply_approved_persona', False),
 
-            debug_mode=advanced_settings.get('debug_mode', False),
+            debug_mode=debug_mode,
+            log_level=advanced_settings.get('log_level', 'debug' if debug_mode else 'info'),
             save_raw_messages=advanced_settings.get('save_raw_messages', True),
             auto_backup_interval_days=advanced_settings.get('auto_backup_interval_days', 7),
 
@@ -400,6 +431,9 @@ class PluginConfig(BaseModel):
 
         if not 0 <= self.style_update_threshold <= 1:
             errors.append("风格更新阈值必须在0-1之间")
+
+        if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug'}:
+            errors.append("日志等级必须是 error、warning、info 或 debug")
 
         db_type = (self.db_type or 'sqlite').strip().lower()
         if db_type in ('postgres', 'pg'):

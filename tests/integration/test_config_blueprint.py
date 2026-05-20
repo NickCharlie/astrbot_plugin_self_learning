@@ -71,3 +71,8 @@ async def test_config_schema_route_returns_groups(client):
         for group in data["groups"]
         for field in group["fields"]
     )
+    assert any(
+        field["key"] == "log_level" and field["widget"] == "select"
+        for group in data["groups"]
+        for field in group["fields"]
+    )

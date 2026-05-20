@@ -39,3 +39,14 @@ def test_webui_frontend_vendor_assets_exist():
 
     for path in expected_paths:
         assert path.exists(), f"Missing vendored frontend asset: {path}"
+
+
+def test_dashboard_exposes_learning_content_browser():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "学习内容" in text
+    assert "/api/style_learning/content_text" in text
+    assert "data-content-type=\"dialogues\"" in text
+    assert "data-content-type=\"analysis\"" in text
+    assert "data-content-type=\"features\"" in text
+    assert "data-content-type=\"history\"" in text

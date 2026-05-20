@@ -68,6 +68,15 @@ class TestConfigServiceSchema:
         runtime_fields = {field["key"]: field for field in groups["Runtime_Internal_Settings"]["fields"]}
         assert runtime_fields["messages_db_path"]["editable"] is False
 
+        advanced_fields = {field["key"]: field for field in groups["Advanced_Settings"]["fields"]}
+        assert advanced_fields["log_level"]["widget"] == "select"
+        assert [option["value"] for option in advanced_fields["log_level"]["options"]] == [
+            "error",
+            "warning",
+            "info",
+            "debug",
+        ]
+
         v2_fields = {field["key"]: field for field in groups["V2_Architecture_Settings"]["fields"]}
         assert v2_fields["embedding_provider_id"]["widget"] == "provider"
         assert v2_fields["rerank_provider_id"]["widget"] == "provider"
@@ -110,6 +119,9 @@ class TestConfigServiceUpdate:
                 "Filter_Parameters": {
                     "relevance_threshold": 0.75,
                 },
+                "Advanced_Settings": {
+                    "log_level": "debug",
+                },
             }
         )
 
@@ -117,6 +129,7 @@ class TestConfigServiceUpdate:
         assert "重启后生效" in message
         assert updated["db_type"] == "postgresql"
         assert updated["relevance_threshold"] == 0.75
+        assert updated["log_level"] == "debug"
         assert updated["messages_db_path"].endswith(FileNames.MESSAGES_DB_FILE)
         assert updated["learning_log_path"].endswith(FileNames.LEARNING_LOG_FILE)
         container.llm_adapter.initialize_providers.assert_called_once_with(container.plugin_config)
@@ -128,3 +141,4 @@ class TestConfigServiceUpdate:
         assert saved["db_type"] == "postgresql"
         assert saved["postgresql_schema"] == "bot_space"
         assert saved["relevance_threshold"] == 0.75
+        assert saved["log_level"] == "debug"

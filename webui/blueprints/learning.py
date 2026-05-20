@@ -2,7 +2,11 @@
 学习功能蓝图 - 处理风格学习相关路由
 """
 from quart import Blueprint, request, jsonify
-from astrbot.api import logger
+
+try:
+    from ...utils.logging_utils import get_astrbot_logger
+except ImportError:
+    from utils.logging_utils import get_astrbot_logger
 
 from ..dependencies import get_container
 from ..services.learning_service import LearningService
@@ -10,6 +14,7 @@ from ..middleware.auth import require_auth
 from ..utils.response import success_response, error_response
 
 learning_bp = Blueprint('learning', __name__, url_prefix='/api')
+logger = get_astrbot_logger("self_learning.webui.learning")
 
 
 @learning_bp.route("/style_learning/results", methods=["GET"])
@@ -129,13 +134,34 @@ async def get_style_learning_content_text():
 
         if database_manager and hasattr(database_manager, 'get_session'):
             from sqlalchemy import select, desc, func
-            from ...models.orm import (
-                RawMessage, StyleLearningReview,
-                ExpressionPattern, LearningBatch,
-            )
+            try:
+                from ...models.orm import (
+                    RawMessage, StyleLearningReview,
+                    ExpressionPattern, LearningBatch,
+                )
+            except ImportError:
+                from models.orm import (
+                    RawMessage, StyleLearningReview,
+                    ExpressionPattern, LearningBatch,
+                )
             from datetime import datetime
             import time as time_module
             import json as json_module
+
+            def format_ts(value):
+                if not value:
+                    return ''
+                return datetime.fromtimestamp(value).strftime('%Y-%m-%d %H:%M:%S')
+
+            def parse_json(value, fallback):
+                if not value:
+                    return fallback
+                if isinstance(value, (list, dict)):
+                    return value
+                try:
+                    return json_module.loads(value)
+                except (json_module.JSONDecodeError, TypeError):
+                    return fallback
 
             try:
                 async with database_manager.get_session() as session:
@@ -147,9 +173,22 @@ async def get_style_learning_content_text():
                         if len(message_text.strip()) < 5:
                             continue
                         content_data['dialogues'].append({
-                            'timestamp': datetime.fromtimestamp(msg.timestamp if msg.timestamp else time_module.time()).strftime('%Y-%m-%d %H:%M:%S'),
+                            'id': msg.id,
+                            'type': 'dialogue',
+                            'title': msg.sender_name or msg.sender_id or '未知发送者',
+                            'timestamp': format_ts(msg.timestamp if msg.timestamp else time_module.time()),
                             'text': f"{msg.sender_name or msg.sender_id}: {message_text}",
-                            'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}"
+                            'detail': message_text,
+                            'metadata': f"群组: {msg.group_id}, 平台: {msg.platform or '未知'}",
+                            'raw': {
+                                'sender_id': msg.sender_id,
+                                'sender_name': msg.sender_name,
+                                'group_id': msg.group_id,
+                                'platform': msg.platform,
+                                'message_id': getattr(msg, 'message_id', None),
+                                'reply_to': getattr(msg, 'reply_to', None),
+                                'processed': bool(getattr(msg, 'processed', False)),
+                            },
                         })
 
                     # 2. analysis — 已审批的风格学习分析结果
@@ -161,16 +200,26 @@ async def get_style_learning_content_text():
                     )
                     analysis_result = await session.execute(analysis_stmt)
                     for review in analysis_result.scalars().all():
-                        patterns = []
-                        if review.learned_patterns:
-                            try:
-                                patterns = json_module.loads(review.learned_patterns)
-                            except (json_module.JSONDecodeError, TypeError):
-                                pass
+                        patterns = parse_json(review.learned_patterns, [])
+                        few_shots_content = review.few_shots_content or ''
+                        description = review.description or ''
                         content_data['analysis'].append({
-                            'timestamp': datetime.fromtimestamp(review.timestamp).strftime('%Y-%m-%d %H:%M:%S') if review.timestamp else '',
-                            'text': review.description or review.few_shots_content or f"风格学习 ({review.type})",
-                            'metadata': f"群组: {review.group_id}, 状态: {review.status}, 模式数: {len(patterns) if isinstance(patterns, list) else 0}"
+                            'id': review.id,
+                            'type': review.type or 'style_learning',
+                            'title': description or f"风格学习 ({review.type})",
+                            'timestamp': format_ts(review.timestamp),
+                            'text': description or few_shots_content or f"风格学习 ({review.type})",
+                            'detail': few_shots_content or description,
+                            'status': review.status,
+                            'patterns': patterns,
+                            'metadata': f"群组: {review.group_id}, 状态: {review.status}, 模式数: {len(patterns) if isinstance(patterns, list) else 0}",
+                            'raw': {
+                                'group_id': review.group_id,
+                                'reviewer_comment': review.reviewer_comment,
+                                'review_time': review.review_time,
+                                'created_at': review.created_at.isoformat() if review.created_at else None,
+                                'updated_at': review.updated_at.isoformat() if review.updated_at else None,
+                            },
                         })
 
                     # 3. features — 已学习的表达模式
@@ -181,10 +230,23 @@ async def get_style_learning_content_text():
                     )
                     features_result = await session.execute(features_stmt)
                     for pattern in features_result.scalars().all():
+                        weight = pattern.weight if pattern.weight is not None else 0
                         content_data['features'].append({
-                            'timestamp': datetime.fromtimestamp(pattern.last_active_time).strftime('%Y-%m-%d %H:%M:%S') if pattern.last_active_time else '',
+                            'id': pattern.id,
+                            'type': 'expression_pattern',
+                            'title': pattern.situation,
+                            'timestamp': format_ts(pattern.last_active_time),
                             'text': f"场景: {pattern.situation}\n表达: {pattern.expression}",
-                            'metadata': f"群组: {pattern.group_id}, 权重: {pattern.weight:.2f}"
+                            'detail': pattern.expression,
+                            'metadata': f"群组: {pattern.group_id}, 权重: {weight:.2f}",
+                            'raw': {
+                                'group_id': pattern.group_id,
+                                'situation': pattern.situation,
+                                'expression': pattern.expression,
+                                'weight': weight,
+                                'create_time': pattern.create_time,
+                                'last_active_time': pattern.last_active_time,
+                            },
                         })
 
                     # 4. history — 学习批次历史
@@ -199,13 +261,39 @@ async def get_style_learning_content_text():
                         if batch.start_time and batch.end_time:
                             duration = f", 耗时: {batch.end_time - batch.start_time:.1f}s"
                         content_data['history'].append({
-                            'timestamp': datetime.fromtimestamp(batch.start_time).strftime('%Y-%m-%d %H:%M:%S') if batch.start_time else '',
+                            'id': batch.id,
+                            'type': 'learning_batch',
+                            'title': batch.batch_name or batch.batch_id or '学习批次',
+                            'timestamp': format_ts(batch.start_time),
                             'text': f"批次: {batch.batch_name or batch.batch_id}, 质量: {batch.quality_score or 0:.3f}",
-                            'metadata': f"群组: {batch.group_id}, 消息: {batch.processed_messages or 0}, 成功: {'是' if batch.success else '否'}{duration}"
+                            'detail': batch.error_message or f"状态: {batch.status or 'unknown'}",
+                            'status': batch.status,
+                            'metadata': f"群组: {batch.group_id}, 消息: {batch.processed_messages or 0}, 成功: {'是' if batch.success else '否'}{duration}",
+                            'raw': {
+                                'batch_id': batch.batch_id,
+                                'batch_name': batch.batch_name,
+                                'group_id': batch.group_id,
+                                'start_time': batch.start_time,
+                                'end_time': batch.end_time,
+                                'quality_score': batch.quality_score,
+                                'processed_messages': batch.processed_messages,
+                                'message_count': batch.message_count,
+                                'filtered_count': batch.filtered_count,
+                                'success': batch.success,
+                                'error_message': batch.error_message,
+                                'status': batch.status,
+                            },
                         })
             except Exception as e:
                 logger.warning(f"获取学习内容文本失败: {e}")
 
+        logger.debug(
+            "学习内容文本已获取: dialogues=%s, analysis=%s, features=%s, history=%s",
+            len(content_data['dialogues']),
+            len(content_data['analysis']),
+            len(content_data['features']),
+            len(content_data['history']),
+        )
         return jsonify(content_data), 200
     except Exception as e:
         logger.error(f"获取学习内容文本失败: {e}", exc_info=True)

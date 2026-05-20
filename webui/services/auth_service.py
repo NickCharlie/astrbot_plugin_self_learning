@@ -4,20 +4,22 @@
 import os
 import json
 from typing import Tuple, Dict, Any, Optional
-from astrbot.api import logger
 
 try:
+    from ...utils.logging_utils import get_astrbot_logger
     from ...utils.security_utils import (
         PasswordHasher,
         SecurityValidator,
     )
 except ImportError:
+    from utils.logging_utils import get_astrbot_logger
     from utils.security_utils import (
         PasswordHasher,
         SecurityValidator,
     )
 
 
+logger = get_astrbot_logger("self_learning.webui.auth")
 DEFAULT_PASSWORD_CONFIG = {"must_change": False}
 
 
@@ -144,6 +146,7 @@ class AuthService:
         Returns:
             Tuple[bool, str, Optional[Dict]]: (是否成功, 消息, 额外数据)
         """
+        logger.debug(f"WebUI免密登录放行: client_ip={client_ip}")
         return True, "Passwordless WebUI access granted", {
             "must_change": False,
             "redirect": "/api/index",

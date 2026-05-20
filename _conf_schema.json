@@ -196,8 +196,32 @@
       "debug_mode": {
         "description": "调试模式",
         "type": "bool",
-        "hint": "启用详细的调试日志输出",
+        "hint": "启用函数级性能监控，并在未指定日志等级时自动使用 debug",
         "default": false
+      },
+      "log_level": {
+        "description": "AstrBot日志等级",
+        "type": "string",
+        "hint": "控制插件在 AstrBot 日志中的详细程度。error 最少，debug 最多",
+        "default": "info",
+        "options": [
+          {
+            "value": "error",
+            "label": "error"
+          },
+          {
+            "value": "warning",
+            "label": "warning"
+          },
+          {
+            "value": "info",
+            "label": "info"
+          },
+          {
+            "value": "debug",
+            "label": "debug"
+          }
+        ]
       },
       "save_raw_messages": {
         "description": "保存原始消息",
