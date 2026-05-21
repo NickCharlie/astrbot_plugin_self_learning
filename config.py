@@ -3,7 +3,7 @@
 """
 import os
 import json
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
@@ -13,6 +13,32 @@ except ImportError:
     from utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
 
 logger = get_astrbot_logger("self_learning.config")
+
+FULL_LEARNING_TARGET_MARKERS = {"*", "all", "all_users", "all_groups", "全部", "全量", "全体", "所有"}
+
+
+def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False) -> List[str]:
+    """Normalize user/group identifier lists from AstrBot settings."""
+    if value is None:
+        return []
+
+    if isinstance(value, str):
+        raw_items = value.replace(",", "\n").splitlines()
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = [value]
+
+    normalized: List[str] = []
+    for item in raw_items:
+        text = str(item).strip()
+        if not text:
+            continue
+        if full_learning_markers and text.lower() in FULL_LEARNING_TARGET_MARKERS:
+            return []
+        normalized.append(text)
+
+    return normalized
 
 
 class PluginConfig(BaseModel):
@@ -211,6 +237,16 @@ class PluginConfig(BaseModel):
         if normalized not in {"error", "warning", "info", "debug"}:
             raise ValueError("日志等级必须是 error、warning、info 或 debug")
         return normalized
+
+    @field_validator("target_qq_list", mode="before")
+    @classmethod
+    def _normalize_target_qq_list(cls, value) -> List[str]:
+        return normalize_identifier_list(value, full_learning_markers=True)
+
+    @field_validator("target_blacklist", mode="before")
+    @classmethod
+    def _normalize_target_blacklist(cls, value) -> List[str]:
+        return normalize_identifier_list(value)
 
     def model_post_init(self, __context) -> None:
         """Normalize and apply the configured AstrBot log level."""

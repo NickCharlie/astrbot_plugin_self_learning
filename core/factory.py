@@ -18,7 +18,7 @@ from .patterns import StrategyFactory, ServiceRegistry
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
 
 # 使用单例模式导入配置和异常
-from ..config import PluginConfig
+from ..config import PluginConfig, normalize_identifier_list
 from ..exceptions import ServiceError
 from ..statics import prompts
 from ..utils.json_utils import safe_parse_llm_json
@@ -603,8 +603,11 @@ class ServiceFactory(IServiceFactory):
 # 将内部类移到模块顶层
 class QQFilter:
     def __init__(self, target_qq_list, blacklist=None):
-        self.target_qq_list = target_qq_list or []
-        self.blacklist = blacklist or []
+        self.target_qq_list = normalize_identifier_list(
+            target_qq_list,
+            full_learning_markers=True,
+        )
+        self.blacklist = normalize_identifier_list(blacklist)
         self._logger = logger
     
     def should_collect_message(self, sender_id: str, group_id: str = None) -> bool:

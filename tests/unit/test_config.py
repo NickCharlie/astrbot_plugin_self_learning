@@ -228,8 +228,35 @@ class TestPluginConfigFromDict:
         config = PluginConfig.create_from_config({}, data_dir="/tmp/test")
 
         assert config.enable_message_capture is True
+        assert config.target_qq_list == []
         assert config.learning_interval_hours == 6
         assert config.db_type == 'sqlite'
+
+    def test_target_list_blank_values_keep_full_learning_default(self):
+        """Blank settings-page rows should not disable full learning."""
+        raw_config = {
+            'Target_Settings': {
+                'target_qq_list': ['', '   ', '\n'],
+                'target_blacklist': [' ', 'group_123'],
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.target_qq_list == []
+        assert config.target_blacklist == ['group_123']
+
+    def test_target_list_full_learning_markers_normalize_to_empty_whitelist(self):
+        """Explicit all/full markers should preserve full-learning behavior."""
+        raw_config = {
+            'Target_Settings': {
+                'target_qq_list': ['all', '123456'],
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.target_qq_list == []
 
     def test_extra_fields_ignored(self):
         """Test that extra/unknown fields are ignored."""

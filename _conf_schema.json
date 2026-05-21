@@ -87,7 +87,7 @@
         "items": {
           "type": "string"
         },
-        "hint": "指定要学习的QQ号列表。为空则学习所有用户消息。支持个人QQ号和群聊格式group_群号",
+        "hint": "默认全量学习：留空、空行或填写 all/*/全部/全量 时学习所有非黑名单消息。也可填写个人QQ号或群聊格式 group_群号 作为白名单。",
         "default": []
       },
       "target_blacklist": {

@@ -49,16 +49,17 @@ class MessagePipeline:
         sender_id: str,
         message_text: str,
         event: Any,
-    ) -> None:
+    ) -> bool:
         """后台处理学习相关操作（非阻塞）
 
         通过 asyncio.create_task() 在后台运行。
         为避免 'Future attached to different loop' 错误，数据库操作包装在异常处理中。
         """
+        message_collected = False
         try:
             # 1. 消息收集
             try:
-                await self._message_collector.collect_message(
+                message_collected = bool(await self._message_collector.collect_message(
                     {
                         "sender_id": sender_id,
                         "sender_name": event.get_sender_name(),
@@ -67,7 +68,7 @@ class MessagePipeline:
                         "timestamp": time.time(),
                         "platform": event.get_platform_name(),
                     }
-                )
+                ))
             except RuntimeError as e:
                 if "attached to a different loop" in str(e):
                     logger.warning(
@@ -160,8 +161,11 @@ class MessagePipeline:
                 except Exception as e:
                     logger.error(f"对话目标处理失败: {e}", exc_info=True)
 
+            return message_collected
+
         except Exception as e:
             logger.error(f"后台学习处理失败: {e}", exc_info=True)
+            return False
 
     # 黑话挖掘
 

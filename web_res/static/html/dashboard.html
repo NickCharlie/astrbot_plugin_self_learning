@@ -2154,7 +2154,7 @@
                 }
 
                 if (totalMessages === 0) {
-                    insights.push(makeInsight('medium', '暂无消息进入学习链路', '确认插件事件监听、目标群组和学习开关是否生效。', 'messages'));
+                    insights.push(makeInsight('info', '默认全量学习等待消息', '目标列表留空时会学习所有非黑名单消息；当前只是还没有采集到新的可学习消息。', 'messages'));
                 } else if (totalMessages >= 50 && filterRate < 10) {
                     insights.push(makeInsight('medium', '筛选通过率偏低', `筛选率 ${formatPercent(filterRate)}，可能需要调整筛选模型或学习阈值。`, 'messages'));
                 }
@@ -2783,7 +2783,7 @@
                 }
 
                 if (totalMessages === 0) {
-                    return '当前还没有消息进入学习链路。';
+                    return '默认全量学习已启用，正在等待新的可学习消息。';
                 }
 
                 const rate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;

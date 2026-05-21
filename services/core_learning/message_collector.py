@@ -62,8 +62,20 @@ class MessageCollectorService:
                 reply_to=message_data.get('reply_to')
             )
 
-            await self.database_manager.save_raw_message(message_obj)
-            logger.info(f" 消息已保存: group={message_data.get('group_id')}, sender={message_data.get('sender_name')}, msg_preview={message_data.get('message', '')[:30]}...")
+            message_id = await self.database_manager.save_raw_message(message_obj)
+            if not message_id:
+                logger.error(
+                    f"消息保存失败: group={message_data.get('group_id')}, "
+                    f"sender={message_data.get('sender_name')}, "
+                    f"msg_preview={message_data.get('message', '')[:30]}..."
+                )
+                return False
+
+            logger.info(
+                f"消息已保存: id={message_id}, group={message_data.get('group_id')}, "
+                f"sender={message_data.get('sender_name')}, "
+                f"msg_preview={message_data.get('message', '')[:30]}..."
+            )
 
             return True
 

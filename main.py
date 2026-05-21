@@ -3,8 +3,10 @@ AstrBot 自学习插件 - 智能对话风格学习与人格优化
 """
 import os
 import asyncio
+import time
 from typing import Dict, Optional
 from dataclasses import dataclass
+from sys import maxsize
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.event import filter
@@ -66,6 +68,8 @@ class SelfLearningPlugin(star.Star):
         self._command_filter = None
         self.qq_filter = None
         self.plugin_config = None
+        self._message_capture_diag_counts: dict[str, int] = {}
+        self._message_capture_diag_last: dict[str, float] = {}
 
         # ------ 插件配置加载 ------
         try:
@@ -145,23 +149,84 @@ class SelfLearningPlugin(star.Star):
 
     # 消息监听
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    def _log_message_capture_diag(
+        self,
+        reason: str,
+        event: Optional[AstrMessageEvent] = None,
+        message_text: Optional[str] = None,
+        *,
+        level: str = "debug",
+    ) -> None:
+        """低频输出消息采集诊断，避免线上刷屏。"""
+        now = time.monotonic()
+        count = self._message_capture_diag_counts.get(reason, 0) + 1
+        last = self._message_capture_diag_last.get(reason, 0.0)
+        self._message_capture_diag_counts[reason] = count
+
+        if count > 3 and now - last < 60:
+            return
+
+        self._message_capture_diag_last[reason] = now
+
+        platform = "unknown"
+        group_id = "unknown"
+        sender_id = "unknown"
+        message_type = "unknown"
+        if event:
+            for name, getter in (
+                ("platform", event.get_platform_name),
+                ("group_id", event.get_group_id),
+                ("sender_id", event.get_sender_id),
+                ("message_type", event.get_message_type),
+            ):
+                try:
+                    value = getter()
+                except Exception:
+                    value = "error"
+                if name == "platform":
+                    platform = value
+                elif name == "group_id":
+                    group_id = value
+                elif name == "sender_id":
+                    sender_id = value
+                elif name == "message_type":
+                    message_type = value
+
+        preview = (message_text or "").replace("\n", " ")[:60]
+        msg = (
+            f"[消息采集] {reason} count={count}, platform={platform}, "
+            f"type={message_type}, group={group_id}, sender={sender_id}, preview={preview!r}"
+        )
+
+        if level == "info" or count <= 3:
+            logger.info(msg)
+        else:
+            logger.debug(msg)
+
+    @filter.platform_adapter_type(filter.PlatformAdapterType.ALL, priority=maxsize - 20)
     async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
         try:
             if self._shutting_down:
+                self._log_message_capture_diag("skip:shutting_down", event)
                 return
 
             db = getattr(self, 'db_manager', None)
-            if not db or not db.engine:
+            if not db:
+                self._log_message_capture_diag("skip:db_manager_missing", event, level="info")
+                return
+            if not getattr(db, "engine", None):
+                self._log_message_capture_diag("skip:db_engine_not_ready", event, level="info")
                 return
 
             message_text = event.get_message_str()
             if not message_text or len(message_text.strip()) == 0:
+                self._log_message_capture_diag("skip:empty_message", event, message_text)
                 return
 
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
+            self._log_message_capture_diag("accepted:event_received", event, message_text)
 
             # 好感度处理（后台，仅 at/唤醒消息）
             pipeline = getattr(self, '_pipeline', None)
@@ -176,31 +241,55 @@ class SelfLearningPlugin(star.Star):
                 ))
 
             if not self.plugin_config or not self.plugin_config.enable_message_capture:
+                self._log_message_capture_diag("skip:capture_disabled", event, message_text, level="info")
                 return
 
             # 命令过滤
             cmd_filter = getattr(self, '_command_filter', None)
             if cmd_filter and cmd_filter.is_astrbot_command(event):
                 logger.debug(f"检测到AstrBot命令，跳过学习数据收集: {message_text}")
+                self._log_message_capture_diag("skip:command_message", event, message_text)
                 return
 
             qq_filter = getattr(self, 'qq_filter', None)
             if qq_filter and not qq_filter.should_collect_message(sender_id, group_id):
+                self._log_message_capture_diag("skip:target_filter", event, message_text, level="info")
                 return
 
             if not pipeline:
+                self._log_message_capture_diag("skip:pipeline_missing", event, message_text, level="info")
                 return
 
             # 后台学习流水线
             self._track_task(asyncio.create_task(
-                pipeline.process_learning(group_id, sender_id, message_text, event)
+                self._process_learning_message(group_id, sender_id, message_text, event)
             ))
 
-            self.learning_stats.total_messages_collected += 1
-            self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
+            self._log_message_capture_diag("queued:learning_pipeline", event, message_text)
 
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
+
+    async def _process_learning_message(
+        self,
+        group_id: str,
+        sender_id: str,
+        message_text: str,
+        event: AstrMessageEvent,
+    ) -> None:
+        pipeline = getattr(self, '_pipeline', None)
+        if not pipeline:
+            self._log_message_capture_diag("skip:pipeline_missing_at_task", event, message_text, level="info")
+            return
+
+        collected = await pipeline.process_learning(group_id, sender_id, message_text, event)
+        if collected:
+            self.learning_stats.total_messages_collected += 1
+            if self.plugin_config:
+                self.plugin_config.total_messages_collected = self.learning_stats.total_messages_collected
+            self._log_message_capture_diag("saved:raw_message", event, message_text, level="info")
+        else:
+            self._log_message_capture_diag("fail:raw_message_not_saved", event, message_text, level="info")
 
     def _track_task(self, task: asyncio.Task) -> None:
         """Register a fire-and-forget task for cancellation during shutdown."""

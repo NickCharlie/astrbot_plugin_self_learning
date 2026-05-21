@@ -70,3 +70,11 @@ def test_dashboard_exposes_tiered_dependency_install_controls():
     assert "installDependencyTier" in text
     assert "data-dependency-tier=\"basic\"" in text
     assert "data-dependency-tier=\"full\"" in text
+
+
+def test_dashboard_zero_message_insight_reflects_full_learning_default():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "默认全量学习等待消息" in text
+    assert "目标列表留空时会学习所有非黑名单消息" in text
+    assert "暂无消息进入学习链路" not in text
