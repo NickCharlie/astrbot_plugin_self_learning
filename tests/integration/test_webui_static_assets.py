@@ -50,3 +50,13 @@ def test_dashboard_exposes_learning_content_browser():
     assert "data-content-type=\"analysis\"" in text
     assert "data-content-type=\"features\"" in text
     assert "data-content-type=\"history\"" in text
+
+
+def test_dashboard_exposes_structured_ai_insight_panel():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "AI 巡检" in text
+    assert "buildDashboardInsights" in text
+    assert "jumpToInsightTarget" in text
+    assert "copyAiInsightContext" in text
+    assert "aiInsightList" in text

@@ -252,6 +252,151 @@
             color: var(--text);
         }
 
+        .ai-panel {
+            margin-bottom: 16px;
+        }
+
+        .ai-panel .panel-head {
+            align-items: center;
+        }
+
+        .ai-head {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+
+        .ai-orb {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            background: var(--panel-soft);
+            border: 1px solid var(--border);
+            color: var(--accent-2);
+        }
+
+        .ai-copy-status {
+            color: var(--muted);
+            font-size: 12px;
+            min-width: 70px;
+            text-align: right;
+        }
+
+        .ai-body {
+            display: grid;
+            grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr);
+            gap: 12px;
+        }
+
+        .ai-brief {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            padding: 12px;
+            display: grid;
+            gap: 10px;
+            align-content: start;
+        }
+
+        .ai-brief strong {
+            font-size: 15px;
+            line-height: 1.35;
+        }
+
+        .ai-brief span {
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .ai-facts {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .ai-fact {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            padding: 8px 10px;
+            min-width: 0;
+        }
+
+        .ai-fact .k {
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .ai-fact .v {
+            margin-top: 4px;
+            font-size: 14px;
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        .ai-insights {
+            display: grid;
+            gap: 8px;
+        }
+
+        .ai-insight {
+            display: grid;
+            gap: 6px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            border-left: 3px solid var(--accent-2);
+            cursor: pointer;
+            transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+        }
+
+        .ai-insight:hover,
+        .ai-insight:focus-visible {
+            border-color: var(--accent-2);
+            background: var(--panel);
+            transform: translateY(-1px);
+            outline: none;
+        }
+
+        .ai-insight.high {
+            border-left-color: var(--danger);
+        }
+
+        .ai-insight.medium {
+            border-left-color: var(--warning);
+        }
+
+        .ai-insight.low {
+            border-left-color: var(--success);
+        }
+
+        .ai-insight .top {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .ai-insight .title {
+            font-weight: 700;
+            font-size: 13px;
+            min-width: 0;
+        }
+
+        .ai-insight .detail {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
         .metrics-grid {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -444,6 +589,22 @@
 
         .state.unknown {
             color: var(--muted);
+        }
+
+        .target-flash {
+            animation: targetFlash 1.4s ease-out 1;
+        }
+
+        @keyframes targetFlash {
+            0% {
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.0);
+            }
+            20% {
+                box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.18);
+            }
+            100% {
+                box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.0);
+            }
         }
 
         .dim-list {
@@ -1116,6 +1277,14 @@
                 min-width: 0;
                 width: 100%;
             }
+
+            .ai-body {
+                grid-template-columns: 1fr;
+            }
+
+            .ai-facts {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -1163,6 +1332,37 @@
                         <span class="material-icons" style="font-size:16px;">assignment</span>
                         待办 <b id="backlogCount">0</b>
                     </span>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel ai-panel" aria-label="AI 巡检">
+            <div class="panel-head">
+                <div class="ai-head">
+                    <span class="ai-orb">
+                        <span class="material-icons" style="font-size:20px;">auto_awesome</span>
+                    </span>
+                    <div>
+                        <h2>AI 巡检</h2>
+                        <span class="hint" id="aiInsightHint">等待数据</span>
+                    </div>
+                </div>
+                <div class="panel-tools">
+                    <span class="state unknown" id="aiInsightSeverity">--</span>
+                    <button class="icon-btn" id="aiCopyBtn" type="button" aria-label="复制巡检上下文" title="复制巡检上下文">
+                        <span class="material-icons">content_copy</span>
+                    </button>
+                    <span class="ai-copy-status" id="aiCopyStatus"></span>
+                </div>
+            </div>
+            <div class="panel-body">
+                <div class="ai-body">
+                    <div class="ai-brief">
+                        <strong id="aiInsightHeadline">正在读取监控信号</strong>
+                        <span id="aiInsightSubline">--</span>
+                        <div class="ai-facts" id="aiInsightFacts"></div>
+                    </div>
+                    <div class="ai-insights" id="aiInsightList"></div>
                 </div>
             </div>
         </section>
@@ -1450,6 +1650,9 @@
                 llmCalls: {
                     filter: 'all',
                     data: null,
+                },
+                insights: {
+                    context: null,
                 },
                 content: {
                     type: 'dialogues',
@@ -1779,6 +1982,256 @@
                 $('llmCallList').innerHTML = rows.length
                     ? rows.join('')
                     : `<div class="item">暂无${filter === 'abnormal' ? '异常高频' : ''}模型调用。</div>`;
+            }
+
+            function classifyInsightLevel(level) {
+                if (level === 'high') return { className: 'unhealthy', label: '高风险' };
+                if (level === 'medium') return { className: 'degraded', label: '需关注' };
+                if (level === 'low') return { className: 'healthy', label: '稳定' };
+                return { className: 'unknown', label: '观察' };
+            }
+
+            function makeInsight(level, title, detail, target) {
+                return { level, title, detail, target };
+            }
+
+            function sortInsights(items) {
+                const weight = { high: 3, medium: 2, low: 1, info: 0 };
+                return items
+                    .slice()
+                    .sort((left, right) => (weight[right.level] || 0) - (weight[left.level] || 0))
+                    .slice(0, 5);
+            }
+
+            function buildDashboardInsights(data) {
+                const metrics = data.metrics || {};
+                const health = data.health || {};
+                const persona = data.persona || {};
+                const style = data.style || {};
+                const trends = data.trends || {};
+                const jargonStats = extractJargonStats(data.jargonStats);
+                const totalMessages = safeNumber(metrics.total_messages_collected);
+                const filteredMessages = safeNumber(metrics.filtered_messages);
+                const filterRate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;
+                const learningEfficiency = safeNumber(metrics.learning_efficiency);
+                const llm = state.llmCalls.data || collectLLMCalls(
+                    metrics.llm_calls,
+                    metrics.llm_call_breakdown,
+                    metrics.llm_call_summary,
+                    metrics.filter_model_summary,
+                );
+                const styleBacklog = safeNumber(style.total);
+                const personaUpdates = safeArray(persona.updates);
+                const personaPayloadIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
+                const personaTotal = safeNumber(persona.total);
+                const personaBacklog = personaPayloadIncludesStyle ? Math.max(0, personaTotal - styleBacklog) : personaTotal;
+                const backlog = personaBacklog + styleBacklog;
+                const failedBatches = safeArray(trends.recent_batches).filter((item) => item && item.success === false).length;
+                const totalCandidates = safeNumber(jargonStats.total_candidates);
+                const confirmedJargon = safeNumber(jargonStats.confirmed_jargon);
+                const pendingJargon = Math.max(0, totalCandidates - confirmedJargon);
+                const insights = [];
+
+                if (health.overall && health.overall !== 'healthy') {
+                    insights.push(makeInsight('high', '系统健康异常', '优先查看系统健康中的 degraded/unhealthy 项，避免学习任务继续积压。', 'health'));
+                }
+
+                if (llm.filterModel && llm.filterModel.isAbnormal) {
+                    insights.push(makeInsight(
+                        'high',
+                        '筛选模型调用异常高频',
+                        `筛选模型调用 ${formatCount(llm.filterModel.totalCalls)} 次，对照均值 ${formatCount(llm.filterModel.peerAverageCalls)} 次，建议检查筛选触发条件与批次重跑。`,
+                        'llm',
+                    ));
+                } else if (llm.abnormalCount > 0) {
+                    insights.push(makeInsight('medium', '存在模型调用倾斜', `${formatCount(llm.abnormalCount)} 个模型调用量超过阈值，建议先查看模型调用面板。`, 'llm'));
+                }
+
+                if (learningEfficiency > 0 && learningEfficiency < 50) {
+                    insights.push(makeInsight('high', '学习效率偏低', `当前综合得分 ${formatPercent(learningEfficiency)}，建议先处理待审队列并检查筛选率。`, 'efficiency'));
+                } else if (learningEfficiency >= 50 && learningEfficiency < 70) {
+                    insights.push(makeInsight('medium', '学习效率可继续优化', `当前综合得分 ${formatPercent(learningEfficiency)}，优先补齐低分学习维度。`, 'efficiency'));
+                }
+
+                if (totalMessages === 0) {
+                    insights.push(makeInsight('medium', '暂无消息进入学习链路', '确认插件事件监听、目标群组和学习开关是否生效。', 'messages'));
+                } else if (totalMessages >= 50 && filterRate < 10) {
+                    insights.push(makeInsight('medium', '筛选通过率偏低', `筛选率 ${formatPercent(filterRate)}，可能需要调整筛选模型或学习阈值。`, 'messages'));
+                }
+
+                if (backlog > 0) {
+                    insights.push(makeInsight('medium', '审查队列待处理', `待审人格 ${formatCount(personaBacklog)} 条，风格 ${formatCount(styleBacklog)} 条，处理后学习结果才会进入可用状态。`, 'reviews'));
+                }
+
+                if (pendingJargon > 0) {
+                    insights.push(makeInsight('medium', '黑话候选待确认', `候选 ${formatCount(totalCandidates)} 条，待确认约 ${formatCount(pendingJargon)} 条。`, 'jargon'));
+                }
+
+                if (failedBatches > 0) {
+                    insights.push(makeInsight('high', '最近批次存在失败', `${formatCount(failedBatches)} 个最近批次失败，可从黑话与批次面板重跑。`, 'batches'));
+                }
+
+                if (!insights.length) {
+                    insights.push(makeInsight('low', '链路状态稳定', '当前没有明显阻断项，可以继续观察趋势和内容样本质量。', 'stable'));
+                }
+
+                const sortedInsights = sortInsights(insights);
+                const level = sortedInsights.some((item) => item.level === 'high')
+                    ? 'high'
+                    : (sortedInsights.some((item) => item.level === 'medium') ? 'medium' : 'low');
+                const headline = level === 'high'
+                    ? '存在需要立即处理的学习链路风险'
+                    : (level === 'medium' ? '学习链路可用，但有待处理项' : '学习链路当前稳定');
+                const subline = [
+                    `健康 ${health.overall || 'unknown'}`,
+                    `效率 ${formatPercent(learningEfficiency)}`,
+                    `筛选率 ${formatPercent(filterRate)}`,
+                    `待办 ${formatCount(backlog)}`,
+                ].join(' · ');
+
+                const context = {
+                    generated_at: new Date().toISOString(),
+                    health: health.overall || 'unknown',
+                    metrics: {
+                        total_messages: totalMessages,
+                        filtered_messages: filteredMessages,
+                        filter_rate: Number(formatDecimal(filterRate, 2)),
+                        learning_efficiency: Number(formatDecimal(learningEfficiency, 2)),
+                        llm_calls: llm.total,
+                    },
+                    queues: {
+                        persona_backlog: personaBacklog,
+                        style_backlog: styleBacklog,
+                        pending_jargon: pendingJargon,
+                    },
+                    filter_model: llm.filterModel ? {
+                        calls: llm.filterModel.totalCalls,
+                        peer_average_calls: Number(formatDecimal(llm.filterModel.peerAverageCalls, 2)),
+                        is_abnormal: llm.filterModel.isAbnormal,
+                    } : null,
+                    insights: sortedInsights.map((item) => ({
+                        level: item.level,
+                        title: item.title,
+                        detail: item.detail,
+                        target: item.target,
+                    })),
+                };
+
+                return {
+                    level,
+                    headline,
+                    subline,
+                    facts: [
+                        ['健康', health.overall || 'unknown'],
+                        ['学习效率', formatPercent(learningEfficiency)],
+                        ['筛选率', formatPercent(filterRate)],
+                        ['待办', formatCount(backlog)],
+                    ],
+                    insights: sortedInsights,
+                    context,
+                };
+            }
+
+            function getInsightTargetId(target) {
+                const map = {
+                    health: 'healthList',
+                    llm: 'llmCallList',
+                    efficiency: 'efficiencyChart',
+                    reviews: 'personaList',
+                    jargon: 'jargonList',
+                    batches: 'batchList',
+                    messages: 'trendChart',
+                    stable: 'trendChart',
+                };
+                return map[target] || null;
+            }
+
+            function jumpToInsightTarget(target) {
+                const targetId = getInsightTargetId(target);
+                if (!targetId) {
+                    return false;
+                }
+
+                const element = $(targetId);
+                if (!element) {
+                    return false;
+                }
+
+                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                element.classList.remove('target-flash');
+                window.setTimeout(() => {
+                    element.classList.add('target-flash');
+                    window.setTimeout(() => {
+                        element.classList.remove('target-flash');
+                    }, 1500);
+                }, 0);
+                return true;
+            }
+
+            function renderInsightPanel(data) {
+                const result = buildDashboardInsights(data);
+                const levelMeta = classifyInsightLevel(result.level);
+                state.insights.context = result.context;
+
+                $('aiInsightHeadline').textContent = result.headline;
+                $('aiInsightSubline').textContent = result.subline;
+                $('aiInsightHint').textContent = `结构化信号 ${formatCount(result.insights.length)} 条`;
+                $('aiInsightSeverity').className = `state ${levelMeta.className}`;
+                $('aiInsightSeverity').textContent = levelMeta.label;
+                $('aiInsightFacts').innerHTML = result.facts.map(([label, value]) => `
+                    <div class="ai-fact">
+                        <div class="k">${escapeHtml(label)}</div>
+                        <div class="v">${escapeHtml(value)}</div>
+                    </div>
+                `).join('');
+                $('aiInsightList').innerHTML = result.insights.map((item) => {
+                    const meta = classifyInsightLevel(item.level);
+                    return `
+                        <div class="ai-insight ${escapeHtml(item.level)}" data-insight-target="${escapeHtml(item.target)}" role="button" tabindex="0" aria-label="查看 ${escapeHtml(item.title)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(item.title)}</div>
+                                <span class="state ${meta.className}">${escapeHtml(meta.label)}</span>
+                            </div>
+                            <div class="detail">${escapeHtml(item.detail)}</div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            async function copyAiInsightContext() {
+                const status = $('aiCopyStatus');
+                const payload = state.insights.context;
+                if (!payload) {
+                    status.textContent = '无数据';
+                    return;
+                }
+
+                const text = JSON.stringify(payload, null, 2);
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = text;
+                        textarea.setAttribute('readonly', '');
+                        textarea.style.position = 'fixed';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                    }
+                    status.textContent = '已复制';
+                } catch (error) {
+                    console.warn('[dashboard] copy insight context failed', error);
+                    status.textContent = '复制失败';
+                }
+
+                window.setTimeout(() => {
+                    if (status.textContent) {
+                        status.textContent = '';
+                    }
+                }, 2200);
             }
 
             function extractJargonStats(payload) {
@@ -3381,6 +3834,7 @@
             function renderAll(data) {
                 state.data = data;
                 renderSummary(data);
+                renderInsightPanel(data);
                 renderTrendChart(data.trends || {});
                 renderEfficiencyChart(data.metrics || {});
                 if (state.graph.data) {
@@ -3555,6 +4009,23 @@
                 });
                 $('themeBtn').addEventListener('click', () => {
                     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
+                });
+                $('aiCopyBtn').addEventListener('click', copyAiInsightContext);
+                $('aiInsightList').addEventListener('click', (event) => {
+                    const target = event.target.closest('[data-insight-target]');
+                    if (target) {
+                        jumpToInsightTarget(target.dataset.insightTarget);
+                    }
+                });
+                $('aiInsightList').addEventListener('keydown', (event) => {
+                    const target = event.target.closest('[data-insight-target]');
+                    if (!target) {
+                        return;
+                    }
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        jumpToInsightTarget(target.dataset.insightTarget);
+                    }
                 });
                 $('configSearch').addEventListener('input', (event) => {
                     state.config.search = event.target.value || '';
