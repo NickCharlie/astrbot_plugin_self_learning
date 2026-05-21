@@ -24,7 +24,7 @@ async def app():
     app = Quart(__name__)
     app.config["TESTING"] = True
     app.config["ENABLE_WEB_DEP_INSTALL"] = True
-    app.config["ALLOWED_DEPENDENCY_PACKAGES"] = ["quart"]
+    app.config["ALLOWED_DEPENDENCY_PACKAGES"] = ["quart", "jieba", "networkx>=3.2,<3.5"]
     app.secret_key = "test-secret-key"
     app.register_blueprint(config_bp)
     yield app
@@ -77,6 +77,58 @@ class TestDependencyInstallEndpoint:
         assert "--disable-pip-version-check" in cmd
         assert "--no-input" in cmd
         assert "quart" in cmd
+        assert "jieba" in cmd
+        assert "networkx>=3.2,<3.5" in cmd
+        payload = await response.get_json()
+        assert payload["tier"] == "full"
+        assert payload["tier_label"] == "全能力依赖"
+
+    @pytest.mark.asyncio
+    async def test_basic_tier_installs_basic_dependency_subset(self, client):
+        await authenticate(client)
+
+        with patch(
+            "webui.blueprints.config.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=FakeProcess()),
+        ) as create_process:
+            response = await client.post(
+                "/api/dependencies/install",
+                json={
+                    "manual_confirmed": True,
+                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "tier": "basic",
+                },
+            )
+
+        assert response.status_code == 200
+        create_process.assert_awaited_once()
+        cmd = create_process.await_args.args
+        assert "quart" in cmd
+        assert "jieba" in cmd
+        assert "networkx>=3.2,<3.5" not in cmd
+        payload = await response.get_json()
+        assert payload["tier"] == "basic"
+        assert payload["tier_label"] == "基础能力依赖"
+
+    @pytest.mark.asyncio
+    async def test_unknown_tier_is_rejected(self, client):
+        await authenticate(client)
+
+        with patch(
+            "webui.blueprints.config.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+        ) as create_process:
+            response = await client.post(
+                "/api/dependencies/install",
+                json={
+                    "manual_confirmed": True,
+                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "tier": "unknown",
+                },
+            )
+
+        assert response.status_code == 400
+        create_process.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_install_can_be_disabled_even_with_confirmation(self, client, app):

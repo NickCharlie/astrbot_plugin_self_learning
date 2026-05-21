@@ -60,3 +60,13 @@ def test_dashboard_exposes_structured_ai_insight_panel():
     assert "jumpToInsightTarget" in text
     assert "copyAiInsightContext" in text
     assert "aiInsightList" in text
+
+
+def test_dashboard_exposes_tiered_dependency_install_controls():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "基础能力依赖" in text
+    assert "全能力依赖" in text
+    assert "installDependencyTier" in text
+    assert "data-dependency-tier=\"basic\"" in text
+    assert "data-dependency-tier=\"full\"" in text

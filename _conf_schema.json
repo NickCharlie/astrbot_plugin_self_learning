@@ -1,4 +1,20 @@
 {
+  "Dependency_Install_Guide": {
+    "description": "依赖安装",
+    "type": "object",
+    "hint": "依赖不会在插件安装或启动时自动安装。请进入插件 WebUI Dashboard 的全量设置顶部，手动点击基础能力依赖或全能力依赖。",
+    "obvious_hint": true,
+    "items": {
+      "dependency_install_entry": {
+        "description": "手动安装入口",
+        "type": "text",
+        "hint": "基础能力依赖：人格审查、黑话学习、表达方式学习与 WebUI 所需依赖。全能力依赖：在基础能力上增加图谱、监控、外部数据库、LightRAG 与 Mem0 等完整能力依赖。",
+        "default": "打开 WebUI Dashboard -> 全量设置 -> 手动安装依赖，选择“基础能力依赖”或“全能力依赖”。",
+        "_readonly": true,
+        "obvious_hint": true
+      }
+    }
+  },
   "Self_Learning_Basic": {
     "description": "基础学习设置",
     "type": "object",

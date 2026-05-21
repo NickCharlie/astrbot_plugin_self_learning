@@ -1017,6 +1017,77 @@
             margin-bottom: 12px;
         }
 
+        .dependency-install-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 14px;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .dependency-install-copy {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .dependency-install-copy h3 {
+            margin: 0;
+            font-size: 15px;
+            line-height: 1.25;
+        }
+
+        .dependency-install-copy p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .dependency-tier-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .dependency-tier-btn {
+            min-height: 40px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 0 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            color: var(--text);
+            cursor: pointer;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .dependency-tier-btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .dependency-tier-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.55;
+        }
+
+        .dependency-status {
+            margin: 0 0 12px;
+        }
+
         .chip {
             display: inline-flex;
             align-items: center;
@@ -1237,6 +1308,14 @@
             .settings-head {
                 flex-direction: column;
                 align-items: stretch;
+            }
+
+            .dependency-install-panel {
+                grid-template-columns: 1fr;
+            }
+
+            .dependency-tier-actions {
+                justify-content: flex-start;
             }
 
             .settings-actions {
@@ -1617,6 +1696,24 @@
                     </button>
                 </div>
             </div>
+            <div class="dependency-install-panel" aria-label="依赖安装">
+                <div class="dependency-install-copy">
+                    <div class="subhead">DEPENDENCIES</div>
+                    <h3>手动安装依赖</h3>
+                    <p>基础能力依赖覆盖人格审查、黑话学习、表达方式学习与 WebUI。全能力依赖包含图谱、监控、外部数据库、LightRAG 与 Mem0。</p>
+                </div>
+                <div class="dependency-tier-actions">
+                    <button class="dependency-tier-btn" type="button" data-dependency-tier="basic">
+                        <span class="material-icons">bolt</span>
+                        基础能力依赖
+                    </button>
+                    <button class="dependency-tier-btn primary" type="button" data-dependency-tier="full">
+                        <span class="material-icons">deployed_code</span>
+                        全能力依赖
+                    </button>
+                </div>
+            </div>
+            <div id="dependencyStatus" class="config-status dependency-status">依赖安装需手动确认，不会在插件安装或启动时自动执行。</div>
             <div class="settings-summary" id="configSummary"></div>
             <div id="configGroups" class="settings-grid"></div>
             <div id="configStatus" class="config-status">正在加载配置中。</div>
@@ -1638,6 +1735,9 @@
                     loading: false,
                     saving: false,
                     search: '',
+                },
+                dependencyInstall: {
+                    busy: false,
                 },
                 actionBusy: new Set(),
                 graph: {
@@ -3485,6 +3585,53 @@
                 return payload;
             }
 
+            function updateDependencyInstallStatus(message, tone = '') {
+                const status = $('dependencyStatus');
+                if (!status) {
+                    return;
+                }
+
+                status.textContent = message;
+                status.className = `config-status dependency-status${tone ? ` ${tone}` : ''}`;
+            }
+
+            function setDependencyInstallBusy(isBusy) {
+                state.dependencyInstall.busy = Boolean(isBusy);
+                document.querySelectorAll('[data-dependency-tier]').forEach((button) => {
+                    button.disabled = state.dependencyInstall.busy;
+                });
+            }
+
+            async function installDependencyTier(tier) {
+                if (state.dependencyInstall.busy) {
+                    return;
+                }
+
+                const normalizedTier = tier === 'basic' ? 'basic' : 'full';
+                const tierLabel = normalizedTier === 'basic' ? '基础能力依赖' : '全能力依赖';
+                const confirmed = window.confirm(`将通过 pip 手动安装${tierLabel}。安装可能需要几分钟，是否继续？`);
+                if (!confirmed) {
+                    return;
+                }
+
+                setDependencyInstallBusy(true);
+                updateDependencyInstallStatus(`正在安装${tierLabel}，请保持当前页面打开。`);
+                try {
+                    const payload = await postJson('/api/dependencies/install', {
+                        manual_confirmed: true,
+                        source: 'system_settings',
+                        tier: normalizedTier,
+                    });
+                    const packageCount = safeArray(payload.packages).length;
+                    const suffix = packageCount ? `，共 ${packageCount} 个包。` : '。';
+                    updateDependencyInstallStatus(payload.message || `${tierLabel}安装完成${suffix}`, 'success');
+                } catch (error) {
+                    updateDependencyInstallStatus(`${tierLabel}安装失败: ${error.message}`, 'error');
+                } finally {
+                    setDependencyInstallBusy(false);
+                }
+            }
+
             async function deleteJson(url) {
                 const response = await fetch(url, {
                     method: 'DELETE',
@@ -4051,6 +4198,12 @@
                     const actionTarget = event.target.closest('[data-dashboard-action]');
                     if (actionTarget) {
                         runDashboardAction(actionTarget.dataset.dashboardAction, actionTarget.dataset.id);
+                        return;
+                    }
+
+                    const dependencyTarget = event.target.closest('[data-dependency-tier]');
+                    if (dependencyTarget) {
+                        installDependencyTier(dependencyTarget.dataset.dependencyTier);
                         return;
                     }
 

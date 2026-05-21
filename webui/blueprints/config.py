@@ -14,21 +14,25 @@ from ..utils.response import error_response
 
 config_bp = Blueprint('config', __name__, url_prefix='/api')
 
-DEPENDENCY_PACKAGES = [
+BASIC_DEPENDENCY_PACKAGES = [
     "aiohttp",
     "emoji==2.14.1",
     "hypercorn==0.17.3",
     "jieba",
-    "psutil",
     "quart",
     "quart_cors==0.8.0",
-    "aiomysql",
-    "asyncpg",
     "pydantic",
     "sqlalchemy[asyncio]",
     "aiosqlite",
     "cachetools>=5.3.0",
     "apscheduler",
+]
+
+FULL_DEPENDENCY_PACKAGES = list(dict.fromkeys([
+    *BASIC_DEPENDENCY_PACKAGES,
+    "psutil",
+    "aiomysql",
+    "asyncpg",
     "prometheus_client>=0.20.0",
     "prometheus-async>=22.2.0",
     "networkx>=3.2,<3.5",
@@ -37,7 +41,19 @@ DEPENDENCY_PACKAGES = [
     "scikit_learn>=1.4,<1.8",
     "lightrag-hku>=1.4.0",
     "mem0ai>=1.0.0",
-]
+]))
+
+DEPENDENCY_PACKAGES = FULL_DEPENDENCY_PACKAGES
+DEPENDENCY_TIERS = {
+    "basic": {
+        "label": "基础能力依赖",
+        "packages": BASIC_DEPENDENCY_PACKAGES,
+    },
+    "full": {
+        "label": "全能力依赖",
+        "packages": FULL_DEPENDENCY_PACKAGES,
+    },
+}
 _dependency_install_lock = asyncio.Lock()
 MANUAL_DEPENDENCY_INSTALL_SOURCE = "system_settings"
 
@@ -127,27 +143,41 @@ async def install_plugin_dependencies():
         )
         return error_response("当前环境未启用依赖安装功能", 403)
 
+    tier = str(payload.get("tier") or "full").strip().lower()
+    tier_definition = DEPENDENCY_TIERS.get(tier)
+    if not tier_definition:
+        logger.warning(
+            f"[WebUI] 拒绝插件依赖安装请求：未知依赖档位 {tier!r}，"
+            f"user={user_id}, remote_addr={client_ip}"
+        )
+        return error_response("未知依赖安装档位，请选择基础能力依赖或全能力依赖", 400)
+
+    tier_label = tier_definition["label"]
+    selected_packages = tier_definition["packages"]
     allowed_packages = current_app.config.get("ALLOWED_DEPENDENCY_PACKAGES")
     if allowed_packages:
         allowed_set = set(allowed_packages)
-        packages_to_install = [pkg for pkg in DEPENDENCY_PACKAGES if pkg in allowed_set]
+        packages_to_install = [pkg for pkg in selected_packages if pkg in allowed_set]
     else:
-        packages_to_install = DEPENDENCY_PACKAGES
+        packages_to_install = selected_packages
 
     if not packages_to_install:
         logger.warning(
-            f"[WebUI] 插件依赖安装请求被拒绝：依赖列表为空，user={user_id}, remote_addr={client_ip}"
+            f"[WebUI] 插件依赖安装请求被拒绝：依赖列表为空，tier={tier}, "
+            f"user={user_id}, remote_addr={client_ip}"
         )
         return error_response("依赖列表为空，无法安装", 400)
 
     logger.info(
-        f"[WebUI] 收到插件依赖安装请求，user={user_id}, remote_addr={client_ip}, "
+        f"[WebUI] 收到插件依赖安装请求，tier={tier}, label={tier_label}, "
+        f"user={user_id}, remote_addr={client_ip}, "
         f"packages={packages_to_install}"
     )
 
     if _dependency_install_lock.locked():
         logger.info(
-            f"[WebUI] 插件依赖安装请求被拒绝：已有安装任务进行中，user={user_id}, remote_addr={client_ip}"
+            f"[WebUI] 插件依赖安装请求被拒绝：已有安装任务进行中，tier={tier}, "
+            f"user={user_id}, remote_addr={client_ip}"
         )
         return error_response("依赖安装正在进行中，请稍后再试", 409)
 
@@ -161,7 +191,10 @@ async def install_plugin_dependencies():
             "--no-input",
             *packages_to_install,
         ]
-        logger.info(f"[WebUI] 开始手动安装插件依赖，user={user_id}, packages={packages_to_install}")
+        logger.info(
+            f"[WebUI] 开始手动安装插件依赖，tier={tier}, label={tier_label}, "
+            f"user={user_id}, packages={packages_to_install}"
+        )
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -175,15 +208,24 @@ async def install_plugin_dependencies():
             combined_output = (output + "\n" + error).strip()
 
             if process.returncode == 0:
-                logger.info("[WebUI] 插件依赖安装完成")
+                logger.info(f"[WebUI] 插件依赖安装完成，tier={tier}, label={tier_label}")
                 return jsonify({
-                    "message": "依赖安装完成",
+                    "message": f"{tier_label}安装完成",
+                    "tier": tier,
+                    "tier_label": tier_label,
+                    "packages": packages_to_install,
                     "output": combined_output[-8000:],
                 }), 200
 
-            logger.error(f"[WebUI] 插件依赖安装失败，退出码: {process.returncode}\n{combined_output}")
+            logger.error(
+                f"[WebUI] 插件依赖安装失败，tier={tier}, label={tier_label}, "
+                f"退出码: {process.returncode}\n{combined_output}"
+            )
             return jsonify({
-                "message": f"依赖安装失败，退出码: {process.returncode}",
+                "message": f"{tier_label}安装失败，退出码: {process.returncode}",
+                "tier": tier,
+                "tier_label": tier_label,
+                "packages": packages_to_install,
                 "output": combined_output[-8000:],
             }), 500
         except Exception as e:
