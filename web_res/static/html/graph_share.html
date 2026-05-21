@@ -4,17 +4,93 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>社交关系图谱分享</title>
+  <script>
+    (function () {
+      try {
+        var key = "sl-dashboard-theme";
+        var saved = localStorage.getItem(key);
+        var prefersDark =
+          window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var theme = saved === "dark" || saved === "light"
+          ? saved
+          : prefersDark
+            ? "dark"
+            : "light";
+        document.documentElement.setAttribute("data-theme", theme);
+        document.documentElement.style.colorScheme = theme;
+      } catch (error) {
+        document.documentElement.setAttribute("data-theme", "light");
+        document.documentElement.style.colorScheme = "light";
+      }
+    })();
+  </script>
   <script src="/static/vendor/echarts.min.js"></script>
   <style>
     :root {
       color-scheme: light;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --surface-hover: #edf2f7;
+      --input-bg: #ffffff;
+      --accent: #2563eb;
+      --accent-strong: #1d4ed8;
+      --selection: rgba(37, 99, 235, 0.16);
+      --shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+      --tooltip-bg: #ffffff;
+      --tooltip-border: #d1d5db;
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0d1218;
+      --panel: #111821;
+      --panel-soft: #0f1620;
+      --text: #e8edf3;
+      --muted: #8a96a3;
+      --border: #223040;
+      --border-strong: #304154;
+      --surface-hover: #162130;
+      --input-bg: #0f1620;
+      --accent: #60a5fa;
+      --accent-strong: #93c5fd;
+      --selection: rgba(96, 165, 250, 0.22);
+      --shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+      --tooltip-bg: #111821;
+      --tooltip-border: #324150;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+    }
+
+    ::selection {
+      background: var(--selection);
+      color: var(--text);
+    }
+
+    button, select {
+      font: inherit;
+      transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    button:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      box-shadow: 0 0 0 4px var(--selection);
     }
 
     body {
-      margin: 0;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: #f5f7fb;
-      color: #1f2937;
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
     }
 
     .wrap {
@@ -24,10 +100,10 @@
     }
 
     .card {
-      background: #fff;
-      border-radius: 12px;
-      border: 1px solid #e5e7eb;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+      background: var(--panel);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
       padding: 16px;
     }
 
@@ -40,7 +116,7 @@
     .subtitle {
       margin: 0;
       font-size: 13px;
-      color: #6b7280;
+      color: var(--muted);
     }
 
     .stats {
@@ -60,34 +136,35 @@
 
     .toolbar-label {
       font-size: 12px;
-      color: #4b5563;
+      color: var(--muted);
       font-weight: 600;
     }
 
     .toolbar-select {
       min-width: 180px;
       padding: 6px 10px;
-      border: 1px solid #d1d5db;
+      border: 1px solid var(--border);
       border-radius: 8px;
       font-size: 12px;
-      background: #fff;
-      color: #1f2937;
+      background: var(--input-bg);
+      color: var(--text);
     }
 
     .layout-switch {
       display: inline-flex;
       align-items: center;
       gap: 4px;
-      background: #fff;
-      border: 1px solid #d1d5db;
+      background: var(--panel);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 2px;
+      box-shadow: var(--shadow);
     }
 
     .layout-option {
       border: none;
       background: transparent;
-      color: #6b7280;
+      color: var(--muted);
       border-radius: 6px;
       padding: 4px 10px;
       font-size: 12px;
@@ -96,18 +173,28 @@
     }
 
     .layout-option.active {
-      background: #007aff;
+      background: var(--accent);
       color: #fff;
       font-weight: 600;
     }
 
+    .layout-option:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+
+    .layout-option.active:hover {
+      background: var(--accent-strong);
+      color: #fff;
+    }
+
     .stat-item {
-      background: #f8fafc;
-      border: 1px solid #e5e7eb;
+      background: var(--panel-soft);
+      border: 1px solid var(--border);
       border-radius: 8px;
       padding: 8px 10px;
       font-size: 12px;
-      color: #4b5563;
+      color: var(--muted);
     }
 
     #chart {
@@ -118,7 +205,7 @@
     }
 
     .error {
-      color: #dc2626;
+      color: #f87171;
       margin-top: 14px;
       font-size: 14px;
     }
@@ -150,6 +237,7 @@
   <script>
     (function () {
       var token = {{ share_token | tojson }};
+      var themeKey = "sl-dashboard-theme";
       var chartDom = document.getElementById("chart");
       var chart = window.echarts ? window.echarts.init(chartDom) : null;
       var statsEl = document.getElementById("stats");
@@ -158,9 +246,66 @@
       var layoutForceEl = document.getElementById("layoutForce");
       var layoutCircularEl = document.getElementById("layoutCircular");
 
+      var themeFromDocument = document.documentElement.getAttribute("data-theme");
+      var currentTheme = themeFromDocument || "light";
       var rawMembers = [];
       var rawRelations = [];
       var graphLayout = "force";
+
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function readTheme() {
+        try {
+          var saved = localStorage.getItem(themeKey);
+          if (saved === "dark" || saved === "light") {
+            return saved;
+          }
+        } catch (error) {}
+        return themeFromDocument || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      }
+
+      function applyTheme(theme) {
+        currentTheme = theme === "dark" ? "dark" : "light";
+        document.documentElement.setAttribute("data-theme", currentTheme);
+        document.documentElement.style.colorScheme = currentTheme;
+        document.body.setAttribute("data-theme", currentTheme);
+        try {
+          localStorage.setItem(themeKey, currentTheme);
+        } catch (error) {}
+      }
+
+      function getTextColor() {
+        return getComputedStyle(document.body).getPropertyValue("--text").trim() || "#1f2937";
+      }
+
+      function getMutedColor() {
+        return getComputedStyle(document.body).getPropertyValue("--muted").trim() || "#6b7280";
+      }
+
+      function getBorderColor() {
+        return getComputedStyle(document.body).getPropertyValue("--border").trim() || "#e5e7eb";
+      }
+
+      function getTooltipBackground() {
+        return getComputedStyle(document.body).getPropertyValue("--tooltip-bg").trim() || (currentTheme === "dark" ? "#111821" : "#ffffff");
+      }
+
+      function getTooltipBorderColor() {
+        return getComputedStyle(document.body).getPropertyValue("--tooltip-border").trim() || getBorderColor();
+      }
+
+      function getPalette() {
+        return currentTheme === "dark"
+          ? ["#2dd4bf", "#60a5fa", "#f59e0b", "#22c55e", "#a78bfa", "#fb7185"]
+          : ["#0f766e", "#2563eb", "#d97706", "#15803d", "#7c3aed", "#db2777"];
+      }
 
       function showError(message) {
         errorEl.style.display = "block";
@@ -183,10 +328,10 @@
 
       function renderStats(graph, share) {
         var items = [
-          "群组: " + (graph.group_id || "-"),
-          "成员: " + (graph.member_count || 0),
-          "关系: " + (graph.relation_count || 0),
-          "有效期至: " + formatExpiresAt(share.expires_at),
+          "群组: " + escapeHtml(graph.group_id || "-"),
+          "成员: " + escapeHtml(graph.member_count || 0),
+          "关系: " + escapeHtml(graph.relation_count || 0),
+          "有效期至: " + escapeHtml(formatExpiresAt(share.expires_at)),
         ];
         statsEl.innerHTML = items
           .map(function (x) {
@@ -202,7 +347,7 @@
           var userId = String(m.user_id || "");
           var displayName = m.nickname || userId;
           options.push(
-            '<option value="' + userId + '">' + displayName + "</option>"
+            '<option value="' + escapeHtml(userId) + '">' + escapeHtml(displayName) + "</option>"
           );
         });
         memberFilterEl.innerHTML = options.join("");
@@ -235,14 +380,15 @@
       }
 
       function buildData(members, relations) {
-        var nodes = members.map(function (m) {
+        var palette = getPalette();
+        var nodes = members.map(function (m, index) {
           var msgCount = Number(m.message_count || 0);
           return {
             id: String(m.user_id || ""),
             name: m.nickname || String(m.user_id || ""),
             value: msgCount,
             symbolSize: Math.max(16, Math.min(56, 10 + msgCount / 10)),
-            itemStyle: { color: "#1976d2" },
+            itemStyle: { color: palette[index % palette.length] },
           };
         });
 
@@ -277,7 +423,7 @@
                 text: "暂无图谱数据",
                 left: "center",
                 top: "middle",
-                textStyle: { color: "#9ca3af", fontSize: 16 },
+                textStyle: { color: getMutedColor(), fontSize: 16 },
               },
               series: [],
             },
@@ -297,17 +443,19 @@
           layout: isCircular ? "circular" : "force",
           roam: true,
           draggable: true,
+          color: getPalette(),
           data: data.nodes,
           links: data.links,
           label: {
             show: true,
             position: "right",
             fontSize: 11,
-            color: "#374151",
+            color: getTextColor(),
           },
           lineStyle: {
             color: "source",
             curveness: 0.22,
+            opacity: currentTheme === "dark" ? 0.72 : 0.62,
           },
           emphasis: {
             focus: "adjacency",
@@ -328,13 +476,20 @@
 
         chart.setOption(
           {
+            backgroundColor: "transparent",
+            color: getPalette(),
+            textStyle: { color: getTextColor() },
             tooltip: {
               trigger: "item",
+              backgroundColor: getTooltipBackground(),
+              borderColor: getTooltipBorderColor(),
+              borderWidth: 1,
+              textStyle: { color: getTextColor() },
               formatter: function (params) {
                 if (params.dataType === "node") {
                   return (
                     "<b>" +
-                    params.name +
+                    escapeHtml(params.name) +
                     "</b><br/>消息数: " +
                     (params.data.value || 0)
                   );
@@ -344,11 +499,11 @@
                   var tgt = idToName[params.data.target] || params.data.target;
                   return (
                     "<b>" +
-                    src +
+                    escapeHtml(src) +
                     "</b> <-> <b>" +
-                    tgt +
+                    escapeHtml(tgt) +
                     "</b><br/>关系: " +
-                    (params.data.relationTypeText || "互动") +
+                    escapeHtml(params.data.relationTypeText || "互动") +
                     "<br/>强度: " +
                     Number(params.data.value || 0).toFixed(2) +
                     "<br/>互动次数: " +
@@ -406,6 +561,7 @@
         });
       }
 
+      applyTheme(readTheme());
       window.addEventListener("resize", function () {
         if (chart) chart.resize();
       });

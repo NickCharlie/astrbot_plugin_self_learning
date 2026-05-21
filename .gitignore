@@ -58,9 +58,8 @@ webui.py.old
 export.zip
 
 # ========================================
-# Project-specific: Scripts & Docs (not shipped)
+# Project-specific: Scripts (not shipped)
 # ========================================
-/docs/
 /moss/
 /scripts/
 test_api.py

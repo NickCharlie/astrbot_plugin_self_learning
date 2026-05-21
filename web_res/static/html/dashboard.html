@@ -4,16 +4,41 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SELF LEARNING 监控板</title>
+    <script>
+        (function () {
+            try {
+                const themeKey = 'sl-dashboard-theme';
+                const savedTheme = localStorage.getItem(themeKey);
+                const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const theme = savedTheme === 'dark' || savedTheme === 'light'
+                    ? savedTheme
+                    : (prefersDark ? 'dark' : 'light');
+                document.documentElement.setAttribute('data-theme', theme);
+                document.documentElement.style.colorScheme = theme;
+            } catch (error) {
+                document.documentElement.setAttribute('data-theme', 'light');
+                document.documentElement.style.colorScheme = 'light';
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="/static/vendor/material-icons/material-icons.css">
     <script src="/static/vendor/echarts.min.js"></script>
     <style>
         :root {
+            color-scheme: light;
             --bg: #f4f7fb;
+            --bg-soft: #edf3f9;
             --panel: #ffffff;
             --panel-soft: #f8fbfd;
             --text: #15212d;
             --muted: #5f6c79;
             --border: #d9e3ec;
+            --border-strong: #c9d6e2;
+            --surface-hover: #eef4fa;
+            --input-bg: #ffffff;
+            --tooltip-bg: #ffffff;
+            --tooltip-border: #cfd8e3;
+            --selection: rgba(37, 99, 235, 0.16);
             --accent: #0f766e;
             --accent-2: #2563eb;
             --accent-3: #d97706;
@@ -21,15 +46,25 @@
             --warning: #b45309;
             --danger: #b91c1c;
             --shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
+            --chart-fill-soft: rgba(37, 99, 235, 0.08);
+            --chart-fill-strong: rgba(37, 99, 235, 0.12);
         }
 
         [data-theme="dark"] {
+            color-scheme: dark;
             --bg: #0d1218;
+            --bg-soft: #121b26;
             --panel: #111821;
             --panel-soft: #0f1620;
             --text: #e8edf3;
             --muted: #8a96a3;
             --border: #223040;
+            --border-strong: #304154;
+            --surface-hover: #162130;
+            --input-bg: #0f1620;
+            --tooltip-bg: #111821;
+            --tooltip-border: #324150;
+            --selection: rgba(96, 165, 250, 0.22);
             --accent: #2dd4bf;
             --accent-2: #60a5fa;
             --accent-3: #f59e0b;
@@ -37,6 +72,8 @@
             --warning: #f59e0b;
             --danger: #f97316;
             --shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            --chart-fill-soft: rgba(96, 165, 250, 0.12);
+            --chart-fill-strong: rgba(96, 165, 250, 0.16);
         }
 
         * {
@@ -46,17 +83,39 @@
         html, body {
             margin: 0;
             min-height: 100%;
+            background: var(--bg);
+        }
+
+        ::selection {
+            background: var(--selection);
+            color: var(--text);
+        }
+
+        button, input, select, textarea {
+            font: inherit;
+            transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--muted);
+            opacity: 1;
+        }
+
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible {
+            outline: 2px solid var(--accent-2);
+            outline-offset: 2px;
+            box-shadow: 0 0 0 4px var(--selection);
         }
 
         body {
-            background: var(--bg);
             color: var(--text);
             font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
             line-height: 1.5;
-        }
-
-        button, input, select {
-            font: inherit;
+            -webkit-font-smoothing: antialiased;
         }
 
         .shell {
@@ -137,6 +196,7 @@
         .icon-btn:hover {
             border-color: var(--accent);
             color: var(--accent);
+            background: var(--surface-hover);
         }
 
         .hero {
@@ -289,6 +349,14 @@
             color: var(--muted);
             font-size: 12px;
             white-space: nowrap;
+        }
+
+        .panel-tools {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 8px;
         }
 
         .panel-body {
@@ -515,6 +583,7 @@
         .seg-btn:hover {
             border-color: var(--accent);
             color: var(--accent);
+            background: var(--surface-hover);
         }
 
         .action-btn.success {
@@ -556,7 +625,7 @@
             height: 36px;
             border: 1px solid var(--border);
             border-radius: 8px;
-            background: var(--panel);
+            background: var(--input-bg);
             color: var(--text);
             padding: 0 10px;
         }
@@ -583,7 +652,7 @@
         }
 
         .content-item[open] {
-            background: var(--panel);
+            background: linear-gradient(180deg, var(--panel) 0%, var(--panel-soft) 100%);
         }
 
         .content-item summary {
@@ -673,7 +742,7 @@
             height: 36px;
             border: 1px solid var(--border);
             border-radius: 8px;
-            background: var(--panel);
+            background: var(--input-bg);
             color: var(--text);
             padding: 0 10px;
         }
@@ -721,6 +790,7 @@
         }
 
         .icon-btn.primary:hover {
+            background: var(--accent);
             color: #fff;
         }
 
@@ -773,7 +843,7 @@
             height: 38px;
             border: 1px solid var(--border);
             border-radius: 8px;
-            background: var(--panel);
+            background: var(--input-bg);
             color: var(--text);
             padding: 0 12px;
             box-shadow: var(--shadow);
@@ -924,7 +994,7 @@
             width: 100%;
             border: 1px solid var(--border);
             border-radius: 8px;
-            background: var(--panel-soft);
+            background: var(--input-bg);
             color: var(--text);
             padding: 10px 12px;
             box-sizing: border-box;
@@ -1172,6 +1242,32 @@
 
                 <div class="panel">
                     <div class="panel-head">
+                        <div>
+                            <h2>筛选模型调用</h2>
+                            <span class="hint" id="llmCallHint">--</span>
+                        </div>
+                        <div class="panel-tools">
+                            <div class="graph-tabs" aria-label="模型调用筛选">
+                                <button class="seg-btn active" type="button" data-llm-filter="all">
+                                    <span class="material-icons" style="font-size:16px;">list</span>
+                                    全部
+                                </button>
+                                <button class="seg-btn" type="button" data-llm-filter="abnormal">
+                                    <span class="material-icons" style="font-size:16px;">warning</span>
+                                    异常
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="stats-row" id="llmFilterStats"></div>
+                        <div class="stats-row" id="llmCallStats"></div>
+                        <div id="llmCallList" class="list"></div>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
                         <h2>学习维度</h2>
                         <span class="hint" id="dimensionHint">--</span>
                     </div>
@@ -1329,10 +1425,11 @@
 
     <script>
         (function () {
+            const themeFromDocument = document.documentElement.getAttribute('data-theme');
             const state = {
                 charts: {},
                 data: null,
-                theme: localStorage.getItem('sl-dashboard-theme') || 'light',
+                theme: themeFromDocument || localStorage.getItem('sl-dashboard-theme') || 'light',
                 config: {
                     schema: null,
                     original: {},
@@ -1349,6 +1446,10 @@
                     groupId: '',
                     data: null,
                     loading: false,
+                },
+                llmCalls: {
+                    filter: 'all',
+                    data: null,
                 },
                 content: {
                     type: 'dialogues',
@@ -1469,25 +1570,215 @@
                 return 0;
             }
 
-            function collectLLMCalls(llmCalls) {
-                if (!llmCalls || typeof llmCalls !== 'object') {
-                    return { total: 0, providers: 0 };
-                }
+            function collectLLMCalls(llmCalls, llmCallBreakdown, llmCallSummary, filterModelSummary) {
+                const sourceRows = safeArray(llmCallBreakdown).length
+                    ? safeArray(llmCallBreakdown)
+                    : Object.entries(llmCalls || {})
+                        .filter(([key, value]) => key !== 'overall' && value && typeof value === 'object')
+                        .map(([providerType, value]) => ({
+                            provider_type: providerType,
+                            provider_label: providerType,
+                            total_calls: safeNumber(value.total_calls),
+                            avg_response_time_ms: safeNumber(value.avg_response_time_ms),
+                            success_rate: safeNumber(value.success_rate),
+                            error_count: safeNumber(value.error_count),
+                        }));
 
-                const overall = llmCalls.overall && safeNumber(llmCalls.overall.total_calls);
-                if (overall) {
+                const items = sourceRows
+                    .map((entry) => {
+                        const totalCalls = safeNumber(entry.total_calls);
+                        if (totalCalls <= 0) {
+                            return null;
+                        }
+
+                        return {
+                            providerType: entry.provider_type || 'unknown',
+                            providerLabel: entry.provider_label || entry.provider_type || 'unknown',
+                            totalCalls,
+                            avgResponseTimeMs: safeNumber(entry.avg_response_time_ms),
+                            successRate: safeNumber(entry.success_rate, 1),
+                            errorCount: safeNumber(entry.error_count),
+                            sharePercent: safeNumber(entry.share_percent),
+                            isAbnormal: Boolean(entry.is_abnormal),
+                            abnormalReason: entry.abnormal_reason || '',
+                        };
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => b.totalCalls - a.totalCalls);
+
+                const total = llmCallSummary && llmCallSummary.total_calls !== undefined && llmCallSummary.total_calls !== null
+                    ? safeNumber(llmCallSummary.total_calls)
+                    : items.reduce((sum, item) => sum + item.totalCalls, 0);
+                const providers = llmCallSummary && llmCallSummary.provider_count !== undefined && llmCallSummary.provider_count !== null
+                    ? safeNumber(llmCallSummary.provider_count)
+                    : items.length;
+                const averageCalls = llmCallSummary && llmCallSummary.average_calls_per_provider !== undefined && llmCallSummary.average_calls_per_provider !== null
+                    ? safeNumber(llmCallSummary.average_calls_per_provider)
+                    : (providers ? total / providers : 0);
+                const abnormalThresholdRatio = llmCallSummary && llmCallSummary.abnormal_threshold_ratio !== undefined && llmCallSummary.abnormal_threshold_ratio !== null
+                    ? safeNumber(llmCallSummary.abnormal_threshold_ratio, 1.5)
+                    : 1.5;
+                const minimumAbnormalCalls = llmCallSummary && llmCallSummary.minimum_abnormal_calls !== undefined && llmCallSummary.minimum_abnormal_calls !== null
+                    ? safeNumber(llmCallSummary.minimum_abnormal_calls, 5)
+                    : 5;
+                const abnormalThresholdCalls = llmCallSummary && llmCallSummary.abnormal_threshold_calls !== undefined && llmCallSummary.abnormal_threshold_calls !== null
+                    ? safeNumber(llmCallSummary.abnormal_threshold_calls)
+                    : (providers > 1 ? Math.max(minimumAbnormalCalls, averageCalls * abnormalThresholdRatio) : minimumAbnormalCalls);
+                const normalizedItems = items.map((item) => {
+                    const sharePercent = total ? (item.totalCalls / total) * 100 : 0;
+                    const isAbnormal = providers > 1 && item.totalCalls >= abnormalThresholdCalls;
                     return {
-                        total: overall,
-                        providers: Object.keys(llmCalls).filter((key) => key !== 'overall').length,
+                        ...item,
+                        sharePercent: item.sharePercent || sharePercent,
+                        isAbnormal: item.isAbnormal || isAbnormal,
+                        abnormalReason: item.abnormalReason || (isAbnormal ? `调用量高于均值 ${abnormalThresholdRatio.toFixed(1)} 倍` : ''),
                     };
-                }
+                });
 
-                const providerEntries = Object.entries(llmCalls).filter(([key, value]) => key !== 'overall' && value && typeof value === 'object');
-                const total = providerEntries.reduce((sum, [, value]) => sum + safeNumber(value.total_calls), 0);
+                const abnormalItems = normalizedItems.filter((item) => item.isAbnormal);
+                const abnormalCount = llmCallSummary && llmCallSummary.abnormal_provider_count !== undefined && llmCallSummary.abnormal_provider_count !== null
+                    ? safeNumber(llmCallSummary.abnormal_provider_count)
+                    : abnormalItems.length;
+                const filterItem = normalizedItems.find((item) => item.providerType === 'filter') || null;
+                const peerItems = normalizedItems.filter((item) => item.providerType !== 'filter');
+                const peerProviderCount = peerItems.length;
+                const peerTotalCalls = peerItems.reduce((sum, item) => sum + item.totalCalls, 0);
+                const peerAverageCalls = peerProviderCount ? peerTotalCalls / peerProviderCount : 0;
+                const filterThresholdCalls = filterModelSummary && filterModelSummary.abnormal_threshold_calls !== undefined && filterModelSummary.abnormal_threshold_calls !== null
+                    ? safeNumber(filterModelSummary.abnormal_threshold_calls)
+                    : (peerProviderCount ? Math.max(minimumAbnormalCalls, peerAverageCalls * abnormalThresholdRatio) : minimumAbnormalCalls);
+                const filterModel = filterItem ? {
+                    providerType: 'filter',
+                    providerLabel: filterModelSummary && filterModelSummary.provider_label
+                        ? filterModelSummary.provider_label
+                        : filterItem.providerLabel,
+                    totalCalls: filterItem.totalCalls,
+                    avgResponseTimeMs: filterItem.avgResponseTimeMs,
+                    successRate: filterItem.successRate,
+                    errorCount: filterItem.errorCount,
+                    sharePercent: filterItem.sharePercent,
+                    peerProviderCount: filterModelSummary && filterModelSummary.peer_provider_count !== undefined && filterModelSummary.peer_provider_count !== null
+                        ? safeNumber(filterModelSummary.peer_provider_count)
+                        : peerProviderCount,
+                    peerAverageCalls: filterModelSummary && filterModelSummary.peer_average_calls !== undefined && filterModelSummary.peer_average_calls !== null
+                        ? safeNumber(filterModelSummary.peer_average_calls)
+                        : peerAverageCalls,
+                    abnormalThresholdCalls: filterThresholdCalls,
+                    abnormalThresholdRatio,
+                    minimumAbnormalCalls,
+                    isAbnormal: filterModelSummary && filterModelSummary.is_abnormal !== undefined && filterModelSummary.is_abnormal !== null
+                        ? Boolean(filterModelSummary.is_abnormal)
+                        : (peerProviderCount > 0 && filterItem.totalCalls >= filterThresholdCalls),
+                    abnormalReason: (filterModelSummary && filterModelSummary.abnormal_reason) || (
+                        peerProviderCount > 0 && filterItem.totalCalls >= filterThresholdCalls
+                            ? `筛选模型调用量高于其他模型均值 ${abnormalThresholdRatio.toFixed(1)} 倍`
+                            : ''
+                    ),
+                    configured: filterModelSummary && filterModelSummary.configured !== undefined
+                        ? Boolean(filterModelSummary.configured)
+                        : true,
+                } : null;
+
                 return {
                     total,
-                    providers: providerEntries.length,
+                    providers,
+                    averageCalls,
+                    abnormalThresholdCalls,
+                    abnormalThresholdRatio,
+                    minimumAbnormalCalls,
+                    abnormalCount,
+                    items: normalizedItems,
+                    abnormalItems,
+                    filterModel,
                 };
+            }
+
+            function renderLLMCallPanel(llm) {
+                const filter = state.llmCalls.filter === 'abnormal' ? 'abnormal' : 'all';
+                const items = filter === 'abnormal' ? llm.abnormalItems : llm.items;
+                const filterModel = llm.filterModel;
+
+                $('llmCallHint').textContent = filterModel
+                    ? `筛选模型 ${filterModel.providerLabel} · ${filterModel.isAbnormal ? '异常高频' : '正常'} · 对照阈值 ${formatDecimal(filterModel.abnormalThresholdCalls, 1)} 次`
+                    : (filter === 'abnormal'
+                        ? `显示 ${formatCount(items.length)} / ${formatCount(llm.items.length)} 个异常高频模型`
+                        : `异常阈值 ${formatDecimal(llm.abnormalThresholdCalls, 1)} 次`);
+
+                $('llmFilterStats').innerHTML = filterModel ? [
+                    ['筛选模型', filterModel.providerLabel],
+                    ['调用次数', formatCount(filterModel.totalCalls)],
+                    ['对照均值', filterModel.peerProviderCount ? formatCount(filterModel.peerAverageCalls) : '--'],
+                    ['状态', filterModel.isAbnormal ? '异常高频' : '正常'],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${escapeHtml(label)}</div>
+                        <div class="v">${escapeHtml(value)}</div>
+                    </div>
+                `).join('') : `
+                    <div class="small-stat">
+                        <div class="k">筛选模型</div>
+                        <div class="v">未配置</div>
+                    </div>
+                    <div class="small-stat">
+                        <div class="k">调用次数</div>
+                        <div class="v">--</div>
+                    </div>
+                    <div class="small-stat">
+                        <div class="k">对照均值</div>
+                        <div class="v">--</div>
+                    </div>
+                    <div class="small-stat">
+                        <div class="k">状态</div>
+                        <div class="v">--</div>
+                    </div>
+                `;
+
+                $('llmCallStats').innerHTML = [
+                    ['总调用', formatCount(llm.total)],
+                    ['提供商', formatCount(llm.providers)],
+                    ['异常项', formatCount(llm.abnormalCount)],
+                    ['阈值', formatDecimal(llm.abnormalThresholdCalls, 1)],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${escapeHtml(label)}</div>
+                        <div class="v">${escapeHtml(value)}</div>
+                    </div>
+                `).join('');
+
+                document.querySelectorAll('[data-llm-filter]').forEach((tab) => {
+                    tab.classList.toggle('active', tab.dataset.llmFilter === filter);
+                });
+
+                const rows = items.map((item) => {
+                    const statusClass = item.providerType === 'filter'
+                        ? (item.isAbnormal ? 'degraded' : 'healthy')
+                        : (item.isAbnormal ? 'degraded' : 'healthy');
+                    const statusLabel = item.providerType === 'filter'
+                        ? (item.isAbnormal ? '筛选异常' : '筛选模型')
+                        : (item.isAbnormal ? '异常高频' : '正常');
+                    const rateText = `${formatPercent(item.sharePercent)} 占比`;
+                    const latencyText = item.avgResponseTimeMs ? `${formatDecimal(item.avgResponseTimeMs, item.avgResponseTimeMs >= 100 ? 0 : 1)}ms` : '--';
+                    const reason = item.providerType === 'filter'
+                        ? (item.abnormalReason || `筛选模型调用量高于其他模型均值 ${formatDecimal(filterModel ? filterModel.abnormalThresholdRatio : llm.abnormalThresholdRatio, 1)} 倍`)
+                        : (item.isAbnormal
+                            ? (item.abnormalReason || `调用量高于均值 ${formatDecimal(llm.abnormalThresholdRatio, 1)} 倍`)
+                            : `模型类型 ${item.providerType}`);
+
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(item.providerLabel)}</div>
+                                <span class="state ${statusClass}">${escapeHtml(statusLabel)}</span>
+                            </div>
+                            <div class="meta">调用 ${formatCount(item.totalCalls)} · ${escapeHtml(rateText)} · 平均 ${escapeHtml(latencyText)} · 错误 ${formatCount(item.errorCount)}</div>
+                            <div class="body clamp">${escapeHtml(reason)}</div>
+                        </div>
+                    `;
+                });
+
+                $('llmCallList').innerHTML = rows.length
+                    ? rows.join('')
+                    : `<div class="item">暂无${filter === 'abnormal' ? '异常高频' : ''}模型调用。</div>`;
             }
 
             function extractJargonStats(payload) {
@@ -1709,7 +2000,13 @@
                 const filteredMessages = safeNumber(metrics.filtered_messages);
                 const filterRate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;
                 const learningEfficiency = safeNumber(metrics.learning_efficiency);
-                const llm = collectLLMCalls(metrics.llm_calls);
+                const llm = collectLLMCalls(
+                    metrics.llm_calls,
+                    metrics.llm_call_breakdown,
+                    metrics.llm_call_summary,
+                    metrics.filter_model_summary,
+                );
+                state.llmCalls.data = llm;
                 const activeSessions = safeNumber(metrics.learning_sessions && metrics.learning_sessions.active_sessions);
                 const personaUpdates = safeArray(persona.updates);
                 const styleBacklog = safeNumber(style.total);
@@ -1746,7 +2043,7 @@
                 $('metric-learning-efficiency-note').textContent = '综合得分';
 
                 $('metric-llm-calls').textContent = formatCount(llm.total);
-                $('metric-llm-calls-note').textContent = `${llm.providers} 个提供商`;
+                $('metric-llm-calls-note').textContent = `${llm.providers} 个提供商 · ${llm.abnormalCount} 个异常`;
 
                 $('metric-active-sessions').textContent = formatCount(activeSessions);
                 $('metric-active-sessions-note').textContent = '当前运行';
@@ -1800,6 +2097,8 @@
                 });
                 $('functionHint').textContent = data.functions && data.functions.length ? `${Math.min(data.functions.length, 5)} 条热点` : '无热点';
                 $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="item">暂无函数热点。</div>';
+
+                renderLLMCallPanel(llm);
 
                 const dimensions = metrics.learning_dimensions || {};
                 const dimensionEntries = Object.entries(dimensions).filter(([, value]) => Number.isFinite(Number(value)));
@@ -1989,9 +2288,22 @@
                 });
 
                 chart.setOption({
+                    backgroundColor: 'transparent',
+                    color: getThemePalette(),
+                    textStyle: { color: getTextColor() },
                     animation: true,
                     grid: { left: 40, right: 20, top: 30, bottom: 30 },
-                    tooltip: { trigger: 'axis' },
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
+                        axisPointer: {
+                            type: 'line',
+                            lineStyle: { color: getLineColor() },
+                        },
+                    },
                     xAxis: {
                         type: 'category',
                         data: labels,
@@ -2011,10 +2323,7 @@
                             data: values,
                             barWidth: '44%',
                             itemStyle: {
-                                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                                    { offset: 0, color: 'rgba(15, 118, 110, 0.95)' },
-                                    { offset: 1, color: 'rgba(37, 99, 235, 0.75)' },
-                                ]),
+                                color: getTrendBarGradient(),
                                 borderRadius: [6, 6, 0, 0],
                             },
                         },
@@ -2027,7 +2336,7 @@
                             symbolSize: 6,
                             lineStyle: { width: 2, color: getLineColor() },
                             itemStyle: { color: getLineColor() },
-                            areaStyle: { color: 'rgba(96, 165, 250, 0.08)' },
+                            areaStyle: { color: getTrendAreaColor() },
                         },
                     ],
                 }, true);
@@ -2062,7 +2371,16 @@
                 }
 
                 chart.setOption({
-                    tooltip: { formatter: '{b}: {c}%' },
+                    backgroundColor: 'transparent',
+                    color: getThemePalette(),
+                    textStyle: { color: getTextColor() },
+                    tooltip: {
+                        formatter: '{b}: {c}%',
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
+                    },
                     series: [{
                         type: 'gauge',
                         startAngle: 210,
@@ -2839,9 +3157,16 @@
                 }
 
                 chart.setOption({
+                    backgroundColor: 'transparent',
+                    color: getThemePalette(),
+                    textStyle: { color: getTextColor() },
                     animation: true,
                     tooltip: {
                         trigger: 'item',
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
                         formatter: (params) => {
                             if (params.dataType === 'edge') {
                                 const label = params.data && params.data.label && params.data.label.formatter;
@@ -3069,6 +3394,38 @@
                 }
             }
 
+            function getThemePalette() {
+                return state.theme === 'dark'
+                    ? ['#2dd4bf', '#60a5fa', '#f59e0b', '#22c55e', '#a78bfa', '#fb7185']
+                    : ['#0f766e', '#2563eb', '#d97706', '#15803d', '#7c3aed', '#db2777'];
+            }
+
+            function getTooltipBackground() {
+                return getComputedStyle(document.body).getPropertyValue('--tooltip-bg').trim() || (state.theme === 'dark' ? '#111821' : '#ffffff');
+            }
+
+            function getTooltipBorderColor() {
+                return getComputedStyle(document.body).getPropertyValue('--tooltip-border').trim() || getBorderColor();
+            }
+
+            function getTrendBarGradient() {
+                return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                    {
+                        offset: 0,
+                        color: state.theme === 'dark' ? 'rgba(45, 212, 191, 0.92)' : 'rgba(15, 118, 110, 0.95)',
+                    },
+                    {
+                        offset: 1,
+                        color: state.theme === 'dark' ? 'rgba(96, 165, 250, 0.78)' : 'rgba(37, 99, 235, 0.75)',
+                    },
+                ]);
+            }
+
+            function getTrendAreaColor() {
+                return getComputedStyle(document.body).getPropertyValue('--chart-fill-soft').trim()
+                    || (state.theme === 'dark' ? 'rgba(96, 165, 250, 0.16)' : 'rgba(96, 165, 250, 0.08)');
+            }
+
             function getTextColor() {
                 return getComputedStyle(document.body).getPropertyValue('--text').trim() || '#15212d';
             }
@@ -3094,18 +3451,22 @@
             }
 
             function getGaugeColor(value) {
-                if (value >= 80) return '#0f766e';
-                if (value >= 60) return '#2563eb';
-                if (value >= 40) return '#d97706';
-                return '#b91c1c';
+                if (value >= 80) return getComputedStyle(document.body).getPropertyValue('--success').trim() || '#15803d';
+                if (value >= 60) return getComputedStyle(document.body).getPropertyValue('--accent-2').trim() || '#2563eb';
+                if (value >= 40) return getComputedStyle(document.body).getPropertyValue('--accent-3').trim() || '#d97706';
+                return getComputedStyle(document.body).getPropertyValue('--danger').trim() || '#b91c1c';
             }
 
             function updateThemeIcon() {
                 $('themeIcon').textContent = state.theme === 'dark' ? 'light_mode' : 'dark_mode';
+                $('themeBtn').setAttribute('aria-label', state.theme === 'dark' ? '切换到明亮主题' : '切换到黑夜主题');
+                $('themeBtn').title = state.theme === 'dark' ? '切换到明亮主题' : '切换到黑夜主题';
             }
 
             function applyTheme(theme) {
                 state.theme = theme === 'dark' ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', state.theme);
+                document.documentElement.style.colorScheme = state.theme;
                 document.body.setAttribute('data-theme', state.theme);
                 localStorage.setItem('sl-dashboard-theme', state.theme);
                 updateThemeIcon();
@@ -3241,6 +3602,16 @@
                             tab.classList.toggle('active', tab.dataset.contentType === state.content.type);
                         });
                         renderLearningContent();
+                        return;
+                    }
+
+                    const llmFilterTab = event.target.closest('[data-llm-filter]');
+                    if (llmFilterTab) {
+                        state.llmCalls.filter = llmFilterTab.dataset.llmFilter === 'abnormal' ? 'abnormal' : 'all';
+                        if (state.llmCalls.data) {
+                            renderLLMCallPanel(state.llmCalls.data);
+                        }
+                        return;
                     }
                 });
 
