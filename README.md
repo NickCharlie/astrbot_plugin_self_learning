@@ -17,7 +17,7 @@
 
 > **版权与许可 / Copyright and License**
 >
-> **作者**: NickMo / Mo Zhiping (莫志平) — nickmo318@outlook.com / max318515692@gmail.com
+> **作者**: NickMo / Mo Zhiping (莫志平) — nickmo318@outlook.com / max318515692@gmail.com；[EterUltimate](https://github.com/EterUltimate)
 >
 > **维护者**: [EterUltimate](https://github.com/EterUltimate)
 >
@@ -25,7 +25,7 @@
 >
 > **许可协议**: 本项目采用 [**GPLv3**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 GPLv3）。基于本仓库的修改或衍生作品必须以相同协议分发。
 >
-> **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com
+> **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com; [EterUltimate](https://github.com/EterUltimate)
 >
 > **Maintainer**: [EterUltimate](https://github.com/EterUltimate)
 >
