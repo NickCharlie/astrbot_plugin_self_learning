@@ -7,7 +7,7 @@
 让 AstrBot 在群聊中持续采集、学习、审查并注入上下文，使 Bot 逐步具备表达风格、群组黑话、社交关系、长期记忆和人格演化能力。
 
 [![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
-[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
@@ -23,7 +23,7 @@
 >
 > **版权所有**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
 >
-> **许可协议**: 本项目采用 [**GPLv3**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 GPLv3）。基于本仓库的修改或衍生作品必须以相同协议分发。
+> **许可协议**: 本项目采用 [**AGPL-3.0**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 AGPL-3.0）。基于本仓库的修改或衍生作品必须以相同协议分发。
 >
 > **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com; [EterUltimate](https://github.com/EterUltimate)
 >
@@ -31,7 +31,7 @@
 >
 > **Copyright**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
 >
-> **License**: Licensed under [**GPLv3**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also GPLv3). Any modifications or derivative works must be distributed under the same license.
+> **License**: Licensed under [**AGPL-3.0**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also AGPL-3.0). Any modifications or derivative works must be distributed under the same license.
 
 > [!WARNING]
 > 使用前请先在 AstrBot 原生人格管理中手动备份当前人格。学习、审查和回滚机制不能替代外部备份。
@@ -365,7 +365,7 @@ WebUI 提供以下入口：
 
 ## 开源协议
 
-本项目采用 [GPLv3 License](LICENSE) 开源协议。
+本项目采用 [AGPL-3.0 License](LICENSE) 开源协议。
 
 ### 特别鸣谢
 

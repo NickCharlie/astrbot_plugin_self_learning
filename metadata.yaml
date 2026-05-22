@@ -11,7 +11,7 @@ tags:
   - "AI学习"
   - "智能分析"
 homepage: ""
-license: "GPLv3"
+license: "AGPL-3.0"
 compatibility:
   min_astrbot_version: "4.11.4"
 platforms:

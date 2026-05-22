@@ -14,7 +14,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 [Features](#what-we-can-do) · [Quick Start](#quick-start) · [Web UI](#visual-management-interface) · [Community](#community) · [Contributing](CONTRIBUTING.md)
 
@@ -27,12 +27,12 @@
 > **Author**: NickMo / Mo Zhiping — nickmo318@outlook.com / max318515692@gmail.com; [EterUltimate](https://github.com/EterUltimate)
 > **Maintainer**: [EterUltimate](https://github.com/EterUltimate)
 > **Copyright**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
-> **License**: Licensed under [**GPLv3**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also GPLv3). Any modifications or derivative works must be distributed under the same license.
+> **License**: Licensed under [**AGPL-3.0**](LICENSE). This project incorporates and is a derivative work of [AstrBot](https://github.com/AstrBotDevs/AstrBot) (also AGPL-3.0). Any modifications or derivative works must be distributed under the same license.
 >
 > **作者**: NickMo / Mo Zhiping (莫志平) — nickmo318@outlook.com / max318515692@gmail.com；[EterUltimate](https://github.com/EterUltimate)
 > **维护者**: [EterUltimate](https://github.com/EterUltimate)
 > **版权所有**: Copyright (c) 2025-2026 NickMo (Mo Zhiping). All rights reserved (for personal components).
-> **许可协议**: 本项目采用 [**GPLv3**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 GPLv3）。基于本仓库的修改或衍生作品必须以相同协议分发。
+> **许可协议**: 本项目采用 [**AGPL-3.0**](LICENSE) 开源协议，包含并衍生自 [AstrBot](https://github.com/AstrBotDevs/AstrBot)（同为 AGPL-3.0）。基于本仓库的修改或衍生作品必须以相同协议分发。
 
 <br>
 
@@ -230,7 +230,7 @@ The two plugins complement each other perfectly: this plugin handles **learning 
 
 ## License
 
-This project is licensed under the [GPLv3 License](LICENSE).
+This project is licensed under the [AGPL-3.0 License](LICENSE).
 
 ### Special Thanks
 
