@@ -15,6 +15,7 @@ except ImportError:
 logger = get_astrbot_logger("self_learning.config")
 
 FULL_LEARNING_TARGET_MARKERS = {"*", "all", "all_users", "all_groups", "全部", "全量", "全体", "所有"}
+DEFAULT_DATA_DIR = "./data/plugin_data/astrbot_plugin_self_learning"
 
 
 def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False) -> List[str]:
@@ -95,6 +96,8 @@ class PluginConfig(BaseModel):
     learning_interval_hours: int = 6 # 学习间隔（小时）
     min_messages_for_learning: int = 50 # 最少消息数量才开始学习
     max_messages_per_batch: int = 200 # 每批处理的最大消息数量
+    expression_learning_trigger_messages: int = 10 # 表达方式学习触发消息增量
+    topic_detection_interval_messages: int = 10 # 话题检测触发消息增量
 
     # 筛选参数
     message_min_length: int = 5 # 消息最小长度
@@ -161,7 +164,7 @@ class PluginConfig(BaseModel):
     learning_log_path: Optional[str] = None
 
     # 用户可配置的存储路径（放在最后，用户可以自定义）
-    data_dir: str = "./data/self_learning_data" # 插件数据存储目录
+    data_dir: str = DEFAULT_DATA_DIR # 插件数据存储目录
 
     # 表达模式统计时间窗口
     expression_patterns_hours: int = 24 # 表达模式统计的小时数
@@ -268,7 +271,7 @@ class PluginConfig(BaseModel):
 
         # 确保 data_dir 不为空
         if not data_dir:
-            data_dir = "./data/self_learning_data"
+            data_dir = DEFAULT_DATA_DIR
             logger.warning(f"data_dir 为空，使用默认值: {data_dir}")
 
         # 从配置中提取各个配置组
@@ -308,6 +311,7 @@ class PluginConfig(BaseModel):
             enable_message_capture=basic_settings.get('enable_message_capture', True),
             enable_auto_learning=basic_settings.get('enable_auto_learning', True),
             enable_realtime_learning=basic_settings.get('enable_realtime_learning', False),
+            enable_realtime_llm_filter=basic_settings.get('enable_realtime_llm_filter', False),
             enable_jargon_learning=basic_settings.get('enable_jargon_learning', True),
             enable_style_learning=basic_settings.get('enable_style_learning', True),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
@@ -334,6 +338,8 @@ class PluginConfig(BaseModel):
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),
             min_messages_for_learning=learning_params.get('min_messages_for_learning', 50),
             max_messages_per_batch=learning_params.get('max_messages_per_batch', 200),
+            expression_learning_trigger_messages=learning_params.get('expression_learning_trigger_messages', 10),
+            topic_detection_interval_messages=learning_params.get('topic_detection_interval_messages', 10),
 
             message_min_length=filter_params.get('message_min_length', 5),
             message_max_length=filter_params.get('message_max_length', 500),
@@ -434,7 +440,7 @@ class PluginConfig(BaseModel):
             trend_analysis_days=repository_settings.get('trend_analysis_days', 7),
 
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
-            data_dir=data_dir if data_dir else storage_settings.get('data_dir', "./data/self_learning_data")
+            data_dir=data_dir if data_dir else storage_settings.get('data_dir', DEFAULT_DATA_DIR)
         )
 
     @classmethod
@@ -458,6 +464,12 @@ class PluginConfig(BaseModel):
 
         if self.max_messages_per_batch <= 0:
             errors.append("每批最大消息数量必须大于0")
+
+        if self.expression_learning_trigger_messages <= 0:
+            errors.append("表达方式学习触发消息数必须大于0")
+
+        if self.topic_detection_interval_messages <= 0:
+            errors.append("话题检测触发消息数必须大于0")
 
         if self.message_min_length >= self.message_max_length:
             errors.append("消息最小长度必须小于最大长度")

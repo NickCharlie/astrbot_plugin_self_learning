@@ -20,15 +20,41 @@ def build_container(tmp_path: Path):
     plugin_config.messages_db_path = None
     plugin_config.learning_log_path = None
 
-    provider_meta = SimpleNamespace(
-        id="provider-a",
-        provider_type=SimpleNamespace(value="llm"),
+    chat_meta = SimpleNamespace(
+        id="chat-a",
+        model="gpt-test",
+        provider_type=SimpleNamespace(value="chat_completion"),
     )
-    provider = Mock()
-    provider.meta = Mock(return_value=provider_meta)
+    chat_provider = Mock()
+    chat_provider.meta = Mock(return_value=chat_meta)
+
+    embedding_meta = SimpleNamespace(
+        id="embed-a",
+        model="text-embedding-test",
+        provider_type=SimpleNamespace(value="embedding"),
+    )
+    embedding_provider = Mock()
+    embedding_provider.meta = Mock(return_value=embedding_meta)
+
+    rerank_meta = SimpleNamespace(
+        id="rerank-a",
+        model="rerank-test",
+        provider_type=SimpleNamespace(value="rerank"),
+    )
+    rerank_provider = Mock()
+    rerank_provider.meta = Mock(return_value=rerank_meta)
 
     context = Mock()
-    context.get_all_providers = Mock(return_value=[provider])
+    context.get_all_providers = Mock(return_value=[chat_provider])
+    context.get_all_embedding_providers = Mock(return_value=[embedding_provider])
+    context.provider_manager = SimpleNamespace(
+        rerank_provider_insts=[rerank_provider],
+        inst_map={
+            "chat-a": chat_provider,
+            "embed-a": embedding_provider,
+            "rerank-a": rerank_provider,
+        },
+    )
 
     service_factory = Mock()
     service_factory.context = context
@@ -80,8 +106,22 @@ class TestConfigServiceSchema:
         v2_fields = {field["key"]: field for field in groups["V2_Architecture_Settings"]["fields"]}
         assert v2_fields["embedding_provider_id"]["widget"] == "provider"
         assert v2_fields["rerank_provider_id"]["widget"] == "provider"
+        assert v2_fields["embedding_provider_id"]["options"][0]["value"] == "embed-a"
+        assert v2_fields["embedding_provider_id"]["provider_type"] == "embedding"
+        assert v2_fields["rerank_provider_id"]["options"][0]["value"] == "rerank-a"
+        assert v2_fields["rerank_provider_id"]["provider_type"] == "rerank"
 
-        assert schema["provider_options"][0]["value"] == "provider-a"
+        model_fields = {field["key"]: field for field in groups["Model_Configuration"]["fields"]}
+        assert model_fields["filter_provider_id"]["options"][0]["value"] == "chat-a"
+        assert model_fields["filter_provider_id"]["provider_type"] == "chat_completion"
+
+        assert {option["value"] for option in schema["provider_options"]} == {
+            "chat-a",
+            "embed-a",
+            "rerank-a",
+        }
+        assert schema["provider_options_by_type"]["embedding"][0]["value"] == "embed-a"
+        assert schema["provider_options_by_type"]["rerank"][0]["value"] == "rerank-a"
 
     @pytest.mark.asyncio
     async def test_config_schema_covers_all_plugin_config_fields(self, tmp_path):

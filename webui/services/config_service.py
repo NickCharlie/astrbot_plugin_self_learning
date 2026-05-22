@@ -7,7 +7,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import logger
 
 try:
@@ -274,7 +274,11 @@ class ConfigService:
         data_dir = getattr(self.plugin_config, "data_dir", None) if self.plugin_config else None
         if isinstance(data_dir, (str, os.PathLike)) and os.fspath(data_dir):
             return os.path.join(os.fspath(data_dir), FileNames.CONFIG_FILE)
-        return os.path.join(Path(__file__).resolve().parents[2], "data", "self_learning_data", FileNames.CONFIG_FILE)
+        try:
+            from ...config import DEFAULT_DATA_DIR
+        except ImportError:
+            from config import DEFAULT_DATA_DIR
+        return os.path.join(DEFAULT_DATA_DIR, FileNames.CONFIG_FILE)
 
     def _flatten_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         flat: Dict[str, Any] = {}
@@ -287,42 +291,135 @@ class ConfigService:
 
         return flat
 
-    def _provider_options(self) -> List[Dict[str, str]]:
+    @staticmethod
+    def _provider_type_value(provider: Any, default_type: str = "") -> str:
+        try:
+            meta = provider.meta()
+        except Exception:
+            meta = None
+
+        raw_type = getattr(getattr(meta, "provider_type", None), "value", None)
+        if not raw_type:
+            raw_type = getattr(getattr(meta, "provider_type", None), "name", None)
+        if not raw_type:
+            raw_type = default_type
+        return str(raw_type or "").strip().lower()
+
+    @staticmethod
+    def _provider_option(provider: Any, default_type: str = "") -> Optional[Dict[str, str]]:
+        try:
+            meta = provider.meta()
+        except Exception:
+            meta = None
+
+        provider_id = getattr(meta, "id", None) or getattr(provider, "id", None)
+        if not provider_id:
+            return None
+
+        provider_type = ConfigService._provider_type_value(provider, default_type)
+        model_name = getattr(meta, "model", None) or getattr(provider, "model", None)
+        label_parts = [str(provider_id)]
+        if model_name and str(model_name) not in str(provider_id):
+            label_parts.append(str(model_name))
+        if provider_type:
+            label_parts.append(provider_type)
+
+        return {
+            "value": str(provider_id),
+            "label": " / ".join(label_parts),
+            "provider_type": provider_type,
+        }
+
+    @staticmethod
+    def _dedupe_options(options: List[Dict[str, str]]) -> List[Dict[str, str]]:
+        seen = set()
+        result: List[Dict[str, str]] = []
+        for option in options:
+            value = option.get("value")
+            provider_type = option.get("provider_type", "")
+            key = (value, provider_type)
+            if not value or key in seen:
+                continue
+            seen.add(key)
+            result.append(option)
+        return result
+
+    @staticmethod
+    def _as_provider_list(value: Any) -> List[Any]:
+        if value is None:
+            return []
+        if isinstance(value, (str, bytes, dict)):
+            return []
+        try:
+            return list(value)
+        except TypeError:
+            return []
+
+    def _get_provider_context(self):
+        factory_manager = getattr(self.container, "factory_manager", None)
+        if not factory_manager or not hasattr(factory_manager, "get_service_factory"):
+            return None
+        service_factory = factory_manager.get_service_factory()
+        return getattr(service_factory, "context", None)
+
+    def _provider_options(self, expected_type: Optional[str] = None) -> List[Dict[str, str]]:
         factory_manager = getattr(self.container, "factory_manager", None)
         if not factory_manager or not hasattr(factory_manager, "get_service_factory"):
             return []
 
         try:
-            service_factory = factory_manager.get_service_factory()
-            context = getattr(service_factory, "context", None)
-            if not context or not hasattr(context, "get_all_providers"):
+            context = self._get_provider_context()
+            if not context:
                 return []
 
             options: List[Dict[str, str]] = []
-            for provider in context.get_all_providers():
-                try:
-                    meta = provider.meta()
-                except Exception:
-                    continue
+            expected = (expected_type or "").strip().lower()
 
-                provider_id = getattr(meta, "id", None) or getattr(provider, "id", None)
-                if not provider_id:
-                    continue
+            if expected in {"", "chat_completion", "llm", "chat"} and callable(getattr(context, "get_all_providers", None)):
+                for provider in self._as_provider_list(context.get_all_providers()):
+                    option = self._provider_option(provider, "chat_completion")
+                    if option:
+                        options.append(option)
 
-                provider_type = getattr(getattr(meta, "provider_type", None), "value", None)
-                label = provider_id if not provider_type else f"{provider_id} ({provider_type})"
-                options.append(
-                    {
-                        "value": provider_id,
-                        "label": label,
-                        "provider_type": provider_type or "",
-                    }
-                )
+            if expected in {"", "embedding"} and callable(getattr(context, "get_all_embedding_providers", None)):
+                for provider in self._as_provider_list(context.get_all_embedding_providers()):
+                    option = self._provider_option(provider, "embedding")
+                    if option:
+                        options.append(option)
 
-            return options
+            provider_manager = getattr(context, "provider_manager", None)
+            if expected in {"", "rerank", "reranker"}:
+                rerank_providers = []
+                rerank_getter = getattr(context, "get_all_rerank_providers", None)
+                if callable(rerank_getter):
+                    rerank_providers = self._as_provider_list(rerank_getter())
+                if not rerank_providers and provider_manager and hasattr(provider_manager, "rerank_provider_insts"):
+                    rerank_providers = provider_manager.rerank_provider_insts
+                for provider in self._as_provider_list(rerank_providers):
+                    option = self._provider_option(provider, "rerank")
+                    if option:
+                        options.append(option)
+
+            if expected == "" and provider_manager and hasattr(provider_manager, "inst_map"):
+                for provider in provider_manager.inst_map.values():
+                    option = self._provider_option(provider)
+                    if option:
+                        options.append(option)
+
+            return self._dedupe_options(options)
         except Exception as e:
             logger.warning(f"获取 Provider 列表失败: {e}")
             return []
+
+    @staticmethod
+    def _provider_expected_type_for_field(key: str) -> Optional[str]:
+        if key in {"filter_provider_id", "refine_provider_id", "reinforce_provider_id"}:
+            return "chat_completion"
+        if key == "embedding_provider_id":
+            return "embedding"
+        if key == "rerank_provider_id":
+            return "rerank"
+        return None
 
     def _build_field_spec(
         self,
@@ -377,7 +474,8 @@ class ConfigService:
             field_spec["options"] = options
 
         if field_spec["widget"] == "provider":
-            field_spec["options"] = self._provider_options()
+            field_spec["provider_type"] = self._provider_expected_type_for_field(key) or ""
+            field_spec["options"] = self._provider_options(field_spec["provider_type"])
 
         return field_spec
 
@@ -468,6 +566,11 @@ class ConfigService:
             "config": self.plugin_config.to_dict(),
             "groups": self._build_group_schema(merged_schema),
             "provider_options": self._provider_options(),
+            "provider_options_by_type": {
+                "chat_completion": self._provider_options("chat_completion"),
+                "embedding": self._provider_options("embedding"),
+                "rerank": self._provider_options("rerank"),
+            },
         }
 
     async def update_config(self, new_config: Dict[str, Any]) -> Tuple[bool, str, Dict[str, Any]]:

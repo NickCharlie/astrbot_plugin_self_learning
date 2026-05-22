@@ -14,7 +14,7 @@ import tempfile
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import PluginConfig
+from config import DEFAULT_DATA_DIR, PluginConfig
 
 
 @pytest.mark.unit
@@ -42,6 +42,8 @@ class TestPluginConfigDefaults:
         assert config.learning_interval_hours == 6
         assert config.min_messages_for_learning == 50
         assert config.max_messages_per_batch == 200
+        assert config.expression_learning_trigger_messages == 10
+        assert config.topic_detection_interval_messages == 10
 
     def test_default_learning_parameters(self):
         """Test default learning parameter values."""
@@ -101,6 +103,7 @@ class TestPluginConfigFromDict:
             'Self_Learning_Basic': {
                 'enable_message_capture': False,
                 'enable_auto_learning': False,
+                'enable_realtime_llm_filter': True,
                 'web_interface_port': 8080,
             }
         }
@@ -109,6 +112,7 @@ class TestPluginConfigFromDict:
 
         assert config.enable_message_capture is False
         assert config.enable_auto_learning is False
+        assert config.enable_realtime_llm_filter is True
         assert config.web_interface_port == 8080
         assert config.data_dir == "/tmp/test"
 
@@ -159,7 +163,7 @@ class TestPluginConfigFromDict:
         """Test config creation with empty data_dir uses fallback."""
         config = PluginConfig.create_from_config({}, data_dir="")
 
-        assert config.data_dir == "./data/self_learning_data"
+        assert config.data_dir == DEFAULT_DATA_DIR
 
     def test_create_from_config_with_database_settings(self):
         """Test config creation with database settings."""

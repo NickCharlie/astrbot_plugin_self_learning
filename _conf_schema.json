@@ -157,6 +157,18 @@
         "type": "int",
         "hint": "单次学习处理的最大消息数量，避免一次处理过多消息",
         "default": 200
+      },
+      "expression_learning_trigger_messages": {
+        "description": "表达方式学习触发消息数",
+        "type": "int",
+        "hint": "每个群每新增多少条原始消息才触发表达方式学习。调大可降低筛选/分析模型调用频率",
+        "default": 10
+      },
+      "topic_detection_interval_messages": {
+        "description": "话题检测触发消息数",
+        "type": "int",
+        "hint": "每个群每新增多少条消息才进行一次LLM话题检测。调大可降低筛选模型调用频率",
+        "default": 10
       }
     }
   },
@@ -465,8 +477,8 @@
       "data_dir": {
         "description": "数据存储目录",
         "type": "string",
-        "hint": "插件数据存储的根目录路径。可以是相对路径或绝对路径",
-        "default": "./data/self_learning_data"
+        "hint": "插件数据存储的根目录路径。默认位于 AstrBot 数据目录的 plugin_data/astrbot_plugin_self_learning 下；可以改为绝对路径",
+        "default": "./data/plugin_data/astrbot_plugin_self_learning"
       }
     }
   },

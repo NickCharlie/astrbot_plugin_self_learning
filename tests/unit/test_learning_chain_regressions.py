@@ -31,6 +31,9 @@ from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
+from self_learning_EterU.services.state.enhanced_interaction import (
+    EnhancedInteractionService,
+)
 
 
 @pytest.mark.unit
@@ -325,6 +328,81 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
 
     assert pipeline.mine_jargon.await_count == 2
     pipeline.mine_jargon.assert_any_await("group-a")
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_realtime_expression_learning_is_batch_gated():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=True,
+        expression_learning_trigger_messages=10,
+    )
+    collector = SimpleNamespace(
+        get_statistics=AsyncMock(
+            side_effect=[
+                {"raw_messages": 9},
+                {"raw_messages": 10},
+                {"raw_messages": 19},
+                {"raw_messages": 20},
+            ]
+        )
+    )
+    learner = SimpleNamespace(trigger_learning_for_group=AsyncMock(return_value=False))
+    factory_manager = SimpleNamespace(
+        get_component_factory=lambda: SimpleNamespace(
+            create_expression_pattern_learner=lambda: learner
+        )
+    )
+    db_manager = SimpleNamespace(
+        get_recent_raw_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": idx,
+                    "sender_id": f"user-{idx}",
+                    "sender_name": f"User {idx}",
+                    "message": f"这是第{idx}条足够长的表达学习消息",
+                    "timestamp": time.time(),
+                    "platform": "test",
+                }
+                for idx in range(1, 6)
+            ]
+        )
+    )
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        dialog_analyzer=SimpleNamespace(),
+        learning_stats=SimpleNamespace(style_updates=0),
+        factory_manager=factory_manager,
+        db_manager=db_manager,
+    )
+
+    for _ in range(4):
+        await processor.process_expression_learning(
+            "group-a",
+            "这是用于表达学习频控的消息",
+            "user-a",
+        )
+
+    assert learner.trigger_learning_for_group.await_count == 2
+
+
+@pytest.mark.unit
+def test_topic_detection_is_batch_gated():
+    service = EnhancedInteractionService.__new__(EnhancedInteractionService)
+    service.config = SimpleNamespace(topic_detection_interval_messages=10)
+    service._last_topic_detection_counts = {}
+
+    assert service._should_detect_topic("group-a", 2) is False
+    assert service._should_detect_topic("group-a", 9) is False
+    assert service._should_detect_topic("group-a", 10) is True
+    assert service._should_detect_topic("group-a", 19) is False
+    assert service._should_detect_topic("group-a", 20) is True
 
 
 @pytest.mark.unit

@@ -66,6 +66,7 @@ class EnhancedInteractionService(AsyncServiceBase):
         self.group_interests = defaultdict(dict)
         self.topic_suggestions = defaultdict(list)
         self.last_topic_guidance = defaultdict(float)
+        self._last_topic_detection_counts: Dict[str, int] = {}
         
     async def _do_start(self) -> bool:
         """启动增强交互服务"""
@@ -168,11 +169,12 @@ class EnhancedInteractionService(AsyncServiceBase):
             if len(context.messages) > 100:
                 context.messages = context.messages[-100:]
             
-            # 检测话题变化
-            new_topic = await self._detect_topic_change(context.messages)
-            if new_topic != context.current_topic:
-                context.current_topic = new_topic
-                self._logger.info(f"群组 {group_id} 话题变化: {context.current_topic}")
+            # 检测话题变化。LLM话题检测需要限频，避免每条消息都调用筛选模型。
+            if self._should_detect_topic(group_id, len(context.messages)):
+                new_topic = await self._detect_topic_change(context.messages)
+                if new_topic != context.current_topic:
+                    context.current_topic = new_topic
+                    self._logger.info(f"群组 {group_id} 话题变化: {context.current_topic}")
             
             # 更新情感状态
             await self._update_conversation_emotion_state(context, message)
@@ -182,6 +184,19 @@ class EnhancedInteractionService(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"对话上下文管理失败: {e}")
             return self.conversation_contexts.get(group_id)
+
+    def _should_detect_topic(self, group_id: str, message_count: int) -> bool:
+        if message_count < 3:
+            return False
+        interval = max(
+            1,
+            int(getattr(self.config, "topic_detection_interval_messages", 10) or 10),
+        )
+        last_count = self._last_topic_detection_counts.get(group_id, 0)
+        if message_count - last_count < interval:
+            return False
+        self._last_topic_detection_counts[group_id] = message_count
+        return True
     
     async def _detect_topic_change(self, messages: List[Dict]) -> Optional[str]:
         """检测话题变化"""

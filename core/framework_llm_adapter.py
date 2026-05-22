@@ -3,8 +3,9 @@ AstrBot 框架 LLM 适配器
 用于替换自定义 LLMClient，直接使用 AstrBot 框架的 Provider 系统
 """
 import asyncio
+import hashlib
 import time
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from astrbot.api import logger
 from astrbot.core.provider.provider import Provider
 from astrbot.core.provider.entities import LLMResponse
@@ -23,6 +24,10 @@ class FrameworkLLMAdapter:
         # 延迟初始化冷却: 避免在providers尚未就绪时高频重试
         self._last_lazy_init_attempt: float = 0
         self._lazy_init_cooldown: float = 30.0
+        self._filter_cache_ttl: float = 60.0
+        self._filter_cache_max_size: int = 256
+        self._filter_cache: Dict[str, Tuple[float, Optional[str]]] = {}
+        self._filter_inflight: Dict[str, asyncio.Task] = {}
 
         # 添加调用统计
         self.call_stats = {
@@ -232,6 +237,71 @@ class FrameworkLLMAdapter:
         except Exception as e:
             logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
+    @staticmethod
+    def _filter_cache_key(
+        prompt: str,
+        contexts: Optional[List[Dict[str, str]]],
+        system_prompt: Optional[str],
+        kwargs: Dict[str, Any],
+    ) -> str:
+        key_payload = {
+            "prompt": prompt or "",
+            "contexts": contexts or [],
+            "system_prompt": system_prompt or "",
+            "kwargs": {
+                key: value
+                for key, value in sorted(kwargs.items())
+                if key not in {"stream", "timeout"}
+            },
+        }
+        return hashlib.sha256(repr(key_payload).encode("utf-8", errors="ignore")).hexdigest()
+
+    def _get_filter_cache(self, key: str) -> Optional[str]:
+        item = self._filter_cache.get(key)
+        if not item:
+            return None
+        created_at, value = item
+        if time.time() - created_at > self._filter_cache_ttl:
+            self._filter_cache.pop(key, None)
+            return None
+        return value
+
+    def _set_filter_cache(self, key: str, value: Optional[str]) -> None:
+        if len(self._filter_cache) >= self._filter_cache_max_size:
+            oldest_key = min(
+                self._filter_cache,
+                key=lambda item: self._filter_cache[item][0],
+            )
+            self._filter_cache.pop(oldest_key, None)
+        self._filter_cache[key] = (time.time(), value)
+
+    async def _call_filter_provider(
+        self,
+        prompt: str,
+        contexts: List[Dict[str, str]],
+        system_prompt: Optional[str],
+        **kwargs,
+    ) -> Optional[str]:
+        start_time = time.time()
+        self.call_stats['filter']['total_calls'] += 1
+
+        try:
+            logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
+            response = await self.filter_provider.text_chat(
+                prompt=prompt,
+                contexts=contexts,
+                system_prompt=system_prompt,
+                **kwargs
+            )
+            return response.completion_text if response else None
+        except Exception as e:
+            self.call_stats['filter']['errors'] += 1
+            logger.error(f"筛选模型调用失败: {e}")
+            return None
+        finally:
+            elapsed_time = time.time() - start_time
+            self.call_stats['filter']['total_time'] += elapsed_time
+
     async def filter_chat_completion(
         self,
         prompt: str,
@@ -268,31 +338,27 @@ class FrameworkLLMAdapter:
                 logger.error("没有可用的Provider，无法执行筛选任务")
                 return None
             
+        cache_key = self._filter_cache_key(prompt, contexts, system_prompt, kwargs)
+        cached_response = self._get_filter_cache(cache_key)
+        if cached_response is not None:
+            logger.debug("筛选模型命中短期缓存，跳过重复调用")
+            return cached_response
+
+        inflight = self._filter_inflight.get(cache_key)
+        if inflight and not inflight.done():
+            logger.debug("筛选模型已有相同请求进行中，复用结果")
+            return await inflight
+
+        task = asyncio.create_task(
+            self._call_filter_provider(prompt, contexts, system_prompt, **kwargs)
+        )
+        self._filter_inflight[cache_key] = task
         try:
-            start_time = time.time()
-            self.call_stats['filter']['total_calls'] += 1
-            
-            logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
-            response = await self.filter_provider.text_chat(
-                prompt=prompt,
-                contexts=contexts,
-                system_prompt=system_prompt,
-                **kwargs
-            )
-            
-            # 统计调用时间
-            elapsed_time = time.time() - start_time
-            self.call_stats['filter']['total_time'] += elapsed_time
-            
-            return response.completion_text if response else None
-        except Exception as e:
-            # 统计错误
-            elapsed_time = time.time() - start_time
-            self.call_stats['filter']['total_time'] += elapsed_time
-            self.call_stats['filter']['errors'] += 1
-            
-            logger.error(f"筛选模型调用失败: {e}")
-            return None
+            result = await task
+            self._set_filter_cache(cache_key, result)
+            return result
+        finally:
+            self._filter_inflight.pop(cache_key, None)
     
     async def refine_chat_completion(
         self,

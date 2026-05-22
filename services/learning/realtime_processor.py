@@ -55,6 +55,7 @@ class RealtimeProcessor:
         self._factory_manager = factory_manager
         self._db_manager = db_manager
         self._expression_learner = None  # lazily resolved, cached
+        self._last_expression_trigger_counts: Dict[str, int] = {}
 
         # Callback set by the plugin to trigger incremental prompt updates
         self.update_system_prompt_callback: Optional[
@@ -176,6 +177,19 @@ class RealtimeProcessor:
                     f"群组 {group_id} 原始消息数量不足，当前：{raw_message_count}，需要至少5条"
                 )
                 return
+
+            trigger_messages = max(
+                1,
+                int(getattr(self._config, "expression_learning_trigger_messages", 10) or 10),
+            )
+            last_trigger = self._last_expression_trigger_counts.get(group_id, 0)
+            if raw_message_count - last_trigger < trigger_messages:
+                logger.debug(
+                    f"群组 {group_id} 表达风格学习未达触发增量，"
+                    f"当前：{raw_message_count}，上次：{last_trigger}，阈值：{trigger_messages}"
+                )
+                return
+            self._last_expression_trigger_counts[group_id] = raw_message_count
 
             logger.info(
                 f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}"

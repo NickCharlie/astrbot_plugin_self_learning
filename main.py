@@ -4,6 +4,7 @@ AstrBot 自学习插件 - 智能对话风格学习与人格优化
 import os
 import asyncio
 import time
+import shutil
 from typing import Dict, Optional
 from dataclasses import dataclass
 from sys import maxsize
@@ -16,7 +17,7 @@ from astrbot.api.star import Context
 from astrbot.api import logger, AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-from .config import PluginConfig
+from .config import DEFAULT_DATA_DIR, PluginConfig
 from .core.plugin_lifecycle import PluginLifecycle
 from .services.hooks.perf_tracker import PerfTracker
 from .statics.messages import StatusMessages, FileNames
@@ -35,6 +36,29 @@ def _safe(value: object) -> str:
         return s
     except (UnicodeEncodeError, UnicodeDecodeError):
         return s.encode("gbk", errors="replace").decode("gbk")
+
+
+def _migrate_legacy_data_dir(astrbot_data_path: str, plugin_data_dir: str) -> None:
+    """Copy legacy self_learning_data into plugin_data when the new dir is empty."""
+    legacy_candidates = [
+        os.path.join(astrbot_data_path, "self_learning_data"),
+        os.path.abspath(os.path.join(".", "data", "self_learning_data")),
+    ]
+    target = os.path.abspath(plugin_data_dir)
+    if os.path.isdir(target) and os.listdir(target):
+        return
+
+    for legacy_dir in legacy_candidates:
+        legacy = os.path.abspath(legacy_dir)
+        if legacy == target or not os.path.isdir(legacy):
+            continue
+        try:
+            os.makedirs(target, exist_ok=True)
+            shutil.copytree(legacy, target, dirs_exist_ok=True)
+            logger.info(f"已迁移旧版自学习数据目录: {legacy} -> {target}")
+            return
+        except Exception as exc:
+            logger.warning(f"迁移旧版自学习数据目录失败 ({legacy} -> {target}): {exc}")
 
 
 @dataclass
@@ -91,6 +115,7 @@ class SelfLearningPlugin(star.Star):
                     astrbot_data_path, "plugin_data", "astrbot_plugin_self_learning"
                 )
                 logger.info(f"使用默认数据路径: {plugin_data_dir}")
+                _migrate_legacy_data_dir(astrbot_data_path, plugin_data_dir)
 
             logger.info(f"最终插件数据目录: {plugin_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
@@ -102,7 +127,7 @@ class SelfLearningPlugin(star.Star):
 
         except Exception as e:
             logger.error(f"初始化插件配置失败: {e}")
-            default_data_dir = os.path.join(os.path.dirname(__file__), "data")
+            default_data_dir = os.path.abspath(DEFAULT_DATA_DIR)
             logger.warning(f"使用默认数据目录: {default_data_dir}")
             self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=default_data_dir)
 

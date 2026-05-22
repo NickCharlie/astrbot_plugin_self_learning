@@ -19,14 +19,40 @@ def build_container(tmp_path: Path):
     plugin_config.data_dir = str(tmp_path / "self_learning_data")
 
     provider_meta = SimpleNamespace(
-        id="provider-a",
-        provider_type=SimpleNamespace(value="llm"),
+        id="chat-a",
+        model="gpt-test",
+        provider_type=SimpleNamespace(value="chat_completion"),
     )
     provider = Mock()
     provider.meta = Mock(return_value=provider_meta)
 
+    embedding_meta = SimpleNamespace(
+        id="embed-a",
+        model="text-embedding-test",
+        provider_type=SimpleNamespace(value="embedding"),
+    )
+    embedding_provider = Mock()
+    embedding_provider.meta = Mock(return_value=embedding_meta)
+
+    rerank_meta = SimpleNamespace(
+        id="rerank-a",
+        model="rerank-test",
+        provider_type=SimpleNamespace(value="rerank"),
+    )
+    rerank_provider = Mock()
+    rerank_provider.meta = Mock(return_value=rerank_meta)
+
     context = Mock()
     context.get_all_providers = Mock(return_value=[provider])
+    context.get_all_embedding_providers = Mock(return_value=[embedding_provider])
+    context.provider_manager = SimpleNamespace(
+        rerank_provider_insts=[rerank_provider],
+        inst_map={
+            "chat-a": provider,
+            "embed-a": embedding_provider,
+            "rerank-a": rerank_provider,
+        },
+    )
 
     service_factory = Mock()
     service_factory.context = context
@@ -76,3 +102,5 @@ async def test_config_schema_route_returns_groups(client):
         for group in data["groups"]
         for field in group["fields"]
     )
+    assert data["provider_options_by_type"]["embedding"][0]["value"] == "embed-a"
+    assert data["provider_options_by_type"]["rerank"][0]["value"] == "rerank-a"
