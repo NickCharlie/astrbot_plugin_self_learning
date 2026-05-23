@@ -89,6 +89,14 @@ class PluginConfig(BaseModel):
     # v2 Architecture: Memory engine
     memory_engine: str = "legacy" # "mem0" | "legacy"
 
+    # 功能融合：将重叠能力委托给专门插件
+    delegate_memory_to_livingmemory: bool = True # 将长期记忆交给 LivingMemory
+    livingmemory_plugin_name: str = "LivingMemory" # LivingMemory 插件名
+    disable_local_memory_when_delegated: bool = True # 检测到 LivingMemory 时禁用本地长期记忆写入/注入
+    delegate_reply_to_group_chat_plus: bool = True # 将回复决策和生成交给 Group Chat Plus
+    group_chat_plus_plugin_name: str = "astrbot_plugin_group_chat_plus" # Group Chat Plus 插件名
+    disable_local_reply_when_delegated: bool = True # 检测到 Group Chat Plus 时禁用本地回复器
+
     # 当前人格设置
     current_persona_name: str = "default"
 
@@ -302,6 +310,7 @@ class PluginConfig(BaseModel):
         repository_settings = config.get('Repository_Settings', {}) # 新增：Repository配置
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {}) # 新增：目标驱动对话设置
         v2_settings = config.get('V2_Architecture_Settings', {}) # v2架构升级设置
+        integration_settings = config.get('Integration_Settings', {}) # 功能融合设置
 
         # 添加调试日志：显示目标驱动对话配置数据
         logger.info(f" [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
@@ -334,6 +343,14 @@ class PluginConfig(BaseModel):
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
             lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),
             memory_engine=v2_settings.get('memory_engine', 'legacy'),
+
+            # 功能融合设置
+            delegate_memory_to_livingmemory=integration_settings.get('delegate_memory_to_livingmemory', True),
+            livingmemory_plugin_name=integration_settings.get('livingmemory_plugin_name', 'LivingMemory'),
+            disable_local_memory_when_delegated=integration_settings.get('disable_local_memory_when_delegated', True),
+            delegate_reply_to_group_chat_plus=integration_settings.get('delegate_reply_to_group_chat_plus', True),
+            group_chat_plus_plugin_name=integration_settings.get('group_chat_plus_plugin_name', 'astrbot_plugin_group_chat_plus'),
+            disable_local_reply_when_delegated=integration_settings.get('disable_local_reply_when_delegated', True),
 
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),
             min_messages_for_learning=learning_params.get('min_messages_for_learning', 50),

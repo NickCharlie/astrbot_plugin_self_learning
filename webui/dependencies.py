@@ -39,6 +39,7 @@ class ServiceContainer:
 
         # WebUI 配置
         self.webui_config: Optional[Any] = None
+        self.feature_delegation: Optional[Any] = None
 
         # 密码配置
         self.password_config: Dict[str, Any] = {}
@@ -67,7 +68,8 @@ class ServiceContainer:
         factory_manager,
         llm_client=None,
         astrbot_persona_manager=None,
-        group_id_to_unified_origin=None
+        group_id_to_unified_origin=None,
+        feature_delegation=None,
     ):
         """
         初始化服务容器
@@ -81,6 +83,7 @@ class ServiceContainer:
         """
         self.plugin_config = plugin_config
         self.factory_manager = factory_manager
+        self.feature_delegation = feature_delegation
         self.astrbot_persona_manager = astrbot_persona_manager
         if group_id_to_unified_origin is not None:
             self.group_id_to_unified_origin = group_id_to_unified_origin
@@ -195,7 +198,8 @@ async def set_plugin_services(
     factory_manager,
     llm_client,
     astrbot_persona_manager,
-    group_id_to_unified_origin=None
+    group_id_to_unified_origin=None,
+    feature_delegation=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -212,7 +216,8 @@ async def set_plugin_services(
         factory_manager=factory_manager,
         llm_client=llm_client,
         astrbot_persona_manager=astrbot_persona_manager,
-        group_id_to_unified_origin=group_id_to_unified_origin
+        group_id_to_unified_origin=group_id_to_unified_origin,
+        feature_delegation=feature_delegation,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")

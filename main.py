@@ -90,6 +90,7 @@ class SelfLearningPlugin(star.Star):
         self._hook_handler = None
         self._command_handlers = None
         self._command_filter = None
+        self.feature_delegation = None
         self.qq_filter = None
         self.plugin_config = None
         self._message_capture_diag_counts: dict[str, int] = {}

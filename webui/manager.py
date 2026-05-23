@@ -31,12 +31,14 @@ class WebUIManager:
         factory_manager: "FactoryManager",
         perf_tracker: Any,
         group_id_to_unified_origin: Dict[str, str],
+        feature_delegation: Any = None,
     ):
         self._config = plugin_config
         self._context = context
         self._factory_manager = factory_manager
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
+        self._feature_delegation = feature_delegation
 
     # 创建
 
@@ -250,5 +252,6 @@ class WebUIManager:
             None,
             astrbot_persona_manager,
             self._group_id_to_unified_origin,
+            self._feature_delegation,
         )
         _get_webui_container().perf_collector = self._perf_tracker

@@ -50,6 +50,7 @@ class LLMHookHandler:
         perf_tracker: PerfTracker,
         group_id_to_unified_origin: Dict[str, str],
         db_manager: Any = None,
+        feature_delegation: Any = None,
     ) -> None:
         self._config = plugin_config
         self._diversity_manager = diversity_manager
@@ -60,6 +61,7 @@ class LLMHookHandler:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._db_manager = db_manager
+        self._feature_delegation = feature_delegation
 
     # Public API
 
@@ -209,12 +211,26 @@ class LLMHookHandler:
         if not self._v2_integration:
             return None
         try:
-            return await self._v2_integration.get_enhanced_context(
+            result = await self._v2_integration.get_enhanced_context(
                 prompt, group_id, top_k=self._config.rerank_top_k
             )
+            if self._memory_delegated() and result and result.get("related_memories"):
+                result = dict(result)
+                result.pop("related_memories", None)
+                logger.debug("[LLM Hook] 记忆已委托给 LivingMemory，跳过本地 V2 记忆注入")
+            return result
         except Exception as e:
             logger.debug(f"[LLM Hook] V2 context retrieval failed: {e}")
             return None
+
+    def _memory_delegated(self) -> bool:
+        delegation = self._feature_delegation
+        if not delegation or not hasattr(delegation, "should_delegate_memory"):
+            return False
+        try:
+            return bool(delegation.should_delegate_memory())
+        except Exception:
+            return False
 
     @monitored
     async def _fetch_diversity(self, group_id: str) -> Optional[str]:
