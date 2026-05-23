@@ -668,13 +668,15 @@
         "description": "Embedding 提供商 ID",
         "type": "string",
         "hint": "填写Embedding提供商的完整ID（如 'openai/text-embedding-3-large'）。需要先在AstrBot的Provider管理中创建Embedding类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'",
-        "default": ""
+        "default": "",
+        "_provider_type": "embedding"
       },
       "rerank_provider_id": {
         "description": "Reranker 提供商 ID",
         "type": "string",
         "hint": "填写Reranker提供商的完整ID（如 'openai/qwen3-rerank'）。需要先在AstrBot的Provider管理中创建Reranker类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'",
-        "default": ""
+        "default": "",
+        "_provider_type": "rerank"
       },
       "rerank_top_k": {
         "description": "重排序保留结果数",
