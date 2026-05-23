@@ -242,6 +242,22 @@ _ENUM_FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
     ],
 }
 
+_PROVIDER_TYPE_ALIASES = {
+    "chat": "chat_completion",
+    "llm": "chat_completion",
+    "chat_completion": "chat_completion",
+    "embedding": "embedding",
+    "embed": "embedding",
+    "rerank": "rerank",
+    "reranker": "rerank",
+}
+
+_PROVIDER_TYPE_LABELS = {
+    "chat_completion": "聊天模型",
+    "embedding": "Embedding",
+    "rerank": "Reranker",
+}
+
 _RESTART_REQUIRED_KEYS = {
     "data_dir",
     "db_type",
@@ -292,6 +308,16 @@ class ConfigService:
         return flat
 
     @staticmethod
+    def _normalize_provider_type(provider_type: Any, default_type: str = "") -> str:
+        raw_value = provider_type
+        if hasattr(raw_value, "value"):
+            raw_value = raw_value.value
+        elif hasattr(raw_value, "name"):
+            raw_value = raw_value.name
+        normalized = str(raw_value or default_type or "").strip().lower()
+        return _PROVIDER_TYPE_ALIASES.get(normalized, normalized)
+
+    @staticmethod
     def _provider_type_value(provider: Any, default_type: str = "") -> str:
         try:
             meta = provider.meta()
@@ -303,7 +329,7 @@ class ConfigService:
             raw_type = getattr(getattr(meta, "provider_type", None), "name", None)
         if not raw_type:
             raw_type = default_type
-        return str(raw_type or "").strip().lower()
+        return ConfigService._normalize_provider_type(raw_type, default_type)
 
     @staticmethod
     def _provider_option(provider: Any, default_type: str = "") -> Optional[Dict[str, str]]:
@@ -328,6 +354,44 @@ class ConfigService:
             "value": str(provider_id),
             "label": " / ".join(label_parts),
             "provider_type": provider_type,
+            "provider_type_label": _PROVIDER_TYPE_LABELS.get(provider_type, provider_type),
+        }
+
+    @staticmethod
+    def _provider_option_from_config(
+        provider_config: Any,
+        provider_source_types: Dict[str, str],
+        default_type: str = "",
+    ) -> Optional[Dict[str, str]]:
+        if not isinstance(provider_config, dict):
+            return None
+
+        provider_id = provider_config.get("id") or provider_config.get("provider_id")
+        if not provider_id:
+            return None
+
+        provider_source_id = provider_config.get("provider_source_id")
+        provider_type = provider_config.get("provider_type")
+        if not provider_type and provider_source_id:
+            provider_type = provider_source_types.get(str(provider_source_id))
+        provider_type = ConfigService._normalize_provider_type(provider_type, default_type)
+
+        model_name = (
+            provider_config.get("model")
+            or provider_config.get("embedding_model")
+            or provider_config.get("rerank_model")
+        )
+        label_parts = [str(provider_id)]
+        if model_name and str(model_name) not in str(provider_id):
+            label_parts.append(str(model_name))
+        if provider_type:
+            label_parts.append(provider_type)
+
+        return {
+            "value": str(provider_id),
+            "label": " / ".join(label_parts),
+            "provider_type": provider_type,
+            "provider_type_label": _PROVIDER_TYPE_LABELS.get(provider_type, provider_type),
         }
 
     @staticmethod
@@ -362,6 +426,23 @@ class ConfigService:
         service_factory = factory_manager.get_service_factory()
         return getattr(service_factory, "context", None)
 
+    @staticmethod
+    def _provider_source_types(provider_manager: Any) -> Dict[str, str]:
+        source_types: Dict[str, str] = {}
+        for provider_source in ConfigService._as_provider_list(
+            getattr(provider_manager, "provider_sources_config", None)
+        ):
+            if not isinstance(provider_source, dict):
+                continue
+            source_id = provider_source.get("id")
+            if not source_id:
+                continue
+            source_types[str(source_id)] = ConfigService._normalize_provider_type(
+                provider_source.get("provider_type"),
+                "chat_completion",
+            )
+        return source_types
+
     def _provider_options(self, expected_type: Optional[str] = None) -> List[Dict[str, str]]:
         factory_manager = getattr(self.container, "factory_manager", None)
         if not factory_manager or not hasattr(factory_manager, "get_service_factory"):
@@ -373,10 +454,16 @@ class ConfigService:
                 return []
 
             options: List[Dict[str, str]] = []
-            expected = (expected_type or "").strip().lower()
+            expected = self._normalize_provider_type(expected_type)
+            provider_manager = getattr(context, "provider_manager", None)
 
             if expected in {"", "chat_completion", "llm", "chat"} and callable(getattr(context, "get_all_providers", None)):
                 for provider in self._as_provider_list(context.get_all_providers()):
+                    option = self._provider_option(provider, "chat_completion")
+                    if option:
+                        options.append(option)
+            if expected in {"", "chat_completion"} and provider_manager and hasattr(provider_manager, "provider_insts"):
+                for provider in self._as_provider_list(provider_manager.provider_insts):
                     option = self._provider_option(provider, "chat_completion")
                     if option:
                         options.append(option)
@@ -386,8 +473,12 @@ class ConfigService:
                     option = self._provider_option(provider, "embedding")
                     if option:
                         options.append(option)
+            if expected in {"", "embedding"} and provider_manager and hasattr(provider_manager, "embedding_provider_insts"):
+                for provider in self._as_provider_list(provider_manager.embedding_provider_insts):
+                    option = self._provider_option(provider, "embedding")
+                    if option:
+                        options.append(option)
 
-            provider_manager = getattr(context, "provider_manager", None)
             if expected in {"", "rerank", "reranker"}:
                 rerank_providers = []
                 rerank_getter = getattr(context, "get_all_rerank_providers", None)
@@ -405,6 +496,17 @@ class ConfigService:
                     option = self._provider_option(provider)
                     if option:
                         options.append(option)
+
+            if provider_manager and hasattr(provider_manager, "providers_config"):
+                provider_source_types = self._provider_source_types(provider_manager)
+                for provider_config in self._as_provider_list(provider_manager.providers_config):
+                    option = self._provider_option_from_config(provider_config, provider_source_types)
+                    if not option:
+                        continue
+                    option_type = option.get("provider_type", "")
+                    if expected and option_type != expected:
+                        continue
+                    options.append(option)
 
             return self._dedupe_options(options)
         except Exception as e:
@@ -474,7 +576,15 @@ class ConfigService:
             field_spec["options"] = options
 
         if field_spec["widget"] == "provider":
-            field_spec["provider_type"] = self._provider_expected_type_for_field(key) or ""
+            field_spec["provider_type"] = (
+                self._provider_expected_type_for_field(key)
+                or self._normalize_provider_type(raw_spec.get("_provider_type"))
+                or ""
+            )
+            field_spec["provider_type_label"] = _PROVIDER_TYPE_LABELS.get(
+                field_spec["provider_type"],
+                field_spec["provider_type"] or "Provider",
+            )
             field_spec["options"] = self._provider_options(field_spec["provider_type"])
 
         return field_spec

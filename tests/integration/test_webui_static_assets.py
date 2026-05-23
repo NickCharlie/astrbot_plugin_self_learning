@@ -72,6 +72,17 @@ def test_dashboard_exposes_tiered_dependency_install_controls():
     assert "data-dependency-tier=\"full\"" in text
 
 
+def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "providerOptionsForField" in text
+    assert "provider_options_by_type" in text
+    assert "chat_completion: '聊天模型'" in text
+    assert "embedding: 'Embedding'" in text
+    assert "rerank: 'Reranker'" in text
+    assert "未找到 ${escapeHtml(providerTypeLabel(field.provider_type))} Provider" in text
+
+
 def test_dashboard_zero_message_insight_reflects_full_learning_default():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

@@ -1723,6 +1723,11 @@
     <script>
         (function () {
             const themeFromDocument = document.documentElement.getAttribute('data-theme');
+            const PROVIDER_TYPE_LABELS = {
+                chat_completion: '聊天模型',
+                embedding: 'Embedding',
+                rerank: 'Reranker',
+            };
             const state = {
                 charts: {},
                 data: null,
@@ -3108,6 +3113,42 @@
                 return null;
             }
 
+            function normalizeProviderType(value) {
+                const type = String(value || '').trim().toLowerCase();
+                if (type === 'chat' || type === 'llm') {
+                    return 'chat_completion';
+                }
+                if (type === 'embed') {
+                    return 'embedding';
+                }
+                if (type === 'reranker') {
+                    return 'rerank';
+                }
+                return type;
+            }
+
+            function providerTypeLabel(value) {
+                const normalized = normalizeProviderType(value);
+                return PROVIDER_TYPE_LABELS[normalized] || value || 'Provider';
+            }
+
+            function providerOptionsForField(field) {
+                const payload = getConfigSchemaPayload();
+                const providerType = normalizeProviderType(field.provider_type);
+                const typedOptions = providerType
+                    ? safeArray(payload.provider_options_by_type && payload.provider_options_by_type[providerType])
+                    : [];
+                const fieldOptions = safeArray(field.options);
+                const sourceOptions = typedOptions.length ? typedOptions : fieldOptions;
+                if (!providerType) {
+                    return sourceOptions;
+                }
+                return sourceOptions.filter((option) => {
+                    const optionType = normalizeProviderType(option && option.provider_type);
+                    return !optionType || optionType === providerType;
+                });
+            }
+
             function renderConfigField(field) {
                 const fieldId = `config-${field.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
                 const value = Object.prototype.hasOwnProperty.call(state.config.draft, field.key)
@@ -3131,7 +3172,7 @@
                     badges.push('重启后生效');
                 }
                 if (field.widget === 'provider') {
-                    badges.push('Provider');
+                    badges.push(providerTypeLabel(field.provider_type || field.provider_type_label));
                 }
                 if (field.nullable) {
                     badges.push('可空');
@@ -3184,16 +3225,17 @@
                             ${field.editable ? '' : 'disabled'}
                         >${selectOptions.join('')}</select>
                     `;
-                } else if (field.widget === 'provider' && safeArray(field.options).length) {
+                } else if (field.widget === 'provider' && providerOptionsForField(field).length) {
                     const currentValue = displayValue || '';
-                    const options = safeArray(field.options || []);
+                    const options = providerOptionsForField(field);
                     const optionSet = options.some((option) => option.value === currentValue);
                     const selectOptions = [
                         `<option value="">未设置</option>`,
                         ...options.map((option) => {
                             const optionValue = option.value ?? '';
                             const label = option.label || optionValue;
-                            return `<option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+                            const optionType = providerTypeLabel(option.provider_type || field.provider_type);
+                            return `<option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>${escapeHtml(`${label} · ${optionType}`)}</option>`;
                         }),
                     ];
                     if (currentValue && !optionSet) {
@@ -3216,7 +3258,7 @@
                             class="config-input"
                             type="text"
                             value="${escapeHtml(displayValue)}"
-                            placeholder="未配置"
+                            placeholder="未找到 ${escapeHtml(providerTypeLabel(field.provider_type))} Provider，可手动填写 Provider ID"
                             data-config-key="${escapeHtml(field.key)}"
                             data-config-type="${escapeHtml(field.type)}"
                             data-config-widget="${escapeHtml(field.widget)}"
