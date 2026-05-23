@@ -70,11 +70,13 @@ class V2LearningIntegration:
         llm_adapter: Optional[Any] = None,
         db_manager: Optional[Any] = None,
         context: Optional[Any] = None,
+        feature_delegation: Optional[Any] = None,
     ) -> None:
         self._config = config
         self._llm = llm_adapter
         self._db = db_manager
         self._context = context
+        self._feature_delegation = feature_delegation
 
         # --- Resolve framework providers via factories ---------------
         self._embedding_provider = self._create_embedding_provider()
@@ -104,6 +106,7 @@ class V2LearningIntegration:
             "[V2Integration] Initialised — "
             f"knowledge={self._config.knowledge_engine}, "
             f"memory={self._config.memory_engine}, "
+            f"memory_delegated={self._memory_delegated()}, "
             f"embedding={'yes' if self._embedding_provider else 'no'}, "
             f"reranker={'yes' if self._rerank_provider else 'no'}"
         )
@@ -293,6 +296,9 @@ class V2LearningIntegration:
                 )
 
         async def _fetch_memories() -> None:
+            if self._memory_delegated():
+                logger.debug("[V2Integration] Memory retrieval delegated to LivingMemory")
+                return
             if not self._memory_manager:
                 return
             try:
@@ -423,6 +429,9 @@ class V2LearningIntegration:
 
     def _create_memory_manager(self) -> Optional[Any]:
         """Create memory manager based on configured engine."""
+        if self._memory_delegated():
+            logger.info("[V2Integration] Memory engine skipped: delegated to LivingMemory")
+            return None
         if self._config.memory_engine == "mem0":
             try:
                 from ..integration import Mem0MemoryManager
@@ -676,6 +685,9 @@ class V2LearningIntegration:
                     )
 
         async def _ingest_memory() -> None:
+            if self._memory_delegated():
+                logger.debug("[V2Integration] Memory ingestion delegated to LivingMemory")
+                return
             if not self._memory_manager:
                 return
             for msg in messages:
@@ -694,6 +706,15 @@ class V2LearningIntegration:
             _ingest_knowledge(),
             _ingest_memory(),
         )
+
+    def _memory_delegated(self) -> bool:
+        delegation = self._feature_delegation
+        if not delegation or not hasattr(delegation, "should_delegate_memory"):
+            return False
+        try:
+            return bool(delegation.should_delegate_memory())
+        except Exception:
+            return False
 
     # Reranking
 

@@ -6,7 +6,7 @@
 
 让 AstrBot 在群聊中持续采集、学习、审查并注入上下文，使 Bot 逐步具备表达风格、群组黑话、社交关系、长期记忆和人格演化能力。
 
-[![Version](https://img.shields.io/badge/version-3.0.1-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-3.0.3-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -357,9 +357,11 @@ WebUI 提供以下入口：
 
 ## 推荐搭配
 
+[LivingMemory 长期记忆插件](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory)
+
 [群聊增强插件 Group Chat Plus](https://github.com/Him666233/astrbot_plugin_group_chat_plus)
 
-本插件负责学习、审查、记忆和人格优化；群聊增强插件负责回复决策和读空气。组合使用时，Bot 既能积累上下文，也能更稳地决定何时回复。
+本插件负责学习、审查、黑话、表达方式和上下文注入；LivingMemory 负责长期记忆、召回和反思；Group Chat Plus 负责回复决策、读空气和回复生成。三者组合时，本插件会在检测到目标插件已加载后自动跳过本地重叠能力，避免重复记忆或重复回复。
 
 ---
 

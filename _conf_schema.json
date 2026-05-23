@@ -659,6 +659,49 @@
       }
     }
   },
+  "Integration_Settings": {
+    "description": "功能融合",
+    "type": "object",
+    "hint": "与专门插件协同：记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。本插件保留学习、审查、黑话、表达方式和上下文注入能力。",
+    "items": {
+      "delegate_memory_to_livingmemory": {
+        "description": "记忆委托给 LivingMemory",
+        "type": "bool",
+        "hint": "开启后，检测到 LivingMemory 插件已加载时，本插件不再写入或注入本地长期记忆，避免双重记忆系统互相污染。",
+        "default": true
+      },
+      "livingmemory_plugin_name": {
+        "description": "LivingMemory 插件名",
+        "type": "string",
+        "hint": "用于检测 LivingMemory 插件是否已加载。通常保持默认值即可。",
+        "default": "LivingMemory"
+      },
+      "disable_local_memory_when_delegated": {
+        "description": "委托时禁用本地记忆",
+        "type": "bool",
+        "hint": "开启后，只有检测到 LivingMemory 时才禁用本插件本地长期记忆；LivingMemory 未加载时自动保留本地降级能力。",
+        "default": true
+      },
+      "delegate_reply_to_group_chat_plus": {
+        "description": "回复交给 Group Chat Plus",
+        "type": "bool",
+        "hint": "开启后，检测到 Group Chat Plus 插件已加载时，本插件不再接管回复决策和回复生成，只负责学习上下文增强。",
+        "default": true
+      },
+      "group_chat_plus_plugin_name": {
+        "description": "Group Chat Plus 插件名",
+        "type": "string",
+        "hint": "用于检测 Group Chat Plus 插件是否已加载。通常保持默认值即可。",
+        "default": "astrbot_plugin_group_chat_plus"
+      },
+      "disable_local_reply_when_delegated": {
+        "description": "委托时禁用本地回复",
+        "type": "bool",
+        "hint": "开启后，只有检测到 Group Chat Plus 时才禁用本插件本地回复器；目标插件未加载时保留兼容降级。",
+        "default": true
+      }
+    }
+  },
   "V2_Architecture_Settings": {
     "description": "v2架构升级配置",
     "type": "object",

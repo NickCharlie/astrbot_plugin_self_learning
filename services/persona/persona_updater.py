@@ -590,7 +590,9 @@ class PersonaUpdater(IPersonaUpdater):
                     self._logger.info(f"表达模式学习未触发或没有学到新模式 for group {group_id}")
 
             # 2. 更新记忆图谱
-            if hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
+            if self._memory_delegated_to_external_plugin():
+                self._logger.debug("记忆已委托给 LivingMemory，跳过本地记忆图谱更新")
+            elif hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
                 group_id = current_persona.get('group_id', 'default') if isinstance(current_persona, dict) else 'default'
                 for msg in filtered_messages:
                     await self.memory_graph_manager.add_memory_from_message(msg, group_id)
@@ -615,6 +617,15 @@ class PersonaUpdater(IPersonaUpdater):
 
         except Exception as e:
             self._logger.error(f"使用MaiBot更新风格特征失败: {e}")
+
+    def _memory_delegated_to_external_plugin(self) -> bool:
+        delegation = getattr(self, "feature_delegation", None)
+        if not delegation or not hasattr(delegation, "should_delegate_memory"):
+            return False
+        try:
+            return bool(delegation.should_delegate_memory())
+        except Exception:
+            return False
     
     def _extract_style_adjustments(self, style_analysis: Dict[str, Any]) -> str:
         """从风格分析中提取风格调整信息"""

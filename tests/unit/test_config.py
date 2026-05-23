@@ -91,6 +91,17 @@ class TestPluginConfigDefaults:
         config = PluginConfig()
         assert config.use_sqlalchemy is True
 
+    def test_default_feature_delegation_settings(self):
+        """Memory and reply delegation should be enabled by default."""
+        config = PluginConfig()
+
+        assert config.delegate_memory_to_livingmemory is True
+        assert config.livingmemory_plugin_name == "LivingMemory"
+        assert config.disable_local_memory_when_delegated is True
+        assert config.delegate_reply_to_group_chat_plus is True
+        assert config.group_chat_plus_plugin_name == "astrbot_plugin_group_chat_plus"
+        assert config.disable_local_reply_when_delegated is True
+
 
 @pytest.mark.unit
 @pytest.mark.config
@@ -226,6 +237,28 @@ class TestPluginConfigFromDict:
         assert config.rerank_provider_id == 'rerank_provider'
         assert config.knowledge_engine == 'lightrag'
         assert config.memory_engine == 'mem0'
+
+    def test_create_from_config_with_integration_settings(self):
+        """Test config creation with companion plugin delegation settings."""
+        raw_config = {
+            'Integration_Settings': {
+                'delegate_memory_to_livingmemory': False,
+                'livingmemory_plugin_name': 'CustomMemory',
+                'disable_local_memory_when_delegated': False,
+                'delegate_reply_to_group_chat_plus': False,
+                'group_chat_plus_plugin_name': 'CustomReply',
+                'disable_local_reply_when_delegated': False,
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.delegate_memory_to_livingmemory is False
+        assert config.livingmemory_plugin_name == 'CustomMemory'
+        assert config.disable_local_memory_when_delegated is False
+        assert config.delegate_reply_to_group_chat_plus is False
+        assert config.group_chat_plus_plugin_name == 'CustomReply'
+        assert config.disable_local_reply_when_delegated is False
 
     def test_create_from_empty_config(self):
         """Test config creation from empty dict uses all defaults."""

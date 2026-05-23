@@ -68,12 +68,29 @@ def test_dashboard_uses_module_home_and_hash_pages():
     assert "模块入口" in text
     assert "data-page=\"home\"" in text
     assert "data-route-card=\"overview\"" in text
+    assert "data-route-card=\"integrations\"" in text
     assert "data-route-card=\"settings\"" in text
-    for page in ["overview", "insights", "monitoring", "reviews", "content", "graphs", "settings"]:
+    for page in ["overview", "insights", "monitoring", "reviews", "content", "graphs", "integrations", "settings"]:
         assert f"data-page=\"{page}\"" in text
         assert f"href=\"#/{page}\"" in text or page == "home"
     assert "resolvePageFromHash" in text
     assert "navigateToPage('settings')" in text
+
+
+def test_dashboard_exposes_companion_plugin_api_hub():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    service = (PLUGIN_ROOT / "webui" / "services" / "integration_service.py").read_text(encoding="utf-8")
+
+    assert "功能融合" in text
+    assert "integrationCards" in text
+    assert "integrationConfigFields" in text
+    assert "Integration_Settings" in text
+    assert "/api/integrations/status" in text + service
+    assert "astrbot_plugin_livingmemory/page" in service
+    assert "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/" in service
+    assert "Group Chat Plus" in service
+    assert "POST /api/auth/login" in service
+    assert "GET /api/data/overview" in service
 
 
 def test_dashboard_exposes_tiered_dependency_install_controls():

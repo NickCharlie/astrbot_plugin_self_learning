@@ -7,6 +7,7 @@ from typing import Any, Dict, TYPE_CHECKING
 from astrbot.api import logger
 
 from .factory import FactoryManager
+from .feature_delegation import FeatureDelegation
 from ..exceptions import SelfLearningError
 from ..statics.messages import StatusMessages, LogMessages
 
@@ -45,6 +46,8 @@ class PluginLifecycle:
             p.factory_manager = FactoryManager()
             p.factory_manager.initialize_factories(plugin_config, context)
             p.service_factory = p.factory_manager.get_service_factory()
+            p.feature_delegation = FeatureDelegation(plugin_config, context)
+            p.feature_delegation.log_status()
 
             # ------ ServiceFactory 创建核心服务 ------
             p.db_manager = p.service_factory.create_database_manager()
@@ -135,6 +138,7 @@ class PluginLifecycle:
                         llm_adapter=llm_adapter,
                         db_manager=p.db_manager,
                         context=context,
+                        feature_delegation=getattr(p, "feature_delegation", None),
                     )
                     logger.info(
                         f"V2LearningIntegration initialised "
@@ -148,7 +152,11 @@ class PluginLifecycle:
                     p.v2_integration = None
 
             # ------ 依赖后创建的服务 ------
-            p.intelligent_responder = p.service_factory.create_intelligent_responder()
+            if p.feature_delegation.should_delegate_reply():
+                p.intelligent_responder = None
+                logger.info("[功能融合] 已跳过本地 IntelligentResponder，回复由 Group Chat Plus 接管")
+            else:
+                p.intelligent_responder = p.service_factory.create_intelligent_responder()
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()
 
             # ------ group_id 映射表传递 ------
@@ -215,6 +223,7 @@ class PluginLifecycle:
                     perf_tracker=p._perf_tracker,
                     group_id_to_unified_origin=group_id_to_unified_origin,
                     db_manager=getattr(p, "db_manager", None),
+                    feature_delegation=getattr(p, "feature_delegation", None),
                 )
             else:
                 p._hook_handler = None
@@ -261,6 +270,7 @@ class PluginLifecycle:
                 factory_manager=p.factory_manager,
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
+                feature_delegation=getattr(p, "feature_delegation", None),
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:
@@ -312,6 +322,7 @@ class PluginLifecycle:
         p.persona_updater = component_factory.create_persona_updater(
             context, persona_backup_manager_instance
         )
+        p.persona_updater.feature_delegation = getattr(p, "feature_delegation", None)
 
         p.persona_updater.group_id_to_unified_origin = group_id_to_unified_origin
         persona_backup_manager_instance.group_id_to_unified_origin = (
@@ -584,7 +595,15 @@ class PluginLifecycle:
         p = self._plugin
         try:
             await asyncio.sleep(3)
-            await p.service_factory.initialize_all_services()
+            feature_delegation = getattr(p, "feature_delegation", None)
+            if feature_delegation:
+                feature_delegation.log_status()
+            skip_responder = bool(
+                feature_delegation and feature_delegation.should_delegate_reply()
+            )
+            await p.service_factory.initialize_all_services(
+                skip_intelligent_responder=skip_responder
+            )
             await p.progressive_learning.start_learning(group_id)
             logger.info(
                 StatusMessages.AUTO_LEARNING_SCHEDULER_STARTED.format(

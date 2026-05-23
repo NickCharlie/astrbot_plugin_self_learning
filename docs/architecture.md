@@ -9,6 +9,7 @@
 | 插件入口 | `main.py` | 配置加载、AstrBot hook、命令入口、后台任务追踪 |
 | 配置 | `config.py`, `_conf_schema.json` | Pydantic 配置模型、AstrBot 配置组、WebUI schema 源 |
 | 生命周期 | `core/plugin_lifecycle.py` | bootstrap、on_load、shutdown |
+| 功能融合 | `core/feature_delegation.py` | 检测 LivingMemory / Group Chat Plus 并决定是否跳过本地重叠能力 |
 | 工厂 | `core/factory.py` | 创建和缓存服务实例，避免循环导入 |
 | 接口模型 | `core/interfaces.py`, `exceptions.py`, `constants.py` | 数据结构、异常、学习类型常量 |
 | 学习服务 | `services/core_learning/`, `services/learning/`, `services/analysis/`, `services/quality/` | 消息采集、实时学习、批量学习、质量控制、表达模式 |
@@ -53,6 +54,7 @@
 - `JargonQueryService`
 - `JargonMinerManager`
 - `JargonStatisticalFilter`
+- `FeatureDelegation`
 - 可选 `V2LearningIntegration`
 - `RealtimeProcessor`
 - `GroupLearningOrchestrator`
@@ -62,6 +64,8 @@
 - `WebUIManager`
 
 Provider 初始化是宽容的。没有可用 Provider 时，`FrameworkLLMAdapter` 不会让插件加载失败，会标记为延迟初始化。
+
+如果检测到 LivingMemory 已加载，`V2LearningIntegration` 和 `LLMHookHandler` 会跳过本插件本地长期记忆写入与注入，保留知识图谱、few-shot 和风格上下文。若检测到 Group Chat Plus 已加载，`PluginLifecycle` 会跳过本地 `IntelligentResponder`，让回复决策和生成由 Group Chat Plus 处理。
 
 ### 3. initialize 异步启动
 

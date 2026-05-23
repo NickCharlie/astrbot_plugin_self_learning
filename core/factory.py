@@ -498,7 +498,10 @@ class ServiceFactory(IServiceFactory):
         """获取服务注册表"""
         return self._registry
 
-    async def initialize_all_services(self) -> bool:
+    async def initialize_all_services(
+        self,
+        skip_intelligent_responder: bool = False,
+    ) -> bool:
         """初始化所有服务"""
         self._logger.info("开始初始化所有服务")
 
@@ -519,7 +522,10 @@ class ServiceFactory(IServiceFactory):
 
             # 社交上下文注入器由 ComponentFactory 创建（plugin_lifecycle.py）
 
-            self.create_intelligent_responder() # 重新启用智能回复器
+            if skip_intelligent_responder:
+                self._logger.info("已跳过本地智能回复器初始化，回复由外部插件接管")
+            else:
+                self.create_intelligent_responder()
             self.create_persona_manager()
             self.create_multidimensional_analyzer()
             self.create_progressive_learning()
