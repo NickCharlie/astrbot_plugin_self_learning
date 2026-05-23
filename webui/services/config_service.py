@@ -332,18 +332,18 @@ class ConfigService:
         return ConfigService._normalize_provider_type(raw_type, default_type)
 
     @staticmethod
-    def _provider_option(provider: Any, default_type: str = "") -> Optional[Dict[str, str]]:
-        try:
-            meta = provider.meta()
-        except Exception:
-            meta = None
+    def _provider_type_label(provider_type: str) -> str:
+        return _PROVIDER_TYPE_LABELS.get(provider_type, provider_type)
 
-        provider_id = getattr(meta, "id", None) or getattr(provider, "id", None)
+    @staticmethod
+    def _build_provider_option(
+        provider_id: Any,
+        model_name: Any = None,
+        provider_type: str = "",
+    ) -> Optional[Dict[str, str]]:
         if not provider_id:
             return None
 
-        provider_type = ConfigService._provider_type_value(provider, default_type)
-        model_name = getattr(meta, "model", None) or getattr(provider, "model", None)
         label_parts = [str(provider_id)]
         if model_name and str(model_name) not in str(provider_id):
             label_parts.append(str(model_name))
@@ -354,8 +354,20 @@ class ConfigService:
             "value": str(provider_id),
             "label": " / ".join(label_parts),
             "provider_type": provider_type,
-            "provider_type_label": _PROVIDER_TYPE_LABELS.get(provider_type, provider_type),
+            "provider_type_label": ConfigService._provider_type_label(provider_type),
         }
+
+    @staticmethod
+    def _provider_option(provider: Any, default_type: str = "") -> Optional[Dict[str, str]]:
+        try:
+            meta = provider.meta()
+        except Exception:
+            meta = None
+
+        provider_id = getattr(meta, "id", None) or getattr(provider, "id", None)
+        provider_type = ConfigService._provider_type_value(provider, default_type)
+        model_name = getattr(meta, "model", None) or getattr(provider, "model", None)
+        return ConfigService._build_provider_option(provider_id, model_name, provider_type)
 
     @staticmethod
     def _provider_option_from_config(
@@ -381,18 +393,7 @@ class ConfigService:
             or provider_config.get("embedding_model")
             or provider_config.get("rerank_model")
         )
-        label_parts = [str(provider_id)]
-        if model_name and str(model_name) not in str(provider_id):
-            label_parts.append(str(model_name))
-        if provider_type:
-            label_parts.append(provider_type)
-
-        return {
-            "value": str(provider_id),
-            "label": " / ".join(label_parts),
-            "provider_type": provider_type,
-            "provider_type_label": _PROVIDER_TYPE_LABELS.get(provider_type, provider_type),
-        }
+        return ConfigService._build_provider_option(provider_id, model_name, provider_type)
 
     @staticmethod
     def _dedupe_options(options: List[Dict[str, str]]) -> List[Dict[str, str]]:

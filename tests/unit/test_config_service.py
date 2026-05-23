@@ -183,6 +183,31 @@ class TestConfigServiceSchema:
         assert schema["provider_options_by_type"]["embedding"][0]["provider_type_label"] == "Embedding"
         assert schema["provider_options_by_type"]["rerank"][0]["provider_type_label"] == "Reranker"
 
+    def test_provider_option_builders_share_metadata_shape(self):
+        provider_meta = SimpleNamespace(
+            id="embed-live",
+            model="text-embedding-test",
+            provider_type=SimpleNamespace(value="embedding"),
+        )
+        provider = Mock()
+        provider.meta = Mock(return_value=provider_meta)
+
+        live_option = ConfigService._provider_option(provider)
+        config_option = ConfigService._provider_option_from_config(
+            {
+                "id": "embed-config",
+                "provider_type": "embedding",
+                "embedding_model": "text-embedding-test",
+            },
+            {},
+        )
+
+        assert set(live_option) == set(config_option)
+        assert live_option["provider_type"] == "embedding"
+        assert live_option["provider_type_label"] == "Embedding"
+        assert config_option["provider_type"] == "embedding"
+        assert config_option["provider_type_label"] == "Embedding"
+
     @pytest.mark.asyncio
     async def test_config_schema_covers_all_plugin_config_fields(self, tmp_path):
         container = build_container(tmp_path)
