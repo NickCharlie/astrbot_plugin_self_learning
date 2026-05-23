@@ -2032,7 +2032,7 @@
     <script>
         (function () {
             const themeFromDocument = document.documentElement.getAttribute('data-theme');
-            const PROVIDER_TYPE_LABELS = {
+            const FALLBACK_PROVIDER_TYPE_LABELS = {
                 chat_completion: '聊天模型',
                 embedding: 'Embedding',
                 rerank: 'Reranker',
@@ -3548,9 +3548,32 @@
                 return type;
             }
 
+            function providerTypeLabelsFromSchema() {
+                const payload = getConfigSchemaPayload();
+                const labels = {};
+                safeArray(payload.groups).forEach((group) => {
+                    safeArray(group.fields).forEach((field) => {
+                        const type = normalizeProviderType(field && field.provider_type);
+                        if (type && field.provider_type_label) {
+                            labels[type] = field.provider_type_label;
+                        }
+                    });
+                });
+                Object.values(payload.provider_options_by_type || {}).forEach((options) => {
+                    safeArray(options).forEach((option) => {
+                        const type = normalizeProviderType(option && option.provider_type);
+                        if (type && option.provider_type_label) {
+                            labels[type] = option.provider_type_label;
+                        }
+                    });
+                });
+                return labels;
+            }
+
             function providerTypeLabel(value) {
                 const normalized = normalizeProviderType(value);
-                return PROVIDER_TYPE_LABELS[normalized] || value || 'Provider';
+                const schemaLabels = providerTypeLabelsFromSchema();
+                return schemaLabels[normalized] || FALLBACK_PROVIDER_TYPE_LABELS[normalized] || value || 'Provider';
             }
 
             function providerOptionsForField(field) {
@@ -3593,7 +3616,7 @@
                     badges.push('重启后生效');
                 }
                 if (field.widget === 'provider') {
-                    badges.push(providerTypeLabel(field.provider_type || field.provider_type_label));
+                    badges.push(field.provider_type_label || providerTypeLabel(field.provider_type));
                 }
                 if (field.nullable) {
                     badges.push('可空');
@@ -3646,46 +3669,51 @@
                             ${field.editable ? '' : 'disabled'}
                         >${selectOptions.join('')}</select>
                     `;
-                } else if (field.widget === 'provider' && providerOptionsForField(field).length) {
-                    const currentValue = displayValue || '';
-                    const options = providerOptionsForField(field);
-                    const optionSet = options.some((option) => option.value === currentValue);
-                    const selectOptions = [
-                        `<option value="">未设置</option>`,
-                        ...options.map((option) => {
-                            const optionValue = option.value ?? '';
-                            const label = option.label || optionValue;
-                            const optionType = providerTypeLabel(option.provider_type || field.provider_type);
-                            return `<option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>${escapeHtml(`${label} · ${optionType}`)}</option>`;
-                        }),
-                    ];
-                    if (currentValue && !optionSet) {
-                        selectOptions.push(`<option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)}（当前值）</option>`);
-                    }
-                    controlHtml = `
-                        <select
-                            id="${fieldId}"
-                            class="config-input"
-                            data-config-key="${escapeHtml(field.key)}"
-                            data-config-type="${escapeHtml(field.type)}"
-                            data-config-widget="${escapeHtml(field.widget)}"
-                            ${field.editable ? '' : 'disabled'}
-                        >${selectOptions.join('')}</select>
-                    `;
                 } else if (field.widget === 'provider') {
-                    controlHtml = `
-                        <input
-                            id="${fieldId}"
-                            class="config-input"
-                            type="text"
-                            value="${escapeHtml(displayValue)}"
-                            placeholder="未找到 ${escapeHtml(providerTypeLabel(field.provider_type))} Provider，可手动填写 Provider ID"
-                            data-config-key="${escapeHtml(field.key)}"
-                            data-config-type="${escapeHtml(field.type)}"
-                            data-config-widget="${escapeHtml(field.widget)}"
-                            ${field.editable ? '' : 'disabled'}
-                        >
-                    `;
+                    const options = providerOptionsForField(field);
+                    const currentValue = displayValue || '';
+                    if (options.length) {
+                        const optionSet = options.some((option) => option.value === currentValue);
+                        const selectOptions = [
+                            `<option value="">未设置</option>`,
+                            ...options.map((option) => {
+                                const optionValue = option.value ?? '';
+                                const label = option.label || optionValue;
+                                const optionType = option.provider_type_label
+                                    || field.provider_type_label
+                                    || providerTypeLabel(option.provider_type || field.provider_type);
+                                return `<option value="${escapeHtml(optionValue)}" ${optionValue === currentValue ? 'selected' : ''}>${escapeHtml(`${label} · ${optionType}`)}</option>`;
+                            }),
+                        ];
+                        if (currentValue && !optionSet) {
+                            selectOptions.push(`<option value="${escapeHtml(currentValue)}" selected>${escapeHtml(currentValue)}（当前值）</option>`);
+                        }
+                        controlHtml = `
+                            <select
+                                id="${fieldId}"
+                                class="config-input"
+                                data-config-key="${escapeHtml(field.key)}"
+                                data-config-type="${escapeHtml(field.type)}"
+                                data-config-widget="${escapeHtml(field.widget)}"
+                                ${field.editable ? '' : 'disabled'}
+                            >${selectOptions.join('')}</select>
+                        `;
+                    } else {
+                        const providerLabel = field.provider_type_label || providerTypeLabel(field.provider_type);
+                        controlHtml = `
+                            <input
+                                id="${fieldId}"
+                                class="config-input"
+                                type="text"
+                                value="${escapeHtml(displayValue)}"
+                                placeholder="未找到 ${escapeHtml(providerLabel)} Provider，可手动填写 Provider ID"
+                                data-config-key="${escapeHtml(field.key)}"
+                                data-config-type="${escapeHtml(field.type)}"
+                                data-config-widget="${escapeHtml(field.widget)}"
+                                ${field.editable ? '' : 'disabled'}
+                            >
+                        `;
+                    }
                 } else if (field.widget === 'readonly') {
                     controlHtml = `
                         <input

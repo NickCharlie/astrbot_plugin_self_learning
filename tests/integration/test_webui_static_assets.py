@@ -90,11 +90,16 @@ def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
     assert "providerOptionsForField" in text
+    assert "providerTypeLabelsFromSchema" in text
     assert "provider_options_by_type" in text
+    assert "FALLBACK_PROVIDER_TYPE_LABELS" in text
     assert "chat_completion: '聊天模型'" in text
     assert "embedding: 'Embedding'" in text
     assert "rerank: 'Reranker'" in text
-    assert "未找到 ${escapeHtml(providerTypeLabel(field.provider_type))} Provider" in text
+    assert "field.provider_type_label || providerTypeLabel(field.provider_type)" in text
+    assert "const options = providerOptionsForField(field);" in text
+    assert "else if (field.widget === 'provider' && providerOptionsForField(field).length)" not in text
+    assert "未找到 ${escapeHtml(providerLabel)} Provider" in text
 
 
 def test_dashboard_zero_message_insight_reflects_full_learning_default():
