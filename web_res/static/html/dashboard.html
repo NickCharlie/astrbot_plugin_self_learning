@@ -199,6 +199,145 @@
             background: var(--surface-hover);
         }
 
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .module-home {
+            min-height: calc(100dvh - 116px);
+        }
+
+        .module-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 12px;
+        }
+
+        .module-card {
+            min-height: 168px;
+            display: grid;
+            align-content: space-between;
+            gap: 16px;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            text-decoration: none;
+            box-shadow: var(--shadow);
+            transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+        }
+
+        .module-card:hover,
+        .module-card:focus-visible {
+            border-color: var(--accent);
+            background: var(--surface-hover);
+            transform: translateY(-1px);
+            outline: none;
+        }
+
+        .module-card.active {
+            border-color: var(--accent);
+        }
+
+        .module-card-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .module-icon {
+            width: 38px;
+            height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--panel-soft);
+            color: var(--accent-2);
+        }
+
+        .module-title {
+            display: grid;
+            gap: 5px;
+            min-width: 0;
+        }
+
+        .module-title strong {
+            font-size: 16px;
+            line-height: 1.25;
+        }
+
+        .module-title span,
+        .module-note {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .module-value {
+            font-size: 26px;
+            line-height: 1;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .page-titlebar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+
+        .page-title {
+            display: grid;
+            gap: 5px;
+            min-width: 0;
+        }
+
+        .page-title h2 {
+            margin: 0;
+            font-size: 20px;
+            line-height: 1.2;
+        }
+
+        .page-title p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .back-home {
+            min-height: 36px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 11px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            text-decoration: none;
+            box-shadow: var(--shadow);
+            white-space: nowrap;
+        }
+
+        .back-home:hover,
+        .back-home:focus-visible {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--surface-hover);
+            outline: none;
+        }
+
         .hero {
             background: var(--panel);
             border: 1px solid var(--border);
@@ -1332,6 +1471,10 @@
                 flex-direction: column;
             }
 
+            .page-titlebar {
+                flex-direction: column;
+            }
+
             .metrics-grid {
                 grid-template-columns: 1fr;
             }
@@ -1392,30 +1535,113 @@
             </div>
         </header>
 
-        <section class="hero">
-            <div class="hero-row">
-                <div class="hero-title">
-                    <strong id="heroHeadline">自学习监控板</strong>
-                    <span id="heroSubline">加载中。</span>
-                </div>
-                <div class="hero-meta">
-                    <span class="tag">
-                        <span class="material-icons" style="font-size:16px;">health_and_safety</span>
-                        健康 <b id="overallHealth">--</b>
-                    </span>
-                    <span class="tag">
-                        <span class="material-icons" style="font-size:16px;">psychology</span>
-                        效率 <b id="overallEfficiency">--</b>
-                    </span>
-                    <span class="tag">
-                        <span class="material-icons" style="font-size:16px;">assignment</span>
-                        待办 <b id="backlogCount">0</b>
-                    </span>
-                </div>
+        <main>
+        <section class="page module-home active" id="page-home" data-page="home" aria-label="模块入口">
+            <div class="module-grid">
+                <a class="module-card" href="#/overview" data-route-card="overview">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>总览</strong>
+                            <span>核心指标与消息趋势</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">dashboard</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeOverviewValue">--</div>
+                        <div class="module-note" id="homeOverviewNote">等待数据</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/insights" data-route-card="insights">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>AI 巡检</strong>
+                            <span>异常、瓶颈与下一步建议</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">auto_awesome</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeInsightValue">--</div>
+                        <div class="module-note" id="homeInsightNote">等待巡检</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/monitoring" data-route-card="monitoring">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>运行监控</strong>
+                            <span>健康状态、热点与模型调用</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">monitor_heart</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeMonitoringValue">--</div>
+                        <div class="module-note" id="homeMonitoringNote">系统健康</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/reviews" data-route-card="reviews">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>审查队列</strong>
+                            <span>人格、风格、黑话与批次</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">rate_review</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeReviewValue">0</div>
+                        <div class="module-note" id="homeReviewNote">待处理</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/content" data-route-card="content">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>学习内容</strong>
+                            <span>对话、分析、表达模式与历史</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">article</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeContentValue">--</div>
+                        <div class="module-note" id="homeContentNote">查看明细</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/graphs" data-route-card="graphs">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>图谱</strong>
+                            <span>记忆图与知识图谱</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">hub</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeGraphValue">--</div>
+                        <div class="module-note" id="homeGraphNote">可视化关系</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/settings" data-route-card="settings">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>设置</strong>
+                            <span>全量配置与依赖安装</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">tune</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeSettingsValue">--</div>
+                        <div class="module-note" id="homeSettingsNote">配置中心</div>
+                    </div>
+                </a>
             </div>
         </section>
 
-        <section class="panel ai-panel" aria-label="AI 巡检">
+        <section class="page" id="page-insights" data-page="insights">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>AI 巡检</h2>
+                    <p>聚合学习链路、审查队列、模型调用与健康状态，给出可执行的下一步。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="panel ai-panel" aria-label="AI 巡检">
             <div class="panel-head">
                 <div class="ai-head">
                     <span class="ai-orb">
@@ -1445,8 +1671,41 @@
                 </div>
             </div>
         </section>
+        </section>
 
-        <section class="metrics-grid" aria-label="核心指标">
+        <section class="page" id="page-overview" data-page="overview">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>总览</h2>
+                    <p>只展示核心指标与趋势，用于快速判断学习链路是否在产生有效样本。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="hero">
+                <div class="hero-row">
+                    <div class="hero-title">
+                        <strong id="heroHeadline">自学习监控板</strong>
+                        <span id="heroSubline">加载中。</span>
+                    </div>
+                    <div class="hero-meta">
+                        <span class="tag">
+                            <span class="material-icons" style="font-size:16px;">health_and_safety</span>
+                            健康 <b id="overallHealth">--</b>
+                        </span>
+                        <span class="tag">
+                            <span class="material-icons" style="font-size:16px;">psychology</span>
+                            效率 <b id="overallEfficiency">--</b>
+                        </span>
+                        <span class="tag">
+                            <span class="material-icons" style="font-size:16px;">assignment</span>
+                            待办 <b id="backlogCount">0</b>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="metrics-grid" aria-label="核心指标">
             <div class="metric">
                 <div class="label"><span class="accent-line"></span>总消息</div>
                 <div class="value" id="metric-total-messages">0</div>
@@ -1489,7 +1748,6 @@
             </div>
         </section>
 
-        <section class="grid2">
             <div class="panel">
                 <div class="panel-head">
                     <h2>消息与学习趋势</h2>
@@ -1499,8 +1757,18 @@
                     <div id="trendChart" class="chart tall"></div>
                 </div>
             </div>
+        </section>
 
-            <div class="side-stack">
+        <section class="page" id="page-monitoring" data-page="monitoring">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>运行监控</h2>
+                    <p>健康检查、函数热点、筛选模型调用与学习维度集中放在这里。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="side-stack">
                 <div class="panel">
                     <div class="panel-head">
                         <h2>系统健康</h2>
@@ -1555,10 +1823,19 @@
                         <div id="dimensionList" class="dim-list"></div>
                     </div>
                 </div>
-            </div>
+        </section>
         </section>
 
-        <section class="queue-grid">
+        <section class="page" id="page-reviews" data-page="reviews">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>审查队列</h2>
+                    <p>处理待审人格、风格审查、黑话候选和最近学习批次。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="queue-grid">
             <div class="panel">
                 <div class="panel-head">
                     <h2>待审人格</h2>
@@ -1601,8 +1878,18 @@
         </section>
 
         <div id="queueStatus" class="config-status queue-status">审查操作就绪。</div>
+        </section>
 
-        <section class="learning-content-band">
+        <section class="page" id="page-content" data-page="content">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>学习内容</h2>
+                    <p>查看具体学习输入与输出，包括原始对话、分析结果、表达模式和批次历史。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="learning-content-band">
             <div class="panel">
                 <div class="panel-head">
                     <div>
@@ -1640,8 +1927,18 @@
                 </div>
             </div>
         </section>
+        </section>
 
-        <section class="graphs-band">
+        <section class="page" id="page-graphs" data-page="graphs">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>图谱</h2>
+                    <p>交互式查看记忆图和知识图谱，支持缩放、拖拽、切换布局与节点详情。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="graphs-band">
             <div class="panel">
                 <div class="panel-head">
                     <div>
@@ -1675,8 +1972,18 @@
                 </div>
             </div>
         </section>
+        </section>
 
-        <section class="settings-band" id="settingsSection">
+        <section class="page" id="page-settings" data-page="settings">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>设置</h2>
+                    <p>集中管理配置 schema、Provider、学习开关和手动依赖安装。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="settings-band" id="settingsSection">
             <div class="settings-head">
                 <div class="settings-title">
                     <div class="subhead">CONFIGURATION</div>
@@ -1718,6 +2025,8 @@
             <div id="configGroups" class="settings-grid"></div>
             <div id="configStatus" class="config-status">正在加载配置中。</div>
         </section>
+        </section>
+        </main>
     </div>
 
     <script>
@@ -1765,6 +2074,7 @@
                     data: null,
                     loading: false,
                 },
+                activePage: 'home',
             };
 
             const numberFmt = new Intl.NumberFormat('zh-CN', {
@@ -1876,6 +2186,88 @@
                 }
 
                 return 0;
+            }
+
+            function resolvePageFromHash() {
+                const raw = String(window.location.hash || '').replace(/^#\/?/, '').trim();
+                const page = raw.split(/[/?#]/)[0] || 'home';
+                const allowed = new Set(['home', 'overview', 'insights', 'monitoring', 'reviews', 'content', 'graphs', 'settings']);
+                return allowed.has(page) ? page : 'home';
+            }
+
+            function resizeVisibleCharts() {
+                window.setTimeout(() => {
+                    Object.values(state.charts).forEach((chart) => chart && chart.resize());
+                }, 0);
+            }
+
+            function navigateToPage(page, options = {}) {
+                const targetPage = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'content', 'graphs', 'settings'].includes(page)
+                    ? page
+                    : 'home';
+                state.activePage = targetPage;
+                document.querySelectorAll('[data-page]').forEach((section) => {
+                    section.classList.toggle('active', section.dataset.page === targetPage);
+                });
+                document.querySelectorAll('[data-route-card]').forEach((card) => {
+                    card.classList.toggle('active', card.dataset.routeCard === targetPage);
+                });
+                document.body.dataset.activePage = targetPage;
+                if (!options.skipHash && window.location.hash !== `#/${targetPage}`) {
+                    window.location.hash = `/${targetPage}`;
+                }
+                if (!options.keepScroll) {
+                    window.scrollTo({ top: 0, behavior: options.instant ? 'auto' : 'smooth' });
+                }
+                resizeVisibleCharts();
+            }
+
+            function renderHomeModules(data) {
+                const metrics = data.metrics || {};
+                const health = data.health || {};
+                const persona = data.persona || {};
+                const style = data.style || {};
+                const trends = data.trends || {};
+                const jargonStats = extractJargonStats(data.jargonStats);
+                const totalMessages = safeNumber(metrics.total_messages_collected);
+                const filteredMessages = safeNumber(metrics.filtered_messages);
+                const filterRate = totalMessages ? (filteredMessages / totalMessages) * 100 : 0;
+                const learningEfficiency = safeNumber(metrics.learning_efficiency);
+                const llm = state.llmCalls.data || collectLLMCalls(
+                    metrics.llm_calls,
+                    metrics.llm_call_breakdown,
+                    metrics.llm_call_summary,
+                    metrics.filter_model_summary,
+                );
+                const personaUpdates = safeArray(persona.updates);
+                const styleBacklog = safeNumber(style.total);
+                const personaTotal = safeNumber(persona.total);
+                const personaPayloadIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
+                const personaBacklog = personaPayloadIncludesStyle ? Math.max(0, personaTotal - styleBacklog) : personaTotal;
+                const pendingJargon = Math.max(0, safeNumber(jargonStats.total_candidates) - safeNumber(jargonStats.confirmed_jargon));
+                const backlog = personaBacklog + styleBacklog + pendingJargon;
+                const batchCount = safeArray(trends.recent_batches).length;
+                const graphNodes = state.graph.data ? safeArray(state.graph.data.nodes).length : 0;
+                const contentPayload = getContentPayload();
+                const contentCount = ['dialogues', 'analysis', 'features', 'history']
+                    .reduce((sum, key) => sum + safeArray(contentPayload[key]).length, 0);
+
+                $('homeOverviewValue').textContent = formatPercent(learningEfficiency);
+                $('homeOverviewNote').textContent = `${formatCount(totalMessages)} 条消息 · 筛选率 ${formatPercent(filterRate)}`;
+                $('homeInsightValue').textContent = $('aiInsightSeverity').textContent || '--';
+                $('homeInsightNote').textContent = $('aiInsightHint').textContent || '等待巡检';
+                $('homeMonitoringValue').textContent = textOrDash(health.overall || 'unknown');
+                $('homeMonitoringNote').textContent = `${formatCount(llm.total)} 次模型调用 · ${formatCount(llm.abnormalCount)} 个异常`;
+                $('homeReviewValue').textContent = formatCount(backlog);
+                $('homeReviewNote').textContent = `人格 ${formatCount(personaBacklog)} · 风格 ${formatCount(styleBacklog)} · 黑话 ${formatCount(pendingJargon)}`;
+                $('homeContentValue').textContent = contentCount ? formatCount(contentCount) : '--';
+                $('homeContentNote').textContent = contentCount ? '条学习内容' : '点击查看学习明细';
+                $('homeGraphValue').textContent = graphNodes ? formatCount(graphNodes) : '--';
+                $('homeGraphNote').textContent = graphNodes ? `${state.graph.type === 'memory' ? '记忆图' : '知识图谱'}节点` : '点击加载图谱';
+                $('homeSettingsValue').textContent = state.config.schema ? formatCount(getConfigEditableKeys().length) : '--';
+                $('homeSettingsNote').textContent = state.config.dirtyKeys && state.config.dirtyKeys.size
+                    ? `${formatCount(state.config.dirtyKeys.size)} 项未保存`
+                    : '配置中心';
             }
 
             function collectLLMCalls(llmCalls, llmCallBreakdown, llmCallSummary, filterModelSummary) {
@@ -2251,18 +2643,48 @@
                 return map[target] || null;
             }
 
+            function getInsightTargetPage(target) {
+                const map = {
+                    health: 'monitoring',
+                    llm: 'monitoring',
+                    efficiency: 'monitoring',
+                    reviews: 'reviews',
+                    jargon: 'reviews',
+                    batches: 'reviews',
+                    messages: 'overview',
+                    stable: 'overview',
+                };
+                return map[target] || 'home';
+            }
+
             function jumpToInsightTarget(target) {
                 const targetId = getInsightTargetId(target);
                 if (!targetId) {
                     return false;
                 }
 
-                const element = $(targetId);
-                if (!element) {
-                    return false;
-                }
+                navigateToPage(getInsightTargetPage(target), { keepScroll: true });
+                window.setTimeout(() => {
+                    const element = $(targetId);
+                    if (!element) {
+                        return;
+                    }
+                    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    element.classList.remove('target-flash');
+                    window.setTimeout(() => {
+                        element.classList.add('target-flash');
+                        window.setTimeout(() => {
+                            element.classList.remove('target-flash');
+                        }, 1500);
+                    }, 0);
+                }, 40);
+                return true;
+            }
 
-                element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            function flashElement(element) {
+                if (!element) {
+                    return;
+                }
                 element.classList.remove('target-flash');
                 window.setTimeout(() => {
                     element.classList.add('target-flash');
@@ -2270,7 +2692,6 @@
                         element.classList.remove('target-flash');
                     }, 1500);
                 }, 0);
-                return true;
             }
 
             function renderInsightPanel(data) {
@@ -3396,6 +3817,9 @@
                 if (configSummary) {
                     configSummary.innerHTML = summaryItems.join('');
                 }
+                if (state.data) {
+                    renderHomeModules(state.data);
+                }
             }
 
             function updateConfigStatus(message, tone = '') {
@@ -3895,6 +4319,9 @@
                 } finally {
                     state.graph.loading = false;
                     renderGraphPanel(state.graph.data);
+                    if (state.data) {
+                        renderHomeModules(state.data);
+                    }
                 }
             }
 
@@ -4017,6 +4444,9 @@
                 } finally {
                     state.content.loading = false;
                     renderLearningContent();
+                    if (state.data) {
+                        renderHomeModules(state.data);
+                    }
                 }
             }
 
@@ -4024,6 +4454,7 @@
                 state.data = data;
                 renderSummary(data);
                 renderInsightPanel(data);
+                renderHomeModules(data);
                 renderTrendChart(data.trends || {});
                 renderEfficiencyChart(data.metrics || {});
                 if (state.graph.data) {
@@ -4031,6 +4462,7 @@
                 }
                 if (state.content.data) {
                     renderLearningContent();
+                    renderHomeModules(data);
                 }
                 if (Object.values(state.charts).length) {
                     Object.values(state.charts).forEach((chart) => chart && chart.resize());
@@ -4191,10 +4623,7 @@
             function bindEvents() {
                 $('refreshBtn').addEventListener('click', loadDashboard);
                 $('settingsJumpBtn').addEventListener('click', () => {
-                    const section = $('settingsSection');
-                    if (section) {
-                        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }
+                    navigateToPage('settings');
                 });
                 $('themeBtn').addEventListener('click', () => {
                     applyTheme(state.theme === 'dark' ? 'light' : 'dark');
@@ -4305,11 +4734,15 @@
                 window.addEventListener('resize', () => {
                     Object.values(state.charts).forEach((chart) => chart && chart.resize());
                 });
+                window.addEventListener('hashchange', () => {
+                    navigateToPage(resolvePageFromHash(), { skipHash: true, instant: true });
+                });
             }
 
             function init() {
                 applyTheme(state.theme);
                 bindEvents();
+                navigateToPage(resolvePageFromHash(), { skipHash: true, instant: true });
                 loadDashboard();
                 loadConfigPanel();
                 loadGraphPanel();

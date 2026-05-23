@@ -62,6 +62,20 @@ def test_dashboard_exposes_structured_ai_insight_panel():
     assert "aiInsightList" in text
 
 
+def test_dashboard_uses_module_home_and_hash_pages():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "模块入口" in text
+    assert "data-page=\"home\"" in text
+    assert "data-route-card=\"overview\"" in text
+    assert "data-route-card=\"settings\"" in text
+    for page in ["overview", "insights", "monitoring", "reviews", "content", "graphs", "settings"]:
+        assert f"data-page=\"{page}\"" in text
+        assert f"href=\"#/{page}\"" in text or page == "home"
+    assert "resolvePageFromHash" in text
+    assert "navigateToPage('settings')" in text
+
+
 def test_dashboard_exposes_tiered_dependency_install_controls():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
