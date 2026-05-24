@@ -21,12 +21,19 @@ git clone https://github.com/EterUltimate/self_learning_EterU.git astrbot_plugin
 
 1. 打开 AstrBot 插件管理。
 2. 进入 self-learning 设置页或 WebUI 系统设置。
-3. 手动点击安装依赖。
+3. 点击 `基础能力依赖` 或 `全能力依赖`。
+
+依赖档位:
+
+| 档位 | 用途 |
+| --- | --- |
+| 基础能力依赖 | WebUI、SQLite、人格审查、黑话学习、表达方式学习 |
+| 全能力依赖 | 基础能力 + MySQL/PostgreSQL、监控指标、图谱、LightRAG、mem0 |
 
 依赖安装接口只接受设置页确认请求:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings"}
+{"manual_confirmed": true, "source": "system_settings", "tier": "basic"}
 ```
 
 如果部署环境禁止 WebUI 安装依赖:
@@ -170,6 +177,23 @@ MySQL:
 - 标记为重启生效的字段保存后需要重启插件。
 - 日志等级可立即生效。
 
+### 功能融合
+
+入口: `#/integrations`
+
+用途:
+
+- 查看 Self Learning、LivingMemory、Group Chat Plus 状态。
+- 打开各插件 Dashboard 或 AstrBot Pages。
+- 查看 companion 插件开发 API。
+- 编辑 `Integration_Settings`。
+
+默认策略:
+
+- LivingMemory 存在时，长期记忆写入和注入交给 LivingMemory。
+- Group Chat Plus 存在时，回复决策和生成交给 Group Chat Plus。
+- 目标插件不存在时，本插件自动使用本地降级能力。
+
 ### 待审人格
 
 用于审查人格学习结果:
@@ -264,6 +288,16 @@ Dashboard 支持:
 7. 群组消息是否达到 `min_messages_for_learning`。
 8. 是否有待审记录未批准。
 9. Provider 是否可用。
+
+### 功能融合未生效
+
+检查:
+
+1. Dashboard `功能融合` 页是否检测到目标插件。
+2. 目标插件是否已启用且加载成功。
+3. `Integration_Settings` 中两个委托开关和两个禁用本地能力开关是否为 `true`。
+4. 插件名是否与实际 AstrBot star 名称匹配。
+5. 日志等级设为 `debug` 后查看 `[功能融合]` 和 `[V2Integration]` 日志。
 
 ### 数据库建表失败
 

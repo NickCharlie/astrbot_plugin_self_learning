@@ -58,14 +58,40 @@ GET /api/
 依赖安装必须由设置页手动确认:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings"}
+{"manual_confirmed": true, "source": "system_settings", "tier": "full"}
 ```
+
+`tier`:
+
+- `basic`: 基础能力依赖。
+- `full`: 全能力依赖。
 
 可通过环境变量关闭:
 
 ```powershell
 $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 ```
+
+## 功能融合
+
+蓝图: `webui/blueprints/integrations.py`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/integrations/status` | 获取 Self Learning、LivingMemory、Group Chat Plus 的委托状态、面板入口和开发 API 列表 |
+
+返回字段:
+
+| 字段 | 说明 |
+| --- | --- |
+| `delegation.memory_delegated` | 长期记忆是否委托给 LivingMemory |
+| `delegation.memory_plugin` | 检测到的 LivingMemory 名称 |
+| `delegation.reply_delegated` | 回复是否委托给 Group Chat Plus |
+| `delegation.reply_plugin` | 检测到的 Group Chat Plus 名称 |
+| `settings` | 当前 `Integration_Settings` |
+| `dashboards` | 三个插件的面板入口、运行状态和 API 列表 |
+
+详见 [功能融合](integrations.md)。
 
 ## 学习内容和风格审查
 
