@@ -18,6 +18,11 @@ python -m pip install -r requirements-test.txt
 webui/blueprints/config.py
 ```
 
+依赖分两档:
+
+- `BASIC_DEPENDENCY_PACKAGES`: WebUI、SQLite、人格审查、黑话和表达方式学习所需依赖。
+- `FULL_DEPENDENCY_PACKAGES`: 基础依赖 + 数据库驱动、监控、图谱、V2 高级引擎依赖。
+
 ## 常用命令
 
 运行全部测试:
@@ -64,6 +69,7 @@ python -m pytest tests/integration/test_package_imports.py
 - ORM: `models/orm/`
 - WebUI API: `webui/blueprints/`
 - WebUI 服务层: `webui/services/`
+- 功能融合: `core/feature_delegation.py`, `webui/services/integration_service.py`
 
 ## 添加服务
 
@@ -92,6 +98,18 @@ python -m pytest tests/integration/test_package_imports.py
 - 成功用 `jsonify(...)`。
 - 错误用 `webui/utils/response.py::error_response()`。
 - 需要鉴权的路由加 `@require_auth`，即使当前免密，也保留装饰器用于未来恢复鉴权。
+
+## 添加 companion 插件融合
+
+推荐步骤:
+
+1. 在 `core/feature_delegation.py` 添加检测别名和 `should_delegate_xxx()`。
+2. 在调用点只跳过重叠能力，不影响学习、审查和上下文注入主链路。
+3. 在 `webui/services/integration_service.py` 增加面板入口和开发 API 列表。
+4. 在 Dashboard `#/integrations` 展示状态和配置入口。
+5. 添加 `tests/unit/test_feature_delegation.py` 或 `tests/unit/test_integration_service.py` 覆盖。
+
+不要复制 companion 插件内部实现。只使用其公开 Dashboard、AstrBot Pages 或开发 API。
 
 ## 添加配置项
 
@@ -174,7 +192,7 @@ POST /api/dependencies/install
 
 并要求设置页手动确认。新增依赖时同步更新:
 
-- `webui/blueprints/config.py::DEPENDENCY_PACKAGES`
+- `webui/blueprints/config.py::BASIC_DEPENDENCY_PACKAGES` 或 `FULL_DEPENDENCY_PACKAGES`
 - 相关导入的 optional fallback
 - `tests/integration/test_package_imports.py`
 
@@ -208,6 +226,7 @@ python -m pytest tests/integration/test_webui_static_assets.py
 | 配置 | `test_config.py`, `test_config_service.py`, `test_config_blueprint.py` |
 | 数据库 | `test_database_engine.py`, `test_sqlalchemy_db_manager_contract.py` |
 | 学习链路 | `test_learning_chain_regressions.py`, `test_learning_quality_monitor.py` |
+| 功能融合 | `test_feature_delegation.py`, `test_integration_service.py` |
 | WebUI API | 对应 `tests/integration/test_*_blueprint.py` |
 | 导入和依赖 | `test_package_imports.py` |
 | 静态资源 | `test_webui_static_assets.py` |

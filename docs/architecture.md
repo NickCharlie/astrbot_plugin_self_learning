@@ -67,6 +67,8 @@ Provider 初始化是宽容的。没有可用 Provider 时，`FrameworkLLMAdapte
 
 如果检测到 LivingMemory 已加载，`V2LearningIntegration` 和 `LLMHookHandler` 会跳过本插件本地长期记忆写入与注入，保留知识图谱、few-shot 和风格上下文。若检测到 Group Chat Plus 已加载，`PluginLifecycle` 会跳过本地 `IntelligentResponder`，让回复决策和生成由 Group Chat Plus 处理。
 
+功能融合的完整配置、API 和排查见 [功能融合](integrations.md)。
+
 ### 3. initialize 异步启动
 
 AstrBot 完成 handler 绑定后调用 `initialize()`，它委托给 `PluginLifecycle.on_load()`:
@@ -167,7 +169,12 @@ POST /api/dependencies/install
 请求必须包含:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings"}
+{"manual_confirmed": true, "source": "system_settings", "tier": "basic"}
 ```
+
+`tier` 可选:
+
+- `basic`: 人格审查、黑话、表达方式学习、SQLite、WebUI 基础能力。
+- `full`: 基础能力 + MySQL/PostgreSQL、监控、图谱、V2 记忆/知识引擎。
 
 这避免 AstrBot 安装插件时被 pip 阻塞。

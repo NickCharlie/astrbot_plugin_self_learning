@@ -8,6 +8,24 @@
 
 - 将插件发布版本号提升至 `3.0.3`。
 
+### 功能融合
+
+- 新增 LivingMemory / Group Chat Plus 检测与能力委托。
+- LivingMemory 已加载时，跳过本插件本地长期记忆写入和注入。
+- Group Chat Plus 已加载时，跳过本插件本地回复器。
+- 新增 Dashboard `功能融合` 页面，展示 companion 插件状态、面板入口、开发 API 和 `Integration_Settings`。
+
+### WebUI
+
+- Dashboard 首页保留模块缩略入口，功能页按需加载，避免首页请求图谱和学习内容重接口。
+- 依赖安装拆分为 `基础能力依赖` 和 `全能力依赖`。
+- Provider 选择按 AstrBot Provider 类型过滤，Embedding / Reranker 不再混入聊天模型。
+
+### 文档
+
+- 新增 `docs/integrations.md`。
+- 更新配置、使用、WebUI API 和开发文档。
+
 ## [3.0.1] - 2026-05-23
 
 ### WebUI
