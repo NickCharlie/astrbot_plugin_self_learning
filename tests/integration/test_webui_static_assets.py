@@ -52,6 +52,16 @@ def test_dashboard_exposes_learning_content_browser():
     assert "data-content-type=\"history\"" in text
 
 
+def test_dashboard_review_details_use_backend_structured_fields():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "item && item.pattern_details" in text
+    assert "item && item.few_shot_pairs" in text
+    assert "renderStyleReviewDetails(item)" in text
+    assert "item.definition || item.meaning || item.review_detail" in text
+    assert "renderContextExamples(item)" in text
+
+
 def test_dashboard_exposes_structured_ai_insight_panel():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

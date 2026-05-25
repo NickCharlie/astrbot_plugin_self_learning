@@ -91,7 +91,10 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     )
 
     assert should_ignore_learning_sample("/help") is True
+    assert should_ignore_learning_sample("/help me") is True
     assert should_ignore_learning_sample("help") is True
+    assert should_ignore_learning_sample("help me") is False
+    assert should_ignore_learning_sample("/a hello") is False
     assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
     assert should_ignore_learning_sample("这是一条普通聊天消息") is False
 

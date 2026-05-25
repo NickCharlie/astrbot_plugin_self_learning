@@ -41,12 +41,12 @@ def is_command_message(message_text: Any) -> bool:
         return False
 
     first_token = text.split(maxsplit=1)[0].strip()
-    normalized = first_token.lower().lstrip("".join(COMMAND_PREFIXES))
-    if first_token[:1] in COMMAND_PREFIXES and len(first_token) > 1:
-        return bool(first_token[1].isalpha())
-    return text.lower() in BARE_COMMANDS or (
-        normalized in BARE_COMMANDS and text == first_token
-    )
+    has_prefix = first_token[:1] in COMMAND_PREFIXES and len(first_token) > 1
+    normalized = first_token[1:].lower() if has_prefix else first_token.lower()
+
+    if has_prefix:
+        return normalized in BARE_COMMANDS
+    return text.lower() in BARE_COMMANDS
 
 
 def is_system_response(message_text: Any) -> bool:

@@ -39,6 +39,28 @@ def test_format_jargon_for_frontend_keeps_legacy_and_macos_fields():
 
 
 @pytest.mark.unit
+def test_format_jargon_empty_meaning_falls_back_review_detail():
+    formatted = JargonService._format_jargon_for_frontend(
+        {
+            "id": 2,
+            "content": "待解释",
+            "meaning": "",
+            "is_jargon": False,
+            "is_global": False,
+            "count": 1,
+            "chat_id": "group-a",
+            "raw_content": '["上下文"]',
+            "is_complete": True,
+        }
+    )
+
+    assert formatted["definition"] == ""
+    assert formatted["review_detail"] == "暂无释义"
+    assert formatted["context_examples"] == ["上下文"]
+    assert formatted["is_complete"] is True
+
+
+@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_get_jargon_groups_adds_legacy_count_aliases():
     database_manager = SimpleNamespace(
