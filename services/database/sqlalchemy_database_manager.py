@@ -144,8 +144,8 @@ class SQLAlchemyDatabaseManager:
 
     def _get_db_type(self) -> str:
         """获取标准化数据库类型。"""
-        db_type = (getattr(self.config, 'db_type', 'sqlite') or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg'):
+        db_type = (getattr(self.config, 'db_type', 'postgresql') or 'postgresql').strip().lower()
+        if db_type in ('postgres', 'pg', 'pgsql'):
             return 'postgresql'
         return db_type
 

@@ -1,5 +1,6 @@
 from collections import defaultdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -52,7 +53,11 @@ async def test_sqlite_create_tables_creates_all_orm_tables(tmp_path):
 async def test_database_manager_start_initializes_facades_and_learning_storage(tmp_path):
     """Runtime manager startup must create tables and load domain facades."""
     manager = SQLAlchemyDatabaseManager(
-        PluginConfig(data_dir=str(tmp_path), enable_web_interface=False)
+        PluginConfig(
+            data_dir=str(tmp_path),
+            enable_web_interface=False,
+            db_type="sqlite",
+        )
     )
 
     try:
@@ -130,7 +135,7 @@ async def test_database_manager_start_initializes_facades_and_learning_storage(t
 
 
 def test_database_manager_sqlite_url_uses_aiosqlite_and_absolute_path(tmp_path):
-    config = PluginConfig(data_dir=str(tmp_path))
+    config = PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
     manager = SQLAlchemyDatabaseManager(config)
 
     url = make_url(manager._get_database_url())
@@ -138,6 +143,25 @@ def test_database_manager_sqlite_url_uses_aiosqlite_and_absolute_path(tmp_path):
     assert url.drivername == "sqlite+aiosqlite"
     assert Path(url.database).is_absolute()
     assert url.database.endswith("messages.db")
+
+
+def test_database_manager_default_url_uses_postgresql():
+    manager = SQLAlchemyDatabaseManager(PluginConfig())
+
+    url = make_url(manager._get_database_url())
+
+    assert url.drivername == "postgresql+asyncpg"
+    assert url.username == "postgres"
+    assert url.host == "localhost"
+    assert url.port == 5432
+    assert url.database == "astrbot_self_learning"
+
+
+@pytest.mark.parametrize("alias", ["postgres", "pg", "pgsql", "postgresql"])
+def test_database_manager_accepts_postgresql_aliases(alias):
+    manager = SQLAlchemyDatabaseManager(PluginConfig(db_type=alias))
+
+    assert manager._get_db_type() == "postgresql"
 
 
 def test_database_manager_postgresql_url_preserves_credentials_and_schema():
@@ -161,6 +185,57 @@ def test_database_manager_postgresql_url_preserves_credentials_and_schema():
     assert url.port == 5433
     assert url.database == "learning_db"
     assert url.query["search_path"] == "bot_space"
+
+
+@pytest.mark.asyncio
+async def test_ensure_postgresql_database_exists_creates_missing_database(monkeypatch):
+    executed = []
+
+    class FakeConnection:
+        async def fetchval(self, query, database):
+            assert query == "SELECT 1 FROM pg_database WHERE datname = $1"
+            assert database == "learning_db"
+            return None
+
+        async def execute(self, query):
+            executed.append(query)
+
+        async def close(self):
+            executed.append("closed")
+
+    async def fake_connect(**kwargs):
+        assert kwargs["host"] == "localhost"
+        assert kwargs["port"] == 5432
+        assert kwargs["user"] == "postgres"
+        assert kwargs["database"] == "postgres"
+        return FakeConnection()
+
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            db_type="postgresql",
+            postgresql_database="learning_db",
+        )
+    )
+    monkeypatch.setattr(
+        manager,
+        "_connect_postgresql",
+        lambda asyncpg, database: fake_connect(
+            host=manager.config.postgresql_host,
+            port=manager.config.postgresql_port,
+            user=manager.config.postgresql_user,
+            password=manager.config.postgresql_password,
+            database=database,
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "asyncpg",
+        SimpleNamespace(connect=fake_connect),
+    )
+
+    await manager._ensure_postgresql_database_exists()
+
+    assert executed == ['CREATE DATABASE "learning_db"', "closed"]
 
 
 def test_database_engine_normalizes_sync_postgresql_url_to_asyncpg():

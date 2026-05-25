@@ -211,9 +211,9 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
 
 _ENUM_FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
     "db_type": [
+        {"value": "postgresql", "label": "PostgreSQL"},
         {"value": "sqlite", "label": "SQLite"},
         {"value": "mysql", "label": "MySQL"},
-        {"value": "postgresql", "label": "PostgreSQL"},
     ],
     "knowledge_engine": [
         {"value": "legacy", "label": "legacy"},

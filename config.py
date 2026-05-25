@@ -182,7 +182,7 @@ class PluginConfig(BaseModel):
     enable_api_auth: bool = False # 是否启用API密钥认证
 
     # 数据库设置
-    db_type: str = "sqlite" # 数据库类型: sqlite、mysql 或 postgresql
+    db_type: str = "postgresql" # 数据库类型: postgresql、sqlite 或 mysql
 
     # MySQL 配置
     mysql_host: str = "localhost" # MySQL主机地址
@@ -223,7 +223,7 @@ class PluginConfig(BaseModel):
     goal_max_conversation_history: int = 40 # 最大对话历史（轮次*2）
 
     # 重构功能配置（新增）
-    # 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
+    # 强制使用 SQLAlchemy ORM：统一 PostgreSQL、SQLite 和 MySQL 的表结构定义
     use_sqlalchemy: bool = True # 硬编码为 True，确保所有数据库操作使用 ORM 模型
     enable_memory_cleanup: bool = True # 启用记忆自动清理（每天凌晨3点）
     memory_cleanup_days: int = 30 # 记忆保留天数（低于阈值的旧记忆会被清理）
@@ -408,7 +408,7 @@ class PluginConfig(BaseModel):
             enable_api_auth=api_settings.get('enable_api_auth', False),
 
             # 数据库设置
-            db_type=database_settings.get('db_type', 'sqlite'),
+            db_type=database_settings.get('db_type', 'postgresql'),
             mysql_host=database_settings.get('mysql_host', 'localhost'),
             mysql_port=database_settings.get('mysql_port', 3306),
             mysql_user=database_settings.get('mysql_user', 'root'),
@@ -500,11 +500,11 @@ class PluginConfig(BaseModel):
         if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug'}:
             errors.append("日志等级必须是 error、warning、info 或 debug")
 
-        db_type = (self.db_type or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg'):
+        db_type = (self.db_type or 'postgresql').strip().lower()
+        if db_type in ('postgres', 'pg', 'pgsql'):
             db_type = 'postgresql'
         if db_type not in {'sqlite', 'mysql', 'postgresql'}:
-            errors.append("数据库类型必须是 sqlite、mysql 或 postgresql")
+            errors.append("数据库类型必须是 postgresql、sqlite 或 mysql")
         if db_type == 'mysql' and self.mysql_port <= 0:
             errors.append("MySQL 端口必须大于0")
         if db_type == 'postgresql':

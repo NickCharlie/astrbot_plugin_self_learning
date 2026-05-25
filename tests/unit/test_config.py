@@ -60,7 +60,7 @@ class TestPluginConfigDefaults:
         """Test default database configuration values."""
         config = PluginConfig()
 
-        assert config.db_type == "sqlite"
+        assert config.db_type == "postgresql"
         assert config.mysql_host == "localhost"
         assert config.mysql_port == 3306
         assert config.postgresql_host == "localhost"
@@ -267,7 +267,7 @@ class TestPluginConfigFromDict:
         assert config.enable_message_capture is True
         assert config.target_qq_list == []
         assert config.learning_interval_hours == 6
-        assert config.db_type == 'sqlite'
+        assert config.db_type == 'postgresql'
 
     def test_target_list_blank_values_keep_full_learning_default(self):
         """Blank settings-page rows should not disable full learning."""
