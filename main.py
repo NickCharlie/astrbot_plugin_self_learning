@@ -120,7 +120,12 @@ class SelfLearningPlugin(star.Star):
                 _migrate_legacy_data_dir(astrbot_data_path, plugin_data_dir)
 
             logger.info(f"最终插件数据目录: {plugin_data_dir}")
-            self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
+            config_file = os.path.join(plugin_data_dir, FileNames.CONFIG_FILE)
+            self.plugin_config = PluginConfig.create_from_runtime_sources(
+                self.config,
+                data_dir=plugin_data_dir,
+                config_file=config_file,
+            )
 
             logger.info(f"[插件初始化] Provider配置已加载：")
             logger.info(f" - filter_provider_id: {self.plugin_config.filter_provider_id}")
@@ -131,7 +136,12 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"初始化插件配置失败: {e}")
             default_data_dir = os.path.abspath(DEFAULT_DATA_DIR)
             logger.warning(f"使用默认数据目录: {default_data_dir}")
-            self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=default_data_dir)
+            config_file = os.path.join(default_data_dir, FileNames.CONFIG_FILE)
+            self.plugin_config = PluginConfig.create_from_runtime_sources(
+                self.config,
+                data_dir=default_data_dir,
+                config_file=config_file,
+            )
 
         os.makedirs(self.plugin_config.data_dir, exist_ok=True)
 

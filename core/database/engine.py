@@ -137,7 +137,10 @@ class DatabaseEngine:
             pool_size=5,
             max_overflow=10,
             pool_recycle=3600,
-            pool_pre_ping=True,
+            # SQLAlchemy's MySQL ping path can call aiomysql.ping()
+            # without the required reconnect argument in some runtime
+            # combinations. Keep explicit health_check() as the liveness gate.
+            pool_pre_ping=False,
             connect_args={
                 'connect_timeout': 10,
                 'charset': 'utf8mb4',
@@ -145,7 +148,7 @@ class DatabaseEngine:
             }
         )
 
-        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (QueuePool, pre_ping=True)")
+        logger.debug("[DatabaseEngine] MySQL 引擎创建成功 (QueuePool, pre_ping=False)")
         return engine
 
     def _create_postgresql_engine(self):

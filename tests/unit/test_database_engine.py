@@ -299,3 +299,29 @@ def test_database_engine_normalizes_sync_postgresql_url_to_asyncpg():
 
     assert url.drivername == "postgresql+asyncpg"
     assert url.database == "learning_db"
+
+
+def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
+    captured = {}
+
+    def fake_create_async_engine(db_url, **kwargs):
+        captured["db_url"] = db_url
+        captured.update(kwargs)
+        return SimpleNamespace(pool=SimpleNamespace())
+
+    monkeypatch.setattr(
+        "core.database.engine.create_async_engine",
+        fake_create_async_engine,
+    )
+
+    engine = object.__new__(DatabaseEngine)
+    engine.database_url = "mysql://user:pass@localhost:3306/learning_db"
+    engine.echo = False
+
+    created = engine._create_mysql_engine()
+    url = make_url(captured["db_url"])
+
+    assert created is not None
+    assert url.drivername == "mysql+aiomysql"
+    assert captured["pool_pre_ping"] is False
+    assert captured["connect_args"]["charset"] == "utf8mb4"
