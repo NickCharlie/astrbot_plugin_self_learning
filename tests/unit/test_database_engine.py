@@ -238,6 +238,57 @@ async def test_ensure_postgresql_database_exists_creates_missing_database(monkey
     assert executed == ['CREATE DATABASE "learning_db"', "closed"]
 
 
+@pytest.mark.asyncio
+async def test_ensure_postgresql_database_exists_skips_existing_database(monkeypatch):
+    executed = []
+
+    class FakeConnection:
+        async def fetchval(self, query, database):
+            assert query == "SELECT 1 FROM pg_database WHERE datname = $1"
+            assert database == "learning_db"
+            return 1
+
+        async def execute(self, query):
+            executed.append(query)
+
+        async def close(self):
+            executed.append("closed")
+
+    async def fake_connect(**kwargs):
+        assert kwargs["host"] == "localhost"
+        assert kwargs["port"] == 5432
+        assert kwargs["user"] == "postgres"
+        assert kwargs["database"] == "postgres"
+        return FakeConnection()
+
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            db_type="pgsql",
+            postgresql_database="learning_db",
+        )
+    )
+    monkeypatch.setattr(
+        manager,
+        "_connect_postgresql",
+        lambda asyncpg, database: fake_connect(
+            host=manager.config.postgresql_host,
+            port=manager.config.postgresql_port,
+            user=manager.config.postgresql_user,
+            password=manager.config.postgresql_password,
+            database=database,
+        ),
+    )
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "asyncpg",
+        SimpleNamespace(connect=fake_connect),
+    )
+
+    await manager._ensure_postgresql_database_exists()
+
+    assert executed == ["closed"]
+
+
 def test_database_engine_normalizes_sync_postgresql_url_to_asyncpg():
     normalized = DatabaseEngine._normalize_driver_url(
         "postgresql://user:pass@localhost:5432/learning_db",

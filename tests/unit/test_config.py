@@ -14,7 +14,7 @@ import tempfile
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import DEFAULT_DATA_DIR, PluginConfig
+from config import DEFAULT_DATA_DIR, DEFAULT_DB_TYPE, PluginConfig, normalize_db_type
 
 
 @pytest.mark.unit
@@ -386,6 +386,46 @@ class TestPluginConfigValidation:
         # Should have warnings but no blocking errors
         blocking_errors = [e for e in errors if not e.startswith(" ")]
         assert len(blocking_errors) == 0
+
+    @pytest.mark.parametrize(
+        "raw_db_type",
+        ["postgres", "pg", "pgsql", "postgresql", "", None],
+    )
+    def test_normalize_db_type_defaults_and_postgresql_aliases(self, raw_db_type):
+        """PostgreSQL aliases and empty values should resolve to the default type."""
+        assert normalize_db_type(raw_db_type) == DEFAULT_DB_TYPE
+
+    @pytest.mark.parametrize("alias", ["postgres", "pg", "pgsql"])
+    def test_validate_config_accepts_postgresql_aliases(self, alias):
+        """Validation accepts supported PostgreSQL aliases."""
+        config = PluginConfig(
+            db_type=alias,
+            filter_provider_id="provider_1",
+        )
+        errors = config.validate_config()
+
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" not in errors
+
+    @pytest.mark.parametrize("raw_db_type", [DEFAULT_DB_TYPE, ""])
+    def test_validate_config_accepts_default_and_empty_db_type(self, raw_db_type):
+        """Validation defaults missing or empty database type to PostgreSQL."""
+        config = PluginConfig(
+            db_type=raw_db_type,
+            filter_provider_id="provider_1",
+        )
+        errors = config.validate_config()
+
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" not in errors
+
+    def test_validate_config_rejects_invalid_db_type(self):
+        """Validation rejects unsupported database types."""
+        config = PluginConfig(
+            db_type="oracle",
+            filter_provider_id="provider_1",
+        )
+        errors = config.validate_config()
+
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" in errors
 
     def test_invalid_log_level_rejected(self):
         """Test validation catches invalid log levels."""

@@ -16,6 +16,19 @@ logger = get_astrbot_logger("self_learning.config")
 
 FULL_LEARNING_TARGET_MARKERS = {"*", "all", "all_users", "all_groups", "全部", "全量", "全体", "所有"}
 DEFAULT_DATA_DIR = "./data/plugin_data/astrbot_plugin_self_learning"
+DEFAULT_DB_TYPE = "postgresql"
+SUPPORTED_DB_TYPES = {"sqlite", "mysql", "postgresql"}
+POSTGRESQL_DB_TYPE_ALIASES = {"postgres", "pg", "pgsql"}
+
+
+def normalize_db_type(db_type: Any) -> Optional[str]:
+    """Normalize configured database type, including PostgreSQL aliases."""
+    value = str(db_type or DEFAULT_DB_TYPE).strip().lower()
+    if value in POSTGRESQL_DB_TYPE_ALIASES:
+        value = DEFAULT_DB_TYPE
+    if value not in SUPPORTED_DB_TYPES:
+        return None
+    return value
 
 
 def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False) -> List[str]:
@@ -182,7 +195,7 @@ class PluginConfig(BaseModel):
     enable_api_auth: bool = False # 是否启用API密钥认证
 
     # 数据库设置
-    db_type: str = "postgresql" # 数据库类型: postgresql、sqlite 或 mysql
+    db_type: str = DEFAULT_DB_TYPE # 数据库类型: postgresql、sqlite 或 mysql
 
     # MySQL 配置
     mysql_host: str = "localhost" # MySQL主机地址
@@ -408,7 +421,7 @@ class PluginConfig(BaseModel):
             enable_api_auth=api_settings.get('enable_api_auth', False),
 
             # 数据库设置
-            db_type=database_settings.get('db_type', 'postgresql'),
+            db_type=database_settings.get('db_type', DEFAULT_DB_TYPE),
             mysql_host=database_settings.get('mysql_host', 'localhost'),
             mysql_port=database_settings.get('mysql_port', 3306),
             mysql_user=database_settings.get('mysql_user', 'root'),
@@ -500,10 +513,8 @@ class PluginConfig(BaseModel):
         if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug'}:
             errors.append("日志等级必须是 error、warning、info 或 debug")
 
-        db_type = (self.db_type or 'postgresql').strip().lower()
-        if db_type in ('postgres', 'pg', 'pgsql'):
-            db_type = 'postgresql'
-        if db_type not in {'sqlite', 'mysql', 'postgresql'}:
+        db_type = normalize_db_type(self.db_type)
+        if db_type is None:
             errors.append("数据库类型必须是 postgresql、sqlite 或 mysql")
         if db_type == 'mysql' and self.mysql_port <= 0:
             errors.append("MySQL 端口必须大于0")
