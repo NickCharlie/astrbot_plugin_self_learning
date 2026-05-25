@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -31,6 +32,9 @@ from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
+from self_learning_EterU.services.learning.sample_filter import (
+    should_ignore_learning_sample,
+)
 from self_learning_EterU.services.state.enhanced_interaction import (
     EnhancedInteractionService,
 )
@@ -76,6 +80,79 @@ def test_realtime_expression_builder_keeps_current_sender_messages():
     assert len(result) == 1
     assert result[0].sender_id == "user-a"
     assert result[0].message == "这个表达应该留下来参与学习"
+
+
+@pytest.mark.unit
+def test_learning_sample_filter_blocks_commands_and_system_outputs():
+    bot_help = (
+        "AstrBot v4.24.5(WebUI: None)\n"
+        "/new - Create new conversation\n"
+        "/provider - View or switch LLM Provider"
+    )
+
+    assert should_ignore_learning_sample("/help") is True
+    assert should_ignore_learning_sample("help") is True
+    assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample("这是一条普通聊天消息") is False
+
+
+@pytest.mark.unit
+def test_realtime_expression_builder_filters_command_samples():
+    raw_messages = [
+        {
+            "id": 1,
+            "sender_id": "user-a",
+            "sender_name": "User A",
+            "message": "help",
+            "group_id": "group-a",
+            "timestamp": time.time(),
+            "platform": "test",
+        },
+        {
+            "id": 2,
+            "sender_id": "user-a",
+            "sender_name": "User A",
+            "message": "这个表达应该保留用于学习",
+            "group_id": "group-a",
+            "timestamp": time.time(),
+            "platform": "test",
+        },
+    ]
+
+    result = RealtimeProcessor._build_message_data_list(
+        raw_messages,
+        group_id="group-a",
+        sender_id="user-a",
+    )
+
+    assert [item.message for item in result] == ["这个表达应该保留用于学习"]
+
+
+@pytest.mark.unit
+def test_progressive_fewshot_extraction_skips_command_system_pairs():
+    merged = [
+        {"sender_id": "user-a", "message": "help", "timestamp": 1},
+        {
+            "sender_id": "bot",
+            "message": (
+                "AstrBot v4.24.5(WebUI: None)\n"
+                "/new - Create new conversation\n"
+                "/provider - View or switch LLM Provider"
+            ),
+            "timestamp": 2,
+        },
+        {"sender_id": "user-a", "message": "今天状态怎么样", "timestamp": 3},
+        {"sender_id": "bot", "message": "我今天状态不错", "timestamp": 4},
+    ]
+
+    pairs = ProgressiveLearningService._extract_fewshot_pairs_from_merged(
+        merged,
+        "group-a",
+    )
+
+    assert len(pairs) == 1
+    assert pairs[0]["situation"] == "今天状态怎么样"
+    assert pairs[0]["expression"] == "我今天状态不错"
 
 
 @pytest.mark.unit
@@ -491,3 +568,47 @@ async def test_learning_service_style_review_uses_unified_persona_review_path(
 
     assert await service.approve_style_learning_review(42) == (True, "ok")
     assert calls == [("style_42", "approve")]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_learning_service_style_review_exposes_detail_fields():
+    database_manager = SimpleNamespace(
+        get_pending_style_reviews=AsyncMock(
+            return_value=[
+                {
+                    "id": 7,
+                    "group_id": "group-a",
+                    "description": "提取了 1 个表达模式",
+                    "timestamp": 1234567890,
+                    "created_at": "2026-05-25T00:00:00",
+                    "status": "pending",
+                    "learned_patterns": json.dumps(
+                        [
+                            {
+                                "situation": "打招呼",
+                                "expression": "我来了",
+                                "confidence": 0.9,
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    "few_shots_content": "A: 你好\nB: 我来了",
+                }
+            ]
+        )
+    )
+    service = LearningService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.get_style_learning_reviews()
+    review = result["reviews"][0]
+
+    assert review["pattern_details"] == [
+        {
+            "situation": "打招呼",
+            "expression": "我来了",
+            "weight": None,
+            "confidence": 0.9,
+        }
+    ]
+    assert review["few_shot_pairs"] == [{"user": "你好", "bot": "我来了"}]

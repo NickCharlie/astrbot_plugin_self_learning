@@ -7,6 +7,7 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
+from .sample_filter import filter_learning_messages, should_ignore_learning_sample
 
 
 class MessagePipeline:
@@ -57,6 +58,13 @@ class MessagePipeline:
         """
         message_collected = False
         try:
+            if should_ignore_learning_sample(message_text, sender_id=sender_id):
+                logger.debug(
+                    "检测到指令或系统模板消息，跳过学习流水线: "
+                    f"{message_text[:80]}"
+                )
+                return False
+
             # 1. 消息收集
             try:
                 message_collected = bool(await self._message_collector.collect_message(
@@ -200,6 +208,7 @@ class MessagePipeline:
             recent_messages = await self._db_manager.get_recent_raw_messages(
                 group_id, limit=30
             )
+            recent_messages = filter_learning_messages(recent_messages)
 
             if len(recent_messages) < 10:
                 logger.debug(

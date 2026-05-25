@@ -13,6 +13,7 @@ from astrbot.api import logger
 from ...core.interfaces import MessageData
 from ...statics.messages import StatusMessages
 from .dialog_analyzer import DialogAnalyzer
+from .sample_filter import should_ignore_learning_sample
 
 
 class RealtimeProcessor:
@@ -154,6 +155,8 @@ class RealtimeProcessor:
     def _should_skip_message(self, message_text: str) -> bool:
         """Apply the shared message guards for realtime sub-pipelines."""
         stripped = message_text.strip()
+        if should_ignore_learning_sample(stripped):
+            return True
         if len(stripped) < self._config.message_min_length:
             return True
         if len(message_text) > self._config.message_max_length:
@@ -345,6 +348,9 @@ class RealtimeProcessor:
 
         for msg in recent_raw_messages:
             content = msg.get("message", "")
+            sender = msg.get("sender_id", "")
+            if should_ignore_learning_sample(content, sender_id=sender):
+                continue
             if len(content.strip()) < 5 or len(content) > 500:
                 continue
             if content.strip() in ("", "???", "。。。", "...", "嗯", "哦", "额"):
@@ -392,18 +398,25 @@ class RealtimeProcessor:
                     .limit(len(user_messages))
                 )
                 result = await session.execute(stmt)
-                bot_messages = [
-                    MessageData(
+                bot_messages = []
+                for row in result.scalars().all():
+                    if should_ignore_learning_sample(
+                        row.message,
                         sender_id="bot",
-                        sender_name="bot",
-                        message=row.message,
-                        group_id=group_id,
-                        timestamp=float(row.timestamp),
-                        platform="bot",
-                        message_id=str(row.id),
+                        is_bot=True,
+                    ):
+                        continue
+                    bot_messages.append(
+                        MessageData(
+                            sender_id="bot",
+                            sender_name="bot",
+                            message=row.message,
+                            group_id=group_id,
+                            timestamp=float(row.timestamp),
+                            platform="bot",
+                            message_id=str(row.id),
+                        )
                     )
-                    for row in result.scalars().all()
-                ]
         except Exception as exc:
             logger.debug(f"合并 Bot 回复失败，使用用户消息继续: {exc}")
             return user_messages

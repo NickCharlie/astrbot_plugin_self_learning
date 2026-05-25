@@ -21,6 +21,56 @@ class GraphService:
         self.container = container
         self.database_manager = getattr(container, "database_manager", None)
 
+    def _delegation_status(self) -> Dict[str, Any]:
+        delegation = getattr(self.container, "feature_delegation", None)
+        if not delegation:
+            return {}
+
+        status_getter = getattr(delegation, "status", None)
+        if not callable(status_getter):
+            return {}
+
+        try:
+            status = status_getter() or {}
+        except Exception as exc:
+            logger.debug(f"读取功能委托状态失败: {exc}")
+            return {}
+        return status if isinstance(status, dict) else {}
+
+    def _maybe_add_delegated_empty_state(
+        self,
+        payload: Dict[str, Any],
+        graph_type: str,
+    ) -> Dict[str, Any]:
+        if payload.get("nodes"):
+            return payload
+
+        status = self._delegation_status()
+        if not status.get("memory_delegated"):
+            return payload
+
+        plugin_name = status.get("memory_plugin") or "LivingMemory"
+        if graph_type == "memory":
+            message = (
+                f"记忆已委托给 {plugin_name}，本插件不再维护本地长期记忆图。"
+                f"请在 {plugin_name} 面板查看记忆与图谱数据。"
+            )
+        else:
+            message = (
+                f"长期记忆已委托给 {plugin_name}。当前本地知识图谱为空，"
+                f"如需查看委托侧记忆图谱，请打开 {plugin_name} 面板。"
+            )
+
+        payload.update(
+            {
+                "data_source": "livingmemory_delegated",
+                "empty_reason": "memory_delegated",
+                "message": message,
+                "delegation": status,
+            }
+        )
+        return payload
+
     @staticmethod
     def _add_node(
         nodes: List[Dict[str, Any]],
@@ -127,7 +177,7 @@ class GraphService:
         )
         returned_node_ids = {node["id"] for node in returned_nodes}
 
-        return {
+        payload = {
             "success": True,
             "type": "memory",
             "group_id": group_id,
@@ -145,6 +195,7 @@ class GraphService:
                 "groups": len(groups),
             },
         }
+        return self._maybe_add_delegated_empty_state(payload, "memory")
 
     async def _append_live_memory_graph(
         self,
@@ -384,7 +435,7 @@ class GraphService:
         )
         returned_node_ids = {node["id"] for node in returned_nodes}
 
-        return {
+        payload = {
             "success": True,
             "type": "knowledge",
             "group_id": group_id,
@@ -402,6 +453,7 @@ class GraphService:
                 "groups": len(groups),
             },
         }
+        return self._maybe_add_delegated_empty_state(payload, "knowledge")
 
     @staticmethod
     def _kg_node_id(group_id: str, name: str) -> str:

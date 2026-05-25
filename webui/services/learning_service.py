@@ -1,6 +1,8 @@
 """
 学习功能服务 - 处理风格学习相关业务逻辑
 """
+import json
+import re
 from typing import Dict, Any, List, Tuple
 from astrbot.api import logger
 
@@ -86,6 +88,12 @@ class LearningService:
         # 格式化审查数据
         formatted_reviews = []
         for review in pending_reviews:
+            pattern_details = self._normalize_pattern_details(
+                review.get('learned_patterns')
+            )
+            few_shot_pairs = self._parse_few_shot_pairs(
+                review.get('few_shots_content')
+            )
             formatted_review = {
                 'id': review['id'],
                 'type': '对话风格学习',
@@ -95,7 +103,9 @@ class LearningService:
                 'created_at': review['created_at'],
                 'status': review['status'],
                 'learned_patterns': review['learned_patterns'],
-                'few_shots_content': review['few_shots_content']
+                'few_shots_content': review['few_shots_content'],
+                'pattern_details': pattern_details,
+                'few_shot_pairs': few_shot_pairs,
             }
             formatted_reviews.append(formatted_review)
 
@@ -103,6 +113,87 @@ class LearningService:
             'reviews': formatted_reviews,
             'total': len(formatted_reviews)
         }
+
+    @staticmethod
+    def _parse_jsonish(value: Any) -> Any:
+        if value is None or value == "":
+            return None
+        if isinstance(value, (list, dict)):
+            return value
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return value
+        return value
+
+    @classmethod
+    def _normalize_pattern_details(cls, value: Any) -> List[Dict[str, Any]]:
+        parsed = cls._parse_jsonish(value)
+        if isinstance(parsed, dict):
+            parsed = parsed.get("patterns") or parsed.get("items") or [
+                {"situation": key, "expression": val}
+                for key, val in parsed.items()
+            ]
+        if not isinstance(parsed, list):
+            parsed = [parsed] if parsed else []
+
+        details = []
+        for item in parsed:
+            if isinstance(item, str):
+                situation = ""
+                expression = item
+                weight = None
+                confidence = None
+            elif isinstance(item, dict):
+                situation = (
+                    item.get("situation")
+                    or item.get("context")
+                    or item.get("scene")
+                    or item.get("trigger")
+                    or ""
+                )
+                expression = (
+                    item.get("expression")
+                    or item.get("pattern")
+                    or item.get("text")
+                    or item.get("example")
+                    or item.get("name")
+                    or ""
+                )
+                weight = item.get("weight")
+                confidence = item.get("confidence") or item.get("score")
+            else:
+                continue
+
+            if not situation and not expression:
+                continue
+            details.append(
+                {
+                    "situation": str(situation),
+                    "expression": str(expression),
+                    "weight": weight,
+                    "confidence": confidence,
+                }
+            )
+        return details
+
+    @staticmethod
+    def _parse_few_shot_pairs(content: Any) -> List[Dict[str, str]]:
+        if not content:
+            return []
+        text = str(content)
+        pairs = []
+        for match in re.finditer(
+            r"(?:^|\n)A:\s*(?P<user>.*?)(?:\n+)B:\s*(?P<bot>.*?)(?=\n+A:|\Z)",
+            text,
+            flags=re.DOTALL,
+        ):
+            user = match.group("user").strip()
+            bot = match.group("bot").strip()
+            if user and bot:
+                pairs.append({"user": user, "bot": bot})
+        return pairs
 
     async def approve_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
         """

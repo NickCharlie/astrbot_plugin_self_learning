@@ -20,6 +20,7 @@ except ImportError:
     from ...core.interfaces import MessageData
 
 from ..database import DatabaseManager
+from ..learning.sample_filter import should_ignore_learning_sample
 
 
 class MessageCollectorService:
@@ -49,6 +50,16 @@ class MessageCollectorService:
                 if field not in message_data:
                     logger.warning(f"消息数据缺少必要字段: {field}")
                     return False
+
+            if should_ignore_learning_sample(
+                message_data.get('message', ''),
+                sender_id=message_data.get('sender_id'),
+            ):
+                logger.debug(
+                    "检测到指令或系统模板消息，跳过保存学习样本: "
+                    f"{message_data.get('message', '')[:80]}"
+                )
+                return False
 
             # 立即写入数据库（移除缓存机制以确保实时性）
             message_obj = MessageData(

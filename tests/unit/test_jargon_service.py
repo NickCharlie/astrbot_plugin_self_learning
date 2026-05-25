@@ -33,6 +33,8 @@ def test_format_jargon_for_frontend_keeps_legacy_and_macos_fields():
     assert formatted["group_id"] == "group-a"
     assert formatted["chat_id"] == "group-a"
     assert formatted["context_examples"] == ["上下文"]
+    assert formatted["definition"] == "永远的神"
+    assert formatted["review_detail"] == "永远的神"
     assert formatted["is_complete"] is True
 
 

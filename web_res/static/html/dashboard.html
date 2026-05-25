@@ -855,6 +855,35 @@
             overflow: hidden;
         }
 
+        .detail-list {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .detail-row {
+            display: grid;
+            gap: 4px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+        }
+
+        .detail-label {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .detail-text {
+            color: var(--text);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            white-space: pre-wrap;
+        }
+
         .item-actions {
             display: flex;
             flex-wrap: wrap;
@@ -2327,6 +2356,145 @@
                 return 0;
             }
 
+            function parseJsonish(value, fallback = null) {
+                if (value === null || value === undefined || value === '') {
+                    return fallback;
+                }
+                if (Array.isArray(value) || typeof value === 'object') {
+                    return value;
+                }
+                if (typeof value === 'string') {
+                    try {
+                        return JSON.parse(value);
+                    } catch {
+                        return fallback;
+                    }
+                }
+                return fallback;
+            }
+
+            function normalizePatternDetails(item) {
+                const provided = safeArray(item && item.pattern_details);
+                if (provided.length) {
+                    return provided;
+                }
+
+                const parsed = parseJsonish(item && item.learned_patterns, []);
+                const source = Array.isArray(parsed)
+                    ? parsed
+                    : Object.entries(parsed || {}).map(([key, value]) => ({
+                        situation: key,
+                        expression: value,
+                    }));
+
+                return safeArray(source).map((pattern) => {
+                    if (typeof pattern === 'string') {
+                        return { situation: '', expression: pattern };
+                    }
+                    return {
+                        situation: pattern.situation || pattern.context || pattern.scene || pattern.trigger || '',
+                        expression: pattern.expression || pattern.pattern || pattern.text || pattern.example || pattern.name || '',
+                        confidence: pattern.confidence || pattern.score,
+                        weight: pattern.weight,
+                    };
+                }).filter((pattern) => pattern.situation || pattern.expression);
+            }
+
+            function normalizeFewShotPairs(item) {
+                const provided = safeArray(item && item.few_shot_pairs);
+                if (provided.length) {
+                    return provided;
+                }
+
+                const content = item && item.few_shots_content ? String(item.few_shots_content) : '';
+                if (!content) {
+                    return [];
+                }
+
+                const pairs = [];
+                const regex = /(?:^|\n)A:\s*([\s\S]*?)(?:\n+)B:\s*([\s\S]*?)(?=\n+A:|$)/g;
+                let match = regex.exec(content);
+                while (match) {
+                    const user = match[1].trim();
+                    const bot = match[2].trim();
+                    if (user && bot) {
+                        pairs.push({ user, bot });
+                    }
+                    match = regex.exec(content);
+                }
+                return pairs;
+            }
+
+            function renderStyleReviewDetails(item) {
+                const rows = [];
+                normalizePatternDetails(item).slice(0, 4).forEach((pattern, index) => {
+                    const score = pattern.confidence !== undefined
+                        ? ` · ${confidenceLabel(pattern.confidence) || ''}`
+                        : '';
+                    const parts = [
+                        pattern.situation ? `场景: ${pattern.situation}` : null,
+                        pattern.expression ? `表达: ${pattern.expression}` : null,
+                    ].filter(Boolean).join('\n');
+                    if (parts) {
+                        rows.push({ label: `表达模式 ${index + 1}${score}`, text: parts });
+                    }
+                });
+
+                normalizeFewShotPairs(item).slice(0, 2).forEach((pair, index) => {
+                    rows.push({
+                        label: `对话样例 ${index + 1}`,
+                        text: `A: ${pair.user}\nB: ${pair.bot}`,
+                    });
+                });
+
+                if (!rows.length) {
+                    return '';
+                }
+
+                return `
+                    <div class="detail-list">
+                        ${rows.map((row) => `
+                            <div class="detail-row">
+                                <div class="detail-label">${escapeHtml(row.label)}</div>
+                                <div class="detail-text">${escapeHtml(row.text)}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            function normalizeContextExamples(item) {
+                const provided = safeArray(item && item.context_examples);
+                if (provided.length) {
+                    return provided;
+                }
+                return safeArray(parseJsonish(item && item.raw_content, []));
+            }
+
+            function renderContextExamples(item) {
+                const examples = normalizeContextExamples(item).slice(0, 2);
+                if (!examples.length) {
+                    return '';
+                }
+
+                return `
+                    <div class="detail-list">
+                        ${examples.map((example, index) => `
+                            <div class="detail-row">
+                                <div class="detail-label">上下文 ${index + 1}</div>
+                                <div class="detail-text">${escapeHtml(typeof example === 'string' ? example : JSON.stringify(example))}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            function graphDataSourceLabel(value) {
+                return {
+                    livingmemory_delegated: 'LivingMemory 委托',
+                }[value] || value;
+            }
+
             function resolvePageFromHash() {
                 const raw = String(window.location.hash || '').replace(/^#\/?/, '').trim();
                 const page = raw.split(/[/?#]/)[0] || 'home';
@@ -3099,7 +3267,11 @@
             function renderStyleQueue(reviews) {
                 const rows = safeArray(reviews).slice(0, 5).map((item) => {
                     const reviewId = `style_${item.id}`;
-                    const count = patternCount(item.learned_patterns);
+                    const count = Math.max(
+                        patternCount(item.learned_patterns),
+                        safeArray(item.pattern_details).length,
+                        safeArray(item.few_shot_pairs).length,
+                    );
                     const title = item.type || '对话风格学习';
                     const meta = [
                         item.group_id ? `群组 ${item.group_id}` : null,
@@ -3116,6 +3288,7 @@
                             </div>
                             <div class="meta">${escapeHtml(meta || '待审')}</div>
                             <div class="body clamp">${escapeHtml(body)}</div>
+                            ${renderStyleReviewDetails(item)}
                             <div class="item-actions">
                                 ${actionButton('persona-approve', reviewId, 'check', '批准', 'success')}
                                 ${actionButton('persona-reject', reviewId, 'close', '拒绝', 'warning')}
@@ -3282,6 +3455,7 @@
                 const jargonItems = extractJargonItems(data.jargonList).slice(0, 5).map((item) => {
                     const id = item.id;
                     const title = item.term || item.content || item.word || '未命名';
+                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
                     const meta = [
                         item.group_id ? `群组 ${item.group_id}` : null,
                         item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
@@ -3294,7 +3468,8 @@
                                 <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
                             </div>
                             <div class="meta">${escapeHtml(meta || '未分组')}</div>
-                            <div class="body clamp">${escapeHtml(item.meaning || item.description || item.content || '暂无释义')}</div>
+                            <div class="body">${escapeHtml(definition || '暂无释义')}</div>
+                            ${renderContextExamples(item)}
                             <div class="item-actions">
                                 ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
                                 ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
@@ -4586,8 +4761,9 @@
                     ['节点', nodes.length],
                     ['关系', links.length],
                     ['群组', safeArray(graphPayload.groups).length],
+                    graphPayload.data_source ? ['来源', graphDataSourceLabel(graphPayload.data_source)] : null,
                     ['布局', state.graph.layout === 'force' ? '力导向' : '环形'],
-                ].map(([label, value]) => `<span class="chip">${escapeHtml(label)} <b>${escapeHtml(value)}</b></span>`).join('');
+                ].filter(Boolean).map(([label, value]) => `<span class="chip">${escapeHtml(label)} <b>${escapeHtml(value)}</b></span>`).join('');
 
                 $('graphHint').textContent = state.graph.loading
                     ? '图谱加载中'
@@ -4601,19 +4777,22 @@
                 }
 
                 if (!nodes.length) {
+                    const emptyMessage = graphPayload.message || '暂无图谱数据';
                     chart.setOption({
                         graphic: [{
                             type: 'text',
                             left: 'center',
                             top: 'middle',
                             style: {
-                                text: '暂无图谱数据',
+                                text: emptyMessage,
                                 fill: getTextColor(),
                                 fontSize: 14,
+                                width: 360,
+                                overflow: 'break',
                             },
                         }],
                     }, true);
-                    $('graphDetail').textContent = '暂无可展示节点。';
+                    $('graphDetail').textContent = graphPayload.message || '暂无可展示节点。';
                     return;
                 }
 

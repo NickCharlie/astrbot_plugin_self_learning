@@ -39,6 +39,7 @@ class JargonService:
             context_examples = []
 
         content = j.get('content', '')
+        meaning = j.get('meaning', '')
         is_jargon = j.get('is_jargon', False)
         count = j.get('count', 0)
         chat_id = j.get('chat_id')
@@ -47,7 +48,9 @@ class JargonService:
             'id': j.get('id'),
             'term': content,
             'content': content,
-            'meaning': j.get('meaning', ''),
+            'meaning': meaning,
+            'definition': meaning,
+            'review_detail': meaning or '暂无释义',
             'is_confirmed': bool(is_jargon),
             'is_jargon': is_jargon,
             'is_global': bool(j.get('is_global', False)),
