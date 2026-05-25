@@ -13,6 +13,7 @@
 配置字段位于 `Database_Settings`:
 
 - `db_type`: `postgresql`, `pgsql`, `sqlite`, `mysql`
+  - `pgsql` 是 `postgresql` 的别名，仅用于兼容历史/外部配置，功能和行为完全相同，推荐优先使用 `postgresql`。
 - `mysql_host`, `mysql_port`, `mysql_user`, `mysql_password`, `mysql_database`
 - `postgresql_host`, `postgresql_port`, `postgresql_user`, `postgresql_password`, `postgresql_database`, `postgresql_schema`
 - `max_connections`, `min_connections`
