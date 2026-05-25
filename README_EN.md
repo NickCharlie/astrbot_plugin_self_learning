@@ -190,7 +190,7 @@ Set the following key items in the AstrBot admin panel:
 - **Learning Target** — Specify user QQ IDs to learn from (leave empty to learn from everyone)
 - **Model Configuration** — Set the Provider IDs for filter and refinement models
 - **Learning Frequency** — Auto-learning interval (default: 6 hours)
-- **Database** — Supports SQLite (works out of the box), MySQL, PostgreSQL
+- **Database** — Defaults to PostgreSQL with automatic database/schema/table creation; SQLite and MySQL remain available as explicit choices
 
 More configuration options are available in the WebUI settings page.
 

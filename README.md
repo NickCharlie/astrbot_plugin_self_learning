@@ -219,7 +219,7 @@ http://127.0.0.1:7833
 1. 备份当前人格。
 2. 设置学习目标：`Target_Settings.target_qq_list` 和 `target_blacklist`。
 3. 设置 Provider：`filter_provider_id`、`refine_provider_id`、`reinforce_provider_id`。
-4. 选择数据库：默认 SQLite；可切换 MySQL 或 PostgreSQL。
+4. 配置数据库：默认 PostgreSQL，会自动创建缺失数据库、schema 和表；可显式切换 SQLite 或 MySQL。
 5. 按需开启表达学习、黑话学习、自动学习、记忆图和知识图谱。
 
 Provider 未配置时插件仍可加载，但 LLM 相关功能会降级并写入日志。
@@ -248,11 +248,13 @@ WebUI 提供以下入口：
 
 | 类型 | Driver | 适用场景 |
 | --- | --- | --- |
-| SQLite | `sqlite+aiosqlite` | 默认单机部署 |
-| MySQL | `mysql+aiomysql` | 多实例或较大数据量 |
-| PostgreSQL | `postgresql+asyncpg` | 长期运行、schema 隔离、多实例部署 |
+| PostgreSQL | `postgresql+asyncpg` | 默认后端，长期运行、schema 隔离、多实例部署 |
+| SQLite | `sqlite+aiosqlite` | 显式配置的单机回退 |
+| MySQL | `mysql+aiomysql` | 显式配置的兼容后端 |
 
 数据库层使用 SQLAlchemy async ORM。`SQLAlchemyDatabaseManager` 对外保持旧接口兼容，内部通过 Domain Facade 路由到消息、学习、黑话、人格、社交、表达、心理状态、强化学习、指标和管理等领域。
+
+默认 PostgreSQL 启动时会先连接维护库 `postgres`，如果目标库不存在则创建 `astrbot_self_learning`，再创建缺失 schema 和 ORM 表。默认数据库用户需要具备创建数据库、schema 和表的权限。没有 PostgreSQL 服务时，可显式设置 `Database_Settings.db_type=sqlite` 回退到本地文件数据库。
 
 自动建表会执行：
 

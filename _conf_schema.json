@@ -485,13 +485,13 @@
   "Database_Settings": {
     "description": "数据库配置",
     "type": "object",
-    "hint": "配置数据库类型和连接参数。支持 SQLite（默认，无需配置）、MySQL 和 PostgreSQL（自动创建数据库以及数据库表）",
+    "hint": "配置数据库类型和连接参数。默认使用 PostgreSQL；插件会尝试自动创建 PostgreSQL 数据库、schema 和 ORM 表。SQLite 和 MySQL 可作为显式配置的兼容后端。",
     "items": {
       "db_type": {
         "description": "数据库类型",
         "type": "string",
-        "hint": "填写 sqlite、mysql 或 postgresql。默认使用 sqlite，适合单机部署；如需分布式部署或大规模数据，可填写 mysql 或 postgresql",
-        "default": "sqlite"
+        "hint": "填写 postgresql、pgsql、sqlite 或 mysql。默认使用 PostgreSQL，启动时会先建库和 schema，再同步 ORM 表；单机无 PostgreSQL 服务时可显式改为 sqlite",
+        "default": "postgresql"
       },
       "mysql_host": {
         "description": "MySQL服务器地址",

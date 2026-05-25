@@ -27,8 +27,8 @@ git clone https://github.com/EterUltimate/self_learning_EterU.git astrbot_plugin
 
 | 档位 | 用途 |
 | --- | --- |
-| 基础能力依赖 | WebUI、SQLite、人格审查、黑话学习、表达方式学习 |
-| 全能力依赖 | 基础能力 + MySQL/PostgreSQL、监控指标、图谱、LightRAG、mem0 |
+| 基础能力依赖 | WebUI、SQLite/PostgreSQL、人格审查、黑话学习、表达方式学习 |
+| 全能力依赖 | 基础能力 + MySQL、监控指标、图谱、LightRAG、mem0 |
 
 依赖安装接口只接受设置页确认请求:
 
@@ -92,15 +92,9 @@ WebUI 相关配置:
 
 未配置 Provider 时插件仍可加载，但 LLM 相关功能会降级。
 
-### 4. 选择数据库
+### 4. 配置数据库
 
-默认 SQLite:
-
-```json
-{"Database_Settings": {"db_type": "sqlite"}}
-```
-
-PostgreSQL:
+默认 PostgreSQL:
 
 ```json
 {
@@ -109,9 +103,21 @@ PostgreSQL:
     "postgresql_host": "localhost",
     "postgresql_port": 5432,
     "postgresql_user": "postgres",
-    "postgresql_password": "password",
+    "postgresql_password": "",
     "postgresql_database": "astrbot_self_learning",
     "postgresql_schema": "public"
+  }
+}
+```
+
+插件会在启动时自动创建缺失的 PostgreSQL 数据库、schema 和 ORM 表。默认数据库用户需要具备连接 `postgres` 维护库、创建数据库、创建 schema 和建表权限。
+
+SQLite 回退:
+
+```json
+{
+  "Database_Settings": {
+    "db_type": "sqlite"
   }
 }
 ```

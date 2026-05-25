@@ -24,7 +24,12 @@ async def app():
     app = Quart(__name__)
     app.config["TESTING"] = True
     app.config["ENABLE_WEB_DEP_INSTALL"] = True
-    app.config["ALLOWED_DEPENDENCY_PACKAGES"] = ["quart", "jieba", "networkx>=3.2,<3.5"]
+    app.config["ALLOWED_DEPENDENCY_PACKAGES"] = [
+        "quart",
+        "jieba",
+        "asyncpg",
+        "networkx>=3.2,<3.5",
+    ]
     app.secret_key = "test-secret-key"
     app.register_blueprint(config_bp)
     yield app
@@ -78,6 +83,7 @@ class TestDependencyInstallEndpoint:
         assert "--no-input" in cmd
         assert "quart" in cmd
         assert "jieba" in cmd
+        assert "asyncpg" in cmd
         assert "networkx>=3.2,<3.5" in cmd
         payload = await response.get_json()
         assert payload["tier"] == "full"
@@ -105,6 +111,7 @@ class TestDependencyInstallEndpoint:
         cmd = create_process.await_args.args
         assert "quart" in cmd
         assert "jieba" in cmd
+        assert "asyncpg" in cmd
         assert "networkx>=3.2,<3.5" not in cmd
         payload = await response.get_json()
         assert payload["tier"] == "basic"

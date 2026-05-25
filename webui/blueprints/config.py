@@ -24,6 +24,7 @@ BASIC_DEPENDENCY_PACKAGES = [
     "pydantic",
     "sqlalchemy[asyncio]",
     "aiosqlite",
+    "asyncpg",
     "cachetools>=5.3.0",
     "apscheduler",
 ]
@@ -32,7 +33,6 @@ FULL_DEPENDENCY_PACKAGES = list(dict.fromkeys([
     *BASIC_DEPENDENCY_PACKAGES,
     "psutil",
     "aiomysql",
-    "asyncpg",
     "prometheus_client>=0.20.0",
     "prometheus-async>=22.2.0",
     "networkx>=3.2,<3.5",

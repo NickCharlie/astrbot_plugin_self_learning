@@ -20,8 +20,8 @@ webui/blueprints/config.py
 
 依赖分两档:
 
-- `BASIC_DEPENDENCY_PACKAGES`: WebUI、SQLite、人格审查、黑话和表达方式学习所需依赖。
-- `FULL_DEPENDENCY_PACKAGES`: 基础依赖 + 数据库驱动、监控、图谱、V2 高级引擎依赖。
+- `BASIC_DEPENDENCY_PACKAGES`: WebUI、SQLite/PostgreSQL、人格审查、黑话和表达方式学习所需依赖。
+- `FULL_DEPENDENCY_PACKAGES`: 基础依赖 + MySQL 驱动、监控、图谱、V2 高级引擎依赖。
 
 ## 常用命令
 
@@ -132,7 +132,7 @@ python -m pytest tests/integration/test_package_imports.py
 2. 确认该模型被 `models/orm/__init__.py` 导入。
 3. 选择或新增 Facade 方法。
 4. 在 `SQLAlchemyDatabaseManager` 添加兼容委托方法。
-5. 为 SQLite 建表添加测试。
+5. 为默认 PostgreSQL URL、建库建表路径或显式 SQLite 回退添加测试。
 6. 对 MySQL/PostgreSQL 注意索引名全局唯一。
 
 当前迁移能力只会自动新增表和列，不支持删除列、重命名列和复杂类型迁移。复杂迁移需要显式 DDL 和回滚策略。

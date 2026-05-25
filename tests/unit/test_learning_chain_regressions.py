@@ -263,6 +263,7 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
 ):
     config = PluginConfig(
         data_dir=str(tmp_path),
+        db_type="sqlite",
         enable_web_interface=False,
         enable_jargon_learning=True,
         enable_expression_patterns=True,
