@@ -43,6 +43,7 @@ class WebUIManager:
         self._feature_delegation = feature_delegation
         self._astrbot_config = astrbot_config
         self._plugin_instance = plugin_instance
+        self._database_manager = getattr(plugin_instance, "db_manager", None)
 
     # 创建
 
@@ -103,6 +104,7 @@ class WebUIManager:
     async def immediate_start(self, db_manager: Any) -> None:
         """__init__ 阶段立即启动 WebUI（通过 asyncio.create_task 调用）"""
         await asyncio.sleep(1) # 等待插件完全初始化
+        self._database_manager = db_manager
 
         global _server_instance
         if not _server_instance or not self._config.enable_web_interface:
@@ -124,7 +126,7 @@ class WebUIManager:
         # 设置 WebUI 服务
         astrbot_pm = await self._acquire_persona_manager()
         try:
-            await self._setup_services(astrbot_pm)
+            await self._setup_services(astrbot_pm, db_manager)
         except Exception as e:
             logger.error(f"设置插件服务失败: {e}", exc_info=True)
             return
@@ -152,7 +154,7 @@ class WebUIManager:
         # 设置 WebUI 服务
         astrbot_pm = await self._acquire_persona_manager()
         try:
-            await self._setup_services(astrbot_pm)
+            await self._setup_services(astrbot_pm, self._database_manager)
             logger.info("Web 服务器插件服务设置完成")
         except Exception as e:
             logger.error(f"设置 Web 服务器插件服务失败: {e}", exc_info=True)
@@ -246,9 +248,20 @@ class WebUIManager:
 
         return astrbot_persona_manager
 
-    async def _setup_services(self, astrbot_persona_manager: Any) -> None:
+    async def _setup_services(
+        self,
+        astrbot_persona_manager: Any,
+        database_manager: Any = None,
+    ) -> None:
         """调用 set_plugin_services 注册服务到 WebUI 容器"""
         from .dependencies import get_container as _get_webui_container, set_plugin_services
+
+        database_manager = database_manager or getattr(
+            self._plugin_instance,
+            "db_manager",
+            None,
+        )
+        self._database_manager = database_manager
 
         await set_plugin_services(
             plugin_config=self._config,
@@ -259,5 +272,6 @@ class WebUIManager:
             feature_delegation=self._feature_delegation,
             astrbot_config=self._astrbot_config,
             plugin_instance=self._plugin_instance,
+            database_manager=database_manager,
         )
         _get_webui_container().perf_collector = self._perf_tracker

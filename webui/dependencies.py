@@ -74,6 +74,7 @@ class ServiceContainer:
         feature_delegation=None,
         astrbot_config=None,
         plugin_instance=None,
+        database_manager=None,
     ):
         """
         初始化服务容器
@@ -84,6 +85,7 @@ class ServiceContainer:
             llm_client: LLM 客户端（废弃，保留兼容性）
             astrbot_persona_manager: AstrBot 人格管理器
             group_id_to_unified_origin: group_id到unified_msg_origin映射表
+            database_manager: 已由插件生命周期启动的数据库管理器
         """
         self.plugin_config = plugin_config
         self.astrbot_config = astrbot_config
@@ -97,7 +99,11 @@ class ServiceContainer:
         # 从工厂获取服务
         service_factory = factory_manager.get_service_factory()
         self.persona_manager = service_factory.create_persona_manager()
-        self.database_manager = service_factory.create_database_manager()
+        self.database_manager = (
+            database_manager
+            if database_manager is not None
+            else service_factory.create_database_manager()
+        )
         self.llm_adapter = service_factory.create_framework_llm_adapter()
         self.progressive_learning = service_factory.create_progressive_learning()
 
@@ -208,6 +214,7 @@ async def set_plugin_services(
     feature_delegation=None,
     astrbot_config=None,
     plugin_instance=None,
+    database_manager=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -228,6 +235,7 @@ async def set_plugin_services(
         feature_delegation=feature_delegation,
         astrbot_config=astrbot_config,
         plugin_instance=plugin_instance,
+        database_manager=database_manager,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")
