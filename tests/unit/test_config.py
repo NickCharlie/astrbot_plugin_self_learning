@@ -263,6 +263,7 @@ class TestPluginConfigFromDict:
     def test_create_from_config_with_webui_extra_setting_groups(self):
         """WebUI-only setting groups should survive plugin-page refresh/restart."""
         raw_config = {
+            'persona_merge_strategy': 'replace',
             'MaiBot_Enhancement': {
                 'enable_maibot_features': False,
                 'enable_expression_patterns': False,

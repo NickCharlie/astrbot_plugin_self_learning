@@ -345,6 +345,10 @@ class TestConfigServiceSchema:
             "webui-saved",
         ]
 
+        await ConfigService(container).get_config_schema()
+
+        assert container.astrbot_config.save_calls == 2
+
 
 @pytest.mark.unit
 class TestConfigServiceUpdate:

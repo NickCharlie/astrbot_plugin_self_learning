@@ -10,6 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import logger
+from pydantic import ValidationError
 
 try:
     from ...statics.messages import FileNames
@@ -295,6 +296,12 @@ class ConfigService:
             attrs = {}
         return attrs.get(name, default)
 
+    def _set_container_attr(self, name: str, value: Any) -> None:
+        try:
+            setattr(self.container, name, value)
+        except (AttributeError, TypeError):
+            logger.debug(f"写入容器属性失败: {name}", exc_info=True)
+
     def _get_config_file_path(self) -> str:
         data_dir = getattr(self.plugin_config, "data_dir", None) if self.plugin_config else None
         if isinstance(data_dir, (str, os.PathLike)) and os.fspath(data_dir):
@@ -354,6 +361,47 @@ class ConfigService:
 
         return os.path.getmtime(os.fspath(astrbot_path)) > os.path.getmtime(config_file)
 
+    @staticmethod
+    def _file_mtime_signature(path: Any) -> Optional[float]:
+        if not path:
+            return None
+        try:
+            return os.path.getmtime(os.fspath(path))
+        except OSError:
+            return None
+
+    @staticmethod
+    def _payload_signature(payload: Dict[str, Any]) -> str:
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+
+    def _config_source_signature(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> Tuple[Optional[float], Optional[float], str, str]:
+        return (
+            self._file_mtime_signature(getattr(astrbot_config, "config_path", None)),
+            self._file_mtime_signature(self._get_config_file_path()),
+            self._payload_signature(self._plain_mapping(astrbot_config)),
+            self._payload_signature(self.plugin_config.to_dict()),
+        )
+
+    def _remember_config_sync_state(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> None:
+        self._set_container_attr(
+            "_config_source_sync_signature",
+            self._config_source_signature(astrbot_config),
+        )
+
+    def _forget_config_sync_state(self) -> None:
+        self._set_container_attr("_config_source_sync_signature", None)
+
     def _apply_astrbot_config_to_plugin(
         self,
         astrbot_config: MutableMapping[str, Any],
@@ -383,7 +431,7 @@ class ConfigService:
         merged_config = {**original_config, **known_config}
         try:
             validated_config = self.plugin_config.__class__.model_validate(merged_config)
-        except Exception as e:
+        except ValidationError as e:
             logger.warning(f"同步 AstrBot 插件页配置到 WebUI 失败: {e}", exc_info=True)
             return False
 
@@ -410,20 +458,29 @@ class ConfigService:
         )
         return True
 
-    def _sync_config_sources(self) -> None:
+    def _sync_config_sources(self, *, force: bool = False) -> None:
         """Keep AstrBot plugin-page config and WebUI config on the same values."""
         astrbot_config = self._get_astrbot_config()
         if not astrbot_config or not self.plugin_config:
             return
 
+        signature = self._config_source_signature(astrbot_config)
+        if (
+            not force
+            and self._get_container_attr("_config_source_sync_signature") == signature
+        ):
+            return
+
         if self._astrbot_config_is_newer(astrbot_config):
             self._apply_astrbot_config_to_plugin(astrbot_config)
+            self._remember_config_sync_state(astrbot_config)
             return
 
         self._sync_astrbot_group_config(
             self.plugin_config,
             list(self.plugin_config.to_dict()),
         )
+        self._remember_config_sync_state(astrbot_config)
 
     @staticmethod
     def _field_group_index(schema_definition: Dict[str, Any]) -> Dict[str, str]:
@@ -939,7 +996,7 @@ class ConfigService:
 
         try:
             validated_config = self.plugin_config.__class__.model_validate(merged_config)
-        except Exception as e:
+        except ValidationError as e:
             logger.error(f"配置校验失败: {e}", exc_info=True)
             return False, f"配置校验失败: {str(e)}", original_config
 
@@ -992,6 +1049,11 @@ class ConfigService:
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):
             return False, "配置已更新到内存，但持久化到文件失败", self.plugin_config.to_dict()
+        astrbot_config = self._get_astrbot_config()
+        if astrbot_config:
+            self._remember_config_sync_state(astrbot_config)
+        else:
+            self._forget_config_sync_state()
 
         if changed_keys:
             logger.info(f"配置已更新: {', '.join(changed_keys)}")
