@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import UserDict
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,15 @@ import pytest
 from config import PluginConfig
 from statics.messages import FileNames
 from webui.services.config_service import ConfigService
+
+
+class SaveableConfig(UserDict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.save_calls = 0
+
+    def save_config(self):
+        self.save_calls += 1
 
 
 def build_container(tmp_path: Path):
@@ -71,6 +81,33 @@ def build_container(tmp_path: Path):
     container.plugin_config = plugin_config
     container.factory_manager = factory_manager
     container.llm_adapter = llm_adapter
+    container.astrbot_config = SaveableConfig(
+        {
+            "Target_Settings": {
+                "target_qq_list": [],
+                "target_blacklist": [],
+            },
+            "Learning_Parameters": {
+                "learning_interval_hours": plugin_config.learning_interval_hours,
+                "max_messages_per_batch": plugin_config.max_messages_per_batch,
+            },
+            "Style_Analysis": {
+                "style_update_threshold": plugin_config.style_update_threshold,
+            },
+            "Filter_Parameters": {
+                "relevance_threshold": plugin_config.relevance_threshold,
+            },
+        }
+    )
+    container.plugin_instance = SimpleNamespace(
+        plugin_config=plugin_config,
+        qq_filter=SimpleNamespace(target_qq_list=[], blacklist=[]),
+        progressive_learning=SimpleNamespace(
+            batch_size=plugin_config.max_messages_per_batch,
+            learning_interval=plugin_config.learning_interval_hours * 3600,
+            quality_threshold=plugin_config.style_update_threshold,
+        ),
+    )
     return container
 
 
@@ -267,3 +304,51 @@ class TestConfigServiceUpdate:
         assert saved["postgresql_schema"] == "bot_space"
         assert saved["relevance_threshold"] == 0.75
         assert saved["log_level"] == "debug"
+
+    @pytest.mark.asyncio
+    async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):
+        container = build_container(tmp_path)
+        service = ConfigService(container)
+
+        success, message, updated = await service.update_config(
+            {
+                "Target_Settings": {
+                    "target_qq_list": ["10001", "group_20002"],
+                    "target_blacklist": ["blocked"],
+                },
+                "Learning_Parameters": {
+                    "learning_interval_hours": 2,
+                    "max_messages_per_batch": 25,
+                },
+                "Style_Analysis": {
+                    "style_update_threshold": 0.72,
+                },
+                "Filter_Parameters": {
+                    "relevance_threshold": 0.68,
+                },
+            }
+        )
+
+        assert success is True
+        assert "已同步到插件设置页" in message
+        assert updated["target_qq_list"] == ["10001", "group_20002"]
+        assert updated["target_blacklist"] == ["blocked"]
+        assert updated["learning_interval_hours"] == 2
+
+        assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
+            "10001",
+            "group_20002",
+        ]
+        assert container.astrbot_config["Target_Settings"]["target_blacklist"] == ["blocked"]
+        assert container.astrbot_config["Learning_Parameters"]["learning_interval_hours"] == 2
+        assert container.astrbot_config["Learning_Parameters"]["max_messages_per_batch"] == 25
+        assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
+        assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
+        assert container.astrbot_config.save_calls == 1
+
+        assert container.plugin_instance.plugin_config is container.plugin_config
+        assert container.plugin_instance.qq_filter.target_qq_list == ["10001", "group_20002"]
+        assert container.plugin_instance.qq_filter.blacklist == ["blocked"]
+        assert container.plugin_instance.progressive_learning.batch_size == 25
+        assert container.plugin_instance.progressive_learning.learning_interval == 7200
+        assert container.plugin_instance.progressive_learning.quality_threshold == 0.72

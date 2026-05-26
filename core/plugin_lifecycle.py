@@ -271,6 +271,8 @@ class PluginLifecycle:
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
                 feature_delegation=getattr(p, "feature_delegation", None),
+                astrbot_config=getattr(p, "config", None),
+                plugin_instance=p,
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:

@@ -32,6 +32,8 @@ class WebUIManager:
         perf_tracker: Any,
         group_id_to_unified_origin: Dict[str, str],
         feature_delegation: Any = None,
+        astrbot_config: Any = None,
+        plugin_instance: Any = None,
     ):
         self._config = plugin_config
         self._context = context
@@ -39,6 +41,8 @@ class WebUIManager:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._feature_delegation = feature_delegation
+        self._astrbot_config = astrbot_config
+        self._plugin_instance = plugin_instance
 
     # 创建
 
@@ -247,11 +251,13 @@ class WebUIManager:
         from .dependencies import get_container as _get_webui_container, set_plugin_services
 
         await set_plugin_services(
-            self._config,
-            self._factory_manager,
-            None,
-            astrbot_persona_manager,
-            self._group_id_to_unified_origin,
-            self._feature_delegation,
+            plugin_config=self._config,
+            factory_manager=self._factory_manager,
+            llm_client=None,
+            astrbot_persona_manager=astrbot_persona_manager,
+            group_id_to_unified_origin=self._group_id_to_unified_origin,
+            feature_delegation=self._feature_delegation,
+            astrbot_config=self._astrbot_config,
+            plugin_instance=self._plugin_instance,
         )
         _get_webui_container().perf_collector = self._perf_tracker

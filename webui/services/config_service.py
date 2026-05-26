@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -286,6 +287,14 @@ class ConfigService:
         self.container = container
         self.plugin_config = container.plugin_config
 
+    def _get_container_attr(self, name: str, default: Any = None) -> Any:
+        """Read explicitly assigned container attributes without creating Mock children."""
+        try:
+            attrs = vars(self.container)
+        except TypeError:
+            attrs = {}
+        return attrs.get(name, default)
+
     def _get_config_file_path(self) -> str:
         data_dir = getattr(self.plugin_config, "data_dir", None) if self.plugin_config else None
         if isinstance(data_dir, (str, os.PathLike)) and os.fspath(data_dir):
@@ -306,6 +315,109 @@ class ConfigService:
                 flat[key] = value
 
         return flat
+
+    def _merged_schema_definition(self) -> Dict[str, Any]:
+        return self._merge_schema_definitions(
+            _load_schema_definition(),
+            self._collect_extra_schema(),
+        )
+
+    @staticmethod
+    def _field_group_index(schema_definition: Dict[str, Any]) -> Dict[str, str]:
+        field_to_group: Dict[str, str] = {}
+        for group_key, group_definition in schema_definition.items():
+            if not isinstance(group_definition, dict):
+                continue
+            items = group_definition.get("items", {})
+            if not isinstance(items, dict):
+                continue
+            for field_key in items:
+                field_to_group[field_key] = group_key
+        return field_to_group
+
+    def _sync_astrbot_group_config(
+        self,
+        validated_config: Any,
+        submitted_keys: List[str],
+    ) -> bool:
+        """Mirror WebUI changes into AstrBot's grouped plugin-page config."""
+        astrbot_config = self._get_container_attr("astrbot_config")
+        plugin = self._get_container_attr("plugin_instance")
+        if astrbot_config is None and plugin is not None:
+            astrbot_config = getattr(plugin, "config", None)
+        if not isinstance(astrbot_config, MutableMapping):
+            return False
+
+        field_to_group = self._field_group_index(self._merged_schema_definition())
+        synced_groups = set()
+        for field_name in submitted_keys:
+            group_key = field_to_group.get(field_name)
+            if not group_key or not hasattr(validated_config, field_name):
+                continue
+            group = astrbot_config.get(group_key)
+            if not isinstance(group, MutableMapping):
+                group = {}
+            group[field_name] = getattr(validated_config, field_name)
+            astrbot_config[group_key] = group
+            synced_groups.add(group_key)
+
+        if not synced_groups:
+            return False
+
+        save_config = getattr(astrbot_config, "save_config", None)
+        if callable(save_config):
+            try:
+                save_config()
+            except Exception as e:
+                logger.warning(f"同步 AstrBot 插件页配置失败: {e}", exc_info=True)
+                return False
+
+        logger.info(
+            "WebUI 配置已同步到 AstrBot 插件页分组: "
+            f"{', '.join(sorted(synced_groups))}"
+        )
+        return True
+
+    def _sync_runtime_components(self, changed_keys: List[str]) -> None:
+        """Refresh runtime objects that cache values derived from PluginConfig."""
+        plugin = self._get_container_attr("plugin_instance")
+        if plugin is not None:
+            try:
+                plugin.plugin_config = self.plugin_config
+            except Exception:
+                logger.debug("同步 plugin.plugin_config 失败", exc_info=True)
+
+            qq_filter = getattr(plugin, "qq_filter", None)
+            if qq_filter and any(
+                key in changed_keys for key in ("target_qq_list", "target_blacklist")
+            ):
+                try:
+                    qq_filter.target_qq_list = list(self.plugin_config.target_qq_list)
+                    qq_filter.blacklist = list(self.plugin_config.target_blacklist)
+                except Exception:
+                    logger.debug("同步 QQ 过滤器配置失败", exc_info=True)
+
+        self._refresh_learning_runtime(getattr(plugin, "progressive_learning", None))
+        self._refresh_learning_runtime(self._get_container_attr("progressive_learning"))
+
+        self.container.plugin_config = self.plugin_config
+        try:
+            from ..config import WebUIConfig
+            self.container.webui_config = WebUIConfig.from_plugin_config(self.plugin_config)
+        except Exception:
+            logger.debug("同步 WebUIConfig 失败", exc_info=True)
+
+    def _refresh_learning_runtime(self, progressive_learning: Any) -> None:
+        if not progressive_learning:
+            return
+        if hasattr(progressive_learning, "batch_size"):
+            progressive_learning.batch_size = self.plugin_config.max_messages_per_batch
+        if hasattr(progressive_learning, "learning_interval"):
+            progressive_learning.learning_interval = (
+                self.plugin_config.learning_interval_hours * 3600
+            )
+        if hasattr(progressive_learning, "quality_threshold"):
+            progressive_learning.quality_threshold = self.plugin_config.style_update_threshold
 
     @staticmethod
     def _normalize_provider_type(provider_type: Any, default_type: str = "") -> str:
@@ -667,11 +779,7 @@ class ConfigService:
         if not self.plugin_config:
             raise ValueError("Plugin config not initialized")
 
-        base_schema = _load_schema_definition()
-        merged_schema = self._merge_schema_definitions(
-            base_schema,
-            self._collect_extra_schema(),
-        )
+        merged_schema = self._merged_schema_definition()
 
         return {
             "config": self.plugin_config.to_dict(),
@@ -757,6 +865,12 @@ class ConfigService:
                 self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
             )
 
+        self._sync_runtime_components(changed_keys)
+        astrbot_config_synced = self._sync_astrbot_group_config(
+            validated_config,
+            list(flat_config),
+        )
+
         llm_adapter = getattr(self.container, "llm_adapter", None)
         if llm_adapter and hasattr(llm_adapter, "initialize_providers"):
             try:
@@ -774,6 +888,8 @@ class ConfigService:
         message = "Config updated successfully"
         if warnings:
             message = f"{message}，{'; '.join(warnings)}"
+        if astrbot_config_synced:
+            message = f"{message}；已同步到插件设置页"
         if any(key in _RESTART_REQUIRED_KEYS for key in changed_keys):
             message = f"{message}；部分变更重启后生效"
 
