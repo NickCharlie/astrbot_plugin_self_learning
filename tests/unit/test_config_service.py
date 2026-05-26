@@ -328,6 +328,46 @@ class TestConfigServiceSchema:
         assert saved["learning_interval_hours"] == 3
 
     @pytest.mark.asyncio
+    async def test_config_schema_refresh_prefers_grouped_realtime_plugin_page_values(self, tmp_path):
+        container = build_container(tmp_path)
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.save_to_file(str(config_file))
+        old_time = config_file.stat().st_mtime - 10
+        config_file.touch()
+        os.utime(config_file, (old_time, old_time))
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config = SaveableConfig(
+            {
+                "Self_Learning_Basic": {
+                    "enable_realtime_learning": True,
+                    "enable_realtime_llm_filter": True,
+                },
+                "enable_realtime_learning": False,
+                "enable_realtime_llm_filter": False,
+            },
+            config_path=astrbot_path,
+        )
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["enable_realtime_learning"] is True
+        assert schema["config"]["enable_realtime_llm_filter"] is True
+
+        fields = {
+            field["key"]: field
+            for group in schema["groups"]
+            for field in group["fields"]
+        }
+        assert fields["enable_realtime_learning"]["value"] is True
+        assert fields["enable_realtime_llm_filter"]["value"] is True
+
+        saved = json.loads(config_file.read_text(encoding="utf-8"))
+        assert saved["enable_realtime_learning"] is True
+        assert saved["enable_realtime_llm_filter"] is True
+
+    @pytest.mark.asyncio
     async def test_config_schema_refresh_pushes_newer_webui_config_to_plugin_page(self, tmp_path):
         container = build_container(tmp_path)
         container.plugin_config.target_qq_list = ["webui-saved"]
