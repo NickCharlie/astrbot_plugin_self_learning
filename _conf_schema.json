@@ -233,22 +233,10 @@
         "hint": "控制插件在 AstrBot 日志中的详细程度。error 最少，debug 最多",
         "default": "info",
         "options": [
-          {
-            "value": "error",
-            "label": "error"
-          },
-          {
-            "value": "warning",
-            "label": "warning"
-          },
-          {
-            "value": "info",
-            "label": "info"
-          },
-          {
-            "value": "debug",
-            "label": "debug"
-          }
+          "error",
+          "warning",
+          "info",
+          "debug"
         ]
       },
       "save_raw_messages": {

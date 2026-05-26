@@ -128,6 +128,16 @@ def build_container(tmp_path: Path):
 
 @pytest.mark.unit
 class TestConfigServiceSchema:
+    def test_astrbot_plugin_schema_uses_plain_log_level_options(self):
+        """AstrBot plugin page renders object options as [object Object]."""
+        schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        options = schema["Advanced_Settings"]["items"]["log_level"]["options"]
+
+        assert options == ["error", "warning", "info", "debug"]
+        assert all(isinstance(option, str) for option in options)
+
     @pytest.mark.asyncio
     async def test_get_config_schema_includes_full_settings(self, tmp_path):
         container = build_container(tmp_path)
