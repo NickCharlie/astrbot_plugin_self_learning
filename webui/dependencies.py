@@ -22,6 +22,8 @@ class ServiceContainer:
 
         # 插件配置
         self.plugin_config: Optional[Any] = None
+        self.astrbot_config: Optional[Any] = None
+        self.plugin_instance: Optional[Any] = None
 
         # 核心服务
         self.persona_manager: Optional[Any] = None
@@ -70,6 +72,8 @@ class ServiceContainer:
         astrbot_persona_manager=None,
         group_id_to_unified_origin=None,
         feature_delegation=None,
+        astrbot_config=None,
+        plugin_instance=None,
     ):
         """
         初始化服务容器
@@ -82,6 +86,8 @@ class ServiceContainer:
             group_id_to_unified_origin: group_id到unified_msg_origin映射表
         """
         self.plugin_config = plugin_config
+        self.astrbot_config = astrbot_config
+        self.plugin_instance = plugin_instance
         self.factory_manager = factory_manager
         self.feature_delegation = feature_delegation
         self.astrbot_persona_manager = astrbot_persona_manager
@@ -200,6 +206,8 @@ async def set_plugin_services(
     astrbot_persona_manager,
     group_id_to_unified_origin=None,
     feature_delegation=None,
+    astrbot_config=None,
+    plugin_instance=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -218,6 +226,8 @@ async def set_plugin_services(
         astrbot_persona_manager=astrbot_persona_manager,
         group_id_to_unified_origin=group_id_to_unified_origin,
         feature_delegation=feature_delegation,
+        astrbot_config=astrbot_config,
+        plugin_instance=plugin_instance,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")
