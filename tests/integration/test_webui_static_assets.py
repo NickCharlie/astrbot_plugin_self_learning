@@ -139,6 +139,17 @@ def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
     assert "未找到 ${escapeHtml(providerLabel)} Provider" in text
 
 
+def test_dashboard_settings_exposes_manual_save_button():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert 'id="configSaveBtn"' in text
+    assert 'aria-label="手动保存设置"' in text
+    assert "手动保存设置" in text
+    assert "$('configSaveBtn').addEventListener('click', saveConfigPanel)" in text
+    assert "function updateConfigActionStates()" in text
+    assert "configSaveBtn.disabled = !hasSchema || busy || dirtyCount === 0" in text
+
+
 def test_dashboard_zero_message_insight_reflects_full_learning_default():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

@@ -166,7 +166,8 @@
         }
 
         .pill,
-        .icon-btn {
+        .icon-btn,
+        .action-btn {
             border: 1px solid var(--border);
             background: var(--panel);
             color: var(--text);
@@ -193,7 +194,26 @@
             cursor: pointer;
         }
 
-        .icon-btn:hover {
+        .action-btn {
+            min-height: 38px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 12px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .action-btn .material-icons {
+            font-size: 18px;
+        }
+
+        .icon-btn:hover,
+        .action-btn:hover {
             border-color: var(--accent);
             color: var(--accent);
             background: var(--surface-hover);
@@ -1112,18 +1132,21 @@
             font-size: 12px;
         }
 
-        .icon-btn.primary {
+        .icon-btn.primary,
+        .action-btn.primary {
             background: var(--accent);
             border-color: var(--accent);
             color: #fff;
         }
 
-        .icon-btn.primary:hover {
+        .icon-btn.primary:hover,
+        .action-btn.primary:hover {
             background: var(--accent);
             color: #fff;
         }
 
-        .icon-btn:disabled {
+        .icon-btn:disabled,
+        .action-btn:disabled {
             cursor: not-allowed;
             opacity: 0.55;
         }
@@ -2122,8 +2145,9 @@
                         <button class="icon-btn" id="integrationConfigResetBtn" type="button" aria-label="恢复融合设置" title="恢复融合设置">
                             <span class="material-icons">undo</span>
                         </button>
-                        <button class="icon-btn primary" id="integrationConfigSaveBtn" type="button" aria-label="保存融合设置" title="保存融合设置">
+                        <button class="action-btn primary" id="integrationConfigSaveBtn" type="button" aria-label="保存融合设置" title="保存融合设置" disabled>
                             <span class="material-icons">save</span>
+                            保存融合设置
                         </button>
                     </div>
                 </div>
@@ -2158,8 +2182,9 @@
                     <button class="icon-btn" id="configResetBtn" type="button" aria-label="恢复已加载配置" title="恢复已加载配置">
                         <span class="material-icons">undo</span>
                     </button>
-                    <button class="icon-btn primary" id="configSaveBtn" type="button" aria-label="保存配置" title="保存配置">
+                    <button class="action-btn primary" id="configSaveBtn" type="button" aria-label="手动保存设置" title="手动保存设置" disabled>
                         <span class="material-icons">save</span>
+                        手动保存设置
                     </button>
                 </div>
             </div>
@@ -4217,6 +4242,28 @@
                 return Array.from(state.config.dirtyKeys || []).filter((key) => keys.has(key)).length;
             }
 
+            function updateConfigActionStates() {
+                const hasSchema = Boolean(state.config.schema);
+                const busy = Boolean(state.config.loading || state.config.saving);
+                const dirtyCount = state.config.dirtyKeys ? state.config.dirtyKeys.size : 0;
+                const configSaveBtn = $('configSaveBtn');
+                if (configSaveBtn) {
+                    configSaveBtn.disabled = !hasSchema || busy || dirtyCount === 0;
+                    configSaveBtn.title = dirtyCount > 0
+                        ? `手动保存 ${dirtyCount} 项设置修改`
+                        : '没有未保存的设置修改';
+                }
+
+                const integrationSaveBtn = $('integrationConfigSaveBtn');
+                if (integrationSaveBtn) {
+                    const integrationCount = integrationDirtyCount();
+                    integrationSaveBtn.disabled = !hasSchema || busy || !getIntegrationSettingsGroup() || integrationCount === 0;
+                    integrationSaveBtn.title = integrationCount > 0
+                        ? `保存 ${integrationCount} 项融合设置修改`
+                        : '没有未保存的融合设置修改';
+                }
+            }
+
             function updateIntegrationConfigStatus(message, tone = '') {
                 const status = $('integrationConfigStatus');
                 if (!status) {
@@ -4241,6 +4288,7 @@
                 }
 
                 status.className = `config-status${tone ? ` ${tone}` : ''}`;
+                updateConfigActionStates();
             }
 
             function renderIntegrationConfigPanel() {
@@ -4414,6 +4462,7 @@
                     }
                 } finally {
                     state.config.loading = false;
+                    updateConfigActionStates();
                     if (!quiet && !state.config.schema) {
                         updateConfigStatus('配置面板尚未加载。', 'error');
                     }
@@ -4475,6 +4524,7 @@
                 } finally {
                     state.config.saving = false;
                     updateConfigSummary();
+                    updateConfigActionStates();
                 }
             }
 
