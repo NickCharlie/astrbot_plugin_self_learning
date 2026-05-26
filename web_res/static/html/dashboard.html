@@ -603,7 +603,7 @@
 
         .queue-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 16px;
         }
 
@@ -1940,6 +1940,8 @@
                 <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
             </div>
 
+            <div id="queueStatus" class="config-status queue-status" style="margin-bottom:14px;">审查操作就绪。</div>
+
             <section class="queue-grid">
             <div class="panel">
                 <div class="panel-head">
@@ -1960,29 +1962,82 @@
                     <div id="styleList" class="list"></div>
                 </div>
             </div>
+        </section>
 
+        <section class="queue-grid" style="margin-top:16px;">
             <div class="panel">
                 <div class="panel-head">
-                    <h2>黑话与批次</h2>
-                    <span class="hint" id="jargonHint">--</span>
+                    <div>
+                        <h2>黑话管理</h2>
+                        <span class="hint" id="jargonHint">--</span>
+                    </div>
+                    <div class="panel-tools">
+                        <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                            <option value="all">全部</option>
+                            <option value="pending">待确认</option>
+                            <option value="confirmed">已确认</option>
+                            <option value="global">全局</option>
+                            <option value="local">本地</option>
+                        </select>
+                        <select id="jargonSortSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                            <option value="newest">最新优先</option>
+                            <option value="oldest">最早优先</option>
+                            <option value="name">按名称</option>
+                            <option value="occurrences">按出现次数</option>
+                        </select>
+                        <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
+                    </div>
                 </div>
                 <div class="panel-body">
                     <div class="stats-row" id="jargonStats"></div>
 
                     <div class="stack-section">
-                        <div class="subhead">最近黑话</div>
                         <div id="jargonList" class="list"></div>
                     </div>
 
-                    <div class="stack-section">
-                        <div class="subhead">最近批次</div>
-                        <div id="batchList" class="list"></div>
+                    <div id="jargonPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                        <span id="jargonPageInfo" class="muted" style="font-size:12px;">--</span>
+                        <div style="display:flex;gap:4px;">
+                            <button class="action-btn" id="jargonPrevBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                            </button>
+                            <button class="action-btn" id="jargonNextBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>最近批次</h2>
+                        <span class="hint" id="batchHint">--</span>
+                    </div>
+                    <div class="panel-tools">
+                        <button class="icon-btn" id="batchReloadBtn" type="button" aria-label="刷新批次" title="刷新批次">
+                            <span class="material-icons">sync</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="batchList" class="list"></div>
+
+                    <div id="batchPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                        <span id="batchPageInfo" class="muted" style="font-size:12px;">--</span>
+                        <div style="display:flex;gap:4px;">
+                            <button class="action-btn" id="batchPrevBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                            </button>
+                            <button class="action-btn" id="batchNextBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
-
-        <div id="queueStatus" class="config-status queue-status">审查操作就绪。</div>
         </section>
 
         <section class="page" id="page-content" data-page="content">
@@ -2240,6 +2295,25 @@
                     data: null,
                     loading: false,
                     loaded: false,
+                },
+                jargon: {
+                    page: 1,
+                    pageSize: 10,
+                    total: 0,
+                    totalPages: 1,
+                    filter: 'all',
+                    sort: 'newest',
+                    search: '',
+                    items: [],
+                    loading: false,
+                },
+                batch: {
+                    page: 1,
+                    pageSize: 10,
+                    total: 0,
+                    totalPages: 1,
+                    items: [],
+                    loading: false,
                 },
                 activePage: 'home',
             };
@@ -2537,6 +2611,13 @@
                     loadLearningContent({ quiet: true });
                 } else if (page === 'integrations' && (force || !state.integrations.loaded)) {
                     loadIntegrationPanel({ quiet: true });
+                } else if (page === 'reviews') {
+                    if (!state.jargon.items.length || force) {
+                        loadJargonList();
+                    }
+                    if (!state.batch.items.length || force) {
+                        loadBatchList();
+                    }
                 }
             }
 
@@ -3306,7 +3387,7 @@
                 const health = data.health || {};
                 const persona = data.persona || {};
                 const style = data.style || {};
-                const jargon = data.jargonStats || {};
+                const jargonStats = data.jargonStats || {};
 
                 const totalMessages = safeNumber(metrics.total_messages_collected);
                 const filteredMessages = safeNumber(metrics.filtered_messages);
@@ -3436,82 +3517,7 @@
                 $('personaList').innerHTML = renderPersonaQueue(personaUpdates);
                 $('styleList').innerHTML = renderStyleQueue(style.reviews);
 
-                $('jargonHint').textContent = `候选 ${formatCount((jargon.total_candidates ?? jargon.totalCandidates) || 0)}`;
-
-                const jargonStats = extractJargonStats(data.jargonStats);
-                const jargonStatsMarkup = [
-                    ['候选', jargonStats.total_candidates],
-                    ['确认', jargonStats.confirmed_jargon],
-                    ['完成', jargonStats.completed_inference],
-                    ['出现', jargonStats.total_occurrences],
-                ].map(([label, value]) => `
-                    <div class="small-stat">
-                        <div class="k">${label}</div>
-                        <div class="v">${formatCount(value)}</div>
-                    </div>
-                `);
-                $('jargonStats').innerHTML = jargonStatsMarkup.join('');
-
-                const jargonItems = extractJargonItems(data.jargonList).slice(0, 5).map((item) => {
-                    const id = item.id;
-                    const title = item.term || item.content || item.word || '未命名';
-                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
-                    const meta = [
-                        item.group_id ? `群组 ${item.group_id}` : null,
-                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
-                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
-                    ].filter(Boolean).join(' · ');
-                    return `
-                        <div class="item" data-jargon-id="${escapeHtml(id)}">
-                            <div class="top">
-                                <div class="title">${escapeHtml(title)}</div>
-                                <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
-                            </div>
-                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
-                            <div class="body">${escapeHtml(definition || '暂无释义')}</div>
-                            ${renderContextExamples(item)}
-                            <div class="item-actions">
-                                ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
-                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
-                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
-                                ${actionButton('jargon-delete', id, 'delete', '删除', 'danger')}
-                            </div>
-                        </div>
-                    `;
-                });
-                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="item">暂无黑话记录。</div>';
-
-                const batches = safeArray(trends.recent_batches).slice(0, 5).map((item) => {
-                    const quality = item.quality_score !== undefined ? safeNumber(item.quality_score) : null;
-                    const started = item.start_time ? formatTime(item.start_time) : '--';
-                    const finished = item.end_time ? formatTime(item.end_time) : '--';
-                    const duration = formatDuration(item.start_time, item.end_time);
-                    const title = item.batch_name || item.batch_id || '学习批次';
-                    const meta = [
-                        item.group_id ? `群组 ${item.group_id}` : null,
-                        item.processed_messages !== undefined ? `消息 ${formatCount(item.processed_messages)}` : null,
-                        item.success !== undefined ? (item.success ? '成功' : '失败') : null,
-                    ].filter(Boolean).join(' · ');
-                    const groupId = item.group_id || '';
-                    return `
-                        <div class="item">
-                            <div class="top">
-                                <div class="title">${escapeHtml(title)}</div>
-                                <span class="state ${item.success === false ? 'unhealthy' : 'healthy'}">${quality === null ? '--' : `quality ${formatDecimal(quality, quality < 1 ? 3 : 1)}`}</span>
-                            </div>
-                            <div class="meta">${escapeHtml(meta || '批次记录')} · ${escapeHtml(duration)}</div>
-                            <div class="body clamp">开始 ${escapeHtml(started)} · 结束 ${escapeHtml(finished)}</div>
-                            <div class="item-actions">
-                                ${actionButton('batch-relearn', groupId, 'play_arrow', '重跑学习')}
-                            </div>
-                        </div>
-                    `;
-                });
-
-                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="item">暂无批次记录。</div>';
-                const batchCount = safeArray(trends.recent_batches).length;
                 $('trendHint').textContent = `最近 ${Object.keys(trends.daily_messages || {}).length || 7} 天`;
-                $('jargonHint').textContent = `候选 ${formatCount(jargonStats.total_candidates)} · 批次 ${formatCount(batchCount)}`;
 
                 updateLastUpdated();
                 renderSummaryText({
@@ -4729,6 +4735,12 @@
                         payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
                     } else if (action === 'batch-relearn') {
                         payload = await postJson('/api/relearn', { group_id: id });
+                    } else if (action === 'batch-delete') {
+                        if (!window.confirm('确定删除这个学习批次？')) {
+                            setQueueStatus('已取消操作。');
+                            return;
+                        }
+                        payload = await deleteJson(`/api/learning/batches/${encodeURIComponent(id)}`);
                     } else {
                         throw new Error(`未知操作: ${action}`);
                     }
@@ -4736,8 +4748,11 @@
                     const message = payload && (payload.message || payload.error);
                     setQueueStatus(message || '操作已完成。', 'success');
                     await loadDashboard();
-                    if (action.startsWith('jargon') || action.startsWith('batch')) {
-                        await loadGraphPanel({ quiet: true });
+                    if (action.startsWith('jargon')) {
+                        await Promise.all([loadJargonList(), loadGraphPanel({ quiet: true })]);
+                    }
+                    if (action.startsWith('batch')) {
+                        await Promise.all([loadBatchList(), loadGraphPanel({ quiet: true })]);
                     }
                 } catch (error) {
                     console.error('Dashboard action failed:', error);
@@ -5194,6 +5209,190 @@
                 };
 
                 renderAll(merged);
+
+                await Promise.all([
+                    loadJargonList(),
+                    loadBatchList(),
+                ]);
+            }
+
+            async function loadJargonList() {
+                if (state.jargon.loading) return;
+                state.jargon.loading = true;
+                try {
+                    const params = new URLSearchParams({
+                        page: state.jargon.page,
+                        page_size: state.jargon.pageSize,
+                    });
+
+                    if (state.jargon.filter === 'pending') {
+                        params.set('pending', 'true');
+                        params.set('confirmed', 'false');
+                    } else if (state.jargon.filter === 'confirmed') {
+                        params.set('confirmed', 'true');
+                    } else if (state.jargon.filter === 'global') {
+                        // will filter client-side
+                    } else if (state.jargon.filter === 'local') {
+                        // will filter client-side
+                    }
+
+                    if (state.jargon.search) {
+                        params.set('keyword', state.jargon.search);
+                    }
+
+                    const data = await safeFetch(`/api/jargon/list?${params.toString()}`);
+                    let items = extractJargonItems(data);
+                    const total = (data && data.total) || items.length;
+
+                    // Client-side filters for global/local
+                    if (state.jargon.filter === 'global') {
+                        items = items.filter((it) => it.is_global);
+                    } else if (state.jargon.filter === 'local') {
+                        items = items.filter((it) => !it.is_global);
+                    }
+
+                    // Client-side sort
+                    if (state.jargon.sort === 'oldest') {
+                        items.reverse();
+                    } else if (state.jargon.sort === 'name') {
+                        items.sort((a, b) => (a.term || a.word || '').localeCompare(b.term || b.word || ''));
+                    } else if (state.jargon.sort === 'occurrences') {
+                        items.sort((a, b) => (b.occurrences || 0) - (a.occurrences || 0));
+                    }
+
+                    state.jargon.items = items;
+                    state.jargon.total = total;
+                    state.jargon.totalPages = Math.max(1, Math.ceil(total / state.jargon.pageSize));
+
+                    renderJargonPanel();
+                } catch (e) {
+                    console.error('Failed to load jargon list:', e);
+                } finally {
+                    state.jargon.loading = false;
+                }
+            }
+
+            async function loadBatchList() {
+                if (state.batch.loading) return;
+                state.batch.loading = true;
+                try {
+                    const params = new URLSearchParams({
+                        page: state.batch.page,
+                        page_size: state.batch.pageSize,
+                    });
+
+                    const data = await safeFetch(`/api/learning/batches?${params.toString()}`);
+                    if (data && data.data) {
+                        state.batch.items = safeArray(data.data.batches);
+                        state.batch.total = data.data.total || 0;
+                        state.batch.totalPages = data.data.total_pages || 1;
+                    } else {
+                        // Fallback: use trends data
+                        const trends = await safeFetch('/api/metrics/trends');
+                        const allBatches = safeArray(trends && trends.recent_batches);
+                        const offset = (state.batch.page - 1) * state.batch.pageSize;
+                        state.batch.items = allBatches.slice(offset, offset + state.batch.pageSize);
+                        state.batch.total = allBatches.length;
+                        state.batch.totalPages = Math.max(1, Math.ceil(allBatches.length / state.batch.pageSize));
+                    }
+
+                    renderBatchPanel();
+                } catch (e) {
+                    console.error('Failed to load batch list:', e);
+                } finally {
+                    state.batch.loading = false;
+                }
+            }
+
+            function renderJargonPanel() {
+                const jargonStats = extractJargonStats(state.data && state.data.jargonStats);
+                const jargonStatsMarkup = [
+                    ['候选', jargonStats.total_candidates],
+                    ['确认', jargonStats.confirmed_jargon],
+                    ['完成', jargonStats.completed_inference],
+                    ['出现', jargonStats.total_occurrences],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${label}</div>
+                        <div class="v">${formatCount(value)}</div>
+                    </div>
+                `);
+                $('jargonStats').innerHTML = jargonStatsMarkup.join('');
+
+                const items = state.jargon.items;
+                const jargonItems = items.map((item) => {
+                    const id = item.id;
+                    const title = item.term || item.content || item.word || '未命名';
+                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
+                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <div class="item" data-jargon-id="${escapeHtml(id)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
+                            <div class="body">${escapeHtml(definition || '暂无释义')}</div>
+                            ${renderContextExamples(item)}
+                            <div class="item-actions">
+                                ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
+                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
+                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
+                                ${actionButton('jargon-delete', id, 'delete', '删除', 'danger')}
+                            </div>
+                        </div>
+                    `;
+                });
+                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="item">暂无黑话记录。</div>';
+
+                // Pagination
+                const { page, total, totalPages } = state.jargon;
+                $('jargonPageInfo').textContent = `第 ${page} / ${totalPages} 页 · 共 ${formatCount(total)} 条`;
+                $('jargonPrevBtn').disabled = page <= 1;
+                $('jargonNextBtn').disabled = page >= totalPages;
+
+                $('jargonHint').textContent = `候选 ${formatCount((jargonStats.total_candidates ?? jargonStats.totalCandidates) || 0)} · 第 ${page}/${totalPages} 页`;
+            }
+
+            function renderBatchPanel() {
+                const batches = state.batch.items.map((item) => {
+                    const quality = item.quality_score !== undefined ? safeNumber(item.quality_score) : null;
+                    const started = item.start_time ? formatTime(item.start_time) : '--';
+                    const finished = item.end_time ? formatTime(item.end_time) : '--';
+                    const duration = formatDuration(item.start_time, item.end_time);
+                    const title = item.batch_name || item.batch_id || '学习批次';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.processed_messages !== undefined ? `消息 ${formatCount(item.processed_messages)}` : null,
+                        item.success !== undefined ? (item.success ? '成功' : '失败') : null,
+                    ].filter(Boolean).join(' · ');
+                    const batchId = item.id;
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state ${item.success === false ? 'unhealthy' : 'healthy'}">${quality === null ? '--' : `quality ${formatDecimal(quality, quality < 1 ? 3 : 1)}`}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '批次记录')} · ${escapeHtml(duration)}</div>
+                            <div class="body clamp">开始 ${escapeHtml(started)} · 结束 ${escapeHtml(finished)}</div>
+                            <div class="item-actions">
+                                ${item.group_id ? actionButton('batch-relearn', item.group_id, 'play_arrow', '重跑学习') : ''}
+                                ${batchId ? actionButton('batch-delete', batchId, 'delete', '删除批次', 'danger') : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="item">暂无批次记录。</div>';
+
+                const { page, total, totalPages } = state.batch;
+                $('batchPageInfo').textContent = `第 ${page} / ${totalPages} 页 · 共 ${formatCount(total)} 条`;
+                $('batchPrevBtn').disabled = page <= 1;
+                $('batchNextBtn').disabled = page >= totalPages;
+                $('batchHint').textContent = `共 ${formatCount(total)} 个批次`;
             }
 
             function bindEvents() {
@@ -5257,6 +5456,57 @@
                 $('integrationConfigSaveBtn').addEventListener('click', saveConfigPanel);
                 $('integrationConfigResetBtn').addEventListener('click', resetConfigPanel);
                 $('integrationConfigReloadBtn').addEventListener('click', reloadConfigPanel);
+
+                // Jargon panel controls
+                $('jargonFilterSelect').addEventListener('change', (event) => {
+                    state.jargon.filter = event.target.value;
+                    state.jargon.page = 1;
+                    loadJargonList();
+                });
+                $('jargonSortSelect').addEventListener('change', (event) => {
+                    state.jargon.sort = event.target.value;
+                    state.jargon.page = 1;
+                    loadJargonList();
+                });
+                let jargonSearchTimer = null;
+                $('jargonSearchInput').addEventListener('input', (event) => {
+                    clearTimeout(jargonSearchTimer);
+                    jargonSearchTimer = setTimeout(() => {
+                        state.jargon.search = event.target.value || '';
+                        state.jargon.page = 1;
+                        loadJargonList();
+                    }, 300);
+                });
+                $('jargonPrevBtn').addEventListener('click', () => {
+                    if (state.jargon.page > 1) {
+                        state.jargon.page--;
+                        loadJargonList();
+                    }
+                });
+                $('jargonNextBtn').addEventListener('click', () => {
+                    if (state.jargon.page < state.jargon.totalPages) {
+                        state.jargon.page++;
+                        loadJargonList();
+                    }
+                });
+
+                // Batch panel controls
+                $('batchPrevBtn').addEventListener('click', () => {
+                    if (state.batch.page > 1) {
+                        state.batch.page--;
+                        loadBatchList();
+                    }
+                });
+                $('batchNextBtn').addEventListener('click', () => {
+                    if (state.batch.page < state.batch.totalPages) {
+                        state.batch.page++;
+                        loadBatchList();
+                    }
+                });
+                $('batchReloadBtn').addEventListener('click', () => {
+                    state.batch.page = 1;
+                    loadBatchList();
+                });
 
                 document.body.addEventListener('click', (event) => {
                     const actionTarget = event.target.closest('[data-dashboard-action]');
