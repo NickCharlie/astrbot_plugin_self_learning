@@ -2,6 +2,16 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.0.8] - 2026-05-26
+
+### WebUI
+
+- 修复数据库 JargonFacade 尚未初始化时 WebUI 黑话统计和黑话列表可能抛出 `NoneType.get_jargon_statistics` / `NoneType.get_jargon_count` 错误的问题。
+
+### 版本
+
+- 将插件发布版本号提升至 `3.0.8`。
+
 ## [3.0.7] - 2026-05-26
 
 ### WebUI

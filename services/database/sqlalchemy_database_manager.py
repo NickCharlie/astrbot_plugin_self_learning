@@ -140,8 +140,13 @@ class SQLAlchemyDatabaseManager:
         self._admin = AdminFacade(self.engine, self.config)
         logger.info("[DomainRouter] 11 个领域 Facade 已初始化")
 
-    def _learning_facade_or_none(self, operation: str = ""):
-        """Return LearningFacade, recovering when the DB engine exists but facades are missing."""
+    def _facade_or_none(
+        self,
+        attr_name: str,
+        facade_name: str,
+        operation: str = "",
+    ):
+        """Return a facade, recovering when the DB engine exists but facades are missing."""
         if self._starting:
             logger.warning(
                 "[DomainRouter] 数据库仍在启动，"
@@ -156,36 +161,58 @@ class SQLAlchemyDatabaseManager:
             )
             return None
 
-        if self._learning is not None:
-            return self._learning
+        facade = getattr(self, attr_name, None)
+        if facade is not None:
+            return facade
 
         try:
             self._init_facades()
         except Exception as e:
             logger.warning(
-                f"[DomainRouter] LearningFacade 初始化失败"
+                f"[DomainRouter] {facade_name} 初始化失败"
                 f"{f' ({operation})' if operation else ''}: {e}",
                 exc_info=True,
             )
             return None
 
-        if self._learning is None:
+        facade = getattr(self, attr_name, None)
+        if facade is None:
             logger.warning(
-                "[DomainRouter] LearningFacade 不可用，"
+                f"[DomainRouter] {facade_name} 不可用，"
                 f"跳过数据库操作{f' ({operation})' if operation else ''}"
             )
-        return self._learning
+        return facade
+
+    async def _call_facade(
+        self,
+        attr_name: str,
+        facade_name: str,
+        operation: str,
+        default: Any,
+        *args,
+        **kwargs,
+    ):
+        """Call a facade method if it is ready, otherwise return default."""
+        facade = self._facade_or_none(attr_name, facade_name, operation)
+        if facade is None:
+            return default
+        method = getattr(facade, operation, None)
+        if not callable(method):
+            logger.warning(f"[DomainRouter] {facade_name} 缺少方法: {operation}")
+            return default
+        return await method(*args, **kwargs)
 
     async def _call_learning(self, operation: str, default: Any, *args, **kwargs):
         """Call a LearningFacade method if it is ready, otherwise return default."""
-        learning = self._learning_facade_or_none(operation)
-        if learning is None:
-            return default
-        method = getattr(learning, operation, None)
-        if not callable(method):
-            logger.warning(f"[DomainRouter] LearningFacade 缺少方法: {operation}")
-            return default
-        return await method(*args, **kwargs)
+        return await self._call_facade(
+            "_learning", "LearningFacade", operation, default, *args, **kwargs,
+        )
+
+    async def _call_jargon(self, operation: str, default: Any, *args, **kwargs):
+        """Call a JargonFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            "_jargon", "JargonFacade", operation, default, *args, **kwargs,
+        )
 
     # Infrastructure: database URL
 
@@ -742,23 +769,36 @@ class SQLAlchemyDatabaseManager:
     # Domain delegates: JargonFacade
 
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
-        return await self._jargon.get_jargon(chat_id, content)
+        return await self._call_jargon("get_jargon", None, chat_id, content)
 
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
-        return await self._jargon.insert_jargon(jargon_data)
+        return await self._call_jargon("insert_jargon", None, jargon_data)
 
     async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
-        return await self._jargon.update_jargon(jargon_data)
+        return await self._call_jargon("update_jargon", False, jargon_data)
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
-        return await self._jargon.get_jargon_statistics(group_id)
+        return await self._call_jargon(
+            "get_jargon_statistics",
+            {
+                'total_candidates': 0,
+                'confirmed_jargon': 0,
+                'completed_inference': 0,
+                'total_occurrences': 0,
+                'average_count': 0,
+                'active_groups': 0,
+            },
+            group_id,
+        )
 
     async def get_recent_jargon_list(
         self, group_id: str = None, chat_id: str = None,
         limit: int = 50, offset: int = 0, only_confirmed: bool = False,
         pending_only: bool = False,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.get_recent_jargon_list(
+        return await self._call_jargon(
+            "get_recent_jargon_list",
+            [],
             group_id, chat_id, limit, offset, only_confirmed, pending_only,
         )
 
@@ -766,43 +806,62 @@ class SQLAlchemyDatabaseManager:
         self, chat_id: str = None, only_confirmed: bool = False,
         pending_only: bool = False,
     ) -> int:
-        return await self._jargon.get_jargon_count(chat_id, only_confirmed, pending_only)
+        return await self._call_jargon(
+            "get_jargon_count",
+            0,
+            chat_id,
+            only_confirmed,
+            pending_only,
+        )
 
     async def search_jargon(
         self, keyword: str, chat_id: str = None,
         confirmed_only: bool = False, limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.search_jargon(
+        return await self._call_jargon(
+            "search_jargon",
+            [],
             keyword=keyword, chat_id=chat_id,
             confirmed_only=confirmed_only, limit=limit,
         )
 
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
-        return await self._jargon.get_jargon_by_id(jargon_id)
+        return await self._call_jargon("get_jargon_by_id", None, jargon_id)
 
     async def delete_jargon_by_id(self, jargon_id: int) -> bool:
-        return await self._jargon.delete_jargon_by_id(jargon_id)
+        return await self._call_jargon("delete_jargon_by_id", False, jargon_id)
 
     async def set_jargon_global(self, jargon_id: int, is_global: bool) -> bool:
-        return await self._jargon.set_jargon_global(jargon_id, is_global)
+        return await self._call_jargon(
+            "set_jargon_global",
+            False,
+            jargon_id,
+            is_global,
+        )
 
     async def sync_global_jargon_to_group(self, target_chat_id: str) -> int:
-        return await self._jargon.sync_global_jargon_to_group(target_chat_id)
+        return await self._call_jargon(
+            "sync_global_jargon_to_group",
+            0,
+            target_chat_id,
+        )
 
     async def save_or_update_jargon(
         self, chat_id: str, content: str, jargon_data: Dict[str, Any],
     ) -> Optional[int]:
-        return await self._jargon.save_or_update_jargon(
+        return await self._call_jargon(
+            "save_or_update_jargon",
+            None,
             chat_id, content, jargon_data,
         )
 
     async def get_global_jargon_list(
         self, limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.get_global_jargon_list(limit)
+        return await self._call_jargon("get_global_jargon_list", [], limit)
 
     async def get_jargon_groups(self) -> List[Dict[str, Any]]:
-        return await self._jargon.get_jargon_groups()
+        return await self._call_jargon("get_jargon_groups", [])
 
     # Domain delegates: PersonaFacade
 
