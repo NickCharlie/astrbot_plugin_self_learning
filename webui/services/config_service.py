@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -344,17 +345,17 @@ class ConfigService:
         plugin = self._get_container_attr("plugin_instance")
         if astrbot_config is None and plugin is not None:
             astrbot_config = getattr(plugin, "config", None)
-        if not isinstance(astrbot_config, dict):
+        if not isinstance(astrbot_config, MutableMapping):
             return False
 
-        field_to_group = self._field_group_index(_load_schema_definition())
+        field_to_group = self._field_group_index(self._merged_schema_definition())
         synced_groups = set()
         for field_name in submitted_keys:
             group_key = field_to_group.get(field_name)
             if not group_key or not hasattr(validated_config, field_name):
                 continue
             group = astrbot_config.get(group_key)
-            if not isinstance(group, dict):
+            if not isinstance(group, MutableMapping):
                 group = {}
             group[field_name] = getattr(validated_config, field_name)
             astrbot_config[group_key] = group

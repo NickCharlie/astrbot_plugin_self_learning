@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import UserDict
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +15,7 @@ from statics.messages import FileNames
 from webui.services.config_service import ConfigService
 
 
-class SaveableConfig(dict):
+class SaveableConfig(UserDict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.save_calls = 0
@@ -92,6 +93,9 @@ def build_container(tmp_path: Path):
             },
             "Style_Analysis": {
                 "style_update_threshold": plugin_config.style_update_threshold,
+            },
+            "Filter_Parameters": {
+                "relevance_threshold": plugin_config.relevance_threshold,
             },
         }
     )
@@ -319,6 +323,9 @@ class TestConfigServiceUpdate:
                 "Style_Analysis": {
                     "style_update_threshold": 0.72,
                 },
+                "Filter_Parameters": {
+                    "relevance_threshold": 0.68,
+                },
             }
         )
 
@@ -336,6 +343,7 @@ class TestConfigServiceUpdate:
         assert container.astrbot_config["Learning_Parameters"]["learning_interval_hours"] == 2
         assert container.astrbot_config["Learning_Parameters"]["max_messages_per_batch"] == 25
         assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
+        assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
         assert container.astrbot_config.save_calls == 1
 
         assert container.plugin_instance.plugin_config is container.plugin_config
