@@ -140,6 +140,53 @@ class SQLAlchemyDatabaseManager:
         self._admin = AdminFacade(self.engine, self.config)
         logger.info("[DomainRouter] 11 个领域 Facade 已初始化")
 
+    def _learning_facade_or_none(self, operation: str = ""):
+        """Return LearningFacade, recovering when the DB engine exists but facades are missing."""
+        if self._starting:
+            logger.warning(
+                "[DomainRouter] 数据库仍在启动，"
+                f"暂跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+            return None
+
+        if not self._started or self.engine is None:
+            logger.warning(
+                "[DomainRouter] 数据库尚未启动，"
+                f"暂跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+            return None
+
+        if self._learning is not None:
+            return self._learning
+
+        try:
+            self._init_facades()
+        except Exception as e:
+            logger.warning(
+                f"[DomainRouter] LearningFacade 初始化失败"
+                f"{f' ({operation})' if operation else ''}: {e}",
+                exc_info=True,
+            )
+            return None
+
+        if self._learning is None:
+            logger.warning(
+                "[DomainRouter] LearningFacade 不可用，"
+                f"跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+        return self._learning
+
+    async def _call_learning(self, operation: str, default: Any, *args, **kwargs):
+        """Call a LearningFacade method if it is ready, otherwise return default."""
+        learning = self._learning_facade_or_none(operation)
+        if learning is None:
+            return default
+        method = getattr(learning, operation, None)
+        if not callable(method):
+            logger.warning(f"[DomainRouter] LearningFacade 缺少方法: {operation}")
+            return default
+        return await method(*args, **kwargs)
+
     # Infrastructure: database URL
 
     def _get_db_type(self) -> str:
@@ -506,21 +553,31 @@ class SQLAlchemyDatabaseManager:
                 'original_content': original_content,
                 'new_content': new_content,
             }
-        return await self._learning.add_persona_learning_review(review_data)
+        learning = self._learning_facade_or_none("add_persona_learning_review")
+        if learning is None:
+            return 0
+        return await learning.add_persona_learning_review(review_data)
 
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_update_records()
+        learning = self._learning_facade_or_none("get_pending_persona_update_records")
+        if learning is None:
+            return []
+        return await learning.get_pending_persona_update_records()
 
     async def save_persona_update_record(self, record_data: Dict[str, Any]) -> int:
-        return await self._learning.save_persona_update_record(record_data)
+        return await self._call_learning("save_persona_update_record", 0, record_data)
 
     async def delete_persona_update_record(self, record_id: int) -> bool:
-        return await self._learning.delete_persona_update_record(record_id)
+        return await self._call_learning("delete_persona_update_record", False, record_id)
 
     async def get_persona_update_record_by_id(
         self, record_id: int,
     ) -> Optional[Dict[str, Any]]:
-        return await self._learning.get_persona_update_record_by_id(record_id)
+        return await self._call_learning(
+            "get_persona_update_record_by_id",
+            None,
+            record_id,
+        )
 
     async def get_reviewed_persona_update_records(
         self,
@@ -528,128 +585,172 @@ class SQLAlchemyDatabaseManager:
         offset: int = 0,
         status_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_update_records(
+        return await self._call_learning(
+            "get_reviewed_persona_update_records",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def update_persona_update_record_status(
         self, record_id: int, status: str, comment: str = None,
     ) -> bool:
-        return await self._learning.update_persona_update_record_status(
+        return await self._call_learning(
+            "update_persona_update_record_status",
+            False,
             record_id, status, comment,
         )
 
     async def create_style_learning_review(
         self, review_data: Dict[str, Any],
     ) -> int:
-        return await self._learning.create_style_learning_review(review_data)
+        learning = self._learning_facade_or_none("create_style_learning_review")
+        if learning is None:
+            return 0
+        return await learning.create_style_learning_review(review_data)
 
     async def get_pending_style_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_style_reviews(limit, offset)
+        learning = self._learning_facade_or_none("get_pending_style_reviews")
+        if learning is None:
+            return []
+        return await learning.get_pending_style_reviews(limit, offset)
 
     async def get_reviewed_style_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_style_learning_updates(
+        learning = self._learning_facade_or_none("get_reviewed_style_learning_updates")
+        if learning is None:
+            return []
+        return await learning.get_reviewed_style_learning_updates(
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def update_style_review_status(
         self, review_id: int, status: str, reviewer_comment: str = '',
     ) -> bool:
-        return await self._learning.update_style_review_status(
+        return await self._call_learning(
+            "update_style_review_status",
+            False,
             review_id, status, reviewer_comment,
         )
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:
-        return await self._learning.delete_style_review_by_id(review_id)
+        learning = self._learning_facade_or_none("delete_style_review_by_id")
+        if learning is None:
+            return False
+        return await learning.delete_style_review_by_id(review_id)
 
     async def get_approved_few_shots(
         self, group_id: str, limit: int = 3,
     ) -> List[str]:
-        return await self._learning.get_approved_few_shots(group_id, limit)
+        return await self._call_learning("get_approved_few_shots", [], group_id, limit)
 
     async def get_pending_persona_learning_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_learning_reviews(limit, offset)
+        learning = self._learning_facade_or_none("get_pending_persona_learning_reviews")
+        if learning is None:
+            return []
+        return await learning.get_pending_persona_learning_reviews(limit, offset)
 
     async def get_reviewed_persona_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_learning_updates(
+        learning = self._learning_facade_or_none("get_reviewed_persona_learning_updates")
+        if learning is None:
+            return []
+        return await learning.get_reviewed_persona_learning_updates(
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
-        return await self._learning.delete_persona_learning_review_by_id(review_id)
+        learning = self._learning_facade_or_none("delete_persona_learning_review_by_id")
+        if learning is None:
+            return False
+        return await learning.delete_persona_learning_review_by_id(review_id)
 
     async def get_persona_learning_review_by_id(
         self, review_id: int,
     ) -> Optional[Dict[str, Any]]:
-        return await self._learning.get_persona_learning_review_by_id(review_id)
+        learning = self._learning_facade_or_none("get_persona_learning_review_by_id")
+        if learning is None:
+            return None
+        return await learning.get_persona_learning_review_by_id(review_id)
 
     async def update_persona_learning_review_status(
         self, review_id: int, status: str, comment: str = None,
         modified_content: str = None,
     ) -> bool:
-        return await self._learning.update_persona_learning_review_status(
+        return await self._call_learning(
+            "update_persona_learning_review_status",
+            False,
             review_id, status, comment, modified_content,
         )
 
     async def get_learning_batch_history(
         self, group_id: str = None, limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_learning_batch_history(group_id, limit)
+        return await self._call_learning(
+            "get_learning_batch_history",
+            [],
+            group_id,
+            limit,
+        )
 
     async def get_recent_learning_batches(
         self, limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_recent_learning_batches(limit)
+        return await self._call_learning("get_recent_learning_batches", [], limit)
 
     async def get_learning_sessions(self, group_id: str) -> List[Dict[str, Any]]:
-        return await self._learning.get_learning_sessions(group_id)
+        return await self._call_learning("get_learning_sessions", [], group_id)
 
     async def get_recent_learning_sessions(
         self, days: int = 7,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_recent_learning_sessions(days)
+        return await self._call_learning("get_recent_learning_sessions", [], days)
 
     async def save_learning_session_record(
         self, group_id: str, session_data: Dict[str, Any],
     ) -> bool:
-        return await self._learning.save_learning_session_record(group_id, session_data)
+        return await self._call_learning(
+            "save_learning_session_record",
+            False,
+            group_id,
+            session_data,
+        )
 
     async def save_learning_performance_record(
         self, group_id: str, performance_data: Dict[str, Any],
     ) -> bool:
-        return await self._learning.save_learning_performance_record(
+        return await self._call_learning(
+            "save_learning_performance_record",
+            False,
             group_id, performance_data,
         )
 
     async def count_pending_persona_updates(self) -> int:
-        return await self._learning.count_pending_persona_updates()
+        return await self._call_learning("count_pending_persona_updates", 0)
 
     async def count_style_learning_patterns(self) -> int:
-        return await self._learning.count_style_learning_patterns()
+        return await self._call_learning("count_style_learning_patterns", 0)
 
     async def count_refined_messages(self) -> int:
-        return await self._learning.count_refined_messages()
+        return await self._call_learning("count_refined_messages", 0)
 
     async def get_style_learning_statistics(self) -> Dict[str, Any]:
-        return await self._learning.get_style_learning_statistics()
+        return await self._call_learning("get_style_learning_statistics", {})
 
     async def get_style_progress_data(
         self, group_id: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_style_progress_data(group_id)
+        return await self._call_learning("get_style_progress_data", [], group_id)
 
     async def get_learning_patterns_data(
         self, group_id: str = None,
     ) -> Dict[str, Any]:
-        return await self._learning.get_learning_patterns_data(group_id)
+        return await self._call_learning("get_learning_patterns_data", {}, group_id)
 
     # Domain delegates: JargonFacade
 
