@@ -325,3 +325,30 @@ def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
     assert url.drivername == "mysql+aiomysql"
     assert captured["pool_pre_ping"] is False
     assert captured["connect_args"]["charset"] == "utf8mb4"
+
+
+@pytest.mark.asyncio
+async def test_learning_review_queries_return_empty_before_database_start(tmp_path):
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
+    )
+
+    assert await manager.get_pending_persona_learning_reviews() == []
+    assert await manager.get_pending_style_reviews() == []
+    assert await manager.get_reviewed_persona_learning_updates() == []
+
+
+@pytest.mark.asyncio
+async def test_learning_review_queries_recover_missing_facade_after_start(tmp_path):
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
+    )
+
+    try:
+        assert await manager.start() is True
+        manager._learning = None
+
+        assert await manager.get_pending_persona_learning_reviews() == []
+        assert manager._learning is not None
+    finally:
+        await manager.stop()
