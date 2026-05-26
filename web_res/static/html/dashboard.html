@@ -5242,13 +5242,18 @@
 
                     const data = await safeFetch(`/api/jargon/list?${params.toString()}`);
                     let items = extractJargonItems(data);
-                    const total = (data && data.total) || items.length;
+                    let total = (data && data.total) || items.length;
 
                     // Client-side filters for global/local
                     if (state.jargon.filter === 'global') {
                         items = items.filter((it) => it.is_global);
                     } else if (state.jargon.filter === 'local') {
                         items = items.filter((it) => !it.is_global);
+                    }
+
+                    // For client-side global/local filters, keep total in sync with visible items
+                    if (state.jargon.filter === 'global' || state.jargon.filter === 'local') {
+                        total = items.length;
                     }
 
                     // Client-side sort
