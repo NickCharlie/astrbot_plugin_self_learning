@@ -324,6 +324,9 @@ class PluginConfig(BaseModel):
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {}) # 新增：目标驱动对话设置
         v2_settings = config.get('V2_Architecture_Settings', {}) # v2架构升级设置
         integration_settings = config.get('Integration_Settings', {}) # 功能融合设置
+        maibot_enhancement = config.get('MaiBot_Enhancement', {})
+        persona_evolution_settings = config.get('Persona_Evolution_Settings', {})
+        runtime_internal_settings = config.get('Runtime_Internal_Settings', {})
 
         # 添加调试日志：显示目标驱动对话配置数据
         logger.info(f" [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
@@ -339,6 +342,12 @@ class PluginConfig(BaseModel):
             enable_web_interface=basic_settings.get('enable_web_interface', True),
             web_interface_port=basic_settings.get('web_interface_port', 7833),
             web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
+
+            enable_maibot_features=maibot_enhancement.get('enable_maibot_features', True),
+            enable_expression_patterns=maibot_enhancement.get('enable_expression_patterns', True),
+            enable_memory_graph=maibot_enhancement.get('enable_memory_graph', True),
+            enable_knowledge_graph=maibot_enhancement.get('enable_knowledge_graph', True),
+            enable_time_decay=maibot_enhancement.get('enable_time_decay', True),
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),
@@ -377,7 +386,7 @@ class PluginConfig(BaseModel):
             relevance_threshold=filter_params.get('relevance_threshold', 0.6),
 
             style_analysis_batch_size=style_analysis.get('style_analysis_batch_size', 100),
-            style_update_threshold=style_analysis.get('style_update_threshold', 0.8),
+            style_update_threshold=style_analysis.get('style_update_threshold', 0.6),
 
             # 消息统计 (这个字段通常不是从外部配置加载，而是内部维护的，这里保留默认值)
             total_messages_collected=0,
@@ -410,11 +419,26 @@ class PluginConfig(BaseModel):
             mood_change_hour=mood_settings.get('mood_change_hour', 6),
             mood_persistence_hours=mood_settings.get('mood_persistence_hours', 24),
 
-            # PersonaUpdater配置 (这些可能不是直接从 _conf_schema.json 的顶层获取，而是从其他地方或默认值)
-            persona_merge_strategy=config.get('persona_merge_strategy', 'smart'),
-            max_mood_imitation_dialogs=config.get('max_mood_imitation_dialogs', 20),
-            enable_persona_evolution=config.get('enable_persona_evolution', True),
-            persona_compatibility_threshold=config.get('persona_compatibility_threshold', 0.6),
+            # PersonaUpdater配置
+            persona_merge_strategy=persona_evolution_settings.get(
+                'persona_merge_strategy',
+                config.get('persona_merge_strategy', 'smart'),
+            ),
+            max_mood_imitation_dialogs=persona_evolution_settings.get(
+                'max_mood_imitation_dialogs',
+                config.get('max_mood_imitation_dialogs', 20),
+            ),
+            enable_persona_evolution=persona_evolution_settings.get(
+                'enable_persona_evolution',
+                config.get('enable_persona_evolution', True),
+            ),
+            persona_compatibility_threshold=persona_evolution_settings.get(
+                'persona_compatibility_threshold',
+                config.get('persona_compatibility_threshold', 0.6),
+            ),
+            use_persona_manager_updates=persona_evolution_settings.get('use_persona_manager_updates', True),
+            auto_apply_persona_updates=persona_evolution_settings.get('auto_apply_persona_updates', True),
+            persona_update_backup_enabled=persona_evolution_settings.get('persona_update_backup_enabled', True),
 
             # API设置
             api_key=api_settings.get('api_key', ''),
@@ -439,9 +463,25 @@ class PluginConfig(BaseModel):
             # 重构功能配置
             # 强制使用 SQLAlchemy ORM，忽略配置文件中的设置
             use_sqlalchemy=True, # 硬编码为 True
-            enable_memory_cleanup=advanced_settings.get('enable_memory_cleanup', True),
-            memory_cleanup_days=advanced_settings.get('memory_cleanup_days', 30),
-            memory_importance_threshold=advanced_settings.get('memory_importance_threshold', 0.3),
+            enable_memory_cleanup=runtime_internal_settings.get(
+                'enable_memory_cleanup',
+                advanced_settings.get('enable_memory_cleanup', True),
+            ),
+            memory_cleanup_days=runtime_internal_settings.get(
+                'memory_cleanup_days',
+                advanced_settings.get('memory_cleanup_days', 30),
+            ),
+            memory_importance_threshold=runtime_internal_settings.get(
+                'memory_importance_threshold',
+                advanced_settings.get('memory_importance_threshold', 0.3),
+            ),
+            shutdown_step_timeout=runtime_internal_settings.get('shutdown_step_timeout', 8),
+            task_cancel_timeout=runtime_internal_settings.get('task_cancel_timeout', 3),
+            service_stop_timeout=runtime_internal_settings.get('service_stop_timeout', 5),
+            llm_hook_injection_target=runtime_internal_settings.get(
+                'llm_hook_injection_target',
+                'system_prompt',
+            ),
 
             # 社交上下文注入设置
             enable_social_context_injection=social_context_settings.get('enable_social_context_injection', True),
