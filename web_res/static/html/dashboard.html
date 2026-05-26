@@ -2214,6 +2214,8 @@
                     busy: false,
                 },
                 actionBusy: new Set(),
+                pendingConfirm: null,
+                confirmTimer: null,
                 graph: {
                     type: 'memory',
                     layout: 'force',
@@ -3202,18 +3204,58 @@
                 }
                 const busyKey = `${action}:${id}`;
                 const busy = state.actionBusy.has(busyKey);
+                const pending = state.pendingConfirm
+                    && state.pendingConfirm.action === action
+                    && state.pendingConfirm.id === String(id);
+                const displayIcon = pending ? 'check' : icon;
+                const displayLabel = pending ? '确认删除?' : label;
+                const displayTone = pending ? 'danger' : tone;
                 return `
                     <button
-                        class="action-btn ${tone}"
+                        class="action-btn ${displayTone}"
                         type="button"
                         data-dashboard-action="${escapeHtml(action)}"
                         data-id="${escapeHtml(id)}"
                         ${busy ? 'disabled' : ''}
                     >
-                        <span class="material-icons" style="font-size:15px;">${escapeHtml(icon)}</span>
-                        <span>${escapeHtml(label)}</span>
+                        <span class="material-icons" style="font-size:15px;">${escapeHtml(displayIcon)}</span>
+                        <span>${escapeHtml(displayLabel)}</span>
                     </button>
                 `;
+            }
+
+            function resetPendingConfirm() {
+                if (state.confirmTimer) {
+                    clearTimeout(state.confirmTimer);
+                    state.confirmTimer = null;
+                }
+                state.pendingConfirm = null;
+            }
+
+            function requireDeleteConfirmation(action, id, label) {
+                const normalizedId = String(id);
+                if (
+                    state.pendingConfirm
+                    && state.pendingConfirm.action === action
+                    && state.pendingConfirm.id === normalizedId
+                ) {
+                    resetPendingConfirm();
+                    return true;
+                }
+
+                resetPendingConfirm();
+                state.pendingConfirm = { action, id: normalizedId };
+                state.confirmTimer = setTimeout(() => {
+                    resetPendingConfirm();
+                    if (state.data) {
+                        renderAll(state.data);
+                    }
+                }, 3000);
+                setQueueStatus(`再次点击确认删除${label}。`);
+                if (state.data) {
+                    renderAll(state.data);
+                }
+                return false;
             }
 
             function setQueueStatus(message, tone = '') {
@@ -4699,6 +4741,13 @@
                     return;
                 }
 
+                if (action === 'persona-delete' && !requireDeleteConfirmation(action, id, '审查记录')) {
+                    return;
+                }
+                if (action === 'jargon-delete' && !requireDeleteConfirmation(action, id, '黑话记录')) {
+                    return;
+                }
+
                 state.actionBusy.add(busyKey);
                 renderAll(state.data || {});
                 setQueueStatus('正在处理操作。');
@@ -4710,10 +4759,6 @@
                             action: action === 'persona-approve' ? 'approve' : 'reject',
                         });
                     } else if (action === 'persona-delete') {
-                        if (!window.confirm('确定删除这条审查记录？')) {
-                            setQueueStatus('已取消操作。');
-                            return;
-                        }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'jargon-approve' || action === 'jargon-reject') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, {
@@ -4722,10 +4767,6 @@
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {
-                        if (!window.confirm('确定删除这条黑话记录？')) {
-                            setQueueStatus('已取消操作。');
-                            return;
-                        }
                         payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
                     } else if (action === 'batch-relearn') {
                         payload = await postJson('/api/relearn', { group_id: id });
