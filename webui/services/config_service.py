@@ -322,15 +322,17 @@ class ConfigService:
         return None
 
     def _flatten_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        flat: Dict[str, Any] = {}
+        grouped: Dict[str, Any] = {}
+        direct: Dict[str, Any] = {}
 
         for key, value in payload.items():
             if isinstance(value, dict):
-                flat.update(self._flatten_payload(value))
+                grouped.update(self._flatten_payload(value))
             else:
-                flat[key] = value
+                direct[key] = value
 
-        return flat
+        # AstrBot's grouped plugin-page config is authoritative over stale top-level compatibility keys.
+        return {**direct, **grouped}
 
     def _merged_schema_definition(self) -> Dict[str, Any]:
         return self._merge_schema_definitions(
