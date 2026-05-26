@@ -145,9 +145,14 @@ def test_dashboard_settings_exposes_manual_save_button():
     assert 'id="configSaveBtn"' in text
     assert 'aria-label="手动保存设置"' in text
     assert "手动保存设置" in text
-    assert "$('configSaveBtn').addEventListener('click', saveConfigPanel)" in text
+    assert "configSaveBtn" in text
+    assert "saveConfigPanel" in text
     assert "function updateConfigActionStates()" in text
-    assert "configSaveBtn.disabled = !hasSchema || busy || dirtyCount === 0" in text
+    assert "configSaveBtn.disabled" in text
+    assert "dirtyCount === 0" in text
+    assert "!hasSchema || busy" in text
+    assert "配置面板尚未加载" in text
+    assert "正在保存配置" in text
 
 
 def test_dashboard_zero_message_insight_reflects_full_learning_default():

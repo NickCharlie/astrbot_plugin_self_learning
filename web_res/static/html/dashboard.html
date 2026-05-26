@@ -4244,23 +4244,44 @@
 
             function updateConfigActionStates() {
                 const hasSchema = Boolean(state.config.schema);
-                const busy = Boolean(state.config.loading || state.config.saving);
+                const loading = Boolean(state.config.loading);
+                const saving = Boolean(state.config.saving);
+                const busy = loading || saving;
                 const dirtyCount = state.config.dirtyKeys ? state.config.dirtyKeys.size : 0;
                 const configSaveBtn = $('configSaveBtn');
                 if (configSaveBtn) {
                     configSaveBtn.disabled = !hasSchema || busy || dirtyCount === 0;
-                    configSaveBtn.title = dirtyCount > 0
-                        ? `手动保存 ${dirtyCount} 项设置修改`
-                        : '没有未保存的设置修改';
+                    if (!hasSchema) {
+                        configSaveBtn.title = '配置面板尚未加载';
+                    } else if (loading) {
+                        configSaveBtn.title = '正在加载配置';
+                    } else if (saving) {
+                        configSaveBtn.title = '正在保存配置';
+                    } else if (dirtyCount > 0) {
+                        configSaveBtn.title = `手动保存 ${dirtyCount} 项设置修改`;
+                    } else {
+                        configSaveBtn.title = '没有未保存的设置修改';
+                    }
                 }
 
                 const integrationSaveBtn = $('integrationConfigSaveBtn');
                 if (integrationSaveBtn) {
+                    const integrationGroup = getIntegrationSettingsGroup();
                     const integrationCount = integrationDirtyCount();
-                    integrationSaveBtn.disabled = !hasSchema || busy || !getIntegrationSettingsGroup() || integrationCount === 0;
-                    integrationSaveBtn.title = integrationCount > 0
-                        ? `保存 ${integrationCount} 项融合设置修改`
-                        : '没有未保存的融合设置修改';
+                    integrationSaveBtn.disabled = !hasSchema || busy || !integrationGroup || integrationCount === 0;
+                    if (!hasSchema) {
+                        integrationSaveBtn.title = '配置面板尚未加载';
+                    } else if (loading) {
+                        integrationSaveBtn.title = '正在加载融合设置';
+                    } else if (saving) {
+                        integrationSaveBtn.title = '正在保存融合设置';
+                    } else if (!integrationGroup) {
+                        integrationSaveBtn.title = '未找到融合设置配置组';
+                    } else if (integrationCount > 0) {
+                        integrationSaveBtn.title = `保存 ${integrationCount} 项融合设置修改`;
+                    } else {
+                        integrationSaveBtn.title = '没有未保存的融合设置修改';
+                    }
                 }
             }
 
