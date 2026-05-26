@@ -3,9 +3,9 @@
 """
 import os
 import json
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, ValidationError, field_validator
 
 try:
     from .utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
@@ -472,6 +472,79 @@ class PluginConfig(BaseModel):
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', DEFAULT_DATA_DIR)
         )
+
+    @classmethod
+    def _flatten_config_payload(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten grouped config with direct fields taking precedence."""
+        grouped: Dict[str, Any] = {}
+        direct: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if isinstance(value, dict) and key not in cls.model_fields:
+                nested = cls._flatten_config_payload(value)
+                duplicated = sorted(set(grouped) & set(nested))
+                if duplicated:
+                    logger.info(
+                        "持久化配置分组字段覆盖较早分组字段: "
+                        f"{', '.join(duplicated)}"
+                    )
+                grouped.update(nested)
+            else:
+                direct[key] = value
+
+        duplicated = sorted(set(grouped) & set(direct))
+        if duplicated:
+            logger.info(
+                "持久化配置顶层字段覆盖分组字段: "
+                f"{', '.join(duplicated)}"
+            )
+
+        return {**grouped, **direct}
+
+    @classmethod
+    def create_from_runtime_sources(
+        cls,
+        config: dict,
+        data_dir: Optional[str] = None,
+        config_file: Optional[str] = None,
+    ) -> 'PluginConfig':
+        """Create config from AstrBot settings and optional persisted WebUI config."""
+        runtime_config = cls.create_from_config(config or {}, data_dir=data_dir)
+        if not config_file or not os.path.exists(config_file):
+            return runtime_config
+
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                persisted_data = json.load(f)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+            logger.warning(f"读取持久化配置失败，继续使用AstrBot配置: {e}")
+            return runtime_config
+
+        if not isinstance(persisted_data, dict):
+            logger.warning("持久化配置格式无效，继续使用AstrBot配置")
+            return runtime_config
+
+        merged = runtime_config.to_dict()
+        persisted_config = cls._flatten_config_payload(persisted_data)
+        overridden = sorted(
+            key
+            for key, value in persisted_config.items()
+            if key in merged and merged[key] != value
+        )
+        if overridden:
+            logger.info(
+                "持久化配置覆盖AstrBot运行时字段: "
+                f"{', '.join(overridden)}"
+            )
+        merged.update(persisted_config)
+
+        try:
+            loaded_config = cls.model_validate(merged)
+        except ValidationError as e:
+            logger.warning(f"持久化配置校验失败，继续使用AstrBot配置: {e}")
+            return runtime_config
+
+        logger.info(f"已加载持久化插件配置: {config_file}")
+        return loaded_config
 
     @classmethod
     def create_default(cls) -> 'PluginConfig':

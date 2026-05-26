@@ -539,3 +539,101 @@ class TestPluginConfigSerialization:
             assert loaded_config.enable_message_capture is True
         finally:
             os.unlink(filepath)
+
+    def test_create_from_runtime_sources_loads_persisted_flat_config(self, tmp_path):
+        """Persisted WebUI config should override AstrBot startup defaults."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "db_type": "postgresql",
+                    "postgresql_host": "pg",
+                    "postgresql_database": "learning_db",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.data_dir == str(tmp_path)
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "pg"
+        assert config.postgresql_database == "learning_db"
+
+    def test_create_from_runtime_sources_loads_persisted_grouped_config(self, tmp_path):
+        """Grouped persisted config should use the same fields as AstrBot config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "Database_Settings": {
+                        "db_type": "sqlite",
+                        "postgresql_host": "pg",
+                    },
+                    "Self_Learning_Basic": {
+                        "enable_message_capture": False,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {"Database_Settings": {"db_type": "postgresql"}},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "sqlite"
+        assert config.postgresql_host == "pg"
+        assert config.enable_message_capture is False
+
+    def test_create_from_runtime_sources_top_level_overrides_grouped_config(self, tmp_path):
+        """Top-level persisted fields should win over grouped persisted fields."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "Database_Settings": {
+                        "db_type": "postgresql",
+                        "postgresql_host": "grouped-host",
+                    },
+                    "db_type": "sqlite",
+                    "postgresql_host": "top-level-host",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "sqlite"
+        assert config.postgresql_host == "top-level-host"
+
+    def test_create_from_runtime_sources_invalid_json_keeps_runtime_config(self, tmp_path):
+        """Malformed persisted JSON should fall back to AstrBot runtime config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{not valid json", encoding="utf-8")
+
+        config = PluginConfig.create_from_runtime_sources(
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "runtime-host",
+                }
+            },
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "runtime-host"
