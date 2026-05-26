@@ -352,3 +352,31 @@ async def test_learning_review_queries_recover_missing_facade_after_start(tmp_pa
         assert manager._learning is not None
     finally:
         await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_jargon_queries_return_empty_before_database_start(tmp_path):
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
+    )
+
+    assert await manager.get_jargon_statistics() == manager._empty_jargon_statistics()
+    assert await manager.get_jargon_count() == 0
+    assert await manager.get_recent_jargon_list() == []
+
+
+@pytest.mark.asyncio
+async def test_jargon_queries_recover_missing_facade_after_start(tmp_path):
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
+    )
+
+    try:
+        assert await manager.start() is True
+        manager._jargon = None
+
+        assert await manager.get_jargon_count() == 0
+        assert await manager.get_recent_jargon_list() == []
+        assert manager._jargon is not None
+    finally:
+        await manager.stop()
