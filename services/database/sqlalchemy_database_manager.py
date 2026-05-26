@@ -184,6 +184,29 @@ class SQLAlchemyDatabaseManager:
         return facade
 
     @staticmethod
+    def _empty_message_statistics() -> Dict[str, Any]:
+        return {
+            'total_messages': 0,
+            'raw_messages': 0,
+            'filtered_messages': 0,
+            'bot_messages': 0,
+        }
+
+    @staticmethod
+    def _empty_expression_patterns_statistics() -> Dict[str, Any]:
+        return {
+            'total_patterns': 0,
+            'groups_with_patterns': 0,
+        }
+
+    @staticmethod
+    def _empty_trends_data() -> Dict[str, Any]:
+        return {
+            'daily_messages': {},
+            'recent_batches': [],
+        }
+
+    @staticmethod
     def _empty_jargon_statistics() -> Dict[str, Any]:
         return {
             'total_candidates': 0,
@@ -229,6 +252,50 @@ class SQLAlchemyDatabaseManager:
         return await self._call_facade(
             lambda: self._jargon,
             "JargonFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_message(self, operation: str, default: Any, *args, **kwargs):
+        """Call a MessageFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._message,
+            "MessageFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_expression(self, operation: str, default: Any, *args, **kwargs):
+        """Call an ExpressionFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._expression,
+            "ExpressionFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_reinforcement(self, operation: str, default: Any, *args, **kwargs):
+        """Call a ReinforcementFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._reinforcement,
+            "ReinforcementFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_metrics(self, operation: str, default: Any, *args, **kwargs):
+        """Call a MetricsFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._metrics,
+            "MetricsFacade",
             operation,
             default,
             *args,
@@ -558,10 +625,23 @@ class SQLAlchemyDatabaseManager:
     async def get_message_statistics(
         self, group_id: str = None,
     ) -> Dict[str, Any]:
-        return await self._message.get_message_statistics(group_id)
+        if group_id is None:
+            default = self._empty_message_statistics()
+        else:
+            default = {
+                'total_messages': 0,
+                'unprocessed_messages': 0,
+                'filtered_messages': 0,
+                'raw_messages': 0,
+                'group_id': group_id,
+            }
+        return await self._call_message("get_message_statistics", default, group_id)
 
     async def get_messages_statistics(self) -> Dict[str, Any]:
-        return await self._message.get_messages_statistics()
+        return await self._call_message(
+            "get_messages_statistics",
+            self._empty_message_statistics(),
+        )
 
     async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
         return await self._message.get_group_messages_statistics(group_id)
@@ -945,7 +1025,10 @@ class SQLAlchemyDatabaseManager:
         return await self._expression.get_all_expression_patterns()
 
     async def get_expression_patterns_statistics(self) -> Dict[str, Any]:
-        return await self._expression.get_expression_patterns_statistics()
+        return await self._call_expression(
+            "get_expression_patterns_statistics",
+            self._empty_expression_patterns_statistics(),
+        )
 
     async def get_group_expression_patterns(
         self, group_id: str, limit: int = None,
@@ -1026,8 +1109,11 @@ class SQLAlchemyDatabaseManager:
     async def get_learning_performance_history(
         self, group_id: str, limit: int = 30,
     ) -> List[Dict[str, Any]]:
-        return await self._reinforcement.get_learning_performance_history(
-            group_id, limit,
+        return await self._call_reinforcement(
+            "get_learning_performance_history",
+            [],
+            group_id,
+            limit,
         )
 
     async def save_strategy_optimization_result(
@@ -1050,7 +1136,7 @@ class SQLAlchemyDatabaseManager:
         return await self._metrics.get_detailed_metrics(group_id)
 
     async def get_trends_data(self) -> Dict[str, Any]:
-        return await self._metrics.get_trends_data()
+        return await self._call_metrics("get_trends_data", self._empty_trends_data())
 
     # Domain delegates: AdminFacade
 

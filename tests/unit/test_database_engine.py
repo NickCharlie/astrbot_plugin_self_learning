@@ -366,6 +366,20 @@ async def test_jargon_queries_return_empty_before_database_start(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_dashboard_statistics_return_empty_before_database_start(tmp_path):
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
+    )
+
+    assert await manager.get_messages_statistics() == manager._empty_message_statistics()
+    assert await manager.get_expression_patterns_statistics() == (
+        manager._empty_expression_patterns_statistics()
+    )
+    assert await manager.get_learning_performance_history("default") == []
+    assert await manager.get_trends_data() == manager._empty_trends_data()
+
+
+@pytest.mark.asyncio
 async def test_jargon_queries_recover_missing_facade_after_start(tmp_path):
     manager = SQLAlchemyDatabaseManager(
         PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
