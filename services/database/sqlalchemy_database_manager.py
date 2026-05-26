@@ -8,7 +8,7 @@ DomainRouter — 薄路由层，将所有数据库方法委托给领域 Facade
 import os
 import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
 from astrbot.api import logger
@@ -142,7 +142,7 @@ class SQLAlchemyDatabaseManager:
 
     def _facade_or_none(
         self,
-        attr_name: str,
+        facade_getter: Callable[[], Any],
         facade_name: str,
         operation: str = "",
     ):
@@ -161,7 +161,7 @@ class SQLAlchemyDatabaseManager:
             )
             return None
 
-        facade = getattr(self, attr_name, None)
+        facade = facade_getter()
         if facade is not None:
             return facade
 
@@ -175,7 +175,7 @@ class SQLAlchemyDatabaseManager:
             )
             return None
 
-        facade = getattr(self, attr_name, None)
+        facade = facade_getter()
         if facade is None:
             logger.warning(
                 f"[DomainRouter] {facade_name} 不可用，"
@@ -183,9 +183,20 @@ class SQLAlchemyDatabaseManager:
             )
         return facade
 
+    @staticmethod
+    def _empty_jargon_statistics() -> Dict[str, Any]:
+        return {
+            'total_candidates': 0,
+            'confirmed_jargon': 0,
+            'completed_inference': 0,
+            'total_occurrences': 0,
+            'average_count': 0,
+            'active_groups': 0,
+        }
+
     async def _call_facade(
         self,
-        attr_name: str,
+        facade_getter: Callable[[], Any],
         facade_name: str,
         operation: str,
         default: Any,
@@ -193,7 +204,7 @@ class SQLAlchemyDatabaseManager:
         **kwargs,
     ):
         """Call a facade method if it is ready, otherwise return default."""
-        facade = self._facade_or_none(attr_name, facade_name, operation)
+        facade = self._facade_or_none(facade_getter, facade_name, operation)
         if facade is None:
             return default
         method = getattr(facade, operation, None)
@@ -205,13 +216,23 @@ class SQLAlchemyDatabaseManager:
     async def _call_learning(self, operation: str, default: Any, *args, **kwargs):
         """Call a LearningFacade method if it is ready, otherwise return default."""
         return await self._call_facade(
-            "_learning", "LearningFacade", operation, default, *args, **kwargs,
+            lambda: self._learning,
+            "LearningFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
         )
 
     async def _call_jargon(self, operation: str, default: Any, *args, **kwargs):
         """Call a JargonFacade method if it is ready, otherwise return default."""
         return await self._call_facade(
-            "_jargon", "JargonFacade", operation, default, *args, **kwargs,
+            lambda: self._jargon,
+            "JargonFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
         )
 
     # Infrastructure: database URL
@@ -780,14 +801,7 @@ class SQLAlchemyDatabaseManager:
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         return await self._call_jargon(
             "get_jargon_statistics",
-            {
-                'total_candidates': 0,
-                'confirmed_jargon': 0,
-                'completed_inference': 0,
-                'total_occurrences': 0,
-                'average_count': 0,
-                'active_groups': 0,
-            },
+            self._empty_jargon_statistics(),
             group_id,
         )
 

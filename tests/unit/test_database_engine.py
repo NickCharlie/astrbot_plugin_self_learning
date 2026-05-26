@@ -360,14 +360,7 @@ async def test_jargon_queries_return_empty_before_database_start(tmp_path):
         PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
     )
 
-    assert await manager.get_jargon_statistics() == {
-        "total_candidates": 0,
-        "confirmed_jargon": 0,
-        "completed_inference": 0,
-        "total_occurrences": 0,
-        "average_count": 0,
-        "active_groups": 0,
-    }
+    assert await manager.get_jargon_statistics() == manager._empty_jargon_statistics()
     assert await manager.get_jargon_count() == 0
     assert await manager.get_recent_jargon_list() == []
 
