@@ -62,6 +62,16 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "renderContextExamples(item)" in text
 
 
+def test_dashboard_review_deletes_use_inline_confirmation():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "pendingConfirm: null" in text
+    assert "requireDeleteConfirmation(action, id, '审查记录')" in text
+    assert "requireDeleteConfirmation(action, id, '黑话记录')" in text
+    assert "确定删除这条审查记录" not in text
+    assert "确定删除这条黑话记录" not in text
+
+
 def test_dashboard_exposes_structured_ai_insight_panel():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
