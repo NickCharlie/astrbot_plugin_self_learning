@@ -553,16 +553,10 @@ class SQLAlchemyDatabaseManager:
                 'original_content': original_content,
                 'new_content': new_content,
             }
-        learning = self._learning_facade_or_none("add_persona_learning_review")
-        if learning is None:
-            return 0
-        return await learning.add_persona_learning_review(review_data)
+        return await self._call_learning("add_persona_learning_review", 0, review_data)
 
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_pending_persona_update_records")
-        if learning is None:
-            return []
-        return await learning.get_pending_persona_update_records()
+        return await self._call_learning("get_pending_persona_update_records", [])
 
     async def save_persona_update_record(self, record_data: Dict[str, Any]) -> int:
         return await self._call_learning("save_persona_update_record", 0, record_data)
@@ -603,26 +597,19 @@ class SQLAlchemyDatabaseManager:
     async def create_style_learning_review(
         self, review_data: Dict[str, Any],
     ) -> int:
-        learning = self._learning_facade_or_none("create_style_learning_review")
-        if learning is None:
-            return 0
-        return await learning.create_style_learning_review(review_data)
+        return await self._call_learning("create_style_learning_review", 0, review_data)
 
     async def get_pending_style_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_pending_style_reviews")
-        if learning is None:
-            return []
-        return await learning.get_pending_style_reviews(limit, offset)
+        return await self._call_learning("get_pending_style_reviews", [], limit, offset)
 
     async def get_reviewed_style_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_reviewed_style_learning_updates")
-        if learning is None:
-            return []
-        return await learning.get_reviewed_style_learning_updates(
+        return await self._call_learning(
+            "get_reviewed_style_learning_updates",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
@@ -636,10 +623,7 @@ class SQLAlchemyDatabaseManager:
         )
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:
-        learning = self._learning_facade_or_none("delete_style_review_by_id")
-        if learning is None:
-            return False
-        return await learning.delete_style_review_by_id(review_id)
+        return await self._call_learning("delete_style_review_by_id", False, review_id)
 
     async def get_approved_few_shots(
         self, group_id: str, limit: int = 3,
@@ -649,34 +633,37 @@ class SQLAlchemyDatabaseManager:
     async def get_pending_persona_learning_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_pending_persona_learning_reviews")
-        if learning is None:
-            return []
-        return await learning.get_pending_persona_learning_reviews(limit, offset)
+        return await self._call_learning(
+            "get_pending_persona_learning_reviews",
+            [],
+            limit,
+            offset,
+        )
 
     async def get_reviewed_persona_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_reviewed_persona_learning_updates")
-        if learning is None:
-            return []
-        return await learning.get_reviewed_persona_learning_updates(
+        return await self._call_learning(
+            "get_reviewed_persona_learning_updates",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
-        learning = self._learning_facade_or_none("delete_persona_learning_review_by_id")
-        if learning is None:
-            return False
-        return await learning.delete_persona_learning_review_by_id(review_id)
+        return await self._call_learning(
+            "delete_persona_learning_review_by_id",
+            False,
+            review_id,
+        )
 
     async def get_persona_learning_review_by_id(
         self, review_id: int,
     ) -> Optional[Dict[str, Any]]:
-        learning = self._learning_facade_or_none("get_persona_learning_review_by_id")
-        if learning is None:
-            return None
-        return await learning.get_persona_learning_review_by_id(review_id)
+        return await self._call_learning(
+            "get_persona_learning_review_by_id",
+            None,
+            review_id,
+        )
 
     async def update_persona_learning_review_status(
         self, review_id: int, status: str, comment: str = None,
