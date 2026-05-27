@@ -299,6 +299,42 @@ class JargonService:
             logger.error(f"审查黑话失败: {e}", exc_info=True)
             raise
 
+    async def update_jargon(
+        self,
+        jargon_id: int,
+        content: Optional[str] = None,
+        meaning: Optional[str] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """编辑已确认黑话的词条或释义。"""
+        if not self.database_manager:
+            raise ValueError('数据库管理器未初始化')
+
+        try:
+            current = await self.database_manager.get_jargon_by_id(jargon_id)
+            if not current:
+                return False, "黑话不存在", {}
+
+            payload: Dict[str, Any] = {"id": jargon_id}
+            if content is not None:
+                payload["content"] = content
+            if meaning is not None:
+                payload["meaning"] = meaning
+
+            if len(payload) <= 1:
+                return False, "没有需要更新的字段", self._format_jargon_for_frontend(current)
+
+            success = await self.database_manager.update_jargon(payload)
+            if not success:
+                return False, "更新失败", self._format_jargon_for_frontend(current)
+
+            updated = await self.database_manager.get_jargon_by_id(jargon_id) or {**current, **payload}
+            formatted = self._format_jargon_for_frontend(updated)
+            return True, f"已更新黑话「{formatted.get('term') or jargon_id}」", formatted
+
+        except Exception as e:
+            logger.error(f"编辑黑话失败: {e}", exc_info=True)
+            raise
+
     async def toggle_jargon_global(self, jargon_id: int) -> Tuple[bool, str, bool]:
         """
         切换黑话的全局状态

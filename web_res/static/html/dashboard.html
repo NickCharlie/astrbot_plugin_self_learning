@@ -911,6 +911,35 @@
             margin-top: 10px;
         }
 
+        .jargon-edit-form {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .jargon-edit-form label {
+            font-size: 11px;
+            color: var(--muted, #888);
+            font-weight: 600;
+        }
+        .jargon-edit-form input,
+        .jargon-edit-form textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--surface, #1a1a2e);
+            color: var(--text);
+            font-size: 13px;
+            font-family: inherit;
+            resize: vertical;
+        }
+        .jargon-edit-form input:focus,
+        .jargon-edit-form textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
         .action-btn,
         .seg-btn {
             display: inline-flex;
@@ -2333,6 +2362,7 @@
                     search: '',
                     items: [],
                     loading: false,
+                    editingId: null,
                 },
                 batch: {
                     page: 1,
@@ -4740,6 +4770,28 @@
                 return payload;
             }
 
+            async function putJson(url, body = {}) {
+                const response = await fetch(url, {
+                    method: 'PUT',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch {
+                        payload = { raw: text };
+                    }
+                }
+                if (!response.ok) {
+                    throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+                }
+                return payload;
+            }
+
             function updateDependencyInstallStatus(message, tone = '') {
                 const status = $('dependencyStatus');
                 if (!status) {
@@ -4825,6 +4877,17 @@
                     return;
                 }
 
+                if (action === 'jargon-edit') {
+                    state.jargon.editingId = id;
+                    renderJargonPanel();
+                    return;
+                }
+                if (action === 'jargon-cancel-edit') {
+                    state.jargon.editingId = null;
+                    renderJargonPanel();
+                    return;
+                }
+
                 state.actionBusy.add(busyKey);
                 renderAll(state.data || {});
                 setQueueStatus('正在处理操作。');
@@ -4845,6 +4908,20 @@
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {
                         payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
+                    } else if (action === 'jargon-save') {
+                        const contentEl = document.getElementById(`jargon-edit-content-${id}`);
+                        const meaningEl = document.getElementById(`jargon-edit-meaning-${id}`);
+                        const newContent = contentEl ? contentEl.value.trim() : '';
+                        const newMeaning = meaningEl ? meaningEl.value.trim() : '';
+                        if (!newContent) {
+                            setQueueStatus('词条不能为空。', 'error');
+                            return;
+                        }
+                        payload = await putJson(`/api/jargon/${encodeURIComponent(id)}`, {
+                            content: newContent,
+                            meaning: newMeaning,
+                        });
+                        state.jargon.editingId = null;
                     } else if (action === 'batch-relearn') {
                         payload = await postJson('/api/relearn', { group_id: id });
                     } else if (action === 'batch-delete') {
@@ -5437,6 +5514,7 @@
                 $('jargonStats').innerHTML = jargonStatsMarkup.join('');
 
                 const items = state.jargon.items;
+                const editingId = state.jargon.editingId;
                 const jargonItems = items.map((item) => {
                     const id = item.id;
                     const title = item.term || item.content || item.word || '未命名';
@@ -5448,6 +5526,32 @@
                         item.created_at ? `创建 ${formatTime(item.created_at)}` : null,
                         item.updated_at ? `更新 ${formatTime(item.updated_at)}` : null,
                     ].filter(Boolean).join(' · ');
+
+                    if (editingId === id) {
+                        return `
+                            <div class="item" data-jargon-id="${escapeHtml(id)}">
+                                <div class="top">
+                                    <div class="title">编辑黑话</div>
+                                    <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
+                                </div>
+                                <div class="jargon-edit-form">
+                                    <label>词条</label>
+                                    <input type="text" id="jargon-edit-content-${id}" value="${escapeHtml(title)}" />
+                                    <label>释义</label>
+                                    <textarea id="jargon-edit-meaning-${id}" rows="3">${escapeHtml(definition)}</textarea>
+                                </div>
+                                <div class="item-actions">
+                                    <button class="action-btn success" type="button" data-dashboard-action="jargon-save" data-id="${id}">
+                                        <span class="material-icons">save</span> 保存
+                                    </button>
+                                    <button class="action-btn" type="button" data-dashboard-action="jargon-cancel-edit" data-id="${id}">
+                                        <span class="material-icons">close</span> 取消
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }
+
                     return `
                         <div class="item" data-jargon-id="${escapeHtml(id)}">
                             <div class="top">
@@ -5458,6 +5562,7 @@
                             <div class="body">${escapeHtml(definition || '暂无释义')}</div>
                             ${renderContextExamples(item)}
                             <div class="item-actions">
+                                ${item.is_confirmed ? actionButton('jargon-edit', id, 'edit', '编辑') : ''}
                                 ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
                                 ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
                                 ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}

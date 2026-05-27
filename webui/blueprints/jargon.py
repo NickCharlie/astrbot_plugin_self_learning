@@ -156,6 +156,41 @@ async def delete_jargon(jargon_id: int):
         return error_response(str(e), 500)
 
 
+@jargon_bp.route("/jargon/<int:jargon_id>", methods=["PUT"])
+@require_auth
+async def update_jargon(jargon_id: int):
+    """编辑黑话"""
+    try:
+        data = await request.get_json() or {}
+        content = data.get('content')
+        meaning = data.get('meaning')
+
+        if content is None and meaning is None:
+            return error_response('至少需要提供 content 或 meaning', 400)
+
+        container = get_container()
+        jargon_service = JargonService(container)
+        success, message, item = await jargon_service.update_jargon(
+            jargon_id, content=content, meaning=meaning
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message,
+                'item': item,
+                'data': item,
+            }), 200
+        else:
+            return error_response(message, 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"编辑黑话失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @jargon_bp.route("/jargon/<int:jargon_id>/review", methods=["POST"])
 @require_auth
 async def review_jargon(jargon_id: int):
