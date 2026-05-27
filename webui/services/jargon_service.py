@@ -62,6 +62,7 @@ class JargonService:
             'raw_content': j.get('raw_content', '[]'),
             'last_inference_count': j.get('last_inference_count', 0),
             'is_complete': bool(j.get('is_complete', False)),
+            'created_at': j.get('created_at'),
             'updated_at': j.get('updated_at'),
         }
 

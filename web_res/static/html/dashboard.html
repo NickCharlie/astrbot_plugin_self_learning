@@ -5445,6 +5445,8 @@
                         item.group_id ? `群组 ${item.group_id}` : null,
                         item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
                         item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                        item.created_at ? `创建 ${formatTime(item.created_at)}` : null,
+                        item.updated_at ? `更新 ${formatTime(item.updated_at)}` : null,
                     ].filter(Boolean).join(' · ');
                     return `
                         <div class="item" data-jargon-id="${escapeHtml(id)}">

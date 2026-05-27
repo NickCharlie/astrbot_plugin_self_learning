@@ -334,6 +334,7 @@ class JargonFacade(BaseFacade):
                             'last_inference_count': record.last_inference_count or 0,
                             'is_complete': record.is_complete,
                             'chat_id': record.chat_id,
+                            'created_at': record.created_at,
                             'updated_at': record.updated_at,
                             'is_global': record.is_global or False
                         })
@@ -444,6 +445,7 @@ class JargonFacade(BaseFacade):
                         'is_complete': r.is_complete,
                         'is_global': r.is_global or False,
                         'chat_id': r.chat_id,
+                        'created_at': r.created_at,
                         'updated_at': r.updated_at,
                     }
                     for r in records
@@ -734,6 +736,7 @@ class JargonFacade(BaseFacade):
                         'is_complete': jargon.is_complete,
                         'is_global': jargon.is_global,
                         'chat_id': jargon.chat_id,
+                        'created_at': jargon.created_at,
                         'updated_at': jargon.updated_at
                     }
                     for jargon in jargon_list
