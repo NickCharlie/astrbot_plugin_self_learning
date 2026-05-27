@@ -1652,6 +1652,21 @@
                 grid-template-columns: 1fr;
             }
         }
+        .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;}
+        .confirm-overlay.show{display:flex;}
+        .confirm-box{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:24px;max-width:360px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.25);}
+        .confirm-box .ctitle{font-size:15px;font-weight:600;margin-bottom:8px;}
+        .confirm-box .cmsg{font-size:13px;color:var(--muted,#888);margin-bottom:20px;line-height:1.5;}
+        .confirm-box .cbtns{display:flex;gap:10px;justify-content:flex-end;}
+        .confirm-box .cbtns button{padding:8px 18px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-size:13px;}
+        .confirm-box .cbtns button.danger{background:#e53e3e;border-color:#e53e3e;color:#fff;}
+        .confirm-box .cbtns button:hover{opacity:.85;}
+        .toast-wrap{position:fixed;top:16px;right:16px;z-index:10000;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+        .toast{padding:10px 18px;border-radius:8px;font-size:13px;color:#fff;pointer-events:auto;animation:toast-in .3s ease;box-shadow:0 4px 16px rgba(0,0,0,.2);}
+        .toast.ok{background:#38a169;} .toast.err{background:#e53e3e;} .toast.warn{background:#d69e2e;} .toast.info{background:#3182ce;}
+        .toast.out{animation:toast-out .25s ease forwards;}
+        @keyframes toast-in{from{opacity:0;transform:translateX(50px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes toast-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(50px)}}
     </style>
 </head>
 <body data-theme="light">
@@ -3394,6 +3409,43 @@
                 return false;
             }
 
+            function showToast(msg, type) {
+                var wrap = document.getElementById('toastWrap');
+                if (!wrap) return;
+                var el = document.createElement('div');
+                el.className = 'toast ' + (type || 'info');
+                el.textContent = msg;
+                wrap.appendChild(el);
+                setTimeout(function () {
+                    el.classList.add('out');
+                    el.addEventListener('animationend', function () { if (el.parentNode) el.parentNode.removeChild(el); }, { once: true });
+                }, 2800);
+            }
+
+            function showConfirm(title, message) {
+                var ov = document.getElementById('cfmOv');
+                var ti = document.getElementById('cfmTi');
+                var msg = document.getElementById('cfmMsg');
+                var yes = document.getElementById('cfmYes');
+                var no = document.getElementById('cfmNo');
+                return new Promise(function (resolve) {
+                    if (!ov) { resolve(false); return; }
+                    ti.textContent = title;
+                    msg.textContent = message;
+                    ov.classList.add('show');
+                    function done(val) {
+                        ov.classList.remove('show');
+                        yes.removeEventListener('click', onYes);
+                        no.removeEventListener('click', onNo);
+                        resolve(val);
+                    }
+                    function onYes() { done(true); }
+                    function onNo() { done(false); }
+                    yes.addEventListener('click', onYes);
+                    no.addEventListener('click', onNo);
+                });
+            }
+
             function setQueueStatus(message, tone = '') {
                 const status = $('queueStatus');
                 if (!status) {
@@ -4870,11 +4922,11 @@
                     return;
                 }
 
-                if (action === 'persona-delete' && !requireDeleteConfirmation(action, id, '审查记录')) {
-                    return;
+                if (action === 'persona-delete') {
+                    if (!(await showConfirm('删除审查记录', '确定删除这条审查记录？不可撤销。'))) { showToast('已取消', 'warn'); return; }
                 }
-                if (action === 'jargon-delete' && !requireDeleteConfirmation(action, id, '黑话记录')) {
-                    return;
+                if (action === 'jargon-delete') {
+                    if (!(await showConfirm('删除黑话', '确定删除这条黑话？不可撤销。'))) { showToast('已取消', 'warn'); return; }
                 }
 
                 if (action === 'jargon-edit') {
@@ -4925,10 +4977,7 @@
                     } else if (action === 'batch-relearn') {
                         payload = await postJson('/api/relearn', { group_id: id });
                     } else if (action === 'batch-delete') {
-                        if (!window.confirm('确定删除这个学习批次？')) {
-                            setQueueStatus('已取消操作。');
-                            return;
-                        }
+                        if (!(await showConfirm('删除学习批次', '确定删除这个学习批次？不可撤销。'))) { showToast('已取消', 'warn'); return; }
                         payload = await deleteJson(`/api/batches/${encodeURIComponent(id)}`);
                     } else {
                         throw new Error(`未知操作: ${action}`);
@@ -4936,6 +4985,7 @@
 
                     const message = payload && (payload.message || payload.error);
                     setQueueStatus(message || '操作已完成。', 'success');
+                    if (message) showToast(message, 'ok');
                     await loadDashboard();
                     if (action.startsWith('jargon')) {
                         await Promise.all([loadJargonList(), loadGraphPanel({ quiet: true })]);
@@ -4946,6 +4996,7 @@
                 } catch (error) {
                     console.error('Dashboard action failed:', error);
                     setQueueStatus(`操作失败: ${error.message}`, 'error');
+                    showToast('操作失败: ' + error.message, 'err');
                 } finally {
                     state.actionBusy.delete(busyKey);
                     if (state.data) {
@@ -5819,5 +5870,16 @@
             init();
         })();
     </script>
+    <div class="confirm-overlay" id="cfmOv">
+        <div class="confirm-box">
+            <div class="ctitle" id="cfmTi"></div>
+            <div class="cmsg" id="cfmMsg"></div>
+            <div class="cbtns">
+                <button id="cfmNo">取消</button>
+                <button class="danger" id="cfmYes">确认删除</button>
+            </div>
+        </div>
+    </div>
+    <div class="toast-wrap" id="toastWrap"></div>
 </body>
 </html>
