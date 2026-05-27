@@ -28,7 +28,9 @@ class JargonInferenceEngine:
         """初始化推断Prompts"""
 
         # Prompt 1: 基于上下文推断
-        self.prompt_infer_with_context = """**词条内容**
+        self.prompt_infer_with_context = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
+
+**词条内容**
 {content}
 
 **词条出现的上下文**
@@ -38,27 +40,27 @@ class JargonInferenceEngine:
 - 如果这是一个黑话、俚语或网络用语，请推断其含义
 - 如果含义明确（常规词汇），也请说明
 - 如果上下文信息不足，无法推断含义，请设置 no_info 为 true
-- **必须使用中文输出含义说明**，即使词条本身是英文或拼音也请用中文解释
 
-以 JSON 格式输出：
+以 JSON 格式输出（meaning 字段必须是中文，禁止英文）：
 {{
-  "meaning": "详细含义说明（包含使用场景、来源、具体解释等，必须用中文）",
+  "meaning": "中文含义说明",
   "no_info": false
 }}
 注意：如果信息不足无法推断，请设置 "no_info": true，此时 meaning 可以为空字符串"""
 
         # Prompt 2: 仅基于词条推断
-        self.prompt_infer_content_only = """**词条内容**
+        self.prompt_infer_content_only = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
+
+**词条内容**
 {content}
 
 请仅根据这个词条本身，推断其含义。
 - 如果这是一个黑话、俚语或网络用语，请推断其含义
 - 如果含义明确（常规词汇），也请说明
-- **必须使用中文输出含义说明**，即使词条本身是英文或拼音也请用中文解释
 
-以 JSON 格式输出：
+以 JSON 格式输出（meaning 字段必须是中文，禁止英文）：
 {{
-  "meaning": "详细含义说明（包含使用场景、来源、具体解释等，必须用中文）"
+  "meaning": "中文含义说明"
 }}"""
 
         # Prompt 3: 对比两个推断
@@ -294,11 +296,29 @@ class JargonMiner(AsyncServiceBase):
 
         return True
 
+    @staticmethod
+    def _is_meaning_english(meaning: Optional[str]) -> bool:
+        """检测含义是否为英文（超过一半的字母字符是 ASCII 字母）"""
+        if not meaning:
+            return False
+        alpha_chars = [c for c in meaning if c.isalpha()]
+        if not alpha_chars:
+            return False
+        ascii_alpha = sum(1 for c in alpha_chars if ord(c) < 128)
+        return ascii_alpha / len(alpha_chars) > 0.5
+
     def _should_infer_meaning(self, jargon: Jargon) -> bool:
         """
         判断是否需要进行含义推断
         在 count 达到 3,6,10,20,40,60,100 时进行推断
         """
+        # 英文含义强制重新推断
+        if jargon.is_complete and self._is_meaning_english(jargon.meaning):
+            logger.info(
+                f"[JargonMiner] 黑话「{jargon.content}」含义为英文，强制重新推断"
+            )
+            jargon.is_complete = False
+
         if jargon.is_complete:
             return False
 
