@@ -164,6 +164,48 @@ def test_database_manager_accepts_postgresql_aliases(alias):
     assert manager._get_db_type() == "postgresql"
 
 
+@pytest.mark.asyncio
+async def test_database_manager_falls_back_to_sqlite_when_postgresql_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    """PostgreSQL startup failures should not prevent local SQLite table setup."""
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path),
+            db_type="pgsql",
+            enable_web_interface=False,
+        )
+    )
+
+    async def fail_postgresql_database_check():
+        raise RuntimeError("postgres unavailable")
+
+    monkeypatch.setattr(
+        manager,
+        "_ensure_postgresql_database_exists",
+        fail_postgresql_database_check,
+    )
+
+    try:
+        assert await manager.start() is True
+
+        url = make_url(manager.engine.database_url)
+        assert url.drivername == "sqlite+aiosqlite"
+        assert Path(url.database).name == "messages.db"
+        assert Path(url.database).exists()
+
+        async with manager.engine.engine.begin() as conn:
+            created_tables = await conn.run_sync(
+                lambda sync_conn: set(sa_inspect(sync_conn).get_table_names())
+            )
+
+        assert set(Base.metadata.tables) <= created_tables
+        assert await manager.engine.health_check() is True
+    finally:
+        await manager.stop()
+
+
 def test_database_manager_postgresql_url_preserves_credentials_and_schema():
     config = PluginConfig(
         db_type="postgres",
