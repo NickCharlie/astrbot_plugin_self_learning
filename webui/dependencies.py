@@ -29,6 +29,8 @@ class ServiceContainer:
         self.persona_manager: Optional[Any] = None
         self.persona_updater: Optional[Any] = None
         self.database_manager: Optional[Any] = None
+        self.database_degraded: bool = False
+        self.database_start_error: Optional[str] = None
         self.llm_adapter: Optional[Any] = None
         self.progressive_learning: Optional[Any] = None
         self.factory_manager: Optional[Any] = None
@@ -75,6 +77,8 @@ class ServiceContainer:
         astrbot_config=None,
         plugin_instance=None,
         database_manager=None,
+        database_degraded=False,
+        database_start_error=None,
     ):
         """
         初始化服务容器
@@ -86,6 +90,8 @@ class ServiceContainer:
             astrbot_persona_manager: AstrBot 人格管理器
             group_id_to_unified_origin: group_id到unified_msg_origin映射表
             database_manager: 已由插件生命周期启动的数据库管理器
+            database_degraded: 数据库启动失败时的受限模式标记
+            database_start_error: 数据库启动失败原因
         """
         self.plugin_config = plugin_config
         self.astrbot_config = astrbot_config
@@ -93,6 +99,8 @@ class ServiceContainer:
         self.factory_manager = factory_manager
         self.feature_delegation = feature_delegation
         self.astrbot_persona_manager = astrbot_persona_manager
+        self.database_degraded = database_degraded
+        self.database_start_error = database_start_error
         if group_id_to_unified_origin is not None:
             self.group_id_to_unified_origin = group_id_to_unified_origin
 
@@ -215,6 +223,8 @@ async def set_plugin_services(
     astrbot_config=None,
     plugin_instance=None,
     database_manager=None,
+    database_degraded=False,
+    database_start_error=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -236,6 +246,8 @@ async def set_plugin_services(
         astrbot_config=astrbot_config,
         plugin_instance=plugin_instance,
         database_manager=database_manager,
+        database_degraded=database_degraded,
+        database_start_error=database_start_error,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")
