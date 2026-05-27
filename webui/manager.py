@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 from typing import Optional, Any, Dict, TYPE_CHECKING
 
@@ -261,6 +262,7 @@ class WebUIManager:
             "db_manager",
             None,
         )
+        database_manager = await self._ensure_database_manager_started(database_manager)
         self._database_manager = database_manager
 
         await set_plugin_services(
@@ -275,3 +277,24 @@ class WebUIManager:
             database_manager=database_manager,
         )
         _get_webui_container().perf_collector = self._perf_tracker
+
+    async def _ensure_database_manager_started(self, database_manager: Any) -> Any:
+        """Ensure WebUI services reuse the plugin's started database manager."""
+        if database_manager is None:
+            return None
+
+        has_engine_attr = hasattr(database_manager, "engine")
+        needs_start = not getattr(database_manager, "_started", False) or (
+            has_engine_attr and getattr(database_manager, "engine", None) is None
+        )
+        start = getattr(database_manager, "start", None)
+        if not needs_start or not callable(start):
+            return database_manager
+
+        logger.info("[WebUI] 数据库管理器尚未启动，注册服务前先启动")
+        started = start()
+        if inspect.isawaitable(started):
+            started = await started
+        if started is False:
+            raise RuntimeError("数据库管理器启动失败")
+        return database_manager
