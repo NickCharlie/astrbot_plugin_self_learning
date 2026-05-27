@@ -75,6 +75,7 @@ async def get_jargon_list():
                 keyword,
                 chat_id=group_id,
                 confirmed_only=(confirmed is True),
+                pending_only=(confirmed is False or pending_only),
             )
             payload = {
                 'jargon_list': results,

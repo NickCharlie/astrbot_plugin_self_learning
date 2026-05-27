@@ -910,13 +910,13 @@ class SQLAlchemyDatabaseManager:
 
     async def search_jargon(
         self, keyword: str, chat_id: str = None,
-        confirmed_only: bool = False, limit: int = 50,
+        confirmed_only: bool = False, pending_only: bool = False, limit: int = 50,
     ) -> List[Dict[str, Any]]:
         return await self._call_jargon(
             "search_jargon",
             [],
             keyword=keyword, chat_id=chat_id,
-            confirmed_only=confirmed_only, limit=limit,
+            confirmed_only=confirmed_only, pending_only=pending_only, limit=limit,
         )
 
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
