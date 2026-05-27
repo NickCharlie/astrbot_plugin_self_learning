@@ -4878,7 +4878,7 @@
                 }
 
                 if (action === 'jargon-edit') {
-                    state.jargon.editingId = id;
+                    state.jargon.editingId = Number(id);
                     renderJargonPanel();
                     return;
                 }
