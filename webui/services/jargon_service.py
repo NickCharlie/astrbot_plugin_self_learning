@@ -128,6 +128,8 @@ class JargonService:
         page: int = 1,
         page_size: int = 20,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> Dict[str, Any]:
         """
         获取黑话列表
@@ -137,6 +139,9 @@ class JargonService:
             confirmed: 过滤已确认/未确认（None=全部）
             page: 页码
             page_size: 每页数量
+            pending_only: 是否只返回待确认的
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             Dict: 黑话列表和分页信息，key 为 'jargon_list'
@@ -150,6 +155,8 @@ class JargonService:
                 chat_id=group_id,
                 only_confirmed=confirmed,
                 pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
 
             # DB 层分页
@@ -160,6 +167,8 @@ class JargonService:
                 offset=offset,
                 only_confirmed=confirmed,
                 pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
 
             formatted = [self._format_jargon_for_frontend(j) for j in jargons]

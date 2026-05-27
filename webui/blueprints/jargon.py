@@ -65,6 +65,11 @@ async def get_jargon_list():
             confirmed = False
         pending_only = str(request.args.get('pending', 'false')).lower() == 'true'
 
+        # 解析 global/local 过滤参数
+        filter_param = request.args.get('filter', '').strip().lower()
+        global_only = filter_param == 'global'
+        local_only = filter_param == 'local'
+
         # 如果带了 keyword，走搜索逻辑
         keyword = request.args.get('keyword', '').strip()
         container = get_container()
@@ -89,6 +94,8 @@ async def get_jargon_list():
             page=page,
             page_size=page_size,
             pending_only=pending_only,
+            global_only=global_only,
+            local_only=local_only,
         )
 
         return _hybrid_success(result, data=result.get('jargon_list', []))

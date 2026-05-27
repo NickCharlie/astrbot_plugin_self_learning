@@ -265,6 +265,8 @@ class JargonFacade(BaseFacade):
         offset: int = 0,
         only_confirmed: bool = None,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> List[Dict]:
         """获取最近的黑话列表
 
@@ -275,6 +277,8 @@ class JargonFacade(BaseFacade):
             offset: 偏移量（用于分页）
             only_confirmed: 是否只返回已确认的黑话
             pending_only: 是否只返回尚未完成审查的候选
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             黑话列表
@@ -305,6 +309,13 @@ class JargonFacade(BaseFacade):
                     stmt = stmt.where(
                         ((Jargon.is_jargon == False) | (Jargon.is_jargon == None))
                         & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
+                    )
+
+                if global_only:
+                    stmt = stmt.where(Jargon.is_global == True)
+                elif local_only:
+                    stmt = stmt.where(
+                        (Jargon.is_global == False) | (Jargon.is_global == None)
                     )
 
                 # 按更新时间倒序排列，分页
@@ -354,6 +365,8 @@ class JargonFacade(BaseFacade):
         chat_id: Optional[str] = None,
         only_confirmed: Optional[bool] = None,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> int:
         """获取黑话记录总数（用于分页）
 
@@ -361,6 +374,8 @@ class JargonFacade(BaseFacade):
             chat_id: 群组ID（可选，None 表示所有群组）
             only_confirmed: None=全部, True=已确认, False=未确认
             pending_only: 是否只统计尚未完成审查的候选
+            global_only: 是否只统计全局共享的黑话
+            local_only: 是否只统计本地（非全局）的黑话
 
         Returns:
             记录总数
@@ -384,6 +399,13 @@ class JargonFacade(BaseFacade):
                     stmt = stmt.where(
                         ((Jargon.is_jargon == False) | (Jargon.is_jargon == None))
                         & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
+                    )
+
+                if global_only:
+                    stmt = stmt.where(Jargon.is_global == True)
+                elif local_only:
+                    stmt = stmt.where(
+                        (Jargon.is_global == False) | (Jargon.is_global == None)
                     )
 
                 result = await session.execute(stmt)

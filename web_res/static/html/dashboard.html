@@ -5471,9 +5471,9 @@
                     } else if (state.jargon.filter === 'confirmed') {
                         params.set('confirmed', 'true');
                     } else if (state.jargon.filter === 'global') {
-                        // will filter client-side
+                        params.set('filter', 'global');
                     } else if (state.jargon.filter === 'local') {
-                        // will filter client-side
+                        params.set('filter', 'local');
                     }
 
                     if (state.jargon.search) {
@@ -5483,18 +5483,6 @@
                     const data = await safeFetch(`/api/jargon/list?${params.toString()}`);
                     let items = extractJargonItems(data);
                     let total = (data && data.total) || items.length;
-
-                    // Client-side filters for global/local
-                    if (state.jargon.filter === 'global') {
-                        items = items.filter((it) => it.is_global);
-                    } else if (state.jargon.filter === 'local') {
-                        items = items.filter((it) => !it.is_global);
-                    }
-
-                    // For client-side global/local filters, keep total in sync with visible items
-                    if (state.jargon.filter === 'global' || state.jargon.filter === 'local') {
-                        total = items.length;
-                    }
 
                     // Client-side sort
                     if (state.jargon.sort === 'oldest') {
