@@ -4929,7 +4929,7 @@
                             setQueueStatus('已取消操作。');
                             return;
                         }
-                        payload = await deleteJson(`/api/learning/batches/${encodeURIComponent(id)}`);
+                        payload = await deleteJson(`/api/batches/${encodeURIComponent(id)}`);
                     } else {
                         throw new Error(`未知操作: ${action}`);
                     }
@@ -5475,7 +5475,7 @@
                         page_size: state.batch.pageSize,
                     });
 
-                    const data = await safeFetch(`/api/learning/batches?${params.toString()}`);
+                    const data = await safeFetch(`/api/batches?${params.toString()}`);
                     if (data && data.data) {
                         state.batch.items = safeArray(data.data.batches);
                         state.batch.total = data.data.total || 0;
