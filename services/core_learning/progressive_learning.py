@@ -278,8 +278,18 @@ class ProgressiveLearningService:
             # 3. 获取当前人格设置 (针对特定群组)
             current_persona = await self._get_current_persona(group_id)
             
-            # 4-7. 执行风格分析（调用LLM提取表达模式）
-            style_analysis = await self._execute_style_analysis_background(group_id, filtered_messages)
+            # 4-7. 跳过LLM分析，仅记录消息统计
+            from ...core.interfaces import AnalysisResult
+
+            style_analysis = AnalysisResult(
+                success=True,
+                confidence=0.7,
+                data={
+                    'message_count': len(filtered_messages),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                },
+                timestamp=time.time()
+            )
 
             # 不调用LLM生成更新后的人格，保持当前人格不变
             updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
@@ -399,8 +409,18 @@ class ProgressiveLearningService:
                 await self._mark_messages_processed(unprocessed_messages)
                 return
             
-            # 3. 执行风格分析（调用LLM提取表达模式）
-            style_analysis = await self._execute_style_analysis_background(group_id, filtered_messages)
+            # 3. 跳过LLM分析，仅记录消息统计
+            from ...core.interfaces import AnalysisResult
+
+            style_analysis = AnalysisResult(
+                success=True,
+                confidence=0.7,
+                data={
+                    'message_count': len(filtered_messages),
+                    'analysis_timestamp': datetime.now().isoformat(),
+                },
+                timestamp=time.time()
+            )
 
             updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
 
