@@ -286,7 +286,7 @@ class ExpressionPatternLearner:
     async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):
         """保存表达模式到数据库（ORM 版本）"""
         try:
-            from sqlalchemy import select
+            from sqlalchemy import desc, select
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
 
             async with self.db_manager.get_session() as session:
@@ -296,9 +296,20 @@ class ExpressionPatternLearner:
                         ExpressionPatternORM.situation == pattern.situation,
                         ExpressionPatternORM.expression == pattern.expression,
                         ExpressionPatternORM.group_id == group_id,
+                    ).order_by(
+                        desc(ExpressionPatternORM.weight),
+                        desc(ExpressionPatternORM.last_active_time),
+                        desc(ExpressionPatternORM.id),
                     )
                     result = await session.execute(stmt)
-                    existing = result.scalar_one_or_none()
+                    matches = list(result.scalars().all())
+                    existing = matches[0] if matches else None
+                    if len(matches) > 1:
+                        logger.warning(
+                            "发现重复表达模式记录，已复用权重最高记录: "
+                            f"group_id={group_id}, situation={pattern.situation!r}, "
+                            f"expression={pattern.expression!r}, count={len(matches)}"
+                        )
 
                     if existing:
                         # 更新现有模式，权重增加，50%概率替换内容
