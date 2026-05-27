@@ -500,39 +500,78 @@ class ConfigService:
     def _sync_astrbot_group_config(
         self,
         validated_config: Any,
-        submitted_keys: List[str],
+        _submitted_keys: List[str],
     ) -> bool:
-        """Mirror WebUI changes into AstrBot's grouped plugin-page config."""
+        """Pass the full WebUI config through to AstrBot's grouped plugin-page config."""
         astrbot_config = self._get_astrbot_config()
         if not astrbot_config:
             return False
 
-        field_to_group = self._field_group_index(self._merged_schema_definition())
+        schema_definition = self._merged_schema_definition()
+        current_payload = self._plain_mapping(astrbot_config)
+        schema_fields = {
+            field_name
+            for group_definition in schema_definition.values()
+            if isinstance(group_definition, dict)
+            for field_name in group_definition.get("items", {})
+        }
+        if hasattr(validated_config, "model_dump"):
+            config_values = validated_config.model_dump()
+        else:
+            config_values = {
+                field_name: getattr(validated_config, field_name)
+                for field_name in schema_fields
+                if hasattr(validated_config, field_name)
+            }
+        config_field_names = set(config_values)
+        next_payload = {
+            key: value
+            for key, value in current_payload.items()
+            if key not in config_field_names
+        }
         synced_groups = set()
-        for field_name in submitted_keys:
-            group_key = field_to_group.get(field_name)
-            if not group_key or not hasattr(validated_config, field_name):
+
+        for group_key, group_definition in schema_definition.items():
+            if not isinstance(group_definition, dict):
                 continue
-            group = astrbot_config.get(group_key)
+            items = group_definition.get("items", {})
+            if not isinstance(items, dict):
+                continue
+            group = next_payload.get(group_key)
             if not isinstance(group, MutableMapping):
                 group = {}
-            next_value = getattr(validated_config, field_name)
-            if group.get(field_name) == next_value:
-                continue
-            group[field_name] = next_value
-            astrbot_config[group_key] = group
-            synced_groups.add(group_key)
+            else:
+                group = dict(group)
+
+            group_updated = False
+            for field_name in items:
+                if field_name not in config_values:
+                    continue
+                group[field_name] = config_values[field_name]
+                group_updated = True
+
+            if group_updated:
+                next_payload[group_key] = group
+                synced_groups.add(group_key)
 
         if not synced_groups:
             return False
 
+        if self._payload_signature(current_payload) == self._payload_signature(
+            next_payload
+        ):
+            return False
+
+        astrbot_config.clear()
+        astrbot_config.update(next_payload)
+
         save_config = getattr(astrbot_config, "save_config", None)
         if callable(save_config):
             try:
-                save_config(self._plain_mapping(astrbot_config))
+                save_config()
             except TypeError:
                 try:
-                    save_config()
+                    save_config(self._plain_mapping(astrbot_config))
                 except Exception as e:
                     logger.warning(f"同步 AstrBot 插件页配置失败: {e}", exc_info=True)
                     return False

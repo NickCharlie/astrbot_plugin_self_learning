@@ -448,10 +448,16 @@ class TestConfigServiceUpdate:
     @pytest.mark.asyncio
     async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):
         container = build_container(tmp_path)
+        container.astrbot_config["enable_realtime_learning"] = False
+        container.astrbot_config["enable_realtime_llm_filter"] = False
         service = ConfigService(container)
 
         success, message, updated = await service.update_config(
             {
+                "Self_Learning_Basic": {
+                    "enable_realtime_learning": True,
+                    "enable_realtime_llm_filter": True,
+                },
                 "Target_Settings": {
                     "target_qq_list": ["10001", "group_20002"],
                     "target_blacklist": ["blocked"],
@@ -474,7 +480,11 @@ class TestConfigServiceUpdate:
         assert updated["target_qq_list"] == ["10001", "group_20002"]
         assert updated["target_blacklist"] == ["blocked"]
         assert updated["learning_interval_hours"] == 2
+        assert updated["enable_realtime_learning"] is True
+        assert updated["enable_realtime_llm_filter"] is True
 
+        assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_learning"] is True
+        assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_llm_filter"] is True
         assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
             "10001",
             "group_20002",
@@ -484,7 +494,11 @@ class TestConfigServiceUpdate:
         assert container.astrbot_config["Learning_Parameters"]["max_messages_per_batch"] == 25
         assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
         assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
+        assert "enable_realtime_learning" not in container.astrbot_config
+        assert "enable_realtime_llm_filter" not in container.astrbot_config
         assert container.astrbot_config.save_calls == 1
+        assert "enable_realtime_learning" not in container.astrbot_config.saved_payloads[-1]
+        assert "enable_realtime_llm_filter" not in container.astrbot_config.saved_payloads[-1]
 
         assert container.plugin_instance.plugin_config is container.plugin_config
         assert container.plugin_instance.qq_filter.target_qq_list == ["10001", "group_20002"]
