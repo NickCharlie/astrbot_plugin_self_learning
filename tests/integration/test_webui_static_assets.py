@@ -62,6 +62,16 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "renderContextExamples(item)" in text
 
 
+def test_dashboard_review_deletes_use_inline_confirmation():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "pendingConfirm: null" in text
+    assert "requireDeleteConfirmation(action, id, '审查记录')" in text
+    assert "requireDeleteConfirmation(action, id, '黑话记录')" in text
+    assert "确定删除这条审查记录" not in text
+    assert "确定删除这条黑话记录" not in text
+
+
 def test_dashboard_exposes_structured_ai_insight_panel():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
@@ -127,6 +137,22 @@ def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
     assert "const options = providerOptionsForField(field);" in text
     assert "else if (field.widget === 'provider' && providerOptionsForField(field).length)" not in text
     assert "未找到 ${escapeHtml(providerLabel)} Provider" in text
+
+
+def test_dashboard_settings_exposes_manual_save_button():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert 'id="configSaveBtn"' in text
+    assert 'aria-label="手动保存设置"' in text
+    assert "手动保存设置" in text
+    assert "configSaveBtn" in text
+    assert "saveConfigPanel" in text
+    assert "function updateConfigActionStates()" in text
+    assert "configSaveBtn.disabled" in text
+    assert "dirtyCount === 0" in text
+    assert "!hasSchema || busy" in text
+    assert "配置面板尚未加载" in text
+    assert "正在保存配置" in text
 
 
 def test_dashboard_zero_message_insight_reflects_full_learning_default():

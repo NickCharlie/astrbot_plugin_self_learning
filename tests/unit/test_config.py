@@ -260,6 +260,59 @@ class TestPluginConfigFromDict:
         assert config.group_chat_plus_plugin_name == 'CustomReply'
         assert config.disable_local_reply_when_delegated is False
 
+    def test_create_from_config_with_webui_extra_setting_groups(self):
+        """WebUI-only setting groups should survive plugin-page refresh/restart."""
+        raw_config = {
+            'persona_merge_strategy': 'replace',
+            'MaiBot_Enhancement': {
+                'enable_maibot_features': False,
+                'enable_expression_patterns': False,
+                'enable_memory_graph': False,
+                'enable_knowledge_graph': False,
+                'enable_time_decay': False,
+            },
+            'Persona_Evolution_Settings': {
+                'persona_merge_strategy': 'append',
+                'max_mood_imitation_dialogs': 12,
+                'enable_persona_evolution': False,
+                'persona_compatibility_threshold': 0.7,
+                'use_persona_manager_updates': False,
+                'auto_apply_persona_updates': False,
+                'persona_update_backup_enabled': False,
+            },
+            'Runtime_Internal_Settings': {
+                'llm_hook_injection_target': 'prompt',
+                'enable_memory_cleanup': False,
+                'memory_cleanup_days': 14,
+                'memory_importance_threshold': 0.45,
+                'shutdown_step_timeout': 11,
+                'task_cancel_timeout': 6,
+                'service_stop_timeout': 7,
+            },
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.enable_maibot_features is False
+        assert config.enable_expression_patterns is False
+        assert config.enable_memory_graph is False
+        assert config.enable_knowledge_graph is False
+        assert config.enable_time_decay is False
+        assert config.persona_merge_strategy == 'append'
+        assert config.max_mood_imitation_dialogs == 12
+        assert config.enable_persona_evolution is False
+        assert config.persona_compatibility_threshold == 0.7
+        assert config.use_persona_manager_updates is False
+        assert config.auto_apply_persona_updates is False
+        assert config.persona_update_backup_enabled is False
+        assert config.llm_hook_injection_target == 'prompt'
+        assert config.enable_memory_cleanup is False
+        assert config.memory_cleanup_days == 14
+        assert config.memory_importance_threshold == 0.45
+        assert config.shutdown_step_timeout == 11
+        assert config.task_cancel_timeout == 6
+        assert config.service_stop_timeout == 7
+
     def test_create_from_empty_config(self):
         """Test config creation from empty dict uses all defaults."""
         config = PluginConfig.create_from_config({}, data_dir="/tmp/test")

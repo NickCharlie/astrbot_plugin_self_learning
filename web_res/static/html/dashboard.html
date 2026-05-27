@@ -166,7 +166,8 @@
         }
 
         .pill,
-        .icon-btn {
+        .icon-btn,
+        .action-btn {
             border: 1px solid var(--border);
             background: var(--panel);
             color: var(--text);
@@ -193,7 +194,26 @@
             cursor: pointer;
         }
 
-        .icon-btn:hover {
+        .action-btn {
+            min-height: 38px;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 0 12px;
+            cursor: pointer;
+            font-size: 13px;
+            line-height: 1;
+            white-space: nowrap;
+        }
+
+        .action-btn .material-icons {
+            font-size: 18px;
+        }
+
+        .icon-btn:hover,
+        .action-btn:hover {
             border-color: var(--accent);
             color: var(--accent);
             background: var(--surface-hover);
@@ -1112,18 +1132,21 @@
             font-size: 12px;
         }
 
-        .icon-btn.primary {
+        .icon-btn.primary,
+        .action-btn.primary {
             background: var(--accent);
             border-color: var(--accent);
             color: #fff;
         }
 
-        .icon-btn.primary:hover {
+        .icon-btn.primary:hover,
+        .action-btn.primary:hover {
             background: var(--accent);
             color: #fff;
         }
 
-        .icon-btn:disabled {
+        .icon-btn:disabled,
+        .action-btn:disabled {
             cursor: not-allowed;
             opacity: 0.55;
         }
@@ -2177,8 +2200,9 @@
                         <button class="icon-btn" id="integrationConfigResetBtn" type="button" aria-label="恢复融合设置" title="恢复融合设置">
                             <span class="material-icons">undo</span>
                         </button>
-                        <button class="icon-btn primary" id="integrationConfigSaveBtn" type="button" aria-label="保存融合设置" title="保存融合设置">
+                        <button class="action-btn primary" id="integrationConfigSaveBtn" type="button" aria-label="保存融合设置" title="保存融合设置" disabled>
                             <span class="material-icons">save</span>
+                            保存融合设置
                         </button>
                     </div>
                 </div>
@@ -2213,8 +2237,9 @@
                     <button class="icon-btn" id="configResetBtn" type="button" aria-label="恢复已加载配置" title="恢复已加载配置">
                         <span class="material-icons">undo</span>
                     </button>
-                    <button class="icon-btn primary" id="configSaveBtn" type="button" aria-label="保存配置" title="保存配置">
+                    <button class="action-btn primary" id="configSaveBtn" type="button" aria-label="手动保存设置" title="手动保存设置" disabled>
                         <span class="material-icons">save</span>
+                        手动保存设置
                     </button>
                 </div>
             </div>
@@ -2269,6 +2294,8 @@
                     busy: false,
                 },
                 actionBusy: new Set(),
+                pendingConfirm: null,
+                confirmTimer: null,
                 graph: {
                     type: 'memory',
                     layout: 'force',
@@ -3283,18 +3310,58 @@
                 }
                 const busyKey = `${action}:${id}`;
                 const busy = state.actionBusy.has(busyKey);
+                const pending = state.pendingConfirm
+                    && state.pendingConfirm.action === action
+                    && state.pendingConfirm.id === String(id);
+                const displayIcon = pending ? 'check' : icon;
+                const displayLabel = pending ? '确认删除?' : label;
+                const displayTone = pending ? 'danger' : tone;
                 return `
                     <button
-                        class="action-btn ${tone}"
+                        class="action-btn ${displayTone}"
                         type="button"
                         data-dashboard-action="${escapeHtml(action)}"
                         data-id="${escapeHtml(id)}"
                         ${busy ? 'disabled' : ''}
                     >
-                        <span class="material-icons" style="font-size:15px;">${escapeHtml(icon)}</span>
-                        <span>${escapeHtml(label)}</span>
+                        <span class="material-icons" style="font-size:15px;">${escapeHtml(displayIcon)}</span>
+                        <span>${escapeHtml(displayLabel)}</span>
                     </button>
                 `;
+            }
+
+            function resetPendingConfirm() {
+                if (state.confirmTimer) {
+                    clearTimeout(state.confirmTimer);
+                    state.confirmTimer = null;
+                }
+                state.pendingConfirm = null;
+            }
+
+            function requireDeleteConfirmation(action, id, label) {
+                const normalizedId = String(id);
+                if (
+                    state.pendingConfirm
+                    && state.pendingConfirm.action === action
+                    && state.pendingConfirm.id === normalizedId
+                ) {
+                    resetPendingConfirm();
+                    return true;
+                }
+
+                resetPendingConfirm();
+                state.pendingConfirm = { action, id: normalizedId };
+                state.confirmTimer = setTimeout(() => {
+                    resetPendingConfirm();
+                    if (state.data) {
+                        renderAll(state.data);
+                    }
+                }, 3000);
+                setQueueStatus(`再次点击确认删除${label}。`);
+                if (state.data) {
+                    renderAll(state.data);
+                }
+                return false;
             }
 
             function setQueueStatus(message, tone = '') {
@@ -4181,6 +4248,49 @@
                 return Array.from(state.config.dirtyKeys || []).filter((key) => keys.has(key)).length;
             }
 
+            function updateConfigActionStates() {
+                const hasSchema = Boolean(state.config.schema);
+                const loading = Boolean(state.config.loading);
+                const saving = Boolean(state.config.saving);
+                const busy = loading || saving;
+                const dirtyCount = state.config.dirtyKeys ? state.config.dirtyKeys.size : 0;
+                const configSaveBtn = $('configSaveBtn');
+                if (configSaveBtn) {
+                    configSaveBtn.disabled = !hasSchema || busy || dirtyCount === 0;
+                    if (!hasSchema) {
+                        configSaveBtn.title = '配置面板尚未加载';
+                    } else if (loading) {
+                        configSaveBtn.title = '正在加载配置';
+                    } else if (saving) {
+                        configSaveBtn.title = '正在保存配置';
+                    } else if (dirtyCount > 0) {
+                        configSaveBtn.title = `手动保存 ${dirtyCount} 项设置修改`;
+                    } else {
+                        configSaveBtn.title = '没有未保存的设置修改';
+                    }
+                }
+
+                const integrationSaveBtn = $('integrationConfigSaveBtn');
+                if (integrationSaveBtn) {
+                    const integrationGroup = getIntegrationSettingsGroup();
+                    const integrationCount = integrationDirtyCount();
+                    integrationSaveBtn.disabled = !hasSchema || busy || !integrationGroup || integrationCount === 0;
+                    if (!hasSchema) {
+                        integrationSaveBtn.title = '配置面板尚未加载';
+                    } else if (loading) {
+                        integrationSaveBtn.title = '正在加载融合设置';
+                    } else if (saving) {
+                        integrationSaveBtn.title = '正在保存融合设置';
+                    } else if (!integrationGroup) {
+                        integrationSaveBtn.title = '未找到融合设置配置组';
+                    } else if (integrationCount > 0) {
+                        integrationSaveBtn.title = `保存 ${integrationCount} 项融合设置修改`;
+                    } else {
+                        integrationSaveBtn.title = '没有未保存的融合设置修改';
+                    }
+                }
+            }
+
             function updateIntegrationConfigStatus(message, tone = '') {
                 const status = $('integrationConfigStatus');
                 if (!status) {
@@ -4205,6 +4315,7 @@
                 }
 
                 status.className = `config-status${tone ? ` ${tone}` : ''}`;
+                updateConfigActionStates();
             }
 
             function renderIntegrationConfigPanel() {
@@ -4378,6 +4489,7 @@
                     }
                 } finally {
                     state.config.loading = false;
+                    updateConfigActionStates();
                     if (!quiet && !state.config.schema) {
                         updateConfigStatus('配置面板尚未加载。', 'error');
                     }
@@ -4439,6 +4551,7 @@
                 } finally {
                     state.config.saving = false;
                     updateConfigSummary();
+                    updateConfigActionStates();
                 }
             }
 
@@ -4705,6 +4818,13 @@
                     return;
                 }
 
+                if (action === 'persona-delete' && !requireDeleteConfirmation(action, id, '审查记录')) {
+                    return;
+                }
+                if (action === 'jargon-delete' && !requireDeleteConfirmation(action, id, '黑话记录')) {
+                    return;
+                }
+
                 state.actionBusy.add(busyKey);
                 renderAll(state.data || {});
                 setQueueStatus('正在处理操作。');
@@ -4716,10 +4836,6 @@
                             action: action === 'persona-approve' ? 'approve' : 'reject',
                         });
                     } else if (action === 'persona-delete') {
-                        if (!window.confirm('确定删除这条审查记录？')) {
-                            setQueueStatus('已取消操作。');
-                            return;
-                        }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'jargon-approve' || action === 'jargon-reject') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, {
@@ -4728,10 +4844,6 @@
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {
-                        if (!window.confirm('确定删除这条黑话记录？')) {
-                            setQueueStatus('已取消操作。');
-                            return;
-                        }
                         payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
                     } else if (action === 'batch-relearn') {
                         payload = await postJson('/api/relearn', { group_id: id });

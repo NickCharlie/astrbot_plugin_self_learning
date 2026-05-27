@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import UserDict
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -17,11 +18,25 @@ from webui.services.config_service import ConfigService
 
 class SaveableConfig(UserDict):
     def __init__(self, *args, **kwargs):
+        self.config_path = kwargs.pop("config_path", None)
         super().__init__(*args, **kwargs)
         self.save_calls = 0
+        self.saved_payloads = []
 
-    def save_config(self):
+    def save_config(self, replace_config=None):
         self.save_calls += 1
+        if replace_config is not None:
+            self.data.clear()
+            self.data.update(replace_config)
+            self.saved_payloads.append(replace_config)
+        else:
+            self.saved_payloads.append(dict(self.data))
+        if self.config_path:
+            Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(self.config_path).write_text(
+                json.dumps(self.data),
+                encoding="utf-8",
+            )
 
 
 def build_container(tmp_path: Path):
@@ -113,6 +128,16 @@ def build_container(tmp_path: Path):
 
 @pytest.mark.unit
 class TestConfigServiceSchema:
+    def test_astrbot_plugin_schema_uses_plain_log_level_options(self):
+        """AstrBot plugin page renders object options as [object Object]."""
+        schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        options = schema["Advanced_Settings"]["items"]["log_level"]["options"]
+
+        assert options == ["error", "warning", "info", "debug"]
+        assert all(isinstance(option, str) for option in options)
+
     @pytest.mark.asyncio
     async def test_get_config_schema_includes_full_settings(self, tmp_path):
         container = build_container(tmp_path)
@@ -259,6 +284,121 @@ class TestConfigServiceSchema:
         }
         assert set(PluginConfig.model_fields) <= covered_fields
 
+    @pytest.mark.asyncio
+    async def test_config_schema_refresh_imports_newer_plugin_page_config(self, tmp_path):
+        container = build_container(tmp_path)
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.save_to_file(str(config_file))
+        old_time = config_file.stat().st_mtime - 10
+        config_file.touch()
+        os.utime(config_file, (old_time, old_time))
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config = SaveableConfig(
+            {
+                "Target_Settings": {
+                    "target_qq_list": ["plugin-page"],
+                    "target_blacklist": ["blocked-from-plugin"],
+                },
+                "Learning_Parameters": {
+                    "learning_interval_hours": 3,
+                    "max_messages_per_batch": container.plugin_config.max_messages_per_batch,
+                },
+            },
+            config_path=astrbot_path,
+        )
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["target_qq_list"] == ["plugin-page"]
+        assert schema["config"]["target_blacklist"] == ["blocked-from-plugin"]
+        assert schema["config"]["learning_interval_hours"] == 3
+
+        fields = {
+            field["key"]: field
+            for group in schema["groups"]
+            for field in group["fields"]
+        }
+        assert fields["target_qq_list"]["value"] == ["plugin-page"]
+        assert fields["learning_interval_hours"]["value"] == 3
+
+        saved = json.loads(config_file.read_text(encoding="utf-8"))
+        assert saved["target_qq_list"] == ["plugin-page"]
+        assert saved["learning_interval_hours"] == 3
+
+    @pytest.mark.asyncio
+    async def test_config_schema_refresh_prefers_grouped_realtime_plugin_page_values(self, tmp_path):
+        container = build_container(tmp_path)
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.save_to_file(str(config_file))
+        old_time = config_file.stat().st_mtime - 10
+        config_file.touch()
+        os.utime(config_file, (old_time, old_time))
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config = SaveableConfig(
+            {
+                "Self_Learning_Basic": {
+                    "enable_realtime_learning": True,
+                    "enable_realtime_llm_filter": True,
+                },
+                "enable_realtime_learning": False,
+                "enable_realtime_llm_filter": False,
+            },
+            config_path=astrbot_path,
+        )
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["enable_realtime_learning"] is True
+        assert schema["config"]["enable_realtime_llm_filter"] is True
+
+        fields = {
+            field["key"]: field
+            for group in schema["groups"]
+            for field in group["fields"]
+        }
+        assert fields["enable_realtime_learning"]["value"] is True
+        assert fields["enable_realtime_llm_filter"]["value"] is True
+
+        saved = json.loads(config_file.read_text(encoding="utf-8"))
+        assert saved["enable_realtime_learning"] is True
+        assert saved["enable_realtime_llm_filter"] is True
+
+    @pytest.mark.asyncio
+    async def test_config_schema_refresh_pushes_newer_webui_config_to_plugin_page(self, tmp_path):
+        container = build_container(tmp_path)
+        container.plugin_config.target_qq_list = ["webui-saved"]
+        container.plugin_config.learning_interval_hours = 4
+
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.save_to_file(str(config_file))
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config.config_path = str(astrbot_path)
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+        old_time = config_file.stat().st_mtime - 10
+        os.utime(astrbot_path, (old_time, old_time))
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["target_qq_list"] == ["webui-saved"]
+        assert schema["config"]["learning_interval_hours"] == 4
+        assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
+            "webui-saved",
+        ]
+        assert container.astrbot_config["Learning_Parameters"]["learning_interval_hours"] == 4
+        assert container.astrbot_config.save_calls == 2
+        assert container.astrbot_config.saved_payloads[-1]["Target_Settings"]["target_qq_list"] == [
+            "webui-saved",
+        ]
+
+        await ConfigService(container).get_config_schema()
+
+        assert container.astrbot_config.save_calls == 2
+
 
 @pytest.mark.unit
 class TestConfigServiceUpdate:
@@ -308,10 +448,16 @@ class TestConfigServiceUpdate:
     @pytest.mark.asyncio
     async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):
         container = build_container(tmp_path)
+        container.astrbot_config["enable_realtime_learning"] = False
+        container.astrbot_config["enable_realtime_llm_filter"] = False
         service = ConfigService(container)
 
         success, message, updated = await service.update_config(
             {
+                "Self_Learning_Basic": {
+                    "enable_realtime_learning": True,
+                    "enable_realtime_llm_filter": True,
+                },
                 "Target_Settings": {
                     "target_qq_list": ["10001", "group_20002"],
                     "target_blacklist": ["blocked"],
@@ -334,7 +480,11 @@ class TestConfigServiceUpdate:
         assert updated["target_qq_list"] == ["10001", "group_20002"]
         assert updated["target_blacklist"] == ["blocked"]
         assert updated["learning_interval_hours"] == 2
+        assert updated["enable_realtime_learning"] is True
+        assert updated["enable_realtime_llm_filter"] is True
 
+        assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_learning"] is True
+        assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_llm_filter"] is True
         assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
             "10001",
             "group_20002",
@@ -344,7 +494,11 @@ class TestConfigServiceUpdate:
         assert container.astrbot_config["Learning_Parameters"]["max_messages_per_batch"] == 25
         assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
         assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
+        assert "enable_realtime_learning" not in container.astrbot_config
+        assert "enable_realtime_llm_filter" not in container.astrbot_config
         assert container.astrbot_config.save_calls == 1
+        assert "enable_realtime_learning" not in container.astrbot_config.saved_payloads[-1]
+        assert "enable_realtime_llm_filter" not in container.astrbot_config.saved_payloads[-1]
 
         assert container.plugin_instance.plugin_config is container.plugin_config
         assert container.plugin_instance.qq_filter.target_qq_list == ["10001", "group_20002"]
