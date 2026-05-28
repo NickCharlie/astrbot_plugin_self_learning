@@ -1760,11 +1760,26 @@
         .confirm-box .cbtns button.danger{background:var(--danger);border-color:var(--danger);color:#fff;}
         .confirm-box .cbtns button:hover{opacity:.85;}
         .toast-wrap{position:fixed;top:var(--space-md);right:var(--space-md);z-index:10000;display:flex;flex-direction:column;gap:var(--space-sm);pointer-events:none;}
-        .toast{padding:10px 18px;border-radius:var(--radius-md);font-size:var(--text-sm);color:#fff;pointer-events:auto;animation:toast-in .3s ease;box-shadow:var(--shadow-lg);}
+        .toast{padding:10px 18px;border-radius:var(--radius-md);font-size:var(--text-sm);color:#fff;pointer-events:auto;animation:toast-in .3s ease;box-shadow:var(--shadow-lg);cursor:pointer;}
         .toast.ok{background:var(--toast-success);} .toast.err{background:var(--toast-error);} .toast.warn{background:var(--toast-warning);} .toast.info{background:var(--toast-info);}
         .toast.out{animation:toast-out .25s ease forwards;}
         @keyframes toast-in{from{opacity:0;transform:translateX(50px)}to{opacity:1;transform:translateX(0)}}
         @keyframes toast-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(50px)}}
+        /* Loading spinner */
+        .spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--accent-2);border-radius:50%;animation:spin .6s linear infinite;display:inline-block;vertical-align:middle;}
+        .spinner.lg{width:32px;height:32px;border-width:3px;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .loading-overlay{position:absolute;inset:0;background:var(--panel);opacity:.7;display:flex;align-items:center;justify-content:center;border-radius:inherit;z-index:2;pointer-events:none;}
+        /* Empty state */
+        .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;color:var(--muted);text-align:center;gap:8px;}
+        .empty-state .material-icons{font-size:36px;opacity:.4;}
+        .empty-state p{margin:0;font-size:var(--text-sm);}
+        /* Error state */
+        .error-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;color:var(--danger);text-align:center;gap:8px;}
+        .error-state .material-icons{font-size:36px;opacity:.6;}
+        .error-state p{margin:0;font-size:var(--text-sm);color:var(--muted);}
+        .error-state .retry-btn{margin-top:4px;padding:6px 16px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel);color:var(--text);cursor:pointer;font-size:var(--text-xs);transition:all .16s;}
+        .error-state .retry-btn:hover{border-color:var(--accent);color:var(--accent);}
     </style>
 </head>
 <body data-theme="light">
@@ -2436,8 +2451,6 @@
                     busy: false,
                 },
                 actionBusy: new Set(),
-                pendingConfirm: null,
-                confirmTimer: null,
                 graph: {
                     type: 'memory',
                     layout: 'force',
@@ -2763,6 +2776,8 @@
                     card.classList.toggle('active', card.dataset.routeCard === targetPage);
                 });
                 document.body.dataset.activePage = targetPage;
+                const pageTitles = { home: '监控板', overview: '总览', insights: 'AI 巡检', monitoring: '运行监控', reviews: '审查队列', content: '学习内容', graphs: '关系图谱', integrations: '功能融合', settings: '设置' };
+                document.title = (pageTitles[targetPage] || '监控板') + ' - SELF LEARNING';
                 if (!options.skipHash && window.location.hash !== `#/${targetPage}`) {
                     window.location.hash = `/${targetPage}`;
                 }
@@ -3453,12 +3468,9 @@
                 }
                 const busyKey = `${action}:${id}`;
                 const busy = state.actionBusy.has(busyKey);
-                const pending = state.pendingConfirm
-                    && state.pendingConfirm.action === action
-                    && state.pendingConfirm.id === String(id);
-                const displayIcon = pending ? 'check' : icon;
-                const displayLabel = pending ? '确认删除?' : label;
-                const displayTone = pending ? 'danger' : tone;
+                const displayIcon = icon;
+                const displayLabel = label;
+                const displayTone = tone;
                 return `
                     <button
                         class="action-btn ${displayTone}"
@@ -3473,40 +3485,6 @@
                 `;
             }
 
-            function resetPendingConfirm() {
-                if (state.confirmTimer) {
-                    clearTimeout(state.confirmTimer);
-                    state.confirmTimer = null;
-                }
-                state.pendingConfirm = null;
-            }
-
-            function requireDeleteConfirmation(action, id, label) {
-                const normalizedId = String(id);
-                if (
-                    state.pendingConfirm
-                    && state.pendingConfirm.action === action
-                    && state.pendingConfirm.id === normalizedId
-                ) {
-                    resetPendingConfirm();
-                    return true;
-                }
-
-                resetPendingConfirm();
-                state.pendingConfirm = { action, id: normalizedId };
-                state.confirmTimer = setTimeout(() => {
-                    resetPendingConfirm();
-                    if (state.data) {
-                        renderAll(state.data);
-                    }
-                }, 3000);
-                setQueueStatus(`再次点击确认删除${label}。`);
-                if (state.data) {
-                    renderAll(state.data);
-                }
-                return false;
-            }
-
             function showToast(msg, type) {
                 var wrap = document.getElementById('toastWrap');
                 if (!wrap) return;
@@ -3514,10 +3492,15 @@
                 el.className = 'toast ' + (type || 'info');
                 el.textContent = msg;
                 wrap.appendChild(el);
-                setTimeout(function () {
+                var timer = setTimeout(function () {
                     el.classList.add('out');
                     el.addEventListener('animationend', function () { if (el.parentNode) el.parentNode.removeChild(el); }, { once: true });
                 }, 2800);
+                el.addEventListener('click', function () {
+                    clearTimeout(timer);
+                    el.classList.add('out');
+                    el.addEventListener('animationend', function () { if (el.parentNode) el.parentNode.removeChild(el); }, { once: true });
+                }, { once: true });
             }
 
             function showConfirm(title, message) {
@@ -3589,7 +3572,7 @@
                         `;
                     });
 
-                return rows.length ? rows.join('') : '<div class="item">暂无待审人格更新。</div>';
+                return rows.length ? rows.join('') : '<div class="empty-state"><span class="material-icons">person_off</span><p>暂无待审人格更新</p></div>';
             }
 
             function renderStyleQueue(reviews) {
@@ -3625,7 +3608,7 @@
                     `;
                 });
 
-                return rows.length ? rows.join('') : '<div class="item">暂无风格审查记录。</div>';
+                return rows.length ? rows.join('') : '<div class="empty-state"><span class="material-icons">style</span><p>暂无风格审查记录</p></div>';
             }
 
             function renderSummary(data) {
@@ -3717,7 +3700,7 @@
                     `;
                 });
 
-                $('healthList').innerHTML = healthItems.length ? healthItems.join('') : '<div class="item">暂无健康数据。</div>';
+                $('healthList').innerHTML = healthItems.length ? healthItems.join('') : '<div class="empty-state"><span class="material-icons">monitor_heart</span><p>暂无健康数据</p></div>';
                 $('healthHint').textContent = `overall ${overallHealth}`;
 
                 const functionRows = safeArray(data.functions).slice(0, 5).map((item) => {
@@ -3736,7 +3719,7 @@
                     `;
                 });
                 $('functionHint').textContent = data.functions && data.functions.length ? `${Math.min(data.functions.length, 5)} 条热点` : '无热点';
-                $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="item">暂无函数热点。</div>';
+                $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="empty-state"><span class="material-icons">speed</span><p>暂无函数热点</p></div>';
 
                 renderLLMCallPanel(llm);
 
@@ -5044,16 +5027,20 @@
 
                 try {
                     let payload = null;
-                    if (action === 'persona-approve' || action === 'persona-reject') {
-                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, {
-                            action: action === 'persona-approve' ? 'approve' : 'reject',
-                        });
+                    if (action === 'persona-approve') {
+                        if (!(await showConfirm('审批确认', '确定通过这条人格更新？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'approve' });
+                    } else if (action === 'persona-reject') {
+                        if (!(await showConfirm('审批确认', '确定驳回这条人格更新？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
-                    } else if (action === 'jargon-approve' || action === 'jargon-reject') {
-                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, {
-                            action: action === 'jargon-approve' ? 'approve' : 'reject',
-                        });
+                    } else if (action === 'jargon-approve') {
+                        if (!(await showConfirm('审批确认', '确定确认这条黑话？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'approve' });
+                    } else if (action === 'jargon-reject') {
+                        if (!(await showConfirm('审批确认', '确定驳回这条黑话？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {
@@ -5073,6 +5060,7 @@
                         });
                         state.jargon.editingId = null;
                     } else if (action === 'batch-relearn') {
+                        if (!(await showConfirm('重新学习', '确定重新学习？可能需要几分钟。'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson('/api/relearn', { group_id: id });
                     } else if (action === 'batch-delete') {
                         if (!(await showConfirm('删除学习批次', '确定删除这个学习批次？不可撤销。'))) { showToast('已取消', 'warn'); return; }
@@ -5513,7 +5501,7 @@
             }
 
             async function loadDashboard() {
-                $('summaryText').textContent = '正在刷新监控数据。';
+                $('summaryText').innerHTML = '<span class="spinner" style="margin-right:6px;"></span>正在刷新监控数据。';
 
                 const [
                     metrics,
@@ -5535,6 +5523,14 @@
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
                 ]);
 
+                const fetchErrors = [];
+                if (!metrics) fetchErrors.push('指标');
+                if (!trends) fetchErrors.push('趋势');
+                if (!health) fetchErrors.push('健康');
+                if (fetchErrors.length) {
+                    console.warn('[dashboard] 加载失败:', fetchErrors.join(', '));
+                }
+
                 const merged = {
                     metrics: metrics || {},
                     trends: trends || {},
@@ -5544,9 +5540,14 @@
                     style: style || { reviews: [], total: 0 },
                     jargonStats: extractJargonStats(jargonStats),
                     jargonList: extractJargonItems(jargonList),
+                    _errors: fetchErrors,
                 };
 
                 renderAll(merged);
+
+                if (fetchErrors.length) {
+                    showToast(`部分数据加载失败: ${fetchErrors.join('、')}`, 'warn');
+                }
 
                 await Promise.all([
                     loadJargonList(),
@@ -5708,7 +5709,7 @@
                         </div>
                     `;
                 });
-                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="item">暂无黑话记录。</div>';
+                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="empty-state"><span class="material-icons">translate</span><p>暂无黑话记录</p></div>';
 
                 // Pagination
                 const { page, total, totalPages } = state.jargon;
@@ -5747,7 +5748,7 @@
                         </div>
                     `;
                 });
-                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="item">暂无批次记录。</div>';
+                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="empty-state"><span class="material-icons">school</span><p>暂无批次记录</p></div>';
 
                 const { page, total, totalPages } = state.batch;
                 $('batchPageInfo').textContent = `第 ${page} / ${totalPages} 页 · 共 ${formatCount(total)} 条`;
