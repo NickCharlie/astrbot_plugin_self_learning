@@ -80,6 +80,21 @@ class JargonInferenceEngine:
   "reason": "判断理由"
 }}"""
 
+        # Prompt 4: 将英文含义翻译为中文
+        self.prompt_translate_to_chinese = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
+
+**词条内容**
+{content}
+
+**当前含义（英文）**
+{english_meaning}
+
+请将上述英文含义翻译为自然流畅的中文，同时保持原意。
+以 JSON 格式输出：
+{{
+  "meaning": "中文含义说明"
+}}"""
+
     async def infer_meaning(
         self,
         content: str,
@@ -618,6 +633,14 @@ class JargonMiner(AsyncServiceBase):
                 await self.db.update_jargon(self._jargon_to_dict(jargon))
                 return
 
+            # 后验证：检测英文含义并尝试翻译
+            meaning = result.get('meaning', '')
+            if meaning and self._is_meaning_english(meaning):
+                logger.info(f"[JargonMiner] 黑话「{jargon.content}」推断结果为英文，尝试翻译")
+                translated = await self._translate_to_chinese(jargon.content, meaning)
+                if translated:
+                    result['meaning'] = translated
+
             # 更新推断结果
             jargon.is_jargon = result['is_jargon']
             jargon.meaning = result['meaning']
@@ -638,6 +661,26 @@ class JargonMiner(AsyncServiceBase):
 
         except Exception as e:
             logger.error(f"推断黑话失败: {e}")
+
+    async def _translate_to_chinese(self, content: str, english_meaning: str) -> Optional[str]:
+        """将英文含义翻译为中文，失败返回 None"""
+        try:
+            prompt = self.inference_engine.prompt_translate_to_chinese.format(
+                content=content,
+                english_meaning=english_meaning
+            )
+            response = await self.llm.generate_response(prompt, temperature=0.3)
+            if not response:
+                return None
+            parsed = safe_parse_llm_json(response.strip())
+            if isinstance(parsed, dict) and parsed.get('meaning'):
+                translated = parsed['meaning']
+                if not self._is_meaning_english(translated):
+                    return translated
+            return None
+        except Exception as e:
+            logger.warning(f"翻译黑话含义失败: {e}")
+            return None
 
     async def run_once(
         self,
