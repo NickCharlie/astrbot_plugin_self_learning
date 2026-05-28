@@ -28,9 +28,7 @@ class JargonInferenceEngine:
         """初始化推断Prompts"""
 
         # Prompt 1: 基于上下文推断
-        self.prompt_infer_with_context = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
-
-**词条内容**
+        self.prompt_infer_with_context = """**词条内容**
 {content}
 
 **词条出现的上下文**
@@ -41,26 +39,24 @@ class JargonInferenceEngine:
 - 如果含义明确（常规词汇），也请说明
 - 如果上下文信息不足，无法推断含义，请设置 no_info 为 true
 
-以 JSON 格式输出（meaning 字段必须是中文，禁止英文）：
+以 JSON 格式输出：
 {{
-  "meaning": "中文含义说明",
+  "meaning": "详细含义说明（包含使用场景、来源、具体解释等）",
   "no_info": false
 }}
 注意：如果信息不足无法推断，请设置 "no_info": true，此时 meaning 可以为空字符串"""
 
         # Prompt 2: 仅基于词条推断
-        self.prompt_infer_content_only = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
-
-**词条内容**
+        self.prompt_infer_content_only = """**词条内容**
 {content}
 
 请仅根据这个词条本身，推断其含义。
 - 如果这是一个黑话、俚语或网络用语，请推断其含义
 - 如果含义明确（常规词汇），也请说明
 
-以 JSON 格式输出（meaning 字段必须是中文，禁止英文）：
+以 JSON 格式输出：
 {{
-  "meaning": "中文含义说明"
+  "meaning": "详细含义说明（包含使用场景、来源、具体解释等）"
 }}"""
 
         # Prompt 3: 对比两个推断
@@ -78,21 +74,6 @@ class JargonInferenceEngine:
 {{
   "is_similar": true/false,
   "reason": "判断理由"
-}}"""
-
-        # Prompt 4: 将英文含义翻译为中文
-        self.prompt_translate_to_chinese = """【重要规则】你的回答必须完全使用中文，禁止使用英文输出任何内容。
-
-**词条内容**
-{content}
-
-**当前含义（英文）**
-{english_meaning}
-
-请将上述英文含义翻译为自然流畅的中文，同时保持原意。
-以 JSON 格式输出：
-{{
-  "meaning": "中文含义说明"
 }}"""
 
     async def infer_meaning(
@@ -311,29 +292,11 @@ class JargonMiner(AsyncServiceBase):
 
         return True
 
-    @staticmethod
-    def _is_meaning_english(meaning: Optional[str]) -> bool:
-        """检测含义是否为英文（超过一半的字母字符是 ASCII 字母）"""
-        if not meaning:
-            return False
-        alpha_chars = [c for c in meaning if c.isalpha()]
-        if not alpha_chars:
-            return False
-        ascii_alpha = sum(1 for c in alpha_chars if ord(c) < 128)
-        return ascii_alpha / len(alpha_chars) > 0.5
-
     def _should_infer_meaning(self, jargon: Jargon) -> bool:
         """
         判断是否需要进行含义推断
         在 count 达到 3,6,10,20,40,60,100 时进行推断
         """
-        # 英文含义强制重新推断
-        if jargon.is_complete and self._is_meaning_english(jargon.meaning):
-            logger.info(
-                f"[JargonMiner] 黑话「{jargon.content}」含义为英文，强制重新推断"
-            )
-            jargon.is_complete = False
-
         if jargon.is_complete:
             return False
 
@@ -633,22 +596,6 @@ class JargonMiner(AsyncServiceBase):
                 await self.db.update_jargon(self._jargon_to_dict(jargon))
                 return
 
-            # 后验证：检测英文含义并尝试翻译
-            meaning = result.get('meaning', '')
-            if meaning and self._is_meaning_english(meaning):
-                logger.info(f"[JargonMiner] 黑话「{jargon.content}」推断结果为英文，尝试翻译")
-                translated = await self._translate_to_chinese(jargon.content, meaning)
-                if translated:
-                    result['meaning'] = translated
-                    # 翻译成功，标记完成，避免重复推断浪费调用
-                    jargon.is_complete = True
-                else:
-                    # 翻译失败，清空含义，下次触发时重新推断
-                    logger.warning(
-                        f"[JargonMiner] 黑话「{jargon.content}」翻译失败，跳过保存英文含义"
-                    )
-                    result['meaning'] = ''
-
             # 更新推断结果
             jargon.is_jargon = result['is_jargon']
             jargon.meaning = result['meaning']
@@ -669,26 +616,6 @@ class JargonMiner(AsyncServiceBase):
 
         except Exception as e:
             logger.error(f"推断黑话失败: {e}")
-
-    async def _translate_to_chinese(self, content: str, english_meaning: str) -> Optional[str]:
-        """将英文含义翻译为中文，失败返回 None"""
-        try:
-            prompt = self.inference_engine.prompt_translate_to_chinese.format(
-                content=content,
-                english_meaning=english_meaning
-            )
-            response = await self.llm.generate_response(prompt, temperature=0.3)
-            if not response:
-                return None
-            parsed = safe_parse_llm_json(response.strip())
-            if isinstance(parsed, dict) and parsed.get('meaning'):
-                translated = parsed['meaning']
-                if not self._is_meaning_english(translated):
-                    return translated
-            return None
-        except Exception as e:
-            logger.warning(f"翻译黑话含义失败: {e}")
-            return None
 
     async def run_once(
         self,
