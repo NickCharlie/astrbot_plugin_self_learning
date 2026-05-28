@@ -640,6 +640,8 @@ class JargonMiner(AsyncServiceBase):
                 translated = await self._translate_to_chinese(jargon.content, meaning)
                 if translated:
                     result['meaning'] = translated
+                    # 翻译成功，标记完成，避免重复推断浪费调用
+                    jargon.is_complete = True
 
             # 更新推断结果
             jargon.is_jargon = result['is_jargon']
