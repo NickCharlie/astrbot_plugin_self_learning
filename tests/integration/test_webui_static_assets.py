@@ -58,6 +58,14 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "item && item.pattern_details" in text
     assert "item && item.few_shot_pairs" in text
     assert "renderStyleReviewDetails(item)" in text
+    assert "renderPersonaChangeDiff(item)" in text
+    assert "persona_change_preview" in text
+    assert "persona_change_snapshot" in text
+    assert "before_system_prompt" in text
+    assert "after_begin_dialogs" in text
+    assert "/api/persona_updates/reviewed?limit=5" in text
+    assert "reviewedPersonaList" in text
+    assert "追加到 begin_dialogs" in text
     assert "item.definition || item.meaning || item.review_detail" in text
     assert "renderContextExamples(item)" in text
 

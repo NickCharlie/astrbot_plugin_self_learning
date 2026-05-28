@@ -84,6 +84,7 @@ class LearningService:
             raise ValueError('数据库管理器未初始化')
 
         pending_reviews = await self.database_manager.get_pending_style_reviews(limit=limit)
+        persona_review_service = PersonaReviewService(self.container)
 
         # 格式化审查数据
         formatted_reviews = []
@@ -96,6 +97,7 @@ class LearningService:
             )
             formatted_review = {
                 'id': review['id'],
+                'review_source': 'style_learning',
                 'type': '对话风格学习',
                 'group_id': review['group_id'],
                 'description': review['description'],
@@ -106,6 +108,14 @@ class LearningService:
                 'few_shots_content': review['few_shots_content'],
                 'pattern_details': pattern_details,
                 'few_shot_pairs': few_shot_pairs,
+                'persona_change_preview': await persona_review_service._style_preview(
+                    review.get('group_id', 'default'),
+                    review,
+                ),
+                'persona_change_snapshot': await persona_review_service._load_change_snapshot(
+                    'style_learning',
+                    str(review['id']),
+                ),
             }
             formatted_reviews.append(formatted_review)
 

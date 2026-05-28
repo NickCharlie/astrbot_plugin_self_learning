@@ -91,6 +91,8 @@ def mock_database_manager():
     manager.get_persona_learning_review_by_id = AsyncMock(return_value=None)
     manager.delete_persona_learning_review_by_id = AsyncMock(return_value=True)
     manager.get_reviewed_persona_learning_updates = AsyncMock(return_value=[])
+    manager.save_persona_change_snapshot = AsyncMock(return_value=1)
+    manager.get_persona_change_snapshot = AsyncMock(return_value=None)
 
     # Jargon methods
     manager.get_jargon_stats = AsyncMock(return_value={
