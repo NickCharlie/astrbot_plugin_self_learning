@@ -27,6 +27,7 @@ BASIC_DEPENDENCY_PACKAGES = [
     "asyncpg",
     "cachetools>=5.3.0",
     "apscheduler",
+    "defusedxml>=0.7.1",
 ]
 
 FULL_DEPENDENCY_PACKAGES = list(dict.fromkeys([

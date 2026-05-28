@@ -44,6 +44,7 @@ class ServiceContainer:
         # WebUI 配置
         self.webui_config: Optional[Any] = None
         self.feature_delegation: Optional[Any] = None
+        self.v2_integration: Optional[Any] = None
 
         # 密码配置
         self.password_config: Dict[str, Any] = {}
@@ -79,6 +80,7 @@ class ServiceContainer:
         database_manager=None,
         database_degraded=False,
         database_start_error=None,
+        v2_integration=None,
     ):
         """
         初始化服务容器
@@ -98,6 +100,7 @@ class ServiceContainer:
         self.plugin_instance = plugin_instance
         self.factory_manager = factory_manager
         self.feature_delegation = feature_delegation
+        self.v2_integration = v2_integration
         self.astrbot_persona_manager = astrbot_persona_manager
         self.database_degraded = database_degraded
         self.database_start_error = database_start_error
@@ -225,6 +228,7 @@ async def set_plugin_services(
     database_manager=None,
     database_degraded=False,
     database_start_error=None,
+    v2_integration=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -248,6 +252,7 @@ async def set_plugin_services(
         database_manager=database_manager,
         database_degraded=database_degraded,
         database_start_error=database_start_error,
+        v2_integration=v2_integration,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")

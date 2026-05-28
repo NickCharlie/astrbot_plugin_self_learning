@@ -293,6 +293,7 @@ class EnhancedMemoryGraphManager:
     ):
         """初始化增强型记忆图管理器"""
         if self._initialized:
+            self.configure(config, db_manager, llm_adapter, decay_manager)
             return
 
         self.config = config
@@ -318,7 +319,26 @@ class EnhancedMemoryGraphManager:
         """获取单例实例"""
         if cls._instance is None:
             cls._instance = cls(config, db_manager, llm_adapter, decay_manager)
+        elif any(value is not None for value in (config, db_manager, llm_adapter, decay_manager)):
+            cls._instance.configure(config, db_manager, llm_adapter, decay_manager)
         return cls._instance
+
+    def configure(
+        self,
+        config: PluginConfig = None,
+        db_manager = None,
+        llm_adapter: Optional[FrameworkLLMAdapter] = None,
+        decay_manager = None,
+    ) -> None:
+        """Fill late dependencies without replacing existing graph data."""
+        if config is not None:
+            self.config = config
+        if db_manager is not None:
+            self.db_manager = db_manager
+        if llm_adapter is not None:
+            self.llm_adapter = llm_adapter
+        if decay_manager is not None:
+            self.decay_manager = decay_manager
 
     async def start(self) -> bool:
         """启动记忆图管理器"""
