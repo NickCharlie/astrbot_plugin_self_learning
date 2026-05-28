@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.dialects import postgresql
 from sqlalchemy import select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
@@ -11,6 +12,7 @@ from config import PluginConfig
 from core.database.engine import DatabaseEngine
 from models.orm import Base
 from models.orm.learning import StyleLearningReview
+from services.database.facades.jargon_facade import JargonFacade
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
 
 
@@ -341,6 +343,20 @@ def test_database_engine_normalizes_sync_postgresql_url_to_asyncpg():
 
     assert url.drivername == "postgresql+asyncpg"
     assert url.database == "learning_db"
+
+
+def test_jargon_postgresql_upsert_targets_chat_content_unique_constraint():
+    stmt = JargonFacade._build_postgresql_jargon_upsert(
+        "group-a",
+        "测试黑话",
+        {"raw_content": "[]", "meaning": "释义", "is_jargon": True},
+        123,
+    )
+
+    compiled = str(stmt.compile(dialect=postgresql.dialect()))
+
+    assert "ON CONFLICT (chat_id, content) DO UPDATE" in compiled
+    assert "RETURNING jargon.id" in compiled
 
 
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):

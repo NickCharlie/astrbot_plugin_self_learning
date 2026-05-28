@@ -56,6 +56,21 @@ def test_service_container_uses_injected_database_manager():
     assert service_factory.create_database_manager_called is False
 
 
+def test_service_container_records_v2_integration():
+    container = ServiceContainer()
+    service_factory = _ServiceFactory()
+    v2_integration = object()
+    plugin_config = SimpleNamespace(data_dir="./data")
+
+    container.initialize(
+        plugin_config=plugin_config,
+        factory_manager=_FactoryManager(service_factory),
+        v2_integration=v2_integration,
+    )
+
+    assert container.v2_integration is v2_integration
+
+
 def test_service_container_records_database_degraded_state():
     container = ServiceContainer()
     service_factory = _ServiceFactory()
@@ -126,6 +141,48 @@ async def test_webui_manager_passes_plugin_database_manager(monkeypatch):
 
     assert calls["database_manager"] is database_manager
     assert webui_container.perf_collector == "perf"
+
+
+@pytest.mark.asyncio
+async def test_webui_manager_passes_v2_integration(monkeypatch):
+    from webui import dependencies as dependencies_module
+    from webui.manager import WebUIManager
+
+    calls = {}
+    webui_container = SimpleNamespace(perf_collector=None)
+    database_manager = object()
+    v2_integration = object()
+    plugin_instance = SimpleNamespace(
+        db_manager=database_manager,
+        v2_integration=v2_integration,
+    )
+
+    async def fake_set_plugin_services(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(
+        dependencies_module,
+        "set_plugin_services",
+        fake_set_plugin_services,
+    )
+    monkeypatch.setattr(
+        dependencies_module,
+        "get_container",
+        lambda: webui_container,
+    )
+
+    manager = WebUIManager(
+        plugin_config=SimpleNamespace(data_dir="./data"),
+        context=object(),
+        factory_manager=object(),
+        perf_tracker="perf",
+        group_id_to_unified_origin={},
+        plugin_instance=plugin_instance,
+    )
+
+    await manager._setup_services(astrbot_persona_manager=None)
+
+    assert calls["v2_integration"] is v2_integration
 
 
 @pytest.mark.asyncio
