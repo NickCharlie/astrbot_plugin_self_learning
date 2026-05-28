@@ -642,6 +642,12 @@ class JargonMiner(AsyncServiceBase):
                     result['meaning'] = translated
                     # 翻译成功，标记完成，避免重复推断浪费调用
                     jargon.is_complete = True
+                else:
+                    # 翻译失败，清空含义，下次触发时重新推断
+                    logger.warning(
+                        f"[JargonMiner] 黑话「{jargon.content}」翻译失败，跳过保存英文含义"
+                    )
+                    result['meaning'] = ''
 
             # 更新推断结果
             jargon.is_jargon = result['is_jargon']
