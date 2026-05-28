@@ -41,6 +41,8 @@ class MessagePipeline:
         self._subtasks: Set[asyncio.Task] = set()
         self._active_jargon_groups: Set[str] = set()
         self._last_jargon_trigger_counts: dict[str, int] = {}
+        self._group_raw_message_counts: dict[str, int] = {}
+        self._groups_seeded: set[str] = set()
 
     # 后台学习流水线（6 步）
 
@@ -88,6 +90,12 @@ class MessagePipeline:
             except Exception as e:
                 logger.error(f"消息收集失败: {e}")
 
+            # Track raw message count in memory for jargon trigger
+            if message_collected:
+                self._group_raw_message_counts[group_id] = (
+                    self._group_raw_message_counts.get(group_id, 0) + 1
+                )
+
             # 2. 增强交互（多轮对话管理）
             try:
                 await self._enhanced_interaction.update_conversation_context(
@@ -107,8 +115,7 @@ class MessagePipeline:
 
             # 3. 黑话挖掘 — 每收集 10 条消息触发一次
             if self._config.enable_jargon_learning:
-                stats = await self._message_collector.get_statistics(group_id)
-                raw_message_count = stats.get("raw_messages", 0)
+                raw_message_count = await self._get_raw_message_count(group_id)
                 if self._should_schedule_jargon_mining(
                     group_id, raw_message_count
                 ):
@@ -275,6 +282,20 @@ class MessagePipeline:
             logger.error(LogMessages.AFFECTION_PROCESSING_FAILED.format(error=e))
 
     # Task tracking
+
+    async def _get_raw_message_count(self, group_id: str) -> int:
+        """Get raw message count for a group, seeded from DB once."""
+        if group_id not in self._groups_seeded:
+            try:
+                stats = await self._message_collector.get_statistics(group_id)
+                db_count = stats.get("raw_messages", 0)
+                # Merge DB count with any messages collected in memory since startup
+                memory_count = self._group_raw_message_counts.get(group_id, 0)
+                self._group_raw_message_counts[group_id] = max(db_count, memory_count)
+            except Exception:
+                pass  # fall back to memory-only count
+            self._groups_seeded.add(group_id)
+        return self._group_raw_message_counts.get(group_id, 0)
 
     def _should_schedule_jargon_mining(
         self, group_id: str, raw_message_count: int

@@ -108,34 +108,61 @@ class LLMHookHandler:
             jargon_result: Optional[str] = None
             few_shots_result: Optional[str] = None
 
+            _ctx_timeout = getattr(self._config, "llm_hook_context_timeout", 3.0)
+
             async def _timed_social() -> None:
                 nonlocal social_result, social_ms
                 t0 = time.time()
-                social_result = await self._fetch_social(group_id, user_id)
+                try:
+                    social_result = await asyncio.wait_for(
+                        self._fetch_social(group_id, user_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] social context timed out ({_ctx_timeout}s)")
                 social_ms = (time.time() - t0) * 1000
 
             async def _timed_v2() -> None:
                 nonlocal v2_result, v2_ms
                 t0 = time.time()
-                v2_result = await self._fetch_v2(req.prompt, group_id)
+                try:
+                    v2_result = await asyncio.wait_for(
+                        self._fetch_v2(req.prompt, group_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] V2 context timed out ({_ctx_timeout}s)")
                 v2_ms = (time.time() - t0) * 1000
 
             async def _timed_diversity() -> None:
                 nonlocal diversity_result, diversity_ms
                 t0 = time.time()
-                diversity_result = await self._fetch_diversity(group_id)
+                try:
+                    diversity_result = await asyncio.wait_for(
+                        self._fetch_diversity(group_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] diversity timed out ({_ctx_timeout}s)")
                 diversity_ms = (time.time() - t0) * 1000
 
             async def _timed_jargon() -> None:
                 nonlocal jargon_result, jargon_ms
                 t0 = time.time()
-                jargon_result = await self._fetch_jargon(event, group_id)
+                try:
+                    jargon_result = await asyncio.wait_for(
+                        self._fetch_jargon(event, group_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] jargon timed out ({_ctx_timeout}s)")
                 jargon_ms = (time.time() - t0) * 1000
 
             async def _timed_few_shots() -> None:
                 nonlocal few_shots_result, few_shots_ms
                 t0 = time.time()
-                few_shots_result = await self._fetch_few_shots(group_id)
+                try:
+                    few_shots_result = await asyncio.wait_for(
+                        self._fetch_few_shots(group_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] few-shots timed out ({_ctx_timeout}s)")
                 few_shots_ms = (time.time() - t0) * 1000
 
             await asyncio.gather(

@@ -51,6 +51,11 @@ class SQLAlchemyDatabaseManager:
         self._metrics = None
         self._admin = None
 
+    @property
+    def is_ready(self) -> bool:
+        """Return True if the database is fully started and facades are initialized."""
+        return self._started
+
     async def start(self) -> bool:
         """启动数据库管理器（带并发保护）"""
         async with self._start_lock:

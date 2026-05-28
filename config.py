@@ -154,6 +154,7 @@ class PluginConfig(BaseModel):
     shutdown_step_timeout: int = 8       # 每个关停步骤的超时
     task_cancel_timeout: int = 3         # 后台任务取消等待超时
     service_stop_timeout: int = 5        # 单个服务停止超时
+    llm_hook_context_timeout: float = 3.0  # LLM Hook 单个上下文源超时（秒）
 
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
@@ -478,6 +479,7 @@ class PluginConfig(BaseModel):
             shutdown_step_timeout=runtime_internal_settings.get('shutdown_step_timeout', 8),
             task_cancel_timeout=runtime_internal_settings.get('task_cancel_timeout', 3),
             service_stop_timeout=runtime_internal_settings.get('service_stop_timeout', 5),
+            llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
             llm_hook_injection_target=runtime_internal_settings.get(
                 'llm_hook_injection_target',
                 'system_prompt',

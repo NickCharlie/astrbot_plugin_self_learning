@@ -82,7 +82,7 @@ class MessageCollectorService:
                 )
                 return False
 
-            logger.info(
+            logger.debug(
                 f"消息已保存: id={message_id}, group={message_data.get('group_id')}, "
                 f"sender={message_data.get('sender_name')}, "
                 f"msg_preview={message_data.get('message', '')[:30]}..."
