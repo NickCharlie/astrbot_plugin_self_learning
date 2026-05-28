@@ -40,7 +40,7 @@ class KnowledgeGraphManager:
                  llm_adapter: FrameworkLLMAdapter = None):
         # 允许用实际参数重新初始化（单例首次由 get_instance 以空参数创建）
         if self._initialized:
-            self._configure(config, db_manager, llm_adapter)
+            self.configure(config, db_manager, llm_adapter)
             return
 
         self.config = config
@@ -65,7 +65,7 @@ class KnowledgeGraphManager:
             cls._instance = cls()
         return cls._instance
 
-    def _configure(
+    def configure(
         self,
         config: PluginConfig = None,
         db_manager=None,

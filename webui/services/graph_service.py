@@ -7,7 +7,8 @@ import asyncio
 import os
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
-import xml.etree.ElementTree as ET
+
+from defusedxml import ElementTree as ET
 
 from astrbot.api import logger
 
@@ -288,6 +289,9 @@ class GraphService:
     ) -> None:
         """Append memories from the active Mem0 manager when v2 is enabled."""
         manager = self._get_v2_manager("_memory_manager")
+        if manager is None:
+            return
+
         memory_store = getattr(manager, "_memory", None)
         if not memory_store:
             return

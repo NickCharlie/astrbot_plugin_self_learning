@@ -1,14 +1,27 @@
 from pathlib import Path
 from types import SimpleNamespace
+import importlib.util
 import sys
 
 import pytest
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-PARENT = PACKAGE_ROOT.parent
-if str(PARENT) not in sys.path:
-    sys.path.insert(0, str(PARENT))
+PACKAGE_NAME = "self_learning_EterU"
+
+for module_name in list(sys.modules):
+    if module_name == PACKAGE_NAME or module_name.startswith(f"{PACKAGE_NAME}."):
+        del sys.modules[module_name]
+
+package_spec = importlib.util.spec_from_file_location(
+    PACKAGE_NAME,
+    PACKAGE_ROOT / "__init__.py",
+    submodule_search_locations=[str(PACKAGE_ROOT)],
+)
+package_module = importlib.util.module_from_spec(package_spec)
+sys.modules[PACKAGE_NAME] = package_module
+assert package_spec.loader is not None
+package_spec.loader.exec_module(package_module)
 
 from self_learning_EterU.services.integration.knowledge_graph_manager import (
     KnowledgeGraphManager,
@@ -101,6 +114,10 @@ def test_memory_graph_singleton_accepts_late_dependencies(monkeypatch):
     assert second is first
     assert second.db_manager is db_manager
 
+    third = EnhancedMemoryGraphManager.get_instance()
+    assert third is first
+    assert third.db_manager is db_manager
+
 
 def test_knowledge_graph_singleton_accepts_late_dependencies(monkeypatch):
     monkeypatch.setattr(KnowledgeGraphManager, "_instance", None)
@@ -108,7 +125,12 @@ def test_knowledge_graph_singleton_accepts_late_dependencies(monkeypatch):
     db_manager = object()
     llm_adapter = object()
 
-    first.__init__(db_manager=db_manager, llm_adapter=llm_adapter)
+    first.configure(db_manager=db_manager, llm_adapter=llm_adapter)
 
     assert first.db_manager is db_manager
     assert first.llm_adapter is llm_adapter
+
+    second = KnowledgeGraphManager.get_instance()
+    assert second is first
+    assert second.db_manager is db_manager
+    assert second.llm_adapter is llm_adapter

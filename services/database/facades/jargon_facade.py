@@ -692,8 +692,17 @@ class JargonFacade(BaseFacade):
             return None
 
     def _is_postgresql_backend(self) -> bool:
-        database_url = str(getattr(self.engine, "database_url", "") or "")
-        return database_url.startswith(("postgresql", "postgres"))
+        sync_engine = getattr(self.engine, "engine", None)
+        url = getattr(sync_engine, "url", None)
+        backend_name = None
+        if url is not None and hasattr(url, "get_backend_name"):
+            backend_name = url.get_backend_name()
+
+        if not backend_name:
+            database_url = str(getattr(self.engine, "database_url", "") or "")
+            backend_name = database_url.split(":", 1)[0].split("+", 1)[0].lower()
+
+        return backend_name in {"postgresql", "postgres"}
 
     async def _save_or_update_jargon_postgresql(
         self,
