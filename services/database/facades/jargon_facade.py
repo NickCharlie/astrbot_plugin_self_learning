@@ -69,7 +69,7 @@ class JargonFacade(BaseFacade):
         try:
             async with self.get_session() as session:
 
-                now_ts = int(time.time())
+                now_ts = self._coerce_jargon_timestamp()
 
                 # 处理 created_at / updated_at — 统一转为 int 时间戳
                 created_at = jargon_data.get('created_at')
@@ -569,7 +569,7 @@ class JargonFacade(BaseFacade):
                 global_jargons = result.scalars().all()
 
                 synced_count = 0
-                now_ts = int(time.time())
+                now_ts = self._coerce_jargon_timestamp()
 
                 for gj in global_jargons:
                     # 检查目标群组是否已存在
@@ -628,6 +628,13 @@ class JargonFacade(BaseFacade):
             记录 ID 或 None
         """
         try:
+            if self._is_postgresql_backend():
+                return await self._save_or_update_jargon_postgresql(
+                    chat_id,
+                    content,
+                    jargon_data,
+                )
+
             async with self.get_session() as session:
 
                 stmt = select(Jargon).where(and_(
@@ -637,7 +644,7 @@ class JargonFacade(BaseFacade):
                 result = await session.execute(stmt)
                 record = result.scalars().first()
 
-                now_ts = int(time.time())
+                now_ts = self._coerce_jargon_timestamp()
 
                 if record:
                     # 更新已有记录
@@ -666,17 +673,7 @@ class JargonFacade(BaseFacade):
                 else:
                     # 插入新记录
                     new_record = Jargon(
-                        content=content,
-                        raw_content=truncate_for_db(jargon_data.get('raw_content', '[]')),
-                        meaning=jargon_data.get('meaning'),
-                        is_jargon=jargon_data.get('is_jargon', True),
-                        count=jargon_data.get('count', 1),
-                        last_inference_count=jargon_data.get('last_inference_count', 0),
-                        is_complete=jargon_data.get('is_complete', False),
-                        is_global=jargon_data.get('is_global', False),
-                        chat_id=chat_id,
-                        created_at=now_ts,
-                        updated_at=now_ts,
+                        **self._jargon_insert_values(chat_id, content, jargon_data, now_ts)
                     )
                     session.add(new_record)
                     await session.commit()
@@ -693,6 +690,108 @@ class JargonFacade(BaseFacade):
                 exc_info=True,
             )
             return None
+
+    def _is_postgresql_backend(self) -> bool:
+        database_url = str(getattr(self.engine, "database_url", "") or "")
+        return database_url.startswith(("postgresql", "postgres"))
+
+    async def _save_or_update_jargon_postgresql(
+        self,
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+    ) -> Optional[int]:
+        """Atomically upsert jargon rows on PostgreSQL."""
+        now_ts = self._coerce_jargon_timestamp()
+        stmt = self._build_postgresql_jargon_upsert(
+            chat_id,
+            content,
+            jargon_data,
+            now_ts,
+        )
+
+        async with self.get_session() as session:
+            result = await session.execute(stmt)
+            jargon_id = result.scalar_one_or_none()
+            await session.commit()
+            self._logger.debug(
+                f"[JargonFacade] upsert 黑话: content='{content}', chat_id={chat_id}, "
+                f"id={jargon_id}"
+            )
+            return jargon_id
+
+    @staticmethod
+    def _coerce_jargon_timestamp() -> int:
+        return int(time.time())
+
+    @staticmethod
+    def _jargon_insert_values(
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+        now_ts: int,
+    ) -> Dict[str, Any]:
+        return {
+            "content": content,
+            "raw_content": truncate_for_db(jargon_data.get("raw_content", "[]")),
+            "meaning": jargon_data.get("meaning"),
+            "is_jargon": jargon_data.get("is_jargon", True),
+            "count": jargon_data.get("count", 1),
+            "last_inference_count": jargon_data.get("last_inference_count", 0),
+            "is_complete": jargon_data.get("is_complete", False),
+            "is_global": jargon_data.get("is_global", False),
+            "chat_id": chat_id,
+            "created_at": now_ts,
+            "updated_at": now_ts,
+        }
+
+    @staticmethod
+    def _jargon_update_values(
+        jargon_data: Dict[str, Any],
+        now_ts: int,
+    ) -> Dict[str, Any]:
+        update_values = {"updated_at": now_ts}
+        if "meaning" in jargon_data:
+            update_values["meaning"] = jargon_data["meaning"]
+        if "raw_content" in jargon_data:
+            update_values["raw_content"] = truncate_for_db(jargon_data["raw_content"])
+        if "is_jargon" in jargon_data:
+            update_values["is_jargon"] = jargon_data["is_jargon"]
+        if "count" in jargon_data:
+            update_values["count"] = jargon_data["count"]
+        if "last_inference_count" in jargon_data:
+            update_values["last_inference_count"] = jargon_data["last_inference_count"]
+        if "is_complete" in jargon_data:
+            update_values["is_complete"] = jargon_data["is_complete"]
+        if "is_global" in jargon_data:
+            update_values["is_global"] = jargon_data["is_global"]
+        return update_values
+
+    @staticmethod
+    def _build_postgresql_jargon_upsert(
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+        now_ts: int,
+    ):
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        return (
+            pg_insert(Jargon)
+            .values(
+                **JargonFacade._jargon_insert_values(
+                    chat_id,
+                    content,
+                    jargon_data,
+                    now_ts,
+                )
+            )
+            .on_conflict_do_update(
+                index_elements=[Jargon.chat_id, Jargon.content],
+                set_=JargonFacade._jargon_update_values(jargon_data, now_ts),
+            )
+            .returning(Jargon.id)
+        )
 
     # 13. get_global_jargon_list
     async def get_global_jargon_list(self, limit: int = 50) -> List[Dict]:

@@ -181,8 +181,12 @@ class MaiBotLearningStrategy(ILearningStrategy):
         self.config = config
         self.db_manager = db_manager
         self.expression_learner = ExpressionPatternLearner.get_instance()
-        self.memory_graph_manager = MemoryGraphManager.get_instance()
+        self.memory_graph_manager = MemoryGraphManager.get_instance(
+            config,
+            db_manager,
+        )
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
+        self.knowledge_graph_manager.__init__(config, db_manager, None)
         self._status = ServiceLifecycle.CREATED
     
     async def start(self) -> bool:

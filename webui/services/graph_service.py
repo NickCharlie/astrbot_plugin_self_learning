@@ -3,8 +3,11 @@ Dashboard graph data service.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import re
 from typing import Any, Dict, List, Optional, Set, Tuple
+import xml.etree.ElementTree as ET
 
 from astrbot.api import logger
 
@@ -20,6 +23,8 @@ class GraphService:
     def __init__(self, container):
         self.container = container
         self.database_manager = getattr(container, "database_manager", None)
+        self.plugin_config = getattr(container, "plugin_config", None)
+        self.v2_integration = getattr(container, "v2_integration", None)
 
     def _delegation_status(self) -> Dict[str, Any]:
         delegation = getattr(self.container, "feature_delegation", None)
@@ -165,6 +170,11 @@ class GraphService:
             nodes, links, seen_nodes, seen_links, groups, group_id, limit
         )
 
+        if len(nodes) < limit:
+            await self._append_v2_mem0_memories(
+                nodes, links, seen_nodes, seen_links, groups, group_id, limit
+            )
+
         if len(nodes) < 2:
             await self._append_memory_rows(
                 nodes, links, seen_nodes, seen_links, groups, group_id, limit
@@ -266,6 +276,86 @@ class GraphService:
         except Exception as e:
             logger.warning(f"读取实时记忆图失败: {e}", exc_info=True)
 
+    async def _append_v2_mem0_memories(
+        self,
+        nodes: List[Dict[str, Any]],
+        links: List[Dict[str, Any]],
+        seen_nodes: Set[str],
+        seen_links: Set[Tuple[str, str, str]],
+        groups: Set[str],
+        group_id: Optional[str],
+        limit: int,
+    ) -> None:
+        """Append memories from the active Mem0 manager when v2 is enabled."""
+        manager = self._get_v2_manager("_memory_manager")
+        memory_store = getattr(manager, "_memory", None)
+        if not memory_store:
+            return
+
+        group_ids = self._candidate_group_ids(group_id, manager, self.v2_integration)
+        if not group_ids:
+            return
+
+        try:
+            for gid in group_ids:
+                if len(nodes) >= limit:
+                    break
+
+                payload = await asyncio.to_thread(memory_store.get_all, agent_id=gid)
+                entries = self._extract_mem0_entries(payload)
+                if not entries:
+                    continue
+
+                groups.add(str(gid))
+                group_node_id = f"memory-group:{gid}"
+                self._add_node(nodes, seen_nodes, group_node_id, str(gid), "群组", 2)
+
+                for index, entry in enumerate(entries):
+                    if len(nodes) >= limit:
+                        break
+                    if not isinstance(entry, dict):
+                        continue
+                    content = (
+                        entry.get("memory")
+                        or entry.get("content")
+                        or entry.get("text")
+                        or entry.get("value")
+                        or ""
+                    )
+                    if not content:
+                        continue
+
+                    entry_id = entry.get("id") or f"{index}:{_trim_text(content, 40)}"
+                    memory_node_id = f"mem0:{gid}:{entry_id}"
+                    self._add_node(
+                        nodes,
+                        seen_nodes,
+                        memory_node_id,
+                        _trim_text(content, 28),
+                        "记忆",
+                        self._to_float(entry.get("score"), 1),
+                        detail=_trim_text(content, 240),
+                        group_id=str(gid),
+                        source="mem0",
+                    )
+                    self._add_link(links, seen_links, group_node_id, memory_node_id, "包含", 1)
+
+                    user_id = entry.get("user_id")
+                    metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+                    if not user_id:
+                        user_id = metadata.get("sender_name") or metadata.get("sender_id")
+                    if user_id:
+                        user_node_id = f"memory-user:{gid}:{user_id}"
+                        self._add_node(nodes, seen_nodes, user_node_id, str(user_id), "用户", 1.5)
+                        self._add_link(links, seen_links, user_node_id, memory_node_id, "关联记忆", 1)
+
+                    for keyword in self._extract_keywords(str(content))[:2]:
+                        concept_id = f"memory-keyword:{gid}:{keyword}"
+                        self._add_node(nodes, seen_nodes, concept_id, keyword, "概念", 1.4)
+                        self._add_link(links, seen_links, concept_id, memory_node_id, "提及", 1)
+        except Exception as e:
+            logger.warning(f"读取 Mem0 记忆失败: {e}", exc_info=True)
+
     async def _append_memory_rows(
         self,
         nodes: List[Dict[str, Any]],
@@ -361,6 +451,10 @@ class GraphService:
         seen_links: Set[Tuple[str, str, str]] = set()
         groups: Set[str] = set()
         categories: Set[str] = set()
+
+        await self._append_lightrag_graph(
+            nodes, links, seen_nodes, seen_links, groups, categories, group_id, limit
+        )
 
         if self.database_manager and hasattr(self.database_manager, "get_session"):
             try:
@@ -458,3 +552,230 @@ class GraphService:
     @staticmethod
     def _kg_node_id(group_id: str, name: str) -> str:
         return f"kg:{group_id}:{name}"
+
+    def _get_v2_manager(self, attr_name: str) -> Any:
+        if not self.v2_integration:
+            return None
+        return getattr(self.v2_integration, attr_name, None)
+
+    def _candidate_group_ids(self, group_id: Optional[str], *sources: Any) -> List[str]:
+        if group_id:
+            return [str(group_id)]
+
+        candidates: List[str] = []
+        mapping = getattr(self.container, "group_id_to_unified_origin", None)
+        if isinstance(mapping, dict):
+            candidates.extend(str(key) for key in mapping.keys())
+
+        for source in sources:
+            for attr_name in ("memory_graphs", "_instances", "_processed_counts", "_ingestion_buffer"):
+                value = getattr(source, attr_name, None)
+                if isinstance(value, dict):
+                    candidates.extend(str(key) for key in value.keys())
+
+        return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+    @staticmethod
+    def _extract_mem0_entries(payload: Any) -> List[Dict[str, Any]]:
+        if isinstance(payload, dict):
+            for key in ("results", "memories", "data"):
+                entries = payload.get(key)
+                if isinstance(entries, list):
+                    return entries
+            return []
+        if isinstance(payload, list):
+            return payload
+        return []
+
+    async def _append_lightrag_graph(
+        self,
+        nodes: List[Dict[str, Any]],
+        links: List[Dict[str, Any]],
+        seen_nodes: Set[str],
+        seen_links: Set[Tuple[str, str, str]],
+        groups: Set[str],
+        categories: Set[str],
+        group_id: Optional[str],
+        limit: int,
+    ) -> None:
+        base_dir = self._lightrag_base_dir()
+        if not base_dir or not os.path.isdir(base_dir):
+            return
+
+        manager = self._get_v2_manager("_knowledge_manager")
+        group_ids = self._lightrag_group_ids(base_dir, group_id, manager)
+        if not group_ids:
+            return
+
+        try:
+            for gid in group_ids:
+                if len(nodes) >= limit:
+                    break
+                group_dir = self._safe_child_dir(base_dir, gid)
+                if not group_dir:
+                    continue
+                graph_file = os.path.join(group_dir, "graph_chunk_entity_relation.graphml")
+                if not os.path.isfile(graph_file):
+                    continue
+
+                graph_nodes, graph_edges = self._read_graphml(graph_file)
+                if not graph_nodes and not graph_edges:
+                    continue
+
+                groups.add(str(gid))
+                for raw_id, data in graph_nodes:
+                    if len(nodes) >= limit:
+                        break
+                    label = self._graphml_label(data, raw_id)
+                    category = self._graphml_category(data)
+                    categories.add(category)
+                    self._add_node(
+                        nodes,
+                        seen_nodes,
+                        self._lightrag_node_id(gid, raw_id),
+                        label,
+                        category,
+                        self._to_float(data.get("weight") or data.get("rank"), 1),
+                        group_id=str(gid),
+                        detail=_trim_text(
+                            data.get("description")
+                            or data.get("source_id")
+                            or category,
+                            240,
+                        ),
+                        source="lightrag",
+                    )
+
+                for source, target, data in graph_edges:
+                    label = (
+                        data.get("predicate")
+                        or data.get("relation")
+                        or data.get("keywords")
+                        or data.get("description")
+                        or "关联"
+                    )
+                    self._add_link(
+                        links,
+                        seen_links,
+                        self._lightrag_node_id(gid, source),
+                        self._lightrag_node_id(gid, target),
+                        _trim_text(label, 30),
+                        self._to_float(data.get("weight") or data.get("confidence"), 1),
+                    )
+        except Exception as e:
+            logger.warning(f"读取 LightRAG 图谱失败: {e}", exc_info=True)
+
+    def _lightrag_base_dir(self) -> Optional[str]:
+        manager = self._get_v2_manager("_knowledge_manager")
+        base_dir = getattr(manager, "_base_dir", None)
+        if base_dir:
+            return str(base_dir)
+
+        data_dir = getattr(self.plugin_config, "data_dir", None)
+        if data_dir:
+            return os.path.join(str(data_dir), "lightrag")
+        return None
+
+    def _lightrag_group_ids(
+        self,
+        base_dir: str,
+        group_id: Optional[str],
+        manager: Any,
+    ) -> List[str]:
+        candidates = self._candidate_group_ids(group_id, manager, self.v2_integration)
+        if not group_id:
+            try:
+                candidates.extend(
+                    entry.name
+                    for entry in os.scandir(base_dir)
+                    if entry.is_dir()
+                )
+            except OSError:
+                pass
+        return list(dict.fromkeys(candidate for candidate in candidates if candidate))
+
+    @staticmethod
+    def _safe_child_dir(base_dir: str, child: str) -> Optional[str]:
+        base_abs = os.path.abspath(base_dir)
+        candidate = os.path.abspath(os.path.join(base_abs, str(child)))
+        try:
+            if os.path.commonpath([base_abs, candidate]) != base_abs:
+                return None
+        except ValueError:
+            return None
+        return candidate
+
+    @staticmethod
+    def _read_graphml(path: str) -> Tuple[List[Tuple[str, Dict[str, str]]], List[Tuple[str, str, Dict[str, str]]]]:
+        tree = ET.parse(path)
+        root = tree.getroot()
+
+        namespace = ""
+        if root.tag.startswith("{"):
+            namespace = root.tag.split("}", 1)[0][1:]
+
+        def tag(name: str) -> str:
+            return f"{{{namespace}}}{name}" if namespace else name
+
+        key_names: Dict[str, str] = {}
+        for key in root.findall(f".//{tag('key')}"):
+            key_id = key.attrib.get("id")
+            if key_id:
+                key_names[key_id] = key.attrib.get("attr.name") or key_id
+
+        graph = root.find(f".//{tag('graph')}")
+        if graph is None:
+            return [], []
+
+        def data_map(element: ET.Element) -> Dict[str, str]:
+            values: Dict[str, str] = {}
+            for data in element.findall(tag("data")):
+                key = data.attrib.get("key")
+                if not key:
+                    continue
+                values[key_names.get(key, key)] = (data.text or "").strip()
+            return values
+
+        graph_nodes = [
+            (node.attrib.get("id", ""), data_map(node))
+            for node in graph.findall(tag("node"))
+            if node.attrib.get("id")
+        ]
+        graph_edges = [
+            (
+                edge.attrib.get("source", ""),
+                edge.attrib.get("target", ""),
+                data_map(edge),
+            )
+            for edge in graph.findall(tag("edge"))
+            if edge.attrib.get("source") and edge.attrib.get("target")
+        ]
+        return graph_nodes, graph_edges
+
+    @staticmethod
+    def _graphml_label(data: Dict[str, str], fallback: str) -> str:
+        for key in ("entity_id", "entity_name", "name", "label"):
+            if data.get(key):
+                return str(data[key]).strip('"')
+        return str(fallback).strip('"')
+
+    @staticmethod
+    def _graphml_category(data: Dict[str, str]) -> str:
+        category = (
+            data.get("entity_type")
+            or data.get("type")
+            or data.get("category")
+            or "实体"
+        )
+        return str(category).strip('"') or "实体"
+
+    @staticmethod
+    def _lightrag_node_id(group_id: str, raw_id: str) -> str:
+        return f"lightrag:{group_id}:{raw_id}"
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 1.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default

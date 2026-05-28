@@ -53,15 +53,22 @@ class MaiBotEnhancedLearningManager:
         self._status = ServiceLifecycle.CREATED
         
         # 初始化各个管理器，传递正确的参数
+        self.time_decay_manager = TimeDecayManager(config, db_manager) if config and db_manager else None
+
         self.expression_learner = ExpressionPatternLearner.get_instance(
             config=config,
             db_manager=db_manager,
             context=context,
             llm_adapter=self.llm_adapter
         )
-        self.memory_graph_manager = MemoryGraphManager.get_instance()
+        self.memory_graph_manager = MemoryGraphManager.get_instance(
+            config,
+            db_manager,
+            self.llm_adapter,
+            self.time_decay_manager,
+        )
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
-        self.time_decay_manager = TimeDecayManager(config, db_manager) if config and db_manager else None
+        self.knowledge_graph_manager.__init__(config, db_manager, self.llm_adapter)
         
         # 学习状态跟踪
         self.group_learning_states: Dict[str, Dict[str, Any]] = {}

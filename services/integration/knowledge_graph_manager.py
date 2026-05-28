@@ -39,12 +39,13 @@ class KnowledgeGraphManager:
     def __init__(self, config: PluginConfig = None, db_manager=None,
                  llm_adapter: FrameworkLLMAdapter = None):
         # 允许用实际参数重新初始化（单例首次由 get_instance 以空参数创建）
-        if self._initialized and not (db_manager and not getattr(self, 'db_manager', None)):
+        if self._initialized:
+            self._configure(config, db_manager, llm_adapter)
             return
 
-        self.config = config or getattr(self, 'config', None)
-        self.db_manager = db_manager or getattr(self, 'db_manager', None)
-        self.llm_adapter = llm_adapter or getattr(self, 'llm_adapter', None)
+        self.config = config
+        self.db_manager = db_manager
+        self.llm_adapter = llm_adapter
         self._status = getattr(self, '_status', ServiceLifecycle.CREATED)
 
         # 实体出现次数缓存
@@ -63,6 +64,20 @@ class KnowledgeGraphManager:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _configure(
+        self,
+        config: PluginConfig = None,
+        db_manager=None,
+        llm_adapter: FrameworkLLMAdapter = None,
+    ) -> None:
+        """Fill late dependencies without clearing caches."""
+        if config is not None:
+            self.config = config
+        if db_manager is not None:
+            self.db_manager = db_manager
+        if llm_adapter is not None:
+            self.llm_adapter = llm_adapter
 
     async def start(self) -> bool:
         """启动服务"""
