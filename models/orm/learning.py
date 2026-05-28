@@ -57,6 +57,28 @@ class StyleLearningReview(Base):
     )
 
 
+class PersonaChangeSnapshot(Base):
+    """人格审查应用快照 - 保存批准前后的人格差异"""
+    __tablename__ = 'persona_change_snapshots'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    review_id = Column(String(100), nullable=False, index=True)
+    review_source = Column(String(50), nullable=False, index=True)
+    applied_persona_id = Column(String(255))
+    applied_at = Column(Float, nullable=False, index=True)
+    before_system_prompt = Column(Text)
+    after_system_prompt = Column(Text)
+    before_begin_dialogs = Column(Text)
+    after_begin_dialogs = Column(Text)
+    affected_fields = Column(Text)
+
+    __table_args__ = (
+        Index('idx_persona_snapshot_review', 'review_source', 'review_id'),
+        Index('idx_persona_snapshot_persona', 'applied_persona_id'),
+        Index('idx_persona_snapshot_applied_at', 'applied_at'),
+    )
+
+
 class StyleLearningPattern(Base):
     """风格学习模式表（已批准的模式）"""
     __tablename__ = 'style_learning_patterns'

@@ -875,6 +875,66 @@
             overflow: hidden;
         }
 
+        .review-diff {
+            margin-top: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            overflow: hidden;
+        }
+
+        .review-diff summary {
+            cursor: pointer;
+            padding: 10px 12px;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .review-diff-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            padding: 0 12px 12px;
+        }
+
+        .review-diff-section {
+            min-width: 0;
+            display: grid;
+            gap: 6px;
+        }
+
+        .review-diff-title {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .review-diff-line {
+            display: block;
+            padding: 4px 6px;
+            border-radius: 6px;
+            font-family: "SFMono-Regular", Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.45;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .review-diff-line.add {
+            color: var(--success);
+            background: rgba(21, 128, 61, 0.10);
+        }
+
+        .review-diff-line.remove {
+            color: var(--danger);
+            background: rgba(185, 28, 28, 0.10);
+        }
+
+        .review-diff-line.same {
+            color: var(--muted);
+            background: transparent;
+        }
+
         .detail-list {
             display: grid;
             gap: 8px;
@@ -1986,6 +2046,16 @@
 
             <div class="panel">
                 <div class="panel-head">
+                    <h2>最近已审人格</h2>
+                    <span class="hint" id="reviewedPersonaCount">0</span>
+                </div>
+                <div class="panel-body">
+                    <div id="reviewedPersonaList" class="list"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
                     <h2>黑话与批次</h2>
                     <span class="hint" id="jargonHint">--</span>
                 </div>
@@ -2487,6 +2557,109 @@
                             </div>
                         `).join('')}
                     </div>
+                `;
+            }
+
+            function splitDiffLines(value) {
+                return String(value || '')
+                    .split(/\r?\n/)
+                    .map((line) => line.trimEnd())
+                    .filter((line) => line.trim() !== '');
+            }
+
+            function listDiffLines(beforeItems, afterItems, prefix = '') {
+                const before = safeArray(beforeItems).map((item) => String(item));
+                const after = safeArray(afterItems).map((item) => String(item));
+                const beforeCounts = new Map();
+                before.forEach((item) => {
+                    beforeCounts.set(item, (beforeCounts.get(item) || 0) + 1);
+                });
+                const afterCounts = new Map();
+                after.forEach((item) => {
+                    afterCounts.set(item, (afterCounts.get(item) || 0) + 1);
+                });
+
+                const removed = [];
+                beforeCounts.forEach((count, item) => {
+                    const delta = count - (afterCounts.get(item) || 0);
+                    for (let i = 0; i < delta; i += 1) {
+                        removed.push({ type: 'remove', text: `${prefix}${item}` });
+                    }
+                });
+
+                const added = [];
+                afterCounts.forEach((count, item) => {
+                    const delta = count - (beforeCounts.get(item) || 0);
+                    for (let i = 0; i < delta; i += 1) {
+                        added.push({ type: 'add', text: `${prefix}${item}` });
+                    }
+                });
+
+                return [...removed, ...added];
+            }
+
+            function textDiffLines(beforeValue, afterValue) {
+                const changes = listDiffLines(
+                    splitDiffLines(beforeValue),
+                    splitDiffLines(afterValue),
+                );
+                if (changes.length) {
+                    return changes;
+                }
+                if (String(beforeValue || '') === String(afterValue || '')) {
+                    return [{ type: 'same', text: '无变化' }];
+                }
+                return [
+                    { type: 'remove', text: String(beforeValue || '空内容').slice(0, 300) },
+                    { type: 'add', text: String(afterValue || '空内容').slice(0, 300) },
+                ];
+            }
+
+            function renderDiffLines(lines) {
+                return safeArray(lines).slice(0, 12).map((line) => `
+                    <span class="review-diff-line ${escapeHtml(line.type || 'same')}">${escapeHtml(line.text || '')}</span>
+                `).join('');
+            }
+
+            function renderPersonaChangeDiff(item) {
+                const change = item && (item.persona_change_snapshot || item.persona_change_preview);
+                if (!change) {
+                    return '';
+                }
+                const affected = safeArray(change.affected_fields);
+                if (!affected.length) {
+                    return '';
+                }
+                const mode = item.persona_change_snapshot ? '已应用快照' : '批准预览';
+                const personaName = change.applied_persona_id || 'default';
+                const isStyleChange = item.review_source === 'style_learning' || item.type === 'style_learning';
+                const actionHint = isStyleChange && affected.includes('begin_dialogs')
+                    ? '追加到 begin_dialogs'
+                    : affected.join(', ');
+                const summary = `${mode} · ${personaName} · ${actionHint}`;
+                const systemLines = textDiffLines(
+                    change.before_system_prompt,
+                    change.after_system_prompt,
+                );
+                const dialogLines = listDiffLines(
+                    change.before_begin_dialogs,
+                    change.after_begin_dialogs,
+                );
+
+                return `
+                    <details class="review-diff">
+                        <summary>${escapeHtml(summary)}</summary>
+                        <div class="review-diff-grid">
+                            <div class="review-diff-section">
+                                <div class="review-diff-title">system_prompt</div>
+                                ${renderDiffLines(systemLines)}
+                            </div>
+                            <div class="review-diff-section">
+                                <div class="review-diff-title">begin_dialogs</div>
+                                ${renderDiffLines(dialogLines.length ? dialogLines : [{ type: 'same', text: '无变化' }])}
+                            </div>
+                        </div>
+                    </details>
                 `;
             }
 
@@ -3319,6 +3492,7 @@
                                 </div>
                                 <div class="meta">${escapeHtml(meta || '待审')}</div>
                                 <div class="body clamp">${escapeHtml(body)}</div>
+                                ${renderPersonaChangeDiff(item)}
                                 <div class="item-actions">
                                     ${actionButton('persona-approve', id, 'check', '批准', 'success')}
                                     ${actionButton('persona-reject', id, 'close', '拒绝', 'warning')}
@@ -3356,6 +3530,7 @@
                             <div class="meta">${escapeHtml(meta || '待审')}</div>
                             <div class="body clamp">${escapeHtml(body)}</div>
                             ${renderStyleReviewDetails(item)}
+                            ${renderPersonaChangeDiff(item)}
                             <div class="item-actions">
                                 ${actionButton('persona-approve', reviewId, 'check', '批准', 'success')}
                                 ${actionButton('persona-reject', reviewId, 'close', '拒绝', 'warning')}
@@ -3367,11 +3542,46 @@
                 return rows.length ? rows.join('') : '<div class="item">暂无风格审查记录。</div>';
             }
 
+            function renderReviewedPersonaHistory(updates) {
+                const rows = safeArray(updates).slice(0, 5).map((item) => {
+                    const sourceMap = {
+                        traditional: '传统',
+                        persona_learning: '人格学习',
+                        style_learning: '风格学习',
+                    };
+                    const source = sourceMap[item.review_source] || item.review_source || '已审';
+                    const status = item.status || (item.approved ? 'approved' : 'reviewed');
+                    const title = item.update_type || item.type || source || '人格审查';
+                    const meta = [
+                        source,
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.review_time ? formatTime(item.review_time) : null,
+                        item.reviewer ? `审核 ${item.reviewer}` : null,
+                    ].filter(Boolean).join(' · ');
+                    const body = item.proposed_content || item.new_content || item.few_shots_content || item.reason || '暂无内容';
+
+                    return `
+                        <div class="item" data-review-id="${escapeHtml(item.id)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${escapeHtml(status)}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '已审查')}</div>
+                            <div class="body clamp">${escapeHtml(body)}</div>
+                            ${renderPersonaChangeDiff(item)}
+                        </div>
+                    `;
+                });
+
+                return rows.length ? rows.join('') : '<div class="item">暂无已审人格记录。</div>';
+            }
+
             function renderSummary(data) {
                 const metrics = data.metrics || {};
                 const trends = data.trends || {};
                 const health = data.health || {};
                 const persona = data.persona || {};
+                const personaReviewed = data.personaReviewed || {};
                 const style = data.style || {};
                 const jargon = data.jargonStats || {};
 
@@ -3500,8 +3710,10 @@
 
                 $('personaCount').textContent = `${formatCount(personaBacklog)} 条`;
                 $('styleCount').textContent = `${formatCount(styleBacklog)} 条`;
+                $('reviewedPersonaCount').textContent = `${formatCount(personaReviewed.total || 0)} 条`;
                 $('personaList').innerHTML = renderPersonaQueue(personaUpdates);
                 $('styleList').innerHTML = renderStyleQueue(style.reviews);
+                $('reviewedPersonaList').innerHTML = renderReviewedPersonaHistory(personaReviewed.updates);
 
                 $('jargonHint').textContent = `候选 ${formatCount((jargon.total_candidates ?? jargon.totalCandidates) || 0)}`;
 
@@ -5280,6 +5492,7 @@
                     health,
                     functionsData,
                     persona,
+                    personaReviewed,
                     style,
                     jargonStats,
                     jargonList,
@@ -5289,6 +5502,7 @@
                     safeFetch('/api/monitoring/health'),
                     safeFetch('/api/monitoring/functions'),
                     safeFetch('/api/persona_updates?limit=10'),
+                    safeFetch('/api/persona_updates/reviewed?limit=5'),
                     safeFetch('/api/style_learning/reviews?limit=5'),
                     safeFetch('/api/jargon/stats'),
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
@@ -5300,6 +5514,7 @@
                     health: health || {},
                     functions: safeArray(functionsData && functionsData.functions).slice(0, 5),
                     persona: persona || { updates: [], total: 0 },
+                    personaReviewed: personaReviewed || { updates: [], total: 0 },
                     style: style || { reviews: [], total: 0 },
                     jargonStats: extractJargonStats(jargonStats),
                     jargonList: extractJargonItems(jargonList),

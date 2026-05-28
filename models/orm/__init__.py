@@ -39,6 +39,7 @@ from .social_analysis import (
 )
 from .learning import (
     PersonaLearningReview,
+    PersonaChangeSnapshot,
     StyleLearningReview,
     StyleLearningPattern,
     InteractionRecord,
@@ -122,6 +123,7 @@ __all__ = [
     'SocialNetworkEdge',
     # Learning
     'PersonaLearningReview',
+    'PersonaChangeSnapshot',
     'StyleLearningReview',
     'StyleLearningPattern',
     'InteractionRecord',
