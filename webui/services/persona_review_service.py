@@ -111,8 +111,6 @@ class PersonaReviewService:
                     record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
                     record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
                     record_dict['review_source'] = 'traditional'
-                    record_dict['change_target'] = 'system_prompt'
-                    record_dict['change_target_label'] = '系统提示词 (system_prompt)'
 
                     all_updates.append(record_dict)
 
@@ -186,9 +184,7 @@ class PersonaReviewService:
                         'messages_analyzed': review.get('metadata', {}).get('messages_analyzed', 0),
                         'metadata': review.get('metadata', {}),
                         'incremental_content': review.get('metadata', {}).get('incremental_content', ''),
-                        'incremental_start_pos': review.get('metadata', {}).get('incremental_start_pos', 0),
-                        'change_target': 'system_prompt',
-                        'change_target_label': '系统提示词 (system_prompt)',
+                        'incremental_start_pos': review.get('metadata', {}).get('incremental_start_pos', 0)
                     }
 
                     all_updates.append(review_dict)
@@ -248,9 +244,7 @@ class PersonaReviewService:
                         'review_source': 'style_learning',
                         'learned_patterns': review.get('learned_patterns', []),
                         'style_review_id': review['id'],
-                        'incremental_start_pos': len(original_persona_text) + 2 if original_persona_text else 0,
-                        'change_target': 'begin_dialogs',
-                        'change_target_label': '对话示例 (begin_dialogs)',
+                        'incremental_start_pos': len(original_persona_text) + 2 if original_persona_text else 0
                     }
 
                     all_updates.append(review_dict)

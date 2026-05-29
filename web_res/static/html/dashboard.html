@@ -3638,26 +3638,6 @@
                 status.className = `config-status queue-status${tone ? ` ${tone}` : ''}`;
             }
 
-            function changeTargetBadge(item) {
-                const label = item.change_target_label || (item.change_target === 'begin_dialogs' ? '对话示例 (begin_dialogs)' : '系统提示词 (system_prompt)');
-                const icon = item.change_target === 'begin_dialogs' ? 'chat' : 'description';
-                return `<span class="tag" style="font-size:11px;padding:3px 8px;"><span class="material-icons" style="font-size:14px;">${icon}</span>${escapeHtml(label)}</span>`;
-            }
-
-            function currentContentBlock(item, uid) {
-                const current = item.original_content || '';
-                if (!current || current.startsWith('[')) return '';
-                return `
-                    <details class="review-current-content" style="margin-top:8px;">
-                        <summary style="cursor:pointer;color:var(--muted);font-size:12px;user-select:none;">
-                            <span class="material-icons" style="font-size:14px;vertical-align:middle;">visibility</span>
-                            查看当前人格内容
-                        </summary>
-                        <div style="margin-top:6px;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--panel-soft);font-size:12px;line-height:1.6;white-space:pre-wrap;max-height:200px;overflow-y:auto;color:var(--text-secondary);">${escapeHtml(current)}</div>
-                    </details>
-                `;
-            }
-
             function renderPersonaQueue(updates) {
                 const rows = safeArray(updates)
                     .filter((item) => item && item.review_source !== 'style_learning')
@@ -3683,15 +3663,8 @@
                                     <div class="title">${escapeHtml(title)}</div>
                                     <span class="state unknown">${escapeHtml(source)}</span>
                                 </div>
-                                <div class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                    <span>${escapeHtml(meta || '待审')}</span>
-                                    ${changeTargetBadge(item)}
-                                </div>
-                                <div style="margin-top:6px;font-size:11px;color:var(--accent);font-weight:500;">
-                                    批准后将覆盖 → ${escapeHtml(item.change_target_label || 'system_prompt')}
-                                </div>
+                                <div class="meta">${escapeHtml(meta || '待审')}</div>
                                 <div class="body clamp">${escapeHtml(body)}</div>
-                                ${currentContentBlock(item, id)}
                                 <div class="item-actions">
                                     ${actionButton('persona-approve', id, 'check', '批准', 'success')}
                                     ${actionButton('persona-reject', id, 'close', '拒绝', 'warning')}
@@ -3726,15 +3699,8 @@
                                 <div class="title">${escapeHtml(title)}</div>
                                 <span class="state unknown">${escapeHtml(item.status || 'pending')}</span>
                             </div>
-                            <div class="meta" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                <span>${escapeHtml(meta || '待审')}</span>
-                                ${changeTargetBadge(item)}
-                            </div>
-                            <div style="margin-top:6px;font-size:11px;color:var(--accent);font-weight:500;">
-                                批准后将追加到 → ${escapeHtml(item.change_target_label || 'begin_dialogs')}
-                            </div>
+                            <div class="meta">${escapeHtml(meta || '待审')}</div>
                             <div class="body clamp">${escapeHtml(body)}</div>
-                            ${currentContentBlock(item, reviewId)}
                             ${renderStyleReviewDetails(item)}
                             <div class="item-actions">
                                 ${actionButton('persona-approve', reviewId, 'check', '批准', 'success')}
