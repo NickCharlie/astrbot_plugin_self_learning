@@ -732,6 +732,25 @@ class SQLAlchemyDatabaseManager:
             }
         return await self._call_learning("add_persona_learning_review", 0, review_data)
 
+    async def save_persona_change_snapshot(
+        self, snapshot_data: Dict[str, Any],
+    ) -> int:
+        return await self._call_learning(
+            "save_persona_change_snapshot",
+            0,
+            snapshot_data,
+        )
+
+    async def get_persona_change_snapshot(
+        self, review_source: str, review_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        return await self._call_learning(
+            "get_persona_change_snapshot",
+            None,
+            review_source,
+            review_id,
+        )
+
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
         return await self._call_learning("get_pending_persona_update_records", [])
 

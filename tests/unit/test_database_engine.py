@@ -71,6 +71,7 @@ async def test_database_manager_start_initializes_facades_and_learning_storage(t
             )
 
         assert set(Base.metadata.tables) <= created_tables
+        assert "persona_change_snapshots" in created_tables
 
         message_id = await manager.save_raw_message(
             {
@@ -103,6 +104,28 @@ async def test_database_manager_start_initializes_facades_and_learning_storage(t
             }
         )
         assert persona_review_id > 0
+
+        snapshot_id = await manager.save_persona_change_snapshot(
+            {
+                "review_source": "persona_learning",
+                "review_id": str(persona_review_id),
+                "applied_persona_id": "default",
+                "applied_at": 1234567891.0,
+                "before_system_prompt": "before",
+                "after_system_prompt": "after",
+                "before_begin_dialogs": ["hello"],
+                "after_begin_dialogs": ["hello", "hi"],
+                "affected_fields": ["system_prompt", "begin_dialogs"],
+            }
+        )
+        assert snapshot_id > 0
+        snapshot = await manager.get_persona_change_snapshot(
+            "persona_learning",
+            str(persona_review_id),
+        )
+        assert snapshot["before_system_prompt"] == "before"
+        assert snapshot["after_begin_dialogs"] == ["hello", "hi"]
+        assert snapshot["affected_fields"] == ["system_prompt", "begin_dialogs"]
 
         jargon_id = await manager.save_or_update_jargon(
             "group-a",
