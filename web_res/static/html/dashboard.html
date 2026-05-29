@@ -2856,22 +2856,25 @@
 
             function renderStyleReviewDetails(item) {
                 const rows = [];
+
+                // 表达模式 → 展示为对话对格式
                 normalizePatternDetails(item).slice(0, 4).forEach((pattern, index) => {
+                    const user = pattern.situation || '';
+                    const bot = pattern.expression || '';
+                    if (!user && !bot) return;
                     const score = pattern.confidence !== undefined
                         ? ` · ${confidenceLabel(pattern.confidence) || ''}`
                         : '';
-                    const parts = [
-                        pattern.situation ? `场景: ${pattern.situation}` : null,
-                        pattern.expression ? `表达: ${pattern.expression}` : null,
-                    ].filter(Boolean).join('\n');
-                    if (parts) {
-                        rows.push({ label: `表达模式 ${index + 1}${score}`, text: parts });
-                    }
+                    rows.push({
+                        label: `对话对 ${index + 1}${score}`,
+                        text: [user ? `A: ${user}` : null, bot ? `B: ${bot}` : null].filter(Boolean).join('\n'),
+                    });
                 });
 
+                // Few-shot 对话对
                 normalizeFewShotPairs(item).slice(0, 2).forEach((pair, index) => {
                     rows.push({
-                        label: `对话样例 ${index + 1}`,
+                        label: `对话对 ${rows.length + 1}`,
                         text: `A: ${pair.user}\nB: ${pair.bot}`,
                     });
                 });
@@ -2881,6 +2884,9 @@
                 }
 
                 return `
+                    <div style="margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--info-soft);font-size:11px;color:var(--muted);line-height:1.5;">
+                        以下对话对将作为 few-shot 示例追加到 begin_dialogs，让 Bot 在类似语境下模仿这种回复风格。
+                    </div>
                     <div class="detail-list">
                         ${rows.map((row) => `
                             <div class="detail-row">
