@@ -26,58 +26,119 @@
     <style>
         :root {
             color-scheme: light;
-            --bg: #f4f7fb;
-            --bg-soft: #edf3f9;
+            /* Spacing scale */
+            --space-xs: 4px;
+            --space-sm: 8px;
+            --space-md: 16px;
+            --space-lg: 24px;
+            --space-xl: 32px;
+            /* Font size scale */
+            --text-xs: 0.75rem;
+            --text-sm: 0.8125rem;
+            --text-base: 0.875rem;
+            --text-lg: 1rem;
+            --text-xl: 1.25rem;
+            --text-2xl: 1.5rem;
+            --text-3xl: 1.875rem;
+            /* Border radius scale */
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-full: 999px;
+            /* Colors */
+            --bg: #f0f4f8;
+            --bg-soft: #e8eef5;
             --panel: #ffffff;
-            --panel-soft: #f8fbfd;
-            --text: #15212d;
-            --muted: #5f6c79;
-            --border: #d9e3ec;
-            --border-strong: #c9d6e2;
-            --surface-hover: #eef4fa;
+            --panel-soft: #f7f9fc;
+            --text: #0f172a;
+            --text-secondary: #475569;
+            --muted: #64748b;
+            --border: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --surface-hover: #f1f5f9;
             --input-bg: #ffffff;
             --tooltip-bg: #ffffff;
-            --tooltip-border: #cfd8e3;
-            --selection: rgba(37, 99, 235, 0.16);
-            --accent: #0f766e;
-            --accent-2: #2563eb;
-            --accent-3: #d97706;
-            --success: #15803d;
-            --warning: #b45309;
-            --danger: #b91c1c;
-            --shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
-            --chart-fill-soft: rgba(37, 99, 235, 0.08);
-            --chart-fill-strong: rgba(37, 99, 235, 0.12);
+            --tooltip-border: #e2e8f0;
+            --selection: rgba(99, 102, 241, 0.15);
+            --accent: #6366f1;
+            --accent-2: #3b82f6;
+            --accent-3: #f59e0b;
+            --success: #10b981;
+            --success-soft: rgba(16, 185, 129, 0.10);
+            --warning: #f59e0b;
+            --warning-soft: rgba(245, 158, 11, 0.10);
+            --danger: #ef4444;
+            --danger-soft: rgba(239, 68, 68, 0.10);
+            --info: #3b82f6;
+            --info-soft: rgba(59, 130, 246, 0.10);
+            --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.06);
+            --shadow: 0 4px 16px rgba(15, 23, 42, 0.06), 0 2px 6px rgba(15, 23, 42, 0.04);
+            --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(15, 23, 42, 0.04);
+            --chart-fill-soft: rgba(99, 102, 241, 0.08);
+            --chart-fill-strong: rgba(99, 102, 241, 0.14);
+            /* Toast colors */
+            --toast-success: #10b981;
+            --toast-error: #ef4444;
+            --toast-warning: #f59e0b;
+            --toast-info: #3b82f6;
+            /* Glass effect */
+            --glass-bg: rgba(255, 255, 255, 0.72);
+            --glass-border: rgba(255, 255, 255, 0.5);
+            /* Gradient accents */
+            --grad-primary: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
+            --grad-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            --grad-warm: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
         }
 
         [data-theme="dark"] {
             color-scheme: dark;
-            --bg: #0d1218;
-            --bg-soft: #121b26;
-            --panel: #111821;
-            --panel-soft: #0f1620;
-            --text: #e8edf3;
-            --muted: #8a96a3;
-            --border: #223040;
-            --border-strong: #304154;
-            --surface-hover: #162130;
-            --input-bg: #0f1620;
-            --tooltip-bg: #111821;
-            --tooltip-border: #324150;
-            --selection: rgba(96, 165, 250, 0.22);
-            --accent: #2dd4bf;
+            --bg: #0c111b;
+            --bg-soft: #111827;
+            --panel: #161e2e;
+            --panel-soft: #131a28;
+            --text: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --muted: #64748b;
+            --border: #1e293b;
+            --border-strong: #334155;
+            --surface-hover: #1e293b;
+            --input-bg: #131a28;
+            --tooltip-bg: #161e2e;
+            --tooltip-border: #334155;
+            --selection: rgba(129, 140, 248, 0.22);
+            --accent: #818cf8;
             --accent-2: #60a5fa;
-            --accent-3: #f59e0b;
-            --success: #22c55e;
-            --warning: #f59e0b;
-            --danger: #f97316;
-            --shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+            --accent-3: #fbbf24;
+            --success: #34d399;
+            --success-soft: rgba(52, 211, 153, 0.12);
+            --warning: #fbbf24;
+            --warning-soft: rgba(251, 191, 36, 0.12);
+            --danger: #f87171;
+            --danger-soft: rgba(248, 113, 113, 0.12);
+            --info: #60a5fa;
+            --info-soft: rgba(96, 165, 250, 0.12);
+            --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 2px 6px rgba(0, 0, 0, 0.2);
+            --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
             --chart-fill-soft: rgba(96, 165, 250, 0.12);
-            --chart-fill-strong: rgba(96, 165, 250, 0.16);
+            --chart-fill-strong: rgba(96, 165, 250, 0.18);
+            --toast-success: #34d399;
+            --toast-error: #f87171;
+            --toast-warning: #fbbf24;
+            --toast-info: #60a5fa;
+            --glass-bg: rgba(22, 30, 46, 0.78);
+            --glass-border: rgba(30, 41, 59, 0.6);
+            --grad-primary: linear-gradient(135deg, #818cf8 0%, #60a5fa 100%);
+            --grad-success: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+            --grad-warm: linear-gradient(135deg, #fbbf24 0%, #f87171 100%);
         }
 
         * {
             box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
         }
 
         html, body {
@@ -106,23 +167,25 @@
         input:focus-visible,
         select:focus-visible,
         textarea:focus-visible {
-            outline: 2px solid var(--accent-2);
+            outline: 2px solid var(--accent);
             outline-offset: 2px;
             box-shadow: 0 0 0 4px var(--selection);
+            border-radius: var(--radius-sm);
         }
 
         body {
             color: var(--text);
-            font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
-            line-height: 1.5;
+            font-family: Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui, sans-serif;
+            line-height: 1.6;
             -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .shell {
             position: relative;
             max-width: 1440px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 24px 28px;
         }
 
         .topbar {
@@ -130,7 +193,9 @@
             justify-content: space-between;
             align-items: flex-start;
             gap: 16px;
-            padding: 6px 0 18px;
+            padding: 8px 0 20px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 20px;
         }
 
         .brand {
@@ -146,9 +211,14 @@
 
         .brand h1 {
             margin: 4px 0 0;
-            font-size: 28px;
+            font-size: var(--text-2xl);
             line-height: 1.15;
-            letter-spacing: 0;
+            letter-spacing: -0.02em;
+            font-weight: 800;
+            background: var(--grad-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .brand p {
@@ -171,41 +241,45 @@
             border: 1px solid var(--border);
             background: var(--panel);
             color: var(--text);
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-sm);
         }
 
         .pill {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 8px 12px;
+            padding: 7px 14px;
             border-radius: 999px;
             color: var(--muted);
             font-size: 13px;
+            font-weight: 500;
         }
 
         .icon-btn {
-            width: 38px;
-            height: 38px;
-            border-radius: 8px;
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-sm);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .action-btn {
-            min-height: 38px;
-            border-radius: 8px;
+            min-height: 36px;
+            border-radius: var(--radius-sm);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            padding: 0 12px;
+            padding: 0 14px;
             cursor: pointer;
             font-size: 13px;
+            font-weight: 500;
             line-height: 1;
             white-space: nowrap;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .action-btn .material-icons {
@@ -217,6 +291,14 @@
             border-color: var(--accent);
             color: var(--accent);
             background: var(--surface-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+
+        .icon-btn:active,
+        .action-btn:active {
+            transform: translateY(0);
+            box-shadow: var(--shadow-sm);
         }
 
         .page {
@@ -225,6 +307,12 @@
 
         .page.active {
             display: block;
+            animation: pageIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes pageIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .module-home {
@@ -234,30 +322,49 @@
         .module-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 12px;
+            gap: 14px;
         }
 
         .module-card {
             min-height: 168px;
             display: grid;
             align-content: space-between;
-            gap: 16px;
-            padding: 16px;
+            gap: var(--space-md);
+            padding: 20px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-lg);
             background: var(--panel);
             color: var(--text);
             text-decoration: none;
-            box-shadow: var(--shadow);
-            transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .module-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--grad-primary);
+            opacity: 0;
+            transition: opacity 0.25s ease;
         }
 
         .module-card:hover,
         .module-card:focus-visible {
             border-color: var(--accent);
-            background: var(--surface-hover);
-            transform: translateY(-1px);
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-lg);
             outline: none;
+        }
+
+        .module-card:hover::before,
+        .module-card:focus-visible::before {
+            opacity: 1;
         }
 
         .module-card.active {
@@ -272,15 +379,14 @@
         }
 
         .module-icon {
-            width: 38px;
-            height: 38px;
+            width: 42px;
+            height: 42px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--panel-soft);
-            color: var(--accent-2);
+            border-radius: var(--radius-md);
+            background: var(--info-soft);
+            color: var(--accent);
         }
 
         .module-title {
@@ -302,10 +408,14 @@
         }
 
         .module-value {
-            font-size: 26px;
+            font-size: var(--text-2xl);
             line-height: 1;
-            font-weight: 700;
-            letter-spacing: 0;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: var(--grad-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .page-titlebar {
@@ -324,8 +434,9 @@
 
         .page-title h2 {
             margin: 0;
-            font-size: 20px;
+            font-size: var(--text-xl);
             line-height: 1.2;
+            letter-spacing: -0.01em;
         }
 
         .page-title p {
@@ -340,14 +451,17 @@
             align-items: center;
             justify-content: center;
             gap: 6px;
-            padding: 0 11px;
+            padding: 0 14px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             background: var(--panel);
             color: var(--text);
+            font-size: 13px;
+            font-weight: 500;
             text-decoration: none;
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-sm);
             white-space: nowrap;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .back-home:hover,
@@ -355,16 +469,18 @@
             border-color: var(--accent);
             color: var(--accent);
             background: var(--surface-hover);
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
             outline: none;
         }
 
         .hero {
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            padding: 16px 18px;
-            margin-bottom: 16px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: 20px 22px;
+            margin-bottom: var(--space-md);
         }
 
         .hero-row {
@@ -382,7 +498,7 @@
         }
 
         .hero-title strong {
-            font-size: 18px;
+            font-size: var(--text-lg);
         }
 
         .hero-title span {
@@ -399,16 +515,18 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 6px 10px;
+            padding: 5px 12px;
             border-radius: 999px;
             border: 1px solid var(--border);
             background: var(--panel-soft);
             color: var(--muted);
-            font-size: 13px;
+            font-size: 12px;
+            font-weight: 500;
         }
 
         .tag b {
             color: var(--text);
+            font-weight: 600;
         }
 
         .ai-panel {
@@ -427,16 +545,15 @@
         }
 
         .ai-orb {
-            width: 34px;
-            height: 34px;
-            border-radius: 8px;
+            width: 38px;
+            height: 38px;
+            border-radius: var(--radius-md);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             flex: 0 0 auto;
-            background: var(--panel-soft);
-            border: 1px solid var(--border);
-            color: var(--accent-2);
+            background: var(--info-soft);
+            color: var(--accent);
         }
 
         .ai-copy-status {
@@ -507,13 +624,13 @@
         .ai-insight {
             display: grid;
             gap: 6px;
-            padding: 10px 12px;
-            border-radius: 8px;
+            padding: 12px 14px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             background: var(--panel-soft);
             border-left: 3px solid var(--accent-2);
             cursor: pointer;
-            transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .ai-insight:hover,
@@ -521,6 +638,7 @@
             border-color: var(--accent-2);
             background: var(--panel);
             transform: translateY(-1px);
+            box-shadow: var(--shadow);
             outline: none;
         }
 
@@ -566,13 +684,32 @@
         .metric {
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow);
-            padding: 14px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: 18px;
             min-height: 110px;
             display: flex;
             flex-direction: column;
             justify-content: space-between;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--grad-primary);
+            opacity: 0.5;
+        }
+
+        .metric:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
         }
 
         .metric .label {
@@ -581,6 +718,7 @@
             gap: 8px;
             color: var(--muted);
             font-size: 13px;
+            font-weight: 500;
         }
 
         .accent-line {
@@ -600,10 +738,14 @@
 
         .metric .value {
             margin: 10px 0 8px;
-            font-size: 30px;
+            font-size: var(--text-3xl);
             line-height: 1;
-            font-weight: 700;
-            letter-spacing: 0;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: var(--grad-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
 
         .metric .note {
@@ -623,16 +765,21 @@
 
         .queue-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 16px;
         }
 
         .panel {
             background: var(--panel);
             border: 1px solid var(--border);
-            border-radius: 8px;
-            box-shadow: var(--shadow);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
             min-height: 0;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .panel:hover {
+            box-shadow: var(--shadow);
         }
 
         .panel-head {
@@ -645,8 +792,9 @@
 
         .panel-head h2 {
             margin: 0;
-            font-size: 16px;
+            font-size: var(--text-lg);
             line-height: 1.2;
+            letter-spacing: -0.01em;
         }
 
         .panel-head .hint {
@@ -703,10 +851,17 @@
             justify-content: space-between;
             gap: 10px;
             align-items: flex-start;
-            padding: 10px 12px;
-            border-radius: 8px;
+            padding: 12px 14px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             background: var(--panel-soft);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .check:hover {
+            border-color: var(--border-strong);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
         }
 
         .check .name {
@@ -725,7 +880,7 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            padding: 4px 8px;
+            padding: 4px 10px;
             border-radius: 999px;
             border: 1px solid var(--border);
             background: var(--panel);
@@ -736,14 +891,20 @@
 
         .state.healthy {
             color: var(--success);
+            background: var(--success-soft);
+            border-color: transparent;
         }
 
         .state.degraded {
             color: var(--warning);
+            background: var(--warning-soft);
+            border-color: transparent;
         }
 
         .state.unhealthy {
             color: var(--danger);
+            background: var(--danger-soft);
+            border-color: transparent;
         }
 
         .state.unknown {
@@ -800,7 +961,7 @@
             display: block;
             height: 100%;
             border-radius: inherit;
-            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+            background: var(--grad-primary);
         }
 
         .stats-row {
@@ -810,10 +971,17 @@
         }
 
         .small-stat {
-            padding: 12px;
-            border-radius: 8px;
+            padding: 14px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             background: var(--panel-soft);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .small-stat:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow-sm);
+            border-color: var(--border-strong);
         }
 
         .small-stat .k {
@@ -823,8 +991,9 @@
 
         .small-stat .v {
             margin-top: 6px;
-            font-size: 18px;
+            font-size: var(--text-lg);
             font-weight: 700;
+            color: var(--accent);
         }
 
         .list {
@@ -833,10 +1002,17 @@
         }
 
         .item {
-            padding: 12px;
-            border-radius: 8px;
+            padding: 14px;
+            border-radius: var(--radius-md);
             border: 1px solid var(--border);
             background: var(--panel-soft);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .item:hover {
+            border-color: var(--border-strong);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
         }
 
         .item .top {
@@ -944,10 +1120,15 @@
         .detail-row {
             display: grid;
             gap: 4px;
-            padding: 8px 10px;
+            padding: 10px 12px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             background: var(--panel-soft);
+            transition: border-color 0.15s ease;
+        }
+
+        .detail-row:hover {
+            border-color: var(--border-strong);
         }
 
         .detail-label {
@@ -969,6 +1150,35 @@
             flex-wrap: wrap;
             gap: 8px;
             margin-top: 10px;
+        }
+
+        .jargon-edit-form {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .jargon-edit-form label {
+            font-size: var(--text-xs);
+            color: var(--muted);
+            font-weight: 600;
+        }
+        .jargon-edit-form input,
+        .jargon-edit-form textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--surface-hover);
+            color: var(--text);
+            font-size: var(--text-sm);
+            font-family: inherit;
+            resize: vertical;
+        }
+        .jargon-edit-form input:focus,
+        .jargon-edit-form textarea:focus {
+            outline: none;
+            border-color: var(--accent);
         }
 
         .action-btn,
@@ -1055,9 +1265,15 @@
         .content-item {
             padding: 12px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             background: var(--panel-soft);
             min-height: 132px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .content-item:hover {
+            border-color: var(--border-strong);
+            box-shadow: var(--shadow-sm);
         }
 
         .content-item[open] {
@@ -1196,13 +1412,13 @@
         .action-btn.primary {
             background: var(--accent);
             border-color: var(--accent);
-            color: #fff;
+            color: var(--panel);
         }
 
         .icon-btn.primary:hover,
         .action-btn.primary:hover {
             background: var(--accent);
-            color: #fff;
+            color: var(--panel);
         }
 
         .icon-btn:disabled,
@@ -1231,8 +1447,9 @@
 
         .settings-title h2 {
             margin: 0;
-            font-size: 18px;
+            font-size: var(--text-xl);
             line-height: 1.2;
+            letter-spacing: -0.01em;
         }
 
         .settings-title p {
@@ -1254,11 +1471,17 @@
             min-width: min(340px, 100%);
             height: 38px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             background: var(--input-bg);
             color: var(--text);
-            padding: 0 12px;
-            box-shadow: var(--shadow);
+            padding: 0 14px;
+            box-shadow: var(--shadow-sm);
+            transition: all 0.2s ease;
+        }
+
+        .settings-search:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--selection);
         }
 
         .settings-summary {
@@ -1274,11 +1497,11 @@
             gap: 14px;
             align-items: center;
             margin-bottom: 12px;
-            padding: 14px 16px;
+            padding: 16px 18px;
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-lg);
             background: var(--panel);
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-sm);
         }
 
         .dependency-install-copy {
@@ -1289,7 +1512,7 @@
 
         .dependency-install-copy h3 {
             margin: 0;
-            font-size: 15px;
+            font-size: var(--text-lg);
             line-height: 1.25;
         }
 
@@ -1327,7 +1550,7 @@
         .dependency-tier-btn.primary {
             background: var(--accent);
             border-color: var(--accent);
-            color: #fff;
+            color: var(--panel);
         }
 
         .dependency-tier-btn:disabled {
@@ -1348,10 +1571,16 @@
         .integration-card {
             display: grid;
             gap: 12px;
-            padding: 16px;
+            padding: var(--space-md);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: var(--radius-md);
             background: var(--panel);
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .integration-card:hover {
+            transform: translateY(-1px);
             box-shadow: var(--shadow);
         }
 
@@ -1364,7 +1593,7 @@
 
         .integration-card h3 {
             margin: 0;
-            font-size: 16px;
+            font-size: var(--text-lg);
             line-height: 1.25;
         }
 
@@ -1683,6 +1912,36 @@
                 grid-template-columns: 1fr;
             }
         }
+        .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
+        .confirm-overlay.show{display:flex;}
+        .confirm-box{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-lg);max-width:360px;width:90%;box-shadow:var(--shadow-lg);}
+        .confirm-box .ctitle{font-size:var(--text-lg);font-weight:600;margin-bottom:var(--space-sm);}
+        .confirm-box .cmsg{font-size:var(--text-sm);color:var(--muted);margin-bottom:var(--space-lg);line-height:1.5;}
+        .confirm-box .cbtns{display:flex;gap:10px;justify-content:flex-end;}
+        .confirm-box .cbtns button{padding:var(--space-sm) 18px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-size:var(--text-sm);transition:opacity .16s,background .16s;}
+        .confirm-box .cbtns button.danger{background:var(--danger);border-color:var(--danger);color:#fff;}
+        .confirm-box .cbtns button:hover{opacity:.85;}
+        .toast-wrap{position:fixed;top:var(--space-md);right:var(--space-md);z-index:10000;display:flex;flex-direction:column;gap:var(--space-sm);pointer-events:none;}
+        .toast{padding:12px 20px;border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;color:#fff;pointer-events:auto;animation:toast-in .35s cubic-bezier(0.4,0,0.2,1);box-shadow:var(--shadow-lg);cursor:pointer;backdrop-filter:blur(8px);}
+        .toast.ok{background:var(--toast-success);} .toast.err{background:var(--toast-error);} .toast.warn{background:var(--toast-warning);} .toast.info{background:var(--toast-info);}
+        .toast.out{animation:toast-out .25s ease forwards;}
+        @keyframes toast-in{from{opacity:0;transform:translateX(60px) scale(0.95)}to{opacity:1;transform:translateX(0) scale(1)}}
+        @keyframes toast-out{from{opacity:1;transform:translateX(0) scale(1)}to{opacity:0;transform:translateX(60px) scale(0.95)}}
+        /* Loading spinner */
+        .spinner{width:20px;height:20px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s cubic-bezier(0.4,0,0.2,1) infinite;display:inline-block;vertical-align:middle;}
+        .spinner.lg{width:32px;height:32px;border-width:3px;}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        .loading-overlay{position:absolute;inset:0;background:var(--panel);opacity:.8;backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;border-radius:inherit;z-index:2;pointer-events:none;}
+        /* Empty state */
+        .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;color:var(--muted);text-align:center;gap:8px;}
+        .empty-state .material-icons{font-size:36px;opacity:.4;}
+        .empty-state p{margin:0;font-size:var(--text-sm);}
+        /* Error state */
+        .error-state{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;color:var(--danger);text-align:center;gap:8px;}
+        .error-state .material-icons{font-size:36px;opacity:.6;}
+        .error-state p{margin:0;font-size:var(--text-sm);color:var(--muted);}
+        .error-state .retry-btn{margin-top:4px;padding:6px 16px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--panel);color:var(--text);cursor:pointer;font-size:var(--text-xs);transition:all .16s;}
+        .error-state .retry-btn:hover{border-color:var(--accent);color:var(--accent);}
     </style>
 </head>
 <body data-theme="light">
@@ -2023,6 +2282,8 @@
                 <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
             </div>
 
+            <div id="queueStatus" class="config-status queue-status" style="margin-bottom:14px;">审查操作就绪。</div>
+
             <section class="queue-grid">
             <div class="panel">
                 <div class="panel-head">
@@ -2043,7 +2304,9 @@
                     <div id="styleList" class="list"></div>
                 </div>
             </div>
+        </section>
 
+        <section class="queue-grid" style="margin-top:16px;">
             <div class="panel">
                 <div class="panel-head">
                     <h2>最近已审人格</h2>
@@ -2056,26 +2319,77 @@
 
             <div class="panel">
                 <div class="panel-head">
-                    <h2>黑话与批次</h2>
-                    <span class="hint" id="jargonHint">--</span>
+                    <div>
+                        <h2>黑话与批次</h2>
+                        <span class="hint" id="jargonHint">--</span>
+                    </div>
+                    <div class="panel-tools">
+                        <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                            <option value="all">全部</option>
+                            <option value="pending">待确认</option>
+                            <option value="confirmed">已确认</option>
+                            <option value="global">全局</option>
+                            <option value="local">本地</option>
+                        </select>
+                        <select id="jargonSortSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                            <option value="newest">最新优先</option>
+                            <option value="oldest">最早优先</option>
+                            <option value="name">按名称</option>
+                            <option value="occurrences">按出现次数</option>
+                        </select>
+                        <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
+                    </div>
                 </div>
                 <div class="panel-body">
                     <div class="stats-row" id="jargonStats"></div>
 
                     <div class="stack-section">
-                        <div class="subhead">最近黑话</div>
                         <div id="jargonList" class="list"></div>
                     </div>
 
-                    <div class="stack-section">
-                        <div class="subhead">最近批次</div>
-                        <div id="batchList" class="list"></div>
+                    <div id="jargonPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                        <span id="jargonPageInfo" class="muted" style="font-size:12px;">--</span>
+                        <div style="display:flex;gap:4px;">
+                            <button class="action-btn" id="jargonPrevBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                            </button>
+                            <button class="action-btn" id="jargonNextBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>最近批次</h2>
+                        <span class="hint" id="batchHint">--</span>
+                    </div>
+                    <div class="panel-tools">
+                        <button class="icon-btn" id="batchReloadBtn" type="button" aria-label="刷新批次" title="刷新批次">
+                            <span class="material-icons">sync</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="batchList" class="list"></div>
+
+                    <div id="batchPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                        <span id="batchPageInfo" class="muted" style="font-size:12px;">--</span>
+                        <div style="display:flex;gap:4px;">
+                            <button class="action-btn" id="batchPrevBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                            </button>
+                            <button class="action-btn" id="batchNextBtn" type="button" disabled>
+                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
         </section>
-
-        <div id="queueStatus" class="config-status queue-status">审查操作就绪。</div>
         </section>
 
         <section class="page" id="page-content" data-page="content">
@@ -2309,8 +2623,6 @@
                     busy: false,
                 },
                 actionBusy: new Set(),
-                pendingConfirm: null,
-                confirmTimer: null,
                 graph: {
                     type: 'memory',
                     layout: 'force',
@@ -2337,6 +2649,26 @@
                     data: null,
                     loading: false,
                     loaded: false,
+                },
+                jargon: {
+                    page: 1,
+                    pageSize: 10,
+                    total: 0,
+                    totalPages: 1,
+                    filter: 'all',
+                    sort: 'newest',
+                    search: '',
+                    items: [],
+                    loading: false,
+                    editingId: null,
+                },
+                batch: {
+                    page: 1,
+                    pageSize: 10,
+                    total: 0,
+                    totalPages: 1,
+                    items: [],
+                    loading: false,
                 },
                 activePage: 'home',
             };
@@ -2524,22 +2856,25 @@
 
             function renderStyleReviewDetails(item) {
                 const rows = [];
+
+                // 表达模式 → 展示为对话对格式
                 normalizePatternDetails(item).slice(0, 4).forEach((pattern, index) => {
+                    const user = pattern.situation || '';
+                    const bot = pattern.expression || '';
+                    if (!user && !bot) return;
                     const score = pattern.confidence !== undefined
                         ? ` · ${confidenceLabel(pattern.confidence) || ''}`
                         : '';
-                    const parts = [
-                        pattern.situation ? `场景: ${pattern.situation}` : null,
-                        pattern.expression ? `表达: ${pattern.expression}` : null,
-                    ].filter(Boolean).join('\n');
-                    if (parts) {
-                        rows.push({ label: `表达模式 ${index + 1}${score}`, text: parts });
-                    }
+                    rows.push({
+                        label: `对话对 ${index + 1}${score}`,
+                        text: [user ? `A: ${user}` : null, bot ? `B: ${bot}` : null].filter(Boolean).join('\n'),
+                    });
                 });
 
+                // Few-shot 对话对
                 normalizeFewShotPairs(item).slice(0, 2).forEach((pair, index) => {
                     rows.push({
-                        label: `对话样例 ${index + 1}`,
+                        label: `对话对 ${rows.length + 1}`,
                         text: `A: ${pair.user}\nB: ${pair.bot}`,
                     });
                 });
@@ -2549,6 +2884,9 @@
                 }
 
                 return `
+                    <div style="margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--info-soft);font-size:11px;color:var(--muted);line-height:1.5;">
+                        以下对话对将作为 few-shot 示例追加到 begin_dialogs，让 Bot 在类似语境下模仿这种回复风格。
+                    </div>
                     <div class="detail-list">
                         ${rows.map((row) => `
                             <div class="detail-row">
@@ -2719,6 +3057,8 @@
                     card.classList.toggle('active', card.dataset.routeCard === targetPage);
                 });
                 document.body.dataset.activePage = targetPage;
+                const pageTitles = { home: '监控板', overview: '总览', insights: 'AI 巡检', monitoring: '运行监控', reviews: '审查队列', content: '学习内容', graphs: '关系图谱', integrations: '功能融合', settings: '设置' };
+                document.title = (pageTitles[targetPage] || '监控板') + ' - SELF LEARNING';
                 if (!options.skipHash && window.location.hash !== `#/${targetPage}`) {
                     window.location.hash = `/${targetPage}`;
                 }
@@ -2737,6 +3077,13 @@
                     loadLearningContent({ quiet: true });
                 } else if (page === 'integrations' && (force || !state.integrations.loaded)) {
                     loadIntegrationPanel({ quiet: true });
+                } else if (page === 'reviews') {
+                    if (!state.jargon.items.length || force) {
+                        loadJargonList();
+                    }
+                    if (!state.batch.items.length || force) {
+                        loadBatchList();
+                    }
                 }
             }
 
@@ -3402,12 +3749,9 @@
                 }
                 const busyKey = `${action}:${id}`;
                 const busy = state.actionBusy.has(busyKey);
-                const pending = state.pendingConfirm
-                    && state.pendingConfirm.action === action
-                    && state.pendingConfirm.id === String(id);
-                const displayIcon = pending ? 'check' : icon;
-                const displayLabel = pending ? '确认删除?' : label;
-                const displayTone = pending ? 'danger' : tone;
+                const displayIcon = icon;
+                const displayLabel = label;
+                const displayTone = tone;
                 return `
                     <button
                         class="action-btn ${displayTone}"
@@ -3422,38 +3766,47 @@
                 `;
             }
 
-            function resetPendingConfirm() {
-                if (state.confirmTimer) {
-                    clearTimeout(state.confirmTimer);
-                    state.confirmTimer = null;
-                }
-                state.pendingConfirm = null;
+            function showToast(msg, type) {
+                var wrap = document.getElementById('toastWrap');
+                if (!wrap) return;
+                var el = document.createElement('div');
+                el.className = 'toast ' + (type || 'info');
+                el.textContent = msg;
+                wrap.appendChild(el);
+                var timer = setTimeout(function () {
+                    el.classList.add('out');
+                    el.addEventListener('animationend', function () { if (el.parentNode) el.parentNode.removeChild(el); }, { once: true });
+                }, 2800);
+                el.addEventListener('click', function () {
+                    clearTimeout(timer);
+                    el.classList.add('out');
+                    el.addEventListener('animationend', function () { if (el.parentNode) el.parentNode.removeChild(el); }, { once: true });
+                }, { once: true });
             }
 
-            function requireDeleteConfirmation(action, id, label) {
-                const normalizedId = String(id);
-                if (
-                    state.pendingConfirm
-                    && state.pendingConfirm.action === action
-                    && state.pendingConfirm.id === normalizedId
-                ) {
-                    resetPendingConfirm();
-                    return true;
-                }
-
-                resetPendingConfirm();
-                state.pendingConfirm = { action, id: normalizedId };
-                state.confirmTimer = setTimeout(() => {
-                    resetPendingConfirm();
-                    if (state.data) {
-                        renderAll(state.data);
+            function showConfirm(title, message, confirmText) {
+                var ov = document.getElementById('cfmOv');
+                var ti = document.getElementById('cfmTi');
+                var msg = document.getElementById('cfmMsg');
+                var yes = document.getElementById('cfmYes');
+                var no = document.getElementById('cfmNo');
+                return new Promise(function (resolve) {
+                    if (!ov) { resolve(false); return; }
+                    ti.textContent = title;
+                    msg.textContent = message;
+                    yes.textContent = confirmText || '确认';
+                    ov.classList.add('show');
+                    function done(val) {
+                        ov.classList.remove('show');
+                        yes.removeEventListener('click', onYes);
+                        no.removeEventListener('click', onNo);
+                        resolve(val);
                     }
-                }, 3000);
-                setQueueStatus(`再次点击确认删除${label}。`);
-                if (state.data) {
-                    renderAll(state.data);
-                }
-                return false;
+                    function onYes() { done(true); }
+                    function onNo() { done(false); }
+                    yes.addEventListener('click', onYes);
+                    no.addEventListener('click', onNo);
+                });
             }
 
             function setQueueStatus(message, tone = '') {
@@ -3502,7 +3855,7 @@
                         `;
                     });
 
-                return rows.length ? rows.join('') : '<div class="item">暂无待审人格更新。</div>';
+                return rows.length ? rows.join('') : '<div class="empty-state"><span class="material-icons">person_off</span><p>暂无待审人格更新</p></div>';
             }
 
             function renderStyleQueue(reviews) {
@@ -3539,7 +3892,7 @@
                     `;
                 });
 
-                return rows.length ? rows.join('') : '<div class="item">暂无风格审查记录。</div>';
+                return rows.length ? rows.join('') : '<div class="empty-state"><span class="material-icons">style</span><p>暂无风格审查记录</p></div>';
             }
 
             function renderReviewedPersonaHistory(updates) {
@@ -3583,7 +3936,7 @@
                 const persona = data.persona || {};
                 const personaReviewed = data.personaReviewed || {};
                 const style = data.style || {};
-                const jargon = data.jargonStats || {};
+                const jargonStats = data.jargonStats || {};
 
                 const totalMessages = safeNumber(metrics.total_messages_collected);
                 const filteredMessages = safeNumber(metrics.filtered_messages);
@@ -3666,7 +4019,7 @@
                     `;
                 });
 
-                $('healthList').innerHTML = healthItems.length ? healthItems.join('') : '<div class="item">暂无健康数据。</div>';
+                $('healthList').innerHTML = healthItems.length ? healthItems.join('') : '<div class="empty-state"><span class="material-icons">monitor_heart</span><p>暂无健康数据</p></div>';
                 $('healthHint').textContent = `overall ${overallHealth}`;
 
                 const functionRows = safeArray(data.functions).slice(0, 5).map((item) => {
@@ -3685,7 +4038,7 @@
                     `;
                 });
                 $('functionHint').textContent = data.functions && data.functions.length ? `${Math.min(data.functions.length, 5)} 条热点` : '无热点';
-                $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="item">暂无函数热点。</div>';
+                $('functionList').innerHTML = functionRows.length ? functionRows.join('') : '<div class="empty-state"><span class="material-icons">speed</span><p>暂无函数热点</p></div>';
 
                 renderLLMCallPanel(llm);
 
@@ -3715,82 +4068,7 @@
                 $('styleList').innerHTML = renderStyleQueue(style.reviews);
                 $('reviewedPersonaList').innerHTML = renderReviewedPersonaHistory(personaReviewed.updates);
 
-                $('jargonHint').textContent = `候选 ${formatCount((jargon.total_candidates ?? jargon.totalCandidates) || 0)}`;
-
-                const jargonStats = extractJargonStats(data.jargonStats);
-                const jargonStatsMarkup = [
-                    ['候选', jargonStats.total_candidates],
-                    ['确认', jargonStats.confirmed_jargon],
-                    ['完成', jargonStats.completed_inference],
-                    ['出现', jargonStats.total_occurrences],
-                ].map(([label, value]) => `
-                    <div class="small-stat">
-                        <div class="k">${label}</div>
-                        <div class="v">${formatCount(value)}</div>
-                    </div>
-                `);
-                $('jargonStats').innerHTML = jargonStatsMarkup.join('');
-
-                const jargonItems = extractJargonItems(data.jargonList).slice(0, 5).map((item) => {
-                    const id = item.id;
-                    const title = item.term || item.content || item.word || '未命名';
-                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
-                    const meta = [
-                        item.group_id ? `群组 ${item.group_id}` : null,
-                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
-                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
-                    ].filter(Boolean).join(' · ');
-                    return `
-                        <div class="item" data-jargon-id="${escapeHtml(id)}">
-                            <div class="top">
-                                <div class="title">${escapeHtml(title)}</div>
-                                <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
-                            </div>
-                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
-                            <div class="body">${escapeHtml(definition || '暂无释义')}</div>
-                            ${renderContextExamples(item)}
-                            <div class="item-actions">
-                                ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
-                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
-                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
-                                ${actionButton('jargon-delete', id, 'delete', '删除', 'danger')}
-                            </div>
-                        </div>
-                    `;
-                });
-                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="item">暂无黑话记录。</div>';
-
-                const batches = safeArray(trends.recent_batches).slice(0, 5).map((item) => {
-                    const quality = item.quality_score !== undefined ? safeNumber(item.quality_score) : null;
-                    const started = item.start_time ? formatTime(item.start_time) : '--';
-                    const finished = item.end_time ? formatTime(item.end_time) : '--';
-                    const duration = formatDuration(item.start_time, item.end_time);
-                    const title = item.batch_name || item.batch_id || '学习批次';
-                    const meta = [
-                        item.group_id ? `群组 ${item.group_id}` : null,
-                        item.processed_messages !== undefined ? `消息 ${formatCount(item.processed_messages)}` : null,
-                        item.success !== undefined ? (item.success ? '成功' : '失败') : null,
-                    ].filter(Boolean).join(' · ');
-                    const groupId = item.group_id || '';
-                    return `
-                        <div class="item">
-                            <div class="top">
-                                <div class="title">${escapeHtml(title)}</div>
-                                <span class="state ${item.success === false ? 'unhealthy' : 'healthy'}">${quality === null ? '--' : `quality ${formatDecimal(quality, quality < 1 ? 3 : 1)}`}</span>
-                            </div>
-                            <div class="meta">${escapeHtml(meta || '批次记录')} · ${escapeHtml(duration)}</div>
-                            <div class="body clamp">开始 ${escapeHtml(started)} · 结束 ${escapeHtml(finished)}</div>
-                            <div class="item-actions">
-                                ${actionButton('batch-relearn', groupId, 'play_arrow', '重跑学习')}
-                            </div>
-                        </div>
-                    `;
-                });
-
-                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="item">暂无批次记录。</div>';
-                const batchCount = safeArray(trends.recent_batches).length;
                 $('trendHint').textContent = `最近 ${Object.keys(trends.daily_messages || {}).length || 7} 天`;
-                $('jargonHint').textContent = `候选 ${formatCount(jargonStats.total_candidates)} · 批次 ${formatCount(batchCount)}`;
 
                 updateLastUpdated();
                 renderSummaryText({
@@ -4946,6 +5224,28 @@
                 return payload;
             }
 
+            async function putJson(url, body = {}) {
+                const response = await fetch(url, {
+                    method: 'PUT',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const text = await response.text();
+                let payload = {};
+                if (text) {
+                    try {
+                        payload = JSON.parse(text);
+                    } catch {
+                        payload = { raw: text };
+                    }
+                }
+                if (!response.ok) {
+                    throw new Error(payload.error || payload.message || `HTTP ${response.status}`);
+                }
+                return payload;
+            }
+
             function updateDependencyInstallStatus(message, tone = '') {
                 const status = $('dependencyStatus');
                 if (!status) {
@@ -5024,10 +5324,21 @@
                     return;
                 }
 
-                if (action === 'persona-delete' && !requireDeleteConfirmation(action, id, '审查记录')) {
+                if (action === 'persona-delete') {
+                    if (!(await showConfirm('删除审查记录', '确定删除这条审查记录？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
+                }
+                if (action === 'jargon-delete') {
+                    if (!(await showConfirm('删除黑话', '确定删除这条黑话？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
+                }
+
+                if (action === 'jargon-edit') {
+                    state.jargon.editingId = Number(id);
+                    renderJargonPanel();
                     return;
                 }
-                if (action === 'jargon-delete' && !requireDeleteConfirmation(action, id, '黑话记录')) {
+                if (action === 'jargon-cancel-edit') {
+                    state.jargon.editingId = null;
+                    renderJargonPanel();
                     return;
                 }
 
@@ -5037,35 +5348,62 @@
 
                 try {
                     let payload = null;
-                    if (action === 'persona-approve' || action === 'persona-reject') {
-                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, {
-                            action: action === 'persona-approve' ? 'approve' : 'reject',
-                        });
+                    if (action === 'persona-approve') {
+                        if (!(await showConfirm('审批确认', '确定通过这条人格更新？', '批准'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'approve' });
+                    } else if (action === 'persona-reject') {
+                        if (!(await showConfirm('审批确认', '确定驳回这条人格更新？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
-                    } else if (action === 'jargon-approve' || action === 'jargon-reject') {
-                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, {
-                            action: action === 'jargon-approve' ? 'approve' : 'reject',
-                        });
+                    } else if (action === 'jargon-approve') {
+                        if (!(await showConfirm('审批确认', '确定确认这条黑话？', '确认'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'approve' });
+                    } else if (action === 'jargon-reject') {
+                        if (!(await showConfirm('审批确认', '确定驳回这条黑话？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {
                         payload = await deleteJson(`/api/jargon/${encodeURIComponent(id)}`);
+                    } else if (action === 'jargon-save') {
+                        const contentEl = document.getElementById(`jargon-edit-content-${id}`);
+                        const meaningEl = document.getElementById(`jargon-edit-meaning-${id}`);
+                        const newContent = contentEl ? contentEl.value.trim() : '';
+                        const newMeaning = meaningEl ? meaningEl.value.trim() : '';
+                        if (!newContent) {
+                            setQueueStatus('词条不能为空。', 'error');
+                            return;
+                        }
+                        payload = await putJson(`/api/jargon/${encodeURIComponent(id)}`, {
+                            content: newContent,
+                            meaning: newMeaning,
+                        });
+                        state.jargon.editingId = null;
                     } else if (action === 'batch-relearn') {
+                        if (!(await showConfirm('重新学习', '确定重新学习？可能需要几分钟。'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson('/api/relearn', { group_id: id });
+                    } else if (action === 'batch-delete') {
+                        if (!(await showConfirm('删除学习批次', '确定删除这个学习批次？不可撤销。'))) { showToast('已取消', 'warn'); return; }
+                        payload = await deleteJson(`/api/batches/${encodeURIComponent(id)}`);
                     } else {
                         throw new Error(`未知操作: ${action}`);
                     }
 
                     const message = payload && (payload.message || payload.error);
                     setQueueStatus(message || '操作已完成。', 'success');
+                    if (message) showToast(message, 'ok');
                     await loadDashboard();
-                    if (action.startsWith('jargon') || action.startsWith('batch')) {
-                        await loadGraphPanel({ quiet: true });
+                    if (action.startsWith('jargon')) {
+                        await Promise.all([loadJargonList(), loadGraphPanel({ quiet: true })]);
+                    }
+                    if (action.startsWith('batch')) {
+                        await Promise.all([loadBatchList(), loadGraphPanel({ quiet: true })]);
                     }
                 } catch (error) {
                     console.error('Dashboard action failed:', error);
                     setQueueStatus(`操作失败: ${error.message}`, 'error');
+                    showToast('操作失败: ' + error.message, 'err');
                 } finally {
                     state.actionBusy.delete(busyKey);
                     if (state.data) {
@@ -5484,7 +5822,7 @@
             }
 
             async function loadDashboard() {
-                $('summaryText').textContent = '正在刷新监控数据。';
+                $('summaryText').innerHTML = '<span class="spinner" style="margin-right:6px;"></span>正在刷新监控数据。';
 
                 const [
                     metrics,
@@ -5508,6 +5846,14 @@
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
                 ]);
 
+                const fetchErrors = [];
+                if (!metrics) fetchErrors.push('指标');
+                if (!trends) fetchErrors.push('趋势');
+                if (!health) fetchErrors.push('健康');
+                if (fetchErrors.length) {
+                    console.warn('[dashboard] 加载失败:', fetchErrors.join(', '));
+                }
+
                 const merged = {
                     metrics: metrics || {},
                     trends: trends || {},
@@ -5518,9 +5864,221 @@
                     style: style || { reviews: [], total: 0 },
                     jargonStats: extractJargonStats(jargonStats),
                     jargonList: extractJargonItems(jargonList),
+                    _errors: fetchErrors,
                 };
 
                 renderAll(merged);
+
+                if (fetchErrors.length) {
+                    showToast(`部分数据加载失败: ${fetchErrors.join('、')}`, 'warn');
+                }
+
+                await Promise.all([
+                    loadJargonList(),
+                    loadBatchList(),
+                ]);
+            }
+
+            async function loadJargonList() {
+                if (state.jargon.loading) return;
+                state.jargon.loading = true;
+                try {
+                    const params = new URLSearchParams({
+                        page: state.jargon.page,
+                        page_size: state.jargon.pageSize,
+                    });
+
+                    if (state.jargon.filter === 'pending') {
+                        params.set('pending', 'true');
+                        params.set('confirmed', 'false');
+                    } else if (state.jargon.filter === 'confirmed') {
+                        params.set('confirmed', 'true');
+                    } else if (state.jargon.filter === 'global') {
+                        params.set('filter', 'global');
+                    } else if (state.jargon.filter === 'local') {
+                        params.set('filter', 'local');
+                    }
+
+                    if (state.jargon.search) {
+                        params.set('keyword', state.jargon.search);
+                    }
+
+                    const data = await safeFetch(`/api/jargon/list?${params.toString()}`);
+                    let items = extractJargonItems(data);
+                    let total = (data && data.total) || items.length;
+
+                    // Client-side sort
+                    if (state.jargon.sort === 'oldest') {
+                        items.reverse();
+                    } else if (state.jargon.sort === 'name') {
+                        items.sort((a, b) => (a.term || a.word || '').localeCompare(b.term || b.word || ''));
+                    } else if (state.jargon.sort === 'occurrences') {
+                        items.sort((a, b) => (b.occurrences || 0) - (a.occurrences || 0));
+                    }
+
+                    state.jargon.items = items;
+                    state.jargon.total = total;
+                    state.jargon.totalPages = Math.max(1, Math.ceil(total / state.jargon.pageSize));
+
+                    renderJargonPanel();
+                } catch (e) {
+                    console.error('Failed to load jargon list:', e);
+                } finally {
+                    state.jargon.loading = false;
+                }
+            }
+
+            async function loadBatchList() {
+                if (state.batch.loading) return;
+                state.batch.loading = true;
+                try {
+                    const params = new URLSearchParams({
+                        page: state.batch.page,
+                        page_size: state.batch.pageSize,
+                    });
+
+                    const data = await safeFetch(`/api/batches?${params.toString()}`);
+                    if (data && data.data) {
+                        state.batch.items = safeArray(data.data.batches);
+                        state.batch.total = data.data.total || 0;
+                        state.batch.totalPages = data.data.total_pages || 1;
+                    } else {
+                        // Fallback: use trends data
+                        const trends = await safeFetch('/api/metrics/trends');
+                        const allBatches = safeArray(trends && trends.recent_batches);
+                        const offset = (state.batch.page - 1) * state.batch.pageSize;
+                        state.batch.items = allBatches.slice(offset, offset + state.batch.pageSize);
+                        state.batch.total = allBatches.length;
+                        state.batch.totalPages = Math.max(1, Math.ceil(allBatches.length / state.batch.pageSize));
+                    }
+
+                    renderBatchPanel();
+                } catch (e) {
+                    console.error('Failed to load batch list:', e);
+                } finally {
+                    state.batch.loading = false;
+                }
+            }
+
+            function renderJargonPanel() {
+                const jargonStats = extractJargonStats(state.data && state.data.jargonStats);
+                const jargonStatsMarkup = [
+                    ['候选', jargonStats.total_candidates],
+                    ['确认', jargonStats.confirmed_jargon],
+                    ['完成', jargonStats.completed_inference],
+                    ['出现', jargonStats.total_occurrences],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${label}</div>
+                        <div class="v">${formatCount(value)}</div>
+                    </div>
+                `);
+                $('jargonStats').innerHTML = jargonStatsMarkup.join('');
+
+                const items = state.jargon.items;
+                const editingId = state.jargon.editingId;
+                const jargonItems = items.map((item) => {
+                    const id = item.id;
+                    const title = item.term || item.content || item.word || '未命名';
+                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
+                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                        item.created_at ? `创建 ${formatTime(item.created_at)}` : null,
+                        item.updated_at ? `更新 ${formatTime(item.updated_at)}` : null,
+                    ].filter(Boolean).join(' · ');
+
+                    if (editingId === id) {
+                        return `
+                            <div class="item" data-jargon-id="${escapeHtml(id)}">
+                                <div class="top">
+                                    <div class="title">编辑黑话</div>
+                                    <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
+                                </div>
+                                <div class="jargon-edit-form">
+                                    <label>词条</label>
+                                    <input type="text" id="jargon-edit-content-${id}" value="${escapeHtml(title)}" />
+                                    <label>释义</label>
+                                    <textarea id="jargon-edit-meaning-${id}" rows="3">${escapeHtml(definition)}</textarea>
+                                </div>
+                                <div class="item-actions">
+                                    <button class="action-btn success" type="button" data-dashboard-action="jargon-save" data-id="${id}">
+                                        <span class="material-icons">save</span> 保存
+                                    </button>
+                                    <button class="action-btn" type="button" data-dashboard-action="jargon-cancel-edit" data-id="${id}">
+                                        <span class="material-icons">close</span> 取消
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }
+
+                    return `
+                        <div class="item" data-jargon-id="${escapeHtml(id)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${item.is_global ? 'global' : 'local'}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
+                            <div class="body">${escapeHtml(definition || '暂无释义')}</div>
+                            ${renderContextExamples(item)}
+                            <div class="item-actions">
+                                ${item.is_confirmed ? actionButton('jargon-edit', id, 'edit', '编辑') : ''}
+                                ${item.is_confirmed ? '' : actionButton('jargon-approve', id, 'done', '确认', 'success')}
+                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
+                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
+                                ${actionButton('jargon-delete', id, 'delete', '删除', 'danger')}
+                            </div>
+                        </div>
+                    `;
+                });
+                $('jargonList').innerHTML = jargonItems.length ? jargonItems.join('') : '<div class="empty-state"><span class="material-icons">translate</span><p>暂无黑话记录</p></div>';
+
+                // Pagination
+                const { page, total, totalPages } = state.jargon;
+                $('jargonPageInfo').textContent = `第 ${page} / ${totalPages} 页 · 共 ${formatCount(total)} 条`;
+                $('jargonPrevBtn').disabled = page <= 1;
+                $('jargonNextBtn').disabled = page >= totalPages;
+
+                $('jargonHint').textContent = `候选 ${formatCount((jargonStats.total_candidates ?? jargonStats.totalCandidates) || 0)} · 第 ${page}/${totalPages} 页`;
+            }
+
+            function renderBatchPanel() {
+                const batches = state.batch.items.map((item) => {
+                    const quality = item.quality_score !== undefined ? safeNumber(item.quality_score) : null;
+                    const started = item.start_time ? formatTime(item.start_time) : '--';
+                    const finished = item.end_time ? formatTime(item.end_time) : '--';
+                    const duration = formatDuration(item.start_time, item.end_time);
+                    const title = item.batch_name || item.batch_id || '学习批次';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.processed_messages !== undefined ? `消息 ${formatCount(item.processed_messages)}` : null,
+                        item.success !== undefined ? (item.success ? '成功' : '失败') : null,
+                    ].filter(Boolean).join(' · ');
+                    const batchId = item.id;
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state ${item.success === false ? 'unhealthy' : 'healthy'}">${quality === null ? '--' : `quality ${formatDecimal(quality, quality < 1 ? 3 : 1)}`}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '批次记录')} · ${escapeHtml(duration)}</div>
+                            <div class="body clamp">开始 ${escapeHtml(started)} · 结束 ${escapeHtml(finished)}</div>
+                            <div class="item-actions">
+                                ${item.group_id ? actionButton('batch-relearn', item.group_id, 'play_arrow', '重跑学习') : ''}
+                                ${batchId ? actionButton('batch-delete', batchId, 'delete', '删除批次', 'danger') : ''}
+                            </div>
+                        </div>
+                    `;
+                });
+                $('batchList').innerHTML = batches.length ? batches.join('') : '<div class="empty-state"><span class="material-icons">school</span><p>暂无批次记录</p></div>';
+
+                const { page, total, totalPages } = state.batch;
+                $('batchPageInfo').textContent = `第 ${page} / ${totalPages} 页 · 共 ${formatCount(total)} 条`;
+                $('batchPrevBtn').disabled = page <= 1;
+                $('batchNextBtn').disabled = page >= totalPages;
+                $('batchHint').textContent = `共 ${formatCount(total)} 个批次`;
             }
 
             function bindEvents() {
@@ -5584,6 +6142,57 @@
                 $('integrationConfigSaveBtn').addEventListener('click', saveConfigPanel);
                 $('integrationConfigResetBtn').addEventListener('click', resetConfigPanel);
                 $('integrationConfigReloadBtn').addEventListener('click', reloadConfigPanel);
+
+                // Jargon panel controls
+                $('jargonFilterSelect').addEventListener('change', (event) => {
+                    state.jargon.filter = event.target.value;
+                    state.jargon.page = 1;
+                    loadJargonList();
+                });
+                $('jargonSortSelect').addEventListener('change', (event) => {
+                    state.jargon.sort = event.target.value;
+                    state.jargon.page = 1;
+                    loadJargonList();
+                });
+                let jargonSearchTimer = null;
+                $('jargonSearchInput').addEventListener('input', (event) => {
+                    clearTimeout(jargonSearchTimer);
+                    jargonSearchTimer = setTimeout(() => {
+                        state.jargon.search = event.target.value || '';
+                        state.jargon.page = 1;
+                        loadJargonList();
+                    }, 300);
+                });
+                $('jargonPrevBtn').addEventListener('click', () => {
+                    if (state.jargon.page > 1) {
+                        state.jargon.page--;
+                        loadJargonList();
+                    }
+                });
+                $('jargonNextBtn').addEventListener('click', () => {
+                    if (state.jargon.page < state.jargon.totalPages) {
+                        state.jargon.page++;
+                        loadJargonList();
+                    }
+                });
+
+                // Batch panel controls
+                $('batchPrevBtn').addEventListener('click', () => {
+                    if (state.batch.page > 1) {
+                        state.batch.page--;
+                        loadBatchList();
+                    }
+                });
+                $('batchNextBtn').addEventListener('click', () => {
+                    if (state.batch.page < state.batch.totalPages) {
+                        state.batch.page++;
+                        loadBatchList();
+                    }
+                });
+                $('batchReloadBtn').addEventListener('click', () => {
+                    state.batch.page = 1;
+                    loadBatchList();
+                });
 
                 document.body.addEventListener('click', (event) => {
                     const actionTarget = event.target.closest('[data-dashboard-action]');
@@ -5672,5 +6281,16 @@
             init();
         })();
     </script>
+    <div class="confirm-overlay" id="cfmOv">
+        <div class="confirm-box">
+            <div class="ctitle" id="cfmTi"></div>
+            <div class="cmsg" id="cfmMsg"></div>
+            <div class="cbtns">
+                <button id="cfmNo">取消</button>
+                <button class="danger" id="cfmYes">确认</button>
+            </div>
+        </div>
+    </div>
+    <div class="toast-wrap" id="toastWrap"></div>
 </body>
 </html>

@@ -300,6 +300,117 @@ async def get_style_learning_content_text():
         return error_response(str(e), 500)
 
 
+@learning_bp.route("/batches", methods=["GET"])
+@require_auth
+async def get_learning_batches():
+    """获取学习批次列表（分页）"""
+    try:
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', 10, type=int)
+        page = max(1, page)
+        page_size = max(1, min(100, page_size))
+
+        container = get_container()
+        database_manager = container.database_manager
+
+        if not database_manager or not hasattr(database_manager, 'get_session'):
+            return error_response("数据库管理器未初始化", 500)
+
+        try:
+            from ...models.orm import LearningBatch
+        except ImportError:
+            from models.orm import LearningBatch
+
+        from sqlalchemy import select, func, desc
+
+        async with database_manager.get_session() as session:
+            # 总数
+            count_stmt = select(func.count()).select_from(LearningBatch)
+            total = (await session.execute(count_stmt)).scalar() or 0
+
+            # 分页查询
+            offset = (page - 1) * page_size
+            stmt = (
+                select(LearningBatch)
+                .order_by(desc(LearningBatch.start_time))
+                .offset(offset)
+                .limit(page_size)
+            )
+            result = await session.execute(stmt)
+            batches = []
+            for batch in result.scalars().all():
+                batches.append({
+                    'id': batch.id,
+                    'batch_id': batch.batch_id,
+                    'batch_name': batch.batch_name,
+                    'group_id': batch.group_id,
+                    'start_time': batch.start_time,
+                    'end_time': batch.end_time,
+                    'quality_score': batch.quality_score,
+                    'processed_messages': batch.processed_messages,
+                    'message_count': batch.message_count,
+                    'filtered_count': batch.filtered_count,
+                    'success': batch.success,
+                    'status': batch.status,
+                    'error_message': batch.error_message,
+                })
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'batches': batches,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': max(1, (total + page_size - 1) // page_size),
+            },
+        }), 200
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"获取学习批次列表失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@learning_bp.route("/batches/<int:batch_id>", methods=["DELETE"])
+@require_auth
+async def delete_learning_batch(batch_id: int):
+    """删除单个学习批次"""
+    try:
+        container = get_container()
+        database_manager = container.database_manager
+
+        if not database_manager or not hasattr(database_manager, 'get_session'):
+            return error_response("数据库管理器未初始化", 500)
+
+        try:
+            from ...models.orm import LearningBatch
+        except ImportError:
+            from models.orm import LearningBatch
+
+        from sqlalchemy import delete as sql_delete
+
+        async with database_manager.get_session() as session:
+            stmt = sql_delete(LearningBatch).where(LearningBatch.id == batch_id)
+            result = await session.execute(stmt)
+            await session.commit()
+
+            if result.rowcount > 0:
+                return jsonify({
+                    'success': True,
+                    'message': f'批次 {batch_id} 已删除',
+                }), 200
+            else:
+                return error_response(f'批次 {batch_id} 不存在', 404)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"删除学习批次失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @learning_bp.route("/relearn", methods=["POST"])
 @require_auth
 async def relearn_all():

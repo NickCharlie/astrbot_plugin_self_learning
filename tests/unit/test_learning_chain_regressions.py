@@ -448,14 +448,8 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
         enable_goal_driven_chat=False,
     )
     collector = SimpleNamespace(
-        collect_message=AsyncMock(),
-        get_statistics=AsyncMock(
-            side_effect=[
-                {"raw_messages": 11},
-                {"raw_messages": 19},
-                {"raw_messages": 21},
-            ]
-        ),
+        collect_message=AsyncMock(return_value=True),
+        get_statistics=AsyncMock(return_value={"raw_messages": 11}),
     )
     enhanced_interaction = SimpleNamespace(
         update_conversation_context=AsyncMock(),
@@ -489,19 +483,19 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
         get_platform_name=lambda: "test",
     )
 
-    await pipeline.process_learning("group-a", "user-a", "第11条消息", event)
-    await asyncio.gather(*spawned)
-    spawned.clear()
-
-    await pipeline.process_learning("group-a", "user-a", "第19条消息", event)
-    await asyncio.gather(*spawned)
-    spawned.clear()
-
-    await pipeline.process_learning("group-a", "user-a", "第21条消息", event)
-    await asyncio.gather(*spawned)
+    for count in range(11, 22):
+        await pipeline.process_learning(
+            "group-a",
+            "user-a",
+            f"第{count}条消息",
+            event,
+        )
+        await asyncio.gather(*spawned)
+        spawned.clear()
 
     assert pipeline.mine_jargon.await_count == 2
     pipeline.mine_jargon.assert_any_await("group-a")
+    collector.get_statistics.assert_awaited_once_with("group-a")
 
 
 @pytest.mark.unit

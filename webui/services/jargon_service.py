@@ -62,6 +62,7 @@ class JargonService:
             'raw_content': j.get('raw_content', '[]'),
             'last_inference_count': j.get('last_inference_count', 0),
             'is_complete': bool(j.get('is_complete', False)),
+            'created_at': j.get('created_at'),
             'updated_at': j.get('updated_at'),
         }
 
@@ -127,6 +128,8 @@ class JargonService:
         page: int = 1,
         page_size: int = 20,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> Dict[str, Any]:
         """
         获取黑话列表
@@ -136,6 +139,9 @@ class JargonService:
             confirmed: 过滤已确认/未确认（None=全部）
             page: 页码
             page_size: 每页数量
+            pending_only: 是否只返回待确认的
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             Dict: 黑话列表和分页信息，key 为 'jargon_list'
@@ -149,6 +155,8 @@ class JargonService:
                 chat_id=group_id,
                 only_confirmed=confirmed,
                 pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
 
             # DB 层分页
@@ -159,6 +167,8 @@ class JargonService:
                 offset=offset,
                 only_confirmed=confirmed,
                 pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
 
             formatted = [self._format_jargon_for_frontend(j) for j in jargons]
@@ -187,6 +197,9 @@ class JargonService:
         keyword: str,
         chat_id: Optional[str] = None,
         confirmed_only: bool = False,
+        pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         搜索黑话
@@ -195,6 +208,9 @@ class JargonService:
             keyword: 搜索关键词
             chat_id: 群组ID（可选）
             confirmed_only: 是否仅返回已确认的黑话
+            pending_only: 是否仅返回待确认的黑话
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             List[Dict]: 匹配的黑话列表（字段已映射为前端格式）
@@ -204,7 +220,12 @@ class JargonService:
 
         try:
             results = await self.database_manager.search_jargon(
-                keyword, chat_id=chat_id, confirmed_only=confirmed_only
+                keyword,
+                chat_id=chat_id,
+                confirmed_only=confirmed_only,
+                pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
             return [self._format_jargon_for_frontend(r) for r in results]
         except Exception as e:
@@ -296,6 +317,42 @@ class JargonService:
 
         except Exception as e:
             logger.error(f"审查黑话失败: {e}", exc_info=True)
+            raise
+
+    async def update_jargon(
+        self,
+        jargon_id: int,
+        content: Optional[str] = None,
+        meaning: Optional[str] = None,
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """编辑已确认黑话的词条或释义。"""
+        if not self.database_manager:
+            raise ValueError('数据库管理器未初始化')
+
+        try:
+            current = await self.database_manager.get_jargon_by_id(jargon_id)
+            if not current:
+                return False, "黑话不存在", {}
+
+            payload: Dict[str, Any] = {"id": jargon_id}
+            if content is not None:
+                payload["content"] = content
+            if meaning is not None:
+                payload["meaning"] = meaning
+
+            if len(payload) <= 1:
+                return False, "没有需要更新的字段", self._format_jargon_for_frontend(current)
+
+            success = await self.database_manager.update_jargon(payload)
+            if not success:
+                return False, "更新失败", self._format_jargon_for_frontend(current)
+
+            updated = await self.database_manager.get_jargon_by_id(jargon_id) or {**current, **payload}
+            formatted = self._format_jargon_for_frontend(updated)
+            return True, f"已更新黑话「{formatted.get('term') or jargon_id}」", formatted
+
+        except Exception as e:
+            logger.error(f"编辑黑话失败: {e}", exc_info=True)
             raise
 
     async def toggle_jargon_global(self, jargon_id: int) -> Tuple[bool, str, bool]:

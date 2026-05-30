@@ -265,6 +265,8 @@ class JargonFacade(BaseFacade):
         offset: int = 0,
         only_confirmed: bool = None,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> List[Dict]:
         """获取最近的黑话列表
 
@@ -275,6 +277,8 @@ class JargonFacade(BaseFacade):
             offset: 偏移量（用于分页）
             only_confirmed: 是否只返回已确认的黑话
             pending_only: 是否只返回尚未完成审查的候选
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             黑话列表
@@ -307,6 +311,13 @@ class JargonFacade(BaseFacade):
                         & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
                     )
 
+                if global_only:
+                    stmt = stmt.where(Jargon.is_global == True)
+                elif local_only:
+                    stmt = stmt.where(
+                        (Jargon.is_global == False) | (Jargon.is_global == None)
+                    )
+
                 # 按更新时间倒序排列，分页
                 stmt = stmt.order_by(Jargon.updated_at.desc())
                 if offset > 0:
@@ -334,6 +345,7 @@ class JargonFacade(BaseFacade):
                             'last_inference_count': record.last_inference_count or 0,
                             'is_complete': record.is_complete,
                             'chat_id': record.chat_id,
+                            'created_at': record.created_at,
                             'updated_at': record.updated_at,
                             'is_global': record.is_global or False
                         })
@@ -353,6 +365,8 @@ class JargonFacade(BaseFacade):
         chat_id: Optional[str] = None,
         only_confirmed: Optional[bool] = None,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> int:
         """获取黑话记录总数（用于分页）
 
@@ -360,6 +374,8 @@ class JargonFacade(BaseFacade):
             chat_id: 群组ID（可选，None 表示所有群组）
             only_confirmed: None=全部, True=已确认, False=未确认
             pending_only: 是否只统计尚未完成审查的候选
+            global_only: 是否只统计全局共享的黑话
+            local_only: 是否只统计本地（非全局）的黑话
 
         Returns:
             记录总数
@@ -385,6 +401,13 @@ class JargonFacade(BaseFacade):
                         & ((Jargon.is_complete == False) | (Jargon.is_complete == None))
                     )
 
+                if global_only:
+                    stmt = stmt.where(Jargon.is_global == True)
+                elif local_only:
+                    stmt = stmt.where(
+                        (Jargon.is_global == False) | (Jargon.is_global == None)
+                    )
+
                 result = await session.execute(stmt)
                 return result.scalar() or 0
         except Exception as e:
@@ -396,15 +419,21 @@ class JargonFacade(BaseFacade):
         self,
         keyword: str,
         chat_id: Optional[str] = None,
-        confirmed_only: bool = True,
+        confirmed_only: bool = False,
+        pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
         limit: int = 10
     ) -> List[Dict]:
         """搜索黑话（LIKE 匹配）
 
         Args:
             keyword: 搜索关键词
-            chat_id: 群组ID（有值搜本群，无值搜全局已确认黑话）
-            confirmed_only: 是否仅返回已确认的黑话（默认 True）
+            chat_id: 群组ID（有值搜本群，无值搜全部）
+            confirmed_only: 是否仅返回已确认的黑话
+            pending_only: 是否仅返回待确认的黑话
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
             limit: 返回数量限制
 
         Returns:
@@ -418,11 +447,16 @@ class JargonFacade(BaseFacade):
                 ]
                 if confirmed_only:
                     conditions.append(Jargon.is_jargon == True)
+                elif pending_only:
+                    conditions.append(or_(Jargon.is_jargon == False, Jargon.is_jargon.is_(None)))
                 if chat_id:
                     conditions.append(Jargon.chat_id == chat_id)
-                elif confirmed_only:
-                    # 无群组限制 + 仅已确认 → 限定全局黑话
+                if global_only:
                     conditions.append(Jargon.is_global == True)
+                elif local_only:
+                    conditions.append(
+                        or_(Jargon.is_global == False, Jargon.is_global.is_(None))
+                    )
 
                 stmt = (
                     select(Jargon)
@@ -444,6 +478,7 @@ class JargonFacade(BaseFacade):
                         'is_complete': r.is_complete,
                         'is_global': r.is_global or False,
                         'chat_id': r.chat_id,
+                        'created_at': r.created_at,
                         'updated_at': r.updated_at,
                     }
                     for r in records
@@ -842,6 +877,7 @@ class JargonFacade(BaseFacade):
                         'is_complete': jargon.is_complete,
                         'is_global': jargon.is_global,
                         'chat_id': jargon.chat_id,
+                        'created_at': jargon.created_at,
                         'updated_at': jargon.updated_at
                     }
                     for jargon in jargon_list

@@ -252,7 +252,12 @@ class SelfLearningPlugin(star.Star):
             if not db:
                 self._log_message_capture_diag("skip:db_manager_missing", event, level="info")
                 return
-            if not getattr(db, "engine", None):
+            db_ready = getattr(db, "is_ready", None)
+            if db_ready is not None:
+                if not db_ready:
+                    self._log_message_capture_diag("skip:db_not_ready", event, level="info")
+                    return
+            elif not getattr(db, "engine", None):
                 self._log_message_capture_diag("skip:db_engine_not_ready", event, level="info")
                 return
 
@@ -359,7 +364,13 @@ class SelfLearningPlugin(star.Star):
             if not self.plugin_config or not self.plugin_config.enable_message_capture:
                 return
             db = getattr(self, 'db_manager', None)
-            if not db or not db.engine:
+            if not db:
+                return
+            db_ready = getattr(db, "is_ready", None)
+            if db_ready is not None:
+                if not db_ready:
+                    return
+            elif not getattr(db, "engine", None):
                 return
             result = event.get_result()
             if not result or not result.chain:

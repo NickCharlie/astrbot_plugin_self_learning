@@ -51,6 +51,11 @@ class SQLAlchemyDatabaseManager:
         self._metrics = None
         self._admin = None
 
+    @property
+    def is_ready(self) -> bool:
+        """Return True if the database is fully started and facades are initialized."""
+        return self._started
+
     async def start(self) -> bool:
         """启动数据库管理器（带并发保护）"""
         async with self._start_lock:
@@ -951,17 +956,18 @@ class SQLAlchemyDatabaseManager:
     async def get_recent_jargon_list(
         self, group_id: str = None, chat_id: str = None,
         limit: int = 50, offset: int = 0, only_confirmed: bool = False,
-        pending_only: bool = False,
+        pending_only: bool = False, global_only: bool = False, local_only: bool = False,
     ) -> List[Dict[str, Any]]:
         return await self._call_jargon(
             "get_recent_jargon_list",
             [],
             group_id, chat_id, limit, offset, only_confirmed, pending_only,
+            global_only, local_only,
         )
 
     async def get_jargon_count(
         self, chat_id: str = None, only_confirmed: bool = False,
-        pending_only: bool = False,
+        pending_only: bool = False, global_only: bool = False, local_only: bool = False,
     ) -> int:
         return await self._call_jargon(
             "get_jargon_count",
@@ -969,17 +975,21 @@ class SQLAlchemyDatabaseManager:
             chat_id,
             only_confirmed,
             pending_only,
+            global_only,
+            local_only,
         )
 
     async def search_jargon(
         self, keyword: str, chat_id: str = None,
-        confirmed_only: bool = False, limit: int = 50,
+        confirmed_only: bool = False, pending_only: bool = False,
+        global_only: bool = False, local_only: bool = False, limit: int = 50,
     ) -> List[Dict[str, Any]]:
         return await self._call_jargon(
             "search_jargon",
             [],
             keyword=keyword, chat_id=chat_id,
-            confirmed_only=confirmed_only, limit=limit,
+            confirmed_only=confirmed_only, pending_only=pending_only,
+            global_only=global_only, local_only=local_only, limit=limit,
         )
 
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:

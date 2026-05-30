@@ -65,6 +65,11 @@ async def get_jargon_list():
             confirmed = False
         pending_only = str(request.args.get('pending', 'false')).lower() == 'true'
 
+        # 解析 global/local 过滤参数
+        filter_param = request.args.get('filter', '').strip().lower()
+        global_only = filter_param == 'global'
+        local_only = filter_param == 'local'
+
         # 如果带了 keyword，走搜索逻辑
         keyword = request.args.get('keyword', '').strip()
         container = get_container()
@@ -75,6 +80,9 @@ async def get_jargon_list():
                 keyword,
                 chat_id=group_id,
                 confirmed_only=(confirmed is True),
+                pending_only=(confirmed is False or pending_only),
+                global_only=global_only,
+                local_only=local_only,
             )
             payload = {
                 'jargon_list': results,
@@ -88,6 +96,8 @@ async def get_jargon_list():
             page=page,
             page_size=page_size,
             pending_only=pending_only,
+            global_only=global_only,
+            local_only=local_only,
         )
 
         return _hybrid_success(result, data=result.get('jargon_list', []))
@@ -113,6 +123,8 @@ async def search_jargon():
         if confirmed_param is None:
             confirmed_param = request.args.get('confirmed', 'false')
         confirmed_only = str(confirmed_param).lower() == 'true'
+        pending_only = str(request.args.get('pending', 'false')).lower() == 'true'
+        filter_param = request.args.get('filter', '').strip().lower()
 
         container = get_container()
         jargon_service = JargonService(container)
@@ -120,6 +132,9 @@ async def search_jargon():
             keyword,
             chat_id=group_id,
             confirmed_only=confirmed_only,
+            pending_only=pending_only,
+            global_only=filter_param == 'global',
+            local_only=filter_param == 'local',
         )
 
         payload = {
@@ -153,6 +168,41 @@ async def delete_jargon(jargon_id: int):
         return error_response(str(e), 500)
     except Exception as e:
         logger.error(f"删除黑话失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@jargon_bp.route("/jargon/<int:jargon_id>", methods=["PUT"])
+@require_auth
+async def update_jargon(jargon_id: int):
+    """编辑黑话"""
+    try:
+        data = await request.get_json() or {}
+        content = data.get('content')
+        meaning = data.get('meaning')
+
+        if content is None and meaning is None:
+            return error_response('至少需要提供 content 或 meaning', 400)
+
+        container = get_container()
+        jargon_service = JargonService(container)
+        success, message, item = await jargon_service.update_jargon(
+            jargon_id, content=content, meaning=meaning
+        )
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message,
+                'item': item,
+                'data': item,
+            }), 200
+        else:
+            return error_response(message, 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"编辑黑话失败: {e}", exc_info=True)
         return error_response(str(e), 500)
 
 
