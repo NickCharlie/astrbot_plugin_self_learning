@@ -3784,7 +3784,7 @@
                 }, { once: true });
             }
 
-            function showConfirm(title, message) {
+            function showConfirm(title, message, confirmText) {
                 var ov = document.getElementById('cfmOv');
                 var ti = document.getElementById('cfmTi');
                 var msg = document.getElementById('cfmMsg');
@@ -3794,6 +3794,7 @@
                     if (!ov) { resolve(false); return; }
                     ti.textContent = title;
                     msg.textContent = message;
+                    yes.textContent = confirmText || '确认';
                     ov.classList.add('show');
                     function done(val) {
                         ov.classList.remove('show');
@@ -5324,10 +5325,10 @@
                 }
 
                 if (action === 'persona-delete') {
-                    if (!(await showConfirm('删除审查记录', '确定删除这条审查记录？不可撤销。'))) { showToast('已取消', 'warn'); return; }
+                    if (!(await showConfirm('删除审查记录', '确定删除这条审查记录？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
                 }
                 if (action === 'jargon-delete') {
-                    if (!(await showConfirm('删除黑话', '确定删除这条黑话？不可撤销。'))) { showToast('已取消', 'warn'); return; }
+                    if (!(await showConfirm('删除黑话', '确定删除这条黑话？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
                 }
 
                 if (action === 'jargon-edit') {
@@ -5348,18 +5349,18 @@
                 try {
                     let payload = null;
                     if (action === 'persona-approve') {
-                        if (!(await showConfirm('审批确认', '确定通过这条人格更新？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        if (!(await showConfirm('审批确认', '确定通过这条人格更新？', '批准'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'approve' });
                     } else if (action === 'persona-reject') {
-                        if (!(await showConfirm('审批确认', '确定驳回这条人格更新？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        if (!(await showConfirm('审批确认', '确定驳回这条人格更新？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'jargon-approve') {
-                        if (!(await showConfirm('审批确认', '确定确认这条黑话？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        if (!(await showConfirm('审批确认', '确定确认这条黑话？', '确认'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'approve' });
                     } else if (action === 'jargon-reject') {
-                        if (!(await showConfirm('审批确认', '确定驳回这条黑话？'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                        if (!(await showConfirm('审批确认', '确定驳回这条黑话？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
@@ -6286,7 +6287,7 @@
             <div class="cmsg" id="cfmMsg"></div>
             <div class="cbtns">
                 <button id="cfmNo">取消</button>
-                <button class="danger" id="cfmYes">确认删除</button>
+                <button class="danger" id="cfmYes">确认</button>
             </div>
         </div>
     </div>
