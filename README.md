@@ -380,7 +380,10 @@ WebUI 提供以下入口：
 
 <div align="center">
 
-如果觉得有帮助，欢迎 Star 支持。
+如果觉得有帮助，欢迎 Star、投喂支持。
+<img width="1080" height="1680" alt="1779723853514" src="https://github.com/user-attachments/assets/e5c07850-b29c-4795-8b11-05c8a58dfc5f" />
+<img width="1118" height="1524" alt="mm_facetoface_collect_qrcode_1779723837612" src="https://github.com/user-attachments/assets/2ea2f969-3ee7-4396-8dc4-cbbf40826134" />
+
 
 [回到顶部](#astrbot-自主学习插件)
 
