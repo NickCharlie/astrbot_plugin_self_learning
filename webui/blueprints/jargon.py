@@ -81,6 +81,8 @@ async def get_jargon_list():
                 chat_id=group_id,
                 confirmed_only=(confirmed is True),
                 pending_only=(confirmed is False or pending_only),
+                global_only=global_only,
+                local_only=local_only,
             )
             payload = {
                 'jargon_list': results,
@@ -121,6 +123,8 @@ async def search_jargon():
         if confirmed_param is None:
             confirmed_param = request.args.get('confirmed', 'false')
         confirmed_only = str(confirmed_param).lower() == 'true'
+        pending_only = str(request.args.get('pending', 'false')).lower() == 'true'
+        filter_param = request.args.get('filter', '').strip().lower()
 
         container = get_container()
         jargon_service = JargonService(container)
@@ -128,6 +132,9 @@ async def search_jargon():
             keyword,
             chat_id=group_id,
             confirmed_only=confirmed_only,
+            pending_only=pending_only,
+            global_only=filter_param == 'global',
+            local_only=filter_param == 'local',
         )
 
         payload = {

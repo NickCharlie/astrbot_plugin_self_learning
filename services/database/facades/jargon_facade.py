@@ -421,6 +421,8 @@ class JargonFacade(BaseFacade):
         chat_id: Optional[str] = None,
         confirmed_only: bool = False,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
         limit: int = 10
     ) -> List[Dict]:
         """搜索黑话（LIKE 匹配）
@@ -430,6 +432,8 @@ class JargonFacade(BaseFacade):
             chat_id: 群组ID（有值搜本群，无值搜全部）
             confirmed_only: 是否仅返回已确认的黑话
             pending_only: 是否仅返回待确认的黑话
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
             limit: 返回数量限制
 
         Returns:
@@ -447,6 +451,12 @@ class JargonFacade(BaseFacade):
                     conditions.append(or_(Jargon.is_jargon == False, Jargon.is_jargon.is_(None)))
                 if chat_id:
                     conditions.append(Jargon.chat_id == chat_id)
+                if global_only:
+                    conditions.append(Jargon.is_global == True)
+                elif local_only:
+                    conditions.append(
+                        or_(Jargon.is_global == False, Jargon.is_global.is_(None))
+                    )
 
                 stmt = (
                     select(Jargon)

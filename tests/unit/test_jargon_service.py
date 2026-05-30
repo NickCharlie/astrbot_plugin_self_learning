@@ -190,3 +190,26 @@ async def test_get_jargon_list_can_filter_pending_candidates():
 
     assert result["total"] == 1
     assert [item["term"] for item in result["jargon_list"]] == ["待审"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_search_jargon_forwards_scope_filters_to_database():
+    database_manager = SimpleNamespace(search_jargon=AsyncMock(return_value=[]))
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    await service.search_jargon(
+        "术语",
+        chat_id="group-a",
+        confirmed_only=True,
+        global_only=True,
+    )
+
+    database_manager.search_jargon.assert_awaited_once_with(
+        "术语",
+        chat_id="group-a",
+        confirmed_only=True,
+        pending_only=False,
+        global_only=True,
+        local_only=False,
+    )

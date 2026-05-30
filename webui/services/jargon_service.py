@@ -198,6 +198,8 @@ class JargonService:
         chat_id: Optional[str] = None,
         confirmed_only: bool = False,
         pending_only: bool = False,
+        global_only: bool = False,
+        local_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         搜索黑话
@@ -207,6 +209,8 @@ class JargonService:
             chat_id: 群组ID（可选）
             confirmed_only: 是否仅返回已确认的黑话
             pending_only: 是否仅返回待确认的黑话
+            global_only: 是否只返回全局共享的黑话
+            local_only: 是否只返回本地（非全局）的黑话
 
         Returns:
             List[Dict]: 匹配的黑话列表（字段已映射为前端格式）
@@ -216,7 +220,12 @@ class JargonService:
 
         try:
             results = await self.database_manager.search_jargon(
-                keyword, chat_id=chat_id, confirmed_only=confirmed_only, pending_only=pending_only
+                keyword,
+                chat_id=chat_id,
+                confirmed_only=confirmed_only,
+                pending_only=pending_only,
+                global_only=global_only,
+                local_only=local_only,
             )
             return [self._format_jargon_for_frontend(r) for r in results]
         except Exception as e:

@@ -67,6 +67,7 @@ class JargonQueryService:
                 group_results = await self.db.search_jargon(
                     keyword=keyword,
                     chat_id=chat_id,
+                    confirmed_only=True,
                     limit=limit
                 )
                 results.extend(group_results)
@@ -76,6 +77,8 @@ class JargonQueryService:
                 global_results = await self.db.search_jargon(
                     keyword=keyword,
                     chat_id=None, # 搜索全局黑话
+                    confirmed_only=True,
+                    global_only=True,
                     limit=limit - len(results)
                 )
                 # 去重
