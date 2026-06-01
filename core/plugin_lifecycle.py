@@ -271,6 +271,7 @@ class PluginLifecycle:
                 perf_tracker=p._perf_tracker,
                 group_id_to_unified_origin=group_id_to_unified_origin,
                 feature_delegation=getattr(p, "feature_delegation", None),
+                v2_integration=getattr(p, "v2_integration", None),
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:

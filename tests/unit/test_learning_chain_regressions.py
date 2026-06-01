@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import select
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -23,6 +24,13 @@ from self_learning_EterU.services.core_learning.message_collector import (
 )
 from self_learning_EterU.services.database.sqlalchemy_database_manager import (
     SQLAlchemyDatabaseManager,
+)
+from self_learning_EterU.models.orm.expression import (
+    ExpressionPattern as ExpressionPatternORM,
+)
+from self_learning_EterU.services.analysis.expression_pattern_learner import (
+    ExpressionPattern,
+    ExpressionPatternLearner,
 )
 from self_learning_EterU.services.integration.maibot_enhanced_learning_manager import (
     MaiBotEnhancedLearningManager,
@@ -390,6 +398,91 @@ async def test_realtime_expression_learning_is_batch_gated():
         )
 
     assert learner.trigger_learning_for_group.await_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_pattern_save_handles_duplicate_existing_rows(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    ExpressionPatternORM(
+                        situation="今晚安排",
+                        expression="偷偷刷视频",
+                        weight=1.0,
+                        last_active_time=10.0,
+                        create_time=1.0,
+                        group_id="group-a",
+                    ),
+                    ExpressionPatternORM(
+                        situation="今晚安排",
+                        expression="偷偷刷视频",
+                        weight=3.0,
+                        last_active_time=20.0,
+                        create_time=2.0,
+                        group_id="group-a",
+                    ),
+                ]
+            )
+            await session.commit()
+            rows_before = (
+                await session.execute(
+                    select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.group_id == "group-a",
+                        ExpressionPatternORM.situation == "今晚安排",
+                        ExpressionPatternORM.expression == "偷偷刷视频",
+                    )
+                )
+            ).scalars().all()
+
+        assert len(rows_before) == 2
+        original_ids = {row.id for row in rows_before}
+        strongest_before_id = max(rows_before, key=lambda row: row.weight).id
+
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+
+        await learner._save_expression_patterns(
+            [
+                ExpressionPattern(
+                    situation="今晚安排",
+                    expression="偷偷刷视频",
+                    weight=1.0,
+                    last_active_time=30.0,
+                    create_time=30.0,
+                    group_id="group-a",
+                )
+            ],
+            "group-a",
+        )
+
+        async with db.get_session() as session:
+            rows = (
+                await session.execute(
+                    select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.group_id == "group-a",
+                        ExpressionPatternORM.situation == "今晚安排",
+                        ExpressionPatternORM.expression == "偷偷刷视频",
+                    )
+                )
+            ).scalars().all()
+
+        assert len(rows) == 2
+        assert {row.id for row in rows} == original_ids
+        strongest_after = max(rows, key=lambda row: row.weight)
+        assert strongest_after.id == strongest_before_id
+        assert strongest_after.weight == 4.0
+    finally:
+        await db.stop()
 
 
 @pytest.mark.unit

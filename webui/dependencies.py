@@ -27,8 +27,11 @@ class ServiceContainer:
         self.persona_manager: Optional[Any] = None
         self.persona_updater: Optional[Any] = None
         self.database_manager: Optional[Any] = None
+        self.database_degraded: bool = False
+        self.database_start_error: Optional[str] = None
         self.llm_adapter: Optional[Any] = None
         self.progressive_learning: Optional[Any] = None
+        self.v2_integration: Optional[Any] = None
         self.factory_manager: Optional[Any] = None
 
         # AstrBot 框架服务
@@ -70,6 +73,10 @@ class ServiceContainer:
         astrbot_persona_manager=None,
         group_id_to_unified_origin=None,
         feature_delegation=None,
+        database_manager=None,
+        database_degraded=False,
+        database_start_error=None,
+        v2_integration=None,
     ):
         """
         初始化服务容器
@@ -80,18 +87,24 @@ class ServiceContainer:
             llm_client: LLM 客户端（废弃，保留兼容性）
             astrbot_persona_manager: AstrBot 人格管理器
             group_id_to_unified_origin: group_id到unified_msg_origin映射表
+            database_manager: 已由插件生命周期启动的数据库管理器
+            database_degraded: 数据库启动失败时的受限模式标记
+            database_start_error: 数据库启动失败原因
         """
         self.plugin_config = plugin_config
         self.factory_manager = factory_manager
         self.feature_delegation = feature_delegation
         self.astrbot_persona_manager = astrbot_persona_manager
+        self.database_degraded = database_degraded
+        self.database_start_error = database_start_error
+        self.v2_integration = v2_integration
         if group_id_to_unified_origin is not None:
             self.group_id_to_unified_origin = group_id_to_unified_origin
 
         # 从工厂获取服务
         service_factory = factory_manager.get_service_factory()
         self.persona_manager = service_factory.create_persona_manager()
-        self.database_manager = service_factory.create_database_manager()
+        self.database_manager = database_manager or service_factory.create_database_manager()
         self.llm_adapter = service_factory.create_framework_llm_adapter()
         self.progressive_learning = service_factory.create_progressive_learning()
 
@@ -200,6 +213,10 @@ async def set_plugin_services(
     astrbot_persona_manager,
     group_id_to_unified_origin=None,
     feature_delegation=None,
+    database_manager=None,
+    database_degraded=False,
+    database_start_error=None,
+    v2_integration=None,
 ):
     """
     设置插件服务（兼容原有接口）
@@ -210,6 +227,10 @@ async def set_plugin_services(
         llm_client: LLM 客户端（废弃）
         astrbot_persona_manager: AstrBot 人格管理器
         group_id_to_unified_origin: group_id到unified_msg_origin映射表
+        database_manager: 已由插件生命周期启动的数据库管理器
+        database_degraded: 数据库启动失败时的受限模式标记
+        database_start_error: 数据库启动失败原因
+        v2_integration: 已创建的 V2 学习集成实例
     """
     _container.initialize(
         plugin_config=plugin_config,
@@ -218,6 +239,10 @@ async def set_plugin_services(
         astrbot_persona_manager=astrbot_persona_manager,
         group_id_to_unified_origin=group_id_to_unified_origin,
         feature_delegation=feature_delegation,
+        database_manager=database_manager,
+        database_degraded=database_degraded,
+        database_start_error=database_start_error,
+        v2_integration=v2_integration,
     )
 
     logger.info(" [WebUI] 插件服务设置完成")
