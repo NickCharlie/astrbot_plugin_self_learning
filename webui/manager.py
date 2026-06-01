@@ -35,6 +35,7 @@ class WebUIManager:
         feature_delegation: Any = None,
         astrbot_config: Any = None,
         plugin_instance: Any = None,
+        v2_integration: Any = None,
     ):
         self._config = plugin_config
         self._context = context
@@ -44,7 +45,7 @@ class WebUIManager:
         self._feature_delegation = feature_delegation
         self._astrbot_config = astrbot_config
         self._plugin_instance = plugin_instance
-        self._v2_integration = getattr(plugin_instance, "v2_integration", None)
+        self._v2_integration = v2_integration or getattr(plugin_instance, "v2_integration", None)
         self._database_manager = getattr(plugin_instance, "db_manager", None)
         self._database_degraded = False
         self._database_start_error: Optional[str] = None
@@ -286,7 +287,7 @@ class WebUIManager:
         self._database_start_error = None
 
     async def _ensure_database_manager_started(self, database_manager: Any) -> Any:
-        """Ensure WebUI services reuse the plugin's started database manager."""
+        """Reuse the plugin database manager and keep WebUI available if it fails."""
         if database_manager is None:
             self._mark_database_degraded("数据库管理器不可用")
             return None

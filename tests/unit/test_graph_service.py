@@ -1,27 +1,14 @@
 from pathlib import Path
 from types import SimpleNamespace
-import importlib.util
 import sys
 
 import pytest
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-PACKAGE_NAME = "self_learning_EterU"
-
-for module_name in list(sys.modules):
-    if module_name == PACKAGE_NAME or module_name.startswith(f"{PACKAGE_NAME}."):
-        del sys.modules[module_name]
-
-package_spec = importlib.util.spec_from_file_location(
-    PACKAGE_NAME,
-    PACKAGE_ROOT / "__init__.py",
-    submodule_search_locations=[str(PACKAGE_ROOT)],
-)
-package_module = importlib.util.module_from_spec(package_spec)
-sys.modules[PACKAGE_NAME] = package_module
-assert package_spec.loader is not None
-package_spec.loader.exec_module(package_module)
+PARENT = PACKAGE_ROOT.parent
+if str(PARENT) not in sys.path:
+    sys.path.insert(0, str(PARENT))
 
 from self_learning_EterU.services.integration.knowledge_graph_manager import (
     KnowledgeGraphManager,

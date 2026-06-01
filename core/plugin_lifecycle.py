@@ -273,6 +273,7 @@ class PluginLifecycle:
                 feature_delegation=getattr(p, "feature_delegation", None),
                 astrbot_config=getattr(p, "config", None),
                 plugin_instance=p,
+                v2_integration=getattr(p, "v2_integration", None),
             )
             need_immediate_start = self._webui_manager.create_server()
             if need_immediate_start:

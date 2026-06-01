@@ -199,7 +199,10 @@ class PersonaService:
 
         try:
             if self.persona_web_mgr:
-                default_persona = await self.persona_web_mgr.get_default_persona_for_web()
+                if group_id and group_id != "default":
+                    default_persona = await self.persona_web_mgr.get_persona_for_group(group_id)
+                else:
+                    default_persona = await self.persona_web_mgr.get_default_persona_for_web()
                 return self._normalize_persona_data(default_persona or fallback_persona)
 
             if self.astrbot_persona_manager:

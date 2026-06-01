@@ -70,6 +70,7 @@ class PersonaReviewService:
     def _auto_apply_enabled(self) -> bool:
         if not self.plugin_config:
             return False
+
         persona_updates_enabled = getattr(self.plugin_config, 'auto_apply_persona_updates', False)
         legacy_approved_enabled = getattr(self.plugin_config, 'auto_apply_approved_persona', False)
         return (
@@ -790,7 +791,7 @@ class PersonaReviewService:
                             elif not auto_apply_enabled:
                                 message = (
                                     f"人格学习审查 {persona_learning_review_id} 已批准"
-                                    f"（开启 auto_apply_approved_persona 可自动追加到当前人格）"
+                                    f"（开启 auto_apply_persona_updates 可自动追加到当前人格）"
                                 )
                             elif not incremental_content:
                                 message = f"人格学习审查 {persona_learning_review_id} 已批准，但缺少增量内容"
@@ -865,7 +866,7 @@ class PersonaReviewService:
             if not auto_apply_enabled or not self.persona_web_manager:
                 msg = f"人格更新 {update_id} 已批准"
                 if not auto_apply_enabled:
-                    msg += "（开启 auto_apply_approved_persona 可自动应用到当前人格）"
+                    msg += "（开启 auto_apply_persona_updates 可自动应用到当前人格）"
                 return True, msg
 
             try:
@@ -1025,7 +1026,7 @@ class PersonaReviewService:
             else:
                 msg = f"风格学习审查 {review_id} 已批准"
                 if not auto_apply_enabled:
-                    msg += "（开启 auto_apply_approved_persona 可自动追加到当前人格）"
+                    msg += "（开启 auto_apply_persona_updates 或 auto_apply_approved_persona 可自动追加到当前人格）"
                 change_snapshot['applied_at'] = datetime.now().isoformat()
                 await self._store_style_snapshot(review_id, change_snapshot)
                 return True, msg

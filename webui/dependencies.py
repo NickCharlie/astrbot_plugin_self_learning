@@ -33,6 +33,7 @@ class ServiceContainer:
         self.database_start_error: Optional[str] = None
         self.llm_adapter: Optional[Any] = None
         self.progressive_learning: Optional[Any] = None
+        self.v2_integration: Optional[Any] = None
         self.factory_manager: Optional[Any] = None
 
         # AstrBot 框架服务
@@ -239,6 +240,10 @@ async def set_plugin_services(
         llm_client: LLM 客户端（废弃）
         astrbot_persona_manager: AstrBot 人格管理器
         group_id_to_unified_origin: group_id到unified_msg_origin映射表
+        database_manager: 已由插件生命周期启动的数据库管理器
+        database_degraded: 数据库启动失败时的受限模式标记
+        database_start_error: 数据库启动失败原因
+        v2_integration: 已创建的 V2 学习集成实例
     """
     _container.initialize(
         plugin_config=plugin_config,
