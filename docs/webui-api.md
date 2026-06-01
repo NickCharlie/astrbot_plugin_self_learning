@@ -235,11 +235,13 @@ $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 | --- | --- | --- |
 | GET | `/api/data/statistics` | 数据表统计 |
 | DELETE | `/api/data/clear/messages` | 清空消息 |
-| DELETE | `/api/data/clear/persona_reviews` | 清空人格审查 |
+| DELETE | `/api/data/clear/persona_reviews` | 清空人格审查与人格学习 |
 | DELETE | `/api/data/clear/style_learning` | 清空风格学习 |
 | DELETE | `/api/data/clear/jargon` | 清空黑话 |
 | DELETE | `/api/data/clear/learning_history` | 清空学习历史 |
-| DELETE | `/api/data/clear/all` | 清空全部插件数据 |
+| DELETE | `/api/data/clear/all` | 清空全部插件数据，包含记忆、知识图谱、人格学习、表达方式学习、黑话和运行态学习画像 |
+
+`/api/data/statistics` 会返回 `messages`、`persona_reviews`、`style_learning`、`jargon`、`learning_history`、`memory`、`knowledge_graph`、`runtime_state` 等分类计数。
 
 ## Bug 报告
 
