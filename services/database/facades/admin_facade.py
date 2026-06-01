@@ -11,7 +11,7 @@ try:
     from ....models.orm.learning import (
         LearningBatch, PersonaLearningReview, StyleLearningReview,
         StyleLearningPattern, LearningSession, LearningReinforcementFeedback,
-        LearningOptimizationLog,
+        LearningOptimizationLog, InteractionRecord,
     )
     from ....models.orm.message import (
         FilteredMessage, RawMessage, BotMessage,
@@ -24,16 +24,36 @@ try:
         StyleLearningRecord, LanguageStylePattern,
     )
     from ....models.orm.jargon import Jargon, JargonUsageFrequency
+    from ....models.orm.knowledge_graph import KGEntity, KGRelation, KGParagraphHash
+    from ....models.orm.memory import Memory, MemoryEmbedding, MemorySummary
     from ....models.orm.performance import LearningPerformanceHistory
     from ....models.orm.reinforcement import (
         PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult,
     )
-    from ....models.orm.psychological import PersonaBackup
+    from ....models.orm.psychological import (
+        BotMood, CompositePsychologicalState, EmotionProfile,
+        PersonaAttributeWeight, PersonaBackup, PersonaDiversityScore,
+        PersonaEvolutionSnapshot, PsychologicalStateComponent,
+        PsychologicalStateHistory,
+    )
+    from ....models.orm.affection import (
+        AffectionInteraction, UserAffection, UserConversationHistory,
+        UserDiversity,
+    )
+    from ....models.orm.conversation_goal import ConversationGoal
+    from ....models.orm.exemplar import Exemplar
+    from ....models.orm.social_analysis import (
+        SocialNetworkEdge, SocialNetworkNode, SocialRelationAnalysisResult,
+    )
+    from ....models.orm.social_relation import (
+        SocialRelation, SocialRelationHistory, UserPreferences, UserProfile,
+        UserSocialProfile, UserSocialRelationComponent,
+    )
 except ImportError:
     from models.orm.learning import (
         LearningBatch, PersonaLearningReview, StyleLearningReview,
         StyleLearningPattern, LearningSession, LearningReinforcementFeedback,
-        LearningOptimizationLog,
+        LearningOptimizationLog, InteractionRecord,
     )
     from models.orm.message import (
         FilteredMessage, RawMessage, BotMessage,
@@ -46,11 +66,31 @@ except ImportError:
         StyleLearningRecord, LanguageStylePattern,
     )
     from models.orm.jargon import Jargon, JargonUsageFrequency
+    from models.orm.knowledge_graph import KGEntity, KGRelation, KGParagraphHash
+    from models.orm.memory import Memory, MemoryEmbedding, MemorySummary
     from models.orm.performance import LearningPerformanceHistory
     from models.orm.reinforcement import (
         PersonaFusionHistory, ReinforcementLearningResult, StrategyOptimizationResult,
     )
-    from models.orm.psychological import PersonaBackup
+    from models.orm.psychological import (
+        BotMood, CompositePsychologicalState, EmotionProfile,
+        PersonaAttributeWeight, PersonaBackup, PersonaDiversityScore,
+        PersonaEvolutionSnapshot, PsychologicalStateComponent,
+        PsychologicalStateHistory,
+    )
+    from models.orm.affection import (
+        AffectionInteraction, UserAffection, UserConversationHistory,
+        UserDiversity,
+    )
+    from models.orm.conversation_goal import ConversationGoal
+    from models.orm.exemplar import Exemplar
+    from models.orm.social_analysis import (
+        SocialNetworkEdge, SocialNetworkNode, SocialRelationAnalysisResult,
+    )
+    from models.orm.social_relation import (
+        SocialRelation, SocialRelationHistory, UserPreferences, UserProfile,
+        UserSocialProfile, UserSocialRelationComponent,
+    )
 
 
 class AdminFacade(BaseFacade):
@@ -132,18 +172,21 @@ class AdminFacade(BaseFacade):
 
     # ── clear: persona reviews ───────────────────────────────
 
-    _PERSONA_REVIEW_TABLES = [PersonaLearningReview, PersonaBackup]
+    _PERSONA_REVIEW_TABLES = [
+        PersonaLearningReview, PersonaBackup,
+        PersonaEvolutionSnapshot, PersonaAttributeWeight, PersonaDiversityScore,
+    ]
 
     async def clear_persona_reviews_data(self) -> Dict[str, Any]:
-        """清除所有人格审查数据"""
+        """清除所有人格审查和人格学习数据"""
         try:
             async with self.get_session() as session:
                 deleted = await self._bulk_delete(session, self._PERSONA_REVIEW_TABLES)
                 await session.commit()
-                self._logger.info(f"[AdminFacade] 人格审查数据已清除，共 {deleted} 行")
+                self._logger.info(f"[AdminFacade] 人格学习/审查数据已清除，共 {deleted} 行")
                 return {'success': True, 'deleted': deleted}
         except Exception as e:
-            self._logger.error(f"[AdminFacade] 清除人格审查数据失败: {e}")
+            self._logger.error(f"[AdminFacade] 清除人格学习/审查数据失败: {e}")
             return {'success': False, 'deleted': 0}
 
     async def count_persona_reviews_data(self) -> int:
@@ -157,10 +200,10 @@ class AdminFacade(BaseFacade):
     # ── clear: style learning ────────────────────────────────
 
     _STYLE_LEARNING_TABLES = [
+        ExpressionGenerationResult, ExpressionPattern,
         StyleLearningReview, StyleLearningPattern,
-        ExpressionPattern, ExpressionGenerationResult,
         AdaptiveResponseTemplate, StyleProfile,
-        StyleLearningRecord, LanguageStylePattern,
+        StyleLearningRecord, LanguageStylePattern, Exemplar,
     ]
 
     async def clear_style_learning_data(self) -> Dict[str, Any]:
@@ -215,7 +258,7 @@ class AdminFacade(BaseFacade):
         LearningReinforcementFeedback, LearningOptimizationLog,
         LearningPerformanceHistory,
         ReinforcementLearningResult, PersonaFusionHistory,
-        StrategyOptimizationResult,
+        StrategyOptimizationResult, InteractionRecord,
     ]
 
     async def clear_learning_history_data(self) -> Dict[str, Any]:
@@ -238,10 +281,91 @@ class AdminFacade(BaseFacade):
         except Exception:
             return 0
 
+    # ── clear: memory ───────────────────────────────────────
+
+    _MEMORY_TABLES = [MemoryEmbedding, MemorySummary, Memory]
+
+    async def clear_memory_data(self) -> Dict[str, Any]:
+        """清除所有本地长期记忆数据"""
+        try:
+            async with self.get_session() as session:
+                deleted = await self._bulk_delete(session, self._MEMORY_TABLES)
+                await session.commit()
+                self._logger.info(f"[AdminFacade] 记忆数据已清除，共 {deleted} 行")
+                return {'success': True, 'deleted': deleted}
+        except Exception as e:
+            self._logger.error(f"[AdminFacade] 清除记忆数据失败: {e}")
+            return {'success': False, 'deleted': 0}
+
+    async def count_memory_data(self) -> int:
+        """统计所有本地长期记忆数据行数"""
+        try:
+            async with self.get_session() as session:
+                return await self._count_tables(session, self._MEMORY_TABLES)
+        except Exception:
+            return 0
+
+    # ── clear: knowledge graph ──────────────────────────────
+
+    _KNOWLEDGE_GRAPH_TABLES = [KGParagraphHash, KGRelation, KGEntity]
+
+    async def clear_knowledge_graph_data(self) -> Dict[str, Any]:
+        """清除所有知识图谱数据"""
+        try:
+            async with self.get_session() as session:
+                deleted = await self._bulk_delete(session, self._KNOWLEDGE_GRAPH_TABLES)
+                await session.commit()
+                self._logger.info(f"[AdminFacade] 知识图谱数据已清除，共 {deleted} 行")
+                return {'success': True, 'deleted': deleted}
+        except Exception as e:
+            self._logger.error(f"[AdminFacade] 清除知识图谱数据失败: {e}")
+            return {'success': False, 'deleted': 0}
+
+    async def count_knowledge_graph_data(self) -> int:
+        """统计所有知识图谱数据行数"""
+        try:
+            async with self.get_session() as session:
+                return await self._count_tables(session, self._KNOWLEDGE_GRAPH_TABLES)
+        except Exception:
+            return 0
+
+    # ── clear: learned runtime state ────────────────────────
+
+    _RUNTIME_STATE_TABLES = [
+        AffectionInteraction, UserAffection,
+        UserConversationHistory, UserDiversity,
+        PsychologicalStateComponent, CompositePsychologicalState,
+        PsychologicalStateHistory, EmotionProfile, BotMood,
+        UserSocialRelationComponent, UserSocialProfile, SocialRelationHistory,
+        SocialRelation, SocialNetworkEdge, SocialNetworkNode,
+        SocialRelationAnalysisResult, UserPreferences, UserProfile,
+        ConversationGoal,
+    ]
+
+    async def clear_runtime_state_data(self) -> Dict[str, Any]:
+        """清除从学习链路沉淀出的社交、情绪、目标等运行态数据"""
+        try:
+            async with self.get_session() as session:
+                deleted = await self._bulk_delete(session, self._RUNTIME_STATE_TABLES)
+                await session.commit()
+                self._logger.info(f"[AdminFacade] 学习运行态数据已清除，共 {deleted} 行")
+                return {'success': True, 'deleted': deleted}
+        except Exception as e:
+            self._logger.error(f"[AdminFacade] 清除学习运行态数据失败: {e}")
+            return {'success': False, 'deleted': 0}
+
+    async def count_runtime_state_data(self) -> int:
+        """统计学习运行态数据行数"""
+        try:
+            async with self.get_session() as session:
+                return await self._count_tables(session, self._RUNTIME_STATE_TABLES)
+        except Exception:
+            return 0
+
     # ── clear: all data ──────────────────────────────────────
 
     async def clear_all_plugin_data(self) -> Dict[str, Any]:
-        """一键清空所有插件数据"""
+        """一键清空所有插件持久化数据"""
         results = {}
         total_deleted = 0
         all_success = True
@@ -252,6 +376,9 @@ class AdminFacade(BaseFacade):
             ('style_learning', self.clear_style_learning_data),
             ('jargon', self.clear_jargon_data),
             ('learning_history', self.clear_learning_history_data),
+            ('memory', self.clear_memory_data),
+            ('knowledge_graph', self.clear_knowledge_graph_data),
+            ('runtime_state', self.clear_runtime_state_data),
         ]:
             r = await method()
             results[name] = r
@@ -277,6 +404,9 @@ class AdminFacade(BaseFacade):
             'style_learning': await self.count_style_learning_data(),
             'jargon': await self.count_jargon_data(),
             'learning_history': await self.count_learning_history_data(),
+            'memory': await self.count_memory_data(),
+            'knowledge_graph': await self.count_knowledge_graph_data(),
+            'runtime_state': await self.count_runtime_state_data(),
         }
 
     async def export_messages_learning_data(

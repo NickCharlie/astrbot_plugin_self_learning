@@ -80,7 +80,8 @@ async def get_jargon_list():
                 keyword,
                 chat_id=group_id,
                 confirmed_only=(confirmed is True),
-                pending_only=(confirmed is False or pending_only),
+                unconfirmed_only=(confirmed is False),
+                pending_only=pending_only,
                 global_only=global_only,
                 local_only=local_only,
             )

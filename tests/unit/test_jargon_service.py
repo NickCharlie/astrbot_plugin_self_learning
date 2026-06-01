@@ -213,3 +213,48 @@ async def test_search_jargon_forwards_scope_filters_to_database():
         global_only=True,
         local_only=False,
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_search_jargon_can_filter_review_status():
+    database_manager = SimpleNamespace(
+        search_jargon=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "content": "已确认",
+                    "is_jargon": True,
+                    "is_complete": True,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 2,
+                    "content": "已驳回",
+                    "is_jargon": False,
+                    "is_complete": True,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 3,
+                    "content": "待审",
+                    "is_jargon": False,
+                    "is_complete": False,
+                    "count": 1,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+            ]
+        )
+    )
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    unconfirmed = await service.search_jargon("词", unconfirmed_only=True)
+    pending = await service.search_jargon("词", pending_only=True)
+
+    assert [item["term"] for item in unconfirmed] == ["已驳回", "待审"]
+    assert [item["term"] for item in pending] == ["待审"]

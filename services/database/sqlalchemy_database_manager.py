@@ -818,6 +818,13 @@ class SQLAlchemyDatabaseManager:
             review_id, status, reviewer_comment,
         )
 
+    async def update_style_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any],
+    ) -> bool:
+        return await self._learning.update_style_review_metadata(
+            review_id, metadata_patch,
+        )
+
     async def delete_style_review_by_id(self, review_id: int) -> bool:
         return await self._call_learning("delete_style_review_by_id", False, review_id)
 
@@ -869,6 +876,13 @@ class SQLAlchemyDatabaseManager:
             "update_persona_learning_review_status",
             False,
             review_id, status, comment, modified_content,
+        )
+
+    async def update_persona_learning_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any],
+    ) -> bool:
+        return await self._learning.update_persona_learning_review_metadata(
+            review_id, metadata_patch,
         )
 
     async def get_learning_batch_history(
@@ -1235,6 +1249,15 @@ class SQLAlchemyDatabaseManager:
 
     async def clear_learning_history_data(self) -> Dict[str, Any]:
         return await self._admin.clear_learning_history_data()
+
+    async def clear_memory_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_memory_data()
+
+    async def clear_knowledge_graph_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_knowledge_graph_data()
+
+    async def clear_runtime_state_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_runtime_state_data()
 
     async def clear_all_plugin_data(self) -> Dict[str, Any]:
         return await self._admin.clear_all_plugin_data()

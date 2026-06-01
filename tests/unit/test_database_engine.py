@@ -159,6 +159,49 @@ async def test_database_manager_start_initializes_facades_and_learning_storage(t
         await manager.stop()
 
 
+@pytest.mark.asyncio
+async def test_database_manager_falls_back_to_sqlite_when_postgresql_unavailable(
+    tmp_path,
+    monkeypatch,
+):
+    """PostgreSQL startup failures should not prevent local SQLite table setup."""
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path),
+            db_type="pgsql",
+            enable_web_interface=False,
+        )
+    )
+
+    async def fail_postgresql_database_check():
+        raise RuntimeError("postgres unavailable")
+
+    monkeypatch.setattr(
+        manager,
+        "_ensure_postgresql_database_exists",
+        fail_postgresql_database_check,
+    )
+
+    try:
+        assert manager._get_db_type() == "postgresql"
+        assert await manager.start() is True
+
+        url = make_url(manager.engine.database_url)
+        assert url.drivername == "sqlite+aiosqlite"
+        assert Path(url.database).name == "messages.db"
+        assert Path(url.database).exists()
+
+        async with manager.engine.engine.begin() as conn:
+            created_tables = await conn.run_sync(
+                lambda sync_conn: set(sa_inspect(sync_conn).get_table_names())
+            )
+
+        assert set(Base.metadata.tables) <= created_tables
+        assert await manager.engine.health_check() is True
+    finally:
+        await manager.stop()
+
+
 def test_database_manager_sqlite_url_uses_aiosqlite_and_absolute_path(tmp_path):
     config = PluginConfig(data_dir=str(tmp_path), db_type="sqlite")
     manager = SQLAlchemyDatabaseManager(config)
@@ -372,7 +415,13 @@ def test_jargon_postgresql_upsert_targets_chat_content_unique_constraint():
     stmt = JargonFacade._build_postgresql_jargon_upsert(
         "group-a",
         "测试黑话",
-        {"raw_content": "[]", "meaning": "释义", "is_jargon": True},
+        {
+            "raw_content": "[]",
+            "meaning": "释义",
+            "is_jargon": True,
+            "count": 1,
+            "is_complete": True,
+        },
         123,
     )
 
@@ -380,6 +429,8 @@ def test_jargon_postgresql_upsert_targets_chat_content_unique_constraint():
 
     assert "ON CONFLICT (chat_id, content) DO UPDATE" in compiled
     assert "RETURNING jargon.id" in compiled
+    assert "created_at" in compiled
+    assert "updated_at" in compiled
 
 
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
