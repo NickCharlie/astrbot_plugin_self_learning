@@ -3,9 +3,9 @@
 """
 import os
 import json
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, ValidationError, field_validator
 
 try:
     from .utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
@@ -16,6 +16,19 @@ logger = get_astrbot_logger("self_learning.config")
 
 FULL_LEARNING_TARGET_MARKERS = {"*", "all", "all_users", "all_groups", "全部", "全量", "全体", "所有"}
 DEFAULT_DATA_DIR = "./data/plugin_data/astrbot_plugin_self_learning"
+DEFAULT_DB_TYPE = "postgresql"
+SUPPORTED_DB_TYPES = {"sqlite", "mysql", "postgresql"}
+POSTGRESQL_DB_TYPE_ALIASES = {"postgres", "pg", "pgsql"}
+
+
+def normalize_db_type(db_type: Any) -> Optional[str]:
+    """Normalize configured database type, including PostgreSQL aliases."""
+    value = str(db_type or DEFAULT_DB_TYPE).strip().lower()
+    if value in POSTGRESQL_DB_TYPE_ALIASES:
+        value = DEFAULT_DB_TYPE
+    if value not in SUPPORTED_DB_TYPES:
+        return None
+    return value
 
 
 def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False) -> List[str]:
@@ -141,6 +154,7 @@ class PluginConfig(BaseModel):
     shutdown_step_timeout: int = 8       # 每个关停步骤的超时
     task_cancel_timeout: int = 3         # 后台任务取消等待超时
     service_stop_timeout: int = 5        # 单个服务停止超时
+    llm_hook_context_timeout: float = 3.0  # LLM Hook 单个上下文源超时（秒）
 
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
@@ -182,7 +196,7 @@ class PluginConfig(BaseModel):
     enable_api_auth: bool = False # 是否启用API密钥认证
 
     # 数据库设置
-    db_type: str = "sqlite" # 数据库类型: sqlite、mysql 或 postgresql
+    db_type: str = DEFAULT_DB_TYPE # 数据库类型: postgresql、sqlite 或 mysql
 
     # MySQL 配置
     mysql_host: str = "localhost" # MySQL主机地址
@@ -223,7 +237,7 @@ class PluginConfig(BaseModel):
     goal_max_conversation_history: int = 40 # 最大对话历史（轮次*2）
 
     # 重构功能配置（新增）
-    # 强制使用 SQLAlchemy ORM：统一 SQLite 和 MySQL 的表结构定义
+    # 强制使用 SQLAlchemy ORM：统一 PostgreSQL、SQLite 和 MySQL 的表结构定义
     use_sqlalchemy: bool = True # 硬编码为 True，确保所有数据库操作使用 ORM 模型
     enable_memory_cleanup: bool = True # 启用记忆自动清理（每天凌晨3点）
     memory_cleanup_days: int = 30 # 记忆保留天数（低于阈值的旧记忆会被清理）
@@ -311,6 +325,9 @@ class PluginConfig(BaseModel):
         goal_driven_chat_settings = config.get('Goal_Driven_Chat_Settings', {}) # 新增：目标驱动对话设置
         v2_settings = config.get('V2_Architecture_Settings', {}) # v2架构升级设置
         integration_settings = config.get('Integration_Settings', {}) # 功能融合设置
+        maibot_enhancement = config.get('MaiBot_Enhancement', {})
+        persona_evolution_settings = config.get('Persona_Evolution_Settings', {})
+        runtime_internal_settings = config.get('Runtime_Internal_Settings', {})
 
         # 添加调试日志：显示目标驱动对话配置数据
         logger.info(f" [配置加载] Goal_Driven_Chat_Settings原始数据: {goal_driven_chat_settings}")
@@ -326,6 +343,12 @@ class PluginConfig(BaseModel):
             enable_web_interface=basic_settings.get('enable_web_interface', True),
             web_interface_port=basic_settings.get('web_interface_port', 7833),
             web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
+
+            enable_maibot_features=maibot_enhancement.get('enable_maibot_features', True),
+            enable_expression_patterns=maibot_enhancement.get('enable_expression_patterns', True),
+            enable_memory_graph=maibot_enhancement.get('enable_memory_graph', True),
+            enable_knowledge_graph=maibot_enhancement.get('enable_knowledge_graph', True),
+            enable_time_decay=maibot_enhancement.get('enable_time_decay', True),
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),
@@ -364,7 +387,7 @@ class PluginConfig(BaseModel):
             relevance_threshold=filter_params.get('relevance_threshold', 0.6),
 
             style_analysis_batch_size=style_analysis.get('style_analysis_batch_size', 100),
-            style_update_threshold=style_analysis.get('style_update_threshold', 0.8),
+            style_update_threshold=style_analysis.get('style_update_threshold', 0.6),
 
             # 消息统计 (这个字段通常不是从外部配置加载，而是内部维护的，这里保留默认值)
             total_messages_collected=0,
@@ -397,18 +420,33 @@ class PluginConfig(BaseModel):
             mood_change_hour=mood_settings.get('mood_change_hour', 6),
             mood_persistence_hours=mood_settings.get('mood_persistence_hours', 24),
 
-            # PersonaUpdater配置 (这些可能不是直接从 _conf_schema.json 的顶层获取，而是从其他地方或默认值)
-            persona_merge_strategy=config.get('persona_merge_strategy', 'smart'),
-            max_mood_imitation_dialogs=config.get('max_mood_imitation_dialogs', 20),
-            enable_persona_evolution=config.get('enable_persona_evolution', True),
-            persona_compatibility_threshold=config.get('persona_compatibility_threshold', 0.6),
+            # PersonaUpdater配置
+            persona_merge_strategy=persona_evolution_settings.get(
+                'persona_merge_strategy',
+                config.get('persona_merge_strategy', 'smart'),
+            ),
+            max_mood_imitation_dialogs=persona_evolution_settings.get(
+                'max_mood_imitation_dialogs',
+                config.get('max_mood_imitation_dialogs', 20),
+            ),
+            enable_persona_evolution=persona_evolution_settings.get(
+                'enable_persona_evolution',
+                config.get('enable_persona_evolution', True),
+            ),
+            persona_compatibility_threshold=persona_evolution_settings.get(
+                'persona_compatibility_threshold',
+                config.get('persona_compatibility_threshold', 0.6),
+            ),
+            use_persona_manager_updates=persona_evolution_settings.get('use_persona_manager_updates', True),
+            auto_apply_persona_updates=persona_evolution_settings.get('auto_apply_persona_updates', True),
+            persona_update_backup_enabled=persona_evolution_settings.get('persona_update_backup_enabled', True),
 
             # API设置
             api_key=api_settings.get('api_key', ''),
             enable_api_auth=api_settings.get('enable_api_auth', False),
 
             # 数据库设置
-            db_type=database_settings.get('db_type', 'sqlite'),
+            db_type=database_settings.get('db_type', DEFAULT_DB_TYPE),
             mysql_host=database_settings.get('mysql_host', 'localhost'),
             mysql_port=database_settings.get('mysql_port', 3306),
             mysql_user=database_settings.get('mysql_user', 'root'),
@@ -426,9 +464,26 @@ class PluginConfig(BaseModel):
             # 重构功能配置
             # 强制使用 SQLAlchemy ORM，忽略配置文件中的设置
             use_sqlalchemy=True, # 硬编码为 True
-            enable_memory_cleanup=advanced_settings.get('enable_memory_cleanup', True),
-            memory_cleanup_days=advanced_settings.get('memory_cleanup_days', 30),
-            memory_importance_threshold=advanced_settings.get('memory_importance_threshold', 0.3),
+            enable_memory_cleanup=runtime_internal_settings.get(
+                'enable_memory_cleanup',
+                advanced_settings.get('enable_memory_cleanup', True),
+            ),
+            memory_cleanup_days=runtime_internal_settings.get(
+                'memory_cleanup_days',
+                advanced_settings.get('memory_cleanup_days', 30),
+            ),
+            memory_importance_threshold=runtime_internal_settings.get(
+                'memory_importance_threshold',
+                advanced_settings.get('memory_importance_threshold', 0.3),
+            ),
+            shutdown_step_timeout=runtime_internal_settings.get('shutdown_step_timeout', 8),
+            task_cancel_timeout=runtime_internal_settings.get('task_cancel_timeout', 3),
+            service_stop_timeout=runtime_internal_settings.get('service_stop_timeout', 5),
+            llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
+            llm_hook_injection_target=runtime_internal_settings.get(
+                'llm_hook_injection_target',
+                'system_prompt',
+            ),
 
             # 社交上下文注入设置
             enable_social_context_injection=social_context_settings.get('enable_social_context_injection', True),
@@ -459,6 +514,79 @@ class PluginConfig(BaseModel):
             # 传入数据目录 - 优先级：外部传入 > 配置文件 > 存储设置 > 默认值
             data_dir=data_dir if data_dir else storage_settings.get('data_dir', DEFAULT_DATA_DIR)
         )
+
+    @classmethod
+    def _flatten_config_payload(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Flatten grouped config with direct fields taking precedence."""
+        grouped: Dict[str, Any] = {}
+        direct: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if isinstance(value, dict) and key not in cls.model_fields:
+                nested = cls._flatten_config_payload(value)
+                duplicated = sorted(set(grouped) & set(nested))
+                if duplicated:
+                    logger.info(
+                        "持久化配置分组字段覆盖较早分组字段: "
+                        f"{', '.join(duplicated)}"
+                    )
+                grouped.update(nested)
+            else:
+                direct[key] = value
+
+        duplicated = sorted(set(grouped) & set(direct))
+        if duplicated:
+            logger.info(
+                "持久化配置顶层字段覆盖分组字段: "
+                f"{', '.join(duplicated)}"
+            )
+
+        return {**grouped, **direct}
+
+    @classmethod
+    def create_from_runtime_sources(
+        cls,
+        config: dict,
+        data_dir: Optional[str] = None,
+        config_file: Optional[str] = None,
+    ) -> 'PluginConfig':
+        """Create config from AstrBot settings and optional persisted WebUI config."""
+        runtime_config = cls.create_from_config(config or {}, data_dir=data_dir)
+        if not config_file or not os.path.exists(config_file):
+            return runtime_config
+
+        try:
+            with open(config_file, 'r', encoding='utf-8') as f:
+                persisted_data = json.load(f)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+            logger.warning(f"读取持久化配置失败，继续使用AstrBot配置: {e}")
+            return runtime_config
+
+        if not isinstance(persisted_data, dict):
+            logger.warning("持久化配置格式无效，继续使用AstrBot配置")
+            return runtime_config
+
+        merged = runtime_config.to_dict()
+        persisted_config = cls._flatten_config_payload(persisted_data)
+        overridden = sorted(
+            key
+            for key, value in persisted_config.items()
+            if key in merged and merged[key] != value
+        )
+        if overridden:
+            logger.info(
+                "持久化配置覆盖AstrBot运行时字段: "
+                f"{', '.join(overridden)}"
+            )
+        merged.update(persisted_config)
+
+        try:
+            loaded_config = cls.model_validate(merged)
+        except ValidationError as e:
+            logger.warning(f"持久化配置校验失败，继续使用AstrBot配置: {e}")
+            return runtime_config
+
+        logger.info(f"已加载持久化插件配置: {config_file}")
+        return loaded_config
 
     @classmethod
     def create_default(cls) -> 'PluginConfig':
@@ -500,11 +628,9 @@ class PluginConfig(BaseModel):
         if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug'}:
             errors.append("日志等级必须是 error、warning、info 或 debug")
 
-        db_type = (self.db_type or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg', 'pgsql'):
-            db_type = 'postgresql'
-        if db_type not in {'sqlite', 'mysql', 'postgresql'}:
-            errors.append("数据库类型必须是 sqlite、mysql 或 postgresql")
+        db_type = normalize_db_type(self.db_type)
+        if db_type is None:
+            errors.append("数据库类型必须是 postgresql、sqlite 或 mysql")
         if db_type == 'mysql' and self.mysql_port <= 0:
             errors.append("MySQL 端口必须大于0")
         if db_type == 'postgresql':

@@ -33,6 +33,8 @@ class WebUIManager:
         perf_tracker: Any,
         group_id_to_unified_origin: Dict[str, str],
         feature_delegation: Any = None,
+        astrbot_config: Any = None,
+        plugin_instance: Any = None,
         v2_integration: Any = None,
     ):
         self._config = plugin_config
@@ -41,7 +43,10 @@ class WebUIManager:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._feature_delegation = feature_delegation
-        self._v2_integration = v2_integration
+        self._astrbot_config = astrbot_config
+        self._plugin_instance = plugin_instance
+        self._v2_integration = v2_integration or getattr(plugin_instance, "v2_integration", None)
+        self._database_manager = getattr(plugin_instance, "db_manager", None)
         self._database_degraded = False
         self._database_start_error: Optional[str] = None
         self._database_start_attempted = False
@@ -105,6 +110,7 @@ class WebUIManager:
     async def immediate_start(self, db_manager: Any) -> None:
         """__init__ 阶段立即启动 WebUI（通过 asyncio.create_task 调用）"""
         await asyncio.sleep(1) # 等待插件完全初始化
+        self._database_manager = db_manager
 
         global _server_instance
         if not _server_instance or not self._config.enable_web_interface:
@@ -146,7 +152,7 @@ class WebUIManager:
         # 设置 WebUI 服务
         astrbot_pm = await self._acquire_persona_manager()
         try:
-            await self._setup_services(astrbot_pm)
+            await self._setup_services(astrbot_pm, self._database_manager)
             logger.info("Web 服务器插件服务设置完成")
         except Exception as e:
             logger.error(f"设置 Web 服务器插件服务失败: {e}", exc_info=True)
@@ -248,6 +254,14 @@ class WebUIManager:
         """调用 set_plugin_services 注册服务到 WebUI 容器"""
         from .dependencies import get_container as _get_webui_container, set_plugin_services
 
+        database_manager = database_manager or getattr(
+            self._plugin_instance,
+            "db_manager",
+            None,
+        )
+        database_manager = await self._ensure_database_manager_started(database_manager)
+        self._database_manager = database_manager
+
         await set_plugin_services(
             plugin_config=self._config,
             factory_manager=self._factory_manager,
@@ -255,6 +269,8 @@ class WebUIManager:
             astrbot_persona_manager=astrbot_persona_manager,
             group_id_to_unified_origin=self._group_id_to_unified_origin,
             feature_delegation=self._feature_delegation,
+            astrbot_config=self._astrbot_config,
+            plugin_instance=self._plugin_instance,
             database_manager=database_manager,
             database_degraded=self._database_degraded,
             database_start_error=self._database_start_error,
@@ -277,7 +293,7 @@ class WebUIManager:
             return None
 
         has_engine_attr = hasattr(database_manager, "engine")
-        needs_start = (
+        needs_start = not getattr(database_manager, "_started", False) or (
             has_engine_attr and getattr(database_manager, "engine", None) is None
         )
         start = getattr(database_manager, "start", None)

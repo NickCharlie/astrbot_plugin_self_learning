@@ -6,13 +6,14 @@
 
 | 类型 | Driver | 默认用途 |
 | --- | --- | --- |
-| SQLite | `sqlite+aiosqlite` | 默认单机部署 |
-| MySQL | `mysql+aiomysql` | 多实例或较大数据量 |
-| PostgreSQL | `postgresql+asyncpg` | 多实例、schema 隔离、长期运行 |
+| PostgreSQL | `postgresql+asyncpg` | 默认后端，多实例、schema 隔离、长期运行 |
+| SQLite | `sqlite+aiosqlite` | 显式配置的单机回退 |
+| MySQL | `mysql+aiomysql` | 显式配置的兼容后端 |
 
 配置字段位于 `Database_Settings`:
 
-- `db_type`: `sqlite`, `mysql`, `postgresql`
+- `db_type`: `postgresql`, `pgsql`, `sqlite`, `mysql`
+  - `pgsql` 是 `postgresql` 的别名，仅用于兼容历史/外部配置，功能和行为完全相同，推荐优先使用 `postgresql`。
 - `mysql_host`, `mysql_port`, `mysql_user`, `mysql_password`, `mysql_database`
 - `postgresql_host`, `postgresql_port`, `postgresql_user`, `postgresql_password`, `postgresql_database`, `postgresql_schema`
 - `max_connections`, `min_connections`
@@ -22,13 +23,41 @@
 入口: `services/database/sqlalchemy_database_manager.py::start`
 
 1. 标准化 `db_type`。
-2. 构造数据库 URL。
+2. 构造数据库 URL；未配置 `db_type` 时默认使用 PostgreSQL。
 3. MySQL: 连接服务器并创建缺失数据库。
 4. PostgreSQL: 连接 `postgres` 数据库并创建缺失数据库，再创建缺失 schema。
 5. 创建 `DatabaseEngine`。
 6. 调用 `create_tables(enable_auto_migration=True)`。
 7. 执行 `SELECT 1` 健康检查。
 8. 初始化 11 个 Facade。
+
+## 默认 PostgreSQL
+
+默认配置等价于:
+
+```json
+{
+  "Database_Settings": {
+    "db_type": "postgresql",
+    "postgresql_host": "localhost",
+    "postgresql_port": 5432,
+    "postgresql_user": "postgres",
+    "postgresql_password": "",
+    "postgresql_database": "astrbot_self_learning",
+    "postgresql_schema": "public"
+  }
+}
+```
+
+启动时会先连接维护库 `postgres`，如果 `postgresql_database` 不存在则执行 `CREATE DATABASE`；随后连接目标数据库，创建缺失 schema，最后由 SQLAlchemy ORM 同步所有表。
+
+运行默认配置的数据库用户必须具备:
+
+- 连接 `postgres` 维护库的权限。
+- 创建目标数据库的权限。
+- 在目标数据库内创建 schema 和表的权限。
+
+没有本地 PostgreSQL 服务时，可显式设置 `db_type=sqlite` 使用文件数据库。
 
 ## SQLite 路径规则
 

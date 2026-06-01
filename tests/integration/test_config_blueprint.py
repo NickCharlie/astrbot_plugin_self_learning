@@ -104,3 +104,40 @@ async def test_config_schema_route_returns_groups(client):
     )
     assert data["provider_options_by_type"]["embedding"][0]["value"] == "embed-a"
     assert data["provider_options_by_type"]["rerank"][0]["value"] == "rerank-a"
+
+
+@pytest.mark.asyncio
+async def test_config_post_then_schema_refresh_returns_saved_values(client):
+    response = await client.post(
+        "/api/config",
+        json={
+            "Target_Settings": {
+                "target_qq_list": ["10001", "group_20002"],
+            },
+            "Learning_Parameters": {
+                "learning_interval_hours": 2,
+            },
+            "Integration_Settings": {
+                "delegate_memory_to_livingmemory": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+
+    refresh = await client.get("/api/config/schema")
+
+    assert refresh.status_code == 200
+    data = await refresh.get_json()
+    assert data["config"]["target_qq_list"] == ["10001", "group_20002"]
+    assert data["config"]["learning_interval_hours"] == 2
+    assert data["config"]["delegate_memory_to_livingmemory"] is False
+
+    fields = {
+        field["key"]: field
+        for group in data["groups"]
+        for field in group["fields"]
+    }
+    assert fields["target_qq_list"]["value"] == ["10001", "group_20002"]
+    assert fields["learning_interval_hours"]["value"] == 2
+    assert fields["delegate_memory_to_livingmemory"]["value"] is False

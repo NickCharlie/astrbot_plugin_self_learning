@@ -8,17 +8,17 @@ DomainRouter — 薄路由层，将所有数据库方法委托给领域 Facade
 import os
 import asyncio
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional, Any
 from contextlib import asynccontextmanager
 
 from astrbot.api import logger
 from sqlalchemy.engine import URL
 
 try:
-    from ...config import PluginConfig
+    from ...config import DEFAULT_DB_TYPE, PluginConfig, normalize_db_type
     from ...core.database.engine import DatabaseEngine
 except ImportError:
-    from config import PluginConfig
+    from config import DEFAULT_DB_TYPE, PluginConfig, normalize_db_type
     from core.database.engine import DatabaseEngine
 
 
@@ -51,6 +51,11 @@ class SQLAlchemyDatabaseManager:
         self._metrics = None
         self._admin = None
 
+    @property
+    def is_ready(self) -> bool:
+        """Return True if the database is fully started and facades are initialized."""
+        return self._started
+
     async def start(self) -> bool:
         """启动数据库管理器（带并发保护）"""
         async with self._start_lock:
@@ -67,6 +72,7 @@ class SQLAlchemyDatabaseManager:
                 logger.error("[DomainRouter] 启动超时")
                 return False
 
+            db_type = None
             try:
                 self._starting = True
                 logger.info("[DomainRouter] 开始启动…")
@@ -90,7 +96,7 @@ class SQLAlchemyDatabaseManager:
                 return False
 
             except Exception as e:
-                if self._get_db_type() == 'postgresql':
+                if db_type == 'postgresql':
                     logger.warning(
                         f"[DomainRouter] PostgreSQL 启动失败，回退到 SQLite: {e}"
                     )
@@ -149,6 +155,168 @@ class SQLAlchemyDatabaseManager:
         self._admin = AdminFacade(self.engine, self.config)
         logger.info("[DomainRouter] 11 个领域 Facade 已初始化")
 
+    def _facade_or_none(
+        self,
+        facade_getter: Callable[[], Any],
+        facade_name: str,
+        operation: str = "",
+    ):
+        """Return a facade, recovering when the DB engine exists but facades are missing."""
+        if self._starting:
+            logger.warning(
+                "[DomainRouter] 数据库仍在启动，"
+                f"暂跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+            return None
+
+        if not self._started or self.engine is None:
+            logger.warning(
+                "[DomainRouter] 数据库尚未启动，"
+                f"暂跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+            return None
+
+        facade = facade_getter()
+        if facade is not None:
+            return facade
+
+        try:
+            self._init_facades()
+        except Exception as e:
+            logger.warning(
+                f"[DomainRouter] {facade_name} 初始化失败"
+                f"{f' ({operation})' if operation else ''}: {e}",
+                exc_info=True,
+            )
+            return None
+
+        facade = facade_getter()
+        if facade is None:
+            logger.warning(
+                f"[DomainRouter] {facade_name} 不可用，"
+                f"跳过数据库操作{f' ({operation})' if operation else ''}"
+            )
+        return facade
+
+    @staticmethod
+    def _empty_message_statistics() -> Dict[str, Any]:
+        return {
+            'total_messages': 0,
+            'raw_messages': 0,
+            'filtered_messages': 0,
+            'bot_messages': 0,
+        }
+
+    @staticmethod
+    def _empty_expression_patterns_statistics() -> Dict[str, Any]:
+        return {
+            'total_patterns': 0,
+            'groups_with_patterns': 0,
+        }
+
+    @staticmethod
+    def _empty_trends_data() -> Dict[str, Any]:
+        return {
+            'daily_messages': {},
+            'recent_batches': [],
+        }
+
+    @staticmethod
+    def _empty_jargon_statistics() -> Dict[str, Any]:
+        return {
+            'total_candidates': 0,
+            'confirmed_jargon': 0,
+            'completed_inference': 0,
+            'total_occurrences': 0,
+            'average_count': 0,
+            'active_groups': 0,
+        }
+
+    async def _call_facade(
+        self,
+        facade_getter: Callable[[], Any],
+        facade_name: str,
+        operation: str,
+        default: Any,
+        *args,
+        **kwargs,
+    ):
+        """Call a facade method if it is ready, otherwise return default."""
+        facade = self._facade_or_none(facade_getter, facade_name, operation)
+        if facade is None:
+            return default
+        method = getattr(facade, operation, None)
+        if not callable(method):
+            logger.warning(f"[DomainRouter] {facade_name} 缺少方法: {operation}")
+            return default
+        return await method(*args, **kwargs)
+
+    async def _call_learning(self, operation: str, default: Any, *args, **kwargs):
+        """Call a LearningFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._learning,
+            "LearningFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_jargon(self, operation: str, default: Any, *args, **kwargs):
+        """Call a JargonFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._jargon,
+            "JargonFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_message(self, operation: str, default: Any, *args, **kwargs):
+        """Call a MessageFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._message,
+            "MessageFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_expression(self, operation: str, default: Any, *args, **kwargs):
+        """Call an ExpressionFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._expression,
+            "ExpressionFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_reinforcement(self, operation: str, default: Any, *args, **kwargs):
+        """Call a ReinforcementFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._reinforcement,
+            "ReinforcementFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
+    async def _call_metrics(self, operation: str, default: Any, *args, **kwargs):
+        """Call a MetricsFacade method if it is ready, otherwise return default."""
+        return await self._call_facade(
+            lambda: self._metrics,
+            "MetricsFacade",
+            operation,
+            default,
+            *args,
+            **kwargs,
+        )
+
     # Infrastructure: database URL
 
     async def _start_backend(self, db_type: str, db_url: str) -> bool:
@@ -183,9 +351,10 @@ class SQLAlchemyDatabaseManager:
 
     def _get_db_type(self) -> str:
         """获取标准化数据库类型。"""
-        db_type = (getattr(self.config, 'db_type', 'sqlite') or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg', 'pgsql'):
-            return 'postgresql'
+        raw_db_type = getattr(self.config, 'db_type', DEFAULT_DB_TYPE)
+        db_type = normalize_db_type(raw_db_type)
+        if db_type is None:
+            raise ValueError(f"不支持的数据库类型: {raw_db_type}")
         return db_type
 
     def _get_database_url(self) -> str:
@@ -505,10 +674,23 @@ class SQLAlchemyDatabaseManager:
     async def get_message_statistics(
         self, group_id: str = None,
     ) -> Dict[str, Any]:
-        return await self._message.get_message_statistics(group_id)
+        if group_id is None:
+            default = self._empty_message_statistics()
+        else:
+            default = {
+                'total_messages': 0,
+                'unprocessed_messages': 0,
+                'filtered_messages': 0,
+                'raw_messages': 0,
+                'group_id': group_id,
+            }
+        return await self._call_message("get_message_statistics", default, group_id)
 
     async def get_messages_statistics(self) -> Dict[str, Any]:
-        return await self._message.get_messages_statistics()
+        return await self._call_message(
+            "get_messages_statistics",
+            self._empty_message_statistics(),
+        )
 
     async def get_group_messages_statistics(self, group_id: str) -> Dict[str, Any]:
         return await self._message.get_group_messages_statistics(group_id)
@@ -548,21 +730,44 @@ class SQLAlchemyDatabaseManager:
                 'original_content': original_content,
                 'new_content': new_content,
             }
-        return await self._learning.add_persona_learning_review(review_data)
+        return await self._call_learning("add_persona_learning_review", 0, review_data)
+
+    async def save_persona_change_snapshot(
+        self, snapshot_data: Dict[str, Any],
+    ) -> int:
+        return await self._call_learning(
+            "save_persona_change_snapshot",
+            0,
+            snapshot_data,
+        )
+
+    async def get_persona_change_snapshot(
+        self, review_source: str, review_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        return await self._call_learning(
+            "get_persona_change_snapshot",
+            None,
+            review_source,
+            review_id,
+        )
 
     async def get_pending_persona_update_records(self) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_update_records()
+        return await self._call_learning("get_pending_persona_update_records", [])
 
     async def save_persona_update_record(self, record_data: Dict[str, Any]) -> int:
-        return await self._learning.save_persona_update_record(record_data)
+        return await self._call_learning("save_persona_update_record", 0, record_data)
 
     async def delete_persona_update_record(self, record_id: int) -> bool:
-        return await self._learning.delete_persona_update_record(record_id)
+        return await self._call_learning("delete_persona_update_record", False, record_id)
 
     async def get_persona_update_record_by_id(
         self, record_id: int,
     ) -> Optional[Dict[str, Any]]:
-        return await self._learning.get_persona_update_record_by_id(record_id)
+        return await self._call_learning(
+            "get_persona_update_record_by_id",
+            None,
+            record_id,
+        )
 
     async def get_reviewed_persona_update_records(
         self,
@@ -570,38 +775,46 @@ class SQLAlchemyDatabaseManager:
         offset: int = 0,
         status_filter: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_update_records(
+        return await self._call_learning(
+            "get_reviewed_persona_update_records",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def update_persona_update_record_status(
         self, record_id: int, status: str, comment: str = None,
     ) -> bool:
-        return await self._learning.update_persona_update_record_status(
+        return await self._call_learning(
+            "update_persona_update_record_status",
+            False,
             record_id, status, comment,
         )
 
     async def create_style_learning_review(
         self, review_data: Dict[str, Any],
     ) -> int:
-        return await self._learning.create_style_learning_review(review_data)
+        return await self._call_learning("create_style_learning_review", 0, review_data)
 
     async def get_pending_style_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_style_reviews(limit, offset)
+        return await self._call_learning("get_pending_style_reviews", [], limit, offset)
 
     async def get_reviewed_style_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_style_learning_updates(
+        return await self._call_learning(
+            "get_reviewed_style_learning_updates",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def update_style_review_status(
         self, review_id: int, status: str, reviewer_comment: str = '',
     ) -> bool:
-        return await self._learning.update_style_review_status(
+        return await self._call_learning(
+            "update_style_review_status",
+            False,
             review_id, status, reviewer_comment,
         )
 
@@ -613,38 +826,55 @@ class SQLAlchemyDatabaseManager:
         )
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:
-        return await self._learning.delete_style_review_by_id(review_id)
+        return await self._call_learning("delete_style_review_by_id", False, review_id)
 
     async def get_approved_few_shots(
         self, group_id: str, limit: int = 3,
     ) -> List[str]:
-        return await self._learning.get_approved_few_shots(group_id, limit)
+        return await self._call_learning("get_approved_few_shots", [], group_id, limit)
 
     async def get_pending_persona_learning_reviews(
         self, limit: int = 50, offset: int = 0,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_pending_persona_learning_reviews(limit, offset)
+        return await self._call_learning(
+            "get_pending_persona_learning_reviews",
+            [],
+            limit,
+            offset,
+        )
 
     async def get_reviewed_persona_learning_updates(
         self, limit: int = 50, offset: int = 0, status_filter: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_reviewed_persona_learning_updates(
+        return await self._call_learning(
+            "get_reviewed_persona_learning_updates",
+            [],
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
     async def delete_persona_learning_review_by_id(self, review_id: int) -> bool:
-        return await self._learning.delete_persona_learning_review_by_id(review_id)
+        return await self._call_learning(
+            "delete_persona_learning_review_by_id",
+            False,
+            review_id,
+        )
 
     async def get_persona_learning_review_by_id(
         self, review_id: int,
     ) -> Optional[Dict[str, Any]]:
-        return await self._learning.get_persona_learning_review_by_id(review_id)
+        return await self._call_learning(
+            "get_persona_learning_review_by_id",
+            None,
+            review_id,
+        )
 
     async def update_persona_learning_review_status(
         self, review_id: int, status: str, comment: str = None,
         modified_content: str = None,
     ) -> bool:
-        return await self._learning.update_persona_learning_review_status(
+        return await self._call_learning(
+            "update_persona_learning_review_status",
+            False,
             review_id, status, comment, modified_content,
         )
 
@@ -658,119 +888,161 @@ class SQLAlchemyDatabaseManager:
     async def get_learning_batch_history(
         self, group_id: str = None, limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_learning_batch_history(group_id, limit)
+        return await self._call_learning(
+            "get_learning_batch_history",
+            [],
+            group_id,
+            limit,
+        )
 
     async def get_recent_learning_batches(
         self, limit: int = 10,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_recent_learning_batches(limit)
+        return await self._call_learning("get_recent_learning_batches", [], limit)
 
     async def get_learning_sessions(self, group_id: str) -> List[Dict[str, Any]]:
-        return await self._learning.get_learning_sessions(group_id)
+        return await self._call_learning("get_learning_sessions", [], group_id)
 
     async def get_recent_learning_sessions(
         self, days: int = 7,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_recent_learning_sessions(days)
+        return await self._call_learning("get_recent_learning_sessions", [], days)
 
     async def save_learning_session_record(
         self, group_id: str, session_data: Dict[str, Any],
     ) -> bool:
-        return await self._learning.save_learning_session_record(group_id, session_data)
+        return await self._call_learning(
+            "save_learning_session_record",
+            False,
+            group_id,
+            session_data,
+        )
 
     async def save_learning_performance_record(
         self, group_id: str, performance_data: Dict[str, Any],
     ) -> bool:
-        return await self._learning.save_learning_performance_record(
+        return await self._call_learning(
+            "save_learning_performance_record",
+            False,
             group_id, performance_data,
         )
 
     async def count_pending_persona_updates(self) -> int:
-        return await self._learning.count_pending_persona_updates()
+        return await self._call_learning("count_pending_persona_updates", 0)
 
     async def count_style_learning_patterns(self) -> int:
-        return await self._learning.count_style_learning_patterns()
+        return await self._call_learning("count_style_learning_patterns", 0)
 
     async def count_refined_messages(self) -> int:
-        return await self._learning.count_refined_messages()
+        return await self._call_learning("count_refined_messages", 0)
 
     async def get_style_learning_statistics(self) -> Dict[str, Any]:
-        return await self._learning.get_style_learning_statistics()
+        return await self._call_learning("get_style_learning_statistics", {})
 
     async def get_style_progress_data(
         self, group_id: str = None,
     ) -> List[Dict[str, Any]]:
-        return await self._learning.get_style_progress_data(group_id)
+        return await self._call_learning("get_style_progress_data", [], group_id)
 
     async def get_learning_patterns_data(
         self, group_id: str = None,
     ) -> Dict[str, Any]:
-        return await self._learning.get_learning_patterns_data(group_id)
+        return await self._call_learning("get_learning_patterns_data", {}, group_id)
 
     # Domain delegates: JargonFacade
 
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
-        return await self._jargon.get_jargon(chat_id, content)
+        return await self._call_jargon("get_jargon", None, chat_id, content)
 
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
-        return await self._jargon.insert_jargon(jargon_data)
+        return await self._call_jargon("insert_jargon", None, jargon_data)
 
     async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
-        return await self._jargon.update_jargon(jargon_data)
+        return await self._call_jargon("update_jargon", False, jargon_data)
 
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
-        return await self._jargon.get_jargon_statistics(group_id)
+        return await self._call_jargon(
+            "get_jargon_statistics",
+            self._empty_jargon_statistics(),
+            group_id,
+        )
 
     async def get_recent_jargon_list(
         self, group_id: str = None, chat_id: str = None,
         limit: int = 50, offset: int = 0, only_confirmed: bool = False,
-        pending_only: bool = False,
+        pending_only: bool = False, global_only: bool = False, local_only: bool = False,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.get_recent_jargon_list(
+        return await self._call_jargon(
+            "get_recent_jargon_list",
+            [],
             group_id, chat_id, limit, offset, only_confirmed, pending_only,
+            global_only, local_only,
         )
 
     async def get_jargon_count(
         self, chat_id: str = None, only_confirmed: bool = False,
-        pending_only: bool = False,
+        pending_only: bool = False, global_only: bool = False, local_only: bool = False,
     ) -> int:
-        return await self._jargon.get_jargon_count(chat_id, only_confirmed, pending_only)
+        return await self._call_jargon(
+            "get_jargon_count",
+            0,
+            chat_id,
+            only_confirmed,
+            pending_only,
+            global_only,
+            local_only,
+        )
 
     async def search_jargon(
         self, keyword: str, chat_id: str = None,
-        confirmed_only: bool = False, limit: int = 50,
+        confirmed_only: bool = False, pending_only: bool = False,
+        global_only: bool = False, local_only: bool = False, limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.search_jargon(
+        return await self._call_jargon(
+            "search_jargon",
+            [],
             keyword=keyword, chat_id=chat_id,
-            confirmed_only=confirmed_only, limit=limit,
+            confirmed_only=confirmed_only, pending_only=pending_only,
+            global_only=global_only, local_only=local_only, limit=limit,
         )
 
     async def get_jargon_by_id(self, jargon_id: int) -> Optional[Dict[str, Any]]:
-        return await self._jargon.get_jargon_by_id(jargon_id)
+        return await self._call_jargon("get_jargon_by_id", None, jargon_id)
 
     async def delete_jargon_by_id(self, jargon_id: int) -> bool:
-        return await self._jargon.delete_jargon_by_id(jargon_id)
+        return await self._call_jargon("delete_jargon_by_id", False, jargon_id)
 
     async def set_jargon_global(self, jargon_id: int, is_global: bool) -> bool:
-        return await self._jargon.set_jargon_global(jargon_id, is_global)
+        return await self._call_jargon(
+            "set_jargon_global",
+            False,
+            jargon_id,
+            is_global,
+        )
 
     async def sync_global_jargon_to_group(self, target_chat_id: str) -> int:
-        return await self._jargon.sync_global_jargon_to_group(target_chat_id)
+        return await self._call_jargon(
+            "sync_global_jargon_to_group",
+            0,
+            target_chat_id,
+        )
 
     async def save_or_update_jargon(
         self, chat_id: str, content: str, jargon_data: Dict[str, Any],
     ) -> Optional[int]:
-        return await self._jargon.save_or_update_jargon(
+        return await self._call_jargon(
+            "save_or_update_jargon",
+            None,
             chat_id, content, jargon_data,
         )
 
     async def get_global_jargon_list(
         self, limit: int = 100,
     ) -> List[Dict[str, Any]]:
-        return await self._jargon.get_global_jargon_list(limit)
+        return await self._call_jargon("get_global_jargon_list", [], limit)
 
     async def get_jargon_groups(self) -> List[Dict[str, Any]]:
-        return await self._jargon.get_jargon_groups()
+        return await self._call_jargon("get_jargon_groups", [])
 
     # Domain delegates: PersonaFacade
 
@@ -840,7 +1112,10 @@ class SQLAlchemyDatabaseManager:
         return await self._expression.get_all_expression_patterns()
 
     async def get_expression_patterns_statistics(self) -> Dict[str, Any]:
-        return await self._expression.get_expression_patterns_statistics()
+        return await self._call_expression(
+            "get_expression_patterns_statistics",
+            self._empty_expression_patterns_statistics(),
+        )
 
     async def get_group_expression_patterns(
         self, group_id: str, limit: int = None,
@@ -921,8 +1196,11 @@ class SQLAlchemyDatabaseManager:
     async def get_learning_performance_history(
         self, group_id: str, limit: int = 30,
     ) -> List[Dict[str, Any]]:
-        return await self._reinforcement.get_learning_performance_history(
-            group_id, limit,
+        return await self._call_reinforcement(
+            "get_learning_performance_history",
+            [],
+            group_id,
+            limit,
         )
 
     async def save_strategy_optimization_result(
@@ -945,7 +1223,7 @@ class SQLAlchemyDatabaseManager:
         return await self._metrics.get_detailed_metrics(group_id)
 
     async def get_trends_data(self) -> Dict[str, Any]:
-        return await self._metrics.get_trends_data()
+        return await self._call_metrics("get_trends_data", self._empty_trends_data())
 
     # Domain delegates: AdminFacade
 

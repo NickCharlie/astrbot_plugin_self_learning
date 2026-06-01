@@ -13,6 +13,7 @@ try:
     from ....models.orm.learning import (
         LearningBatch,
         LearningSession,
+        PersonaChangeSnapshot,
         PersonaLearningReview,
         StyleLearningPattern,
         StyleLearningReview,
@@ -23,6 +24,7 @@ except ImportError:
     from models.orm.learning import (
         LearningBatch,
         LearningSession,
+        PersonaChangeSnapshot,
         PersonaLearningReview,
         StyleLearningPattern,
         StyleLearningReview,
@@ -33,6 +35,87 @@ except ImportError:
 
 class LearningFacade(BaseFacade):
     """学习管理 Facade — 包装所有学习相关的数据库方法"""
+
+    @staticmethod
+    def _snapshot_to_dict(snapshot: PersonaChangeSnapshot) -> Dict[str, Any]:
+        def _loads(value, fallback):
+            if not value:
+                return fallback
+            try:
+                return json.loads(value)
+            except (json.JSONDecodeError, TypeError):
+                return fallback
+
+        return {
+            'id': snapshot.id,
+            'review_id': snapshot.review_id,
+            'review_source': snapshot.review_source,
+            'applied_persona_id': snapshot.applied_persona_id,
+            'applied_at': snapshot.applied_at,
+            'before_system_prompt': snapshot.before_system_prompt or '',
+            'after_system_prompt': snapshot.after_system_prompt or '',
+            'before_begin_dialogs': _loads(snapshot.before_begin_dialogs, []),
+            'after_begin_dialogs': _loads(snapshot.after_begin_dialogs, []),
+            'affected_fields': _loads(snapshot.affected_fields, []),
+        }
+
+    async def save_persona_change_snapshot(
+        self, snapshot_data: Dict[str, Any]
+    ) -> int:
+        """保存人格审查应用前后的快照。"""
+        try:
+            async with self.get_session() as session:
+                record = PersonaChangeSnapshot(
+                    review_id=str(snapshot_data.get('review_id', '')),
+                    review_source=snapshot_data.get('review_source', ''),
+                    applied_persona_id=snapshot_data.get('applied_persona_id', ''),
+                    applied_at=self._to_float_ts(
+                        snapshot_data.get('applied_at'), default=time.time()
+                    ),
+                    before_system_prompt=snapshot_data.get('before_system_prompt', ''),
+                    after_system_prompt=snapshot_data.get('after_system_prompt', ''),
+                    before_begin_dialogs=json.dumps(
+                        snapshot_data.get('before_begin_dialogs') or [],
+                        ensure_ascii=False,
+                    ),
+                    after_begin_dialogs=json.dumps(
+                        snapshot_data.get('after_begin_dialogs') or [],
+                        ensure_ascii=False,
+                    ),
+                    affected_fields=json.dumps(
+                        snapshot_data.get('affected_fields') or [],
+                        ensure_ascii=False,
+                    ),
+                )
+                session.add(record)
+                await session.commit()
+                await session.refresh(record)
+                return record.id
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 保存人格变更快照失败: {e}")
+            return 0
+
+    async def get_persona_change_snapshot(
+        self, review_source: str, review_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """读取指定审查记录最近一次应用快照。"""
+        try:
+            async with self.get_session() as session:
+                stmt = (
+                    select(PersonaChangeSnapshot)
+                    .where(
+                        PersonaChangeSnapshot.review_source == review_source,
+                        PersonaChangeSnapshot.review_id == str(review_id),
+                    )
+                    .order_by(desc(PersonaChangeSnapshot.applied_at))
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                snapshot = result.scalar_one_or_none()
+                return self._snapshot_to_dict(snapshot) if snapshot else None
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 读取人格变更快照失败: {e}")
+            return None
 
     @staticmethod
     def _json_loads_or_empty(raw_value: Any) -> Dict[str, Any]:

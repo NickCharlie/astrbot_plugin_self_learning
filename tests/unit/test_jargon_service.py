@@ -33,6 +33,30 @@ def test_format_jargon_for_frontend_keeps_legacy_and_macos_fields():
     assert formatted["group_id"] == "group-a"
     assert formatted["chat_id"] == "group-a"
     assert formatted["context_examples"] == ["上下文"]
+    assert formatted["definition"] == "永远的神"
+    assert formatted["review_detail"] == "永远的神"
+    assert formatted["is_complete"] is True
+
+
+@pytest.mark.unit
+def test_format_jargon_empty_meaning_falls_back_review_detail():
+    formatted = JargonService._format_jargon_for_frontend(
+        {
+            "id": 2,
+            "content": "待解释",
+            "meaning": "",
+            "is_jargon": False,
+            "is_global": False,
+            "count": 1,
+            "chat_id": "group-a",
+            "raw_content": '["上下文"]',
+            "is_complete": True,
+        }
+    )
+
+    assert formatted["definition"] == ""
+    assert formatted["review_detail"] == "暂无释义"
+    assert formatted["context_examples"] == ["上下文"]
     assert formatted["is_complete"] is True
 
 
@@ -166,6 +190,29 @@ async def test_get_jargon_list_can_filter_pending_candidates():
 
     assert result["total"] == 1
     assert [item["term"] for item in result["jargon_list"]] == ["待审"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_search_jargon_forwards_scope_filters_to_database():
+    database_manager = SimpleNamespace(search_jargon=AsyncMock(return_value=[]))
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    await service.search_jargon(
+        "术语",
+        chat_id="group-a",
+        confirmed_only=True,
+        global_only=True,
+    )
+
+    database_manager.search_jargon.assert_awaited_once_with(
+        "术语",
+        chat_id="group-a",
+        confirmed_only=True,
+        pending_only=False,
+        global_only=True,
+        local_only=False,
+    )
 
 
 @pytest.mark.unit

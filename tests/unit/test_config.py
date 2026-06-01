@@ -14,7 +14,7 @@ import tempfile
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import DEFAULT_DATA_DIR, PluginConfig
+from config import DEFAULT_DATA_DIR, DEFAULT_DB_TYPE, PluginConfig, normalize_db_type
 
 
 @pytest.mark.unit
@@ -60,7 +60,7 @@ class TestPluginConfigDefaults:
         """Test default database configuration values."""
         config = PluginConfig()
 
-        assert config.db_type == "sqlite"
+        assert config.db_type == "postgresql"
         assert config.mysql_host == "localhost"
         assert config.mysql_port == 3306
         assert config.postgresql_host == "localhost"
@@ -260,6 +260,59 @@ class TestPluginConfigFromDict:
         assert config.group_chat_plus_plugin_name == 'CustomReply'
         assert config.disable_local_reply_when_delegated is False
 
+    def test_create_from_config_with_webui_extra_setting_groups(self):
+        """WebUI-only setting groups should survive plugin-page refresh/restart."""
+        raw_config = {
+            'persona_merge_strategy': 'replace',
+            'MaiBot_Enhancement': {
+                'enable_maibot_features': False,
+                'enable_expression_patterns': False,
+                'enable_memory_graph': False,
+                'enable_knowledge_graph': False,
+                'enable_time_decay': False,
+            },
+            'Persona_Evolution_Settings': {
+                'persona_merge_strategy': 'append',
+                'max_mood_imitation_dialogs': 12,
+                'enable_persona_evolution': False,
+                'persona_compatibility_threshold': 0.7,
+                'use_persona_manager_updates': False,
+                'auto_apply_persona_updates': False,
+                'persona_update_backup_enabled': False,
+            },
+            'Runtime_Internal_Settings': {
+                'llm_hook_injection_target': 'prompt',
+                'enable_memory_cleanup': False,
+                'memory_cleanup_days': 14,
+                'memory_importance_threshold': 0.45,
+                'shutdown_step_timeout': 11,
+                'task_cancel_timeout': 6,
+                'service_stop_timeout': 7,
+            },
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.enable_maibot_features is False
+        assert config.enable_expression_patterns is False
+        assert config.enable_memory_graph is False
+        assert config.enable_knowledge_graph is False
+        assert config.enable_time_decay is False
+        assert config.persona_merge_strategy == 'append'
+        assert config.max_mood_imitation_dialogs == 12
+        assert config.enable_persona_evolution is False
+        assert config.persona_compatibility_threshold == 0.7
+        assert config.use_persona_manager_updates is False
+        assert config.auto_apply_persona_updates is False
+        assert config.persona_update_backup_enabled is False
+        assert config.llm_hook_injection_target == 'prompt'
+        assert config.enable_memory_cleanup is False
+        assert config.memory_cleanup_days == 14
+        assert config.memory_importance_threshold == 0.45
+        assert config.shutdown_step_timeout == 11
+        assert config.task_cancel_timeout == 6
+        assert config.service_stop_timeout == 7
+
     def test_create_from_empty_config(self):
         """Test config creation from empty dict uses all defaults."""
         config = PluginConfig.create_from_config({}, data_dir="/tmp/test")
@@ -267,7 +320,7 @@ class TestPluginConfigFromDict:
         assert config.enable_message_capture is True
         assert config.target_qq_list == []
         assert config.learning_interval_hours == 6
-        assert config.db_type == 'sqlite'
+        assert config.db_type == 'postgresql'
 
     def test_target_list_blank_values_keep_full_learning_default(self):
         """Blank settings-page rows should not disable full learning."""
@@ -387,16 +440,45 @@ class TestPluginConfigValidation:
         blocking_errors = [e for e in errors if not e.startswith(" ")]
         assert len(blocking_errors) == 0
 
-    def test_pgsql_alias_is_valid_database_type(self):
-        """PostgreSQL shorthand should validate the same as postgresql."""
+    @pytest.mark.parametrize(
+        "raw_db_type",
+        ["postgres", "pg", "pgsql", "postgresql", "", None],
+    )
+    def test_normalize_db_type_defaults_and_postgresql_aliases(self, raw_db_type):
+        """PostgreSQL aliases and empty values should resolve to the default type."""
+        assert normalize_db_type(raw_db_type) == DEFAULT_DB_TYPE
+
+    @pytest.mark.parametrize("alias", ["postgres", "pg", "pgsql"])
+    def test_validate_config_accepts_postgresql_aliases(self, alias):
+        """Validation accepts supported PostgreSQL aliases."""
         config = PluginConfig(
-            db_type="pgsql",
+            db_type=alias,
             filter_provider_id="provider_1",
         )
-
         errors = config.validate_config()
 
-        assert not any("数据库类型必须是" in e for e in errors)
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" not in errors
+
+    @pytest.mark.parametrize("raw_db_type", [DEFAULT_DB_TYPE, ""])
+    def test_validate_config_accepts_default_and_empty_db_type(self, raw_db_type):
+        """Validation defaults missing or empty database type to PostgreSQL."""
+        config = PluginConfig(
+            db_type=raw_db_type,
+            filter_provider_id="provider_1",
+        )
+        errors = config.validate_config()
+
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" not in errors
+
+    def test_validate_config_rejects_invalid_db_type(self):
+        """Validation rejects unsupported database types."""
+        config = PluginConfig(
+            db_type="oracle",
+            filter_provider_id="provider_1",
+        )
+        errors = config.validate_config()
+
+        assert "数据库类型必须是 postgresql、sqlite 或 mysql" in errors
 
     def test_invalid_log_level_rejected(self):
         """Test validation catches invalid log levels."""
@@ -510,3 +592,101 @@ class TestPluginConfigSerialization:
             assert loaded_config.enable_message_capture is True
         finally:
             os.unlink(filepath)
+
+    def test_create_from_runtime_sources_loads_persisted_flat_config(self, tmp_path):
+        """Persisted WebUI config should override AstrBot startup defaults."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "db_type": "postgresql",
+                    "postgresql_host": "pg",
+                    "postgresql_database": "learning_db",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.data_dir == str(tmp_path)
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "pg"
+        assert config.postgresql_database == "learning_db"
+
+    def test_create_from_runtime_sources_loads_persisted_grouped_config(self, tmp_path):
+        """Grouped persisted config should use the same fields as AstrBot config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "Database_Settings": {
+                        "db_type": "sqlite",
+                        "postgresql_host": "pg",
+                    },
+                    "Self_Learning_Basic": {
+                        "enable_message_capture": False,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {"Database_Settings": {"db_type": "postgresql"}},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "sqlite"
+        assert config.postgresql_host == "pg"
+        assert config.enable_message_capture is False
+
+    def test_create_from_runtime_sources_top_level_overrides_grouped_config(self, tmp_path):
+        """Top-level persisted fields should win over grouped persisted fields."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "Database_Settings": {
+                        "db_type": "postgresql",
+                        "postgresql_host": "grouped-host",
+                    },
+                    "db_type": "sqlite",
+                    "postgresql_host": "top-level-host",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {},
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "sqlite"
+        assert config.postgresql_host == "top-level-host"
+
+    def test_create_from_runtime_sources_invalid_json_keeps_runtime_config(self, tmp_path):
+        """Malformed persisted JSON should fall back to AstrBot runtime config."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text("{not valid json", encoding="utf-8")
+
+        config = PluginConfig.create_from_runtime_sources(
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "runtime-host",
+                }
+            },
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "runtime-host"

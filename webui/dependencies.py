@@ -22,6 +22,8 @@ class ServiceContainer:
 
         # 插件配置
         self.plugin_config: Optional[Any] = None
+        self.astrbot_config: Optional[Any] = None
+        self.plugin_instance: Optional[Any] = None
 
         # 核心服务
         self.persona_manager: Optional[Any] = None
@@ -43,6 +45,7 @@ class ServiceContainer:
         # WebUI 配置
         self.webui_config: Optional[Any] = None
         self.feature_delegation: Optional[Any] = None
+        self.v2_integration: Optional[Any] = None
 
         # 密码配置
         self.password_config: Dict[str, Any] = {}
@@ -73,6 +76,8 @@ class ServiceContainer:
         astrbot_persona_manager=None,
         group_id_to_unified_origin=None,
         feature_delegation=None,
+        astrbot_config=None,
+        plugin_instance=None,
         database_manager=None,
         database_degraded=False,
         database_start_error=None,
@@ -92,19 +97,25 @@ class ServiceContainer:
             database_start_error: 数据库启动失败原因
         """
         self.plugin_config = plugin_config
+        self.astrbot_config = astrbot_config
+        self.plugin_instance = plugin_instance
         self.factory_manager = factory_manager
         self.feature_delegation = feature_delegation
+        self.v2_integration = v2_integration
         self.astrbot_persona_manager = astrbot_persona_manager
         self.database_degraded = database_degraded
         self.database_start_error = database_start_error
-        self.v2_integration = v2_integration
         if group_id_to_unified_origin is not None:
             self.group_id_to_unified_origin = group_id_to_unified_origin
 
         # 从工厂获取服务
         service_factory = factory_manager.get_service_factory()
         self.persona_manager = service_factory.create_persona_manager()
-        self.database_manager = database_manager or service_factory.create_database_manager()
+        self.database_manager = (
+            database_manager
+            if database_manager is not None
+            else service_factory.create_database_manager()
+        )
         self.llm_adapter = service_factory.create_framework_llm_adapter()
         self.progressive_learning = service_factory.create_progressive_learning()
 
@@ -213,6 +224,8 @@ async def set_plugin_services(
     astrbot_persona_manager,
     group_id_to_unified_origin=None,
     feature_delegation=None,
+    astrbot_config=None,
+    plugin_instance=None,
     database_manager=None,
     database_degraded=False,
     database_start_error=None,
@@ -239,6 +252,8 @@ async def set_plugin_services(
         astrbot_persona_manager=astrbot_persona_manager,
         group_id_to_unified_origin=group_id_to_unified_origin,
         feature_delegation=feature_delegation,
+        astrbot_config=astrbot_config,
+        plugin_instance=plugin_instance,
         database_manager=database_manager,
         database_degraded=database_degraded,
         database_start_error=database_start_error,

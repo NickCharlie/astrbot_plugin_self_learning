@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import logger
+from pydantic import ValidationError
 
 try:
     from ...statics.messages import FileNames
@@ -211,9 +213,9 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
 
 _ENUM_FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
     "db_type": [
+        {"value": "postgresql", "label": "PostgreSQL"},
         {"value": "sqlite", "label": "SQLite"},
         {"value": "mysql", "label": "MySQL"},
-        {"value": "postgresql", "label": "PostgreSQL"},
     ],
     "knowledge_engine": [
         {"value": "legacy", "label": "legacy"},
@@ -286,6 +288,20 @@ class ConfigService:
         self.container = container
         self.plugin_config = container.plugin_config
 
+    def _get_container_attr(self, name: str, default: Any = None) -> Any:
+        """Read explicitly assigned container attributes without creating Mock children."""
+        try:
+            attrs = vars(self.container)
+        except TypeError:
+            attrs = {}
+        return attrs.get(name, default)
+
+    def _set_container_attr(self, name: str, value: Any) -> None:
+        try:
+            setattr(self.container, name, value)
+        except (AttributeError, TypeError):
+            logger.debug(f"写入容器属性失败: {name}", exc_info=True)
+
     def _get_config_file_path(self) -> str:
         data_dir = getattr(self.plugin_config, "data_dir", None) if self.plugin_config else None
         if isinstance(data_dir, (str, os.PathLike)) and os.fspath(data_dir):
@@ -296,16 +312,319 @@ class ConfigService:
             from config import DEFAULT_DATA_DIR
         return os.path.join(DEFAULT_DATA_DIR, FileNames.CONFIG_FILE)
 
+    def _get_astrbot_config(self) -> Optional[MutableMapping[str, Any]]:
+        astrbot_config = self._get_container_attr("astrbot_config")
+        plugin = self._get_container_attr("plugin_instance")
+        if astrbot_config is None and plugin is not None:
+            astrbot_config = getattr(plugin, "config", None)
+        if isinstance(astrbot_config, MutableMapping):
+            return astrbot_config
+        return None
+
     def _flatten_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        flat: Dict[str, Any] = {}
+        grouped: Dict[str, Any] = {}
+        direct: Dict[str, Any] = {}
 
         for key, value in payload.items():
             if isinstance(value, dict):
-                flat.update(self._flatten_payload(value))
+                grouped.update(self._flatten_payload(value))
             else:
-                flat[key] = value
+                direct[key] = value
 
-        return flat
+        # AstrBot's grouped plugin-page config is authoritative over stale top-level compatibility keys.
+        return {**direct, **grouped}
+
+    def _merged_schema_definition(self) -> Dict[str, Any]:
+        return self._merge_schema_definitions(
+            _load_schema_definition(),
+            self._collect_extra_schema(),
+        )
+
+    @staticmethod
+    def _plain_mapping(mapping: MutableMapping[str, Any]) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        for key, value in mapping.items():
+            if isinstance(value, MutableMapping):
+                payload[key] = dict(value)
+            else:
+                payload[key] = value
+        return payload
+
+    def _astrbot_config_is_newer(self, astrbot_config: MutableMapping[str, Any]) -> bool:
+        astrbot_path = getattr(astrbot_config, "config_path", None)
+        if not astrbot_path:
+            return False
+
+        config_file = self._get_config_file_path()
+        if not os.path.exists(os.fspath(astrbot_path)):
+            return False
+        if not os.path.exists(config_file):
+            return True
+
+        return os.path.getmtime(os.fspath(astrbot_path)) > os.path.getmtime(config_file)
+
+    @staticmethod
+    def _file_mtime_signature(path: Any) -> Optional[float]:
+        if not path:
+            return None
+        try:
+            return os.path.getmtime(os.fspath(path))
+        except OSError:
+            return None
+
+    @staticmethod
+    def _payload_signature(payload: Dict[str, Any]) -> str:
+        return json.dumps(
+            payload,
+            sort_keys=True,
+            ensure_ascii=False,
+            default=str,
+        )
+
+    def _config_source_signature(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> Tuple[Optional[float], Optional[float], str, str]:
+        return (
+            self._file_mtime_signature(getattr(astrbot_config, "config_path", None)),
+            self._file_mtime_signature(self._get_config_file_path()),
+            self._payload_signature(self._plain_mapping(astrbot_config)),
+            self._payload_signature(self.plugin_config.to_dict()),
+        )
+
+    def _remember_config_sync_state(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> None:
+        self._set_container_attr(
+            "_config_source_sync_signature",
+            self._config_source_signature(astrbot_config),
+        )
+
+    def _forget_config_sync_state(self) -> None:
+        self._set_container_attr("_config_source_sync_signature", None)
+
+    def _apply_astrbot_config_to_plugin(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> bool:
+        """Pull newer AstrBot plugin-page settings into the WebUI runtime config."""
+        if not self.plugin_config:
+            return False
+
+        flat_config = self._flatten_payload(self._plain_mapping(astrbot_config))
+        known_config = {
+            key: value
+            for key, value in flat_config.items()
+            if hasattr(self.plugin_config, key)
+        }
+        if not known_config:
+            return False
+
+        original_config = self.plugin_config.to_dict()
+        changed_keys = [
+            key
+            for key, value in known_config.items()
+            if original_config.get(key) != value
+        ]
+        if not changed_keys:
+            return False
+
+        merged_config = {**original_config, **known_config}
+        try:
+            validated_config = self.plugin_config.__class__.model_validate(merged_config)
+        except ValidationError as e:
+            logger.warning(f"同步 AstrBot 插件页配置到 WebUI 失败: {e}", exc_info=True)
+            return False
+
+        for field_name, value in validated_config.model_dump().items():
+            if hasattr(self.plugin_config, field_name):
+                setattr(self.plugin_config, field_name, value)
+
+        if getattr(self.plugin_config, "data_dir", None):
+            self.plugin_config.messages_db_path = os.path.join(
+                self.plugin_config.data_dir, FileNames.MESSAGES_DB_FILE
+            )
+            self.plugin_config.learning_log_path = os.path.join(
+                self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
+            )
+
+        self._sync_runtime_components(changed_keys)
+        config_file = self._get_config_file_path()
+        if not self.plugin_config.save_to_file(config_file):
+            logger.warning("AstrBot 插件页配置已同步到内存，但写入 WebUI 配置文件失败")
+
+        logger.info(
+            "AstrBot 插件页配置已同步到 WebUI: "
+            f"{', '.join(sorted(changed_keys))}"
+        )
+        return True
+
+    def _sync_config_sources(self, *, force: bool = False) -> None:
+        """Keep AstrBot plugin-page config and WebUI config on the same values."""
+        astrbot_config = self._get_astrbot_config()
+        if not astrbot_config or not self.plugin_config:
+            return
+
+        signature = self._config_source_signature(astrbot_config)
+        if (
+            not force
+            and self._get_container_attr("_config_source_sync_signature") == signature
+        ):
+            return
+
+        if self._astrbot_config_is_newer(astrbot_config):
+            self._apply_astrbot_config_to_plugin(astrbot_config)
+            self._remember_config_sync_state(astrbot_config)
+            return
+
+        self._sync_astrbot_group_config(
+            self.plugin_config,
+            list(self.plugin_config.to_dict()),
+        )
+        self._remember_config_sync_state(astrbot_config)
+
+    @staticmethod
+    def _field_group_index(schema_definition: Dict[str, Any]) -> Dict[str, str]:
+        field_to_group: Dict[str, str] = {}
+        for group_key, group_definition in schema_definition.items():
+            if not isinstance(group_definition, dict):
+                continue
+            items = group_definition.get("items", {})
+            if not isinstance(items, dict):
+                continue
+            for field_key in items:
+                field_to_group[field_key] = group_key
+        return field_to_group
+
+    def _sync_astrbot_group_config(
+        self,
+        validated_config: Any,
+        _submitted_keys: List[str],
+    ) -> bool:
+        """Pass the full WebUI config through to AstrBot's grouped plugin-page config."""
+        astrbot_config = self._get_astrbot_config()
+        if not astrbot_config:
+            return False
+
+        schema_definition = self._merged_schema_definition()
+        current_payload = self._plain_mapping(astrbot_config)
+        schema_fields = {
+            field_name
+            for group_definition in schema_definition.values()
+            if isinstance(group_definition, dict)
+            for field_name in group_definition.get("items", {})
+        }
+        if hasattr(validated_config, "model_dump"):
+            config_values = validated_config.model_dump()
+        else:
+            config_values = {
+                field_name: getattr(validated_config, field_name)
+                for field_name in schema_fields
+                if hasattr(validated_config, field_name)
+            }
+        config_field_names = set(config_values)
+        next_payload = {
+            key: value
+            for key, value in current_payload.items()
+            if key not in config_field_names
+        }
+        synced_groups = set()
+
+        for group_key, group_definition in schema_definition.items():
+            if not isinstance(group_definition, dict):
+                continue
+            items = group_definition.get("items", {})
+            if not isinstance(items, dict):
+                continue
+            group = next_payload.get(group_key)
+            if not isinstance(group, MutableMapping):
+                group = {}
+            else:
+                group = dict(group)
+
+            group_updated = False
+            for field_name in items:
+                if field_name not in config_values:
+                    continue
+                group[field_name] = config_values[field_name]
+                group_updated = True
+
+            if group_updated:
+                next_payload[group_key] = group
+                synced_groups.add(group_key)
+
+        if not synced_groups:
+            return False
+
+        if self._payload_signature(current_payload) == self._payload_signature(
+            next_payload
+        ):
+            return False
+
+        astrbot_config.clear()
+        astrbot_config.update(next_payload)
+
+        save_config = getattr(astrbot_config, "save_config", None)
+        if callable(save_config):
+            try:
+                save_config()
+            except TypeError:
+                try:
+                    save_config(self._plain_mapping(astrbot_config))
+                except Exception as e:
+                    logger.warning(f"同步 AstrBot 插件页配置失败: {e}", exc_info=True)
+                    return False
+            except Exception as e:
+                logger.warning(f"同步 AstrBot 插件页配置失败: {e}", exc_info=True)
+                return False
+
+        logger.info(
+            "WebUI 配置已同步到 AstrBot 插件页分组: "
+            f"{', '.join(sorted(synced_groups))}"
+        )
+        return True
+
+    def _sync_runtime_components(self, changed_keys: List[str]) -> None:
+        """Refresh runtime objects that cache values derived from PluginConfig."""
+        plugin = self._get_container_attr("plugin_instance")
+        if plugin is not None:
+            try:
+                plugin.plugin_config = self.plugin_config
+            except Exception:
+                logger.debug("同步 plugin.plugin_config 失败", exc_info=True)
+
+            qq_filter = getattr(plugin, "qq_filter", None)
+            if qq_filter and any(
+                key in changed_keys for key in ("target_qq_list", "target_blacklist")
+            ):
+                try:
+                    qq_filter.target_qq_list = list(self.plugin_config.target_qq_list)
+                    qq_filter.blacklist = list(self.plugin_config.target_blacklist)
+                except Exception:
+                    logger.debug("同步 QQ 过滤器配置失败", exc_info=True)
+
+        self._refresh_learning_runtime(getattr(plugin, "progressive_learning", None))
+        self._refresh_learning_runtime(self._get_container_attr("progressive_learning"))
+
+        self.container.plugin_config = self.plugin_config
+        try:
+            from ..config import WebUIConfig
+            self.container.webui_config = WebUIConfig.from_plugin_config(self.plugin_config)
+        except Exception:
+            logger.debug("同步 WebUIConfig 失败", exc_info=True)
+
+    def _refresh_learning_runtime(self, progressive_learning: Any) -> None:
+        if not progressive_learning:
+            return
+        if hasattr(progressive_learning, "batch_size"):
+            progressive_learning.batch_size = self.plugin_config.max_messages_per_batch
+        if hasattr(progressive_learning, "learning_interval"):
+            progressive_learning.learning_interval = (
+                self.plugin_config.learning_interval_hours * 3600
+            )
+        if hasattr(progressive_learning, "quality_threshold"):
+            progressive_learning.quality_threshold = self.plugin_config.style_update_threshold
 
     @staticmethod
     def _normalize_provider_type(provider_type: Any, default_type: str = "") -> str:
@@ -659,6 +978,7 @@ class ConfigService:
             Dict: 插件配置字典
         """
         if self.plugin_config:
+            self._sync_config_sources()
             return self.plugin_config.to_dict()
         raise ValueError("Plugin config not initialized")
 
@@ -667,11 +987,8 @@ class ConfigService:
         if not self.plugin_config:
             raise ValueError("Plugin config not initialized")
 
-        base_schema = _load_schema_definition()
-        merged_schema = self._merge_schema_definitions(
-            base_schema,
-            self._collect_extra_schema(),
-        )
+        self._sync_config_sources()
+        merged_schema = self._merged_schema_definition()
 
         return {
             "config": self.plugin_config.to_dict(),
@@ -720,7 +1037,7 @@ class ConfigService:
 
         try:
             validated_config = self.plugin_config.__class__.model_validate(merged_config)
-        except Exception as e:
+        except ValidationError as e:
             logger.error(f"配置校验失败: {e}", exc_info=True)
             return False, f"配置校验失败: {str(e)}", original_config
 
@@ -757,6 +1074,12 @@ class ConfigService:
                 self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
             )
 
+        self._sync_runtime_components(changed_keys)
+        astrbot_config_synced = self._sync_astrbot_group_config(
+            validated_config,
+            list(flat_config),
+        )
+
         llm_adapter = getattr(self.container, "llm_adapter", None)
         if llm_adapter and hasattr(llm_adapter, "initialize_providers"):
             try:
@@ -767,6 +1090,11 @@ class ConfigService:
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):
             return False, "配置已更新到内存，但持久化到文件失败", self.plugin_config.to_dict()
+        astrbot_config = self._get_astrbot_config()
+        if astrbot_config:
+            self._remember_config_sync_state(astrbot_config)
+        else:
+            self._forget_config_sync_state()
 
         if changed_keys:
             logger.info(f"配置已更新: {', '.join(changed_keys)}")
@@ -774,6 +1102,8 @@ class ConfigService:
         message = "Config updated successfully"
         if warnings:
             message = f"{message}，{'; '.join(warnings)}"
+        if astrbot_config_synced:
+            message = f"{message}；已同步到插件设置页"
         if any(key in _RESTART_REQUIRED_KEYS for key in changed_keys):
             message = f"{message}；部分变更重启后生效"
 

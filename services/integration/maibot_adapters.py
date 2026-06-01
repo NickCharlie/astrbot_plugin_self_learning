@@ -186,7 +186,7 @@ class MaiBotLearningStrategy(ILearningStrategy):
             db_manager,
         )
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
-        self.knowledge_graph_manager.__init__(config, db_manager, None)
+        self.knowledge_graph_manager.configure(config, db_manager, None)
         self._status = ServiceLifecycle.CREATED
     
     async def start(self) -> bool:

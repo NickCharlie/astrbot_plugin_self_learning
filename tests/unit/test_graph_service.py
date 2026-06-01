@@ -101,6 +101,10 @@ def test_memory_graph_singleton_accepts_late_dependencies(monkeypatch):
     assert second is first
     assert second.db_manager is db_manager
 
+    third = EnhancedMemoryGraphManager.get_instance()
+    assert third is first
+    assert third.db_manager is db_manager
+
 
 def test_knowledge_graph_singleton_accepts_late_dependencies(monkeypatch):
     monkeypatch.setattr(KnowledgeGraphManager, "_instance", None)
@@ -108,7 +112,12 @@ def test_knowledge_graph_singleton_accepts_late_dependencies(monkeypatch):
     db_manager = object()
     llm_adapter = object()
 
-    first.__init__(db_manager=db_manager, llm_adapter=llm_adapter)
+    first.configure(db_manager=db_manager, llm_adapter=llm_adapter)
 
     assert first.db_manager is db_manager
     assert first.llm_adapter is llm_adapter
+
+    second = KnowledgeGraphManager.get_instance()
+    assert second is first
+    assert second.db_manager is db_manager
+    assert second.llm_adapter is llm_adapter

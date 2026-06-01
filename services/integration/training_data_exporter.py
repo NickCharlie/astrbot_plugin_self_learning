@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...core.patterns import AsyncServiceBase
 from ...models.orm.message import RawMessage, BotMessage, FilteredMessage
 from ...repositories.base_repository import BaseRepository
+from ..learning.sample_filter import should_ignore_learning_sample
 
 
 class ConversationPair:
@@ -347,7 +348,11 @@ class TrainingDataExporter(AsyncServiceBase):
         if min_quality_score is None:
             rows = [(*row, None) for row in rows]
 
-        return rows
+        return [
+            row
+            for row in rows
+            if not should_ignore_learning_sample(row[3], sender_id=row[1])
+        ]
 
     async def _fetch_bot_responses(
         self,
@@ -393,7 +398,12 @@ class TrainingDataExporter(AsyncServiceBase):
         stmt = stmt.order_by(BotMessage.timestamp)
 
         result = await session.execute(stmt)
-        return result.fetchall()
+        rows = result.fetchall()
+        return [
+            row
+            for row in rows
+            if not should_ignore_learning_sample(row[2], sender_id="bot", is_bot=True)
+        ]
 
     def _match_message_pairs(
         self,
@@ -422,12 +432,16 @@ class TrainingDataExporter(AsyncServiceBase):
         # 将Bot回复按群组分组,提高匹配效率
         bot_by_group = {}
         for idx, (bot_id, group_id, message, timestamp) in enumerate(bot_responses):
+            if should_ignore_learning_sample(message, sender_id="bot", is_bot=True):
+                continue
             if group_id not in bot_by_group:
                 bot_by_group[group_id] = []
             bot_by_group[group_id].append((idx, bot_id, message, timestamp))
 
         # 遍历用户消息,寻找匹配的Bot回复
         for user_id, sender_id, group_id, user_msg, user_ts, quality_score in user_messages:
+            if should_ignore_learning_sample(user_msg, sender_id=sender_id):
+                continue
             if group_id not in bot_by_group:
                 continue
 

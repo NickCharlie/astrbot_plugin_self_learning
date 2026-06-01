@@ -21,6 +21,7 @@ from ...exceptions import LearningError
 from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
 
 from ..database import DatabaseManager
+from ..learning.sample_filter import filter_learning_messages, should_ignore_learning_sample
 
 
 @dataclass
@@ -651,6 +652,7 @@ class ProgressiveLearningService:
 
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """对话风格学习不需要筛选，直接返回所有消息"""
+        messages = filter_learning_messages(messages)
 
         # 对话风格学习不需要LLM筛选，直接学习所有原始消息
         logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
@@ -1065,6 +1067,8 @@ class ProgressiveLearningService:
             quality_metrics: 质量指标
         """
         try:
+            messages = filter_learning_messages(messages or [])
+
             # 处理 AnalysisResult 对象，提取其 data 属性
             if style_analysis and hasattr(style_analysis, 'data'):
                 style_analysis_dict = style_analysis.data
@@ -1080,6 +1084,7 @@ class ProgressiveLearningService:
 
             # 1. 保存表达模式到 expression_patterns 表
             expression_patterns = style_analysis_dict.get('expression_patterns', [])
+            expression_patterns = self._filter_expression_patterns(expression_patterns)
 
             # 在 fewshot 模式下，style_analysis 可能不包含 expression_patterns。
             # 此时从数据库获取 bot 消息与用户消息合并，提取 user->bot 对话对。
@@ -1157,11 +1162,27 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.error(f"保存风格学习记录失败: {e}", exc_info=True)
 
+    @staticmethod
+    def _filter_expression_patterns(patterns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Remove command/system-derived pairs before saving style samples."""
+        filtered = []
+        for pattern in patterns or []:
+            if not isinstance(pattern, dict):
+                continue
+            situation = pattern.get('situation', '')
+            expression = pattern.get('expression', '')
+            if should_ignore_learning_sample(situation):
+                continue
+            if should_ignore_learning_sample(expression, sender_id='bot', is_bot=True):
+                continue
+            filtered.append(pattern)
+        return filtered
+
     def _build_few_shots_from_patterns(self, patterns: List[Dict[str, Any]]) -> str:
         """从表达模式构建 few-shots 内容"""
         few_shots = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n"
 
-        for i, pattern in enumerate(patterns[:5], 1): # 只取前5个
+        for i, pattern in enumerate(self._filter_expression_patterns(patterns)[:5], 1): # 只取前5个
             situation = pattern.get('situation', '')
             expression = pattern.get('expression', '')
             if situation and expression:
@@ -1178,6 +1199,10 @@ class ProgressiveLearningService:
         user messages sorted by timestamp, producing a unified stream that
         allows user->bot pair extraction.
         """
+        user_messages = filter_learning_messages(user_messages)
+        if not user_messages:
+            return []
+
         bot_texts = await self.db_manager.get_recent_bot_responses(group_id, limit=50)
         if not bot_texts:
             return []
@@ -1196,6 +1221,12 @@ class ProgressiveLearningService:
             )
             result = await session.execute(stmt)
             for row in result.scalars().all():
+                if should_ignore_learning_sample(
+                    row.message,
+                    sender_id='bot',
+                    is_bot=True,
+                ):
+                    continue
                 bot_msgs.append({
                     'sender_id': 'bot',
                     'message': row.message,
@@ -1231,6 +1262,10 @@ class ProgressiveLearningService:
             nxt_text = nxt.get('message', '').strip()
 
             if not msg_is_bot and nxt_is_bot and msg_text and nxt_text:
+                if should_ignore_learning_sample(msg_text):
+                    continue
+                if should_ignore_learning_sample(nxt_text, sender_id='bot', is_bot=True):
+                    continue
                 if len(msg_text) < 3 or len(nxt_text) < 3:
                     continue
                 if msg_text.startswith(('[', 'http', '@')):

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
+from .sample_filter import should_ignore_learning_sample
 
 
 class DialogAnalyzer:
@@ -59,6 +60,15 @@ class DialogAnalyzer:
 
                 user_msg = current_msg.message.strip()
                 bot_response = next_msg.message.strip()
+                if should_ignore_learning_sample(
+                    user_msg,
+                    sender_id=current_msg.sender_id,
+                ) or should_ignore_learning_sample(
+                    bot_response,
+                    sender_id=next_msg.sender_id,
+                    is_bot=str(next_msg.sender_id).lower() == "bot",
+                ):
+                    continue
 
                 # Basic length / trivial-content filter
                 if (

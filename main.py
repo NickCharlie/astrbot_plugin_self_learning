@@ -20,6 +20,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from .config import DEFAULT_DATA_DIR, PluginConfig
 from .core.plugin_lifecycle import PluginLifecycle
 from .services.hooks.perf_tracker import PerfTracker
+from .services.learning.sample_filter import should_ignore_learning_sample
 from .statics.messages import StatusMessages, FileNames
 
 
@@ -119,7 +120,12 @@ class SelfLearningPlugin(star.Star):
                 _migrate_legacy_data_dir(astrbot_data_path, plugin_data_dir)
 
             logger.info(f"最终插件数据目录: {plugin_data_dir}")
-            self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=plugin_data_dir)
+            config_file = os.path.join(plugin_data_dir, FileNames.CONFIG_FILE)
+            self.plugin_config = PluginConfig.create_from_runtime_sources(
+                self.config,
+                data_dir=plugin_data_dir,
+                config_file=config_file,
+            )
 
             logger.info(f"[插件初始化] Provider配置已加载：")
             logger.info(f" - filter_provider_id: {self.plugin_config.filter_provider_id}")
@@ -130,7 +136,12 @@ class SelfLearningPlugin(star.Star):
             logger.error(f"初始化插件配置失败: {e}")
             default_data_dir = os.path.abspath(DEFAULT_DATA_DIR)
             logger.warning(f"使用默认数据目录: {default_data_dir}")
-            self.plugin_config = PluginConfig.create_from_config(self.config, data_dir=default_data_dir)
+            config_file = os.path.join(default_data_dir, FileNames.CONFIG_FILE)
+            self.plugin_config = PluginConfig.create_from_runtime_sources(
+                self.config,
+                data_dir=default_data_dir,
+                config_file=config_file,
+            )
 
         os.makedirs(self.plugin_config.data_dir, exist_ok=True)
 
@@ -241,7 +252,12 @@ class SelfLearningPlugin(star.Star):
             if not db:
                 self._log_message_capture_diag("skip:db_manager_missing", event, level="info")
                 return
-            if not getattr(db, "engine", None):
+            db_ready = getattr(db, "is_ready", None)
+            if db_ready is not None:
+                if not db_ready:
+                    self._log_message_capture_diag("skip:db_not_ready", event, level="info")
+                    return
+            elif not getattr(db, "engine", None):
                 self._log_message_capture_diag("skip:db_engine_not_ready", event, level="info")
                 return
 
@@ -252,6 +268,10 @@ class SelfLearningPlugin(star.Star):
 
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
+            if should_ignore_learning_sample(message_text, sender_id=sender_id):
+                logger.debug(f"检测到指令或系统模板消息，跳过学习数据收集: {message_text[:80]}")
+                self._log_message_capture_diag("skip:system_or_command_sample", event, message_text)
+                return
             self._log_message_capture_diag("accepted:event_received", event, message_text)
 
             # 好感度处理（后台，仅 at/唤醒消息）
@@ -344,7 +364,13 @@ class SelfLearningPlugin(star.Star):
             if not self.plugin_config or not self.plugin_config.enable_message_capture:
                 return
             db = getattr(self, 'db_manager', None)
-            if not db or not db.engine:
+            if not db:
+                return
+            db_ready = getattr(db, "is_ready", None)
+            if db_ready is not None:
+                if not db_ready:
+                    return
+            elif not getattr(db, "engine", None):
                 return
             result = event.get_result()
             if not result or not result.chain:
@@ -356,6 +382,9 @@ class SelfLearningPlugin(star.Star):
                     text_parts.append(comp.text)
             bot_text = "".join(text_parts).strip()
             if not bot_text:
+                return
+            if should_ignore_learning_sample(bot_text, sender_id="bot", is_bot=True):
+                logger.debug(f"检测到Bot固定输出，跳过学习样本保存: {bot_text[:80]}")
                 return
             group_id = event.get_group_id() or event.get_sender_id()
             await db.save_bot_message(

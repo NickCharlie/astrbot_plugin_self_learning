@@ -103,9 +103,11 @@ WebUI 会按 AstrBot Provider 类型过滤选项:
 
 配置组: `Database_Settings`
 
-默认 `sqlite`，无需额外服务。MySQL 和 PostgreSQL 会尝试自动创建数据库和表。
+默认 `postgresql`。插件启动时会连接 PostgreSQL 维护库 `postgres`，自动创建缺失的目标数据库、schema 和 ORM 表。
 
 PostgreSQL 支持 `postgresql_schema`，非 `public` 时会自动创建 schema 并设置 search path。
+
+如果部署环境没有 PostgreSQL 服务，可显式设置 `db_type=sqlite` 回退到本地文件数据库。MySQL 仍作为兼容后端保留。
 
 修改以下字段需要重启:
 

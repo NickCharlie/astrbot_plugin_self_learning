@@ -293,7 +293,7 @@ class EnhancedMemoryGraphManager:
     ):
         """初始化增强型记忆图管理器"""
         if self._initialized:
-            self._configure(config, db_manager, llm_adapter, decay_manager)
+            self.configure(config, db_manager, llm_adapter, decay_manager)
             return
 
         self.config = config
@@ -320,10 +320,10 @@ class EnhancedMemoryGraphManager:
         if cls._instance is None:
             cls._instance = cls(config, db_manager, llm_adapter, decay_manager)
         elif any(value is not None for value in (config, db_manager, llm_adapter, decay_manager)):
-            cls._instance._configure(config, db_manager, llm_adapter, decay_manager)
+            cls._instance.configure(config, db_manager, llm_adapter, decay_manager)
         return cls._instance
 
-    def _configure(
+    def configure(
         self,
         config: PluginConfig = None,
         db_manager = None,

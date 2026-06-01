@@ -45,6 +45,38 @@ async def test_memory_graph_route_returns_echarts_payload(client):
 
 
 @pytest.mark.asyncio
+async def test_memory_graph_route_explains_livingmemory_delegation(
+    client,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        graphs_module,
+        "get_container",
+        lambda: SimpleNamespace(
+            database_manager=None,
+            feature_delegation=SimpleNamespace(
+                status=lambda: {
+                    "memory_delegated": True,
+                    "memory_plugin": "LivingMemory",
+                    "reply_delegated": False,
+                    "reply_plugin": None,
+                }
+            ),
+        ),
+    )
+
+    response = await client.get("/api/graphs/memory")
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert data["type"] == "memory"
+    assert data["empty_reason"] == "memory_delegated"
+    assert data["data_source"] == "livingmemory_delegated"
+    assert "LivingMemory" in data["message"]
+
+
+@pytest.mark.asyncio
 async def test_knowledge_graph_route_returns_echarts_payload(client):
     response = await client.get("/api/graphs/knowledge")
 

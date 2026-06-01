@@ -1,6 +1,7 @@
 """
 人格审查服务 - 处理人格更新审查相关业务逻辑
 """
+import time
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 
@@ -49,9 +50,9 @@ class PersonaReviewService:
             container: ServiceContainer 依赖注入容器
         """
         self.container = container
-        self.persona_updater = container.persona_updater
-        self.database_manager = container.database_manager
-        self.persona_manager = container.persona_manager
+        self.persona_updater = getattr(container, 'persona_updater', None)
+        self.database_manager = getattr(container, 'database_manager', None)
+        self.persona_manager = getattr(container, 'persona_manager', None)
         self.persona_web_manager = _optional_container_attr(container, 'persona_web_manager')
         self.plugin_config = _optional_container_attr(container, 'plugin_config')
         group_mapping = _optional_container_attr(container, 'group_id_to_unified_origin', {})
@@ -82,11 +83,30 @@ class PersonaReviewService:
         """Normalize AstrBot begin_dialogs into a string list for diff/snapshot."""
         if not value:
             return []
-        if isinstance(value, list):
-            return [str(item) for item in value if item is not None]
-        if isinstance(value, tuple):
+        if isinstance(value, (list, tuple)):
             return [str(item) for item in value if item is not None]
         return [str(value)]
+
+    @classmethod
+    def _persona_snapshot_from_current(cls, current: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        current = current or {}
+        persona_id = (
+            current.get('persona_id')
+            or current.get('name')
+            or current.get('id')
+            or current.get('applied_persona_id')
+            or 'default'
+        )
+        persona_name = current.get('persona_name') or current.get('name') or persona_id
+        return {
+            'persona_id': str(persona_id),
+            'persona_name': str(persona_name),
+            'applied_persona_id': str(persona_id),
+            'applied_persona_name': str(persona_name),
+            'system_prompt': str(current.get('system_prompt') or current.get('prompt') or ''),
+            'begin_dialogs': cls._normalize_begin_dialogs(current.get('begin_dialogs')),
+            'group_id': current.get('group_id', 'default'),
+        }
 
     @staticmethod
     def _append_text_block(base_text: str, appended_text: str) -> str:
@@ -95,6 +115,64 @@ class PersonaReviewService:
         if base and appended:
             return f"{base}\n\n{appended}"
         return appended or base
+
+    @staticmethod
+    def _append_prompt(current_prompt: str, incremental_content: str) -> str:
+        return PersonaReviewService._append_text_block(current_prompt, incremental_content)
+
+    @staticmethod
+    def _affected_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
+        fields = []
+        if before.get('system_prompt', '') != after.get('system_prompt', ''):
+            fields.append('system_prompt')
+        if before.get('begin_dialogs', []) != after.get('begin_dialogs', []):
+            fields.append('begin_dialogs')
+        return fields
+
+    def _build_change_payload(
+        self,
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+        *,
+        applied_at: Optional[float] = None,
+        review_id: str = '',
+        review_source: str = '',
+        group_id: str = '',
+        proposed_content: str = '',
+        application_mode: str = '',
+        style_dialog_pairs: Optional[List[Tuple[str, str]]] = None,
+    ) -> Dict[str, Any]:
+        affected_fields = self._affected_fields(before, after)
+        if not application_mode:
+            if affected_fields == ['begin_dialogs']:
+                application_mode = 'append_begin_dialogs'
+            elif review_source == 'traditional':
+                application_mode = 'replace_system_prompt'
+            elif 'system_prompt' in affected_fields:
+                application_mode = 'append_system_prompt'
+            else:
+                application_mode = 'none'
+
+        return {
+            'review_id': str(review_id) if review_id else '',
+            'review_source': review_source,
+            'group_id': group_id or before.get('group_id', after.get('group_id', 'default')),
+            'applied_persona_id': after.get('persona_id') or after.get('applied_persona_id') or before.get('applied_persona_id', 'default'),
+            'applied_persona_name': after.get('persona_name') or after.get('applied_persona_name') or before.get('applied_persona_name', 'default'),
+            'applied_at': applied_at,
+            'target_fields': affected_fields,
+            'affected_fields': affected_fields,
+            'application_mode': application_mode,
+            'before_system_prompt': before.get('system_prompt', ''),
+            'after_system_prompt': after.get('system_prompt', ''),
+            'before_begin_dialogs': self._normalize_begin_dialogs(before.get('begin_dialogs')),
+            'after_begin_dialogs': self._normalize_begin_dialogs(after.get('begin_dialogs')),
+            'proposed_content': proposed_content or '',
+            'style_dialog_pairs': [
+                {'user': user_msg, 'assistant': assistant_msg}
+                for user_msg, assistant_msg in (style_dialog_pairs or [])
+            ],
+        }
 
     @staticmethod
     def _extract_style_dialog_pairs(review: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -112,6 +190,9 @@ class PersonaReviewService:
                 review.get('few_shots_content', '') or ''
             )
         return dialog_pairs
+
+    def _dialog_pairs_for_style_review(self, review: Dict[str, Any]) -> List[Tuple[str, str]]:
+        return self._extract_style_dialog_pairs(review)
 
     @staticmethod
     def _build_style_begin_dialogs(
@@ -147,15 +228,16 @@ class PersonaReviewService:
 
         return updated_dialogs
 
+    @staticmethod
+    def _apply_style_pairs_to_begin_dialogs(
+        begin_dialogs: List[Any],
+        dialog_pairs: List[Tuple[str, str]],
+    ) -> List[str]:
+        return PersonaReviewService._build_style_begin_dialogs(begin_dialogs, dialog_pairs)
+
     async def _get_current_persona_snapshot(self, group_id: str) -> Dict[str, Any]:
         """Read current persona fields needed for preview and persistent snapshots."""
-        fallback = {
-            'persona_id': 'default',
-            'persona_name': '默认人格',
-            'system_prompt': '',
-            'begin_dialogs': [],
-            'group_id': group_id,
-        }
+        fallback = self._persona_snapshot_from_current({'group_id': group_id})
 
         try:
             current_persona = None
@@ -167,26 +249,9 @@ class PersonaReviewService:
             if not isinstance(current_persona, dict):
                 return fallback
 
-            persona_id = (
-                current_persona.get('persona_id')
-                or current_persona.get('name')
-                or current_persona.get('id')
-                or 'default'
-            )
-            persona_name = current_persona.get('name') or current_persona.get('persona_name') or persona_id
-            system_prompt = (
-                current_persona.get('system_prompt')
-                or current_persona.get('prompt')
-                or ''
-            )
-
-            return {
-                'persona_id': str(persona_id),
-                'persona_name': str(persona_name),
-                'system_prompt': str(system_prompt),
-                'begin_dialogs': self._normalize_begin_dialogs(current_persona.get('begin_dialogs')),
-                'group_id': group_id,
-            }
+            snapshot = self._persona_snapshot_from_current(current_persona)
+            snapshot['group_id'] = group_id
+            return snapshot
         except Exception as e:
             logger.warning(f"获取群组 {group_id} 人格快照失败: {e}", exc_info=True)
             fallback['system_prompt'] = f"[获取当前人格失败: {str(e)}]"
@@ -203,48 +268,124 @@ class PersonaReviewService:
         style_review: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Build before/after persona preview for pending or approved reviews."""
-        snapshot = current_snapshot or await self._get_current_persona_snapshot(group_id)
-        before_prompt = snapshot.get('system_prompt', '') or ''
-        before_dialogs = self._normalize_begin_dialogs(snapshot.get('begin_dialogs'))
+        before = current_snapshot or await self._get_current_persona_snapshot(group_id)
+        before = self._persona_snapshot_from_current(before)
+        before['group_id'] = group_id
 
-        target_fields = []
-        after_prompt = before_prompt
-        after_dialogs = list(before_dialogs)
-        application_mode = 'none'
         style_dialog_pairs = []
+        after = dict(before)
+        application_mode = 'none'
 
         if review_source == 'style_learning':
             style_dialog_pairs = self._extract_style_dialog_pairs(style_review or {})
-            after_dialogs = self._build_style_begin_dialogs(before_dialogs, style_dialog_pairs)
-            target_fields = ['begin_dialogs']
+            after['begin_dialogs'] = self._build_style_begin_dialogs(
+                before.get('begin_dialogs', []),
+                style_dialog_pairs,
+            )
             application_mode = 'append_begin_dialogs'
         elif review_source == 'traditional':
-            after_prompt = proposed_content or ''
-            target_fields = ['system_prompt']
+            after['system_prompt'] = proposed_content or ''
             application_mode = 'replace_system_prompt'
         else:
-            after_prompt = self._append_text_block(before_prompt, proposed_content)
-            target_fields = ['system_prompt']
+            after['system_prompt'] = self._append_text_block(
+                before.get('system_prompt', ''),
+                proposed_content,
+            )
             application_mode = 'append_system_prompt'
 
-        return {
-            'review_id': str(review_id),
+        return self._build_change_payload(
+            before,
+            after,
+            review_id=review_id,
+            review_source=review_source,
+            group_id=group_id,
+            proposed_content=proposed_content,
+            application_mode=application_mode,
+            style_dialog_pairs=style_dialog_pairs,
+        )
+
+    async def _save_change_snapshot(
+        self,
+        review_source: str,
+        review_id: str,
+        change_payload: Dict[str, Any],
+    ) -> None:
+        if not self.database_manager or not hasattr(self.database_manager, 'save_persona_change_snapshot'):
+            return
+        snapshot = {
+            **change_payload,
             'review_source': review_source,
-            'group_id': group_id,
-            'applied_persona_id': snapshot.get('persona_id', 'default'),
-            'applied_persona_name': snapshot.get('persona_name', snapshot.get('persona_id', 'default')),
-            'target_fields': target_fields,
-            'application_mode': application_mode,
-            'before_system_prompt': before_prompt,
-            'after_system_prompt': after_prompt,
-            'before_begin_dialogs': before_dialogs,
-            'after_begin_dialogs': after_dialogs,
-            'proposed_content': proposed_content or '',
-            'style_dialog_pairs': [
-                {'user': user_msg, 'assistant': assistant_msg}
-                for user_msg, assistant_msg in style_dialog_pairs
-            ],
+            'review_id': str(review_id),
+            'applied_at': change_payload.get('applied_at') or time.time(),
         }
+        try:
+            await self.database_manager.save_persona_change_snapshot(snapshot)
+        except Exception as e:
+            logger.warning(f"保存人格变更快照失败: {e}", exc_info=True)
+
+    async def _load_change_snapshot(
+        self,
+        review_source: str,
+        review_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.database_manager or not hasattr(self.database_manager, 'get_persona_change_snapshot'):
+            return None
+        try:
+            return await self.database_manager.get_persona_change_snapshot(
+                review_source, str(review_id)
+            )
+        except Exception as e:
+            logger.debug(f"读取人格变更快照失败: {e}")
+            return None
+
+    async def _persona_learning_preview(
+        self,
+        group_id: str,
+        incremental_content: str,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            return await self._build_change_preview(
+                review_id='',
+                review_source='persona_learning',
+                group_id=group_id,
+                proposed_content=incremental_content,
+            )
+        except Exception as e:
+            logger.debug(f"生成人格学习预览失败: {e}")
+            return None
+
+    async def _traditional_preview(
+        self,
+        group_id: str,
+        new_content: str,
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            return await self._build_change_preview(
+                review_id='',
+                review_source='traditional',
+                group_id=group_id,
+                proposed_content=new_content,
+            )
+        except Exception as e:
+            logger.debug(f"生成传统人格预览失败: {e}")
+            return None
+
+    async def _style_preview(
+        self,
+        group_id: str,
+        review: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            return await self._build_change_preview(
+                review_id=f"style_{review.get('id', '')}",
+                review_source='style_learning',
+                group_id=group_id,
+                proposed_content=review.get('few_shots_content', '') or '',
+                style_review=review,
+            )
+        except Exception as e:
+            logger.debug(f"生成风格审查预览失败: {e}")
+            return None
 
     @staticmethod
     def _metadata_change_snapshot(review: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -325,12 +466,14 @@ class PersonaReviewService:
                     record_dict['reviewed'] = record_dict.get('status', 'pending') != 'pending'
                     record_dict['approved'] = record_dict.get('status', 'pending') == 'approved'
                     record_dict['review_source'] = 'traditional'
-                    record_dict['change_preview'] = await self._build_change_preview(
+                    change_preview = await self._build_change_preview(
                         review_id=str(record_dict.get('id')),
                         review_source='traditional',
                         group_id=record_dict.get('group_id', 'default'),
                         proposed_content=record_dict.get('new_content', ''),
                     )
+                    record_dict['change_preview'] = change_preview
+                    record_dict['persona_change_preview'] = change_preview
 
                     all_updates.append(record_dict)
 
@@ -406,12 +549,20 @@ class PersonaReviewService:
                         'incremental_content': review.get('metadata', {}).get('incremental_content', ''),
                         'incremental_start_pos': review.get('metadata', {}).get('incremental_start_pos', 0)
                     }
-                    review_dict['change_preview'] = await self._build_change_preview(
+                    incremental_content = (
+                        review_dict.get('proposed_content')
+                        or review_dict.get('new_content')
+                        or review_dict.get('incremental_content')
+                        or ''
+                    )
+                    change_preview = await self._build_change_preview(
                         review_id=review_dict['id'],
                         review_source=review_source,
                         group_id=group_id,
-                        proposed_content=review_dict.get('proposed_content') or review_dict.get('new_content', ''),
+                        proposed_content=incremental_content,
                     )
+                    review_dict['change_preview'] = change_preview
+                    review_dict['persona_change_preview'] = change_preview
 
                     all_updates.append(review_dict)
                     logger.debug(f"添加审查记录: ID={review_dict['id']}, type={raw_update_type}, source={review_source}")
@@ -473,13 +624,15 @@ class PersonaReviewService:
                         'incremental_start_pos': len(original_persona_text) + 2 if original_persona_text else 0
                     }
                     review_dict['metadata'] = review.get('metadata', {})
-                    review_dict['change_preview'] = await self._build_change_preview(
+                    change_preview = await self._build_change_preview(
                         review_id=review_dict['id'],
                         review_source='style_learning',
                         group_id=group_id,
                         proposed_content=few_shots_content,
                         style_review=review,
                     )
+                    review_dict['change_preview'] = change_preview
+                    review_dict['persona_change_preview'] = change_preview
 
                     all_updates.append(review_dict)
 
@@ -603,6 +756,23 @@ class PersonaReviewService:
                                         persona_name, {"system_prompt": new_prompt}
                                     )
                                     if result.get('success'):
+                                        after_current = await self.persona_web_manager.get_persona_for_group(group_id)
+                                        after = self._persona_snapshot_from_current(after_current)
+                                        change_payload = self._build_change_payload(
+                                            self._persona_snapshot_from_current(before_snapshot),
+                                            after,
+                                            applied_at=time.time(),
+                                            review_id=str(persona_learning_review_id),
+                                            review_source='persona_learning',
+                                            group_id=group_id,
+                                            proposed_content=incremental_content,
+                                            application_mode='append_system_prompt',
+                                        )
+                                        await self._save_change_snapshot(
+                                            'persona_learning',
+                                            str(persona_learning_review_id),
+                                            change_payload,
+                                        )
                                         logger.info(
                                             f"人格学习审查 {persona_learning_review_id} 已批准，"
                                             f"增量内容已追加到人格 [{persona_name}] 末尾"
@@ -729,6 +899,29 @@ class PersonaReviewService:
                     persona_name, {"system_prompt": new_content}
                 )
                 if update_result.get('success'):
+                    after_current = await self.persona_web_manager.get_persona_for_group(group_id)
+                    after = self._persona_snapshot_from_current(after_current)
+                    change_payload = self._build_change_payload(
+                        {
+                            'persona_id': change_preview.get('applied_persona_id', 'default'),
+                            'persona_name': change_preview.get('applied_persona_name', 'default'),
+                            'system_prompt': change_preview.get('before_system_prompt', ''),
+                            'begin_dialogs': change_preview.get('before_begin_dialogs', []),
+                            'group_id': group_id,
+                        },
+                        after,
+                        applied_at=time.time(),
+                        review_id=str(update_id),
+                        review_source='traditional',
+                        group_id=group_id,
+                        proposed_content=new_content,
+                        application_mode='replace_system_prompt',
+                    )
+                    await self._save_change_snapshot(
+                        'traditional',
+                        str(update_id),
+                        change_payload,
+                    )
                     logger.info(f"人格更新 {update_id} 已批准并应用到人格 [{persona_name}]")
                     return True, f"人格更新 {update_id} 已批准，已应用到人格 [{persona_name}]"
                 else:
@@ -790,6 +983,24 @@ class PersonaReviewService:
                             persona_name, {"begin_dialogs": change_snapshot.get('after_begin_dialogs', [])}
                         )
                         if result.get('success'):
+                            after_current = await self.persona_web_manager.get_persona_for_group(group_id)
+                            after = self._persona_snapshot_from_current(after_current)
+                            change_payload = self._build_change_payload(
+                                self._persona_snapshot_from_current(before_snapshot),
+                                after,
+                                applied_at=time.time(),
+                                review_id=str(review_id),
+                                review_source='style_learning',
+                                group_id=group_id,
+                                proposed_content=target_review.get('few_shots_content', '') or '',
+                                application_mode='append_begin_dialogs',
+                                style_dialog_pairs=dialog_pairs,
+                            )
+                            await self._save_change_snapshot(
+                                'style_learning',
+                                str(review_id),
+                                change_payload,
+                            )
                             logger.info(
                                 f"风格学习审查 {review_id} 已批准，"
                                 f"{len(dialog_pairs)} 组示例对话已注入 begin_dialogs [{persona_name}]"
@@ -887,10 +1098,19 @@ class PersonaReviewService:
                 if traditional_updates:
                     for update in traditional_updates:
                         update.setdefault('review_source', 'traditional')
+                        persona_snapshot = await self._load_change_snapshot(
+                            'traditional',
+                            str(update.get('id')),
+                        )
+                        if persona_snapshot:
+                            update['persona_change_snapshot'] = persona_snapshot
                         snapshot = self._metadata_change_snapshot(update)
                         if snapshot:
                             update['change_snapshot'] = snapshot
                             update['change_preview'] = snapshot
+                        elif persona_snapshot:
+                            update['change_snapshot'] = persona_snapshot
+                            update['change_preview'] = persona_snapshot
                         else:
                             update['change_preview'] = {
                                 'review_id': str(update.get('id')),
@@ -916,13 +1136,23 @@ class PersonaReviewService:
                 persona_learning_updates = await self.database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
                 if persona_learning_updates:
                     for update in persona_learning_updates:
-                        if update.get('id') is not None:
-                            update['id'] = f"persona_learning_{update['id']}"
+                        raw_id = update.get('id')
+                        if raw_id is not None:
+                            update['id'] = f"persona_learning_{raw_id}"
                         update.setdefault('review_source', 'persona_learning')
+                        persona_snapshot = await self._load_change_snapshot(
+                            'persona_learning',
+                            str(raw_id),
+                        )
+                        if persona_snapshot:
+                            update['persona_change_snapshot'] = persona_snapshot
                         snapshot = self._metadata_change_snapshot(update)
                         if snapshot:
                             update['change_snapshot'] = snapshot
                             update['change_preview'] = snapshot
+                        elif persona_snapshot:
+                            update['change_snapshot'] = persona_snapshot
+                            update['change_preview'] = persona_snapshot
                     reviewed_updates.extend(persona_learning_updates)
             except Exception as e:
                 logger.warning(f"获取已审查人格学习更新失败: {e}")
@@ -935,7 +1165,8 @@ class PersonaReviewService:
                     valid_style_updates = []
                     for update in style_updates:
                         # 转换风格学习字段为前端统一格式
-                        update['id'] = f"style_{update['id']}" if update.get('id') is not None else None
+                        raw_id = update.get('id')
+                        update['id'] = f"style_{raw_id}" if raw_id is not None else None
                         update['update_type'] = update.get('type', UPDATE_TYPE_STYLE_LEARNING)
                         update['original_content'] = ''
                         style_content = update.get('few_shots_content') or update.get('new_content', '')
@@ -944,10 +1175,19 @@ class PersonaReviewService:
                         update['confidence_score'] = 0.9
                         update['reason'] = update.get('description', '') or '风格学习审查'
                         update['review_source'] = 'style_learning'
+                        persona_snapshot = await self._load_change_snapshot(
+                            'style_learning',
+                            str(raw_id),
+                        )
+                        if persona_snapshot:
+                            update['persona_change_snapshot'] = persona_snapshot
                         snapshot = self._metadata_change_snapshot(update)
                         if snapshot:
                             update['change_snapshot'] = snapshot
                             update['change_preview'] = snapshot
+                        elif persona_snapshot:
+                            update['change_snapshot'] = persona_snapshot
+                            update['change_preview'] = persona_snapshot
                         valid_style_updates.append(update)
                     reviewed_updates.extend(valid_style_updates)
             except Exception as e:

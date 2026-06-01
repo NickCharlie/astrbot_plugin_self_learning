@@ -14,7 +14,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-3.0.3-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-3.0.15-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning) [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE) [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot) [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 
 [Features](#what-we-can-do) · [Quick Start](#quick-start) · [Web UI](#visual-management-interface) · [Community](#community) · [Contributing](CONTRIBUTING.md)
 
@@ -190,7 +190,7 @@ Set the following key items in the AstrBot admin panel:
 - **Learning Target** — Specify user QQ IDs to learn from (leave empty to learn from everyone)
 - **Model Configuration** — Set the Provider IDs for filter and refinement models
 - **Learning Frequency** — Auto-learning interval (default: 6 hours)
-- **Database** — Supports SQLite (works out of the box), MySQL, PostgreSQL
+- **Database** — Defaults to PostgreSQL with automatic database/schema/table creation; SQLite and MySQL remain available as explicit choices
 
 More configuration options are available in the WebUI settings page.
 

@@ -68,8 +68,8 @@ class MaiBotEnhancedLearningManager:
             self.time_decay_manager,
         )
         self.knowledge_graph_manager = KnowledgeGraphManager.get_instance()
-        self.knowledge_graph_manager.__init__(config, db_manager, self.llm_adapter)
-        
+        self.knowledge_graph_manager.configure(config, db_manager, self.llm_adapter)
+
         # 学习状态跟踪
         self.group_learning_states: Dict[str, Dict[str, Any]] = {}
         

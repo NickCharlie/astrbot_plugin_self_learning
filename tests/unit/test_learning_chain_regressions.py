@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -39,6 +40,9 @@ from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
+from self_learning_EterU.services.learning.sample_filter import (
+    should_ignore_learning_sample,
+)
 from self_learning_EterU.services.state.enhanced_interaction import (
     EnhancedInteractionService,
 )
@@ -84,6 +88,82 @@ def test_realtime_expression_builder_keeps_current_sender_messages():
     assert len(result) == 1
     assert result[0].sender_id == "user-a"
     assert result[0].message == "这个表达应该留下来参与学习"
+
+
+@pytest.mark.unit
+def test_learning_sample_filter_blocks_commands_and_system_outputs():
+    bot_help = (
+        "AstrBot v4.24.5(WebUI: None)\n"
+        "/new - Create new conversation\n"
+        "/provider - View or switch LLM Provider"
+    )
+
+    assert should_ignore_learning_sample("/help") is True
+    assert should_ignore_learning_sample("/help me") is True
+    assert should_ignore_learning_sample("help") is True
+    assert should_ignore_learning_sample("help me") is False
+    assert should_ignore_learning_sample("/a hello") is False
+    assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample("这是一条普通聊天消息") is False
+
+
+@pytest.mark.unit
+def test_realtime_expression_builder_filters_command_samples():
+    raw_messages = [
+        {
+            "id": 1,
+            "sender_id": "user-a",
+            "sender_name": "User A",
+            "message": "help",
+            "group_id": "group-a",
+            "timestamp": time.time(),
+            "platform": "test",
+        },
+        {
+            "id": 2,
+            "sender_id": "user-a",
+            "sender_name": "User A",
+            "message": "这个表达应该保留用于学习",
+            "group_id": "group-a",
+            "timestamp": time.time(),
+            "platform": "test",
+        },
+    ]
+
+    result = RealtimeProcessor._build_message_data_list(
+        raw_messages,
+        group_id="group-a",
+        sender_id="user-a",
+    )
+
+    assert [item.message for item in result] == ["这个表达应该保留用于学习"]
+
+
+@pytest.mark.unit
+def test_progressive_fewshot_extraction_skips_command_system_pairs():
+    merged = [
+        {"sender_id": "user-a", "message": "help", "timestamp": 1},
+        {
+            "sender_id": "bot",
+            "message": (
+                "AstrBot v4.24.5(WebUI: None)\n"
+                "/new - Create new conversation\n"
+                "/provider - View or switch LLM Provider"
+            ),
+            "timestamp": 2,
+        },
+        {"sender_id": "user-a", "message": "今天状态怎么样", "timestamp": 3},
+        {"sender_id": "bot", "message": "我今天状态不错", "timestamp": 4},
+    ]
+
+    pairs = ProgressiveLearningService._extract_fewshot_pairs_from_merged(
+        merged,
+        "group-a",
+    )
+
+    assert len(pairs) == 1
+    assert pairs[0]["situation"] == "今天状态怎么样"
+    assert pairs[0]["expression"] == "我今天状态不错"
 
 
 @pytest.mark.unit
@@ -191,6 +271,7 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
 ):
     config = PluginConfig(
         data_dir=str(tmp_path),
+        db_type="sqlite",
         enable_web_interface=False,
         enable_jargon_learning=True,
         enable_expression_patterns=True,
@@ -273,6 +354,91 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_expression_pattern_save_handles_duplicate_existing_rows(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    ExpressionPatternORM(
+                        situation="今晚安排",
+                        expression="偷偷刷视频",
+                        weight=1.0,
+                        last_active_time=10.0,
+                        create_time=1.0,
+                        group_id="group-a",
+                    ),
+                    ExpressionPatternORM(
+                        situation="今晚安排",
+                        expression="偷偷刷视频",
+                        weight=3.0,
+                        last_active_time=20.0,
+                        create_time=2.0,
+                        group_id="group-a",
+                    ),
+                ]
+            )
+            await session.commit()
+            rows_before = (
+                await session.execute(
+                    select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.group_id == "group-a",
+                        ExpressionPatternORM.situation == "今晚安排",
+                        ExpressionPatternORM.expression == "偷偷刷视频",
+                    )
+                )
+            ).scalars().all()
+
+        assert len(rows_before) == 2
+        original_ids = {row.id for row in rows_before}
+        strongest_before_id = max(rows_before, key=lambda row: row.weight).id
+
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+
+        await learner._save_expression_patterns(
+            [
+                ExpressionPattern(
+                    situation="今晚安排",
+                    expression="偷偷刷视频",
+                    weight=1.0,
+                    last_active_time=30.0,
+                    create_time=30.0,
+                    group_id="group-a",
+                )
+            ],
+            "group-a",
+        )
+
+        async with db.get_session() as session:
+            rows = (
+                await session.execute(
+                    select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.group_id == "group-a",
+                        ExpressionPatternORM.situation == "今晚安排",
+                        ExpressionPatternORM.expression == "偷偷刷视频",
+                    )
+                )
+            ).scalars().all()
+
+        assert len(rows) == 2
+        assert {row.id for row in rows} == original_ids
+        strongest_after = max(rows, key=lambda row: row.weight)
+        assert strongest_after.id == strongest_before_id
+        assert strongest_after.weight == 4.0
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact_modulo():
     config = SimpleNamespace(
         enable_jargon_learning=True,
@@ -282,14 +448,8 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
         enable_goal_driven_chat=False,
     )
     collector = SimpleNamespace(
-        collect_message=AsyncMock(),
-        get_statistics=AsyncMock(
-            side_effect=[
-                {"raw_messages": 11},
-                {"raw_messages": 19},
-                {"raw_messages": 21},
-            ]
-        ),
+        collect_message=AsyncMock(return_value=True),
+        get_statistics=AsyncMock(return_value={"raw_messages": 11}),
     )
     enhanced_interaction = SimpleNamespace(
         update_conversation_context=AsyncMock(),
@@ -323,19 +483,19 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
         get_platform_name=lambda: "test",
     )
 
-    await pipeline.process_learning("group-a", "user-a", "第11条消息", event)
-    await asyncio.gather(*spawned)
-    spawned.clear()
-
-    await pipeline.process_learning("group-a", "user-a", "第19条消息", event)
-    await asyncio.gather(*spawned)
-    spawned.clear()
-
-    await pipeline.process_learning("group-a", "user-a", "第21条消息", event)
-    await asyncio.gather(*spawned)
+    for count in range(11, 22):
+        await pipeline.process_learning(
+            "group-a",
+            "user-a",
+            f"第{count}条消息",
+            event,
+        )
+        await asyncio.gather(*spawned)
+        spawned.clear()
 
     assert pipeline.mine_jargon.await_count == 2
     pipeline.mine_jargon.assert_any_await("group-a")
+    collector.get_statistics.assert_awaited_once_with("group-a")
 
 
 @pytest.mark.unit
@@ -584,3 +744,47 @@ async def test_learning_service_style_review_uses_unified_persona_review_path(
 
     assert await service.approve_style_learning_review(42) == (True, "ok")
     assert calls == [("style_42", "approve")]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_learning_service_style_review_exposes_detail_fields():
+    database_manager = SimpleNamespace(
+        get_pending_style_reviews=AsyncMock(
+            return_value=[
+                {
+                    "id": 7,
+                    "group_id": "group-a",
+                    "description": "提取了 1 个表达模式",
+                    "timestamp": 1234567890,
+                    "created_at": "2026-05-25T00:00:00",
+                    "status": "pending",
+                    "learned_patterns": json.dumps(
+                        [
+                            {
+                                "situation": "打招呼",
+                                "expression": "我来了",
+                                "confidence": 0.9,
+                            }
+                        ],
+                        ensure_ascii=False,
+                    ),
+                    "few_shots_content": "A: 你好\nB: 我来了",
+                }
+            ]
+        )
+    )
+    service = LearningService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.get_style_learning_reviews()
+    review = result["reviews"][0]
+
+    assert review["pattern_details"] == [
+        {
+            "situation": "打招呼",
+            "expression": "我来了",
+            "weight": None,
+            "confidence": 0.9,
+        }
+    ]
+    assert review["few_shot_pairs"] == [{"user": "你好", "bot": "我来了"}]

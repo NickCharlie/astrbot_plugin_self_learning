@@ -52,6 +52,35 @@ def test_dashboard_exposes_learning_content_browser():
     assert "data-content-type=\"history\"" in text
 
 
+def test_dashboard_review_details_use_backend_structured_fields():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "item && item.pattern_details" in text
+    assert "item && item.few_shot_pairs" in text
+    assert "renderStyleReviewDetails(item)" in text
+    assert "renderChangePreview(item)" in text
+    assert "persona_change_preview" in text
+    assert "persona_change_snapshot" in text
+    assert "before_system_prompt" in text
+    assert "after_begin_dialogs" in text
+    assert "/api/persona_updates/reviewed?limit=5" in text
+    assert "reviewedPersonaList" in text
+    assert "追加到 begin_dialogs" in text
+    assert "item.definition || item.meaning || item.review_detail" in text
+    assert "renderContextExamples(item)" in text
+
+
+def test_dashboard_review_deletes_use_inline_confirmation():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "function showConfirm(title, message, confirmText)" in text
+    assert "confirm-overlay" in text
+    assert "showConfirm('删除审查记录', '确定删除这条审查记录？不可撤销。', '确认删除')" in text
+    assert "showConfirm('删除黑话', '确定删除这条黑话？不可撤销。', '确认删除')" in text
+    assert "window.confirm('确定删除这条审查记录" not in text
+    assert "window.confirm('确定删除这条黑话" not in text
+
+
 def test_dashboard_exposes_structured_ai_insight_panel():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
@@ -133,6 +162,22 @@ def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
     assert "const options = providerOptionsForField(field);" in text
     assert "else if (field.widget === 'provider' && providerOptionsForField(field).length)" not in text
     assert "未找到 ${escapeHtml(providerLabel)} Provider" in text
+
+
+def test_dashboard_settings_exposes_manual_save_button():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert 'id="configSaveBtn"' in text
+    assert 'aria-label="手动保存设置"' in text
+    assert "手动保存设置" in text
+    assert "configSaveBtn" in text
+    assert "saveConfigPanel" in text
+    assert "function updateConfigActionStates()" in text
+    assert "configSaveBtn.disabled" in text
+    assert "dirtyCount === 0" in text
+    assert "!hasSchema || busy" in text
+    assert "配置面板尚未加载" in text
+    assert "正在保存配置" in text
 
 
 def test_dashboard_zero_message_insight_reflects_full_learning_default():
