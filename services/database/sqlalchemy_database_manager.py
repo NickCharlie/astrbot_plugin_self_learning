@@ -562,6 +562,13 @@ class SQLAlchemyDatabaseManager:
             review_id, status, reviewer_comment,
         )
 
+    async def update_style_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any],
+    ) -> bool:
+        return await self._learning.update_style_review_metadata(
+            review_id, metadata_patch,
+        )
+
     async def delete_style_review_by_id(self, review_id: int) -> bool:
         return await self._learning.delete_style_review_by_id(review_id)
 
@@ -596,6 +603,13 @@ class SQLAlchemyDatabaseManager:
     ) -> bool:
         return await self._learning.update_persona_learning_review_status(
             review_id, status, comment, modified_content,
+        )
+
+    async def update_persona_learning_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any],
+    ) -> bool:
+        return await self._learning.update_persona_learning_review_metadata(
+            review_id, metadata_patch,
         )
 
     async def get_learning_batch_history(

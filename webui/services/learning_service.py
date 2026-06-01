@@ -86,6 +86,7 @@ class LearningService:
         # 格式化审查数据
         formatted_reviews = []
         for review in pending_reviews:
+            review_id = f"style_{review['id']}"
             formatted_review = {
                 'id': review['id'],
                 'type': '对话风格学习',
@@ -95,8 +96,21 @@ class LearningService:
                 'created_at': review['created_at'],
                 'status': review['status'],
                 'learned_patterns': review['learned_patterns'],
-                'few_shots_content': review['few_shots_content']
+                'few_shots_content': review['few_shots_content'],
+                'metadata': review.get('metadata', {}),
+                'review_source': 'style_learning',
             }
+            try:
+                review_service = PersonaReviewService(self.container)
+                formatted_review['change_preview'] = await review_service._build_change_preview(
+                    review_id=review_id,
+                    review_source='style_learning',
+                    group_id=review['group_id'],
+                    proposed_content=review.get('few_shots_content', '') or '',
+                    style_review=review,
+                )
+            except Exception as e:
+                logger.warning(f"构建风格学习审查预览失败 id={review.get('id')}: {e}", exc_info=True)
             formatted_reviews.append(formatted_review)
 
         return {

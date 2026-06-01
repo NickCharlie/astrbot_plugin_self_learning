@@ -855,6 +855,78 @@
             overflow: hidden;
         }
 
+        .review-preview {
+            display: grid;
+            gap: 8px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        .review-preview-head {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .review-field {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            overflow: hidden;
+        }
+
+        .review-field-title {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 7px 9px;
+            border-bottom: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .diff-lines {
+            display: grid;
+            max-height: 190px;
+            overflow: auto;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .diff-line {
+            display: grid;
+            grid-template-columns: 18px minmax(0, 1fr);
+            gap: 6px;
+            padding: 3px 8px;
+            border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .diff-line:last-child {
+            border-bottom: 0;
+        }
+
+        .diff-line.add {
+            color: var(--success);
+            background: color-mix(in srgb, var(--success) 10%, transparent);
+        }
+
+        .diff-line.remove {
+            color: var(--danger);
+            background: color-mix(in srgb, var(--danger) 9%, transparent);
+        }
+
+        .diff-line.same {
+            color: var(--muted);
+        }
+
         .item-actions {
             display: flex;
             flex-wrap: wrap;
@@ -1194,6 +1266,22 @@
             flex-wrap: wrap;
             justify-content: flex-end;
             gap: 8px;
+        }
+
+        .dependency-install-controls {
+            display: grid;
+            gap: 8px;
+            justify-items: end;
+        }
+
+        .dependency-mirror-select {
+            min-width: 220px;
+            height: 38px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text);
+            padding: 0 10px;
         }
 
         .dependency-tier-btn {
@@ -2140,15 +2228,25 @@
                     <h3>手动安装依赖</h3>
                     <p>基础能力依赖覆盖人格审查、黑话学习、表达方式学习与 WebUI。全能力依赖包含图谱、监控、外部数据库、LightRAG 与 Mem0。</p>
                 </div>
-                <div class="dependency-tier-actions">
-                    <button class="dependency-tier-btn" type="button" data-dependency-tier="basic">
-                        <span class="material-icons">bolt</span>
-                        基础能力依赖
-                    </button>
-                    <button class="dependency-tier-btn primary" type="button" data-dependency-tier="full">
-                        <span class="material-icons">deployed_code</span>
-                        全能力依赖
-                    </button>
+                <div class="dependency-install-controls">
+                    <select id="pipMirrorSelect" class="dependency-mirror-select" aria-label="pip 镜像源">
+                        <option value="default">PyPI 默认源</option>
+                        <option value="tsinghua">清华大学 TUNA</option>
+                        <option value="aliyun">阿里云</option>
+                        <option value="tencent">腾讯云</option>
+                        <option value="ustc">中国科大 USTC</option>
+                        <option value="douban">豆瓣</option>
+                    </select>
+                    <div class="dependency-tier-actions">
+                        <button class="dependency-tier-btn" type="button" data-dependency-tier="basic">
+                            <span class="material-icons">bolt</span>
+                            基础能力依赖
+                        </button>
+                        <button class="dependency-tier-btn primary" type="button" data-dependency-tier="full">
+                            <span class="material-icons">deployed_code</span>
+                            全能力依赖
+                        </button>
+                    </div>
                 </div>
             </div>
             <div id="dependencyStatus" class="config-status dependency-status">依赖安装需手动确认，不会在插件安装或启动时自动执行。</div>
@@ -2183,6 +2281,7 @@
                 },
                 dependencyInstall: {
                     busy: false,
+                    mirror: localStorage.getItem('sl-pip-mirror') || 'default',
                 },
                 actionBusy: new Set(),
                 graph: {
@@ -2325,6 +2424,153 @@
                 }
 
                 return 0;
+            }
+
+            function stringLines(value) {
+                const text = textOrDash(value);
+                if (!text || text === '--') {
+                    return [];
+                }
+                return text.split(/\r?\n/);
+            }
+
+            function buildLineDiff(beforeValue, afterValue) {
+                const before = stringLines(beforeValue);
+                const after = stringLines(afterValue);
+                const rows = before.length + 1;
+                const cols = after.length + 1;
+                const table = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+                for (let i = before.length - 1; i >= 0; i -= 1) {
+                    for (let j = after.length - 1; j >= 0; j -= 1) {
+                        table[i][j] = before[i] === after[j]
+                            ? table[i + 1][j + 1] + 1
+                            : Math.max(table[i + 1][j], table[i][j + 1]);
+                    }
+                }
+
+                const diff = [];
+                let i = 0;
+                let j = 0;
+                while (i < before.length && j < after.length) {
+                    if (before[i] === after[j]) {
+                        diff.push({ type: 'same', text: before[i] });
+                        i += 1;
+                        j += 1;
+                    } else if (table[i + 1][j] >= table[i][j + 1]) {
+                        diff.push({ type: 'remove', text: before[i] });
+                        i += 1;
+                    } else {
+                        diff.push({ type: 'add', text: after[j] });
+                        j += 1;
+                    }
+                }
+                while (i < before.length) {
+                    diff.push({ type: 'remove', text: before[i] });
+                    i += 1;
+                }
+                while (j < after.length) {
+                    diff.push({ type: 'add', text: after[j] });
+                    j += 1;
+                }
+                return diff;
+            }
+
+            function renderDiffLines(beforeValue, afterValue) {
+                const diff = buildLineDiff(beforeValue, afterValue);
+                const visible = diff.length ? diff : [{ type: 'same', text: '无内容' }];
+                return `
+                    <div class="diff-lines">
+                        ${visible.map((line) => {
+                            const prefix = line.type === 'add' ? '+' : (line.type === 'remove' ? '-' : ' ');
+                            return `
+                                <div class="diff-line ${escapeHtml(line.type)}">
+                                    <span>${escapeHtml(prefix)}</span>
+                                    <span>${escapeHtml(line.text || ' ')}</span>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            }
+
+            function renderDialogDiff(beforeDialogs, afterDialogs) {
+                return renderDiffLines(safeArray(beforeDialogs).join('\n'), safeArray(afterDialogs).join('\n'));
+            }
+
+            function targetFieldLabel(field) {
+                if (field === 'begin_dialogs') {
+                    return 'begin_dialogs';
+                }
+                if (field === 'system_prompt') {
+                    return 'system_prompt';
+                }
+                return field || '未指定';
+            }
+
+            function applicationModeLabel(mode) {
+                const labels = {
+                    append_system_prompt: '追加到 system_prompt',
+                    replace_system_prompt: '覆盖 system_prompt',
+                    append_begin_dialogs: '追加到 begin_dialogs',
+                    none: '不自动应用',
+                };
+                return labels[mode] || mode || '未指定';
+            }
+
+            function renderChangePreview(item) {
+                const preview = (item && (item.change_snapshot || item.change_preview)) || null;
+                if (!preview) {
+                    return '';
+                }
+
+                const fields = safeArray(preview.target_fields);
+                const fieldSet = new Set(fields);
+                const fieldLabels = fields.length
+                    ? fields.map((field) => targetFieldLabel(field)).join(' / ')
+                    : '未指定字段';
+                const personaName = preview.applied_persona_name || preview.applied_persona_id || '当前人格';
+                const sections = [];
+
+                if (fieldSet.has('system_prompt') || (!fields.length && (preview.before_system_prompt || preview.after_system_prompt))) {
+                    sections.push(`
+                        <div class="review-field">
+                            <div class="review-field-title">
+                                <span>system_prompt</span>
+                                <span>${escapeHtml(applicationModeLabel(preview.application_mode))}</span>
+                            </div>
+                            ${renderDiffLines(preview.before_system_prompt || '', preview.after_system_prompt || '')}
+                        </div>
+                    `);
+                }
+
+                if (fieldSet.has('begin_dialogs') || (!fields.length && safeArray(preview.after_begin_dialogs).length)) {
+                    sections.push(`
+                        <div class="review-field">
+                            <div class="review-field-title">
+                                <span>begin_dialogs</span>
+                                <span>${escapeHtml(applicationModeLabel(preview.application_mode))}</span>
+                            </div>
+                            ${renderDialogDiff(preview.before_begin_dialogs, preview.after_begin_dialogs)}
+                        </div>
+                    `);
+                }
+
+                const proposed = preview.proposed_content
+                    ? `<div class="body clamp">${escapeHtml(preview.proposed_content)}</div>`
+                    : '';
+
+                return `
+                    <div class="review-preview">
+                        <div class="review-preview-head">
+                            <span class="chip"><b>${escapeHtml(personaName)}</b></span>
+                            <span class="chip"><b>${escapeHtml(fieldLabels)}</b></span>
+                            <span>${escapeHtml(applicationModeLabel(preview.application_mode))}</span>
+                        </div>
+                        ${proposed}
+                        ${sections.join('')}
+                    </div>
+                `;
             }
 
             function resolvePageFromHash() {
@@ -3075,6 +3321,7 @@
                             confidenceLabel(item.confidence_score),
                         ].filter(Boolean).join(' · ');
                         const body = item.proposed_content || item.new_content || item.reason || item.original_content || '暂无内容';
+                        const changePreview = renderChangePreview(item);
 
                         return `
                             <div class="item" data-review-id="${escapeHtml(id)}">
@@ -3084,6 +3331,7 @@
                                 </div>
                                 <div class="meta">${escapeHtml(meta || '待审')}</div>
                                 <div class="body clamp">${escapeHtml(body)}</div>
+                                ${changePreview}
                                 <div class="item-actions">
                                     ${actionButton('persona-approve', id, 'check', '批准', 'success')}
                                     ${actionButton('persona-reject', id, 'close', '拒绝', 'warning')}
@@ -3098,7 +3346,8 @@
 
             function renderStyleQueue(reviews) {
                 const rows = safeArray(reviews).slice(0, 5).map((item) => {
-                    const reviewId = `style_${item.id}`;
+                    const rawId = String(item.id || '');
+                    const reviewId = rawId.startsWith('style_') ? rawId : `style_${rawId}`;
                     const count = patternCount(item.learned_patterns);
                     const title = item.type || '对话风格学习';
                     const meta = [
@@ -3107,6 +3356,7 @@
                         count ? `模式 ${formatCount(count)}` : null,
                     ].filter(Boolean).join(' · ');
                     const body = item.description || item.few_shots_content || '暂无内容';
+                    const changePreview = renderChangePreview(item);
 
                     return `
                         <div class="item" data-review-id="${escapeHtml(reviewId)}">
@@ -3116,6 +3366,7 @@
                             </div>
                             <div class="meta">${escapeHtml(meta || '待审')}</div>
                             <div class="body clamp">${escapeHtml(body)}</div>
+                            ${changePreview}
                             <div class="item-actions">
                                 ${actionButton('persona-approve', reviewId, 'check', '批准', 'success')}
                                 ${actionButton('persona-reject', reviewId, 'close', '拒绝', 'warning')}
@@ -3261,7 +3512,8 @@
                 $('personaCount').textContent = `${formatCount(personaBacklog)} 条`;
                 $('styleCount').textContent = `${formatCount(styleBacklog)} 条`;
                 $('personaList').innerHTML = renderPersonaQueue(personaUpdates);
-                $('styleList').innerHTML = renderStyleQueue(style.reviews);
+                const styleUpdatesFromPersona = personaUpdates.filter((item) => item && item.review_source === 'style_learning');
+                $('styleList').innerHTML = renderStyleQueue(styleUpdatesFromPersona.length ? styleUpdatesFromPersona : style.reviews);
 
                 $('jargonHint').textContent = `候选 ${formatCount((jargon.total_candidates ?? jargon.totalCandidates) || 0)}`;
 
@@ -4461,6 +4713,10 @@
                 document.querySelectorAll('[data-dependency-tier]').forEach((button) => {
                     button.disabled = state.dependencyInstall.busy;
                 });
+                const mirrorSelect = $('pipMirrorSelect');
+                if (mirrorSelect) {
+                    mirrorSelect.disabled = state.dependencyInstall.busy;
+                }
             }
 
             async function installDependencyTier(tier) {
@@ -4470,22 +4726,29 @@
 
                 const normalizedTier = tier === 'basic' ? 'basic' : 'full';
                 const tierLabel = normalizedTier === 'basic' ? '基础能力依赖' : '全能力依赖';
-                const confirmed = window.confirm(`将通过 pip 手动安装${tierLabel}。安装可能需要几分钟，是否继续？`);
+                const mirrorSelect = $('pipMirrorSelect');
+                const pipMirror = mirrorSelect ? (mirrorSelect.value || 'default') : 'default';
+                const mirrorLabel = mirrorSelect && mirrorSelect.selectedOptions.length
+                    ? mirrorSelect.selectedOptions[0].textContent
+                    : 'PyPI 默认源';
+                const confirmed = window.confirm(`将通过 pip 手动安装${tierLabel}，镜像源：${mirrorLabel}。安装可能需要几分钟，是否继续？`);
                 if (!confirmed) {
                     return;
                 }
 
                 setDependencyInstallBusy(true);
-                updateDependencyInstallStatus(`正在安装${tierLabel}，请保持当前页面打开。`);
+                updateDependencyInstallStatus(`正在安装${tierLabel}，镜像源：${mirrorLabel}。`);
                 try {
                     const payload = await postJson('/api/dependencies/install', {
                         manual_confirmed: true,
                         source: 'system_settings',
                         tier: normalizedTier,
+                        pip_mirror: pipMirror,
                     });
                     const packageCount = safeArray(payload.packages).length;
                     const suffix = packageCount ? `，共 ${packageCount} 个包。` : '。';
-                    updateDependencyInstallStatus(payload.message || `${tierLabel}安装完成${suffix}`, 'success');
+                    const usedMirror = payload.pip_mirror_label || mirrorLabel;
+                    updateDependencyInstallStatus(`${payload.message || `${tierLabel}安装完成${suffix}`} 镜像源：${usedMirror}`, 'success');
                 } catch (error) {
                     updateDependencyInstallStatus(`${tierLabel}安装失败: ${error.message}`, 'error');
                 } finally {
@@ -5078,6 +5341,14 @@
                 $('integrationConfigSaveBtn').addEventListener('click', saveConfigPanel);
                 $('integrationConfigResetBtn').addEventListener('click', resetConfigPanel);
                 $('integrationConfigReloadBtn').addEventListener('click', reloadConfigPanel);
+                const pipMirrorSelect = $('pipMirrorSelect');
+                if (pipMirrorSelect) {
+                    pipMirrorSelect.value = state.dependencyInstall.mirror;
+                    pipMirrorSelect.addEventListener('change', (event) => {
+                        state.dependencyInstall.mirror = event.target.value || 'default';
+                        localStorage.setItem('sl-pip-mirror', state.dependencyInstall.mirror);
+                    });
+                }
 
                 document.body.addEventListener('click', (event) => {
                     const actionTarget = event.target.closest('[data-dashboard-action]');

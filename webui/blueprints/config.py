@@ -56,6 +56,32 @@ DEPENDENCY_TIERS = {
 }
 _dependency_install_lock = asyncio.Lock()
 MANUAL_DEPENDENCY_INSTALL_SOURCE = "system_settings"
+PIP_MIRROR_SOURCES = {
+    "default": {
+        "label": "PyPI 默认源",
+        "index_url": None,
+    },
+    "tsinghua": {
+        "label": "清华大学 TUNA",
+        "index_url": "https://pypi.tuna.tsinghua.edu.cn/simple",
+    },
+    "aliyun": {
+        "label": "阿里云",
+        "index_url": "https://mirrors.aliyun.com/pypi/simple/",
+    },
+    "tencent": {
+        "label": "腾讯云",
+        "index_url": "https://mirrors.cloud.tencent.com/pypi/simple",
+    },
+    "ustc": {
+        "label": "中国科大 USTC",
+        "index_url": "https://pypi.mirrors.ustc.edu.cn/simple",
+    },
+    "douban": {
+        "label": "豆瓣",
+        "index_url": "https://pypi.doubanio.com/simple",
+    },
+}
 
 
 @config_bp.route("/config", methods=["GET"])
@@ -143,6 +169,19 @@ async def install_plugin_dependencies():
         )
         return error_response("当前环境未启用依赖安装功能", 403)
 
+    mirror_key = str(
+        payload.get("pip_mirror")
+        or payload.get("mirror")
+        or "default"
+    ).strip().lower()
+    mirror_definition = PIP_MIRROR_SOURCES.get(mirror_key)
+    if not mirror_definition:
+        logger.warning(
+            f"[WebUI] 拒绝插件依赖安装请求：未知 pip 镜像源 {mirror_key!r}，"
+            f"user={user_id}, remote_addr={client_ip}"
+        )
+        return error_response("未知 pip 镜像源，请从设置界面选择可用镜像", 400)
+
     tier = str(payload.get("tier") or "full").strip().lower()
     tier_definition = DEPENDENCY_TIERS.get(tier)
     if not tier_definition:
@@ -170,7 +209,7 @@ async def install_plugin_dependencies():
 
     logger.info(
         f"[WebUI] 收到插件依赖安装请求，tier={tier}, label={tier_label}, "
-        f"user={user_id}, remote_addr={client_ip}, "
+        f"pip_mirror={mirror_key}, user={user_id}, remote_addr={client_ip}, "
         f"packages={packages_to_install}"
     )
 
@@ -182,6 +221,10 @@ async def install_plugin_dependencies():
         return error_response("依赖安装正在进行中，请稍后再试", 409)
 
     async with _dependency_install_lock:
+        pip_index_args = []
+        if mirror_definition["index_url"]:
+            pip_index_args = ["--index-url", mirror_definition["index_url"]]
+
         cmd = [
             sys.executable,
             "-m",
@@ -189,11 +232,12 @@ async def install_plugin_dependencies():
             "install",
             "--disable-pip-version-check",
             "--no-input",
+            *pip_index_args,
             *packages_to_install,
         ]
         logger.info(
             f"[WebUI] 开始手动安装插件依赖，tier={tier}, label={tier_label}, "
-            f"user={user_id}, packages={packages_to_install}"
+            f"pip_mirror={mirror_key}, user={user_id}, packages={packages_to_install}"
         )
         try:
             process = await asyncio.create_subprocess_exec(
@@ -208,23 +252,32 @@ async def install_plugin_dependencies():
             combined_output = (output + "\n" + error).strip()
 
             if process.returncode == 0:
-                logger.info(f"[WebUI] 插件依赖安装完成，tier={tier}, label={tier_label}")
+                logger.info(
+                    f"[WebUI] 插件依赖安装完成，tier={tier}, label={tier_label}, "
+                    f"pip_mirror={mirror_key}"
+                )
                 return jsonify({
                     "message": f"{tier_label}安装完成",
                     "tier": tier,
                     "tier_label": tier_label,
+                    "pip_mirror": mirror_key,
+                    "pip_mirror_label": mirror_definition["label"],
+                    "pip_index_url": mirror_definition["index_url"],
                     "packages": packages_to_install,
                     "output": combined_output[-8000:],
                 }), 200
 
             logger.error(
                 f"[WebUI] 插件依赖安装失败，tier={tier}, label={tier_label}, "
-                f"退出码: {process.returncode}\n{combined_output}"
+                f"pip_mirror={mirror_key}, 退出码: {process.returncode}\n{combined_output}"
             )
             return jsonify({
                 "message": f"{tier_label}安装失败，退出码: {process.returncode}",
                 "tier": tier,
                 "tier_label": tier_label,
+                "pip_mirror": mirror_key,
+                "pip_mirror_label": mirror_definition["label"],
+                "pip_index_url": mirror_definition["index_url"],
                 "packages": packages_to_install,
                 "output": combined_output[-8000:],
             }), 500
