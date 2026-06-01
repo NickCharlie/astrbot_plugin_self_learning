@@ -117,6 +117,21 @@ class LearningFacade(BaseFacade):
             self._logger.error(f"[LearningFacade] 读取人格变更快照失败: {e}")
             return None
 
+    @staticmethod
+    def _json_loads_or_empty(raw_value: Any) -> Dict[str, Any]:
+        """Decode JSON metadata defensively."""
+        if not raw_value:
+            return {}
+        try:
+            value = json.loads(raw_value)
+        except (TypeError, ValueError):
+            return {}
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _json_dumps_metadata(metadata: Dict[str, Any]) -> str:
+        return json.dumps(metadata or {}, ensure_ascii=False)
+
     # Persona Learning Review methods
 
     async def add_persona_learning_review(self, review_data: Dict[str, Any]) -> int:
@@ -184,7 +199,7 @@ class LearningFacade(BaseFacade):
                         'status': r.status,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
-                        'metadata': json.loads(r.metadata_) if r.metadata_ else {},
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -301,7 +316,7 @@ class LearningFacade(BaseFacade):
                     'status': r.status,
                     'reviewer_comment': r.reviewer_comment,
                     'review_time': r.review_time,
-                    'metadata': json.loads(r.metadata_) if r.metadata_ else {},
+                    'metadata': self._json_loads_or_empty(r.metadata_),
                 }
         except Exception as e:
             self._logger.error(f"[LearningFacade] 获取人格更新记录失败: {e}")
@@ -356,7 +371,7 @@ class LearningFacade(BaseFacade):
                         'status': r.status,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
-                        'metadata': json.loads(r.metadata_) if r.metadata_ else {},
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -405,7 +420,7 @@ class LearningFacade(BaseFacade):
                         'status': r.status,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
-                        'metadata': json.loads(r.metadata_) if r.metadata_ else {},
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -462,6 +477,7 @@ class LearningFacade(BaseFacade):
                         'status': r.status,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -553,6 +569,30 @@ class LearningFacade(BaseFacade):
             self._logger.error(f"[LearningFacade] 更新人格学习审核记录状态失败: {e}")
             return False
 
+    async def update_persona_learning_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any]
+    ) -> bool:
+        """合并更新人格学习审核记录 metadata。"""
+        try:
+            async with self.get_session() as session:
+
+                stmt = select(PersonaLearningReview).where(
+                    PersonaLearningReview.id == review_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+                if not record:
+                    return False
+
+                metadata = self._json_loads_or_empty(record.metadata_)
+                metadata.update(metadata_patch or {})
+                record.metadata_ = self._json_dumps_metadata(metadata)
+                await session.commit()
+                return True
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 更新人格学习审核 metadata 失败: {e}")
+            return False
+
     # Style Learning Review methods
 
     async def create_style_learning_review(
@@ -582,6 +622,9 @@ class LearningFacade(BaseFacade):
                     few_shots_content=review_data.get('few_shots_content', ''),
                     status='pending',
                     description=review_data.get('description', ''),
+                    metadata_=self._json_dumps_metadata(review_data.get('metadata', {}))
+                    if review_data.get('metadata')
+                    else None,
                 )
                 session.add(record)
                 await session.commit()
@@ -631,6 +674,7 @@ class LearningFacade(BaseFacade):
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
                         'created_at': r.created_at,
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -719,6 +763,7 @@ class LearningFacade(BaseFacade):
                         'description': r.description,
                         'reviewer_comment': r.reviewer_comment,
                         'review_time': r.review_time,
+                        'metadata': self._json_loads_or_empty(r.metadata_),
                     }
                     for r in rows
                 ]
@@ -757,6 +802,30 @@ class LearningFacade(BaseFacade):
                 return True
         except Exception as e:
             self._logger.error(f"[LearningFacade] 更新风格学习审核记录状态失败: {e}")
+            return False
+
+    async def update_style_review_metadata(
+        self, review_id: int, metadata_patch: Dict[str, Any]
+    ) -> bool:
+        """合并更新风格学习审核记录 metadata。"""
+        try:
+            async with self.get_session() as session:
+
+                stmt = select(StyleLearningReview).where(
+                    StyleLearningReview.id == review_id
+                )
+                result = await session.execute(stmt)
+                record = result.scalar_one_or_none()
+                if not record:
+                    return False
+
+                metadata = self._json_loads_or_empty(record.metadata_)
+                metadata.update(metadata_patch or {})
+                record.metadata_ = self._json_dumps_metadata(metadata)
+                await session.commit()
+                return True
+        except Exception as e:
+            self._logger.error(f"[LearningFacade] 更新风格学习审核 metadata 失败: {e}")
             return False
 
     async def delete_style_review_by_id(self, review_id: int) -> bool:

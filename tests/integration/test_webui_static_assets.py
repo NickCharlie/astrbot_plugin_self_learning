@@ -58,7 +58,7 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "item && item.pattern_details" in text
     assert "item && item.few_shot_pairs" in text
     assert "renderStyleReviewDetails(item)" in text
-    assert "renderPersonaChangeDiff(item)" in text
+    assert "renderChangePreview(item)" in text
     assert "persona_change_preview" in text
     assert "persona_change_snapshot" in text
     assert "before_system_prompt" in text
@@ -130,6 +130,22 @@ def test_dashboard_exposes_tiered_dependency_install_controls():
     assert "installDependencyTier" in text
     assert "data-dependency-tier=\"basic\"" in text
     assert "data-dependency-tier=\"full\"" in text
+    assert "pipMirrorSelect" in text
+    assert "pip_mirror" in text
+    assert "清华大学 TUNA" in text
+
+
+def test_dashboard_exposes_persona_review_diff_preview():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "renderChangePreview" in text
+    assert "buildLineDiff" in text
+    assert "before_system_prompt" in text
+    assert "after_system_prompt" in text
+    assert "before_begin_dialogs" in text
+    assert "after_begin_dialogs" in text
+    assert "追加到 begin_dialogs" in text
+    assert "review-preview" in text
 
 
 def test_dashboard_filters_provider_selects_by_astrbot_provider_type():

@@ -95,6 +95,7 @@ class LearningService:
             few_shot_pairs = self._parse_few_shot_pairs(
                 review.get('few_shots_content')
             )
+            review_id = f"style_{review['id']}"
             formatted_review = {
                 'id': review['id'],
                 'review_source': 'style_learning',
@@ -106,6 +107,7 @@ class LearningService:
                 'status': review['status'],
                 'learned_patterns': review['learned_patterns'],
                 'few_shots_content': review['few_shots_content'],
+                'metadata': review.get('metadata', {}),
                 'pattern_details': pattern_details,
                 'few_shot_pairs': few_shot_pairs,
                 'persona_change_preview': await persona_review_service._style_preview(
@@ -117,6 +119,17 @@ class LearningService:
                     str(review['id']),
                 ),
             }
+            try:
+                review_service = PersonaReviewService(self.container)
+                formatted_review['change_preview'] = await review_service._build_change_preview(
+                    review_id=review_id,
+                    review_source='style_learning',
+                    group_id=review['group_id'],
+                    proposed_content=review.get('few_shots_content', '') or '',
+                    style_review=review,
+                )
+            except Exception as e:
+                logger.warning(f"构建风格学习审查预览失败 id={review.get('id')}: {e}", exc_info=True)
             formatted_reviews.append(formatted_review)
 
         return {
