@@ -49,7 +49,7 @@ async def clear_messages():
 @data_management_bp.route("/clear/persona_reviews", methods=["DELETE"])
 @require_auth
 async def clear_persona_reviews():
-    """清空所有人格审查数据"""
+    """清空所有人格审查和人格学习数据"""
     try:
         container = get_container()
         service = DataManagementService(container)

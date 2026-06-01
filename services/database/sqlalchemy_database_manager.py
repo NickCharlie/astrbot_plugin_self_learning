@@ -1236,6 +1236,15 @@ class SQLAlchemyDatabaseManager:
     async def clear_learning_history_data(self) -> Dict[str, Any]:
         return await self._admin.clear_learning_history_data()
 
+    async def clear_memory_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_memory_data()
+
+    async def clear_knowledge_graph_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_knowledge_graph_data()
+
+    async def clear_runtime_state_data(self) -> Dict[str, Any]:
+        return await self._admin.clear_runtime_state_data()
+
     async def clear_all_plugin_data(self) -> Dict[str, Any]:
         return await self._admin.clear_all_plugin_data()
 
