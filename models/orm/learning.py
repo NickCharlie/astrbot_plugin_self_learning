@@ -45,6 +45,7 @@ class StyleLearningReview(Base):
     description = Column(Text) # 描述信息
     reviewer_comment = Column(Text) # 审查评论
     review_time = Column(Float) # 审查时间
+    metadata_ = Column('metadata', Text) # JSON格式的元数据，保存人格变更快照等审查上下文
     # 修改为 DateTime 类型以兼容 MySQL 的 DATETIME
     # SQLite 使用 TIMESTAMP，MySQL 使用 DATETIME，SQLAlchemy 的 DateTime 可以自动适配
     created_at = Column(DateTime) # 创建时间

@@ -368,7 +368,8 @@ class PersonaUpdater(IPersonaUpdater):
                     'reviewer_comment': record.get('reviewer_comment'),
                     'review_time': record.get('review_time'),
                     'timestamp': record.get('timestamp'),
-                    'update_type': 'traditional_persona_update'
+                    'update_type': 'traditional_persona_update',
+                    'metadata': record.get('metadata', {}),
                 })
             
             return updates

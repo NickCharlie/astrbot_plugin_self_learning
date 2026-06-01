@@ -38,6 +38,7 @@ def mock_plugin_config():
     config.max_tokens = 2000
     config.learning_enabled = True
     config.auto_learning = True
+    config.auto_apply_approved_persona = False
     config.learning_interval = 3600
     config.min_confidence = 0.6
     config.bug_report_enabled = True
@@ -78,6 +79,7 @@ def mock_database_manager():
     # Style learning methods
     manager.get_pending_style_reviews = AsyncMock(return_value=[])
     manager.update_style_review_status = AsyncMock(return_value=True)
+    manager.update_style_review_metadata = AsyncMock(return_value=True)
     manager.get_style_learning_results = AsyncMock(return_value={
         'total': 0,
         'approved': 0,
@@ -87,7 +89,10 @@ def mock_database_manager():
 
     # Persona learning methods
     manager.get_pending_persona_learning_reviews = AsyncMock(return_value=[])
+    manager.get_persona_update_record_by_id = AsyncMock(return_value=None)
+    manager.update_persona_update_record_status = AsyncMock(return_value=True)
     manager.update_persona_learning_review_status = AsyncMock(return_value=True)
+    manager.update_persona_learning_review_metadata = AsyncMock(return_value=True)
     manager.get_persona_learning_review_by_id = AsyncMock(return_value=None)
     manager.delete_persona_learning_review_by_id = AsyncMock(return_value=True)
     manager.get_reviewed_persona_learning_updates = AsyncMock(return_value=[])
