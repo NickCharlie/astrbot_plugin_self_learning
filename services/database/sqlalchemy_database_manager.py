@@ -72,32 +72,41 @@ class SQLAlchemyDatabaseManager:
                 logger.info("[DomainRouter] 开始启动…")
 
                 db_type = self._get_db_type()
-                db_url = self._get_database_url()
-
-                if db_type == 'mysql':
-                    await self._ensure_mysql_database_exists()
-                elif db_type == 'postgresql':
-                    await self._ensure_postgresql_database_exists()
-                    await self._ensure_postgresql_schema_exists()
-
-                self.engine = DatabaseEngine(db_url, echo=False)
-                logger.info("[DomainRouter] 数据库引擎已创建")
-
-                await self.engine.create_tables(enable_auto_migration=True)
-
-                if await self.engine.health_check():
-                    self._init_facades()
-                    self._started = True
-                    self._starting = False
-                    logger.info("[DomainRouter] 数据库启动成功")
+                if await self._start_backend(db_type, self._get_database_url()):
                     return True
+
+                if db_type == 'postgresql':
+                    logger.warning(
+                        "[DomainRouter] PostgreSQL 不可用，回退到 SQLite 本地数据库"
+                    )
+                    await self._close_engine()
+                    if await self._start_backend(
+                        'sqlite', self._get_sqlite_database_url()
+                    ):
+                        return True
 
                 self._started = False
                 self._starting = False
-                logger.error("[DomainRouter] 数据库健康检查失败")
                 return False
 
             except Exception as e:
+                if self._get_db_type() == 'postgresql':
+                    logger.warning(
+                        f"[DomainRouter] PostgreSQL 启动失败，回退到 SQLite: {e}"
+                    )
+                    await self._close_engine()
+                    try:
+                        if await self._start_backend(
+                            'sqlite', self._get_sqlite_database_url()
+                        ):
+                            return True
+                    except Exception as fallback_error:
+                        logger.error(
+                            f"[DomainRouter] SQLite 回退启动失败: {fallback_error}",
+                            exc_info=True,
+                        )
+                        await self._close_engine()
+
                 self._started = False
                 self._starting = False
                 logger.error(f"[DomainRouter] 启动失败: {e}", exc_info=True)
@@ -142,10 +151,40 @@ class SQLAlchemyDatabaseManager:
 
     # Infrastructure: database URL
 
+    async def _start_backend(self, db_type: str, db_url: str) -> bool:
+        """启动指定数据库后端并同步表结构。"""
+        if db_type == 'mysql':
+            await self._ensure_mysql_database_exists()
+        elif db_type == 'postgresql':
+            await self._ensure_postgresql_database_exists()
+            await self._ensure_postgresql_schema_exists()
+
+        self.engine = DatabaseEngine(db_url, echo=False)
+        logger.info(f"[DomainRouter] 数据库引擎已创建 ({db_type})")
+
+        await self.engine.create_tables(enable_auto_migration=True)
+
+        if await self.engine.health_check():
+            self._init_facades()
+            self._started = True
+            self._starting = False
+            logger.info(f"[DomainRouter] 数据库启动成功 ({db_type})")
+            return True
+
+        logger.error(f"[DomainRouter] 数据库健康检查失败 ({db_type})")
+        await self._close_engine()
+        return False
+
+    async def _close_engine(self):
+        """关闭当前引擎，供失败重试/回退使用。"""
+        if self.engine:
+            await self.engine.close()
+            self.engine = None
+
     def _get_db_type(self) -> str:
         """获取标准化数据库类型。"""
         db_type = (getattr(self.config, 'db_type', 'sqlite') or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg'):
+        if db_type in ('postgres', 'pg', 'pgsql'):
             return 'postgresql'
         return db_type
 
@@ -188,6 +227,10 @@ class SQLAlchemyDatabaseManager:
         if db_type != 'sqlite':
             raise ValueError(f"不支持的数据库类型: {db_type}")
 
+        return self._get_sqlite_database_url()
+
+    def _get_sqlite_database_url(self) -> str:
+        """获取 SQLite 回退数据库连接 URL。"""
         db_path = getattr(self.config, 'messages_db_path', None)
         if not db_path:
             db_path = os.path.join(self.config.data_dir, 'messages.db')

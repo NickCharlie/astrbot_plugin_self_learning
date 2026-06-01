@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 from typing import Optional, Any, Dict, TYPE_CHECKING
 
@@ -32,6 +33,7 @@ class WebUIManager:
         perf_tracker: Any,
         group_id_to_unified_origin: Dict[str, str],
         feature_delegation: Any = None,
+        v2_integration: Any = None,
     ):
         self._config = plugin_config
         self._context = context
@@ -39,6 +41,10 @@ class WebUIManager:
         self._perf_tracker = perf_tracker
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._feature_delegation = feature_delegation
+        self._v2_integration = v2_integration
+        self._database_degraded = False
+        self._database_start_error: Optional[str] = None
+        self._database_start_attempted = False
 
     # 创建
 
@@ -108,19 +114,11 @@ class WebUIManager:
                 logger.info("WebUI 服务器未创建，跳过立即启动；如需使用请在插件设置页面手动安装 WebUI 依赖")
             return
 
-        # 启动数据库
-        try:
-            db_started = await db_manager.start()
-            if not db_started:
-                raise RuntimeError("数据库管理器启动失败")
-        except Exception as e:
-            logger.error(f"启动数据库管理器失败: {e}", exc_info=True)
-            raise
-
         # 设置 WebUI 服务
+        db_manager = await self._ensure_database_manager_started(db_manager)
         astrbot_pm = await self._acquire_persona_manager()
         try:
-            await self._setup_services(astrbot_pm)
+            await self._setup_services(astrbot_pm, db_manager)
         except Exception as e:
             logger.error(f"设置插件服务失败: {e}", exc_info=True)
             return
@@ -242,16 +240,75 @@ class WebUIManager:
 
         return astrbot_persona_manager
 
-    async def _setup_services(self, astrbot_persona_manager: Any) -> None:
+    async def _setup_services(
+        self,
+        astrbot_persona_manager: Any,
+        database_manager: Any = None,
+    ) -> None:
         """调用 set_plugin_services 注册服务到 WebUI 容器"""
         from .dependencies import get_container as _get_webui_container, set_plugin_services
 
         await set_plugin_services(
-            self._config,
-            self._factory_manager,
-            None,
-            astrbot_persona_manager,
-            self._group_id_to_unified_origin,
-            self._feature_delegation,
+            plugin_config=self._config,
+            factory_manager=self._factory_manager,
+            llm_client=None,
+            astrbot_persona_manager=astrbot_persona_manager,
+            group_id_to_unified_origin=self._group_id_to_unified_origin,
+            feature_delegation=self._feature_delegation,
+            database_manager=database_manager,
+            database_degraded=self._database_degraded,
+            database_start_error=self._database_start_error,
+            v2_integration=self._v2_integration,
         )
         _get_webui_container().perf_collector = self._perf_tracker
+
+    def _mark_database_degraded(self, message: str) -> None:
+        self._database_degraded = True
+        self._database_start_error = message
+
+    def _mark_database_available(self) -> None:
+        self._database_degraded = False
+        self._database_start_error = None
+
+    async def _ensure_database_manager_started(self, database_manager: Any) -> Any:
+        """Reuse the plugin database manager and keep WebUI available if it fails."""
+        if database_manager is None:
+            self._mark_database_degraded("数据库管理器不可用")
+            return None
+
+        has_engine_attr = hasattr(database_manager, "engine")
+        needs_start = (
+            has_engine_attr and getattr(database_manager, "engine", None) is None
+        )
+        start = getattr(database_manager, "start", None)
+        if not needs_start:
+            self._mark_database_available()
+            return database_manager
+        if not callable(start):
+            self._mark_database_degraded("数据库管理器没有可调用的 start 方法")
+            return database_manager
+
+        if self._database_start_attempted and self._database_degraded:
+            return database_manager
+
+        logger.info("[WebUI] 数据库管理器尚未启动，注册服务前先启动")
+        self._database_start_attempted = True
+        try:
+            started = start()
+            if inspect.isawaitable(started):
+                started = await started
+        except Exception as e:
+            error_message = str(e) or type(e).__name__
+            self._mark_database_degraded(error_message)
+            logger.warning(
+                f"[WebUI] 数据库管理器启动异常，WebUI 将以数据库受限模式继续启动: {e}",
+                exc_info=True,
+            )
+            return database_manager
+        if started is False:
+            self._mark_database_degraded("数据库管理器启动返回 False")
+            logger.warning("[WebUI] 数据库管理器启动失败，WebUI 将以数据库受限模式继续启动")
+            return database_manager
+
+        self._mark_database_available()
+        return database_manager

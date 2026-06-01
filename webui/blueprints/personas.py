@@ -127,7 +127,8 @@ async def get_default_persona():
     try:
         container = get_container()
         persona_service = PersonaService(container)
-        default_persona = await persona_service.get_default_persona()
+        group_id = request.args.get("group_id", "default")
+        default_persona = await persona_service.get_default_persona(group_id)
 
         return jsonify(default_persona), 200
 

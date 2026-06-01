@@ -501,7 +501,7 @@ class PluginConfig(BaseModel):
             errors.append("日志等级必须是 error、warning、info 或 debug")
 
         db_type = (self.db_type or 'sqlite').strip().lower()
-        if db_type in ('postgres', 'pg'):
+        if db_type in ('postgres', 'pg', 'pgsql'):
             db_type = 'postgresql'
         if db_type not in {'sqlite', 'mysql', 'postgresql'}:
             errors.append("数据库类型必须是 sqlite、mysql 或 postgresql")

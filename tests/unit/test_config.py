@@ -387,6 +387,17 @@ class TestPluginConfigValidation:
         blocking_errors = [e for e in errors if not e.startswith(" ")]
         assert len(blocking_errors) == 0
 
+    def test_pgsql_alias_is_valid_database_type(self):
+        """PostgreSQL shorthand should validate the same as postgresql."""
+        config = PluginConfig(
+            db_type="pgsql",
+            filter_provider_id="provider_1",
+        )
+
+        errors = config.validate_config()
+
+        assert not any("数据库类型必须是" in e for e in errors)
+
     def test_invalid_log_level_rejected(self):
         """Test validation catches invalid log levels."""
         with pytest.raises(ValueError):

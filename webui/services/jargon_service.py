@@ -184,6 +184,8 @@ class JargonService:
         keyword: str,
         chat_id: Optional[str] = None,
         confirmed_only: bool = False,
+        unconfirmed_only: bool = False,
+        pending_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         搜索黑话
@@ -192,6 +194,8 @@ class JargonService:
             keyword: 搜索关键词
             chat_id: 群组ID（可选）
             confirmed_only: 是否仅返回已确认的黑话
+            unconfirmed_only: 是否仅返回未确认的黑话
+            pending_only: 是否仅返回待审查的黑话
 
         Returns:
             List[Dict]: 匹配的黑话列表（字段已映射为前端格式）
@@ -203,7 +207,18 @@ class JargonService:
             results = await self.database_manager.search_jargon(
                 keyword, chat_id=chat_id, confirmed_only=confirmed_only
             )
-            return [self._format_jargon_for_frontend(r) for r in results]
+            formatted = [self._format_jargon_for_frontend(r) for r in results]
+            if pending_only:
+                return [
+                    item for item in formatted
+                    if not item.get('is_confirmed') and not item.get('is_complete')
+                ]
+            if unconfirmed_only:
+                return [
+                    item for item in formatted
+                    if not item.get('is_confirmed')
+                ]
+            return formatted
         except Exception as e:
             logger.error(f"搜索黑话失败: {e}", exc_info=True)
             raise

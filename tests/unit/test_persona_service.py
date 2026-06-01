@@ -152,6 +152,25 @@ class TestPersonaService:
         mock_container.persona_manager.get_default_persona_v3.assert_called_once_with('test_group')
 
     @pytest.mark.asyncio
+    async def test_get_default_persona_uses_group_persona_with_web_manager(self, mock_container):
+        """Default persona preview should use the requested group when WebUI manager exists."""
+        mock_container.persona_web_manager = AsyncMock()
+        mock_container.persona_web_manager.get_persona_for_group.return_value = {
+            "persona_id": "group-persona",
+            "system_prompt": "Group prompt",
+            "begin_dialogs": [],
+            "tools": [],
+        }
+        service = PersonaService(mock_container)
+
+        result = await service.get_default_persona('test_group')
+
+        assert result['persona_id'] == 'group-persona'
+        assert result['prompt'] == 'Group prompt'
+        mock_container.persona_web_manager.get_persona_for_group.assert_awaited_once_with('test_group')
+        mock_container.persona_web_manager.get_default_persona_for_web.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_get_default_persona_fallback(self, mock_container):
         """Test getting default persona with fallback"""
         service = PersonaService(mock_container)
