@@ -7,6 +7,7 @@ from quart import Quart
 
 from webui.blueprints.config import (
     MANUAL_DEPENDENCY_INSTALL_SOURCE,
+    PIP_MIRROR_SOURCES,
     config_bp,
 )
 
@@ -82,6 +83,8 @@ class TestDependencyInstallEndpoint:
         payload = await response.get_json()
         assert payload["tier"] == "full"
         assert payload["tier_label"] == "全能力依赖"
+        assert payload["pip_mirror"] == "default"
+        assert payload["pip_index_url"] is None
 
     @pytest.mark.asyncio
     async def test_basic_tier_installs_basic_dependency_subset(self, client):
@@ -109,6 +112,55 @@ class TestDependencyInstallEndpoint:
         payload = await response.get_json()
         assert payload["tier"] == "basic"
         assert payload["tier_label"] == "基础能力依赖"
+
+    @pytest.mark.asyncio
+    async def test_install_with_mirror_adds_index_url(self, client):
+        await authenticate(client)
+
+        with patch(
+            "webui.blueprints.config.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=FakeProcess()),
+        ) as create_process:
+            response = await client.post(
+                "/api/dependencies/install",
+                json={
+                    "manual_confirmed": True,
+                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "tier": "basic",
+                    "pip_mirror": "tsinghua",
+                },
+            )
+
+        assert response.status_code == 200
+        create_process.assert_awaited_once()
+        cmd = create_process.await_args.args
+        assert "--index-url" in cmd
+        assert PIP_MIRROR_SOURCES["tsinghua"]["index_url"] in cmd
+        assert cmd.index("--index-url") < cmd.index("quart")
+        payload = await response.get_json()
+        assert payload["pip_mirror"] == "tsinghua"
+        assert payload["pip_mirror_label"] == PIP_MIRROR_SOURCES["tsinghua"]["label"]
+        assert payload["pip_index_url"] == PIP_MIRROR_SOURCES["tsinghua"]["index_url"]
+
+    @pytest.mark.asyncio
+    async def test_unknown_mirror_is_rejected(self, client):
+        await authenticate(client)
+
+        with patch(
+            "webui.blueprints.config.asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+        ) as create_process:
+            response = await client.post(
+                "/api/dependencies/install",
+                json={
+                    "manual_confirmed": True,
+                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "pip_mirror": "unknown",
+                },
+            )
+
+        assert response.status_code == 400
+        create_process.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_unknown_tier_is_rejected(self, client):
