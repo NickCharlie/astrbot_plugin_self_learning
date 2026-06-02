@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 LIVINGMEMORY_PAGE_API_BASE = "/astrbot_plugin_livingmemory/page"
 LIVINGMEMORY_PAGE_CONTENT = "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/"
+LIVINGMEMORY_EMBED_URL = "/api/integrations/embed/livingmemory"
+GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
 
 SELF_LEARNING_API_ENDPOINTS = [
     "GET /api/integrations/status",
@@ -72,6 +74,12 @@ def _http_url(host: Any, port: Any) -> Optional[str]:
     return f"http://{_local_host(host)}:{port_int}"
 
 
+def _join_url(base_url: Optional[str], path: str) -> Optional[str]:
+    if not base_url:
+        return None
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
+
+
 class IntegrationService:
     """Build a small runtime map of delegated capabilities and dashboards."""
 
@@ -99,6 +107,57 @@ class IntegrationService:
                 self._livingmemory_dashboard(memory_star, status),
                 self._group_chat_plus_dashboard(reply_star, status),
             ],
+        }
+
+    def get_embed_target(self, plugin_id: str) -> Dict[str, Any]:
+        """Return the concrete iframe target for a companion dashboard shell."""
+        canonical_id = {
+            "astrbot_plugin_livingmemory": "livingmemory",
+            "memory": "livingmemory",
+            "graphs": "livingmemory",
+            "reply": "group_chat_plus",
+            "reply-strategy": "group_chat_plus",
+            "reply_strategy": "group_chat_plus",
+            "astrbot_plugin_group_chat_plus": "group_chat_plus",
+        }.get(plugin_id, plugin_id)
+
+        payload = self.get_status()
+        dashboards = {
+            item.get("id"): item
+            for item in payload.get("dashboards", [])
+            if isinstance(item, dict)
+        }
+        item = dashboards.get(canonical_id)
+        if not item:
+            return {
+                "id": canonical_id,
+                "title": plugin_id,
+                "role": "",
+                "available": False,
+                "target_url": None,
+                "external_url": None,
+                "official_page_url": None,
+                "message": "未识别的伴随插件面板。",
+            }
+
+        dashboard = item.get("dashboard") or {}
+        external_url = dashboard.get("external_url")
+        official_page_url = dashboard.get("official_page_url")
+        target_url = external_url or official_page_url
+        return {
+            "id": item.get("id"),
+            "title": item.get("title"),
+            "role": item.get("role"),
+            "available": bool(dashboard.get("available") and target_url),
+            "target_url": target_url,
+            "external_url": external_url,
+            "official_page_url": official_page_url,
+            "label": dashboard.get("label") or "打开面板",
+            "kind": dashboard.get("kind"),
+            "active": bool(item.get("active")),
+            "delegated": item.get("delegated"),
+            "plugin": item.get("plugin") or {},
+            "message": None if target_url else "该插件面板未开启或尚未检测到可用入口。",
         }
 
     def _delegation(self) -> Optional[Any]:
@@ -154,6 +213,7 @@ class IntegrationService:
                 "available": True,
                 "url": "/api/",
                 "external_url": _http_url(host, port),
+                "route": "#/home",
                 "label": "本插件监控板",
                 "kind": "local",
             },
@@ -188,10 +248,12 @@ class IntegrationService:
             "plugin": self._star_info(star),
             "dashboard": {
                 "available": bool(dashboard_url or plugin),
-                "url": dashboard_url,
+                "url": LIVINGMEMORY_EMBED_URL,
+                "external_url": dashboard_url,
                 "official_page_url": LIVINGMEMORY_PAGE_CONTENT if plugin else None,
+                "route": "#/graphs",
                 "label": "LivingMemory 面板" if dashboard_url else "AstrBot 插件页",
-                "kind": "external" if dashboard_url else "astrbot_page",
+                "kind": "embedded_external" if dashboard_url else "astrbot_page",
                 "astrbot_page": "插件 -> LivingMemory -> Pages -> dashboard",
             },
             "dev_api": {
@@ -208,6 +270,7 @@ class IntegrationService:
         port = getattr(plugin, "web_panel_port", None)
         enabled = bool(getattr(plugin, "enable_web_panel", False))
         dashboard_url = _http_url(host, port) if enabled else None
+        panel_url = _join_url(dashboard_url, "/panel?embed=1")
 
         return {
             "id": "group_chat_plus",
@@ -217,10 +280,12 @@ class IntegrationService:
             "delegated": bool(status.get("reply_delegated")),
             "plugin": self._star_info(star),
             "dashboard": {
-                "available": bool(dashboard_url),
-                "url": dashboard_url,
+                "available": bool(panel_url),
+                "url": GROUP_CHAT_PLUS_EMBED_URL,
+                "external_url": panel_url,
+                "route": "#/reply-strategy",
                 "label": "Group Chat Plus 面板",
-                "kind": "external",
+                "kind": "embedded_external",
             },
             "dev_api": {
                 "base": f"{dashboard_url}/api" if dashboard_url else "/api",

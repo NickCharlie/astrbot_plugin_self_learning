@@ -99,7 +99,7 @@ def test_dashboard_uses_module_home_and_hash_pages():
     assert "data-route-card=\"overview\"" in text
     assert "data-route-card=\"integrations\"" in text
     assert "data-route-card=\"settings\"" in text
-    for page in ["overview", "insights", "monitoring", "reviews", "content", "graphs", "integrations", "settings"]:
+    for page in ["overview", "insights", "monitoring", "reviews", "content", "reply-strategy", "graphs", "integrations", "settings"]:
         assert f"data-page=\"{page}\"" in text
         assert f"href=\"#/{page}\"" in text or page == "home"
     assert "resolvePageFromHash" in text
@@ -115,6 +115,9 @@ def test_dashboard_exposes_companion_plugin_api_hub():
     assert "integrationConfigFields" in text
     assert "Integration_Settings" in text
     assert "/api/integrations/status" in text + service
+    assert "/api/integrations/embed/livingmemory" in text + service
+    assert "/api/integrations/embed/group_chat_plus" in text + service
+    assert "reply-strategy" in text + service
     assert "astrbot_plugin_livingmemory/page" in service
     assert "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/" in service
     assert "Group Chat Plus" in service

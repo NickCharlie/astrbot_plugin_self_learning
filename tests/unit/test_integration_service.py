@@ -72,8 +72,17 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
     dashboards = {item["id"]: item for item in payload["dashboards"]}
     assert payload["delegation"]["memory_delegated"] is True
     assert dashboards["self_learning"]["dev_api"]["base"] == "/api"
-    assert dashboards["livingmemory"]["dashboard"]["url"] == "http://127.0.0.1:8888"
+    assert dashboards["livingmemory"]["dashboard"]["url"] == "/api/integrations/embed/livingmemory"
+    assert dashboards["livingmemory"]["dashboard"]["external_url"] == "http://127.0.0.1:8888"
+    assert dashboards["livingmemory"]["dashboard"]["route"] == "#/graphs"
     assert dashboards["livingmemory"]["dev_api"]["base"] == "/astrbot_plugin_livingmemory/page"
     assert "POST /astrbot_plugin_livingmemory/page/graph/query" in dashboards["livingmemory"]["dev_api"]["endpoints"]
-    assert dashboards["group_chat_plus"]["dashboard"]["url"] == "http://127.0.0.1:8787"
+    assert dashboards["group_chat_plus"]["dashboard"]["url"] == "/api/integrations/embed/group_chat_plus"
+    assert dashboards["group_chat_plus"]["dashboard"]["external_url"] == "http://127.0.0.1:8787/panel?embed=1"
+    assert dashboards["group_chat_plus"]["dashboard"]["route"] == "#/reply-strategy"
     assert "GET /api/data/overview" in dashboards["group_chat_plus"]["dev_api"]["endpoints"]
+
+    livingmemory_embed = IntegrationService(container).get_embed_target("livingmemory")
+    group_chat_plus_embed = IntegrationService(container).get_embed_target("reply-strategy")
+    assert livingmemory_embed["target_url"] == "http://127.0.0.1:8888"
+    assert group_chat_plus_embed["target_url"] == "http://127.0.0.1:8787/panel?embed=1"

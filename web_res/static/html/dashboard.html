@@ -1467,6 +1467,36 @@
             overflow-wrap: anywhere;
         }
 
+        .companion-band {
+            margin-top: 16px;
+        }
+
+        .companion-frame-shell {
+            height: calc(100dvh - 210px);
+            min-height: 640px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--panel-soft);
+        }
+
+        .companion-frame-shell iframe {
+            width: 100%;
+            height: 100%;
+            display: block;
+            border: 0;
+            background: var(--panel);
+        }
+
+        .companion-status {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
         .subhead {
             margin: 0 0 8px;
             color: var(--muted);
@@ -2125,17 +2155,30 @@
                         <div class="module-note" id="homeContentNote">查看明细</div>
                     </div>
                 </a>
+                <a class="module-card" href="#/reply-strategy" data-route-card="reply-strategy">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>回复策略</strong>
+                            <span>Group Chat Plus 面板</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">forum</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeReplyValue">--</div>
+                        <div class="module-note" id="homeReplyNote">回复决策与生成</div>
+                    </div>
+                </a>
                 <a class="module-card" href="#/graphs" data-route-card="graphs">
                     <div class="module-card-top">
                         <div class="module-title">
-                            <strong>图谱</strong>
-                            <span>记忆图与知识图谱</span>
+                            <strong>记忆 / 知识图谱</strong>
+                            <span>LivingMemory 面板</span>
                         </div>
                         <span class="module-icon"><span class="material-icons">hub</span></span>
                     </div>
                     <div>
                         <div class="module-value" id="homeGraphValue">--</div>
-                        <div class="module-note" id="homeGraphNote">可视化关系</div>
+                        <div class="module-note" id="homeGraphNote">长期记忆与图谱</div>
                     </div>
                 </a>
                 <a class="module-card" href="#/integrations" data-route-card="integrations">
@@ -2532,43 +2575,76 @@
         <section class="page" id="page-graphs" data-page="graphs">
             <div class="page-titlebar">
                 <div class="page-title">
-                    <h2>图谱</h2>
-                    <p>交互式查看记忆图和知识图谱，支持缩放、拖拽、切换布局与节点详情。</p>
+                    <h2>记忆 / 知识图谱</h2>
+                    <p>嵌入 LivingMemory WebUI，统一管理长期记忆、召回测试和知识图谱。</p>
                 </div>
                 <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
             </div>
 
-            <section class="graphs-band">
+            <section class="companion-band">
             <div class="panel">
                 <div class="panel-head">
                     <div>
-                        <h2>记忆与知识图谱</h2>
-                        <span class="hint" id="graphHint">可拖拽、缩放、点击节点查看详情</span>
+                        <h2>LivingMemory</h2>
+                        <span class="hint">长期记忆和知识图谱由 LivingMemory 接管。</span>
                     </div>
-                    <div class="graph-toolbar">
-                        <div class="graph-tabs" aria-label="图谱类型">
-                            <button class="seg-btn active" id="memoryGraphTab" type="button" data-graph-type="memory">
-                                <span class="material-icons" style="font-size:16px;">hub</span>
-                                记忆图
-                            </button>
-                            <button class="seg-btn" id="knowledgeGraphTab" type="button" data-graph-type="knowledge">
-                                <span class="material-icons" style="font-size:16px;">schema</span>
-                                知识图谱
-                            </button>
-                        </div>
-                        <input class="graph-input" id="graphGroupInput" type="text" placeholder="群组ID，可留空" autocomplete="off">
-                        <button class="icon-btn" id="graphLayoutBtn" type="button" aria-label="切换图布局" title="切换图布局">
-                            <span class="material-icons">scatter_plot</span>
-                        </button>
-                        <button class="icon-btn" id="graphReloadBtn" type="button" aria-label="刷新图谱" title="刷新图谱">
+                    <div class="panel-tools">
+                        <a class="action-btn" id="livingMemoryExternalBtn" href="/api/integrations/embed/livingmemory" target="_blank" rel="noopener noreferrer">
+                            <span class="material-icons" style="font-size:16px;">open_in_new</span>
+                            新窗口
+                        </a>
+                        <button class="icon-btn" id="livingMemoryReloadBtn" type="button" aria-label="刷新 LivingMemory 面板" title="刷新 LivingMemory 面板">
                             <span class="material-icons">sync</span>
                         </button>
                     </div>
                 </div>
                 <div class="panel-body">
-                    <div class="graph-summary" id="graphSummary"></div>
-                    <div id="graphChart" class="chart graph-chart"></div>
-                    <div id="graphDetail" class="graph-detail">点击图谱节点查看详情。</div>
+                    <div class="companion-status" id="livingMemoryStatus">
+                        <span class="chip">LivingMemory 子页面</span>
+                        <span>正在准备嵌入面板。</span>
+                    </div>
+                    <div class="companion-frame-shell" style="margin-top:10px;">
+                        <iframe id="livingMemoryFrame" title="LivingMemory 面板" data-companion-frame="livingmemory"></iframe>
+                    </div>
+                </div>
+            </div>
+        </section>
+        </section>
+
+        <section class="page" id="page-reply-strategy" data-page="reply-strategy">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>回复策略</h2>
+                    <p>嵌入 Group Chat Plus WebUI，统一管理回复决策、生成策略和会话运行数据。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="companion-band">
+            <div class="panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>Group Chat Plus</h2>
+                        <span class="hint">回复判断和回复生成由 Group Chat Plus 接管。</span>
+                    </div>
+                    <div class="panel-tools">
+                        <a class="action-btn" id="groupChatPlusExternalBtn" href="/api/integrations/embed/group_chat_plus" target="_blank" rel="noopener noreferrer">
+                            <span class="material-icons" style="font-size:16px;">open_in_new</span>
+                            新窗口
+                        </a>
+                        <button class="icon-btn" id="groupChatPlusReloadBtn" type="button" aria-label="刷新 Group Chat Plus 面板" title="刷新 Group Chat Plus 面板">
+                            <span class="material-icons">sync</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="companion-status" id="groupChatPlusStatus">
+                        <span class="chip">Group Chat Plus 子页面</span>
+                        <span>正在准备嵌入面板。</span>
+                    </div>
+                    <div class="companion-frame-shell" style="margin-top:10px;">
+                        <iframe id="groupChatPlusFrame" title="Group Chat Plus 面板" data-companion-frame="group_chat_plus"></iframe>
+                    </div>
                 </div>
             </div>
         </section>
@@ -2742,6 +2818,16 @@
                     loading: false,
                     loaded: false,
                 },
+                companions: {
+                    livingmemory: {
+                        loaded: false,
+                        embedUrl: '/api/integrations/embed/livingmemory',
+                    },
+                    group_chat_plus: {
+                        loaded: false,
+                        embedUrl: '/api/integrations/embed/group_chat_plus',
+                    },
+                },
                 content: {
                     type: 'dialogues',
                     query: '',
@@ -2771,7 +2857,7 @@
                 },
                 activePage: 'home',
             };
-            const DASHBOARD_PAGES = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'content', 'graphs', 'integrations', 'settings'];
+            const DASHBOARD_PAGES = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'content', 'reply-strategy', 'graphs', 'integrations', 'settings'];
 
             const numberFmt = new Intl.NumberFormat('zh-CN', {
                 maximumFractionDigits: 1,
@@ -3209,7 +3295,7 @@
                     card.classList.toggle('active', card.dataset.routeCard === targetPage);
                 });
                 document.body.dataset.activePage = targetPage;
-                const pageTitles = { home: '监控板', overview: '总览', insights: 'AI 巡检', monitoring: '运行监控', reviews: '审查队列', content: '学习内容', graphs: '关系图谱', integrations: '功能融合', settings: '设置' };
+                const pageTitles = { home: '监控板', overview: '总览', insights: 'AI 巡检', monitoring: '运行监控', reviews: '审查队列', content: '学习内容', 'reply-strategy': '回复策略', graphs: '记忆 / 知识图谱', integrations: '功能融合', settings: '设置' };
                 document.title = (pageTitles[targetPage] || '监控板') + ' - SELF LEARNING';
                 if (!options.skipHash && window.location.hash !== `#/${targetPage}`) {
                     window.location.hash = `/${targetPage}`;
@@ -3223,8 +3309,10 @@
 
             function loadPageData(page, options = {}) {
                 const force = Boolean(options.force);
-                if (page === 'graphs' && (force || !state.graph.loaded)) {
-                    loadGraphPanel({ quiet: true });
+                if (page === 'graphs') {
+                    loadCompanionFrame('livingmemory', { force });
+                } else if (page === 'reply-strategy') {
+                    loadCompanionFrame('group_chat_plus', { force });
                 } else if (page === 'content' && (force || !state.content.loaded)) {
                     loadLearningContent({ quiet: true });
                 } else if (page === 'integrations' && (force || !state.integrations.loaded)) {
@@ -3270,6 +3358,8 @@
                     .reduce((sum, key) => sum + safeArray(contentPayload[key]).length, 0);
                 const integrationPayload = state.integrations.data || {};
                 const integrationDashboards = safeArray(integrationPayload.dashboards);
+                const livingMemoryDashboard = integrationDashboards.find((item) => item && item.id === 'livingmemory');
+                const groupChatPlusDashboard = integrationDashboards.find((item) => item && item.id === 'group_chat_plus');
                 const activeIntegrations = integrationDashboards.filter((item) => item && item.active).length;
                 const delegatedIntegrations = integrationDashboards.filter((item) => item && item.delegated).length;
 
@@ -3283,8 +3373,18 @@
                 $('homeReviewNote').textContent = `人格 ${formatCount(personaBacklog)} · 风格 ${formatCount(styleBacklog)} · 黑话 ${formatCount(pendingJargon)}`;
                 $('homeContentValue').textContent = contentCount ? formatCount(contentCount) : '--';
                 $('homeContentNote').textContent = contentCount ? '条学习内容' : '点击查看学习明细';
-                $('homeGraphValue').textContent = graphNodes ? formatCount(graphNodes) : '--';
-                $('homeGraphNote').textContent = graphNodes ? `${state.graph.type === 'memory' ? '记忆图' : '知识图谱'}节点` : '点击加载图谱';
+                $('homeReplyValue').textContent = groupChatPlusDashboard
+                    ? (groupChatPlusDashboard.delegated ? 'ON' : (groupChatPlusDashboard.active ? '本地' : '--'))
+                    : '--';
+                $('homeReplyNote').textContent = groupChatPlusDashboard
+                    ? (groupChatPlusDashboard.delegated ? '回复已委托' : (groupChatPlusDashboard.active ? '插件已加载' : '插件未加载'))
+                    : '检查 Group Chat Plus';
+                $('homeGraphValue').textContent = livingMemoryDashboard
+                    ? (livingMemoryDashboard.delegated ? 'ON' : (livingMemoryDashboard.active ? '本地' : '--'))
+                    : (graphNodes ? formatCount(graphNodes) : '--');
+                $('homeGraphNote').textContent = livingMemoryDashboard
+                    ? (livingMemoryDashboard.delegated ? '记忆已委托' : (livingMemoryDashboard.active ? '插件已加载' : '插件未加载'))
+                    : '检查 LivingMemory';
                 $('homeIntegrationValue').textContent = integrationDashboards.length
                     ? `${formatCount(activeIntegrations)}/${formatCount(integrationDashboards.length)}`
                     : '--';
@@ -5226,7 +5326,90 @@
                 if (item && item.id === 'self_learning') {
                     return '#/home';
                 }
+                if (dashboard.route) {
+                    return dashboard.route;
+                }
                 return dashboard.url || dashboard.official_page_url || '';
+            }
+
+            function findIntegrationDashboard(id) {
+                return safeArray(state.integrations.data && state.integrations.data.dashboards)
+                    .find((item) => item && item.id === id);
+            }
+
+            function companionElements(pluginId) {
+                const map = {
+                    livingmemory: {
+                        frameId: 'livingMemoryFrame',
+                        statusId: 'livingMemoryStatus',
+                        externalId: 'livingMemoryExternalBtn',
+                        title: 'LivingMemory',
+                    },
+                    group_chat_plus: {
+                        frameId: 'groupChatPlusFrame',
+                        statusId: 'groupChatPlusStatus',
+                        externalId: 'groupChatPlusExternalBtn',
+                        title: 'Group Chat Plus',
+                    },
+                };
+                return map[pluginId] || null;
+            }
+
+            function renderCompanionStatus(pluginId) {
+                const meta = companionElements(pluginId);
+                const statusEl = meta && $(meta.statusId);
+                const externalEl = meta && $(meta.externalId);
+                const companion = state.companions[pluginId];
+                if (!meta || !statusEl || !companion) {
+                    return;
+                }
+
+                const item = findIntegrationDashboard(pluginId);
+                const dashboard = (item && item.dashboard) || {};
+                const externalUrl = dashboard.external_url || dashboard.official_page_url || companion.embedUrl;
+                if (externalEl) {
+                    externalEl.href = externalUrl || companion.embedUrl;
+                }
+
+                if (!item) {
+                    statusEl.innerHTML = `
+                        <span class="chip">${escapeHtml(meta.title)} 子页面</span>
+                        <span>正在读取功能融合状态。</span>
+                    `;
+                    return;
+                }
+
+                statusEl.innerHTML = `
+                    <span class="chip"><b>${item.active ? '已加载' : '未加载'}</b></span>
+                    <span class="chip"><b>${item.delegated ? '已委托' : '本地回退'}</b></span>
+                    <span>${escapeHtml(dashboard.label || meta.title)}</span>
+                `;
+            }
+
+            async function loadCompanionFrame(pluginId, options = {}) {
+                const { force = false } = options;
+                const meta = companionElements(pluginId);
+                const companion = state.companions[pluginId];
+                if (!meta || !companion) {
+                    return;
+                }
+
+                if (!state.integrations.loaded && !state.integrations.loading) {
+                    await loadIntegrationPanel({ quiet: true });
+                }
+                renderCompanionStatus(pluginId);
+
+                const frame = $(meta.frameId);
+                if (!frame) {
+                    return;
+                }
+                if (force || !companion.loaded || !frame.getAttribute('src')) {
+                    const separator = companion.embedUrl.includes('?') ? '&' : '?';
+                    frame.src = force
+                        ? `${companion.embedUrl}${separator}t=${Date.now()}`
+                        : companion.embedUrl;
+                    companion.loaded = true;
+                }
             }
 
             function renderIntegrationCard(item) {
@@ -5328,6 +5511,8 @@
                     state.integrations.data = payload.data || payload;
                     state.integrations.loaded = true;
                     renderIntegrationPanel(state.integrations.data);
+                    renderCompanionStatus('livingmemory');
+                    renderCompanionStatus('group_chat_plus');
                     if (state.data) {
                         renderHomeModules(state.data);
                     }
@@ -5562,10 +5747,10 @@
                     if (message) showToast(message, 'ok');
                     await loadDashboard();
                     if (action.startsWith('jargon')) {
-                        await Promise.all([loadJargonList(), loadGraphPanel({ quiet: true })]);
+                        await loadJargonList();
                     }
                     if (action.startsWith('batch')) {
-                        await Promise.all([loadBatchList(), loadGraphPanel({ quiet: true })]);
+                        await loadBatchList();
                     }
                 } catch (error) {
                     console.error('Dashboard action failed:', error);
@@ -5862,9 +6047,6 @@
                 renderHomeModules(data);
                 renderTrendChart(data.trends || {});
                 renderEfficiencyChart(data.metrics || {});
-                if (state.graph.data) {
-                    renderGraphPanel(state.graph.data);
-                }
                 if (state.content.data) {
                     renderLearningContent();
                     renderHomeModules(data);
@@ -6388,7 +6570,9 @@
                         document.querySelectorAll('[data-graph-type]').forEach((tab) => {
                             tab.classList.toggle('active', tab.dataset.graphType === state.graph.type);
                         });
-                        loadGraphPanel();
+                        if ($('graphSummary')) {
+                            loadGraphPanel();
+                        }
                         return;
                     }
 
@@ -6414,21 +6598,14 @@
                     }
                 });
 
-                $('graphGroupInput').addEventListener('change', (event) => {
-                    state.graph.groupId = String(event.target.value || '').trim();
-                    loadGraphPanel();
-                });
-                $('graphGroupInput').addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter') {
-                        state.graph.groupId = String(event.target.value || '').trim();
-                        loadGraphPanel();
-                    }
-                });
-                $('graphReloadBtn').addEventListener('click', () => loadGraphPanel());
-                $('graphLayoutBtn').addEventListener('click', () => {
-                    state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
-                    renderGraphPanel(state.graph.data);
-                });
+                const livingMemoryReloadBtn = $('livingMemoryReloadBtn');
+                if (livingMemoryReloadBtn) {
+                    livingMemoryReloadBtn.addEventListener('click', () => loadCompanionFrame('livingmemory', { force: true }));
+                }
+                const groupChatPlusReloadBtn = $('groupChatPlusReloadBtn');
+                if (groupChatPlusReloadBtn) {
+                    groupChatPlusReloadBtn.addEventListener('click', () => loadCompanionFrame('group_chat_plus', { force: true }));
+                }
                 $('contentSearch').addEventListener('input', (event) => {
                     state.content.query = event.target.value || '';
                     renderLearningContent();

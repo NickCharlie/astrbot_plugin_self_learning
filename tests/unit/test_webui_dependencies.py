@@ -30,12 +30,20 @@ class _ServiceFactory:
         return object()
 
 
+class _ComponentFactory:
+    pass
+
+
 class _FactoryManager:
     def __init__(self, service_factory):
         self.service_factory = service_factory
+        self.component_factory = _ComponentFactory()
 
     def get_service_factory(self):
         return self.service_factory
+
+    def get_component_factory(self):
+        return self.component_factory
 
 
 def test_service_container_uses_injected_database_manager():
@@ -69,6 +77,21 @@ def test_service_container_records_v2_integration():
     )
 
     assert container.v2_integration is v2_integration
+
+
+def test_service_container_exposes_component_factory():
+    container = ServiceContainer()
+    service_factory = _ServiceFactory()
+    factory_manager = _FactoryManager(service_factory)
+    plugin_config = SimpleNamespace(data_dir="./data")
+
+    container.initialize(
+        plugin_config=plugin_config,
+        factory_manager=factory_manager,
+    )
+
+    assert container.factory_manager is factory_manager
+    assert container.component_factory is factory_manager.component_factory
 
 
 def test_service_container_records_database_degraded_state():

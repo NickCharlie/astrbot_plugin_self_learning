@@ -35,6 +35,7 @@ class ServiceContainer:
         self.progressive_learning: Optional[Any] = None
         self.v2_integration: Optional[Any] = None
         self.factory_manager: Optional[Any] = None
+        self.component_factory: Optional[Any] = None
 
         # AstrBot 框架服务
         self.astrbot_persona_manager: Optional[Any] = None
@@ -100,6 +101,13 @@ class ServiceContainer:
         self.astrbot_config = astrbot_config
         self.plugin_instance = plugin_instance
         self.factory_manager = factory_manager
+        try:
+            self.component_factory = factory_manager.get_component_factory()
+        except AttributeError:
+            self.component_factory = None
+        except Exception as e:
+            logger.warning(f"获取 component_factory 失败: {e}")
+            self.component_factory = None
         self.feature_delegation = feature_delegation
         self.v2_integration = v2_integration
         self.astrbot_persona_manager = astrbot_persona_manager
