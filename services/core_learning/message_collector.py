@@ -20,7 +20,10 @@ except ImportError:
     from ...core.interfaces import MessageData
 
 from ..database import DatabaseManager
-from ..learning.sample_filter import should_ignore_learning_sample
+from ..learning.sample_filter import (
+    extract_learning_message_metadata,
+    should_ignore_learning_sample,
+)
 
 
 class MessageCollectorService:
@@ -51,9 +54,11 @@ class MessageCollectorService:
                     logger.warning(f"消息数据缺少必要字段: {field}")
                     return False
 
+            metadata = extract_learning_message_metadata(message_data)
             if should_ignore_learning_sample(
                 message_data.get('message', ''),
                 sender_id=message_data.get('sender_id'),
+                **metadata,
             ):
                 logger.debug(
                     "检测到指令或系统模板消息，跳过保存学习样本: "

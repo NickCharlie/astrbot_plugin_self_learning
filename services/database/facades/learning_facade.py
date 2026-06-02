@@ -982,6 +982,15 @@ class LearningFacade(BaseFacade):
             async with self.get_session() as session:
 
                 sid = session_data.get('session_id', '')
+                message_count = session_data.get('message_count')
+                if message_count is None:
+                    message_count = session_data.get('messages_processed')
+
+                learning_quality = session_data.get('learning_quality')
+                if learning_quality is None:
+                    learning_quality = session_data.get('quality_score')
+
+                end_time = self._to_float_ts(session_data.get('end_time'))
 
                 # 检查是否已存在，存在则更新
                 existing = (await session.execute(
@@ -989,10 +998,14 @@ class LearningFacade(BaseFacade):
                 )).scalar_one_or_none()
 
                 if existing:
-                    existing.message_count = session_data.get('message_count', existing.message_count)
-                    existing.end_time = self._to_float_ts(session_data.get('end_time')) or existing.end_time
-                    existing.learning_quality = session_data.get('learning_quality') or existing.learning_quality
-                    existing.status = session_data.get('status', existing.status)
+                    if message_count is not None:
+                        existing.message_count = message_count
+                    if end_time is not None:
+                        existing.end_time = end_time
+                    if learning_quality is not None:
+                        existing.learning_quality = learning_quality
+                    if session_data.get('status') is not None:
+                        existing.status = session_data.get('status')
                 else:
                     existing = LearningSession(
                         session_id=sid,
@@ -1001,9 +1014,9 @@ class LearningFacade(BaseFacade):
                         start_time=self._to_float_ts(
                             session_data.get('start_time'), default=time.time()
                         ),
-                        end_time=self._to_float_ts(session_data.get('end_time')),
-                        message_count=session_data.get('message_count', 0),
-                        learning_quality=session_data.get('learning_quality'),
+                        end_time=end_time,
+                        message_count=message_count or 0,
+                        learning_quality=learning_quality,
                         status=session_data.get('status', 'active'),
                     )
                     session.add(existing)

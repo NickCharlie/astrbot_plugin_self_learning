@@ -15,7 +15,7 @@ PARENT = PACKAGE_ROOT.parent
 if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
-from self_learning_EterU.core.interfaces import MessageData
+from self_learning_EterU.core.interfaces import AnalysisResult, MessageData
 from self_learning_EterU.config import PluginConfig
 from self_learning_EterU.services.core_learning.progressive_learning import (
     ProgressiveLearningService,
@@ -41,6 +41,8 @@ from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
 from self_learning_EterU.services.learning.sample_filter import (
+    extract_learning_event_metadata,
+    filter_learning_messages,
     should_ignore_learning_sample,
 )
 from self_learning_EterU.services.state.enhanced_interaction import (
@@ -63,6 +65,31 @@ async def test_progressive_learning_fetches_unprocessed_messages_for_current_gro
         limit=42,
         group_id="group-a",
     )
+
+
+@pytest.mark.unit
+def test_progressive_learning_derives_quality_when_monitor_returns_zero():
+    service = ProgressiveLearningService.__new__(ProgressiveLearningService)
+    service.config = SimpleNamespace(max_messages_per_batch=200)
+    metrics = AnalysisResult(
+        success=True,
+        confidence=0.0,
+        data={"overall_quality": 0.0},
+        consistency_score=0.0,
+    )
+    messages = [
+        {
+            "message": "这是一条足够长的学习消息，用来表达当前群聊的说话习惯",
+            "relevance_score": 0.8,
+        }
+        for _ in range(20)
+    ]
+
+    quality_score = service._resolve_learning_quality_score(metrics, messages)
+    service._patch_zero_quality_metric(metrics, quality_score)
+
+    assert 0 < quality_score <= 1
+    assert metrics.consistency_score == quality_score
 
 
 @pytest.mark.unit
@@ -97,6 +124,9 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
         "/new - Create new conversation\n"
         "/provider - View or switch LLM Provider"
     )
+    livingmemory_shutdown_log = (
+        "[2026-06-02 11:54:17] [INFO] [LivingMemory] MemoryEngine 已关闭"
+    )
 
     assert should_ignore_learning_sample("/help") is True
     assert should_ignore_learning_sample("/help me") is True
@@ -104,7 +134,54 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     assert should_ignore_learning_sample("help me") is False
     assert should_ignore_learning_sample("/a hello") is False
     assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample(livingmemory_shutdown_log) is True
+    assert should_ignore_learning_sample("MemoryEngine 已关闭") is True
+    assert should_ignore_learning_sample("[PageAPI] 获取图谱概览失败: timeout") is True
+    assert should_ignore_learning_sample("[BackupManager] 备份完成: 3 个文件") is True
+    assert should_ignore_learning_sample("[AtomLifecycle] 维护任务异常") is True
+    assert should_ignore_learning_sample("[StorageMaintenance] 执行存储维护失败") is True
+    assert should_ignore_learning_sample("[VectorRetriever] 查询文本过长 (2048 字符)") is True
+    assert should_ignore_learning_sample(
+        "这是一条普通聊天消息",
+        message_type="notice",
+    ) is True
+    assert should_ignore_learning_sample(
+        "这是一条普通群聊消息",
+        message_type="group_message",
+    ) is False
+    assert should_ignore_learning_sample("LivingMemory 今天真好用") is False
     assert should_ignore_learning_sample("这是一条普通聊天消息") is False
+
+
+@pytest.mark.unit
+def test_learning_sample_filter_reads_raw_event_metadata_from_objects():
+    message = SimpleNamespace(
+        message="这是一条普通聊天消息",
+        sender_id="user-a",
+        raw_event={"message_type": "notice"},
+    )
+
+    assert filter_learning_messages([message]) == []
+
+
+@pytest.mark.unit
+def test_learning_event_metadata_logs_unexpected_accessor_failures(caplog):
+    class Event:
+        def get_message_type(self):
+            raise RuntimeError("metadata accessor failed")
+
+        def get_event_type(self):
+            return "message"
+
+    with caplog.at_level("DEBUG"):
+        metadata = extract_learning_event_metadata(Event())
+
+    assert metadata["event_type"] == "message"
+    assert any(
+        "Failed to read learning event metadata via Event.get_message_type"
+        in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.unit
@@ -266,6 +343,58 @@ async def test_message_pipeline_runs_expression_learning_without_realtime_mode()
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_message_pipeline_skips_plugin_log_events_before_collection():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_expression_patterns=True,
+        enable_realtime_learning=False,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    collector = SimpleNamespace(collect_message=AsyncMock())
+    enhanced_interaction = SimpleNamespace(
+        update_conversation_context=AsyncMock(),
+    )
+    realtime_processor = SimpleNamespace(
+        process_expression_learning_background=AsyncMock(),
+        process_realtime_background=AsyncMock(),
+    )
+
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=collector,
+        enhanced_interaction=enhanced_interaction,
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=None,
+        realtime_processor=realtime_processor,
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    event = SimpleNamespace(
+        get_sender_name=lambda: "LivingMemory",
+        get_platform_name=lambda: "test",
+        get_message_type=lambda: "notice",
+    )
+
+    collected = await pipeline.process_learning(
+        "group-a",
+        "plugin",
+        "[INFO] [LivingMemory] MemoryEngine 已关闭",
+        event,
+    )
+
+    assert collected is False
+    collector.collect_message.assert_not_called()
+    enhanced_interaction.update_conversation_context.assert_not_called()
+    realtime_processor.process_expression_learning_background.assert_not_called()
+    realtime_processor.process_realtime_background.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_message_pipeline_collects_to_database_and_triggers_learning_paths(
     tmp_path,
 ):
@@ -328,6 +457,13 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
             return task
 
         pipeline._spawn = spawn_now
+
+        await pipeline.process_learning(
+            "group-a",
+            "plugin",
+            "[INFO] [LivingMemory] MemoryEngine 已关闭",
+            Event(),
+        )
 
         for idx in range(10):
             await pipeline.process_learning(

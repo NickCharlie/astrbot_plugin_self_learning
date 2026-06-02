@@ -20,7 +20,10 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from .config import DEFAULT_DATA_DIR, PluginConfig
 from .core.plugin_lifecycle import PluginLifecycle
 from .services.hooks.perf_tracker import PerfTracker
-from .services.learning.sample_filter import should_ignore_learning_sample
+from .services.learning.sample_filter import (
+    extract_learning_event_metadata,
+    should_ignore_learning_sample,
+)
 from .statics.messages import StatusMessages, FileNames
 
 
@@ -268,7 +271,12 @@ class SelfLearningPlugin(star.Star):
 
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
-            if should_ignore_learning_sample(message_text, sender_id=sender_id):
+            event_metadata = extract_learning_event_metadata(event)
+            if should_ignore_learning_sample(
+                message_text,
+                sender_id=sender_id,
+                **event_metadata,
+            ):
                 logger.debug(f"检测到指令或系统模板消息，跳过学习数据收集: {message_text[:80]}")
                 self._log_message_capture_diag("skip:system_or_command_sample", event, message_text)
                 return
