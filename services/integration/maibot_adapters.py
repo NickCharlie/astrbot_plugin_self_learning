@@ -308,6 +308,43 @@ class MaiBotQualityMonitor(IQualityMonitor):
         self.db_manager = db_manager
         self.time_decay_manager = TimeDecayManager(config, db_manager)
         self._status = ServiceLifecycle.CREATED
+
+    @staticmethod
+    def _message_text(message) -> str:
+        if isinstance(message, dict):
+            return str(
+                message.get("message")
+                or message.get("content")
+                or message.get("text")
+                or ""
+            )
+        return str(
+            getattr(message, "message", None)
+            or getattr(message, "content", None)
+            or getattr(message, "text", None)
+            or ""
+        )
+
+    def _derive_message_batch_quality(self, learning_messages: List[Dict[str, Any]]) -> float:
+        texts = [
+            self._message_text(message).strip()
+            for message in (learning_messages or [])
+        ]
+        texts = [text for text in texts if len(text) >= 2]
+        if not texts:
+            return 0.0
+
+        try:
+            batch_size = max(1, int(getattr(self.config, "max_messages_per_batch", 200) or 200))
+        except (TypeError, ValueError):
+            batch_size = 200
+
+        volume_score = min(len(texts) / batch_size, 1.0)
+        avg_len = sum(min(len(text), 120) for text in texts) / len(texts)
+        length_score = min(avg_len / 40.0, 1.0)
+        unique_score = len(set(texts)) / len(texts)
+        quality_score = volume_score * 0.55 + length_score * 0.30 + unique_score * 0.15
+        return max(0.25, min(0.95, quality_score))
     
     async def start(self) -> bool:
         """启动服务"""
@@ -471,11 +508,20 @@ class MaiBotQualityMonitor(IQualityMonitor):
         """
         try:
             # 调用现有的evaluate_learning_quality方法
-            return await self.evaluate_learning_quality(original_persona, updated_persona)
+            result = await self.evaluate_learning_quality(original_persona, updated_persona)
+            score = result.consistency_score if result.consistency_score is not None else result.confidence
+            if (score or 0.0) <= 0:
+                message_quality = self._derive_message_batch_quality(learning_messages)
+                if message_quality > 0:
+                    result.consistency_score = message_quality
+                    result.confidence = message_quality
+                    result.data = dict(result.data or {})
+                    result.data["message_signal_quality"] = message_quality
+                    result.data["quality_source"] = "learning_messages"
+            return result
             
         except Exception as e:
             logger.error(f"学习批次质量评估失败: {e}")
-            from ...core.interfaces import AnalysisResult
             return AnalysisResult(
                 success=False,
                 confidence=0.0,

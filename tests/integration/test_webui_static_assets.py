@@ -50,6 +50,8 @@ def test_dashboard_exposes_learning_content_browser():
     assert "data-content-type=\"analysis\"" in text
     assert "data-content-type=\"features\"" in text
     assert "data-content-type=\"history\"" in text
+    assert "content-delete" in text
+    assert "/api/style_learning/content_text/${encodeURIComponent(bucket)}/${encodeURIComponent(itemId)}" in text
 
 
 def test_dashboard_review_details_use_backend_structured_fields():

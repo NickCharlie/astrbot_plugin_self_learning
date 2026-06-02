@@ -5553,6 +5553,13 @@
                     } else if (action === 'batch-delete') {
                         if (!(await showConfirm('删除学习批次', '确定删除这个学习批次？不可撤销。'))) { showToast('已取消', 'warn'); return; }
                         payload = await deleteJson(`/api/batches/${encodeURIComponent(id)}`);
+                    } else if (action === 'content-delete') {
+                        const [bucket, itemId] = String(id).split(':');
+                        if (!bucket || !itemId) {
+                            throw new Error('学习内容 ID 无效');
+                        }
+                        if (!(await showConfirm('删除学习内容', '确定删除这条学习内容？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
+                        payload = await deleteJson(`/api/style_learning/content_text/${encodeURIComponent(bucket)}/${encodeURIComponent(itemId)}`);
                     } else {
                         throw new Error(`未知操作: ${action}`);
                     }
@@ -5566,6 +5573,9 @@
                     }
                     if (action.startsWith('batch')) {
                         await Promise.all([loadBatchList(), loadGraphPanel({ quiet: true })]);
+                    }
+                    if (action.startsWith('content')) {
+                        await Promise.all([loadLearningContent({ quiet: true }), loadBatchList()]);
                     }
                 } catch (error) {
                     console.error('Dashboard action failed:', error);
@@ -5801,6 +5811,7 @@
                     const meta = [item.metadata, item.status ? `状态 ${item.status}` : null, item.type].filter(Boolean).join(' · ');
                     const detail = item.detail || '';
                     const rawSummary = renderObjectSummary(item.raw);
+                    const contentActionId = item.id === undefined || item.id === null ? '' : `${activeType}:${item.id}`;
                     return `
                         <details class="content-item">
                             <summary>
@@ -5813,6 +5824,7 @@
                             </summary>
                             ${detail ? `<div class="content-detail">${escapeHtml(detail)}</div>` : ''}
                             ${rawSummary ? `<div class="content-raw">${escapeHtml(rawSummary)}</div>` : ''}
+                            ${contentActionId ? `<div class="item-actions">${actionButton('content-delete', contentActionId, 'delete', '删除', 'danger')}</div>` : ''}
                         </details>
                     `;
                 });

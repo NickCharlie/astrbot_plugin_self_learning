@@ -85,6 +85,126 @@ class ProgressiveLearningService:
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
 
+    @staticmethod
+    def _quality_value(value) -> Optional[float]:
+        if value is None:
+            return None
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return None
+        if score <= 0:
+            return None
+        return max(0.0, min(1.0, score))
+
+    @staticmethod
+    def _message_text(message) -> str:
+        if isinstance(message, dict):
+            return str(
+                message.get("message")
+                or message.get("content")
+                or message.get("text")
+                or ""
+            )
+        return str(
+            getattr(message, "message", None)
+            or getattr(message, "content", None)
+            or getattr(message, "text", None)
+            or ""
+        )
+
+    @staticmethod
+    def _message_score(message, key: str) -> Optional[float]:
+        if isinstance(message, dict):
+            value = message.get(key)
+        else:
+            value = getattr(message, key, None)
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            return None
+        return max(0.0, min(1.0, score))
+
+    def _derive_message_signal_quality(self, learning_messages: List[Dict[str, Any]]) -> float:
+        texts = [
+            self._message_text(message).strip()
+            for message in (learning_messages or [])
+        ]
+        texts = [text for text in texts if len(text) >= 2]
+        if not texts:
+            return 0.0
+
+        relevance_scores = []
+        for message in learning_messages or []:
+            for key in ("relevance_score", "confidence", "quality_score"):
+                score = self._message_score(message, key)
+                if score is not None:
+                    relevance_scores.append(score)
+                    break
+
+        try:
+            batch_size = max(1, int(getattr(self.config, "max_messages_per_batch", 200) or 200))
+        except (TypeError, ValueError):
+            batch_size = 200
+
+        volume_score = min(len(texts) / batch_size, 1.0)
+        avg_len = sum(min(len(text), 120) for text in texts) / len(texts)
+        length_score = min(avg_len / 40.0, 1.0)
+        unique_score = len(set(texts)) / len(texts)
+        relevance_score = (
+            sum(relevance_scores) / len(relevance_scores)
+            if relevance_scores
+            else 0.65
+        )
+
+        quality_score = (
+            volume_score * 0.50
+            + length_score * 0.25
+            + unique_score * 0.15
+            + relevance_score * 0.10
+        )
+        return max(0.25, min(0.95, quality_score))
+
+    def _resolve_learning_quality_score(self, quality_metrics, learning_messages: List[Dict[str, Any]]) -> float:
+        metric_values = []
+        for field_name in (
+            "consistency_score",
+            "style_stability",
+            "vocabulary_diversity",
+            "emotional_balance",
+            "coherence_score",
+            "confidence",
+        ):
+            score = self._quality_value(getattr(quality_metrics, field_name, None))
+            if score is not None:
+                metric_values.append(score)
+
+        data = getattr(quality_metrics, "data", None)
+        if isinstance(data, dict):
+            for field_name in (
+                "overall_quality",
+                "prompt_improvement",
+                "expression_pattern_improvement",
+                "memory_graph_growth",
+                "knowledge_graph_growth",
+            ):
+                score = self._quality_value(data.get(field_name))
+                if score is not None:
+                    metric_values.append(score)
+
+        if metric_values:
+            return sum(metric_values) / len(metric_values)
+
+        return self._derive_message_signal_quality(learning_messages)
+
+    def _patch_zero_quality_metric(self, quality_metrics, quality_score: float) -> None:
+        current = self._quality_value(getattr(quality_metrics, "consistency_score", None))
+        if current is None and quality_score > 0 and hasattr(quality_metrics, "consistency_score"):
+            try:
+                quality_metrics.consistency_score = quality_score
+            except Exception:
+                pass
+
     def set_update_system_prompt_callback(self, callback):
         """
         设置增量更新回调函数
@@ -310,12 +430,14 @@ class ProgressiveLearningService:
                 updated_persona,
                 filtered_messages
             )
+            quality_score = self._resolve_learning_quality_score(quality_metrics, filtered_messages)
+            self._patch_zero_quality_metric(quality_metrics, quality_score)
 
             # 9. 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
             # 注意：对话风格（表达模式）学习总是成功，人格学习在_apply_learning_updates中会加入审查
             # 传递 relearn_mode 和 ml_tuning_info 参数
             await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=relearn_mode, ml_tuning_info=ml_tuning_info)
-            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_score:.3f} for group {group_id}")
             success = True # 对话风格学习总是成功
             
             # 10. 【新增】保存学习性能记录
@@ -324,7 +446,7 @@ class ProgressiveLearningService:
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self._group_sessions[group_id].session_id if group_id in self._group_sessions else '',
                 'timestamp': time.time(),
-                'quality_score': quality_metrics.consistency_score,
+                'quality_score': quality_score,
                 'learning_time': (datetime.now() - batch_start_time).total_seconds(),
                 'success': success,
                 'successful_pattern': json.dumps(style_analysis_for_db, default=self._json_serializer),
@@ -339,7 +461,7 @@ class ProgressiveLearningService:
             if group_session:
                 group_session.messages_processed += len(unprocessed_messages)
                 group_session.filtered_messages += len(filtered_messages)
-                group_session.quality_score = quality_metrics.consistency_score
+                group_session.quality_score = quality_score
                 group_session.success = success
                 await self.db_manager.save_learning_session_record(group_id, group_session.__dict__)
             
@@ -486,6 +608,8 @@ class ProgressiveLearningService:
             quality_metrics = await self.quality_monitor.evaluate_learning_batch(
                 current_persona, updated_persona, filtered_messages
             )
+            quality_score = self._resolve_learning_quality_score(quality_metrics, filtered_messages)
+            self._patch_zero_quality_metric(quality_metrics, quality_score)
 
             # 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
             # 传递 style_analysis 用于保存对话风格学习记录
@@ -494,7 +618,7 @@ class ProgressiveLearningService:
             if style_analysis is None:
                 style_analysis = AnalysisResult(success=True, confidence=0.5, data={})
             await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
-            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_metrics.consistency_score:.3f} for group {group_id}")
+            logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_score:.3f} for group {group_id}")
             success = True # 对话风格学习总是成功
 
             # 记录学习批次到数据库（使用 ORM）
@@ -511,7 +635,7 @@ class ProgressiveLearningService:
                         group_id=group_id,
                         start_time=start_time,
                         end_time=end_time,
-                        quality_score=quality_metrics.consistency_score,
+                        quality_score=quality_score,
                         processed_messages=len(unprocessed_messages),
                         message_count=len(unprocessed_messages),
                         filtered_count=len(filtered_messages),
@@ -527,7 +651,7 @@ class ProgressiveLearningService:
             await self.db_manager.save_learning_performance_record(group_id, {
                 'session_id': self._group_sessions[group_id].session_id if group_id in self._group_sessions else '',
                 'timestamp': time.time(),
-                'quality_score': quality_metrics.consistency_score,
+                'quality_score': quality_score,
                 'learning_time': end_time - start_time,
                 'success': success,
                 'successful_pattern': json.dumps({}),
@@ -542,7 +666,7 @@ class ProgressiveLearningService:
             if bg_session:
                 bg_session.messages_processed += len(unprocessed_messages)
                 bg_session.filtered_messages += len(filtered_messages)
-                bg_session.quality_score = quality_metrics.consistency_score
+                bg_session.quality_score = quality_score
                 bg_session.success = success
                 await self.db_manager.save_learning_session_record(group_id, bg_session.__dict__)
 

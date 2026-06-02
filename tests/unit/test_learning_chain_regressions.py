@@ -15,7 +15,7 @@ PARENT = PACKAGE_ROOT.parent
 if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
-from self_learning_EterU.core.interfaces import MessageData
+from self_learning_EterU.core.interfaces import AnalysisResult, MessageData
 from self_learning_EterU.config import PluginConfig
 from self_learning_EterU.services.core_learning.progressive_learning import (
     ProgressiveLearningService,
@@ -65,6 +65,31 @@ async def test_progressive_learning_fetches_unprocessed_messages_for_current_gro
         limit=42,
         group_id="group-a",
     )
+
+
+@pytest.mark.unit
+def test_progressive_learning_derives_quality_when_monitor_returns_zero():
+    service = ProgressiveLearningService.__new__(ProgressiveLearningService)
+    service.config = SimpleNamespace(max_messages_per_batch=200)
+    metrics = AnalysisResult(
+        success=True,
+        confidence=0.0,
+        data={"overall_quality": 0.0},
+        consistency_score=0.0,
+    )
+    messages = [
+        {
+            "message": "这是一条足够长的学习消息，用来表达当前群聊的说话习惯",
+            "relevance_score": 0.8,
+        }
+        for _ in range(20)
+    ]
+
+    quality_score = service._resolve_learning_quality_score(metrics, messages)
+    service._patch_zero_quality_metric(metrics, quality_score)
+
+    assert 0 < quality_score <= 1
+    assert metrics.consistency_score == quality_score
 
 
 @pytest.mark.unit

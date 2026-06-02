@@ -17,6 +17,54 @@ learning_bp = Blueprint('learning', __name__, url_prefix='/api')
 logger = get_astrbot_logger("self_learning.webui.learning")
 
 
+def _clamp_quality_score(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _optional_float(value):
+    if value is None:
+        return None
+    try:
+        return _clamp_quality_score(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _non_negative_int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _effective_batch_quality(batch, max_batch_size=200) -> float:
+    """Return stored quality, or a conservative display fallback for legacy zero rows."""
+    stored_quality = _optional_float(getattr(batch, 'quality_score', None))
+    if stored_quality is not None and stored_quality > 0:
+        return stored_quality
+
+    if getattr(batch, 'success', None) is False:
+        return stored_quality if stored_quality is not None else 0.0
+
+    processed = max(
+        _non_negative_int(getattr(batch, 'processed_messages', 0)),
+        _non_negative_int(getattr(batch, 'message_count', 0)),
+    )
+    filtered = _non_negative_int(getattr(batch, 'filtered_count', 0))
+    if processed <= 0 and filtered <= 0:
+        return stored_quality if stored_quality is not None else 0.0
+
+    try:
+        batch_size = max(1, int(max_batch_size or 200))
+    except (TypeError, ValueError):
+        batch_size = 200
+
+    volume_score = min(processed / batch_size, 1.0)
+    filtered_score = min(filtered / max(processed, filtered, 1), 1.0) if filtered else 0.0
+    success_score = 0.10 if getattr(batch, 'success', True) else 0.0
+    return _clamp_quality_score(0.25 + (volume_score * 0.45) + (filtered_score * 0.20) + success_score)
+
+
 @learning_bp.route("/style_learning/results", methods=["GET"])
 @require_auth
 async def get_style_learning_results():
@@ -124,6 +172,7 @@ async def get_style_learning_content_text():
     try:
         container = get_container()
         database_manager = container.database_manager
+        max_batch_size = getattr(getattr(container, 'config', None), 'max_messages_per_batch', 200)
 
         content_data = {
             'dialogues': [],
@@ -257,6 +306,7 @@ async def get_style_learning_content_text():
                     )
                     history_result = await session.execute(history_stmt)
                     for batch in history_result.scalars().all():
+                        quality_score = _effective_batch_quality(batch, max_batch_size)
                         duration = ''
                         if batch.start_time and batch.end_time:
                             duration = f", 耗时: {batch.end_time - batch.start_time:.1f}s"
@@ -265,7 +315,7 @@ async def get_style_learning_content_text():
                             'type': 'learning_batch',
                             'title': batch.batch_name or batch.batch_id or '学习批次',
                             'timestamp': format_ts(batch.start_time),
-                            'text': f"批次: {batch.batch_name or batch.batch_id}, 质量: {batch.quality_score or 0:.3f}",
+                            'text': f"批次: {batch.batch_name or batch.batch_id}, 质量: {quality_score:.3f}",
                             'detail': batch.error_message or f"状态: {batch.status or 'unknown'}",
                             'status': batch.status,
                             'metadata': f"群组: {batch.group_id}, 消息: {batch.processed_messages or 0}, 成功: {'是' if batch.success else '否'}{duration}",
@@ -275,7 +325,8 @@ async def get_style_learning_content_text():
                                 'group_id': batch.group_id,
                                 'start_time': batch.start_time,
                                 'end_time': batch.end_time,
-                                'quality_score': batch.quality_score,
+                                'quality_score': quality_score,
+                                'raw_quality_score': batch.quality_score,
                                 'processed_messages': batch.processed_messages,
                                 'message_count': batch.message_count,
                                 'filtered_count': batch.filtered_count,
@@ -300,6 +351,60 @@ async def get_style_learning_content_text():
         return error_response(str(e), 500)
 
 
+@learning_bp.route("/style_learning/content_text/<bucket>/<int:item_id>", methods=["DELETE"])
+@require_auth
+async def delete_style_learning_content_text(bucket: str, item_id: int):
+    """删除学习内容浏览页中的单条记录。"""
+    try:
+        container = get_container()
+        database_manager = container.database_manager
+
+        if not database_manager or not hasattr(database_manager, 'get_session'):
+            return error_response("数据库管理器未初始化", 500)
+
+        try:
+            from ...models.orm import (
+                RawMessage, StyleLearningReview,
+                ExpressionPattern, LearningBatch,
+            )
+        except ImportError:
+            from models.orm import (
+                RawMessage, StyleLearningReview,
+                ExpressionPattern, LearningBatch,
+            )
+
+        bucket_models = {
+            'dialogues': (RawMessage, '原始对话'),
+            'analysis': (StyleLearningReview, '分析结果'),
+            'features': (ExpressionPattern, '表达模式'),
+            'history': (LearningBatch, '学习批次'),
+        }
+        model_info = bucket_models.get(bucket)
+        if model_info is None:
+            return error_response(f"不支持的学习内容类型: {bucket}", 400)
+
+        model, label = model_info
+        from sqlalchemy import delete as sql_delete
+
+        async with database_manager.get_session() as session:
+            stmt = sql_delete(model).where(model.id == item_id)
+            result = await session.execute(stmt)
+            await session.commit()
+
+            if result.rowcount > 0:
+                return jsonify({
+                    'success': True,
+                    'message': f'{label} {item_id} 已删除',
+                }), 200
+            return error_response(f'{label} {item_id} 不存在', 404)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"删除学习内容失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @learning_bp.route("/batches", methods=["GET"])
 @require_auth
 async def get_learning_batches():
@@ -312,6 +417,7 @@ async def get_learning_batches():
 
         container = get_container()
         database_manager = container.database_manager
+        max_batch_size = getattr(getattr(container, 'config', None), 'max_messages_per_batch', 200)
 
         if not database_manager or not hasattr(database_manager, 'get_session'):
             return error_response("数据库管理器未初始化", 500)
@@ -339,6 +445,7 @@ async def get_learning_batches():
             result = await session.execute(stmt)
             batches = []
             for batch in result.scalars().all():
+                quality_score = _effective_batch_quality(batch, max_batch_size)
                 batches.append({
                     'id': batch.id,
                     'batch_id': batch.batch_id,
@@ -346,7 +453,8 @@ async def get_learning_batches():
                     'group_id': batch.group_id,
                     'start_time': batch.start_time,
                     'end_time': batch.end_time,
-                    'quality_score': batch.quality_score,
+                    'quality_score': quality_score,
+                    'raw_quality_score': batch.quality_score,
                     'processed_messages': batch.processed_messages,
                     'message_count': batch.message_count,
                     'filtered_count': batch.filtered_count,
