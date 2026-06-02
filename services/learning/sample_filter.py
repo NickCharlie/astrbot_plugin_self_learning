@@ -81,11 +81,13 @@ LOG_LEVEL_PATTERN = r"(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|CRITICAL|FATAL)"
 PLUGIN_RUNTIME_CONTEXT_PATTERN = (
     r"(?:LivingMemory|astrbot_plugin_livingmemory|MemoryEngine|"
     r"ConversationManager|FaissVecDB|FAISS|BM25|WebUI|"
-    r"EventHandler|ConversationStore|MemoryProcessor)"
+    r"EventHandler|ConversationStore|MemoryProcessor|PageAPI|"
+    r"BackupManager|AtomLifecycle|StorageMaintenance|VectorRetriever)"
 )
 PLUGIN_RUNTIME_ACTION_PATTERN = (
     r"(?:初始化|启动|停止|关闭|退出|失败|异常|成功|超时|耗时|"
-    r"重建|索引|检索|同步|清空|清理|连接|写入|删除|更新|回滚)"
+    r"完成|重建|索引|检索|查询|同步|清空|清理|连接|写入|"
+    r"删除|更新|回滚|跳过|过长)"
 )
 CONVERSATIONAL_CUE_PATTERN = re.compile(
     r"(?:\?|？|吗|呢|为什么|怎么|如何|什么时候|能不能|是不是|可以|有人|我|你)"
@@ -103,8 +105,8 @@ PLUGIN_LOG_PATTERNS = (
         re.IGNORECASE,
     ),
     re.compile(
-        rf"^\s*(?:\[[^\]]*(?:{PLUGIN_RUNTIME_CONTEXT_PATTERN})[^\]]*\]\s*)?"
-        rf"(?:{PLUGIN_RUNTIME_CONTEXT_PATTERN})\b.*"
+        rf"^\s*(?:(?:\[[^\]]*(?:{PLUGIN_RUNTIME_CONTEXT_PATTERN})[^\]]*\]\s*)|"
+        rf"(?:{PLUGIN_RUNTIME_CONTEXT_PATTERN})\b).*"
         rf"(?:{PLUGIN_RUNTIME_ACTION_PATTERN})",
         re.IGNORECASE,
     ),

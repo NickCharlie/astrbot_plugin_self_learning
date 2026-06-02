@@ -111,6 +111,11 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
     assert should_ignore_learning_sample(livingmemory_shutdown_log) is True
     assert should_ignore_learning_sample("MemoryEngine 已关闭") is True
+    assert should_ignore_learning_sample("[PageAPI] 获取图谱概览失败: timeout") is True
+    assert should_ignore_learning_sample("[BackupManager] 备份完成: 3 个文件") is True
+    assert should_ignore_learning_sample("[AtomLifecycle] 维护任务异常") is True
+    assert should_ignore_learning_sample("[StorageMaintenance] 执行存储维护失败") is True
+    assert should_ignore_learning_sample("[VectorRetriever] 查询文本过长 (2048 字符)") is True
     assert should_ignore_learning_sample(
         "这是一条普通聊天消息",
         message_type="notice",
