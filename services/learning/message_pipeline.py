@@ -7,7 +7,11 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
-from .sample_filter import filter_learning_messages, should_ignore_learning_sample
+from .sample_filter import (
+    extract_learning_event_metadata,
+    filter_learning_messages,
+    should_ignore_learning_sample,
+)
 
 
 class MessagePipeline:
@@ -60,7 +64,12 @@ class MessagePipeline:
         """
         message_collected = False
         try:
-            if should_ignore_learning_sample(message_text, sender_id=sender_id):
+            event_metadata = extract_learning_event_metadata(event)
+            if should_ignore_learning_sample(
+                message_text,
+                sender_id=sender_id,
+                **event_metadata,
+            ):
                 logger.debug(
                     "检测到指令或系统模板消息，跳过学习流水线: "
                     f"{message_text[:80]}"
@@ -77,6 +86,7 @@ class MessagePipeline:
                         "group_id": group_id,
                         "timestamp": time.time(),
                         "platform": event.get_platform_name(),
+                        **event_metadata,
                     }
                 ))
             except RuntimeError as e:
