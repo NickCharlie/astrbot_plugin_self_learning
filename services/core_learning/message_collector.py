@@ -54,6 +54,14 @@ class MessageCollectorService:
             if should_ignore_learning_sample(
                 message_data.get('message', ''),
                 sender_id=message_data.get('sender_id'),
+                source=message_data.get('source'),
+                message_type=message_data.get('message_type'),
+                event_type=message_data.get('event_type'),
+                post_type=message_data.get('post_type'),
+                sub_type=message_data.get('sub_type'),
+                notice_type=message_data.get('notice_type'),
+                plugin_name=message_data.get('plugin_name'),
+                metadata=message_data.get('metadata'),
             ):
                 logger.debug(
                     "检测到指令或系统模板消息，跳过保存学习样本: "

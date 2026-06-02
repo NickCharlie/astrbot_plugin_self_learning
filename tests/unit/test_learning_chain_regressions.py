@@ -97,6 +97,9 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
         "/new - Create new conversation\n"
         "/provider - View or switch LLM Provider"
     )
+    livingmemory_shutdown_log = (
+        "[2026-06-02 11:54:17] [INFO] [LivingMemory] MemoryEngine 已关闭"
+    )
 
     assert should_ignore_learning_sample("/help") is True
     assert should_ignore_learning_sample("/help me") is True
@@ -104,6 +107,17 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     assert should_ignore_learning_sample("help me") is False
     assert should_ignore_learning_sample("/a hello") is False
     assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample(livingmemory_shutdown_log) is True
+    assert should_ignore_learning_sample("MemoryEngine 已关闭") is True
+    assert should_ignore_learning_sample(
+        "这是一条普通聊天消息",
+        message_type="notice",
+    ) is True
+    assert should_ignore_learning_sample(
+        "这是一条普通群聊消息",
+        message_type="group_message",
+    ) is False
+    assert should_ignore_learning_sample("LivingMemory 今天真好用") is False
     assert should_ignore_learning_sample("这是一条普通聊天消息") is False
 
 
@@ -266,6 +280,58 @@ async def test_message_pipeline_runs_expression_learning_without_realtime_mode()
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_message_pipeline_skips_plugin_log_events_before_collection():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_expression_patterns=True,
+        enable_realtime_learning=False,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    collector = SimpleNamespace(collect_message=AsyncMock())
+    enhanced_interaction = SimpleNamespace(
+        update_conversation_context=AsyncMock(),
+    )
+    realtime_processor = SimpleNamespace(
+        process_expression_learning_background=AsyncMock(),
+        process_realtime_background=AsyncMock(),
+    )
+
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=collector,
+        enhanced_interaction=enhanced_interaction,
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=None,
+        realtime_processor=realtime_processor,
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    event = SimpleNamespace(
+        get_sender_name=lambda: "LivingMemory",
+        get_platform_name=lambda: "test",
+        get_message_type=lambda: "notice",
+    )
+
+    collected = await pipeline.process_learning(
+        "group-a",
+        "plugin",
+        "[INFO] [LivingMemory] MemoryEngine 已关闭",
+        event,
+    )
+
+    assert collected is False
+    collector.collect_message.assert_not_called()
+    enhanced_interaction.update_conversation_context.assert_not_called()
+    realtime_processor.process_expression_learning_background.assert_not_called()
+    realtime_processor.process_realtime_background.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_message_pipeline_collects_to_database_and_triggers_learning_paths(
     tmp_path,
 ):
@@ -328,6 +394,13 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
             return task
 
         pipeline._spawn = spawn_now
+
+        await pipeline.process_learning(
+            "group-a",
+            "plugin",
+            "[INFO] [LivingMemory] MemoryEngine 已关闭",
+            Event(),
+        )
 
         for idx in range(10):
             await pipeline.process_learning(
