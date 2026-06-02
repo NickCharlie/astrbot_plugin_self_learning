@@ -41,6 +41,8 @@ from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
 from self_learning_EterU.services.learning.sample_filter import (
+    extract_learning_event_metadata,
+    filter_learning_messages,
     should_ignore_learning_sample,
 )
 from self_learning_EterU.services.state.enhanced_interaction import (
@@ -119,6 +121,37 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     ) is False
     assert should_ignore_learning_sample("LivingMemory 今天真好用") is False
     assert should_ignore_learning_sample("这是一条普通聊天消息") is False
+
+
+@pytest.mark.unit
+def test_learning_sample_filter_reads_raw_event_metadata_from_objects():
+    message = SimpleNamespace(
+        message="这是一条普通聊天消息",
+        sender_id="user-a",
+        raw_event={"message_type": "notice"},
+    )
+
+    assert filter_learning_messages([message]) == []
+
+
+@pytest.mark.unit
+def test_learning_event_metadata_logs_unexpected_accessor_failures(caplog):
+    class Event:
+        def get_message_type(self):
+            raise RuntimeError("metadata accessor failed")
+
+        def get_event_type(self):
+            return "message"
+
+    with caplog.at_level("DEBUG"):
+        metadata = extract_learning_event_metadata(Event())
+
+    assert metadata["event_type"] == "message"
+    assert any(
+        "Failed to read learning event metadata via Event.get_message_type"
+        in record.message
+        for record in caplog.records
+    )
 
 
 @pytest.mark.unit

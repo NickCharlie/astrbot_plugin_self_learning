@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any, Dict, Iterable, List, Optional
 
+
+_LOGGER = logging.getLogger(__name__)
 
 COMMAND_PREFIXES = ("/", "!", "#", ".")
 BARE_COMMANDS = {
@@ -211,6 +214,32 @@ def has_system_event_metadata(
     return False
 
 
+def extract_learning_message_metadata(item: Any) -> Dict[str, Any]:
+    """Extract optional metadata from dict/object message containers."""
+    if item is None:
+        return {}
+
+    if isinstance(item, dict):
+        metadata = {key: item.get(key) for key in METADATA_FIELD_NAMES}
+        raw_metadata = item.get("metadata")
+        raw_event = item.get("raw_event") or item.get("raw")
+    else:
+        metadata = {key: getattr(item, key, None) for key in METADATA_FIELD_NAMES}
+        raw_metadata = getattr(item, "metadata", None)
+        raw_event = getattr(item, "raw_event", None) or getattr(item, "raw", None)
+
+    metadata["metadata"] = raw_metadata if raw_metadata is not None else raw_event
+
+    for source_data in (raw_metadata, raw_event):
+        if not isinstance(source_data, dict):
+            continue
+        for key in METADATA_FIELD_NAMES:
+            if metadata.get(key) is None and source_data.get(key) is not None:
+                metadata[key] = source_data.get(key)
+
+    return metadata
+
+
 def extract_learning_event_metadata(event: Any) -> Dict[str, Any]:
     """Extract optional event metadata used by sample filtering."""
     if event is None:
@@ -228,24 +257,22 @@ def extract_learning_event_metadata(event: Any) -> Dict[str, Any]:
             continue
         try:
             value = method()
+        except (AttributeError, TypeError):
+            continue
         except Exception:
+            _LOGGER.debug(
+                "Failed to read learning event metadata via %s.%s",
+                type(event).__name__,
+                method_name,
+                exc_info=True,
+            )
             continue
         if value is not None:
             metadata[key] = value
 
-    for key in METADATA_FIELD_NAMES:
-        if key in metadata:
-            continue
-        value = getattr(event, key, None)
-        if value is not None:
+    for key, value in extract_learning_message_metadata(event).items():
+        if metadata.get(key) is None and value is not None:
             metadata[key] = value
-
-    raw_event = getattr(event, "raw_event", None) or getattr(event, "raw", None)
-    if isinstance(raw_event, dict):
-        metadata["metadata"] = raw_event
-        for key in METADATA_FIELD_NAMES:
-            if key not in metadata and raw_event.get(key) is not None:
-                metadata[key] = raw_event.get(key)
 
     return metadata
 
@@ -348,13 +375,10 @@ def filter_learning_messages(messages: Iterable[Any]) -> List[Any]:
         if isinstance(item, dict):
             text = item.get("message", "")
             sender_id = item.get("sender_id")
-            metadata = {key: item.get(key) for key in METADATA_FIELD_NAMES}
-            metadata["metadata"] = item.get("metadata") or item.get("raw_event")
         else:
             text = getattr(item, "message", "")
             sender_id = getattr(item, "sender_id", None)
-            metadata = {key: getattr(item, key, None) for key in METADATA_FIELD_NAMES}
-            metadata["metadata"] = getattr(item, "metadata", None)
+        metadata = extract_learning_message_metadata(item)
         if should_ignore_learning_sample(
             text,
             sender_id=sender_id,
