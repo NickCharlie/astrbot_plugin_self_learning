@@ -238,14 +238,7 @@ class GraphService:
             return False
 
         try:
-            stats_getter = getattr(memory_engine, "get_statistics", None)
-            if callable(stats_getter):
-                stats = stats_getter()
-                if inspect.isawaitable(stats):
-                    stats = await stats
-                if isinstance(stats, dict):
-                    source_stats.update(stats)
-
+            await self._append_livingmemory_stats(memory_engine, source_stats)
             snapshot = await self._read_livingmemory_snapshot(
                 graph_store,
                 group_id=group_id,
@@ -267,6 +260,24 @@ class GraphService:
         except Exception as e:
             logger.warning(f"读取 LivingMemory 后端图谱失败: {e}", exc_info=True)
             return False
+
+    async def _append_livingmemory_stats(
+        self,
+        memory_engine: Any,
+        source_stats: Dict[str, Any],
+    ) -> None:
+        stats_getter = getattr(memory_engine, "get_statistics", None)
+        if not callable(stats_getter):
+            return
+
+        try:
+            stats = stats_getter()
+            if inspect.isawaitable(stats):
+                stats = await stats
+            if isinstance(stats, dict):
+                source_stats.update(stats)
+        except Exception as exc:
+            logger.debug(f"读取 LivingMemory 图谱统计失败，继续加载图谱快照: {exc}")
 
     def _livingmemory_graph_backend(self) -> Tuple[Any, Any]:
         delegation = self._delegation()
@@ -388,6 +399,11 @@ class GraphService:
         raw_entries = self._safe_items(snapshot.get("entries"))
         raw_memories = self._safe_items(snapshot.get("memories"))
         raw_id_to_node_id: Dict[str, str] = {}
+        initial_link_count = len(links)
+        max_new_links = max(1, int(limit or 1) * 3)
+
+        def link_budget_exhausted() -> bool:
+            return len(links) - initial_link_count >= max_new_links
 
         for item in raw_nodes:
             if len(nodes) >= limit:
@@ -453,6 +469,8 @@ class GraphService:
             )
 
         for edge in raw_edges:
+            if link_budget_exhausted():
+                break
             source = raw_id_to_node_id.get(str(edge.get("source")))
             target = raw_id_to_node_id.get(str(edge.get("target")))
             if not source or not target:
@@ -480,6 +498,8 @@ class GraphService:
                 or "提及"
             )
             for raw_node_id in self._safe_items(entry.get("node_ids"))[:6]:
+                if link_budget_exhausted():
+                    break
                 target = raw_id_to_node_id.get(str(raw_node_id))
                 if target:
                     self._add_link(links, seen_links, memory_node_id, target, label, 1)

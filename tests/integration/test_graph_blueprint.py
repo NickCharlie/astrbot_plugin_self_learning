@@ -77,6 +77,85 @@ async def test_memory_graph_route_explains_livingmemory_delegation(
 
 
 @pytest.mark.asyncio
+async def test_memory_graph_route_reads_livingmemory_graph_store(
+    client,
+    monkeypatch,
+):
+    class GraphStore:
+        async def get_graph_snapshot(self, **_kwargs):
+            return {
+                "nodes": [
+                    {
+                        "id": 1,
+                        "type": "person",
+                        "label": "Alice",
+                        "canonical_value": "alice",
+                        "entry_count": 1,
+                    },
+                    {
+                        "id": 2,
+                        "type": "topic",
+                        "label": "Tea",
+                        "canonical_value": "tea",
+                        "entry_count": 1,
+                    },
+                ],
+                "edges": [
+                    {
+                        "source": 1,
+                        "target": 2,
+                        "relation_type": "likes",
+                        "weight": 1,
+                    }
+                ],
+                "entries": [],
+                "memories": [
+                    {
+                        "memory_id": 42,
+                        "summary": "Alice likes tea",
+                        "session_id": "umo:group-a",
+                    }
+                ],
+            }
+
+    livingmemory_plugin = SimpleNamespace(
+        initializer=SimpleNamespace(
+            memory_engine=SimpleNamespace(
+                graph_store=GraphStore(),
+                get_statistics=lambda: (_ for _ in ()).throw(RuntimeError("stats down")),
+            )
+        )
+    )
+    monkeypatch.setattr(
+        graphs_module,
+        "get_container",
+        lambda: SimpleNamespace(
+            database_manager=None,
+            group_id_to_unified_origin={"group-a": "umo:group-a"},
+            feature_delegation=SimpleNamespace(
+                status=lambda: {
+                    "memory_delegated": True,
+                    "memory_plugin": "LivingMemory",
+                    "reply_delegated": False,
+                    "reply_plugin": None,
+                },
+                memory_plugin=lambda: SimpleNamespace(star_cls=livingmemory_plugin),
+            ),
+        ),
+    )
+
+    response = await client.get("/api/graphs/memory?group_id=group-a")
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert data["data_source"] == "livingmemory_graph_store"
+    assert "empty_reason" not in data
+    assert {node["name"] for node in data["nodes"]} >= {"Alice", "Tea"}
+    assert any(link["label"]["formatter"] == "likes" for link in data["links"])
+
+
+@pytest.mark.asyncio
 async def test_knowledge_graph_route_returns_echarts_payload(client):
     response = await client.get("/api/graphs/knowledge")
 

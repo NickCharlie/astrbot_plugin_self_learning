@@ -6736,20 +6736,29 @@
                     }
                 });
 
-                $('graphReloadBtn').addEventListener('click', () => loadGraphPanel());
-                $('graphLayoutBtn').addEventListener('click', () => {
-                    state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
-                    renderGraphPanel(state.graph.data);
-                });
+                const graphReloadBtn = $('graphReloadBtn');
+                if (graphReloadBtn) {
+                    graphReloadBtn.addEventListener('click', () => loadGraphPanel());
+                }
+                const graphLayoutBtn = $('graphLayoutBtn');
+                if (graphLayoutBtn) {
+                    graphLayoutBtn.addEventListener('click', () => {
+                        state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
+                        renderGraphPanel(state.graph.data);
+                    });
+                }
                 let graphGroupTimer = null;
-                $('graphGroupInput').addEventListener('input', (event) => {
-                    clearTimeout(graphGroupTimer);
-                    graphGroupTimer = setTimeout(() => {
-                        state.graph.groupId = (event.target.value || '').trim();
-                        state.graph.loaded = false;
-                        loadGraphPanel({ quiet: true });
-                    }, 360);
-                });
+                const graphGroupInput = $('graphGroupInput');
+                if (graphGroupInput) {
+                    graphGroupInput.addEventListener('input', (event) => {
+                        clearTimeout(graphGroupTimer);
+                        graphGroupTimer = setTimeout(() => {
+                            state.graph.groupId = (event.target.value || '').trim();
+                            state.graph.loaded = false;
+                            loadGraphPanel({ quiet: true });
+                        }, 360);
+                    });
+                }
                 const groupChatPlusReloadBtn = $('groupChatPlusReloadBtn');
                 if (groupChatPlusReloadBtn) {
                     groupChatPlusReloadBtn.addEventListener('click', () => loadCompanionFrame('group_chat_plus', { force: true }));
