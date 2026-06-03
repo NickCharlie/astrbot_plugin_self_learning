@@ -772,7 +772,7 @@ class GraphService:
         group_id: Optional[str] = None,
         limit: int = 120,
     ) -> Dict[str, Any]:
-        """Return knowledge graph nodes and links from KG ORM tables."""
+        """Return knowledge graph nodes and links from LivingMemory or local stores."""
         limit = max(10, min(int(limit or 120), 300))
         nodes: List[Dict[str, Any]] = []
         links: List[Dict[str, Any]] = []
@@ -780,12 +780,29 @@ class GraphService:
         seen_links: Set[Tuple[str, str, str]] = set()
         groups: Set[str] = set()
         categories: Set[str] = set()
+        source_stats: Dict[str, Any] = {}
 
-        await self._append_lightrag_graph(
-            nodes, links, seen_nodes, seen_links, groups, categories, group_id, limit
+        livingmemory_used = await self._append_livingmemory_graph_store(
+            nodes,
+            links,
+            seen_nodes,
+            seen_links,
+            groups,
+            group_id,
+            limit,
+            source_stats,
         )
 
-        if self.database_manager and hasattr(self.database_manager, "get_session"):
+        if not livingmemory_used:
+            await self._append_lightrag_graph(
+                nodes, links, seen_nodes, seen_links, groups, categories, group_id, limit
+            )
+
+        if (
+            not livingmemory_used
+            and self.database_manager
+            and hasattr(self.database_manager, "get_session")
+        ):
             try:
                 from sqlalchemy import desc, select
 
@@ -861,6 +878,9 @@ class GraphService:
         payload = {
             "success": True,
             "type": "knowledge",
+            "data_source": (
+                "livingmemory_graph_store" if livingmemory_used else "self_learning"
+            ),
             "group_id": group_id,
             "groups": sorted(groups),
             "nodes": returned_nodes,
@@ -876,6 +896,8 @@ class GraphService:
                 "groups": len(groups),
             },
         }
+        if source_stats:
+            payload["source_stats"] = source_stats
         return self._maybe_add_delegated_empty_state(payload, "knowledge")
 
     @staticmethod

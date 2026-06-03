@@ -134,7 +134,9 @@ Dashboard -> 功能融合
 Self Learning 不再调用 LivingMemory 的 Page 图谱 API。Dashboard 的
 `#/graphs` 模块会在 LivingMemory 已加载时直读其
 `initializer.memory_engine.graph_store` 后端对象，并通过本插件接口暴露
-ECharts 图谱 payload:
+ECharts 图谱 payload。记忆图和知识图谱都会优先读取 LivingMemory 后端；
+当后端不可用或快照为空时，仍保留 Self Learning 本地记忆、LightRAG 和
+本地 KG 表回退:
 
 - `GET /api/graphs/memory`
 - `GET /api/graphs/knowledge`

@@ -55,6 +55,151 @@ async def test_knowledge_graph_reads_lightrag_graphml(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_knowledge_graph_prefers_livingmemory_graph_store(tmp_path):
+    class GraphStore:
+        calls = []
+
+        async def get_graph_snapshot(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "nodes": [
+                    {
+                        "id": 1,
+                        "type": "person",
+                        "label": "Alice",
+                        "canonical_value": "alice",
+                        "entry_count": 2,
+                    },
+                    {
+                        "id": 2,
+                        "type": "topic",
+                        "label": "Tea",
+                        "canonical_value": "tea",
+                        "entry_count": 1,
+                    },
+                ],
+                "edges": [
+                    {
+                        "source": 1,
+                        "target": 2,
+                        "relation_type": "likes",
+                        "weight": 1.5,
+                    }
+                ],
+                "entries": [],
+                "memories": [],
+            }
+
+    graph_dir = tmp_path / "lightrag" / "group-a"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "graph_chunk_entity_relation.graphml").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="FallbackOnly"/>
+  </graph>
+</graphml>
+""",
+        encoding="utf-8",
+    )
+
+    graph_store = GraphStore()
+    livingmemory_plugin = SimpleNamespace(
+        initializer=SimpleNamespace(
+            memory_engine=SimpleNamespace(
+                graph_store=graph_store,
+                get_statistics=lambda: {"graph_nodes": 2},
+            )
+        )
+    )
+    container = SimpleNamespace(
+        database_manager=None,
+        plugin_config=SimpleNamespace(data_dir=str(tmp_path)),
+        v2_integration=None,
+        group_id_to_unified_origin={"group-a": "umo:group-a"},
+        feature_delegation=SimpleNamespace(
+            status=lambda: {
+                "memory_delegated": True,
+                "memory_plugin": "LivingMemory",
+            },
+            memory_plugin=lambda: SimpleNamespace(star_cls=livingmemory_plugin),
+        ),
+    )
+
+    payload = await GraphService(container).get_knowledge_graph(
+        group_id="group-a",
+        limit=20,
+    )
+
+    assert graph_store.calls[0]["session_id"] == "umo:group-a"
+    assert payload["type"] == "knowledge"
+    assert payload["data_source"] == "livingmemory_graph_store"
+    assert payload["source_stats"]["graph_nodes"] == 2
+    assert {node["name"] for node in payload["nodes"]} >= {"Alice", "Tea"}
+    assert "FallbackOnly" not in {node["name"] for node in payload["nodes"]}
+    assert any(link["label"]["formatter"] == "likes" for link in payload["links"])
+
+
+@pytest.mark.asyncio
+async def test_knowledge_graph_falls_back_when_livingmemory_graph_store_empty(tmp_path):
+    class EmptyGraphStore:
+        async def get_graph_snapshot(self, **_kwargs):
+            return {"nodes": [], "edges": [], "entries": [], "memories": []}
+
+    graph_dir = tmp_path / "lightrag" / "group-a"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "graph_chunk_entity_relation.graphml").write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="node" attr.name="entity_type" attr.type="string"/>
+  <key id="d1" for="edge" attr.name="keywords" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="FallbackAlice"><data key="d0">person</data></node>
+    <node id="FallbackTea"><data key="d0">topic</data></node>
+    <edge source="FallbackAlice" target="FallbackTea"><data key="d1">fallback-likes</data></edge>
+  </graph>
+</graphml>
+""",
+        encoding="utf-8",
+    )
+    livingmemory_plugin = SimpleNamespace(
+        initializer=SimpleNamespace(
+            memory_engine=SimpleNamespace(graph_store=EmptyGraphStore())
+        )
+    )
+    container = SimpleNamespace(
+        database_manager=None,
+        plugin_config=SimpleNamespace(data_dir=str(tmp_path)),
+        v2_integration=None,
+        group_id_to_unified_origin={"group-a": "umo:group-a"},
+        feature_delegation=SimpleNamespace(
+            status=lambda: {
+                "memory_delegated": True,
+                "memory_plugin": "LivingMemory",
+            },
+            memory_plugin=lambda: SimpleNamespace(star_cls=livingmemory_plugin),
+        ),
+    )
+
+    payload = await GraphService(container).get_knowledge_graph(
+        group_id="group-a",
+        limit=20,
+    )
+
+    assert payload["type"] == "knowledge"
+    assert payload["data_source"] == "self_learning"
+    assert payload["groups"] == ["group-a"]
+    assert {node["name"] for node in payload["nodes"]} >= {
+        "FallbackAlice",
+        "FallbackTea",
+    }
+    assert any(
+        link["label"]["formatter"] == "fallback-likes"
+        for link in payload["links"]
+    )
+
+
+@pytest.mark.asyncio
 async def test_memory_graph_reads_active_mem0_manager(monkeypatch):
     monkeypatch.setattr(EnhancedMemoryGraphManager, "_instance", None)
 
