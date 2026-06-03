@@ -75,8 +75,10 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
     assert dashboards["livingmemory"]["dashboard"]["url"] == "/api/integrations/embed/livingmemory"
     assert dashboards["livingmemory"]["dashboard"]["external_url"] == "http://127.0.0.1:8888"
     assert dashboards["livingmemory"]["dashboard"]["route"] == "#/graphs"
-    assert dashboards["livingmemory"]["dev_api"]["base"] == "/astrbot_plugin_livingmemory/page"
-    assert "POST /astrbot_plugin_livingmemory/page/graph/query" in dashboards["livingmemory"]["dev_api"]["endpoints"]
+    assert dashboards["livingmemory"]["dev_api"]["base"] == "/api/graphs"
+    assert dashboards["livingmemory"]["dev_api"]["mode"] == "self_learning_graph_store_adapter"
+    assert "GET /api/graphs/memory" in dashboards["livingmemory"]["dev_api"]["endpoints"]
+    assert "POST /astrbot_plugin_livingmemory/page/graph/query" not in dashboards["livingmemory"]["dev_api"]["endpoints"]
     assert dashboards["group_chat_plus"]["dashboard"]["url"] == "/api/integrations/embed/group_chat_plus"
     assert dashboards["group_chat_plus"]["dashboard"]["external_url"] == "http://127.0.0.1:8787/panel?embed=1"
     assert dashboards["group_chat_plus"]["dashboard"]["route"] == "#/reply-strategy"
