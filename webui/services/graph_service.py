@@ -13,6 +13,11 @@ from defusedxml import ElementTree as ET
 
 from astrbot.api import logger
 
+GRAPH_DATA_SOURCE_LIVINGMEMORY = "livingmemory_graph_store"
+GRAPH_DATA_SOURCE_SELF_LEARNING = "self_learning"
+GRAPH_DATA_SOURCE_LIVINGMEMORY_EMPTY = "livingmemory_backend_empty"
+GRAPH_EMPTY_REASON_BACKEND_EMPTY = "graph_backend_empty"
+
 
 def _trim_text(value: Any, limit: int = 120) -> str:
     text = "" if value is None else str(value)
@@ -64,8 +69,8 @@ class GraphService:
 
         payload.update(
             {
-                "data_source": "livingmemory_backend_empty",
-                "empty_reason": "graph_backend_empty",
+                "data_source": GRAPH_DATA_SOURCE_LIVINGMEMORY_EMPTY,
+                "empty_reason": GRAPH_EMPTY_REASON_BACKEND_EMPTY,
                 "message": message,
                 "delegation": status,
             }
@@ -200,7 +205,9 @@ class GraphService:
             "success": True,
             "type": "memory",
             "data_source": (
-                "livingmemory_graph_store" if livingmemory_used else "self_learning"
+                GRAPH_DATA_SOURCE_LIVINGMEMORY
+                if livingmemory_used
+                else GRAPH_DATA_SOURCE_SELF_LEARNING
             ),
             "group_id": group_id,
             "groups": sorted(groups),
@@ -772,7 +779,7 @@ class GraphService:
         group_id: Optional[str] = None,
         limit: int = 120,
     ) -> Dict[str, Any]:
-        """Return knowledge graph nodes and links from KG ORM tables."""
+        """Return knowledge graph nodes and links from LivingMemory or local stores."""
         limit = max(10, min(int(limit or 120), 300))
         nodes: List[Dict[str, Any]] = []
         links: List[Dict[str, Any]] = []
@@ -780,12 +787,29 @@ class GraphService:
         seen_links: Set[Tuple[str, str, str]] = set()
         groups: Set[str] = set()
         categories: Set[str] = set()
+        source_stats: Dict[str, Any] = {}
 
-        await self._append_lightrag_graph(
-            nodes, links, seen_nodes, seen_links, groups, categories, group_id, limit
+        livingmemory_used = await self._append_livingmemory_graph_store(
+            nodes,
+            links,
+            seen_nodes,
+            seen_links,
+            groups,
+            group_id,
+            limit,
+            source_stats,
         )
 
-        if self.database_manager and hasattr(self.database_manager, "get_session"):
+        if not livingmemory_used:
+            await self._append_lightrag_graph(
+                nodes, links, seen_nodes, seen_links, groups, categories, group_id, limit
+            )
+
+        if (
+            not livingmemory_used
+            and self.database_manager
+            and hasattr(self.database_manager, "get_session")
+        ):
             try:
                 from sqlalchemy import desc, select
 
@@ -861,6 +885,11 @@ class GraphService:
         payload = {
             "success": True,
             "type": "knowledge",
+            "data_source": (
+                GRAPH_DATA_SOURCE_LIVINGMEMORY
+                if livingmemory_used
+                else GRAPH_DATA_SOURCE_SELF_LEARNING
+            ),
             "group_id": group_id,
             "groups": sorted(groups),
             "nodes": returned_nodes,
@@ -876,6 +905,8 @@ class GraphService:
                 "groups": len(groups),
             },
         }
+        if source_stats:
+            payload["source_stats"] = source_stats
         return self._maybe_add_delegated_empty_state(payload, "knowledge")
 
     @staticmethod
