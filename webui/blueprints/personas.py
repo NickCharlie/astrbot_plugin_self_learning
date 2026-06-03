@@ -13,6 +13,21 @@ from ..utils.response import success_response, error_response
 personas_bp = Blueprint('personas', __name__, url_prefix='/api')
 
 
+def _parse_backup_limit(raw_limit, default: int = 20) -> int:
+    try:
+        limit = int(raw_limit)
+    except (TypeError, ValueError) as e:
+        raise ValueError("limit 必须是整数") from e
+    return max(1, min(limit, 100))
+
+
+def _backup_error_status(message: str) -> int:
+    service_unavailable_markers = ("未初始化", "不支持", "不可用")
+    if any(marker in message for marker in service_unavailable_markers):
+        return 503
+    return 404
+
+
 @personas_bp.route("/persona_management/list", methods=["GET"])
 @require_auth
 async def get_personas_list():
@@ -166,8 +181,8 @@ async def get_current_persona_state():
 async def list_persona_backups():
     """获取人格备份列表"""
     group_id = request.args.get("group_id", "default")
-    limit = request.args.get("limit", 20)
     try:
+        limit = _parse_backup_limit(request.args.get("limit", 20))
         container = get_container()
         backup_service = PersonaBackupService(container)
         result = await backup_service.list_backups(group_id=group_id, limit=limit)
@@ -198,7 +213,7 @@ async def get_persona_backup(backup_id: int):
         return jsonify(backup), 200
 
     except ValueError as e:
-        return error_response(str(e), 404)
+        return error_response(str(e), _backup_error_status(str(e)))
     except Exception as e:
         logger.error(f"获取人格备份详情失败: {e}", exc_info=True)
         return error_response(f"获取人格备份详情失败: {str(e)}", 500)
@@ -221,7 +236,7 @@ async def restore_persona_backup(backup_id: int):
         return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), 404)
+        return error_response(str(e), _backup_error_status(str(e)))
     except Exception as e:
         logger.error(f"恢复人格备份失败: {e}", exc_info=True)
         return error_response(f"恢复人格备份失败: {str(e)}", 500)
@@ -242,7 +257,7 @@ async def delete_persona_backup(backup_id: int):
         return error_response(message, 404)
 
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response(str(e), _backup_error_status(str(e)))
     except Exception as e:
         logger.error(f"删除人格备份失败: {e}", exc_info=True)
         return error_response(f"删除人格备份失败: {str(e)}", 500)

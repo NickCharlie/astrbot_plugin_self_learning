@@ -230,6 +230,31 @@ class TestPersonaService:
         assert result['prompt_length'] > 0
 
     @pytest.mark.asyncio
+    async def test_get_current_persona_state_handles_defensive_edges(self, mock_container):
+        """Current persona state should tolerate sparse config and odd persona fields."""
+        mock_container.plugin_config = Mock()
+        mock_container.persona_web_manager = None
+        mock_container.persona_manager.get_default_persona_v3.return_value = {
+            'persona_id': 'system-only',
+            'name': 'System Only',
+            'system_prompt': 'System prompt only',
+            'begin_dialogs': 'not-a-list',
+            'tools': None,
+        }
+        service = PersonaService(mock_container)
+
+        result = await service.get_current_persona_state('edge_group')
+
+        assert result['degraded'] is False
+        assert result['persona']['prompt'] == 'System prompt only'
+        assert result['prompt_preview'] == 'System prompt only'
+        assert result['prompt_length'] == len('System prompt only')
+        assert result['begin_dialog_count'] == 0
+        assert result['tool_count'] == 0
+        assert result['config']['persona_merge_strategy'] is None
+        assert result['available_services']['persona_manager'] is True
+
+    @pytest.mark.asyncio
     async def test_export_persona_success(self, mock_container, sample_persona_data):
         """Test exporting a persona"""
         service = PersonaService(mock_container)
