@@ -13,6 +13,11 @@ from defusedxml import ElementTree as ET
 
 from astrbot.api import logger
 
+GRAPH_DATA_SOURCE_LIVINGMEMORY = "livingmemory_graph_store"
+GRAPH_DATA_SOURCE_SELF_LEARNING = "self_learning"
+GRAPH_DATA_SOURCE_LIVINGMEMORY_EMPTY = "livingmemory_backend_empty"
+GRAPH_EMPTY_REASON_BACKEND_EMPTY = "graph_backend_empty"
+
 
 def _trim_text(value: Any, limit: int = 120) -> str:
     text = "" if value is None else str(value)
@@ -64,8 +69,8 @@ class GraphService:
 
         payload.update(
             {
-                "data_source": "livingmemory_backend_empty",
-                "empty_reason": "graph_backend_empty",
+                "data_source": GRAPH_DATA_SOURCE_LIVINGMEMORY_EMPTY,
+                "empty_reason": GRAPH_EMPTY_REASON_BACKEND_EMPTY,
                 "message": message,
                 "delegation": status,
             }
@@ -200,7 +205,9 @@ class GraphService:
             "success": True,
             "type": "memory",
             "data_source": (
-                "livingmemory_graph_store" if livingmemory_used else "self_learning"
+                GRAPH_DATA_SOURCE_LIVINGMEMORY
+                if livingmemory_used
+                else GRAPH_DATA_SOURCE_SELF_LEARNING
             ),
             "group_id": group_id,
             "groups": sorted(groups),
@@ -879,7 +886,9 @@ class GraphService:
             "success": True,
             "type": "knowledge",
             "data_source": (
-                "livingmemory_graph_store" if livingmemory_used else "self_learning"
+                GRAPH_DATA_SOURCE_LIVINGMEMORY
+                if livingmemory_used
+                else GRAPH_DATA_SOURCE_SELF_LEARNING
             ),
             "group_id": group_id,
             "groups": sorted(groups),

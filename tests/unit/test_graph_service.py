@@ -57,7 +57,8 @@ async def test_knowledge_graph_reads_lightrag_graphml(tmp_path):
 @pytest.mark.asyncio
 async def test_knowledge_graph_prefers_livingmemory_graph_store(tmp_path):
     class GraphStore:
-        calls = []
+        def __init__(self):
+            self.calls = []
 
         async def get_graph_snapshot(self, **kwargs):
             self.calls.append(kwargs)
@@ -239,7 +240,8 @@ async def test_memory_graph_reads_active_mem0_manager(monkeypatch):
 @pytest.mark.asyncio
 async def test_memory_graph_reads_livingmemory_graph_store_directly():
     class GraphStore:
-        calls = []
+        def __init__(self):
+            self.calls = []
 
         async def get_graph_snapshot(
             self,
