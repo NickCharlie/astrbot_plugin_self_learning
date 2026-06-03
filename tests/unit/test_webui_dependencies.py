@@ -79,6 +79,24 @@ def test_service_container_records_v2_integration():
     assert container.v2_integration is v2_integration
 
 
+def test_service_container_records_astrbot_core_config_separately():
+    container = ServiceContainer()
+    service_factory = _ServiceFactory()
+    plugin_config = SimpleNamespace(data_dir="./data")
+    astrbot_config = {"Self_Learning_Basic": {"web_interface_port": 7833}}
+    astrbot_core_config = {"dashboard": {"port": 6185}}
+
+    container.initialize(
+        plugin_config=plugin_config,
+        factory_manager=_FactoryManager(service_factory),
+        astrbot_config=astrbot_config,
+        astrbot_core_config=astrbot_core_config,
+    )
+
+    assert container.astrbot_config is astrbot_config
+    assert container.astrbot_core_config is astrbot_core_config
+
+
 def test_service_container_exposes_component_factory():
     container = ServiceContainer()
     service_factory = _ServiceFactory()
@@ -206,6 +224,46 @@ async def test_webui_manager_passes_v2_integration(monkeypatch):
     await manager._setup_services(astrbot_persona_manager=None)
 
     assert calls["v2_integration"] is v2_integration
+
+
+@pytest.mark.asyncio
+async def test_webui_manager_passes_astrbot_core_config(monkeypatch):
+    from webui import dependencies as dependencies_module
+    from webui.manager import WebUIManager
+
+    calls = {}
+    webui_container = SimpleNamespace(perf_collector=None)
+    astrbot_config = {"Self_Learning_Basic": {}}
+    astrbot_core_config = {"dashboard": {"port": 6185}}
+
+    async def fake_set_plugin_services(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(
+        dependencies_module,
+        "set_plugin_services",
+        fake_set_plugin_services,
+    )
+    monkeypatch.setattr(
+        dependencies_module,
+        "get_container",
+        lambda: webui_container,
+    )
+
+    manager = WebUIManager(
+        plugin_config=SimpleNamespace(data_dir="./data"),
+        context=object(),
+        factory_manager=object(),
+        perf_tracker="perf",
+        group_id_to_unified_origin={},
+        astrbot_config=astrbot_config,
+        astrbot_core_config=astrbot_core_config,
+    )
+
+    await manager._setup_services(astrbot_persona_manager=None)
+
+    assert calls["astrbot_config"] is astrbot_config
+    assert calls["astrbot_core_config"] is astrbot_core_config
 
 
 @pytest.mark.asyncio

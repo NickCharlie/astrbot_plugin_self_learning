@@ -23,6 +23,7 @@ class ServiceContainer:
         # 插件配置
         self.plugin_config: Optional[Any] = None
         self.astrbot_config: Optional[Any] = None
+        self.astrbot_core_config: Optional[Any] = None
         self.plugin_instance: Optional[Any] = None
 
         # 核心服务
@@ -78,6 +79,7 @@ class ServiceContainer:
         group_id_to_unified_origin=None,
         feature_delegation=None,
         astrbot_config=None,
+        astrbot_core_config=None,
         plugin_instance=None,
         database_manager=None,
         database_degraded=False,
@@ -99,6 +101,7 @@ class ServiceContainer:
         """
         self.plugin_config = plugin_config
         self.astrbot_config = astrbot_config
+        self.astrbot_core_config = astrbot_core_config
         self.plugin_instance = plugin_instance
         self.factory_manager = factory_manager
         try:
@@ -233,6 +236,7 @@ async def set_plugin_services(
     group_id_to_unified_origin=None,
     feature_delegation=None,
     astrbot_config=None,
+    astrbot_core_config=None,
     plugin_instance=None,
     database_manager=None,
     database_degraded=False,
@@ -258,10 +262,11 @@ async def set_plugin_services(
         factory_manager=factory_manager,
         llm_client=llm_client,
         astrbot_persona_manager=astrbot_persona_manager,
-        group_id_to_unified_origin=group_id_to_unified_origin,
-        feature_delegation=feature_delegation,
-        astrbot_config=astrbot_config,
-        plugin_instance=plugin_instance,
+            group_id_to_unified_origin=group_id_to_unified_origin,
+            feature_delegation=feature_delegation,
+            astrbot_config=astrbot_config,
+            astrbot_core_config=astrbot_core_config,
+            plugin_instance=plugin_instance,
         database_manager=database_manager,
         database_degraded=database_degraded,
         database_start_error=database_start_error,

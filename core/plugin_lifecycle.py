@@ -264,6 +264,9 @@ class PluginLifecycle:
             # ------ WebUI 管理器 ------
             from ..webui.manager import WebUIManager
 
+            get_astrbot_config = getattr(context, "get_config", None)
+            astrbot_core_config = get_astrbot_config() if callable(get_astrbot_config) else None
+
             self._webui_manager = WebUIManager(
                 plugin_config=plugin_config,
                 context=context,
@@ -272,6 +275,7 @@ class PluginLifecycle:
                 group_id_to_unified_origin=group_id_to_unified_origin,
                 feature_delegation=getattr(p, "feature_delegation", None),
                 astrbot_config=getattr(p, "config", None),
+                astrbot_core_config=astrbot_core_config,
                 plugin_instance=p,
                 v2_integration=getattr(p, "v2_integration", None),
             )

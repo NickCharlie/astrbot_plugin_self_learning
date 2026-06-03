@@ -2,7 +2,7 @@
 
 from html import escape
 
-from quart import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify, redirect
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -43,11 +43,40 @@ async def embed_integration_dashboard(plugin_id: str):
         return error_response(f"获取伴随插件嵌入页失败: {str(e)}", 500)
 
 
+@integrations_bp.route(
+    "/plugin/page/content/<plugin_name>/<page_name>/",
+    defaults={"asset_path": ""},
+    methods=["GET"],
+)
+@integrations_bp.route(
+    "/plugin/page/content/<plugin_name>/<page_name>/<path:asset_path>",
+    methods=["GET"],
+)
+@require_auth
+async def redirect_companion_plugin_page(
+    plugin_name: str,
+    page_name: str,
+    asset_path: str,
+):
+    """Redirect known companion plugin Page URLs to AstrBot Dashboard."""
+    try:
+        service = IntegrationService(get_container())
+        target_url = service.get_plugin_page_url(plugin_name, page_name, asset_path)
+        if not target_url:
+            return error_response("该插件页面需要在 AstrBot Dashboard 中打开。", 404)
+        return redirect(target_url)
+    except Exception as e:
+        logger.error(f"获取伴随插件 AstrBot 页面失败: {e}", exc_info=True)
+        return error_response(f"获取伴随插件 AstrBot 页面失败: {str(e)}", 500)
+
+
 def _render_embed_shell(target: dict) -> str:
     title = escape(str(target.get("title") or "伴随插件面板"))
     role = escape(str(target.get("role") or ""))
     target_url = target.get("target_url") or ""
     escaped_url = escape(str(target_url), quote=True)
+    open_url = target.get("open_url") or target_url
+    escaped_open_url = escape(str(open_url), quote=True)
     message = escape(str(target.get("message") or ""))
     active_label = "已加载" if target.get("active") else "未加载"
     delegated = target.get("delegated")
@@ -67,8 +96,8 @@ def _render_embed_shell(target: dict) -> str:
         else f'<div class="empty"><strong>面板不可用</strong><p>{message}</p></div>'
     )
     open_action = (
-        f'<a class="button primary" href="{escaped_url}" target="_blank" rel="noopener noreferrer">新窗口打开</a>'
-        if target_url
+        f'<a class="button primary" href="{escaped_open_url}" target="_blank" rel="noopener noreferrer">新窗口打开</a>'
+        if open_url
         else ""
     )
 

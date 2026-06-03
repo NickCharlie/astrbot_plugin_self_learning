@@ -34,6 +34,7 @@ class WebUIManager:
         group_id_to_unified_origin: Dict[str, str],
         feature_delegation: Any = None,
         astrbot_config: Any = None,
+        astrbot_core_config: Any = None,
         plugin_instance: Any = None,
         v2_integration: Any = None,
     ):
@@ -44,6 +45,7 @@ class WebUIManager:
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._feature_delegation = feature_delegation
         self._astrbot_config = astrbot_config
+        self._astrbot_core_config = astrbot_core_config
         self._plugin_instance = plugin_instance
         self._v2_integration = v2_integration or getattr(plugin_instance, "v2_integration", None)
         self._database_manager = getattr(plugin_instance, "db_manager", None)
@@ -270,6 +272,7 @@ class WebUIManager:
             group_id_to_unified_origin=self._group_id_to_unified_origin,
             feature_delegation=self._feature_delegation,
             astrbot_config=self._astrbot_config,
+            astrbot_core_config=self._astrbot_core_config,
             plugin_instance=self._plugin_instance,
             database_manager=database_manager,
             database_degraded=self._database_degraded,

@@ -142,8 +142,14 @@ Dashboard -> 功能融合
 AstrBot 页面入口:
 
 ```text
-/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/
+http://<astrbot-dashboard-host>:<astrbot-dashboard-port>/api/plugin/page/content/LivingMemory/dashboard/
 ```
+
+Self Learning 的独立 WebUI 会把旧入口
+`/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/`
+重定向到 AstrBot Dashboard 的正式页面，避免在 `web_interface_port` 上返回 404。
+
+注意: AstrBot 官方插件页路由使用插件运行名 `LivingMemory`，不是安装目录名 `astrbot_plugin_livingmemory`。LivingMemory 自己注册的 Page API 仍使用 `/astrbot_plugin_livingmemory/page/...` 前缀。AstrBot Plugin Page 带有同源 iframe 限制，所以 Self Learning 只把它作为新窗口入口；可嵌入 iframe 的优先入口仍是 LivingMemory 自己启用的独立 WebUI。
 
 ### Group Chat Plus
 
