@@ -2172,7 +2172,7 @@
                     <div class="module-card-top">
                         <div class="module-title">
                             <strong>记忆 / 知识图谱</strong>
-                            <span>LivingMemory 面板</span>
+                            <span>本地图谱</span>
                         </div>
                         <span class="module-icon"><span class="material-icons">hub</span></span>
                     </div>
@@ -2599,39 +2599,45 @@
             <div class="page-titlebar">
                 <div class="page-title">
                     <h2>记忆 / 知识图谱</h2>
-                    <p>嵌入 LivingMemory WebUI，统一管理长期记忆、召回测试和知识图谱。</p>
+                    <p>直接读取本插件和 LivingMemory 后端图谱存储，构建本地图谱视图。</p>
                 </div>
                 <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
             </div>
 
-            <section class="companion-band">
-            <div class="panel">
-                <div class="panel-head">
-                    <div>
-                        <h2>LivingMemory</h2>
-                        <span class="hint">长期记忆和知识图谱由 LivingMemory 接管。</span>
+            <section class="graphs-band">
+                <div class="panel">
+                    <div class="panel-head">
+                        <div>
+                            <h2>图谱视图</h2>
+                            <span class="hint" id="graphHint">等待加载图谱</span>
+                        </div>
+                        <div class="panel-tools graph-toolbar">
+                            <div class="graph-tabs" aria-label="图谱类型">
+                                <button class="seg-btn active" type="button" data-graph-type="memory">
+                                    <span class="material-icons" style="font-size:16px;">psychology</span>
+                                    记忆图
+                                </button>
+                                <button class="seg-btn" type="button" data-graph-type="knowledge">
+                                    <span class="material-icons" style="font-size:16px;">account_tree</span>
+                                    知识图谱
+                                </button>
+                            </div>
+                            <input class="graph-input" id="graphGroupInput" type="search" placeholder="群组 / 会话 ID" autocomplete="off">
+                            <button class="icon-btn" id="graphLayoutBtn" type="button" aria-label="切换图谱布局" title="切换图谱布局">
+                                <span class="material-icons">device_hub</span>
+                            </button>
+                            <button class="icon-btn" id="graphReloadBtn" type="button" aria-label="刷新图谱" title="刷新图谱">
+                                <span class="material-icons">sync</span>
+                            </button>
+                        </div>
                     </div>
-                    <div class="panel-tools">
-                        <a class="action-btn" id="livingMemoryExternalBtn" href="/api/integrations/embed/livingmemory" target="_blank" rel="noopener noreferrer">
-                            <span class="material-icons" style="font-size:16px;">open_in_new</span>
-                            新窗口
-                        </a>
-                        <button class="icon-btn" id="livingMemoryReloadBtn" type="button" aria-label="刷新 LivingMemory 面板" title="刷新 LivingMemory 面板">
-                            <span class="material-icons">sync</span>
-                        </button>
+                    <div class="panel-body">
+                        <div class="graph-summary" id="graphSummary"></div>
+                        <div id="graphChart" class="graph-chart"></div>
+                        <div class="graph-detail" id="graphDetail">选择节点查看详情。</div>
                     </div>
                 </div>
-                <div class="panel-body">
-                    <div class="companion-status" id="livingMemoryStatus">
-                        <span class="chip">LivingMemory 子页面</span>
-                        <span>正在准备嵌入面板。</span>
-                    </div>
-                    <div class="companion-frame-shell" style="margin-top:10px;">
-                        <iframe id="livingMemoryFrame" title="LivingMemory 面板" data-companion-frame="livingmemory"></iframe>
-                    </div>
-                </div>
-            </div>
-        </section>
+            </section>
         </section>
 
         <section class="page" id="page-reply-strategy" data-page="reply-strategy">
@@ -3293,7 +3299,9 @@
 
             function graphDataSourceLabel(value) {
                 return {
-                    livingmemory_delegated: 'LivingMemory 委托',
+                    livingmemory_graph_store: 'LivingMemory 后端',
+                    livingmemory_backend_empty: 'LivingMemory 后端',
+                    self_learning: 'Self Learning',
                 }[value] || value;
             }
 
@@ -3336,7 +3344,11 @@
             function loadPageData(page, options = {}) {
                 const force = Boolean(options.force);
                 if (page === 'graphs') {
-                    loadCompanionFrame('livingmemory', { force });
+                    if (force || !state.graph.loaded) {
+                        loadGraphPanel({ quiet: true });
+                    } else {
+                        renderGraphPanel(state.graph.data);
+                    }
                 } else if (page === 'reply-strategy') {
                     loadCompanionFrame('group_chat_plus', { force });
                 } else if (page === 'content' && (force || !state.content.loaded)) {
@@ -3405,12 +3417,12 @@
                 $('homeReplyNote').textContent = groupChatPlusDashboard
                     ? (groupChatPlusDashboard.delegated ? '回复已委托' : (groupChatPlusDashboard.active ? '插件已加载' : '插件未加载'))
                     : '检查 Group Chat Plus';
-                $('homeGraphValue').textContent = livingMemoryDashboard
-                    ? (livingMemoryDashboard.delegated ? 'ON' : (livingMemoryDashboard.active ? '本地' : '--'))
-                    : (graphNodes ? formatCount(graphNodes) : '--');
-                $('homeGraphNote').textContent = livingMemoryDashboard
-                    ? (livingMemoryDashboard.delegated ? '记忆已委托' : (livingMemoryDashboard.active ? '插件已加载' : '插件未加载'))
-                    : '检查 LivingMemory';
+                $('homeGraphValue').textContent = graphNodes
+                    ? formatCount(graphNodes)
+                    : (livingMemoryDashboard && livingMemoryDashboard.active ? '后端' : '--');
+                $('homeGraphNote').textContent = graphNodes
+                    ? '本地图谱节点'
+                    : (livingMemoryDashboard && livingMemoryDashboard.delegated ? '直读 LivingMemory 后端' : '本地图谱');
                 $('homeIntegrationValue').textContent = integrationDashboards.length
                     ? `${formatCount(activeIntegrations)}/${formatCount(integrationDashboards.length)}`
                     : '--';
@@ -6724,10 +6736,20 @@
                     }
                 });
 
-                const livingMemoryReloadBtn = $('livingMemoryReloadBtn');
-                if (livingMemoryReloadBtn) {
-                    livingMemoryReloadBtn.addEventListener('click', () => loadCompanionFrame('livingmemory', { force: true }));
-                }
+                $('graphReloadBtn').addEventListener('click', () => loadGraphPanel());
+                $('graphLayoutBtn').addEventListener('click', () => {
+                    state.graph.layout = state.graph.layout === 'force' ? 'circular' : 'force';
+                    renderGraphPanel(state.graph.data);
+                });
+                let graphGroupTimer = null;
+                $('graphGroupInput').addEventListener('input', (event) => {
+                    clearTimeout(graphGroupTimer);
+                    graphGroupTimer = setTimeout(() => {
+                        state.graph.groupId = (event.target.value || '').trim();
+                        state.graph.loaded = false;
+                        loadGraphPanel({ quiet: true });
+                    }, 360);
+                });
                 const groupChatPlusReloadBtn = $('groupChatPlusReloadBtn');
                 if (groupChatPlusReloadBtn) {
                     groupChatPlusReloadBtn.addEventListener('click', () => loadCompanionFrame('group_chat_plus', { force: true }));

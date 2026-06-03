@@ -71,8 +71,8 @@ async def test_memory_graph_route_explains_livingmemory_delegation(
     data = await response.get_json()
     assert data["success"] is True
     assert data["type"] == "memory"
-    assert data["empty_reason"] == "memory_delegated"
-    assert data["data_source"] == "livingmemory_delegated"
+    assert data["empty_reason"] == "graph_backend_empty"
+    assert data["data_source"] == "livingmemory_backend_empty"
     assert "LivingMemory" in data["message"]
 
 

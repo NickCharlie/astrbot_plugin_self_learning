@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-LIVINGMEMORY_PAGE_API_BASE = "/astrbot_plugin_livingmemory/page"
-LIVINGMEMORY_PAGE_CONTENT = "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/"
 LIVINGMEMORY_EMBED_URL = "/api/integrations/embed/livingmemory"
 GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
 
@@ -22,13 +20,8 @@ SELF_LEARNING_API_ENDPOINTS = [
 ]
 
 LIVINGMEMORY_API_ENDPOINTS = [
-    f"GET {LIVINGMEMORY_PAGE_API_BASE}/stats",
-    f"GET {LIVINGMEMORY_PAGE_API_BASE}/memories",
-    f"POST {LIVINGMEMORY_PAGE_API_BASE}/memories/update",
-    f"POST {LIVINGMEMORY_PAGE_API_BASE}/memories/batch-delete",
-    f"POST {LIVINGMEMORY_PAGE_API_BASE}/recall/test",
-    f"GET {LIVINGMEMORY_PAGE_API_BASE}/graph/overview",
-    f"POST {LIVINGMEMORY_PAGE_API_BASE}/graph/query",
+    "GET /api/graphs/memory",
+    "GET /api/graphs/knowledge",
 ]
 
 GROUP_CHAT_PLUS_API_ENDPOINTS = [
@@ -250,15 +243,15 @@ class IntegrationService:
                 "available": bool(dashboard_url or plugin),
                 "url": LIVINGMEMORY_EMBED_URL,
                 "external_url": dashboard_url,
-                "official_page_url": LIVINGMEMORY_PAGE_CONTENT if plugin else None,
+                "official_page_url": None,
                 "route": "#/graphs",
-                "label": "LivingMemory 面板" if dashboard_url else "AstrBot 插件页",
-                "kind": "embedded_external" if dashboard_url else "astrbot_page",
-                "astrbot_page": "插件 -> LivingMemory -> Pages -> dashboard",
+                "label": "本地图谱",
+                "kind": "embedded_external" if dashboard_url else "local_graph",
+                "graph_source": "Self Learning 直读 LivingMemory graph_store 后端对象",
             },
             "dev_api": {
-                "base": LIVINGMEMORY_PAGE_API_BASE,
-                "mode": "astrbot_register_web_api",
+                "base": "/api/graphs",
+                "mode": "self_learning_graph_store_adapter",
                 "endpoints": LIVINGMEMORY_API_ENDPOINTS,
             },
             "settings_group": "Integration_Settings",

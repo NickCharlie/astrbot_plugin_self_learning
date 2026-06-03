@@ -71,7 +71,7 @@ Dashboard -> 功能融合
 页面内容:
 
 - Self Learning 当前面板。
-- LivingMemory 状态、面板入口和开发 API 列表。
+- LivingMemory 状态、外部面板入口和本地图谱适配 API 列表。
 - Group Chat Plus 状态、面板入口和开发 API 列表。
 - `Integration_Settings` 快速编辑。
 
@@ -111,7 +111,7 @@ Dashboard -> 功能融合
 | `active` | 是否检测到插件 |
 | `delegated` | 当前能力是否已委托 |
 | `plugin` | AstrBot star 元信息 |
-| `dashboard` | 面板 URL、AstrBot 页面 URL、入口类型 |
+| `dashboard` | 面板 URL、本地图谱路由、入口类型 |
 | `dev_api` | 该插件公开 API 列表 |
 | `settings_group` | 相关配置组 |
 
@@ -131,19 +131,13 @@ Dashboard -> 功能融合
 
 ### LivingMemory
 
-- `GET /astrbot_plugin_livingmemory/page/stats`
-- `GET /astrbot_plugin_livingmemory/page/memories`
-- `POST /astrbot_plugin_livingmemory/page/memories/update`
-- `POST /astrbot_plugin_livingmemory/page/memories/batch-delete`
-- `POST /astrbot_plugin_livingmemory/page/recall/test`
-- `GET /astrbot_plugin_livingmemory/page/graph/overview`
-- `POST /astrbot_plugin_livingmemory/page/graph/query`
+Self Learning 不再调用 LivingMemory 的 Page 图谱 API。Dashboard 的
+`#/graphs` 模块会在 LivingMemory 已加载时直读其
+`initializer.memory_engine.graph_store` 后端对象，并通过本插件接口暴露
+ECharts 图谱 payload:
 
-AstrBot 页面入口:
-
-```text
-/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/
-```
+- `GET /api/graphs/memory`
+- `GET /api/graphs/knowledge`
 
 ### Group Chat Plus
 
@@ -165,7 +159,7 @@ AstrBot 页面入口:
 | Dashboard 显示未委托 | 目标插件是否已加载、启用、名称是否匹配 |
 | LivingMemory 已安装但仍写入本地记忆 | `delegate_memory_to_livingmemory` 和 `disable_local_memory_when_delegated` 是否为 `true` |
 | Group Chat Plus 已安装但仍创建本地回复器 | `delegate_reply_to_group_chat_plus` 和 `disable_local_reply_when_delegated` 是否为 `true` |
-| 面板入口为空 | 目标插件 Web 面板是否开启，或是否只提供 AstrBot Pages 入口 |
+| 面板入口为空 | 目标插件 Web 面板是否开启；图谱模块仍可通过本插件 `/api/graphs/*` 查看 |
 | API 列表不匹配 | 以目标插件当前开发 API 为准，更新 `webui/services/integration_service.py` |
 
 ## 测试

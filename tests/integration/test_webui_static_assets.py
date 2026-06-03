@@ -120,8 +120,9 @@ def test_dashboard_exposes_companion_plugin_api_hub():
     assert "/api/integrations/embed/livingmemory" in text + service
     assert "/api/integrations/embed/group_chat_plus" in text + service
     assert "reply-strategy" in text + service
-    assert "astrbot_plugin_livingmemory/page" in service
-    assert "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/" in service
+    assert "self_learning_graph_store_adapter" in service
+    assert "astrbot_plugin_livingmemory/page" not in service
+    assert "/api/plugin/page/content/astrbot_plugin_livingmemory/dashboard/" not in service
     assert "Group Chat Plus" in service
     assert "POST /api/auth/login" in service
     assert "GET /api/data/overview" in service
