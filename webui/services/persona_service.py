@@ -15,6 +15,14 @@ def _optional_container_attr(container, name: str, default=None):
     return value
 
 
+def _optional_object_attr(obj, name: str, default=None):
+    if obj is None:
+        return default
+    if obj.__class__.__module__ == 'unittest.mock' and name not in getattr(obj, '__dict__', {}):
+        return default
+    return getattr(obj, name, default)
+
+
 class PersonaService:
     """人格管理服务"""
 
@@ -49,6 +57,19 @@ class PersonaService:
     @staticmethod
     def _has_required_persona_fields(data: Dict[str, Any]) -> bool:
         return bool(data.get('persona_id') and (data.get('prompt') or data.get('system_prompt')))
+
+    @staticmethod
+    def _compact_persona(persona: Dict[str, Any]) -> Dict[str, Any]:
+        normalized = PersonaService._normalize_persona_data(persona or {})
+        return {
+            "persona_id": normalized.get("persona_id") or normalized.get("id") or normalized.get("name") or "default",
+            "name": normalized.get("name") or normalized.get("persona_id") or "默认人格",
+            "prompt": normalized.get("prompt", ""),
+            "system_prompt": normalized.get("system_prompt", ""),
+            "begin_dialogs": normalized.get("begin_dialogs") or [],
+            "tools": normalized.get("tools") or [],
+            "metadata": normalized.get("metadata") or {},
+        }
 
     async def get_all_personas(self) -> List[Dict[str, Any]]:
         """
@@ -218,6 +239,45 @@ class PersonaService:
         except Exception as e:
             logger.error(f"获取默认人格失败: {e}", exc_info=True)
             return fallback_persona
+
+    async def get_current_persona_state(self, group_id: str = "default") -> Dict[str, Any]:
+        """获取当前生效人格的 WebUI 预览状态。"""
+        config = _optional_container_attr(self.container, 'plugin_config')
+        persona = await self.get_default_persona(group_id)
+        compact = self._compact_persona(persona)
+        prompt = compact.get("prompt") or compact.get("system_prompt") or ""
+        begin_dialogs = compact.get("begin_dialogs") if isinstance(compact.get("begin_dialogs"), list) else []
+        tools = compact.get("tools") if isinstance(compact.get("tools"), list) else []
+
+        config_snapshot = {
+            "current_persona_name": _optional_object_attr(config, "current_persona_name"),
+            "enable_persona_evolution": _optional_object_attr(config, "enable_persona_evolution"),
+            "persona_merge_strategy": _optional_object_attr(config, "persona_merge_strategy"),
+            "persona_compatibility_threshold": _optional_object_attr(config, "persona_compatibility_threshold"),
+            "persona_update_backup_enabled": _optional_object_attr(config, "persona_update_backup_enabled"),
+            "auto_backup_enabled": _optional_object_attr(config, "auto_backup_enabled"),
+            "backup_interval_hours": _optional_object_attr(config, "backup_interval_hours"),
+            "max_backups_per_group": _optional_object_attr(config, "max_backups_per_group"),
+        }
+
+        available_services = {
+            "persona_manager": bool(self.persona_manager),
+            "persona_web_manager": bool(self.persona_web_mgr),
+            "astrbot_persona_manager": bool(self.astrbot_persona_manager),
+        }
+
+        return {
+            "group_id": group_id or "default",
+            "persona": compact,
+            "prompt_preview": prompt[:240],
+            "prompt_length": len(prompt),
+            "begin_dialog_count": len(begin_dialogs),
+            "tool_count": len(tools),
+            "config": config_snapshot,
+            "available_services": available_services,
+            "generated_at": datetime.now().isoformat(),
+            "degraded": not any(available_services.values()),
+        }
 
     async def export_persona(self, persona_id: str) -> Dict[str, Any]:
         """

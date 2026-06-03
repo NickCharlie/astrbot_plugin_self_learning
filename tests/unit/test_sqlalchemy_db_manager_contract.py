@@ -40,3 +40,17 @@ def test_reviewed_persona_updates_signature_matches_legacy_call_order():
         "签名顺序必须兼容 legacy 调用: "
         "get_reviewed_persona_update_records(limit, offset, status_filter)"
     )
+
+
+def test_persona_backup_management_methods_exist():
+    source = _read_source()
+
+    required_defs = [
+        "async def get_persona_backups(",
+        "async def get_persona_backup(",
+        "async def restore_persona_backup(",
+        "async def delete_persona_backup(",
+    ]
+
+    for method_def in required_defs:
+        assert method_def in source, f"缺少人格备份管理 ORM 方法定义: {method_def}"
