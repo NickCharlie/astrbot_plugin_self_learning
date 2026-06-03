@@ -27,6 +27,7 @@ class ServiceContainer:
 
         # 核心服务
         self.persona_manager: Optional[Any] = None
+        self.persona_backup_manager: Optional[Any] = None
         self.persona_updater: Optional[Any] = None
         self.database_manager: Optional[Any] = None
         self.database_degraded: bool = False
@@ -119,6 +120,11 @@ class ServiceContainer:
         # 从工厂获取服务
         service_factory = factory_manager.get_service_factory()
         self.persona_manager = service_factory.create_persona_manager()
+        try:
+            self.persona_backup_manager = service_factory.create_persona_backup_manager()
+        except Exception as e:
+            logger.warning(f"获取 persona_backup_manager 失败: {e}")
+            self.persona_backup_manager = None
         self.database_manager = (
             database_manager
             if database_manager is not None

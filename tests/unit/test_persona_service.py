@@ -188,6 +188,73 @@ class TestPersonaService:
         assert mock_container.persona_manager.get_default_persona_v3.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_get_current_persona_state_returns_preview(self, mock_container, sample_persona_data):
+        """Current persona state should expose a compact WebUI preview."""
+        mock_container.plugin_config.current_persona_name = 'test_persona'
+        mock_container.plugin_config.enable_persona_evolution = True
+        mock_container.plugin_config.persona_merge_strategy = 'smart'
+        mock_container.plugin_config.persona_compatibility_threshold = 0.6
+        mock_container.plugin_config.persona_update_backup_enabled = True
+        mock_container.plugin_config.auto_backup_enabled = True
+        mock_container.plugin_config.backup_interval_hours = 24
+        mock_container.plugin_config.max_backups_per_group = 10
+        mock_container.persona_manager.get_default_persona_v3.return_value = {
+            **sample_persona_data,
+            'begin_dialogs': ['hi'],
+            'tools': ['search'],
+        }
+        service = PersonaService(mock_container)
+
+        result = await service.get_current_persona_state('test_group')
+
+        assert result['group_id'] == 'test_group'
+        assert result['persona']['persona_id'] == 'test_persona'
+        assert result['prompt_length'] == len(sample_persona_data['prompt'])
+        assert result['begin_dialog_count'] == 1
+        assert result['tool_count'] == 1
+        assert result['config']['persona_merge_strategy'] == 'smart'
+        assert result['available_services']['persona_manager'] is True
+
+    @pytest.mark.asyncio
+    async def test_get_current_persona_state_degrades_without_manager(self, mock_container):
+        """Current persona state should not fail when persona services are missing."""
+        mock_container.persona_manager = None
+        mock_container.astrbot_persona_manager = None
+        mock_container.persona_web_manager = None
+        service = PersonaService(mock_container)
+
+        result = await service.get_current_persona_state('test_group')
+
+        assert result['degraded'] is True
+        assert result['persona']['persona_id'] == 'default'
+        assert result['prompt_length'] > 0
+
+    @pytest.mark.asyncio
+    async def test_get_current_persona_state_handles_defensive_edges(self, mock_container):
+        """Current persona state should tolerate sparse config and odd persona fields."""
+        mock_container.plugin_config = Mock()
+        mock_container.persona_web_manager = None
+        mock_container.persona_manager.get_default_persona_v3.return_value = {
+            'persona_id': 'system-only',
+            'name': 'System Only',
+            'system_prompt': 'System prompt only',
+            'begin_dialogs': 'not-a-list',
+            'tools': None,
+        }
+        service = PersonaService(mock_container)
+
+        result = await service.get_current_persona_state('edge_group')
+
+        assert result['degraded'] is False
+        assert result['persona']['prompt'] == 'System prompt only'
+        assert result['prompt_preview'] == 'System prompt only'
+        assert result['prompt_length'] == len('System prompt only')
+        assert result['begin_dialog_count'] == 0
+        assert result['tool_count'] == 0
+        assert result['config']['persona_merge_strategy'] is None
+        assert result['available_services']['persona_manager'] is True
+
+    @pytest.mark.asyncio
     async def test_export_persona_success(self, mock_container, sample_persona_data):
         """Test exporting a persona"""
         service = PersonaService(mock_container)

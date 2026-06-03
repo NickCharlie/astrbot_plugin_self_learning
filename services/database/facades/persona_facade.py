@@ -22,6 +22,37 @@ except ImportError:
 class PersonaFacade(BaseFacade):
     """人格备份管理 Facade"""
 
+    @staticmethod
+    def _json_loads(value: Any, default: Any) -> Any:
+        if not value:
+            return default
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return default
+
+    def _backup_to_dict(self, backup: PersonaBackup, include_content: bool = True) -> Dict[str, Any]:
+        data = {
+            'id': backup.id,
+            'group_id': backup.group_id,
+            'backup_name': backup.backup_name,
+            'timestamp': backup.timestamp,
+            'reason': backup.reason,
+            'backup_reason': backup.backup_reason,
+            'backup_time': backup.backup_time,
+            'created_at': backup.created_at.isoformat() if backup.created_at else None,
+        }
+        if include_content:
+            data.update({
+                'persona_config': self._json_loads(backup.persona_config, {}),
+                'original_persona': self._json_loads(backup.original_persona, {}),
+                'imitation_dialogues': self._json_loads(backup.imitation_dialogues, []),
+                'persona_content': backup.persona_content or '',
+            })
+        return data
+
     async def backup_persona(self, backup_data: Dict[str, Any]) -> bool:
         """创建人格备份"""
         try:
@@ -47,48 +78,63 @@ class PersonaFacade(BaseFacade):
             self._logger.error(f"[PersonaFacade] 备份人格失败: {e}")
             return False
 
-    async def get_persona_backups(self, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_persona_backups(
+        self,
+        group_id: Optional[str] = None,
+        limit: int = 10,
+        include_content: bool = False,
+    ) -> List[Dict[str, Any]]:
         """获取人格备份列表"""
         try:
             async with self.get_session() as session:
                 repo = PersonaBackupRepository(session)
-                backups = await repo.list_backups(limit=limit)
-                return [
-                    {
-                        'id': b.id,
-                        'backup_name': b.backup_name,
-                        'timestamp': b.timestamp,
-                        'reason': b.reason,
-                        'persona_config': json.loads(b.persona_config) if b.persona_config else {},
-                        'original_persona': json.loads(b.original_persona) if b.original_persona else {},
-                        'imitation_dialogues': json.loads(b.imitation_dialogues) if b.imitation_dialogues else [],
-                        'backup_reason': b.backup_reason,
-                    }
-                    for b in backups
-                ]
+                backups = await repo.list_backups(group_id=group_id, limit=limit)
+                return [self._backup_to_dict(b, include_content=include_content) for b in backups]
         except Exception as e:
             self._logger.error(f"[PersonaFacade] 获取备份列表失败: {e}")
             return []
 
-    async def restore_persona_backup(self, backup_id: int) -> Optional[Dict[str, Any]]:
-        """恢复指定备份"""
+    async def get_persona_backup(
+        self,
+        backup_id: int,
+        group_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """获取指定备份详情"""
         try:
             async with self.get_session() as session:
                 repo = PersonaBackupRepository(session)
                 backup = await repo.get_backup(backup_id)
-                if not backup:
+                if not backup or (group_id and backup.group_id != group_id):
                     return None
-                return {
-                    'id': backup.id,
-                    'backup_name': backup.backup_name,
-                    'timestamp': backup.timestamp,
-                    'persona_config': json.loads(backup.persona_config) if backup.persona_config else {},
-                    'original_persona': json.loads(backup.original_persona) if backup.original_persona else {},
-                    'imitation_dialogues': json.loads(backup.imitation_dialogues) if backup.imitation_dialogues else [],
-                }
+                return self._backup_to_dict(backup, include_content=True)
         except Exception as e:
-            self._logger.error(f"[PersonaFacade] 恢复备份失败: {e}")
+            self._logger.error(f"[PersonaFacade] 获取备份详情失败: {e}")
             return None
+
+    async def restore_persona_backup(
+        self,
+        backup_id: int,
+        group_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """返回指定备份内容，供上层执行实际恢复。"""
+        return await self.get_persona_backup(backup_id, group_id=group_id)
+
+    async def delete_persona_backup(
+        self,
+        backup_id: int,
+        group_id: Optional[str] = None,
+    ) -> bool:
+        """删除指定人格备份"""
+        try:
+            async with self.get_session() as session:
+                repo = PersonaBackupRepository(session)
+                backup = await repo.get_backup(backup_id)
+                if not backup or (group_id and backup.group_id != group_id):
+                    return False
+                return await repo.delete_backup(backup_id)
+        except Exception as e:
+            self._logger.error(f"[PersonaFacade] 删除备份失败: {e}")
+            return False
 
     async def get_persona_update_history(
         self, group_id: str = None, limit: int = 50

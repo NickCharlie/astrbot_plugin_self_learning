@@ -47,5 +47,38 @@ class SQLAlchemyDatabaseManager(_SQLAlchemyDatabaseManager):
             limit=limit, offset=offset, status_filter=status_filter,
         )
 
+    async def get_persona_backups(
+        self,
+        group_id: str = None,
+        limit: int = 10,
+        include_content: bool = False,
+    ) -> List[Dict[str, Any]]:
+        return await super().get_persona_backups(
+            group_id=group_id,
+            limit=limit,
+            include_content=include_content,
+        )
+
+    async def get_persona_backup(
+        self,
+        backup_id: int,
+        group_id: str = None,
+    ) -> Optional[Dict[str, Any]]:
+        return await super().get_persona_backup(backup_id, group_id=group_id)
+
+    async def restore_persona_backup(
+        self,
+        group_id,
+        backup_id: int = None,
+    ) -> Optional[Dict[str, Any]]:
+        return await super().restore_persona_backup(group_id, backup_id)
+
+    async def delete_persona_backup(
+        self,
+        backup_id: int,
+        group_id: str = None,
+    ) -> bool:
+        return await super().delete_persona_backup(backup_id, group_id=group_id)
+
 
 __all__ = ["SQLAlchemyDatabaseManager"]

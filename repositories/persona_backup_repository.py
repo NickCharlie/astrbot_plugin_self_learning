@@ -42,6 +42,7 @@ class PersonaBackupRepository(BaseRepository[PersonaBackup]):
 
     async def list_backups(
         self,
+        group_id: Optional[str] = None,
         limit: int = 50,
         offset: int = 0
     ) -> List[PersonaBackup]:
@@ -56,12 +57,10 @@ class PersonaBackupRepository(BaseRepository[PersonaBackup]):
             List[PersonaBackup]: 备份列表
         """
         try:
-            stmt = (
-                select(PersonaBackup)
-                .order_by(desc(PersonaBackup.timestamp))
-                .offset(offset)
-                .limit(limit)
-            )
+            stmt = select(PersonaBackup)
+            if group_id:
+                stmt = stmt.where(PersonaBackup.group_id == group_id)
+            stmt = stmt.order_by(desc(PersonaBackup.timestamp)).offset(offset).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:

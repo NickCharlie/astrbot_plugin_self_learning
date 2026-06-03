@@ -1,4 +1,7 @@
+from inspect import signature
 from pathlib import Path
+
+from services.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
 
 
 SQLALCHEMY_DB_MANAGER_PATH = (
@@ -40,3 +43,22 @@ def test_reviewed_persona_updates_signature_matches_legacy_call_order():
         "签名顺序必须兼容 legacy 调用: "
         "get_reviewed_persona_update_records(limit, offset, status_filter)"
     )
+
+
+def test_persona_backup_management_signatures_match_legacy_call_order():
+    expected_params_by_method = {
+        "get_persona_backups": ("self", "group_id", "limit", "include_content"),
+        "get_persona_backup": ("self", "backup_id", "group_id"),
+        "restore_persona_backup": ("self", "group_id", "backup_id"),
+        "delete_persona_backup": ("self", "backup_id", "group_id"),
+    }
+
+    for method_name, expected_params in expected_params_by_method.items():
+        method = getattr(SQLAlchemyDatabaseManager, method_name, None)
+        assert method is not None, f"缺少人格备份管理 ORM 方法定义: {method_name}"
+
+        param_names = tuple(signature(method).parameters.keys())
+        assert param_names[:len(expected_params)] == expected_params, (
+            f"人格备份管理方法 `{method_name}` 的参数签名与 legacy 调用不兼容；"
+            f"期望前 {len(expected_params)} 个参数为 {expected_params}，实际为 {param_names}"
+        )

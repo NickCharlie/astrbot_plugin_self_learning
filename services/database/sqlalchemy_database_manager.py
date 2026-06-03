@@ -8,7 +8,7 @@ DomainRouter — 薄路由层，将所有数据库方法委托给领域 Facade
 import os
 import asyncio
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Any
+from typing import Callable, Dict, List, Optional, Any, Union
 from contextlib import asynccontextmanager
 
 from astrbot.api import logger
@@ -1048,15 +1048,77 @@ class SQLAlchemyDatabaseManager:
 
     async def backup_persona(self, group_id: str, backup_data: Dict[str, Any]) -> bool:
         backup_data.setdefault('group_id', group_id)
-        return await self._persona.backup_persona(backup_data)
+        return await self._call_facade(
+            lambda: self._persona,
+            "PersonaFacade",
+            "backup_persona",
+            False,
+            backup_data,
+        )
 
-    async def get_persona_backups(self, limit: int = 10) -> List[Dict[str, Any]]:
-        return await self._persona.get_persona_backups(limit)
+    async def get_persona_backups(
+        self,
+        group_id: str = None,
+        limit: int = 10,
+        include_content: bool = False,
+    ) -> List[Dict[str, Any]]:
+        if isinstance(group_id, int) and limit == 10:
+            limit = group_id
+            group_id = None
+        return await self._call_facade(
+            lambda: self._persona,
+            "PersonaFacade",
+            "get_persona_backups",
+            [],
+            group_id=group_id,
+            limit=limit,
+            include_content=include_content,
+        )
 
     async def restore_persona_backup(
-        self, backup_id: int,
+        self,
+        group_id: Union[str, int],
+        backup_id: int = None,
     ) -> Optional[Dict[str, Any]]:
-        return await self._persona.restore_persona_backup(backup_id)
+        if backup_id is None:
+            backup_id = int(group_id)
+            group_id = None
+        return await self._call_facade(
+            lambda: self._persona,
+            "PersonaFacade",
+            "restore_persona_backup",
+            None,
+            int(backup_id),
+            group_id=group_id,
+        )
+
+    async def get_persona_backup(
+        self,
+        backup_id: int,
+        group_id: str = None,
+    ) -> Optional[Dict[str, Any]]:
+        return await self._call_facade(
+            lambda: self._persona,
+            "PersonaFacade",
+            "get_persona_backup",
+            None,
+            backup_id,
+            group_id=group_id,
+        )
+
+    async def delete_persona_backup(
+        self,
+        backup_id: int,
+        group_id: str = None,
+    ) -> bool:
+        return await self._call_facade(
+            lambda: self._persona,
+            "PersonaFacade",
+            "delete_persona_backup",
+            False,
+            backup_id,
+            group_id=group_id,
+        )
 
     async def get_persona_update_history(
         self, group_id: str = None, limit: int = 50,

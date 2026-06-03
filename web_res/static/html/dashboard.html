@@ -2415,6 +2415,29 @@
 
             <div id="queueStatus" class="config-status queue-status" style="margin-bottom:14px;">审查操作就绪。</div>
 
+            <section class="queue-grid" style="margin-bottom:16px;">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>当前人格状态</h2>
+                    <span class="hint" id="personaStateHint">--</span>
+                </div>
+                <div class="panel-body">
+                    <div class="stats-row" id="personaStateStats"></div>
+                    <div id="personaStatePreview" class="list" style="margin-top:10px;"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>人格备份</h2>
+                    <span class="hint" id="personaBackupHint">--</span>
+                </div>
+                <div class="panel-body">
+                    <div id="personaBackupList" class="list"></div>
+                </div>
+            </div>
+        </section>
+
             <section class="queue-grid">
             <div class="panel">
                 <div class="panel-head">
@@ -2798,6 +2821,9 @@
                     mirror: localStorage.getItem('sl-pip-mirror') || 'default',
                 },
                 actionBusy: new Set(),
+                personaState: {
+                    groupId: 'default',
+                },
                 graph: {
                     type: 'memory',
                     layout: 'force',
@@ -4184,12 +4210,73 @@
                 return rows.length ? rows.join('') : '<div class="item">暂无已审人格记录。</div>';
             }
 
+            function renderPersonaStatePanel(currentState, backupsPayload) {
+                const statePayload = currentState || {};
+                const persona = statePayload.persona || {};
+                const promptPreview = statePayload.prompt_preview || persona.prompt || persona.system_prompt || '';
+                const config = statePayload.config || {};
+                const services = statePayload.available_services || {};
+                const activeServices = Object.entries(services).filter(([, available]) => available).map(([name]) => name);
+                const backupPayload = backupsPayload || {};
+                const backups = safeArray(backupPayload.backups);
+
+                $('personaStateHint').textContent = statePayload.degraded ? '降级预览' : (persona.name || persona.persona_id || 'default');
+                $('personaStateStats').innerHTML = [
+                    ['Prompt', formatCount(statePayload.prompt_length || 0)],
+                    ['Begin dialogs', formatCount(statePayload.begin_dialog_count || 0)],
+                    ['Tools', formatCount(statePayload.tool_count || 0)],
+                    ['备份策略', config.auto_backup_enabled === false ? '关闭' : '开启'],
+                ].map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${escapeHtml(label)}</div>
+                        <div class="v">${escapeHtml(value)}</div>
+                    </div>
+                `).join('');
+                $('personaStatePreview').innerHTML = `
+                    <div class="item">
+                        <div class="top">
+                            <div class="title">${escapeHtml(persona.name || persona.persona_id || '默认人格')}</div>
+                            <span class="state ${statePayload.degraded ? 'degraded' : 'healthy'}">${escapeHtml(statePayload.group_id || 'default')}</span>
+                        </div>
+                        <div class="meta">合并 ${escapeHtml(config.persona_merge_strategy || '--')} · 兼容阈值 ${escapeHtml(config.persona_compatibility_threshold ?? '--')} · 服务 ${escapeHtml(activeServices.length ? activeServices.join(', ') : 'fallback')}</div>
+                        <div class="body clamp">${escapeHtml(promptPreview || '暂无人格 Prompt')}</div>
+                    </div>
+                `;
+
+                $('personaBackupHint').textContent = backupPayload.available === false ? '不可用' : `${formatCount(backupPayload.total || backups.length)} 个`;
+                $('personaBackupList').innerHTML = backups.length ? backups.map((item) => {
+                    const backupId = item.id;
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.timestamp ? formatTime(item.timestamp) : (item.created_at ? formatTime(item.created_at) : null),
+                        item.prompt_length !== undefined ? `Prompt ${formatCount(item.prompt_length)}` : null,
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(item.backup_name || `备份 ${backupId}`)}</div>
+                                <span class="state unknown">${escapeHtml(item.persona_name || 'persona')}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '暂无元信息')}</div>
+                            <div class="body clamp">${escapeHtml(item.reason_short || item.reason || '暂无备份原因')}</div>
+                            <div class="item-actions">
+                                ${actionButton('persona-backup-view', backupId, 'visibility', '查看')}
+                                ${actionButton('persona-backup-restore', backupId, 'settings_backup_restore', '恢复', 'warning')}
+                                ${actionButton('persona-backup-delete', backupId, 'delete', '删除', 'danger')}
+                            </div>
+                        </div>
+                    `;
+                }).join('') : `<div class="empty-state"><span class="material-icons">inventory_2</span><p>${escapeHtml(backupPayload.message || '暂无人格备份')}</p></div>`;
+            }
+
             function renderSummary(data) {
                 const metrics = data.metrics || {};
                 const trends = data.trends || {};
                 const health = data.health || {};
                 const persona = data.persona || {};
                 const personaReviewed = data.personaReviewed || {};
+                const personaState = data.personaState || {};
+                const personaBackups = data.personaBackups || {};
                 const style = data.style || {};
                 const jargonStats = data.jargonStats || {};
 
@@ -4323,6 +4410,7 @@
                 const styleUpdatesFromPersona = personaUpdates.filter((item) => item && item.review_source === 'style_learning');
                 $('styleList').innerHTML = renderStyleQueue(styleUpdatesFromPersona.length ? styleUpdatesFromPersona : style.reviews);
                 $('reviewedPersonaList').innerHTML = renderReviewedPersonaHistory(personaReviewed.updates);
+                renderPersonaStatePanel(personaState, personaBackups);
 
                 $('trendHint').textContent = `最近 ${Object.keys(trends.daily_messages || {}).length || 7} 天`;
 
@@ -5682,6 +5770,12 @@
                 if (action === 'jargon-delete') {
                     if (!(await showConfirm('删除黑话', '确定删除这条黑话？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
                 }
+                if (action === 'persona-backup-restore') {
+                    if (!(await showConfirm('恢复人格备份', '确定恢复这个人格备份？当前人格可能被覆盖。', '确认恢复'))) { showToast('已取消', 'warn'); return; }
+                }
+                if (action === 'persona-backup-delete') {
+                    if (!(await showConfirm('删除人格备份', '确定删除这个人格备份？不可撤销。', '确认删除'))) { showToast('已取消', 'warn'); return; }
+                }
 
                 if (action === 'jargon-edit') {
                     state.jargon.editingId = Number(id);
@@ -5708,6 +5802,20 @@
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'reject' });
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
+                    } else if (action === 'persona-backup-view') {
+                        payload = await safeFetch(`/api/persona_backups/${encodeURIComponent(id)}?group_id=default`);
+                        if (!payload) {
+                            throw new Error('人格备份不存在');
+                        }
+                        const summary = payload.summary || {};
+                        const prompt = (payload.original_persona && (payload.original_persona.prompt || payload.original_persona.system_prompt)) || payload.persona_content || '';
+                        setQueueStatus(`备份 ${summary.backup_name || id} · ${summary.persona_name || 'persona'} · Prompt ${formatCount(prompt.length)} 字`, 'success');
+                        showToast('人格备份详情已读取', 'ok');
+                        return;
+                    } else if (action === 'persona-backup-restore') {
+                        payload = await postJson(`/api/persona_backups/${encodeURIComponent(id)}/restore`, { group_id: 'default' });
+                    } else if (action === 'persona-backup-delete') {
+                        payload = await deleteJson(`/api/persona_backups/${encodeURIComponent(id)}?group_id=default`);
                     } else if (action === 'jargon-approve') {
                         if (!(await showConfirm('审批确认', '确定确认这条黑话？', '确认'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'approve' });
@@ -6192,6 +6300,8 @@
                     functionsData,
                     persona,
                     personaReviewed,
+                    personaState,
+                    personaBackups,
                     style,
                     jargonStats,
                     jargonList,
@@ -6202,6 +6312,8 @@
                     safeFetch('/api/monitoring/functions'),
                     safeFetch('/api/persona_updates?limit=10'),
                     safeFetch('/api/persona_updates/reviewed?limit=5'),
+                    safeFetch('/api/persona_management/current?group_id=default'),
+                    safeFetch('/api/persona_backups/list?group_id=default&limit=8'),
                     safeFetch('/api/style_learning/reviews?limit=5'),
                     safeFetch('/api/jargon/stats'),
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
@@ -6222,6 +6334,8 @@
                     functions: safeArray(functionsData && functionsData.functions).slice(0, 5),
                     persona: persona || { updates: [], total: 0 },
                     personaReviewed: personaReviewed || { updates: [], total: 0 },
+                    personaState: personaState || {},
+                    personaBackups: personaBackups || { backups: [], total: 0, available: false },
                     style: style || { reviews: [], total: 0 },
                     jargonStats: extractJargonStats(jargonStats),
                     jargonList: extractJargonItems(jargonList),

@@ -153,6 +153,20 @@ def test_dashboard_exposes_persona_review_diff_preview():
     assert "review-preview" in text
 
 
+def test_dashboard_exposes_persona_state_and_backup_management():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "当前人格状态" in text
+    assert "人格备份" in text
+    assert "personaStateStats" in text
+    assert "personaBackupList" in text
+    assert "/api/persona_management/current?group_id=default" in text
+    assert "/api/persona_backups/list?group_id=default&limit=8" in text
+    assert "persona-backup-view" in text
+    assert "persona-backup-restore" in text
+    assert "persona-backup-delete" in text
+
+
 def test_dashboard_filters_provider_selects_by_astrbot_provider_type():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
