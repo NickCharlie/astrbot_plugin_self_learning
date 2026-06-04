@@ -164,6 +164,9 @@ class JargonFacade(BaseFacade):
                         record.meaning = json.dumps(meaning_val, ensure_ascii=False)
                     else:
                         record.meaning = str(meaning_val) if meaning_val is not None else None
+                    # Only mark meaning_edited when explicitly set (not from inference)
+                    if jargon_data.get('meaning_edited'):
+                        record.meaning_edited = True
                 if 'is_jargon' in jargon_data:
                     record.is_jargon = jargon_data['is_jargon']
                 if 'count' in jargon_data:
@@ -476,6 +479,7 @@ class JargonFacade(BaseFacade):
                         'is_jargon': r.is_jargon,
                         'count': r.count or 0,
                         'is_complete': r.is_complete,
+                        'meaning_edited': r.meaning_edited or False,
                         'is_global': r.is_global or False,
                         'chat_id': r.chat_id,
                         'created_at': r.created_at,

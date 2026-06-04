@@ -20,6 +20,7 @@ class Jargon:
     count: int = 1                          # 出现次数
     last_inference_count: int = 0           # 上次推断时的count值
     is_complete: bool = False               # 是否完成所有推断 (count>=100)
+    meaning_edited: bool = False            # 用户是否手动编辑过释义
     is_global: bool = False                 # 是否全局黑话
     chat_id: str = ""                       # 群组ID
     created_at: Optional[datetime] = None   # 创建时间
@@ -36,6 +37,7 @@ class Jargon:
             'count': self.count,
             'last_inference_count': self.last_inference_count,
             'is_complete': self.is_complete,
+            'meaning_edited': self.meaning_edited,
             'is_global': self.is_global,
             'chat_id': self.chat_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,

@@ -352,6 +352,7 @@ class JargonService:
                 payload["content"] = content
             if meaning is not None:
                 payload["meaning"] = meaning
+                payload["meaning_edited"] = True
 
             if len(payload) <= 1:
                 return False, "没有需要更新的字段", self._format_jargon_for_frontend(current)

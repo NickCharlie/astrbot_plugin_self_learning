@@ -19,6 +19,7 @@ class Jargon(Base):
     count = Column(Integer, default=1)
     last_inference_count = Column(Integer, default=0)
     is_complete = Column(Boolean, default=False)
+    meaning_edited = Column(Boolean, default=False)
     is_global = Column(Boolean, default=False)
     chat_id = Column(String(255), nullable=False, index=True)
     # 使用 BigInteger 存储 Unix 时间戳（自动迁移会将 DATETIME 转换为 BIGINT）
@@ -46,6 +47,7 @@ class Jargon(Base):
             'count': self.count,
             'last_inference_count': self.last_inference_count,
             'is_complete': self.is_complete,
+            'meaning_edited': self.meaning_edited,
             'is_global': self.is_global,
             'chat_id': self.chat_id,
             'created_at': self.created_at,

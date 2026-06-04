@@ -299,6 +299,8 @@ class JargonMiner(AsyncServiceBase):
         """
         if jargon.is_complete:
             return False
+        if jargon.meaning_edited:
+            return False
 
         count = jargon.count or 0
         last_inference = jargon.last_inference_count or 0
@@ -512,6 +514,7 @@ class JargonMiner(AsyncServiceBase):
                     count=existing_dict.get('count', 1),
                     last_inference_count=existing_dict.get('last_inference_count', 0),
                     is_complete=existing_dict.get('is_complete', False),
+                    meaning_edited=existing_dict.get('meaning_edited', False),
                     is_global=existing_dict.get('is_global', False),
                     chat_id=existing_dict.get('chat_id', ''),
                     created_at=existing_dict.get('created_at'),
