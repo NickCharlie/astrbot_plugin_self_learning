@@ -521,7 +521,8 @@ class JargonMiner(AsyncServiceBase):
                     updated_at=existing_dict.get('updated_at')
                 )
 
-                # 更新现有记录（count 由频率同步管理，此处不递增）
+                # 更新现有记录
+                existing.count = (existing.count or 0) + 1
 
                 # 合并 raw_content
                 existing_list = safe_parse_llm_json(existing.raw_content) or []
