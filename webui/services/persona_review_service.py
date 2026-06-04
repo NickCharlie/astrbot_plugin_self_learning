@@ -11,6 +11,10 @@ STYLE_BEGIN_DIALOG_PREFIX = "[风格示范]"
 
 # Import update type constants
 try:
+    from ...utils.persona_selection import (
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
     from ...utils.logging_utils import get_astrbot_logger
     from ...statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
@@ -18,6 +22,10 @@ try:
         get_review_source_from_update_type,
     )
 except ImportError:
+    from utils.persona_selection import (
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
     from utils.logging_utils import get_astrbot_logger
     from statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
@@ -242,9 +250,20 @@ class PersonaReviewService:
         try:
             current_persona = None
             if self.persona_web_manager:
-                current_persona = await self.persona_web_manager.get_persona_for_group(group_id)
+                current_persona = await resolve_target_persona_from_web(
+                    self.persona_web_manager,
+                    self.plugin_config,
+                    group_id,
+                    log=logger,
+                )
             elif self.astrbot_persona_manager:
-                current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                current_persona = await resolve_target_persona(
+                    self.astrbot_persona_manager,
+                    self.plugin_config,
+                    self._resolve_umo(group_id),
+                    require_existing=True,
+                    log=logger,
+                )
 
             if not isinstance(current_persona, dict):
                 return fallback
@@ -508,7 +527,13 @@ class PersonaReviewService:
                         logger.info(f"数据库中没有原人格文本，实时获取群组 {group_id} 的原人格")
                         try:
                             if self.astrbot_persona_manager:
-                                current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                                current_persona = await resolve_target_persona(
+                                    self.astrbot_persona_manager,
+                                    self.plugin_config,
+                                    self._resolve_umo(group_id),
+                                    require_existing=True,
+                                    log=logger,
+                                )
                                 if current_persona and current_persona.get('prompt'):
                                     original_content = current_persona.get('prompt', '')
                                     logger.info(f"成功获取群组 {group_id} 的原人格文本，长度: {len(original_content)}")
@@ -586,7 +611,13 @@ class PersonaReviewService:
                     try:
                         # 通过 persona_manager 获取当前人格
                         if self.astrbot_persona_manager:
-                            current_persona = await self.astrbot_persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                            current_persona = await resolve_target_persona(
+                                self.astrbot_persona_manager,
+                                self.plugin_config,
+                                self._resolve_umo(group_id),
+                                require_existing=True,
+                                log=logger,
+                            )
                             if current_persona and current_persona.get('prompt'):
                                 original_persona_text = current_persona.get('prompt', '')
                             else:
@@ -756,8 +787,7 @@ class PersonaReviewService:
                                         persona_name, {"system_prompt": new_prompt}
                                     )
                                     if result.get('success'):
-                                        after_current = await self.persona_web_manager.get_persona_for_group(group_id)
-                                        after = self._persona_snapshot_from_current(after_current)
+                                        after = await self._get_current_persona_snapshot(group_id)
                                         change_payload = self._build_change_payload(
                                             self._persona_snapshot_from_current(before_snapshot),
                                             after,
@@ -899,8 +929,7 @@ class PersonaReviewService:
                     persona_name, {"system_prompt": new_content}
                 )
                 if update_result.get('success'):
-                    after_current = await self.persona_web_manager.get_persona_for_group(group_id)
-                    after = self._persona_snapshot_from_current(after_current)
+                    after = await self._get_current_persona_snapshot(group_id)
                     change_payload = self._build_change_payload(
                         {
                             'persona_id': change_preview.get('applied_persona_id', 'default'),
@@ -983,8 +1012,7 @@ class PersonaReviewService:
                             persona_name, {"begin_dialogs": change_snapshot.get('after_begin_dialogs', [])}
                         )
                         if result.get('success'):
-                            after_current = await self.persona_web_manager.get_persona_for_group(group_id)
-                            after = self._persona_snapshot_from_current(after_current)
+                            after = await self._get_current_persona_snapshot(group_id)
                             change_payload = self._build_change_payload(
                                 self._persona_snapshot_from_current(before_snapshot),
                                 after,

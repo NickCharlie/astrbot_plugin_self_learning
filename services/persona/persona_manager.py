@@ -7,6 +7,7 @@ from ...config import PluginConfig
 from ...core.interfaces import IPersonaManager, IPersonaUpdater, IPersonaBackupManager, ServiceLifecycle, MessageData
 
 from ...exceptions import SelfLearningError # 导入 SelfLearningError
+from ...utils.persona_selection import resolve_target_persona
 
 class PersonaManagerService(IPersonaManager):
     """
@@ -115,7 +116,13 @@ class PersonaManagerService(IPersonaManager):
         """获取当前人格的描述"""
         try:
             umo = self._resolve_umo(group_id)
-            persona = await self.context.persona_manager.get_default_persona_v3(umo)
+            persona = await resolve_target_persona(
+                self.context.persona_manager,
+                self.config,
+                umo,
+                require_existing=True,
+                log=self._logger,
+            )
             if persona:
                 return persona.get('prompt', '') if isinstance(persona, dict) else getattr(persona, 'prompt', '')
             return None
@@ -127,7 +134,13 @@ class PersonaManagerService(IPersonaManager):
         """获取当前人格信息"""
         try:
             umo = self._resolve_umo(group_id)
-            persona = await self.context.persona_manager.get_default_persona_v3(umo)
+            persona = await resolve_target_persona(
+                self.context.persona_manager,
+                self.config,
+                umo,
+                require_existing=True,
+                log=self._logger,
+            )
             if persona:
                 return dict(persona) if isinstance(persona, dict) else {'prompt': getattr(persona, 'prompt', '')}
             return None

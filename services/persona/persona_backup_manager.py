@@ -11,6 +11,7 @@ from astrbot.api.star import Context
 
 from ...config import PluginConfig
 from ...exceptions import BackupError
+from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
 from ..database import DatabaseManager
 
 
@@ -72,9 +73,16 @@ class PersonaBackupManager:
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                 try:
                     umo = self._resolve_umo(group_id) if group_id else None
-                    default_persona = await self.context.persona_manager.get_default_persona_v3(umo)
+                    default_persona = await resolve_target_persona(
+                        self.context.persona_manager,
+                        self.config,
+                        umo,
+                        require_existing=True,
+                        log=logger,
+                    )
                     if default_persona:
                         return {
+                            'persona_id': get_persona_identifier(default_persona, 'default'),
                             'name': default_persona.get('name', '默认人格') if isinstance(default_persona, dict) else getattr(default_persona, 'name', '默认人格'),
                             'prompt': default_persona.get('prompt', '') if isinstance(default_persona, dict) else getattr(default_persona, 'prompt', ''),
                             'settings': {},
@@ -154,7 +162,7 @@ class PersonaBackupManager:
             # 使用新版框架API恢复人格数据
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                 try:
-                    persona_name = persona_data.get('name', '恢复的人格')
+                    persona_name = persona_data.get('persona_id') or persona_data.get('name', '恢复的人格')
                     persona_prompt = persona_data.get('prompt', '')
 
                     # 通过PersonaManager更新当前人格
