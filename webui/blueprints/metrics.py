@@ -1,6 +1,8 @@
 """
 指标分析蓝图 - 处理指标分析相关路由
 """
+from typing import Any, Dict
+
 from quart import Blueprint, request, jsonify
 from astrbot.api import logger
 
@@ -10,6 +12,96 @@ from ..middleware.auth import require_auth
 from ..utils.response import success_response, error_response
 
 metrics_bp = Blueprint('metrics', __name__, url_prefix='/api')
+
+
+def _get_cache_manager_instance():
+    """Return the plugin cache manager, if available."""
+    try:
+        from ...utils.cache_manager import get_cache_manager
+
+        return get_cache_manager()
+    except Exception as e:
+        logger.warning(f"获取缓存管理器失败: {e}")
+        return None
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _get_cache_hit_payload(cache_manager=None) -> Dict[str, Any]:
+    """Build API payload from CacheManager.get_hit_rates()."""
+    manager = cache_manager if cache_manager is not None else _get_cache_manager_instance()
+    if not manager or not hasattr(manager, "get_hit_rates"):
+        return {
+            "cache_hit_rates": {},
+            "cache_hit_summary": {
+                "available": False,
+                "total_hits": 0,
+                "total_misses": 0,
+                "total_queries": 0,
+                "hit_rate": 0.0,
+                "message": "cache manager unavailable",
+            },
+        }
+
+    try:
+        raw_rates = manager.get_hit_rates() or {}
+    except Exception as e:
+        logger.warning(f"获取缓存命中统计失败: {e}")
+        return {
+            "cache_hit_rates": {},
+            "cache_hit_summary": {
+                "available": False,
+                "total_hits": 0,
+                "total_misses": 0,
+                "total_queries": 0,
+                "hit_rate": 0.0,
+                "message": str(e),
+            },
+        }
+
+    rates: Dict[str, Dict[str, Any]] = {}
+    total_hits = 0
+    total_misses = 0
+    for name, stats in raw_rates.items():
+        if not isinstance(stats, dict):
+            continue
+        hits = _safe_int(stats.get("hits"))
+        misses = _safe_int(stats.get("misses"))
+        total = hits + misses
+        api_hit_rate = _safe_float(stats.get("hit_rate"))
+        hit_rate = api_hit_rate if total else 0.0
+        rates[str(name)] = {
+            "hits": hits,
+            "misses": misses,
+            "total_queries": total,
+            "hit_rate": round(hit_rate, 4),
+        }
+        total_hits += hits
+        total_misses += misses
+
+    total_queries = total_hits + total_misses
+    return {
+        "cache_hit_rates": rates,
+        "cache_hit_summary": {
+            "available": True,
+            "total_hits": total_hits,
+            "total_misses": total_misses,
+            "total_queries": total_queries,
+            "hit_rate": round(total_hits / total_queries, 4) if total_queries else 0.0,
+        },
+    }
 
 
 @metrics_bp.route("/intelligence_metrics", methods=["GET"])
@@ -321,6 +413,8 @@ async def get_metrics():
             except Exception as e:
                 logger.warning(f"获取Hook性能数据失败: {e}")
 
+        cache_hit_payload = _get_cache_hit_payload()
+
         import time
         metrics = {
             "llm_calls": llm_stats,
@@ -334,6 +428,7 @@ async def get_metrics():
             "learning_efficiency": round(learning_efficiency, 1),
             "learning_dimensions": learning_dimensions,
             "hook_performance": hook_performance,
+            **cache_hit_payload,
             "last_updated": time.time()
         }
 
