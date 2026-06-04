@@ -1206,19 +1206,20 @@ class ProgressiveLearningService:
                 logger.debug(f"群组 {group_id} 没有风格分析结果且没有消息，跳过风格学习记录保存")
                 return
 
-            # 1. 保存表达模式到 expression_patterns 表
-            expression_patterns = style_analysis_dict.get('expression_patterns', [])
-            expression_patterns = self._filter_expression_patterns(expression_patterns)
-
-            # 在 fewshot 模式下，style_analysis 可能不包含 expression_patterns。
-            # 此时从数据库获取 bot 消息与用户消息合并，提取 user->bot 对话对。
-            if not expression_patterns and messages:
+            # 1. 优先从真实对话中提取 user->bot 对话对（逻辑连贯）
+            expression_patterns = []
+            if messages:
                 try:
                     merged = await self._merge_bot_messages_for_pairs(group_id, messages)
                     if merged:
                         expression_patterns = self._extract_fewshot_pairs_from_merged(merged, group_id)
                 except Exception as pair_err:
                     logger.debug(f"提取 fewshot 对话对失败: {pair_err}")
+
+            # 真实对话对不足时，回退到 LLM 生成的表达模式
+            if not expression_patterns:
+                expression_patterns = style_analysis_dict.get('expression_patterns', [])
+                expression_patterns = self._filter_expression_patterns(expression_patterns)
 
             if expression_patterns:
                 await self._save_expression_patterns(group_id, expression_patterns)
