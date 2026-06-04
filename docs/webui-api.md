@@ -224,6 +224,9 @@ $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 | GET | `/api/monitoring/functions` | 函数级性能 |
 | GET | `/api/monitoring/profile/backends` | profiling 后端 |
 | POST | `/api/monitoring/profile/start` | 开始 profiling |
+
+`/api/metrics` 会直接返回 `cache_hit_rates` 和 `cache_hit_summary`，数据来自
+`CacheManager.get_hit_rates()`，前端无需从 Prometheus hits/misses 样本自行测算缓存命中率。
 | GET | `/api/monitoring/profile/<session_id>` | 获取 profiling 会话 |
 | DELETE | `/api/monitoring/profile/<session_id>` | 停止 profiling |
 
