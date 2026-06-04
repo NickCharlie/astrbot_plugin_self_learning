@@ -176,19 +176,27 @@ class PersonaReviewService:
 
     @staticmethod
     def _extract_style_dialog_pairs(review: Dict[str, Any]) -> List[Tuple[str, str]]:
-        """Extract style review dialog pairs from structured patterns or few-shot text."""
+        """Extract style review dialog pairs from structured patterns or few-shot text. Deduplicates by content."""
         dialog_pairs = []
+        seen = set()
         learned_patterns = review.get('learned_patterns', [])
         for pattern in learned_patterns:
             situation = pattern.get('situation', '') if isinstance(pattern, dict) else ''
             expression = pattern.get('expression', '') if isinstance(pattern, dict) else ''
             if situation and expression:
-                dialog_pairs.append((str(situation), str(expression)))
+                key = (str(situation), str(expression))
+                if key not in seen:
+                    seen.add(key)
+                    dialog_pairs.append(key)
 
         if not dialog_pairs:
-            dialog_pairs = PersonaReviewService._parse_few_shots_to_pairs(
+            for user_msg, assistant_msg in PersonaReviewService._parse_few_shots_to_pairs(
                 review.get('few_shots_content', '') or ''
-            )
+            ):
+                key = (user_msg, assistant_msg)
+                if key not in seen:
+                    seen.add(key)
+                    dialog_pairs.append(key)
         return dialog_pairs
 
     def _dialog_pairs_for_style_review(self, review: Dict[str, Any]) -> List[Tuple[str, str]]:
@@ -199,10 +207,19 @@ class PersonaReviewService:
         current_begin_dialogs: List[str],
         dialog_pairs: List[Tuple[str, str]]
     ) -> List[str]:
-        """Append style examples and keep only latest style example pairs."""
+        """Append style examples, skipping pairs already present in begin_dialogs."""
         updated_dialogs = PersonaReviewService._normalize_begin_dialogs(current_begin_dialogs)
 
+        # Build set of existing user messages for dedup
+        existing_user_msgs = set()
+        for d in updated_dialogs:
+            if isinstance(d, str) and d.startswith(STYLE_BEGIN_DIALOG_PREFIX):
+                existing_user_msgs.add(d[len(STYLE_BEGIN_DIALOG_PREFIX):].strip())
+
         for user_msg, assistant_msg in dialog_pairs:
+            if user_msg.strip() in existing_user_msgs:
+                continue
+            existing_user_msgs.add(user_msg.strip())
             updated_dialogs.append(f"{STYLE_BEGIN_DIALOG_PREFIX}{user_msg}")
             updated_dialogs.append(str(assistant_msg))
 

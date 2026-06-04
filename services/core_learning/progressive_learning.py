@@ -1373,8 +1373,10 @@ class ProgressiveLearningService:
 
         Mirrors the logic of ExpressionPatternLearner._extract_few_shot_pairs
         but operates on plain dicts and returns expression pattern dicts.
+        Deduplicates by (situation, expression) content.
         """
         pairs = []
+        seen = set()
         current_time = time.time()
 
         for i in range(len(merged) - 1):
@@ -1399,6 +1401,11 @@ class ProgressiveLearningService:
                     continue
                 if '@' in msg_text or '@' in nxt_text:
                     continue
+
+                key = (msg_text[:50], nxt_text[:100])
+                if key in seen:
+                    continue
+                seen.add(key)
 
                 pairs.append({
                     'situation': msg_text[:50],
