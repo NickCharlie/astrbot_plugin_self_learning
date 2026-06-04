@@ -195,6 +195,52 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 更新黑话失败: {e}", exc_info=True)
             return False
 
+    # 3b. sync_jargon_counts
+    async def sync_jargon_counts(
+        self, chat_id: str, term_frequencies: Dict[str, int]
+    ) -> int:
+        """Sync occurrence counts for existing jargon in a group.
+
+        Only updates jargon terms that already exist in DB for *chat_id*.
+        Returns the number of records updated.
+
+        Args:
+            chat_id: Group ID.
+            term_frequencies: ``{term: actual_chat_count}`` from the
+                statistical filter.
+        """
+        if not term_frequencies:
+            return 0
+
+        updated = 0
+        try:
+            async with self.get_session() as session:
+                stmt = select(Jargon).where(
+                    Jargon.chat_id == chat_id,
+                    Jargon.content.in_(list(term_frequencies.keys())),
+                )
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+
+                now = int(time.time())
+                for record in records:
+                    new_count = term_frequencies.get(record.content, 0)
+                    if new_count > (record.count or 0):
+                        record.count = new_count
+                        record.updated_at = now
+                        updated += 1
+
+                if updated:
+                    await session.commit()
+                    self._logger.debug(
+                        f"[JargonFacade] 同步黑话出现次数: "
+                        f"chat={chat_id}, updated={updated}"
+                    )
+        except Exception as e:
+            self._logger.error(f"[JargonFacade] 同步黑话出现次数失败: {e}", exc_info=True)
+
+        return updated
+
     # 4. get_jargon_statistics
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         """获取黑话学习统计信息

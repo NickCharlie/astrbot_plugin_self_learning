@@ -960,6 +960,9 @@ class SQLAlchemyDatabaseManager:
     async def update_jargon(self, jargon_data: Dict[str, Any]) -> bool:
         return await self._call_jargon("update_jargon", False, jargon_data)
 
+    async def sync_jargon_counts(self, chat_id: str, term_frequencies: Dict[str, int]) -> int:
+        return await self._call_jargon("sync_jargon_counts", 0, chat_id, term_frequencies)
+
     async def get_jargon_statistics(self, group_id: str = None) -> Dict[str, Any]:
         return await self._call_jargon(
             "get_jargon_statistics",

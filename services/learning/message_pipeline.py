@@ -256,6 +256,16 @@ class MessagePipeline:
                 if not statistical_candidates:
                     statistical_candidates = None
 
+                # Sync actual chat occurrence counts to DB
+                term_freq = self._jargon_statistical_filter._group_term_freq.get(group_id)
+                if term_freq:
+                    try:
+                        await self._db_manager.sync_jargon_counts(
+                            group_id, dict(term_freq)
+                        )
+                    except Exception as e:
+                        logger.debug(f"[JargonMining] Frequency sync failed: {e}")
+
             await jargon_miner.run_once(
                 chat_messages,
                 len(recent_messages),
