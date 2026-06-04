@@ -2489,7 +2489,6 @@
                             <option value="newest">最新优先</option>
                             <option value="oldest">最早优先</option>
                             <option value="name">按名称</option>
-                            <option value="occurrences">按出现次数</option>
                         </select>
                         <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
                     </div>
@@ -6399,8 +6398,6 @@
                         items.reverse();
                     } else if (state.jargon.sort === 'name') {
                         items.sort((a, b) => (a.term || a.word || '').localeCompare(b.term || b.word || ''));
-                    } else if (state.jargon.sort === 'occurrences') {
-                        items.sort((a, b) => (b.occurrences || 0) - (a.occurrences || 0));
                     }
 
                     state.jargon.items = items;
