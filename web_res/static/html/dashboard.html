@@ -2837,6 +2837,10 @@
                     data: null,
                     loading: false,
                     loaded: false,
+                    positionCache: {},
+                    layoutSettled: {},
+                    draggingNode: null,
+                    zrMouseupHandler: null,
                 },
                 llmCalls: {
                     filter: 'all',
@@ -4016,8 +4020,8 @@
                     return null;
                 }
 
-                if (state.charts[id]) {
-                    state.charts[id].dispose();
+                if (state.charts[id] && !state.charts[id].isDisposed()) {
+                    return state.charts[id];
                 }
 
                 state.charts[id] = echarts.init(dom);
@@ -5894,6 +5898,276 @@
                 }
             }
 
+            function graphNodeKey(node, index = 0) {
+                const value = node && (node.id || node.name);
+                return value === undefined || value === null || value === ''
+                    ? `node-${index}`
+                    : String(value);
+            }
+
+            function graphLayoutKey(nodes, links, scope) {
+                const nodePart = nodes.map((node, index) => graphNodeKey(node, index)).join('|');
+                const linkPart = links
+                    .map((link) => `${link.source || ''}>${link.target || ''}:${link.value || ''}`)
+                    .join('|');
+                return `${scope}:${nodePart}:${linkPart}`;
+            }
+
+            function graphHash(value) {
+                let hash = 2166136261;
+                const text = String(value);
+                for (let index = 0; index < text.length; index += 1) {
+                    hash ^= text.charCodeAt(index);
+                    hash = Math.imul(hash, 16777619);
+                }
+                return hash >>> 0;
+            }
+
+            function graphViewport(chart) {
+                const width = Math.max(360, chart && chart.getWidth ? chart.getWidth() : 800);
+                const height = Math.max(300, chart && chart.getHeight ? chart.getHeight() : 520);
+                return {
+                    width,
+                    height,
+                    minX: 48,
+                    maxX: width - 48,
+                    minY: 72,
+                    maxY: height - 42,
+                    centerX: width / 2,
+                    centerY: Math.max(150, height / 2 + 18),
+                };
+            }
+
+            function initialGraphPoint(id, index, total, viewport) {
+                const hash = graphHash(id);
+                const angle = (index / Math.max(1, total)) * Math.PI * 2
+                    + ((hash % 997) / 997) * 0.7;
+                const ring = 0.42 + ((hash % 100) / 100) * 0.46;
+                const radius = Math.min(viewport.width, viewport.height) * 0.42 * ring;
+                return {
+                    x: clamp(viewport.centerX + Math.cos(angle) * radius, viewport.minX, viewport.maxX),
+                    y: clamp(viewport.centerY + Math.sin(angle) * radius, viewport.minY, viewport.maxY),
+                };
+            }
+
+            function validGraphPoint(point) {
+                return point && Number.isFinite(point.x) && Number.isFinite(point.y);
+            }
+
+            function pruneGraphLayoutCaches(activeKey) {
+                const keys = Object.keys(state.graph.positionCache);
+                if (keys.length <= 8) {
+                    return;
+                }
+                keys
+                    .filter((key) => key !== activeKey)
+                    .slice(0, Math.max(0, keys.length - 8))
+                    .forEach((key) => {
+                        delete state.graph.positionCache[key];
+                        delete state.graph.layoutSettled[key];
+                    });
+            }
+
+            function computeStableGraphLayout(nodes, links, cache, chart) {
+                const viewport = graphViewport(chart);
+                const layoutNodes = nodes.map((node, index) => {
+                    const id = graphNodeKey(node, index);
+                    const cached = cache[id];
+                    const point = validGraphPoint(cached)
+                        ? cached
+                        : initialGraphPoint(id, index, nodes.length, viewport);
+                    return {
+                        id,
+                        index,
+                        x: clamp(point.x, viewport.minX, viewport.maxX),
+                        y: clamp(point.y, viewport.minY, viewport.maxY),
+                        vx: 0,
+                        vy: 0,
+                        radius: Math.max(12, Math.min(42, safeNumber(node.symbolSize, 24) / 2 + 8)),
+                        fixed: Boolean(cached && cached.fixed),
+                    };
+                });
+                const byId = new Map(layoutNodes.map((node) => [node.id, node]));
+                const layoutLinks = links
+                    .map((link) => ({
+                        source: byId.get(String(link.source || '')),
+                        target: byId.get(String(link.target || '')),
+                        value: Math.max(1, safeNumber(link.value, 1)),
+                    }))
+                    .filter((link) => link.source && link.target && link.source !== link.target);
+
+                if (layoutNodes.length <= 1) {
+                    layoutNodes.forEach((node) => {
+                        cache[node.id] = { x: node.x, y: node.y, fixed: node.fixed };
+                    });
+                    return;
+                }
+
+                const area = Math.max(1, (viewport.maxX - viewport.minX) * (viewport.maxY - viewport.minY));
+                const baseDistance = clamp(Math.sqrt(area / layoutNodes.length) * 1.05, 54, 132);
+                const charge = baseDistance * baseDistance * 0.86;
+                const iterations = clamp(Math.round(190 - layoutNodes.length * 0.48), 64, 160);
+
+                for (let step = 0; step < iterations; step += 1) {
+                    const alpha = 1 - step / iterations;
+                    for (let i = 0; i < layoutNodes.length; i += 1) {
+                        const a = layoutNodes[i];
+                        for (let j = i + 1; j < layoutNodes.length; j += 1) {
+                            const b = layoutNodes[j];
+                            let dx = b.x - a.x;
+                            let dy = b.y - a.y;
+                            if (Math.abs(dx) + Math.abs(dy) < 0.01) {
+                                const angle = ((graphHash(`${a.id}:${b.id}`) % 628) / 100);
+                                dx = Math.cos(angle);
+                                dy = Math.sin(angle);
+                            }
+                            const distanceSq = Math.max(36, dx * dx + dy * dy);
+                            const distance = Math.sqrt(distanceSq);
+                            const push = (charge / distanceSq) * alpha;
+                            const minDistance = a.radius + b.radius + 8;
+                            const collision = distance < minDistance
+                                ? (minDistance - distance) * 0.045 * alpha
+                                : 0;
+                            const fx = (dx / distance) * (push + collision);
+                            const fy = (dy / distance) * (push + collision);
+                            if (!a.fixed) {
+                                a.vx -= fx;
+                                a.vy -= fy;
+                            }
+                            if (!b.fixed) {
+                                b.vx += fx;
+                                b.vy += fy;
+                            }
+                        }
+                    }
+
+                    layoutLinks.forEach((link) => {
+                        const { source, target } = link;
+                        let dx = target.x - source.x;
+                        let dy = target.y - source.y;
+                        const distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+                        const desired = clamp(baseDistance * (1.32 - Math.min(link.value, 6) * 0.055), 48, 150);
+                        const pull = (distance - desired) * 0.018 * alpha;
+                        dx /= distance;
+                        dy /= distance;
+                        if (!source.fixed) {
+                            source.vx += dx * pull;
+                            source.vy += dy * pull;
+                        }
+                        if (!target.fixed) {
+                            target.vx -= dx * pull;
+                            target.vy -= dy * pull;
+                        }
+                    });
+
+                    layoutNodes.forEach((node) => {
+                        if (node.fixed) {
+                            return;
+                        }
+                        node.vx += (viewport.centerX - node.x) * 0.006 * alpha;
+                        node.vy += (viewport.centerY - node.y) * 0.006 * alpha;
+                        node.vx *= 0.72;
+                        node.vy *= 0.72;
+                        node.x = clamp(node.x + node.vx, viewport.minX, viewport.maxX);
+                        node.y = clamp(node.y + node.vy, viewport.minY, viewport.maxY);
+                    });
+                }
+
+                layoutNodes.forEach((node) => {
+                    cache[node.id] = { x: node.x, y: node.y, fixed: node.fixed };
+                });
+            }
+
+            function prepareGraphNodesForRender(nodes, links, chart) {
+                if (state.graph.layout !== 'force') {
+                    state.graph.activeLayoutKey = '';
+                    return nodes;
+                }
+
+                const scope = `${state.graph.type}:${state.graph.groupId || ''}`;
+                const layoutKey = graphLayoutKey(nodes, links, scope);
+                state.graph.activeLayoutKey = layoutKey;
+                state.graph.positionCache[layoutKey] = state.graph.positionCache[layoutKey] || {};
+                const cache = state.graph.positionCache[layoutKey];
+                const hasEveryPoint = nodes.every((node, index) => validGraphPoint(cache[graphNodeKey(node, index)]));
+
+                if (!state.graph.layoutSettled[layoutKey] || !hasEveryPoint) {
+                    computeStableGraphLayout(nodes, links, cache, chart);
+                    state.graph.layoutSettled[layoutKey] = true;
+                    pruneGraphLayoutCaches(layoutKey);
+                }
+
+                return nodes.map((node, index) => {
+                    const id = graphNodeKey(node, index);
+                    const point = cache[id] || initialGraphPoint(id, index, nodes.length, graphViewport(chart));
+                    return {
+                        ...node,
+                        id: node.id || id,
+                        x: point.x,
+                        y: point.y,
+                        fixed: Boolean(point.fixed),
+                        draggable: true,
+                        cursor: 'move',
+                    };
+                });
+            }
+
+            function graphEventPoint(chart, params) {
+                const event = params && params.event && (params.event.event || params.event);
+                if (event && Number.isFinite(event.offsetX) && Number.isFinite(event.offsetY)) {
+                    try {
+                        const converted = chart.convertFromPixel({ seriesIndex: 0 }, [event.offsetX, event.offsetY]);
+                        if (Array.isArray(converted) && Number.isFinite(converted[0]) && Number.isFinite(converted[1])) {
+                            return { x: converted[0], y: converted[1] };
+                        }
+                    } catch (error) {
+                        return { x: event.offsetX, y: event.offsetY };
+                    }
+                    return { x: event.offsetX, y: event.offsetY };
+                }
+                const data = params && params.data;
+                return validGraphPoint(data) ? { x: data.x, y: data.y } : null;
+            }
+
+            function rememberDraggedGraphNode(chart, params) {
+                if (state.graph.layout !== 'force' || !params || params.dataType !== 'node') {
+                    return;
+                }
+                const cache = state.graph.positionCache[state.graph.activeLayoutKey];
+                const point = graphEventPoint(chart, params);
+                if (!cache || !validGraphPoint(point)) {
+                    return;
+                }
+                const id = graphNodeKey(params.data, params.dataIndex);
+                cache[id] = { x: point.x, y: point.y, fixed: true };
+                state.graph.layoutSettled[state.graph.activeLayoutKey] = true;
+            }
+
+            function rememberGraphPointerPosition(chart, event) {
+                const dragging = state.graph.draggingNode;
+                const cache = state.graph.positionCache[state.graph.activeLayoutKey];
+                if (state.graph.layout !== 'force' || !dragging || !cache || !event) {
+                    return;
+                }
+                let point = null;
+                if (Number.isFinite(event.offsetX) && Number.isFinite(event.offsetY)) {
+                    try {
+                        const converted = chart.convertFromPixel({ seriesIndex: 0 }, [event.offsetX, event.offsetY]);
+                        if (Array.isArray(converted) && Number.isFinite(converted[0]) && Number.isFinite(converted[1])) {
+                            point = { x: converted[0], y: converted[1] };
+                        }
+                    } catch (error) {
+                        point = { x: event.offsetX, y: event.offsetY };
+                    }
+                    point = point || { x: event.offsetX, y: event.offsetY };
+                }
+                if (!validGraphPoint(point)) {
+                    return;
+                }
+                cache[dragging.id] = { x: point.x, y: point.y, fixed: true };
+                state.graph.layoutSettled[state.graph.activeLayoutKey] = true;
+            }
+
             function renderGraphPanel(payload) {
                 const graphPayload = payload || state.graph.data || {};
                 const nodes = safeArray(graphPayload.nodes);
@@ -5940,11 +6214,14 @@
                     return;
                 }
 
+                const isForceLayout = state.graph.layout === 'force';
+                const renderNodes = prepareGraphNodesForRender(nodes, links, chart);
+
                 chart.setOption({
                     backgroundColor: 'transparent',
                     color: getThemePalette(),
                     textStyle: { color: getTextColor() },
-                    animation: true,
+                    animation: !isForceLayout,
                     tooltip: {
                         trigger: 'item',
                         backgroundColor: getTooltipBackground(),
@@ -5967,8 +6244,8 @@
                     }],
                     series: [{
                         type: 'graph',
-                        layout: state.graph.layout,
-                        data: nodes,
+                        layout: isForceLayout ? 'none' : state.graph.layout,
+                        data: renderNodes,
                         links,
                         categories,
                         roam: true,
@@ -5979,11 +6256,6 @@
                             position: 'right',
                             color: getTextColor(),
                             fontSize: 11,
-                        },
-                        force: {
-                            repulsion: 170,
-                            gravity: 0.08,
-                            edgeLength: [60, 140],
                         },
                         circular: {
                             rotateLabel: true,
@@ -5999,6 +6271,27 @@
                         },
                     }],
                 }, true);
+
+                chart.off('dragend');
+                chart.on('dragend', (params) => {
+                    rememberDraggedGraphNode(chart, params);
+                });
+
+                chart.off('mousedown');
+                chart.on('mousedown', (params) => {
+                    state.graph.draggingNode = params && params.dataType === 'node'
+                        ? { id: graphNodeKey(params.data, params.dataIndex) }
+                        : null;
+                });
+
+                if (state.graph.zrMouseupHandler) {
+                    chart.getZr().off('mouseup', state.graph.zrMouseupHandler);
+                }
+                state.graph.zrMouseupHandler = (event) => {
+                    rememberGraphPointerPosition(chart, event && event.event ? event.event : event);
+                    state.graph.draggingNode = null;
+                };
+                chart.getZr().on('mouseup', state.graph.zrMouseupHandler);
 
                 chart.off('click');
                 chart.on('click', (params) => {

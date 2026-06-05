@@ -251,6 +251,10 @@
       var rawMembers = [];
       var rawRelations = [];
       var graphLayout = "force";
+      var graphPositionCache = {};
+      var graphLayoutSettled = {};
+      var activeLayoutKey = "";
+      var draggingNode = null;
 
       function escapeHtml(value) {
         return String(value == null ? "" : value)
@@ -410,6 +414,286 @@
         return { nodes: nodes, links: links };
       }
 
+      function clampNumber(value, min, max) {
+        return Math.max(min, Math.min(max, Number(value) || 0));
+      }
+
+      function graphNodeKey(node, index) {
+        var value = node && (node.id || node.name);
+        return value === undefined || value === null || value === ""
+          ? "node-" + (index || 0)
+          : String(value);
+      }
+
+      function graphHash(value) {
+        var hash = 2166136261;
+        var text = String(value);
+        for (var index = 0; index < text.length; index += 1) {
+          hash ^= text.charCodeAt(index);
+          hash = Math.imul(hash, 16777619);
+        }
+        return hash >>> 0;
+      }
+
+      function graphLayoutKey(data) {
+        var nodePart = data.nodes
+          .map(function (node, index) {
+            return graphNodeKey(node, index);
+          })
+          .join("|");
+        var linkPart = data.links
+          .map(function (link) {
+            return (link.source || "") + ">" + (link.target || "") + ":" + (link.value || "");
+          })
+          .join("|");
+        return "share:" + nodePart + ":" + linkPart;
+      }
+
+      function graphViewport() {
+        var width = Math.max(360, chart && chart.getWidth ? chart.getWidth() : 800);
+        var height = Math.max(300, chart && chart.getHeight ? chart.getHeight() : 520);
+        return {
+          width: width,
+          height: height,
+          minX: 48,
+          maxX: width - 48,
+          minY: 58,
+          maxY: height - 42,
+          centerX: width / 2,
+          centerY: Math.max(140, height / 2 + 12),
+        };
+      }
+
+      function validGraphPoint(point) {
+        return point && Number.isFinite(point.x) && Number.isFinite(point.y);
+      }
+
+      function initialGraphPoint(id, index, total, viewport) {
+        var hash = graphHash(id);
+        var angle = (index / Math.max(1, total)) * Math.PI * 2 + ((hash % 997) / 997) * 0.7;
+        var ring = 0.42 + ((hash % 100) / 100) * 0.46;
+        var radius = Math.min(viewport.width, viewport.height) * 0.42 * ring;
+        return {
+          x: clampNumber(viewport.centerX + Math.cos(angle) * radius, viewport.minX, viewport.maxX),
+          y: clampNumber(viewport.centerY + Math.sin(angle) * radius, viewport.minY, viewport.maxY),
+        };
+      }
+
+      function pruneGraphLayoutCaches(activeKey) {
+        var keys = Object.keys(graphPositionCache);
+        if (keys.length <= 8) {
+          return;
+        }
+        keys
+          .filter(function (key) {
+            return key !== activeKey;
+          })
+          .slice(0, Math.max(0, keys.length - 8))
+          .forEach(function (key) {
+            delete graphPositionCache[key];
+            delete graphLayoutSettled[key];
+          });
+      }
+
+      function computeStableGraphLayout(nodes, links, cache) {
+        var viewport = graphViewport();
+        var layoutNodes = nodes.map(function (node, index) {
+          var id = graphNodeKey(node, index);
+          var cached = cache[id];
+          var point = validGraphPoint(cached)
+            ? cached
+            : initialGraphPoint(id, index, nodes.length, viewport);
+          return {
+            id: id,
+            index: index,
+            x: clampNumber(point.x, viewport.minX, viewport.maxX),
+            y: clampNumber(point.y, viewport.minY, viewport.maxY),
+            vx: 0,
+            vy: 0,
+            radius: Math.max(12, Math.min(42, Number(node.symbolSize || 24) / 2 + 8)),
+            fixed: Boolean(cached && cached.fixed),
+          };
+        });
+        var byId = new Map(layoutNodes.map(function (node) {
+          return [node.id, node];
+        }));
+        var layoutLinks = links
+          .map(function (link) {
+            return {
+              source: byId.get(String(link.source || "")),
+              target: byId.get(String(link.target || "")),
+              value: Math.max(1, Number(link.value || 1)),
+            };
+          })
+          .filter(function (link) {
+            return link.source && link.target && link.source !== link.target;
+          });
+
+        if (layoutNodes.length <= 1) {
+          layoutNodes.forEach(function (node) {
+            cache[node.id] = { x: node.x, y: node.y, fixed: node.fixed };
+          });
+          return;
+        }
+
+        var area = Math.max(1, (viewport.maxX - viewport.minX) * (viewport.maxY - viewport.minY));
+        var baseDistance = clampNumber(Math.sqrt(area / layoutNodes.length) * 1.05, 54, 132);
+        var charge = baseDistance * baseDistance * 0.86;
+        var iterations = clampNumber(Math.round(190 - layoutNodes.length * 0.48), 64, 160);
+
+        for (var step = 0; step < iterations; step += 1) {
+          var alpha = 1 - step / iterations;
+          for (var i = 0; i < layoutNodes.length; i += 1) {
+            var a = layoutNodes[i];
+            for (var j = i + 1; j < layoutNodes.length; j += 1) {
+              var b = layoutNodes[j];
+              var dx = b.x - a.x;
+              var dy = b.y - a.y;
+              if (Math.abs(dx) + Math.abs(dy) < 0.01) {
+                var angle = (graphHash(a.id + ":" + b.id) % 628) / 100;
+                dx = Math.cos(angle);
+                dy = Math.sin(angle);
+              }
+              var distanceSq = Math.max(36, dx * dx + dy * dy);
+              var distance = Math.sqrt(distanceSq);
+              var push = (charge / distanceSq) * alpha;
+              var minDistance = a.radius + b.radius + 8;
+              var collision = distance < minDistance
+                ? (minDistance - distance) * 0.045 * alpha
+                : 0;
+              var fx = (dx / distance) * (push + collision);
+              var fy = (dy / distance) * (push + collision);
+              if (!a.fixed) {
+                a.vx -= fx;
+                a.vy -= fy;
+              }
+              if (!b.fixed) {
+                b.vx += fx;
+                b.vy += fy;
+              }
+            }
+          }
+
+          layoutLinks.forEach(function (link) {
+            var source = link.source;
+            var target = link.target;
+            var dx = target.x - source.x;
+            var dy = target.y - source.y;
+            var distance = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+            var desired = clampNumber(baseDistance * (1.32 - Math.min(link.value, 6) * 0.055), 48, 150);
+            var pull = (distance - desired) * 0.018 * alpha;
+            dx /= distance;
+            dy /= distance;
+            if (!source.fixed) {
+              source.vx += dx * pull;
+              source.vy += dy * pull;
+            }
+            if (!target.fixed) {
+              target.vx -= dx * pull;
+              target.vy -= dy * pull;
+            }
+          });
+
+          layoutNodes.forEach(function (node) {
+            if (node.fixed) {
+              return;
+            }
+            node.vx += (viewport.centerX - node.x) * 0.006 * alpha;
+            node.vy += (viewport.centerY - node.y) * 0.006 * alpha;
+            node.vx *= 0.72;
+            node.vy *= 0.72;
+            node.x = clampNumber(node.x + node.vx, viewport.minX, viewport.maxX);
+            node.y = clampNumber(node.y + node.vy, viewport.minY, viewport.maxY);
+          });
+        }
+
+        layoutNodes.forEach(function (node) {
+          cache[node.id] = { x: node.x, y: node.y, fixed: node.fixed };
+        });
+      }
+
+      function prepareGraphNodesForRender(data) {
+        if (graphLayout !== "force") {
+          activeLayoutKey = "";
+          return data.nodes;
+        }
+
+        var layoutKey = graphLayoutKey(data);
+        activeLayoutKey = layoutKey;
+        graphPositionCache[layoutKey] = graphPositionCache[layoutKey] || {};
+        var cache = graphPositionCache[layoutKey];
+        var hasEveryPoint = data.nodes.every(function (node, index) {
+          return validGraphPoint(cache[graphNodeKey(node, index)]);
+        });
+
+        if (!graphLayoutSettled[layoutKey] || !hasEveryPoint) {
+          computeStableGraphLayout(data.nodes, data.links, cache);
+          graphLayoutSettled[layoutKey] = true;
+          pruneGraphLayoutCaches(layoutKey);
+        }
+
+        return data.nodes.map(function (node, index) {
+          var id = graphNodeKey(node, index);
+          var point = cache[id] || initialGraphPoint(id, index, data.nodes.length, graphViewport());
+          return Object.assign({}, node, {
+            id: node.id || id,
+            x: point.x,
+            y: point.y,
+            fixed: Boolean(point.fixed),
+            draggable: true,
+            cursor: "move",
+          });
+        });
+      }
+
+      function eventPoint(event) {
+        if (!event || !Number.isFinite(event.offsetX) || !Number.isFinite(event.offsetY)) {
+          return null;
+        }
+        try {
+          var converted = chart.convertFromPixel({ seriesIndex: 0 }, [event.offsetX, event.offsetY]);
+          if (Array.isArray(converted) && Number.isFinite(converted[0]) && Number.isFinite(converted[1])) {
+            return { x: converted[0], y: converted[1] };
+          }
+        } catch (error) {
+          return { x: event.offsetX, y: event.offsetY };
+        }
+        return { x: event.offsetX, y: event.offsetY };
+      }
+
+      function rememberDraggedNode(params) {
+        if (graphLayout !== "force" || !params || params.dataType !== "node") {
+          return;
+        }
+        var cache = graphPositionCache[activeLayoutKey];
+        if (!cache) {
+          return;
+        }
+        var event = params.event && (params.event.event || params.event);
+        var point = eventPoint(event);
+        if (!validGraphPoint(point) && validGraphPoint(params.data)) {
+          point = { x: params.data.x, y: params.data.y };
+        }
+        if (!validGraphPoint(point)) {
+          return;
+        }
+        cache[graphNodeKey(params.data, params.dataIndex)] = { x: point.x, y: point.y, fixed: true };
+        graphLayoutSettled[activeLayoutKey] = true;
+      }
+
+      function rememberPointerPosition(event) {
+        var cache = graphPositionCache[activeLayoutKey];
+        if (graphLayout !== "force" || !draggingNode || !cache) {
+          return;
+        }
+        var point = eventPoint(event);
+        if (!validGraphPoint(point)) {
+          return;
+        }
+        cache[draggingNode.id] = { x: point.x, y: point.y, fixed: true };
+        graphLayoutSettled[activeLayoutKey] = true;
+      }
+
       function renderGraph(data) {
         if (!chart) {
           showError("图表库加载失败，请刷新页面重试。");
@@ -438,13 +722,14 @@
         });
 
         var isCircular = graphLayout === "circular";
+        var renderNodes = isCircular ? data.nodes : prepareGraphNodesForRender(data);
         var seriesConfig = {
           type: "graph",
-          layout: isCircular ? "circular" : "force",
+          layout: isCircular ? "circular" : "none",
           roam: true,
           draggable: true,
           color: getPalette(),
-          data: data.nodes,
+          data: renderNodes,
           links: data.links,
           label: {
             show: true,
@@ -466,12 +751,6 @@
           seriesConfig.circular = {
             rotateLabel: true,
           };
-        } else {
-          seriesConfig.force = {
-            repulsion: 220,
-            gravity: 0.08,
-            edgeLength: [40, 180],
-          };
         }
 
         chart.setOption(
@@ -479,6 +758,7 @@
             backgroundColor: "transparent",
             color: getPalette(),
             textStyle: { color: getTextColor() },
+            animation: isCircular,
             tooltip: {
               trigger: "item",
               backgroundColor: getTooltipBackground(),
@@ -517,6 +797,30 @@
           },
           true
         );
+
+        chart.off("dragend");
+        chart.on("dragend", function (params) {
+          rememberDraggedNode(params);
+        });
+
+        chart.off("mousedown");
+        chart.on("mousedown", function (params) {
+          draggingNode = params && params.dataType === "node"
+            ? { id: graphNodeKey(params.data, params.dataIndex) }
+            : null;
+        });
+
+        var zr = chart.getZr();
+        if (zr && chart.__selfLearningMouseupHandler) {
+          zr.off("mouseup", chart.__selfLearningMouseupHandler);
+        }
+        chart.__selfLearningMouseupHandler = function (event) {
+          rememberPointerPosition(event && event.event ? event.event : event);
+          draggingNode = null;
+        };
+        if (zr) {
+          zr.on("mouseup", chart.__selfLearningMouseupHandler);
+        }
       }
 
       async function loadSharedGraph() {
