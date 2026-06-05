@@ -19,6 +19,7 @@ from ...constants import (
 from ...exceptions import LearningError
 
 from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
+from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
 
 from ..database import DatabaseManager
 from ..learning.sample_filter import filter_learning_messages, should_ignore_learning_sample
@@ -875,11 +876,17 @@ class ProgressiveLearningService:
             # 如果没有特定群组的人格，尝试从框架获取默认人格
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                 try:
-                    default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                    default_persona = await resolve_target_persona(
+                        self.context.persona_manager,
+                        self.config,
+                        self._resolve_umo(group_id),
+                        require_existing=True,
+                        log=logger,
+                    )
                     if default_persona:
                         return {
                             'prompt': default_persona.get('prompt', '默认人格'),
-                            'name': default_persona.get('name', 'default'),
+                            'name': get_persona_identifier(default_persona),
                             'style_parameters': {},
                             'last_updated': datetime.now().isoformat()
                         }
@@ -905,7 +912,13 @@ class ProgressiveLearningService:
                 logger.warning(f"无法获取PersonaManager for group {group_id}")
                 return current_persona
 
-            default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+            default_persona = await resolve_target_persona(
+                self.context.persona_manager,
+                self.config,
+                self._resolve_umo(group_id),
+                require_existing=True,
+                log=logger,
+            )
             if not default_persona:
                 logger.warning(f"无法获取当前人格 for group {group_id}")
                 return current_persona

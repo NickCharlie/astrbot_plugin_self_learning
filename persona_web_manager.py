@@ -140,6 +140,13 @@ class PersonaWebManager:
             logger.error(f"获取人格列表失败: {e}", exc_info=True)
             return []
 
+    async def get_persona_by_id(self, persona_id: str) -> Optional[Dict[str, Any]]:
+        """获取指定人格，格式化为Web界面需要的格式"""
+        for persona in await self.get_all_personas_for_web():
+            if persona.get("persona_id") == persona_id:
+                return persona
+        return None
+
     async def get_default_persona_for_web(self) -> Dict[str, Any]:
         """获取默认人格，格式化为Web界面需要的格式
 

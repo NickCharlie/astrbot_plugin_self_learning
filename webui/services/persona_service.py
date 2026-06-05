@@ -5,6 +5,19 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from astrbot.api import logger
 
+try:
+    from ...utils.persona_selection import (
+        normalize_persona_data,
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
+except ImportError:
+    from utils.persona_selection import (
+        normalize_persona_data,
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
+
 
 def _optional_container_attr(container, name: str, default=None):
     value = getattr(container, name, default)
@@ -47,12 +60,7 @@ class PersonaService:
 
     @staticmethod
     def _normalize_persona_data(data: Dict[str, Any]) -> Dict[str, Any]:
-        normalized = dict(data)
-        if 'system_prompt' not in normalized and 'prompt' in normalized:
-            normalized['system_prompt'] = normalized['prompt']
-        if 'prompt' not in normalized and 'system_prompt' in normalized:
-            normalized['prompt'] = normalized['system_prompt']
-        return normalized
+        return normalize_persona_data(data) or {}
 
     @staticmethod
     def _has_required_persona_fields(data: Dict[str, Any]) -> bool:
@@ -220,20 +228,24 @@ class PersonaService:
 
         try:
             if self.persona_web_mgr:
-                if group_id and group_id != "default":
-                    default_persona = await self.persona_web_mgr.get_persona_for_group(group_id)
-                else:
-                    default_persona = await self.persona_web_mgr.get_default_persona_for_web()
-                return self._normalize_persona_data(default_persona or fallback_persona)
+                persona = await resolve_target_persona_from_web(
+                    self.persona_web_mgr,
+                    _optional_container_attr(self.container, 'plugin_config'),
+                    group_id,
+                    log=logger,
+                )
+                return self._normalize_persona_data(persona or fallback_persona)
 
             if self.astrbot_persona_manager:
-                default_persona = await self.astrbot_persona_manager.get_default_persona_v3(group_id)
-                if default_persona:
-                    return self._normalize_persona_data(default_persona)
-
-                default_persona = await self.astrbot_persona_manager.get_default_persona_v3('default')
-                if default_persona:
-                    return self._normalize_persona_data(default_persona)
+                persona = await resolve_target_persona(
+                    self.astrbot_persona_manager,
+                    _optional_container_attr(self.container, 'plugin_config'),
+                    group_id,
+                    require_existing=True,
+                    log=logger,
+                )
+                if persona:
+                    return self._normalize_persona_data(persona)
 
             return fallback_persona
         except Exception as e:

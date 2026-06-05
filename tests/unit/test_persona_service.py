@@ -171,6 +171,27 @@ class TestPersonaService:
         mock_container.persona_web_manager.get_default_persona_for_web.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_get_default_persona_prefers_configured_persona_with_web_manager(self, mock_container):
+        """Current persona preview should honor plugin target persona before AstrBot default."""
+        mock_container.plugin_config.current_persona_name = "suleng"
+        mock_container.persona_web_manager = AsyncMock()
+        mock_container.persona_web_manager.get_all_personas_for_web.return_value = [
+            {
+                "persona_id": "suleng",
+                "system_prompt": "Configured prompt",
+                "begin_dialogs": [],
+                "tools": [],
+            }
+        ]
+        service = PersonaService(mock_container)
+
+        result = await service.get_default_persona("test_group")
+
+        assert result["persona_id"] == "suleng"
+        assert result["prompt"] == "Configured prompt"
+        mock_container.persona_web_manager.get_persona_for_group.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_get_default_persona_fallback(self, mock_container):
         """Test getting default persona with fallback"""
         service = PersonaService(mock_container)

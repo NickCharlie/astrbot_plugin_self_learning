@@ -186,6 +186,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                 "hint": "单个服务停止时的等待超时（秒）",
                 "default": 5,
             },
+            "llm_hook_context_timeout": {
+                "description": "LLM Hook 上下文超时",
+                "type": "float",
+                "hint": "LLM Hook 读取单个上下文源的最大等待时间（秒）",
+                "default": 3.0,
+            },
             "messages_db_path": {
                 "description": "消息数据库路径",
                 "type": "string",

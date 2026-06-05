@@ -23,6 +23,7 @@ from ...statics.temp_persona_messages import TemporaryPersonaMessages
 from ...statics.prompts import MULTIDIMENSIONAL_ANALYZER_FILTER_MESSAGE_PROMPT
 
 from ...exceptions import SelfLearningError
+from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
 
 
 class TemporaryPersonaUpdater:
@@ -80,10 +81,14 @@ class TemporaryPersonaUpdater:
         返回: Personality的字典表示
         """
         try:
-            persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
-            if persona:
-                return dict(persona) if isinstance(persona, dict) else persona
-            return None
+            persona_manager = getattr(self.context, "persona_manager", None)
+            return await resolve_target_persona(
+                persona_manager,
+                self.config,
+                self._resolve_umo(group_id),
+                require_existing=True,
+                log=logger,
+            )
         except Exception as e:
             logger.warning(f"获取框架人格失败: {e}")
             return None
@@ -755,7 +760,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
 
             # 彻底清理所有重复的历史内容
@@ -919,7 +924,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，临时风格更新失败")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
 
             # 检查是否已经有风格示范段落，如果有则替换
@@ -971,7 +976,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，begin_dialogs 风格注入失败")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
             current_begin_dialogs: list = list(persona.get('begin_dialogs', []) or [])
 
@@ -1129,7 +1134,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
 
@@ -1163,7 +1168,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
 
@@ -1199,7 +1204,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
 
@@ -1235,7 +1240,7 @@ class TemporaryPersonaUpdater:
                 logger.warning("无法获取当前人格，无法直接更新system prompt")
                 return False
 
-            persona_name = persona.get('name', 'default')
+            persona_name = get_persona_identifier(persona)
             current_prompt = persona.get('prompt', '')
             cleaned_prompt = self._clean_duplicate_content(current_prompt)
 
