@@ -229,6 +229,46 @@ class TestPersonaReviewService:
         assert payload["system_prompt"] == "Original prompt\n\nUpdated prompt with learning"
 
     @pytest.mark.asyncio
+    async def test_persona_learning_approval_falls_back_to_only_existing_persona(
+        self, mock_container, sample_review_data
+    ):
+        """When AstrBot default is missing, approval should not try to update default."""
+        mock_container.plugin_config.current_persona_name = "default"
+        mock_container.plugin_config.auto_apply_persona_updates = True
+        mock_container.persona_web_manager = Mock()
+        mock_container.persona_web_manager.get_all_personas_for_web = AsyncMock(return_value=[
+            {
+                "persona_id": "suleng",
+                "system_prompt": "Original prompt",
+                "begin_dialogs": [],
+                "tools": [],
+            }
+        ])
+        mock_container.persona_web_manager.get_persona_for_group = AsyncMock(return_value={
+            "persona_id": "default",
+            "system_prompt": "",
+            "begin_dialogs": [],
+            "tools": [],
+        })
+        mock_container.persona_web_manager.get_default_persona_for_web = AsyncMock(return_value={
+            "persona_id": "default",
+            "system_prompt": "You are a helpful assistant.",
+            "begin_dialogs": [],
+            "tools": [],
+        })
+        mock_container.persona_web_manager.update_persona_via_web = AsyncMock(return_value={"success": True})
+        mock_container.database_manager.get_persona_learning_review_by_id.return_value = sample_review_data
+        service = PersonaReviewService(mock_container)
+
+        success, message = await service.review_persona_update("persona_learning_1", "approve")
+
+        assert success is True
+        assert "已追加到人格" in message
+        persona_id, payload = mock_container.persona_web_manager.update_persona_via_web.await_args.args
+        assert persona_id == "suleng"
+        assert payload["system_prompt"] == "Original prompt\n\nUpdated prompt with learning"
+
+    @pytest.mark.asyncio
     async def test_persona_learning_approval_saves_change_snapshot(self, mock_container, sample_review_data):
         """Approved auto-applied persona learning should persist before/after snapshots."""
         mock_container.plugin_config.auto_apply_persona_updates = False
