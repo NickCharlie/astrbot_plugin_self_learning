@@ -19,6 +19,7 @@ from ...constants import (
 from ...exceptions import LearningError
 
 from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
+from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
 
 from ..database import DatabaseManager
 from ..learning.sample_filter import filter_learning_messages, should_ignore_learning_sample
@@ -205,6 +206,85 @@ class ProgressiveLearningService:
             except Exception:
                 pass
 
+    def _build_fallback_style_analysis_data(
+        self,
+        filtered_messages: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Build reviewable persona-learning content when refine analysis is unavailable."""
+        texts = [
+            self._message_text(message).strip()
+            for message in (filtered_messages or [])
+        ]
+        texts = [text for text in texts if text]
+        sample_texts = texts[:5]
+        avg_len = sum(len(text) for text in texts) / max(len(texts), 1)
+
+        expression_features = []
+        if avg_len >= 40:
+            expression_features.append("偏向较完整、信息量较高的表达")
+        elif avg_len > 0:
+            expression_features.append("偏向短句和即时回应")
+        if any("?" in text or "？" in text for text in texts):
+            expression_features.append("常使用提问式互动")
+        if any("!" in text or "！" in text for text in texts):
+            expression_features.append("语气中包含强调和情绪表达")
+        if not expression_features:
+            expression_features.append("保留群聊中的自然表达习惯")
+
+        sample_lines = [
+            f"- {text[:80]}"
+            for text in sample_texts
+        ]
+        learning_insights = [
+            f"基于 {len(texts)} 条通过筛选的群聊消息生成待审人格候选。",
+            "请在人工审查后决定是否将这些表达习惯追加到当前人格。",
+        ]
+        if sample_lines:
+            learning_insights.append("代表性表达：")
+            learning_insights.extend(sample_lines)
+
+        return {
+            "message_count": len(texts),
+            "analysis_timestamp": datetime.now().isoformat(),
+            "learning_insights": "\n".join(learning_insights),
+            "style_analysis": {
+                "text_style": (
+                    "长句详述型" if avg_len >= 40 else "短句互动型"
+                ),
+                "expression_features": expression_features,
+                "tone": "强调型" if any("!" in text or "！" in text for text in texts) else "平和型",
+                "topics": [],
+            },
+        }
+
+    async def _save_filtered_messages_for_stats(
+        self,
+        group_id: str,
+        filtered_messages: List[Dict[str, Any]],
+    ) -> int:
+        """Persist passed learning samples so WebUI filter-rate stats move."""
+        saved_count = 0
+        for msg in filtered_messages or []:
+            try:
+                await self.message_collector.add_filtered_message({
+                    "raw_message_id": msg.get("id"),
+                    "message": msg.get("message", ""),
+                    "sender_id": msg.get("sender_id", ""),
+                    "group_id": msg.get("group_id", group_id),
+                    "timestamp": msg.get("timestamp", int(time.time())),
+                    "confidence": msg.get("relevance_score", 1.0),
+                    "filter_reason": msg.get("filter_reason", "batch_learning"),
+                })
+                saved_count += 1
+            except Exception as exc:
+                logger.debug(f"保存筛选消息统计失败: {exc}")
+
+        if saved_count:
+            logger.debug(
+                f"已保存 {saved_count}/{len(filtered_messages or [])} 条筛选消息到 FilteredMessage 表"
+            )
+        return saved_count
+
     def set_update_system_prompt_callback(self, callback):
         """
         设置增量更新回调函数
@@ -377,42 +457,31 @@ class ProgressiveLearningService:
                 return
 
             # 2.5 将筛选后的消息写入 FilteredMessage 表（供 WebUI 统计）
-            saved_count = 0
-            for msg in filtered_messages:
-                try:
-                    await self.message_collector.add_filtered_message({
-                        "raw_message_id": msg.get("id"),
-                        "message": msg.get("message", ""),
-                        "sender_id": msg.get("sender_id", ""),
-                        "group_id": msg.get("group_id", group_id),
-                        "timestamp": msg.get("timestamp", int(time.time())),
-                        "confidence": msg.get("relevance_score", 1.0),
-                        "filter_reason": msg.get("filter_reason", "batch_learning"),
-                    })
-                    saved_count += 1
-                except Exception:
-                    pass  # best-effort, don't block learning
-            if saved_count:
-                logger.debug(f"已保存 {saved_count}/{len(filtered_messages)} 条筛选消息到 FilteredMessage 表")
+            await self._save_filtered_messages_for_stats(group_id, filtered_messages)
 
             # 3. 获取当前人格设置 (针对特定群组)
             current_persona = await self._get_current_persona(group_id)
             
-            # 4-7. 跳过LLM分析，仅记录消息统计
+            # 4-7. 分析风格并生成候选人格更新；失败时保留统计和风格学习降级记录
             from ...core.interfaces import AnalysisResult
 
-            style_analysis = AnalysisResult(
-                success=True,
-                confidence=0.7,
-                data={
-                    'message_count': len(filtered_messages),
-                    'analysis_timestamp': datetime.now().isoformat(),
-                },
-                timestamp=time.time()
-            )
+            style_analysis = await self._execute_style_analysis_background(group_id, filtered_messages)
+            if not getattr(style_analysis, "success", False):
+                logger.warning(
+                    f"风格分析失败，使用统计摘要继续学习批次: {getattr(style_analysis, 'error', '')}"
+                )
+                style_analysis = AnalysisResult(
+                    success=True,
+                    confidence=0.7,
+                    data=self._build_fallback_style_analysis_data(filtered_messages),
+                    timestamp=time.time()
+                )
 
-            # 不调用LLM生成更新后的人格，保持当前人格不变
-            updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
+            updated_persona = await self._generate_updated_persona_with_refinement(
+                group_id,
+                current_persona or {"prompt": "默认人格"},
+                style_analysis,
+            )
             ml_tuning_info = None
             
             # 8. 质量监控评估
@@ -530,21 +599,29 @@ class ProgressiveLearningService:
                 logger.debug("没有通过筛选的消息")
                 await self._mark_messages_processed(unprocessed_messages)
                 return
-            
-            # 3. 跳过LLM分析，仅记录消息统计
+
+            await self._save_filtered_messages_for_stats(group_id, filtered_messages)
+
+            # 3. 分析风格并生成候选人格更新；失败时保留统计和风格学习降级记录
             from ...core.interfaces import AnalysisResult
 
-            style_analysis = AnalysisResult(
-                success=True,
-                confidence=0.7,
-                data={
-                    'message_count': len(filtered_messages),
-                    'analysis_timestamp': datetime.now().isoformat(),
-                },
-                timestamp=time.time()
-            )
+            style_analysis = await self._execute_style_analysis_background(group_id, filtered_messages)
+            if not getattr(style_analysis, "success", False):
+                logger.warning(
+                    f"风格分析失败，使用统计摘要继续学习批次: {getattr(style_analysis, 'error', '')}"
+                )
+                style_analysis = AnalysisResult(
+                    success=True,
+                    confidence=0.7,
+                    data=self._build_fallback_style_analysis_data(filtered_messages),
+                    timestamp=time.time()
+                )
 
-            updated_persona = current_persona.copy() if current_persona else {"prompt": ""}
+            updated_persona = await self._generate_updated_persona_with_refinement(
+                group_id,
+                current_persona or {"prompt": "默认人格"},
+                style_analysis,
+            )
 
             # 4. 质量评估和应用更新
             await self._finalize_learning_batch(
@@ -799,11 +876,17 @@ class ProgressiveLearningService:
             # 如果没有特定群组的人格，尝试从框架获取默认人格
             if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
                 try:
-                    default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+                    default_persona = await resolve_target_persona(
+                        self.context.persona_manager,
+                        self.config,
+                        self._resolve_umo(group_id),
+                        require_existing=True,
+                        log=logger,
+                    )
                     if default_persona:
                         return {
                             'prompt': default_persona.get('prompt', '默认人格'),
-                            'name': default_persona.get('name', 'default'),
+                            'name': get_persona_identifier(default_persona),
                             'style_parameters': {},
                             'last_updated': datetime.now().isoformat()
                         }
@@ -829,7 +912,13 @@ class ProgressiveLearningService:
                 logger.warning(f"无法获取PersonaManager for group {group_id}")
                 return current_persona
 
-            default_persona = await self.context.persona_manager.get_default_persona_v3(self._resolve_umo(group_id))
+            default_persona = await resolve_target_persona(
+                self.context.persona_manager,
+                self.config,
+                self._resolve_umo(group_id),
+                require_existing=True,
+                log=logger,
+            )
             if not default_persona:
                 logger.warning(f"无法获取当前人格 for group {group_id}")
                 return current_persona

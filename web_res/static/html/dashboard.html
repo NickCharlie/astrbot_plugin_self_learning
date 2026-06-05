@@ -1920,6 +1920,47 @@
             color: var(--muted);
         }
 
+        .persona-picker {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .persona-picker .config-input {
+            min-width: 0;
+        }
+
+        .persona-picker-btn {
+            min-width: 38px;
+            height: 38px;
+            padding: 0 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            color: var(--text);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .persona-picker-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--surface-hover);
+        }
+
+        .persona-picker-btn:disabled {
+            cursor: progress;
+            opacity: 0.6;
+        }
+
+        .persona-picker-btn .material-icons {
+            font-size: 18px;
+        }
+
         .config-status {
             margin-top: 12px;
             padding: 10px 12px;
@@ -2820,6 +2861,11 @@
                     loading: false,
                     saving: false,
                     search: '',
+                },
+                personas: {
+                    items: [],
+                    loading: false,
+                    loaded: false,
                 },
                 dependencyInstall: {
                     busy: false,
@@ -4781,6 +4827,10 @@
                 return null;
             }
 
+            function hasConfigField(key) {
+                return Boolean(getConfigFieldByKey(key));
+            }
+
             function normalizeProviderType(value) {
                 const type = String(value || '').trim().toLowerCase();
                 if (type === 'chat' || type === 'llm') {
@@ -4840,6 +4890,74 @@
                 });
             }
 
+            function extractPersonaItems(payload) {
+                const source = safeArray(
+                    (payload && payload.personas)
+                    || (payload && payload.data && payload.data.personas)
+                    || (payload && payload.data)
+                    || payload
+                );
+
+                return source
+                    .map((item) => {
+                        if (!item || typeof item !== 'object') {
+                            return null;
+                        }
+                        const personaId = String(item.persona_id || item.id || item.name || '').trim();
+                        if (!personaId) {
+                            return null;
+                        }
+                        const name = String(item.name || item.persona_name || personaId).trim() || personaId;
+                        return {
+                            persona_id: personaId,
+                            name,
+                        };
+                    })
+                    .filter(Boolean)
+                    .sort((a, b) => a.persona_id.localeCompare(b.persona_id, 'zh-CN'));
+            }
+
+            async function loadPersonaOptions(options = {}) {
+                const { quiet = false, render = true } = options;
+                if (state.personas.loading) {
+                    return;
+                }
+
+                state.personas.loading = true;
+                let statusMessage = '';
+                let statusTone = '';
+                if (!quiet) {
+                    updateConfigStatus('正在刷新人格列表。');
+                }
+
+                try {
+                    const payload = await safeFetch('/api/persona_management/list');
+                    if (!payload) {
+                        throw new Error('人格列表获取失败');
+                    }
+                    state.personas.items = extractPersonaItems(payload);
+                    state.personas.loaded = true;
+                    if (!quiet) {
+                        statusMessage = `已加载 ${formatCount(state.personas.items.length)} 个人格。`;
+                        statusTone = 'success';
+                    }
+                } catch (error) {
+                    console.error('加载人格列表失败:', error);
+                    if (!quiet) {
+                        statusMessage = `人格列表加载失败: ${error.message}`;
+                        statusTone = 'error';
+                    }
+                } finally {
+                    state.personas.loading = false;
+                    if (render && state.config.schema) {
+                        renderConfigPanel();
+                    }
+                    if (statusMessage) {
+                        updateConfigStatus(statusMessage, statusTone);
+                    }
+                }
+            }
+
             function renderConfigField(field, idPrefix = 'config') {
                 const fieldId = `${idPrefix}-${field.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
                 const value = Object.prototype.hasOwnProperty.call(state.config.draft, field.key)
@@ -4870,7 +4988,50 @@
                 }
 
                 let controlHtml = '';
-                if (field.widget === 'toggle') {
+                if (field.key === 'current_persona_name') {
+                    const personas = safeArray(state.personas.items);
+                    const currentValue = displayValue || '';
+                    const datalistId = `${fieldId}-options`;
+                    const hasCurrent = personas.some((persona) => persona.persona_id === currentValue);
+                    const options = personas.map((persona) => {
+                        const label = persona.name && persona.name !== persona.persona_id
+                            ? `${persona.name} · ${persona.persona_id}`
+                            : persona.persona_id;
+                        return `<option value="${escapeHtml(persona.persona_id)}" label="${escapeHtml(label)}"></option>`;
+                    });
+                    if (currentValue && !hasCurrent) {
+                        options.push(`<option value="${escapeHtml(currentValue)}" label="${escapeHtml(currentValue)}（当前值）"></option>`);
+                    }
+                    controlHtml = `
+                        <div class="persona-picker">
+                            <input
+                                id="${fieldId}"
+                                class="config-input"
+                                type="text"
+                                list="${datalistId}"
+                                value="${escapeHtml(currentValue)}"
+                                placeholder="选择或输入人格 ID"
+                                data-config-key="${escapeHtml(field.key)}"
+                                data-config-type="${escapeHtml(field.type)}"
+                                data-config-widget="persona"
+                                ${field.editable ? '' : 'disabled'}
+                            >
+                            <button
+                                class="persona-picker-btn"
+                                type="button"
+                                title="刷新人格列表"
+                                aria-label="刷新人格列表"
+                                data-persona-refresh="1"
+                                ${field.editable && !state.personas.loading ? '' : 'disabled'}
+                            >
+                                <span class="material-icons">refresh</span>
+                            </button>
+                            <datalist id="${datalistId}">
+                                ${options.join('')}
+                            </datalist>
+                        </div>
+                    `;
+                } else if (field.widget === 'toggle') {
                     controlHtml = `
                         <label class="bool-row" for="${fieldId}">
                             <input
@@ -5331,6 +5492,9 @@
                     updateConfigActionStates();
                     if (!quiet && !state.config.schema) {
                         updateConfigStatus('配置面板尚未加载。', 'error');
+                    }
+                    if (state.config.schema && hasConfigField('current_persona_name') && !state.personas.loaded) {
+                        loadPersonaOptions({ quiet: true });
                     }
                 }
             }
@@ -6604,6 +6768,12 @@
                     const target = event.target;
                     if (target && target.dataset && target.dataset.configKey) {
                         syncConfigDraftFromInput(target);
+                    }
+                });
+                $('configGroups').addEventListener('click', (event) => {
+                    const target = event.target.closest('[data-persona-refresh]');
+                    if (target) {
+                        loadPersonaOptions({ quiet: false });
                     }
                 });
                 $('integrationConfigFields').addEventListener('input', (event) => {
