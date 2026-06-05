@@ -68,6 +68,167 @@ async def test_progressive_learning_fetches_unprocessed_messages_for_current_gro
 
 
 @pytest.mark.unit
+@pytest.mark.asyncio
+async def test_background_learning_persists_filter_stats_and_persona_review():
+    service = ProgressiveLearningService.__new__(ProgressiveLearningService)
+    service.batch_size = 10
+    service.config = SimpleNamespace(max_messages_per_batch=200)
+    service._group_sessions = {}
+    service.update_system_prompt_callback = None
+    service.ml_analyzer = SimpleNamespace()
+    service.message_collector = SimpleNamespace(
+        get_unprocessed_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "sender_id": "user-a",
+                    "sender_name": "User A",
+                    "message": "这是一条足够长的学习消息，会进入人格审查",
+                    "group_id": "group-a",
+                    "timestamp": time.time(),
+                }
+            ]
+        ),
+        add_filtered_message=AsyncMock(),
+        mark_messages_processed=AsyncMock(),
+    )
+    service._filter_messages_with_context = AsyncMock(
+        return_value=[
+            {
+                "id": 1,
+                "sender_id": "user-a",
+                "message": "这是一条足够长的学习消息，会进入人格审查",
+                "group_id": "group-a",
+                "timestamp": time.time(),
+                "relevance_score": 1.0,
+                "filter_reason": "style_learning_no_filter",
+            }
+        ]
+    )
+    service._get_current_persona = AsyncMock(
+        return_value={"prompt": "原人格", "name": "default"}
+    )
+    service._execute_style_analysis_background = AsyncMock(
+        return_value=AnalysisResult(
+            success=True,
+            confidence=0.8,
+            data={"enhanced_prompt": "新增人格特征"},
+            timestamp=time.time(),
+        )
+    )
+    service._generate_updated_persona_with_refinement = AsyncMock(
+        return_value={"prompt": "原人格\n\n新增人格特征", "name": "default"}
+    )
+    service.quality_monitor = SimpleNamespace(
+        evaluate_learning_batch=AsyncMock(
+            return_value=AnalysisResult(
+                success=True,
+                confidence=0.8,
+                data={},
+                consistency_score=0.8,
+            )
+        )
+    )
+    service.persona_manager = SimpleNamespace(update_persona=AsyncMock(return_value=True))
+    service._save_style_learning_record = AsyncMock()
+    service.db_manager = SimpleNamespace(
+        get_session=lambda: (_ for _ in ()).throw(AssertionError("unused")),
+        save_learning_performance_record=AsyncMock(return_value=True),
+        add_persona_learning_review=AsyncMock(return_value=42),
+    )
+
+    await service._execute_learning_batch_background("group-a")
+
+    service.message_collector.add_filtered_message.assert_awaited_once()
+    filter_payload = service.message_collector.add_filtered_message.await_args.args[0]
+    assert filter_payload["raw_message_id"] == 1
+    assert filter_payload["confidence"] == 1.0
+    service.db_manager.add_persona_learning_review.assert_awaited_once()
+    review_kwargs = service.db_manager.add_persona_learning_review.await_args.kwargs
+    assert review_kwargs["group_id"] == "group-a"
+    assert review_kwargs["proposed_content"] == "新增人格特征"
+    assert review_kwargs["original_content"] == "原人格"
+    assert review_kwargs["new_content"] == "原人格\n\n新增人格特征"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_manual_learning_batch_generates_persona_review():
+    service = ProgressiveLearningService.__new__(ProgressiveLearningService)
+    service.batch_size = 10
+    service.config = SimpleNamespace(max_messages_per_batch=200)
+    service._group_sessions = {}
+    service.update_system_prompt_callback = None
+    service.ml_analyzer = SimpleNamespace()
+    service.message_collector = SimpleNamespace(
+        get_unprocessed_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "sender_id": "user-a",
+                    "sender_name": "User A",
+                    "message": "手动学习也应该产生人格候选",
+                    "group_id": "group-a",
+                    "timestamp": time.time(),
+                }
+            ]
+        ),
+        add_filtered_message=AsyncMock(),
+        mark_messages_processed=AsyncMock(),
+    )
+    service._filter_messages_with_context = AsyncMock(
+        return_value=[
+            {
+                "id": 1,
+                "sender_id": "user-a",
+                "message": "手动学习也应该产生人格候选",
+                "group_id": "group-a",
+                "timestamp": time.time(),
+                "relevance_score": 1.0,
+                "filter_reason": "style_learning_no_filter",
+            }
+        ]
+    )
+    service._get_current_persona = AsyncMock(
+        return_value={"prompt": "原人格", "name": "default"}
+    )
+    service._execute_style_analysis_background = AsyncMock(
+        return_value=AnalysisResult(
+            success=True,
+            confidence=0.8,
+            data={"enhanced_prompt": "手动学习新增人格特征"},
+            timestamp=time.time(),
+        )
+    )
+    service._generate_updated_persona_with_refinement = AsyncMock(
+        return_value={"prompt": "原人格\n\n手动学习新增人格特征", "name": "default"}
+    )
+    service.quality_monitor = SimpleNamespace(
+        evaluate_learning_batch=AsyncMock(
+            return_value=AnalysisResult(
+                success=True,
+                confidence=0.8,
+                data={},
+                consistency_score=0.8,
+            )
+        )
+    )
+    service.persona_manager = SimpleNamespace(update_persona=AsyncMock(return_value=True))
+    service._save_style_learning_record = AsyncMock()
+    service.db_manager = SimpleNamespace(
+        save_learning_performance_record=AsyncMock(return_value=True),
+        add_persona_learning_review=AsyncMock(return_value=43),
+    )
+
+    await service._execute_learning_batch("group-a", from_force_learning=True)
+
+    service.message_collector.add_filtered_message.assert_awaited_once()
+    service.db_manager.add_persona_learning_review.assert_awaited_once()
+    review_kwargs = service.db_manager.add_persona_learning_review.await_args.kwargs
+    assert review_kwargs["proposed_content"] == "手动学习新增人格特征"
+
+
+@pytest.mark.unit
 def test_progressive_learning_derives_quality_when_monitor_returns_zero():
     service = ProgressiveLearningService.__new__(ProgressiveLearningService)
     service.config = SimpleNamespace(max_messages_per_batch=200)
@@ -90,6 +251,23 @@ def test_progressive_learning_derives_quality_when_monitor_returns_zero():
 
     assert 0 < quality_score <= 1
     assert metrics.consistency_score == quality_score
+
+
+@pytest.mark.unit
+def test_progressive_learning_fallback_style_analysis_is_reviewable():
+    service = ProgressiveLearningService.__new__(ProgressiveLearningService)
+
+    data = service._build_fallback_style_analysis_data(
+        [
+            {"message": "今天这个功能真的很好用！继续保持这种表达"},
+            {"message": "能不能再解释一下为什么会这样？"},
+        ]
+    )
+
+    assert data["message_count"] == 2
+    assert "learning_insights" in data
+    assert "代表性表达" in data["learning_insights"]
+    assert data["style_analysis"]["expression_features"]
 
 
 @pytest.mark.unit
