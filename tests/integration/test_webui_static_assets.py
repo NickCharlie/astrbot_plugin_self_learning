@@ -87,6 +87,69 @@ def test_dashboard_review_queue_uses_sidebar_categories():
     assert "updateReviewNavCounts" in text
 
 
+def test_dashboard_settings_uses_sidebar_categories():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "settings-sidebar" in text
+    assert "settings-workspace" in text
+    assert "settingsSidebarSummary" in text
+    assert "settingsNav" in text
+    assert 'data-config-group="all"' in text
+    assert "dependencyInstallPanel" in text
+    assert "renderSettingsNav" in text
+    assert "setConfigGroup" in text
+    assert "configGroupIcon" in text
+    assert "SETTINGS_NAV_SECTIONS" in text
+    assert "常用入口" in text
+    assert "学习链路" in text
+    assert "人格与关系" in text
+    assert "数据与运行" in text
+    assert "settings-nav::-webkit-scrollbar" in text
+    assert "scrollbar-width: thin" in text
+    assert "Dependency_Install_Guide: 'extension'" in text
+    assert "deployed_code" not in text
+
+
+def test_dashboard_settings_right_pane_uses_dense_controls():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));" in text
+    assert "function configFieldLayoutClasses" in text
+    assert "is-bool" in text
+    assert "is-list" in text
+    assert "is-wide" in text
+    assert "function renderConfigSwitch" in text
+    assert 'class="config-switch-input"' in text
+    assert "switch-track" in text
+    assert "switch-thumb" in text
+    assert "bool-state" in text
+    assert "field.type === 'bool'" in text
+    assert "renderConfigSwitch(field, fieldId, Boolean(displayValue))" in text
+    assert "function syncConfigSwitchState" in text
+
+
+def test_dashboard_global_header_uses_compact_brand_copy():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert '<div class="app-brand">Self Learning</div>' in text
+    assert "SELF LEARNING / DASHBOARD" not in text
+    assert '<div class="brand">' not in text
+    assert 'id="summaryText"' not in text
+    assert 'id="refreshBtn"' in text
+    assert 'id="settingsJumpBtn"' in text
+    assert 'id="themeBtn"' in text
+
+
+def test_dashboard_jargon_sort_does_not_expose_misleading_occurrences_order():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert 'value="occurrences"' not in text
+    assert "按出现次数" not in text
+    assert "sort === 'occurrences'" not in text
+    assert "样本 ${formatCount(item.occurrences)}" in text
+    assert "['样本', jargonStats.total_occurrences]" in text
+
+
 def test_dashboard_review_deletes_use_inline_confirmation():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

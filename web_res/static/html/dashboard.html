@@ -191,40 +191,19 @@
         .topbar {
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             gap: 16px;
-            padding: 8px 0 20px;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 20px;
+            padding: 0 0 14px;
+            margin-bottom: 14px;
         }
 
-        .brand {
+        .app-brand {
             min-width: 0;
-        }
-
-        .eyebrow {
-            color: var(--muted);
-            font-size: 12px;
+            color: var(--text);
+            font-size: 30px;
+            line-height: 1.1;
             letter-spacing: 0;
-            text-transform: uppercase;
-        }
-
-        .brand h1 {
-            margin: 4px 0 0;
-            font-size: var(--text-2xl);
-            line-height: 1.15;
-            letter-spacing: -0.02em;
             font-weight: 800;
-            background: var(--grad-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .brand p {
-            margin: 8px 0 0;
-            color: var(--muted);
-            max-width: 880px;
         }
 
         .toolbar {
@@ -1691,6 +1670,172 @@
             margin-top: 18px;
         }
 
+        .settings-workspace {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .settings-sidebar {
+            position: sticky;
+            top: 16px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .settings-sidebar-head {
+            padding: 2px 4px 12px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 12px;
+        }
+
+        .settings-sidebar-head h3 {
+            margin: 4px 0 2px;
+            font-size: var(--text-lg);
+            line-height: 1.25;
+        }
+
+        .settings-sidebar-head p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .settings-nav {
+            display: grid;
+            gap: 8px;
+            max-height: calc(100dvh - 220px);
+            overflow: auto;
+            padding-right: 4px;
+            scrollbar-gutter: stable;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(99, 102, 241, 0.42) transparent;
+        }
+
+        .settings-nav::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .settings-nav::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .settings-nav::-webkit-scrollbar-thumb {
+            border: 2px solid transparent;
+            border-radius: 999px;
+            background: rgba(99, 102, 241, 0.34);
+            background-clip: content-box;
+        }
+
+        .settings-nav::-webkit-scrollbar-thumb:hover {
+            background: rgba(99, 102, 241, 0.56);
+            background-clip: content-box;
+        }
+
+        .settings-nav-group {
+            margin: 14px 4px 8px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .settings-nav-btn {
+            width: 100%;
+            min-height: 56px;
+            display: grid;
+            grid-template-columns: 32px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .settings-nav-btn:hover {
+            border-color: var(--border);
+            background: var(--surface-hover);
+        }
+
+        .settings-nav-btn.active {
+            border-color: var(--accent);
+            background: var(--selection);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+
+        .settings-nav-icon {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            color: var(--accent);
+            overflow: hidden;
+            flex: none;
+        }
+
+        .settings-nav-icon .material-icons {
+            font-size: 18px;
+            line-height: 1;
+        }
+
+        .settings-nav-text {
+            min-width: 0;
+        }
+
+        .settings-nav-title {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .settings-nav-desc {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .settings-nav-badge {
+            min-width: 28px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-full);
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .settings-nav-btn.active .settings-nav-badge {
+            border-color: transparent;
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .settings-main {
+            min-width: 0;
+        }
+
         .settings-head {
             display: flex;
             justify-content: space-between;
@@ -1927,7 +2072,7 @@
 
         .settings-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            grid-template-columns: minmax(0, 1fr);
             gap: 12px;
         }
 
@@ -1983,20 +2128,38 @@
 
         .config-fields {
             display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 12px;
             padding: 0 16px 16px;
+            align-items: stretch;
         }
 
         .config-field {
             display: grid;
+            grid-template-rows: auto auto 1fr;
             gap: 8px;
-            padding-top: 12px;
-            border-top: 1px solid var(--border);
+            min-width: 0;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            box-sizing: border-box;
         }
 
-        .config-field:first-child {
-            padding-top: 0;
-            border-top: 0;
+        .config-field:hover {
+            border-color: var(--border-strong);
+            background: var(--panel);
+        }
+
+        .config-field.is-wide,
+        .config-field.is-list,
+        .config-field.is-longtext {
+            grid-column: 1 / -1;
+        }
+
+        .config-field.is-bool {
+            grid-template-rows: auto 1fr auto;
+            min-height: 132px;
         }
 
         .field-head {
@@ -2004,6 +2167,7 @@
             justify-content: space-between;
             gap: 10px;
             align-items: flex-start;
+            min-width: 0;
         }
 
         .field-label {
@@ -2011,6 +2175,8 @@
             font-size: 13px;
             line-height: 1.35;
             font-weight: 600;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .field-meta {
@@ -2018,6 +2184,7 @@
             flex-wrap: wrap;
             gap: 6px;
             justify-content: flex-end;
+            flex: none;
         }
 
         .field-pill {
@@ -2048,34 +2215,108 @@
             background: var(--input-bg);
             color: var(--text);
             padding: 10px 12px;
+            min-height: 40px;
             box-sizing: border-box;
             box-shadow: none;
-        }
-
-        .config-control textarea {
-            min-height: 92px;
-            resize: vertical;
-        }
-
-        .config-control input[type="checkbox"] {
-            width: 18px;
-            height: 18px;
-            margin: 0;
-            padding: 0;
-            accent-color: var(--accent);
-        }
-
-        .config-control .bool-row {
-            display: inline-flex;
-            align-items: center;
-            gap: 10px;
-            min-height: 36px;
-            color: var(--text);
             font-size: 13px;
         }
 
-        .config-control .bool-row span {
+        .config-control textarea {
+            min-height: 112px;
+            resize: vertical;
+        }
+
+        .config-control .bool-row {
+            position: relative;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 48px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text);
+            font-size: 13px;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+
+        .config-control .bool-row.disabled {
+            cursor: not-allowed;
+            opacity: .72;
+        }
+
+        .config-control .config-switch-input {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            min-height: 0;
+            margin: -1px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            box-shadow: none;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .switch-track {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            flex: none;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--panel);
+            transition: background .18s ease, border-color .18s ease;
+        }
+
+        .switch-thumb {
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 16px;
+            height: 16px;
+            border-radius: 999px;
+            background: var(--muted);
+            box-shadow: var(--shadow-sm);
+            transition: transform .18s ease, background .18s ease;
+        }
+
+        .config-control .config-switch-input:checked + .switch-track {
+            border-color: var(--accent);
+            background: var(--accent);
+        }
+
+        .config-control .config-switch-input:checked + .switch-track .switch-thumb {
+            transform: translateX(20px);
+            background: #fff;
+        }
+
+        .config-control .config-switch-input:focus-visible + .switch-track {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .config-control .config-switch-input:disabled + .switch-track {
+            filter: grayscale(.45);
+        }
+
+        .bool-state {
             color: var(--muted);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .config-field.is-bool .config-control {
+            align-self: center;
+        }
+
+        .config-field.is-bool .field-hint {
+            align-self: end;
         }
 
         .persona-picker {
@@ -2166,11 +2407,13 @@
             }
 
             .review-workspace,
+            .settings-workspace,
             .review-split-grid {
                 grid-template-columns: 1fr;
             }
 
-            .review-sidebar {
+            .review-sidebar,
+            .settings-sidebar {
                 position: static;
             }
 
@@ -2198,7 +2441,18 @@
             }
 
             .topbar {
+                align-items: flex-start;
                 flex-direction: column;
+                gap: 10px;
+            }
+
+            .topbar .toolbar {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .app-brand {
+                font-size: 24px;
             }
 
             .page-titlebar {
@@ -2213,20 +2467,18 @@
                 grid-template-columns: 1fr;
             }
 
-            .review-sidebar {
+            .review-sidebar,
+            .settings-sidebar {
                 padding: 12px;
             }
 
-            .review-nav-btn {
+            .review-nav-btn,
+            .settings-nav-btn {
                 min-height: 54px;
             }
 
             .panel-head {
                 flex-direction: column;
-            }
-
-            .brand h1 {
-                font-size: 24px;
             }
 
             .settings-grid {
@@ -2280,12 +2532,8 @@
 </head>
 <body data-theme="light">
     <div class="shell">
-        <header class="topbar">
-            <div class="brand">
-                <div class="eyebrow">SELF LEARNING / DASHBOARD</div>
-                <h1>监控板</h1>
-                <p id="summaryText">正在连接学习链路。</p>
-            </div>
+        <header class="topbar" aria-label="仪表盘操作">
+            <div class="app-brand">Self Learning</div>
             <div class="toolbar">
                 <span class="pill">
                     <span class="material-icons" style="font-size:18px;">schedule</span>
@@ -3056,37 +3304,60 @@
                     </button>
                 </div>
             </div>
-            <div class="dependency-install-panel" aria-label="依赖安装">
-                <div class="dependency-install-copy">
-                    <div class="subhead">DEPENDENCIES</div>
-                    <h3>手动安装依赖</h3>
-                    <p>基础能力依赖覆盖人格审查、黑话学习、表达方式学习与 WebUI。全能力依赖包含图谱、监控、外部数据库、LightRAG 与 Mem0。</p>
-                </div>
-                <div class="dependency-install-controls">
-                    <select id="pipMirrorSelect" class="dependency-mirror-select" aria-label="pip 镜像源">
-                        <option value="default">PyPI 默认源</option>
-                        <option value="tsinghua">清华大学 TUNA</option>
-                        <option value="aliyun">阿里云</option>
-                        <option value="tencent">腾讯云</option>
-                        <option value="ustc">中国科大 USTC</option>
-                        <option value="douban">豆瓣</option>
-                    </select>
-                    <div class="dependency-tier-actions">
-                        <button class="dependency-tier-btn" type="button" data-dependency-tier="basic">
-                            <span class="material-icons">bolt</span>
-                            基础能力依赖
-                        </button>
-                        <button class="dependency-tier-btn primary" type="button" data-dependency-tier="full">
-                            <span class="material-icons">deployed_code</span>
-                            全能力依赖
-                        </button>
+            <div class="settings-workspace">
+                <aside class="settings-sidebar" aria-label="设置分类菜单">
+                    <div class="settings-sidebar-head">
+                        <div class="subhead">SETTINGS</div>
+                        <h3>配置分类</h3>
+                        <p id="settingsSidebarSummary">等待配置 schema</p>
                     </div>
+                    <div class="settings-nav-group">分类</div>
+                    <nav class="settings-nav" id="settingsNav" aria-label="设置分类">
+                        <button class="settings-nav-btn active" type="button" data-config-group="all" aria-selected="true">
+                            <span class="settings-nav-icon"><span class="material-icons">tune</span></span>
+                            <span class="settings-nav-text">
+                                <span class="settings-nav-title">全部设置</span>
+                                <span class="settings-nav-desc">显示所有配置组</span>
+                            </span>
+                            <span class="settings-nav-badge">--</span>
+                        </button>
+                    </nav>
+                </aside>
+
+                <div class="settings-main">
+                    <div class="dependency-install-panel" id="dependencyInstallPanel" aria-label="依赖安装">
+                        <div class="dependency-install-copy">
+                            <div class="subhead">DEPENDENCIES</div>
+                            <h3>手动安装依赖</h3>
+                            <p>基础能力依赖覆盖人格审查、黑话学习、表达方式学习与 WebUI。全能力依赖包含图谱、监控、外部数据库、LightRAG 与 Mem0。</p>
+                        </div>
+                        <div class="dependency-install-controls">
+                            <select id="pipMirrorSelect" class="dependency-mirror-select" aria-label="pip 镜像源">
+                                <option value="default">PyPI 默认源</option>
+                                <option value="tsinghua">清华大学 TUNA</option>
+                                <option value="aliyun">阿里云</option>
+                                <option value="tencent">腾讯云</option>
+                                <option value="ustc">中国科大 USTC</option>
+                                <option value="douban">豆瓣</option>
+                            </select>
+                            <div class="dependency-tier-actions">
+                                <button class="dependency-tier-btn" type="button" data-dependency-tier="basic">
+                                    <span class="material-icons">bolt</span>
+                                    基础能力依赖
+                                </button>
+                                <button class="dependency-tier-btn primary" type="button" data-dependency-tier="full">
+                                    <span class="material-icons">extension</span>
+                                    全能力依赖
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="dependencyStatus" class="config-status dependency-status">依赖安装需手动确认，不会在插件安装或启动时自动执行。</div>
+                    <div class="settings-summary" id="configSummary"></div>
+                    <div id="configGroups" class="settings-grid"></div>
+                    <div id="configStatus" class="config-status">正在加载配置中。</div>
                 </div>
             </div>
-            <div id="dependencyStatus" class="config-status dependency-status">依赖安装需手动确认，不会在插件安装或启动时自动执行。</div>
-            <div class="settings-summary" id="configSummary"></div>
-            <div id="configGroups" class="settings-grid"></div>
-            <div id="configStatus" class="config-status">正在加载配置中。</div>
         </section>
         </section>
         </main>
@@ -3112,6 +3383,7 @@
                     loading: false,
                     saving: false,
                     search: '',
+                    activeGroup: 'all',
                 },
                 personas: {
                     items: [],
@@ -4699,13 +4971,16 @@
 
                 $('heroHeadline').textContent = '自学习监控板';
                 $('heroSubline').textContent = `总消息 ${formatCount(totalMessages)} · 筛选率 ${formatPercent(filterRate)} · 待办 ${formatCount(backlog)} 条`;
-                $('summaryText').textContent = buildSummaryText({
-                    overallHealth: health.overall || 'unknown',
-                    learningEfficiency,
-                    backlog,
-                    filteredMessages,
-                    totalMessages,
-                });
+                const summaryText = $('summaryText');
+                if (summaryText) {
+                    summaryText.textContent = buildSummaryText({
+                        overallHealth: health.overall || 'unknown',
+                        learningEfficiency,
+                        backlog,
+                        filteredMessages,
+                        totalMessages,
+                    });
+                }
 
                 $('overallHealth').textContent = overallHealth;
                 $('overallEfficiency').textContent = formatPercent(learningEfficiency);
@@ -4866,13 +5141,16 @@
                 const backlog = safeNumber(data.backlog);
                 const filteredMessages = safeNumber(data.metrics && data.metrics.filtered_messages);
                 const totalMessages = safeNumber(data.metrics && data.metrics.total_messages_collected);
-                $('summaryText').textContent = buildSummaryText({
-                    overallHealth,
-                    learningEfficiency,
-                    backlog,
-                    filteredMessages,
-                    totalMessages,
-                });
+                const summaryText = $('summaryText');
+                if (summaryText) {
+                    summaryText.textContent = buildSummaryText({
+                        overallHealth,
+                        learningEfficiency,
+                        backlog,
+                        filteredMessages,
+                        totalMessages,
+                    });
+                }
             }
 
             function renderTrendChart(trends) {
@@ -5166,6 +5444,202 @@
                     .map((field) => field.key);
             }
 
+            function configGroupIcon(groupKey) {
+                const icons = {
+                    Dependency_Install_Guide: 'extension',
+                    Self_Learning_Basic: 'psychology',
+                    Target_Settings: 'gps_fixed',
+                    Model_Configuration: 'smart_toy',
+                    Learning_Parameters: 'school',
+                    Filter_Parameters: 'filter_alt',
+                    Style_Analysis: 'style',
+                    Advanced_Settings: 'tune',
+                    Machine_Learning_Settings: 'model_training',
+                    Persona_Backup_Settings: 'backup',
+                    Goal_Driven_Chat_Settings: 'flag',
+                    Affection_System_Settings: 'favorite',
+                    Mood_System_Settings: 'mood',
+                    Social_Context_Settings: 'groups',
+                    Storage_Settings: 'folder',
+                    Database_Settings: 'storage',
+                    API_Settings: 'api',
+                    Repository_Settings: 'source',
+                    Integration_Settings: 'hub',
+                    V2_Architecture_Settings: 'account_tree',
+                };
+                return icons[groupKey] || 'settings';
+            }
+
+            const SETTINGS_NAV_SECTIONS = [
+                {
+                    title: '常用入口',
+                    keys: [
+                        'Dependency_Install_Guide',
+                        'Self_Learning_Basic',
+                        'Target_Settings',
+                        'Model_Configuration',
+                        'Integration_Settings',
+                    ],
+                },
+                {
+                    title: '学习链路',
+                    keys: [
+                        'Learning_Parameters',
+                        'Filter_Parameters',
+                        'Style_Analysis',
+                        'Machine_Learning_Settings',
+                        'Goal_Driven_Chat_Settings',
+                        'Persona_Evolution_Settings',
+                    ],
+                },
+                {
+                    title: '人格与关系',
+                    keys: [
+                        'Persona_Backup_Settings',
+                        'Affection_System_Settings',
+                        'Mood_System_Settings',
+                        'Social_Context_Settings',
+                    ],
+                },
+                {
+                    title: '数据与运行',
+                    keys: [
+                        'Storage_Settings',
+                        'Database_Settings',
+                        'API_Settings',
+                        'Repository_Settings',
+                        'V2_Architecture_Settings',
+                        'Advanced_Settings',
+                        'Runtime_Internal_Settings',
+                    ],
+                },
+            ];
+
+            function settingsNavGroupMeta(group) {
+                const key = group && group.key ? group.key : '';
+                if (key === 'Dependency_Install_Guide') {
+                    return {
+                        title: '依赖安装',
+                        desc: '基础 / 全能力依赖',
+                    };
+                }
+                return {
+                    title: (group && group.title) || key || '未命名分组',
+                    desc: (group && group.hint) || '',
+                };
+            }
+
+            function ensureValidConfigGroup(groups = safeArray(getConfigSchemaPayload().groups)) {
+                const active = state.config.activeGroup || 'all';
+                if (active === 'all') {
+                    return 'all';
+                }
+                if (groups.some((group) => group && group.key === active)) {
+                    return active;
+                }
+                state.config.activeGroup = 'all';
+                return 'all';
+            }
+
+            function renderSettingsNav(groups = safeArray(getConfigSchemaPayload().groups)) {
+                const nav = $('settingsNav');
+                if (!nav) {
+                    return;
+                }
+
+                const active = ensureValidConfigGroup(groups);
+                const dirtyKeys = state.config.dirtyKeys || new Set();
+                const totalFields = groups.reduce((sum, group) => sum + safeArray(group && group.fields).length, 0);
+                const buttonMarkup = [];
+
+                const allDirtyCount = dirtyKeys.size;
+                buttonMarkup.push('<div class="settings-nav-group">总览</div>');
+                buttonMarkup.push(`
+                    <button class="settings-nav-btn${active === 'all' ? ' active' : ''}" type="button" data-config-group="all" aria-selected="${active === 'all' ? 'true' : 'false'}">
+                        <span class="settings-nav-icon"><span class="material-icons">tune</span></span>
+                        <span class="settings-nav-text">
+                            <span class="settings-nav-title">全部设置</span>
+                            <span class="settings-nav-desc">${allDirtyCount ? `${formatCount(allDirtyCount)} 项已改` : '显示所有配置组'}</span>
+                        </span>
+                        <span class="settings-nav-badge">${formatCount(totalFields)}</span>
+                    </button>
+                `);
+
+                const groupsByKey = new Map(groups.filter((group) => group && group.key).map((group) => [group.key, group]));
+                const renderedKeys = new Set();
+
+                SETTINGS_NAV_SECTIONS.forEach((section) => {
+                    const sectionGroups = section.keys
+                        .map((key) => groupsByKey.get(key))
+                        .filter(Boolean);
+                    if (!sectionGroups.length) {
+                        return;
+                    }
+
+                    buttonMarkup.push(`<div class="settings-nav-group">${escapeHtml(section.title)}</div>`);
+                    sectionGroups.forEach((group) => {
+                        renderedKeys.add(group.key);
+                        buttonMarkup.push(renderSettingsNavButton(group, active, dirtyKeys));
+                    });
+                });
+
+                const otherGroups = groups.filter((group) => group && group.key && !renderedKeys.has(group.key));
+                if (otherGroups.length) {
+                    buttonMarkup.push('<div class="settings-nav-group">其他</div>');
+                    otherGroups.forEach((group) => {
+                        buttonMarkup.push(renderSettingsNavButton(group, active, dirtyKeys));
+                    });
+                }
+
+                nav.innerHTML = buttonMarkup.join('');
+
+                const summary = $('settingsSidebarSummary');
+                if (summary) {
+                    summary.textContent = allDirtyCount
+                        ? `${formatCount(groups.length)} 类 · ${formatCount(allDirtyCount)} 项未保存`
+                        : `${formatCount(groups.length)} 类 · ${formatCount(totalFields)} 项配置`;
+                }
+            }
+
+            function renderSettingsNavButton(group, active, dirtyKeys) {
+                if (!group || !group.key) {
+                    return '';
+                }
+                const fields = safeArray(group.fields);
+                const editableCount = fields.filter((field) => field && field.editable).length;
+                const dirtyCount = fields.filter((field) => dirtyKeys.has(field.key)).length;
+                const isActive = active === group.key;
+                const meta = settingsNavGroupMeta(group);
+                const desc = dirtyCount
+                    ? `${formatCount(dirtyCount)} 项已改`
+                    : (meta.desc || `${formatCount(editableCount)} 项可改`);
+                return `
+                    <button class="settings-nav-btn${isActive ? ' active' : ''}" type="button" data-config-group="${escapeHtml(group.key)}" aria-selected="${isActive ? 'true' : 'false'}">
+                        <span class="settings-nav-icon"><span class="material-icons">${escapeHtml(configGroupIcon(group.key))}</span></span>
+                        <span class="settings-nav-text">
+                            <span class="settings-nav-title">${escapeHtml(meta.title)}</span>
+                            <span class="settings-nav-desc">${escapeHtml(desc)}</span>
+                        </span>
+                        <span class="settings-nav-badge">${dirtyCount ? `${formatCount(dirtyCount)}/${formatCount(fields.length)}` : formatCount(fields.length)}</span>
+                    </button>
+                `;
+            }
+
+            function setConfigGroup(groupKey, options = {}) {
+                const { scroll = false } = options;
+                state.config.activeGroup = groupKey || 'all';
+                ensureValidConfigGroup();
+                renderSettingsNav();
+                applyConfigSearch();
+
+                if (scroll) {
+                    const target = state.config.activeGroup === 'Dependency_Install_Guide'
+                        ? $('dependencyInstallPanel')
+                        : document.querySelector(`[data-group-key="${state.config.activeGroup}"]`);
+                    (target || $('settingsSection'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+
             function getConfigFieldByKey(key) {
                 const payload = getConfigSchemaPayload();
                 for (const group of safeArray(payload.groups)) {
@@ -5309,6 +5783,68 @@
                 }
             }
 
+            function configFieldLayoutClasses(field) {
+                const type = String(field && field.type ? field.type : 'text').toLowerCase();
+                const widget = String(field && field.widget ? field.widget : 'text').toLowerCase();
+                const key = String(field && field.key ? field.key : '').toLowerCase();
+                const classes = ['config-field'];
+                const safeType = type.replace(/[^a-z0-9_-]/g, '') || 'text';
+                const safeWidget = widget.replace(/[^a-z0-9_-]/g, '') || 'text';
+
+                classes.push(`is-${safeType}`);
+                classes.push(`widget-${safeWidget}`);
+                if (type === 'bool') {
+                    classes.push('is-bool');
+                }
+                if (type === 'list') {
+                    classes.push('is-list', 'is-wide');
+                }
+                if (
+                    widget === 'textarea'
+                    || key === 'current_persona_name'
+                    || key.includes('path')
+                    || key.includes('dir')
+                    || key.includes('api_key')
+                    || key.includes('password')
+                    || key.includes('prompt')
+                    || key.includes('template')
+                ) {
+                    classes.push('is-wide');
+                }
+
+                return Array.from(new Set(classes)).join(' ');
+            }
+
+            function renderConfigSwitch(field, fieldId, checked) {
+                const stateText = checked ? '已启用' : '已关闭';
+                return `
+                    <label class="bool-row${field.editable ? '' : ' disabled'}" for="${fieldId}">
+                        <span class="bool-state">${stateText}</span>
+                        <input
+                            id="${fieldId}"
+                            class="config-switch-input"
+                            type="checkbox"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget || 'toggle')}"
+                            ${checked ? 'checked' : ''}
+                            ${field.editable ? '' : 'disabled'}
+                        >
+                        <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                    </label>
+                `;
+            }
+
+            function syncConfigSwitchState(target) {
+                if (!target || target.type !== 'checkbox') {
+                    return;
+                }
+                const stateEl = target.closest('.bool-row')?.querySelector('.bool-state');
+                if (stateEl) {
+                    stateEl.textContent = target.checked ? '已启用' : '已关闭';
+                }
+            }
+
             function renderConfigField(field, idPrefix = 'config') {
                 const fieldId = `${idPrefix}-${field.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
                 const value = Object.prototype.hasOwnProperty.call(state.config.draft, field.key)
@@ -5382,21 +5918,8 @@
                             </datalist>
                         </div>
                     `;
-                } else if (field.widget === 'toggle') {
-                    controlHtml = `
-                        <label class="bool-row" for="${fieldId}">
-                            <input
-                                id="${fieldId}"
-                                type="checkbox"
-                                data-config-key="${escapeHtml(field.key)}"
-                                data-config-type="${escapeHtml(field.type)}"
-                                data-config-widget="${escapeHtml(field.widget)}"
-                                ${displayValue ? 'checked' : ''}
-                                ${field.editable ? '' : 'disabled'}
-                            >
-                            <span>${displayValue ? '已启用' : '已关闭'}</span>
-                        </label>
-                    `;
+                } else if (field.type === 'bool') {
+                    controlHtml = renderConfigSwitch(field, fieldId, Boolean(displayValue));
                 } else if (field.widget === 'select') {
                     const options = safeArray(field.options || []);
                     const currentValue = displayValue || '';
@@ -5520,7 +6043,7 @@
 
                 return `
                     <div
-                        class="config-field"
+                        class="${escapeHtml(configFieldLayoutClasses(field))}"
                         data-config-key="${escapeHtml(field.key)}"
                         data-search="${escapeHtml(searchParts)}"
                     >
@@ -5539,10 +6062,13 @@
             function renderConfigPanel() {
                 const payload = getConfigSchemaPayload();
                 const groups = safeArray(payload.groups);
-                const groupsMarkup = groups.map((group) => {
+                const activeGroup = ensureValidConfigGroup(groups);
+                const visibleGroups = groups.filter((group) => group && group.key !== 'Dependency_Install_Guide');
+                const groupsMarkup = visibleGroups.map((group) => {
                     const fields = safeArray(group.fields);
                     const editableCount = fields.filter((field) => field && field.editable).length;
                     const readonlyCount = fields.length - editableCount;
+                    const shouldOpen = activeGroup === 'all' || activeGroup === group.key;
                     const searchText = [
                         group.key,
                         group.title,
@@ -5551,7 +6077,7 @@
                     ].filter(Boolean).join(' ').toLowerCase();
 
                     return `
-                        <details class="config-group" data-group-key="${escapeHtml(group.key)}" data-search="${escapeHtml(searchText)}" open>
+                        <details class="config-group" data-group-key="${escapeHtml(group.key)}" data-search="${escapeHtml(searchText)}" ${shouldOpen ? 'open' : ''}>
                             <summary>
                                 <div class="group-title">
                                     <strong>${escapeHtml(group.title)}</strong>
@@ -5716,6 +6242,7 @@
                 if (configSummary) {
                     configSummary.innerHTML = summaryItems.join('');
                 }
+                renderSettingsNav(groups);
                 if (state.data) {
                     renderHomeModules(state.data);
                 }
@@ -5761,6 +6288,7 @@
                 let nextValue = null;
                 if (field.type === 'bool') {
                     nextValue = Boolean(target.checked);
+                    syncConfigSwitchState(target);
                 } else if (field.type === 'int' || field.type === 'float') {
                     nextValue = normalizeFieldValue(field, target.value);
                     if (nextValue === null && !field.nullable) {
@@ -5790,22 +6318,36 @@
 
             function applyConfigSearch() {
                 const query = String(state.config.search || '').trim().toLowerCase();
+                const activeGroup = ensureValidConfigGroup();
                 const groups = document.querySelectorAll('.config-group');
+                const dependencyPanel = $('dependencyInstallPanel');
+                const dependencyStatus = $('dependencyStatus');
+                const dependencyVisible = Boolean(query) || activeGroup === 'all' || activeGroup === 'Dependency_Install_Guide';
+                const dependencyMatches = !query || 'Dependency_Install_Guide 依赖安装 手动安装依赖 dependencies'.toLowerCase().includes(query);
+
+                if (dependencyPanel) {
+                    dependencyPanel.hidden = !(dependencyVisible && dependencyMatches);
+                }
+                if (dependencyStatus) {
+                    dependencyStatus.hidden = !(dependencyVisible && dependencyMatches);
+                }
 
                 groups.forEach((groupEl) => {
+                    const groupKey = groupEl.dataset.groupKey || '';
+                    const activeMatch = Boolean(query) || activeGroup === 'all' || groupKey === activeGroup;
                     const groupMatch = !query || (groupEl.dataset.search || '').includes(query);
                     const fields = groupEl.querySelectorAll('.config-field');
                     let fieldMatch = false;
 
                     fields.forEach((fieldEl) => {
-                        const match = !query || groupMatch || (fieldEl.dataset.search || '').includes(query);
+                        const match = activeMatch && (!query || groupMatch || (fieldEl.dataset.search || '').includes(query));
                         fieldEl.hidden = !match;
                         if (match) {
                             fieldMatch = true;
                         }
                     });
 
-                    const visible = !query || groupMatch || fieldMatch;
+                    const visible = activeMatch && (!query || groupMatch || fieldMatch);
                     groupEl.hidden = !visible;
                     if (visible) {
                         groupEl.open = true;
@@ -6146,10 +6688,10 @@
                 navigateToPage('settings');
                 const searchInput = $('configSearch');
                 if (searchInput) {
-                    state.config.search = 'Integration_Settings';
+                    state.config.search = '';
                     searchInput.value = state.config.search;
-                    applyConfigSearch();
                 }
+                setConfigGroup('Integration_Settings');
                 const groupEl = document.querySelector('[data-group-key="Integration_Settings"]');
                 if (groupEl) {
                     groupEl.open = true;
@@ -7106,7 +7648,10 @@
             }
 
             async function loadDashboard() {
-                $('summaryText').innerHTML = '<span class="spinner" style="margin-right:6px;"></span>正在刷新监控数据。';
+                const summaryText = $('summaryText');
+                if (summaryText) {
+                    summaryText.innerHTML = '<span class="spinner" style="margin-right:6px;"></span>正在刷新监控数据。';
+                }
 
                 const [
                     metrics,
@@ -7254,7 +7799,7 @@
                     ['候选', jargonStats.total_candidates],
                     ['确认', jargonStats.confirmed_jargon],
                     ['完成', jargonStats.completed_inference],
-                    ['命中', jargonStats.total_occurrences],
+                    ['样本', jargonStats.total_occurrences],
                 ].map(([label, value]) => `
                     <div class="small-stat">
                         <div class="k">${label}</div>
@@ -7272,7 +7817,7 @@
                     const meta = [
                         item.group_id ? `群组 ${item.group_id}` : null,
                         item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
-                        item.occurrences !== undefined ? `命中 ${formatCount(item.occurrences)}` : null,
+                        item.occurrences !== undefined ? `样本 ${formatCount(item.occurrences)}` : null,
                         item.created_at ? `创建 ${formatTime(item.created_at)}` : null,
                         item.updated_at ? `更新 ${formatTime(item.updated_at)}` : null,
                     ].filter(Boolean).join(' · ');
@@ -7405,6 +7950,12 @@
                 $('configSearch').addEventListener('input', (event) => {
                     state.config.search = event.target.value || '';
                     applyConfigSearch();
+                });
+                $('settingsNav').addEventListener('click', (event) => {
+                    const target = event.target.closest('[data-config-group]');
+                    if (target) {
+                        setConfigGroup(target.dataset.configGroup || 'all', { scroll: true });
+                    }
                 });
                 $('configGroups').addEventListener('input', (event) => {
                     const target = event.target;
