@@ -2530,7 +2530,6 @@
                             <option value="newest">最新优先</option>
                             <option value="oldest">最早优先</option>
                             <option value="name">按名称</option>
-                            <option value="occurrences">按出现次数</option>
                         </select>
                         <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
                     </div>
@@ -6856,8 +6855,6 @@
                         items.reverse();
                     } else if (state.jargon.sort === 'name') {
                         items.sort((a, b) => (a.term || a.word || '').localeCompare(b.term || b.word || ''));
-                    } else if (state.jargon.sort === 'occurrences') {
-                        items.sort((a, b) => (b.occurrences || 0) - (a.occurrences || 0));
                     }
 
                     state.jargon.items = items;
@@ -6910,7 +6907,7 @@
                     ['候选', jargonStats.total_candidates],
                     ['确认', jargonStats.confirmed_jargon],
                     ['完成', jargonStats.completed_inference],
-                    ['出现', jargonStats.total_occurrences],
+                    ['命中', jargonStats.total_occurrences],
                 ].map(([label, value]) => `
                     <div class="small-stat">
                         <div class="k">${label}</div>
@@ -6928,7 +6925,7 @@
                     const meta = [
                         item.group_id ? `群组 ${item.group_id}` : null,
                         item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
-                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                        item.occurrences !== undefined ? `命中 ${formatCount(item.occurrences)}` : null,
                         item.created_at ? `创建 ${formatTime(item.created_at)}` : null,
                         item.updated_at ? `更新 ${formatTime(item.updated_at)}` : null,
                     ].filter(Boolean).join(' · ');
