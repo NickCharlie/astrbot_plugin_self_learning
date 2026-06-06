@@ -769,6 +769,164 @@
             gap: 16px;
         }
 
+        .review-workspace {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr);
+            gap: 16px;
+            align-items: start;
+        }
+
+        .review-sidebar {
+            position: sticky;
+            top: 16px;
+            padding: 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .review-sidebar-head {
+            padding: 2px 4px 12px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 12px;
+        }
+
+        .review-sidebar-kicker {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .review-sidebar-head h3 {
+            margin: 4px 0 2px;
+            font-size: var(--text-lg);
+            line-height: 1.25;
+        }
+
+        .review-sidebar-head p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .review-nav {
+            display: grid;
+            gap: 8px;
+        }
+
+        .review-nav-group {
+            margin: 14px 4px 8px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .review-nav-btn {
+            width: 100%;
+            min-height: 58px;
+            display: grid;
+            grid-template-columns: 32px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text);
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .review-nav-btn:hover {
+            border-color: var(--border);
+            background: var(--surface-hover);
+        }
+
+        .review-nav-btn.active {
+            border-color: var(--accent);
+            background: var(--selection);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+
+        .review-nav-icon {
+            width: 32px;
+            height: 32px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+            color: var(--accent);
+        }
+
+        .review-nav-icon .material-icons {
+            font-size: 18px;
+        }
+
+        .review-nav-text {
+            min-width: 0;
+        }
+
+        .review-nav-title {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+
+        .review-nav-desc {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.25;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .review-nav-badge {
+            min-width: 28px;
+            height: 24px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-full);
+            background: var(--panel-soft);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .review-nav-btn.active .review-nav-badge {
+            border-color: transparent;
+            background: var(--accent);
+            color: #fff;
+        }
+
+        .review-main {
+            min-width: 0;
+        }
+
+        .review-tab-panel {
+            display: none;
+            gap: 16px;
+        }
+
+        .review-tab-panel.active {
+            display: grid;
+        }
+
+        .review-split-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(300px, 0.85fr);
+            gap: 16px;
+        }
+
         .panel {
             background: var(--panel);
             border: 1px solid var(--border);
@@ -2007,6 +2165,15 @@
                 grid-template-columns: 1fr;
             }
 
+            .review-workspace,
+            .review-split-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .review-sidebar {
+                position: static;
+            }
+
             .settings-head {
                 flex-direction: column;
                 align-items: stretch;
@@ -2044,6 +2211,14 @@
 
             .stats-row {
                 grid-template-columns: 1fr;
+            }
+
+            .review-sidebar {
+                padding: 12px;
+            }
+
+            .review-nav-btn {
+                min-height: 54px;
             }
 
             .panel-head {
@@ -2456,134 +2631,210 @@
 
             <div id="queueStatus" class="config-status queue-status" style="margin-bottom:14px;">审查操作就绪。</div>
 
-            <section class="queue-grid" style="margin-bottom:16px;">
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>当前人格状态</h2>
-                    <span class="hint" id="personaStateHint">--</span>
-                </div>
-                <div class="panel-body">
-                    <div class="stats-row" id="personaStateStats"></div>
-                    <div id="personaStatePreview" class="list" style="margin-top:10px;"></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>人格备份</h2>
-                    <span class="hint" id="personaBackupHint">--</span>
-                </div>
-                <div class="panel-body">
-                    <div id="personaBackupList" class="list"></div>
-                </div>
-            </div>
-        </section>
-
-            <section class="queue-grid">
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>待审人格</h2>
-                    <span class="hint" id="personaCount">0</span>
-                </div>
-                <div class="panel-body">
-                    <div id="personaList" class="list"></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>风格审查</h2>
-                    <span class="hint" id="styleCount">0</span>
-                </div>
-                <div class="panel-body">
-                    <div id="styleList" class="list"></div>
-                </div>
-            </div>
-        </section>
-
-        <section class="queue-grid" style="margin-top:16px;">
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>最近已审人格</h2>
-                    <span class="hint" id="reviewedPersonaCount">0</span>
-                </div>
-                <div class="panel-body">
-                    <div id="reviewedPersonaList" class="list"></div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-head">
-                    <div>
-                        <h2>黑话与批次</h2>
-                        <span class="hint" id="jargonHint">--</span>
-                    </div>
-                    <div class="panel-tools">
-                        <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
-                            <option value="all">全部</option>
-                            <option value="pending">待确认</option>
-                            <option value="confirmed">已确认</option>
-                            <option value="global">全局</option>
-                            <option value="local">本地</option>
-                        </select>
-                        <select id="jargonSortSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
-                            <option value="newest">最新优先</option>
-                            <option value="oldest">最早优先</option>
-                            <option value="name">按名称</option>
-                        </select>
-                        <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <div class="stats-row" id="jargonStats"></div>
-
-                    <div class="stack-section">
-                        <div id="jargonList" class="list"></div>
+            <section class="review-workspace">
+                <aside class="review-sidebar" aria-label="审查队列菜单">
+                    <div class="review-sidebar-head">
+                        <div class="review-sidebar-kicker">REVIEW CENTER</div>
+                        <h3>分类审查</h3>
+                        <p id="reviewSidebarSummary">待处理 0 条</p>
                     </div>
 
-                    <div id="jargonPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
-                        <span id="jargonPageInfo" class="muted" style="font-size:12px;">--</span>
-                        <div style="display:flex;gap:4px;">
-                            <button class="action-btn" id="jargonPrevBtn" type="button" disabled>
-                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
-                            </button>
-                            <button class="action-btn" id="jargonNextBtn" type="button" disabled>
-                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-head">
-                    <div>
-                        <h2>最近批次</h2>
-                        <span class="hint" id="batchHint">--</span>
-                    </div>
-                    <div class="panel-tools">
-                        <button class="icon-btn" id="batchReloadBtn" type="button" aria-label="刷新批次" title="刷新批次">
-                            <span class="material-icons">sync</span>
+                    <div class="review-nav-group">待处理</div>
+                    <nav class="review-nav" aria-label="待处理审查">
+                        <button class="review-nav-btn active" type="button" data-review-tab="persona" aria-selected="true">
+                            <span class="review-nav-icon"><span class="material-icons">person_search</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">待审人格</span>
+                                <span class="review-nav-desc">Prompt 更新</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavPersonaCount">0</span>
                         </button>
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <div id="batchList" class="list"></div>
+                        <button class="review-nav-btn" type="button" data-review-tab="style" aria-selected="false">
+                            <span class="review-nav-icon"><span class="material-icons">style</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">风格审查</span>
+                                <span class="review-nav-desc">表达模式</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavStyleCount">0</span>
+                        </button>
+                        <button class="review-nav-btn" type="button" data-review-tab="jargon" aria-selected="false">
+                            <span class="review-nav-icon"><span class="material-icons">translate</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">黑话候选</span>
+                                <span class="review-nav-desc">词条确认</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavJargonCount">0</span>
+                        </button>
+                    </nav>
 
-                    <div id="batchPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
-                        <span id="batchPageInfo" class="muted" style="font-size:12px;">--</span>
-                        <div style="display:flex;gap:4px;">
-                            <button class="action-btn" id="batchPrevBtn" type="button" disabled>
-                                <span class="material-icons" style="font-size:16px;">chevron_left</span>
-                            </button>
-                            <button class="action-btn" id="batchNextBtn" type="button" disabled>
-                                <span class="material-icons" style="font-size:16px;">chevron_right</span>
-                            </button>
+                    <div class="review-nav-group">参考与历史</div>
+                    <nav class="review-nav" aria-label="参考与历史">
+                        <button class="review-nav-btn" type="button" data-review-tab="persona-state" aria-selected="false">
+                            <span class="review-nav-icon"><span class="material-icons">badge</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">人格现场</span>
+                                <span class="review-nav-desc">状态与备份</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavPersonaStateCount">--</span>
+                        </button>
+                        <button class="review-nav-btn" type="button" data-review-tab="reviewed" aria-selected="false">
+                            <span class="review-nav-icon"><span class="material-icons">fact_check</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">已审历史</span>
+                                <span class="review-nav-desc">最近决策</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavReviewedCount">0</span>
+                        </button>
+                        <button class="review-nav-btn" type="button" data-review-tab="batches" aria-selected="false">
+                            <span class="review-nav-icon"><span class="material-icons">school</span></span>
+                            <span class="review-nav-text">
+                                <span class="review-nav-title">学习批次</span>
+                                <span class="review-nav-desc">运行记录</span>
+                            </span>
+                            <span class="review-nav-badge" id="reviewNavBatchCount">0</span>
+                        </button>
+                    </nav>
+                </aside>
+
+                <div class="review-main">
+                    <section class="review-tab-panel active" data-review-panel="persona" aria-label="待审人格">
+                        <div class="panel">
+                            <div class="panel-head">
+                                <h2>待审人格</h2>
+                                <span class="hint" id="personaCount">0</span>
+                            </div>
+                            <div class="panel-body">
+                                <div id="personaList" class="list"></div>
+                            </div>
                         </div>
-                    </div>
+                    </section>
+
+                    <section class="review-tab-panel" data-review-panel="style" aria-label="风格审查" hidden>
+                        <div class="panel">
+                            <div class="panel-head">
+                                <h2>风格审查</h2>
+                                <span class="hint" id="styleCount">0</span>
+                            </div>
+                            <div class="panel-body">
+                                <div id="styleList" class="list"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="review-tab-panel" data-review-panel="jargon" aria-label="黑话候选" hidden>
+                        <div class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>黑话候选</h2>
+                                    <span class="hint" id="jargonHint">--</span>
+                                </div>
+                                <div class="panel-tools">
+                                    <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                                        <option value="all">全部</option>
+                                        <option value="pending">待确认</option>
+                                        <option value="confirmed">已确认</option>
+                                        <option value="global">全局</option>
+                                        <option value="local">本地</option>
+                                    </select>
+                                    <select id="jargonSortSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                                        <option value="newest">最新优先</option>
+                                        <option value="oldest">最早优先</option>
+                                        <option value="name">按名称</option>
+                                    </select>
+                                    <input id="jargonSearchInput" class="content-search" style="width:160px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
+                                </div>
+                            </div>
+                            <div class="panel-body">
+                                <div class="stats-row" id="jargonStats"></div>
+
+                                <div class="stack-section">
+                                    <div id="jargonList" class="list"></div>
+                                </div>
+
+                                <div id="jargonPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                                    <span id="jargonPageInfo" class="muted" style="font-size:12px;">--</span>
+                                    <div style="display:flex;gap:4px;">
+                                        <button class="action-btn" id="jargonPrevBtn" type="button" disabled>
+                                            <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                                        </button>
+                                        <button class="action-btn" id="jargonNextBtn" type="button" disabled>
+                                            <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="review-tab-panel" data-review-panel="persona-state" aria-label="人格现场" hidden>
+                        <div class="review-split-grid">
+                            <div class="panel">
+                                <div class="panel-head">
+                                    <h2>当前人格状态</h2>
+                                    <span class="hint" id="personaStateHint">--</span>
+                                </div>
+                                <div class="panel-body">
+                                    <div class="stats-row" id="personaStateStats"></div>
+                                    <div id="personaStatePreview" class="list" style="margin-top:10px;"></div>
+                                </div>
+                            </div>
+
+                            <div class="panel">
+                                <div class="panel-head">
+                                    <h2>人格备份</h2>
+                                    <span class="hint" id="personaBackupHint">--</span>
+                                </div>
+                                <div class="panel-body">
+                                    <div id="personaBackupList" class="list"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="review-tab-panel" data-review-panel="reviewed" aria-label="已审历史" hidden>
+                        <div class="panel">
+                            <div class="panel-head">
+                                <h2>最近已审人格</h2>
+                                <span class="hint" id="reviewedPersonaCount">0</span>
+                            </div>
+                            <div class="panel-body">
+                                <div id="reviewedPersonaList" class="list"></div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="review-tab-panel" data-review-panel="batches" aria-label="学习批次" hidden>
+                        <div class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>最近批次</h2>
+                                    <span class="hint" id="batchHint">--</span>
+                                </div>
+                                <div class="panel-tools">
+                                    <button class="icon-btn" id="batchReloadBtn" type="button" aria-label="刷新批次" title="刷新批次">
+                                        <span class="material-icons">sync</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="panel-body">
+                                <div id="batchList" class="list"></div>
+
+                                <div id="batchPagination" style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;">
+                                    <span id="batchPageInfo" class="muted" style="font-size:12px;">--</span>
+                                    <div style="display:flex;gap:4px;">
+                                        <button class="action-btn" id="batchPrevBtn" type="button" disabled>
+                                            <span class="material-icons" style="font-size:16px;">chevron_left</span>
+                                        </button>
+                                        <button class="action-btn" id="batchNextBtn" type="button" disabled>
+                                            <span class="material-icons" style="font-size:16px;">chevron_right</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </div>
-            </div>
-        </section>
+            </section>
         </section>
 
         <section class="page" id="page-content" data-page="content">
@@ -2872,6 +3123,9 @@
                     mirror: localStorage.getItem('sl-pip-mirror') || 'default',
                 },
                 actionBusy: new Set(),
+                reviews: {
+                    tab: 'persona',
+                },
                 personaState: {
                     groupId: 'default',
                 },
@@ -3867,6 +4121,15 @@
                 return map[target] || 'home';
             }
 
+            function getReviewTabForInsightTarget(target) {
+                const map = {
+                    reviews: 'persona',
+                    jargon: 'jargon',
+                    batches: 'batches',
+                };
+                return map[target] || null;
+            }
+
             function jumpToInsightTarget(target) {
                 const targetId = getInsightTargetId(target);
                 if (!targetId) {
@@ -3874,6 +4137,10 @@
                 }
 
                 navigateToPage(getInsightTargetPage(target), { keepScroll: true });
+                const reviewTab = getReviewTabForInsightTarget(target);
+                if (reviewTab) {
+                    setReviewTab(reviewTab);
+                }
                 window.setTimeout(() => {
                     const element = $(targetId);
                     if (!element) {
@@ -4076,6 +4343,72 @@
 
                 const score = safeNumber(value);
                 return `置信 ${formatPercent(score <= 1 ? score * 100 : score)}`;
+            }
+
+            function setReviewTab(tab) {
+                const validTabs = ['persona', 'style', 'jargon', 'persona-state', 'reviewed', 'batches'];
+                const nextTab = validTabs.includes(tab) ? tab : 'persona';
+                state.reviews.tab = nextTab;
+
+                document.querySelectorAll('[data-review-tab]').forEach((button) => {
+                    const active = button.dataset.reviewTab === nextTab;
+                    button.classList.toggle('active', active);
+                    button.setAttribute('aria-selected', active ? 'true' : 'false');
+                });
+
+                document.querySelectorAll('[data-review-panel]').forEach((panel) => {
+                    const active = panel.dataset.reviewPanel === nextTab;
+                    panel.classList.toggle('active', active);
+                    panel.hidden = !active;
+                });
+            }
+
+            function updateReviewNavCounts(counts = {}) {
+                const setText = (id, value) => {
+                    const target = $(id);
+                    if (target) {
+                        target.textContent = value;
+                    }
+                };
+
+                const dashboardData = state.data || {};
+                const persona = dashboardData.persona || {};
+                const personaUpdates = safeArray(persona.updates);
+                const style = dashboardData.style || {};
+                const personaReviewed = dashboardData.personaReviewed || {};
+                const personaBackups = dashboardData.personaBackups || {};
+                const jargonStats = extractJargonStats(dashboardData.jargonStats);
+                const styleBacklogDefault = safeNumber(style.total);
+                const personaTotal = safeNumber(persona.total);
+                const personaIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
+                const personaBacklogDefault = personaIncludesStyle ? Math.max(0, personaTotal - styleBacklogDefault) : personaTotal;
+                const pendingJargonDefault = Math.max(
+                    0,
+                    safeNumber(jargonStats.total_candidates ?? jargonStats.totalCandidates)
+                        - safeNumber(jargonStats.confirmed_jargon ?? jargonStats.confirmedJargon),
+                );
+                const backupTotalDefault = personaBackups.available === false
+                    ? 0
+                    : safeNumber(personaBackups.total || safeArray(personaBackups.backups).length);
+                const valueOrDefault = (value, fallback) => (
+                    value === undefined || value === null ? fallback : safeNumber(value)
+                );
+
+                const personaBacklog = valueOrDefault(counts.personaBacklog, personaBacklogDefault);
+                const styleBacklog = valueOrDefault(counts.styleBacklog, styleBacklogDefault);
+                const pendingJargon = valueOrDefault(counts.pendingJargon, pendingJargonDefault);
+                const reviewedTotal = valueOrDefault(counts.reviewedTotal, safeNumber(personaReviewed.total));
+                const backupTotal = valueOrDefault(counts.backupTotal, backupTotalDefault);
+                const batchTotal = valueOrDefault(counts.batchTotal, state.batch.total);
+                const pendingTotal = personaBacklog + styleBacklog + pendingJargon;
+
+                setText('reviewSidebarSummary', `待处理 ${formatCount(pendingTotal)} 条`);
+                setText('reviewNavPersonaCount', formatCount(personaBacklog));
+                setText('reviewNavStyleCount', formatCount(styleBacklog));
+                setText('reviewNavJargonCount', formatCount(pendingJargon));
+                setText('reviewNavPersonaStateCount', formatCount(backupTotal));
+                setText('reviewNavReviewedCount', formatCount(reviewedTotal));
+                setText('reviewNavBatchCount', formatCount(batchTotal));
             }
 
             function actionButton(action, id, icon, label, tone = '') {
@@ -4354,6 +4687,9 @@
                 const personaTotal = safeNumber(persona.total);
                 const personaPayloadIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
                 const personaBacklog = personaPayloadIncludesStyle ? Math.max(0, personaTotal - styleBacklog) : personaTotal;
+                const totalJargonCandidates = safeNumber(jargonStats.total_candidates ?? jargonStats.totalCandidates);
+                const confirmedJargon = safeNumber(jargonStats.confirmed_jargon ?? jargonStats.confirmedJargon);
+                const pendingJargon = Math.max(0, totalJargonCandidates - confirmedJargon);
                 const backlog = personaBacklog + styleBacklog;
                 const overallHealth = textOrDash(health.overall || 'unknown');
 
@@ -4468,6 +4804,17 @@
                 $('styleList').innerHTML = renderStyleQueue(styleUpdatesFromPersona.length ? styleUpdatesFromPersona : style.reviews);
                 $('reviewedPersonaList').innerHTML = renderReviewedPersonaHistory(personaReviewed.updates);
                 renderPersonaStatePanel(personaState, personaBackups);
+                updateReviewNavCounts({
+                    personaBacklog,
+                    styleBacklog,
+                    pendingJargon,
+                    reviewedTotal: personaReviewed.total || 0,
+                    backupTotal: personaBackups.available === false
+                        ? 0
+                        : (personaBackups.total || safeArray(personaBackups.backups).length),
+                    batchTotal: state.batch.total,
+                });
+                setReviewTab(state.reviews.tab);
 
                 $('trendHint').textContent = `最近 ${Object.keys(trends.daily_messages || {}).length || 7} 天`;
 
@@ -6690,6 +7037,13 @@
                 $('jargonNextBtn').disabled = page >= totalPages;
 
                 $('jargonHint').textContent = `候选 ${formatCount((jargonStats.total_candidates ?? jargonStats.totalCandidates) || 0)} · 第 ${page}/${totalPages} 页`;
+                updateReviewNavCounts({
+                    pendingJargon: Math.max(
+                        0,
+                        safeNumber(jargonStats.total_candidates ?? jargonStats.totalCandidates)
+                            - safeNumber(jargonStats.confirmed_jargon ?? jargonStats.confirmedJargon),
+                    ),
+                });
             }
 
             function renderBatchPanel() {
@@ -6727,6 +7081,7 @@
                 $('batchPrevBtn').disabled = page <= 1;
                 $('batchNextBtn').disabled = page >= totalPages;
                 $('batchHint').textContent = `共 ${formatCount(total)} 个批次`;
+                updateReviewNavCounts({ batchTotal: total });
             }
 
             function bindEvents() {
@@ -6866,6 +7221,12 @@
                     const dependencyTarget = event.target.closest('[data-dependency-tier]');
                     if (dependencyTarget) {
                         installDependencyTier(dependencyTarget.dataset.dependencyTier);
+                        return;
+                    }
+
+                    const reviewTab = event.target.closest('[data-review-tab]');
+                    if (reviewTab) {
+                        setReviewTab(reviewTab.dataset.reviewTab);
                         return;
                     }
 

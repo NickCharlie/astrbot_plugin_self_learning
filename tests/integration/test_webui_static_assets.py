@@ -72,6 +72,21 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "renderContextExamples(item)" in text
 
 
+def test_dashboard_review_queue_uses_sidebar_categories():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "review-sidebar" in text
+    assert "review-workspace" in text
+    assert 'data-review-tab="persona"' in text
+    assert 'data-review-tab="style"' in text
+    assert 'data-review-tab="jargon"' in text
+    assert 'data-review-tab="persona-state"' in text
+    assert 'data-review-tab="reviewed"' in text
+    assert 'data-review-tab="batches"' in text
+    assert "setReviewTab" in text
+    assert "updateReviewNavCounts" in text
+
+
 def test_dashboard_review_deletes_use_inline_confirmation():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
