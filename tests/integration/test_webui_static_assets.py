@@ -221,3 +221,25 @@ def test_dashboard_zero_message_insight_reflects_full_learning_default():
     assert "默认全量学习等待消息" in text
     assert "目标列表留空时会学习所有非黑名单消息" in text
     assert "暂无消息进入学习链路" not in text
+
+
+def test_force_graph_rendering_uses_stable_static_layout():
+    dashboard = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    graph_share = (PLUGIN_ROOT / "web_res" / "static" / "html" / "graph_share.html").read_text(encoding="utf-8")
+
+    for text in (dashboard, graph_share):
+        assert "function computeStableGraphLayout" in text
+        assert "function prepareGraphNodesForRender" in text
+        assert "function graphHash" in text
+        assert "positionCache" in text or "graphPositionCache" in text
+        assert "layoutAnimation" not in text
+        assert "repulsion:" not in text
+        assert "gravity:" not in text
+        assert "edgeLength:" not in text
+
+    assert "layoutSettled" in dashboard
+    assert "layout: isForceLayout ? 'none' : state.graph.layout" in dashboard
+    assert "rememberDraggedGraphNode(chart, params)" in dashboard
+    assert "graphLayoutSettled" in graph_share
+    assert 'layout: isCircular ? "circular" : "none"' in graph_share
+    assert "rememberDraggedNode(params)" in graph_share
