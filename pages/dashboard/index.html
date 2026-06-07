@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Self Learning Dashboard</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">AstrBot Embedded WebUI</p>
+          <h1>Self Learning</h1>
+        </div>
+        <div class="top-actions">
+          <a class="icon-button" id="full-dashboard-link" href="http://127.0.0.1:7833" target="_blank" rel="noreferrer" title="打开完整 WebUI" aria-label="打开完整 WebUI">
+            <span aria-hidden="true">↗</span>
+          </a>
+          <button class="icon-button" id="refresh-button" type="button" title="刷新数据" aria-label="刷新数据">
+            <span aria-hidden="true">⟳</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="dashboard-grid">
+        <article class="status-panel">
+          <div class="spring-stage" aria-hidden="true">
+            <div class="field-grid"></div>
+            <div class="spring-node node-core"></div>
+            <div class="spring-node node-a" data-module-dot="jargon"></div>
+            <div class="spring-node node-b" data-module-dot="style"></div>
+            <div class="spring-node node-c" data-module-dot="persona"></div>
+          </div>
+          <div class="status-copy">
+            <span class="status-pill" id="runtime-status">加载中</span>
+            <h2>学习模块总览</h2>
+            <p id="runtime-summary">正在从 AstrBot 插件桥接层读取运行时状态。</p>
+          </div>
+        </article>
+
+        <section class="stat-strip" aria-label="核心数据">
+          <div class="stat-item">
+            <span class="stat-label">采集消息</span>
+            <strong id="stat-messages">0</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">已确认黑话</span>
+            <strong id="stat-jargon">0</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">表达样本</span>
+            <strong id="stat-style">0</strong>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">人格更新</span>
+            <strong id="stat-persona">0</strong>
+          </div>
+        </section>
+      </section>
+
+      <nav class="module-tabs" aria-label="学习模块">
+        <button class="module-tab active" type="button" data-target="overview">总览</button>
+        <button class="module-tab" type="button" data-target="jargon">黑话学习</button>
+        <button class="module-tab" type="button" data-target="style">表达方式学习</button>
+        <button class="module-tab" type="button" data-target="persona">人格学习</button>
+        <button class="module-tab" type="button" data-target="metrics">指标</button>
+      </nav>
+
+      <section class="content-grid">
+        <article class="module-list" id="module-list" aria-live="polite"></article>
+
+        <aside class="detail-panel">
+          <div class="panel-heading">
+            <span id="detail-kicker">Overview</span>
+            <h2 id="detail-title">模块状态</h2>
+          </div>
+          <div class="chart-stack">
+            <div class="bar-chart" id="module-chart" aria-label="模块指标图"></div>
+            <div class="ring-row">
+              <div class="ring-chart" id="intelligence-ring" style="--value:0">
+                <span id="intelligence-score">0</span>
+              </div>
+              <div>
+                <p class="mini-label">综合智能评分</p>
+                <p class="mini-copy" id="metrics-summary">等待数据</p>
+              </div>
+            </div>
+          </div>
+          <div class="quick-entry-list" id="quick-entry-list"></div>
+        </aside>
+      </section>
+
+      <section class="errors" id="error-panel" hidden></section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -97,6 +97,7 @@ class SelfLearningPlugin(star.Star):
         self.feature_delegation = None
         self.qq_filter = None
         self.plugin_config = None
+        self.page_api = None
         self._message_capture_diag_counts: dict[str, int] = {}
         self._message_capture_diag_last: dict[str, float] = {}
 
@@ -174,10 +175,30 @@ class SelfLearningPlugin(star.Star):
         self._lifecycle.bootstrap(
             self.plugin_config, self.context, self.group_id_to_unified_origin
         )
+        self._register_official_page_api_if_available()
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
     # 生命周期
+
+    def _register_official_page_api_if_available(self) -> None:
+        """Register AstrBot embedded Plugin Page APIs on supported versions."""
+        if not hasattr(self.context, "register_web_api"):
+            return
+
+        try:
+            from .core.page_api import PluginPageApi
+        except Exception as exc:
+            logger.warning(f"官方插件页面 API 不可用，已跳过注册: {exc}")
+            return
+
+        try:
+            self.page_api = PluginPageApi(self)
+            self.page_api.register_routes()
+            logger.info("官方插件页面 API 已注册: /plugin-page/astrbot_plugin_self_learning/dashboard")
+        except Exception as exc:
+            self.page_api = None
+            logger.warning(f"官方插件页面 API 注册失败，已跳过: {exc}", exc_info=True)
 
     async def initialize(self):
         """AstrBot 在完成 handler 绑定后调用此方法"""

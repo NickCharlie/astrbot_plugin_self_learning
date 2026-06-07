@@ -12,6 +12,11 @@ HTML_FILES = [
     PLUGIN_ROOT / "web_res" / "static" / "html" / "login.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "macos.html",
 ]
+PLUGIN_PAGE_FILES = [
+    PLUGIN_ROOT / "pages" / "dashboard" / "index.html",
+    PLUGIN_ROOT / "pages" / "dashboard" / "app.js",
+    PLUGIN_ROOT / "pages" / "dashboard" / "styles.css",
+]
 EXTERNAL_ASSET_HOSTS = [
     "fonts.googleapis.com",
     "fonts.loli.net",
@@ -28,6 +33,32 @@ def test_webui_html_templates_no_external_frontend_cdn_refs():
         text = path.read_text(encoding="utf-8")
         for host in EXTERNAL_ASSET_HOSTS:
             assert host not in text, f"{path.name} still references {host}"
+
+
+def test_embedded_plugin_page_assets_are_self_contained():
+    for path in PLUGIN_PAGE_FILES:
+        assert path.exists(), f"Missing embedded Plugin Page asset: {path}"
+        text = path.read_text(encoding="utf-8")
+        for host in EXTERNAL_ASSET_HOSTS:
+            assert host not in text, f"{path.name} still references {host}"
+
+
+def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
+    index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+    styles = (PLUGIN_ROOT / "pages" / "dashboard" / "styles.css").read_text(encoding="utf-8")
+
+    assert "AstrBot Embedded WebUI" in index
+    assert "黑话学习" in index
+    assert "表达方式学习" in index
+    assert "人格学习" in index
+    assert "window.AstrBotPluginPage" in script
+    assert 'apiGet(buildEndpoint(path)' in script
+    assert 'apiGet("overview")' in script
+    assert 'buildEndpoint(path)' in script
+    assert "initSpringMotion" in script
+    assert ".module-card" in styles
+    assert ".ring-chart" in styles
 
 
 def test_webui_frontend_vendor_assets_exist():

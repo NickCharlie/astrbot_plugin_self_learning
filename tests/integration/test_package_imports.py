@@ -68,6 +68,41 @@ def test_webui_manager_uses_deferred_annotations_for_lazy_server_import():
     assert "from __future__ import annotations" in manager_source
 
 
+def test_official_plugin_page_api_registers_dashboard_overview_route():
+    alias = "data.plugins.astrbot_plugin_self_learning_pageapi_pkgtest"
+    _cleanup_alias(alias)
+
+    class _Context:
+        def __init__(self):
+            self.routes = []
+
+        def register_web_api(self, route, handler, methods, desc):
+            self.routes.append((route, handler, methods, desc))
+
+    class _Plugin:
+        def __init__(self):
+            self.context = _Context()
+
+    try:
+        _load_plugin_package(alias)
+        module = importlib.import_module(f"{alias}.core.page_api")
+        plugin = _Plugin()
+        api = module.PluginPageApi(plugin)
+        api.register_routes()
+
+        assert module.PAGE_API_PREFIX == "/astrbot_plugin_self_learning/page"
+        assert plugin.context.routes == [
+            (
+                "/astrbot_plugin_self_learning/page/overview",
+                api.get_overview,
+                ["GET"],
+                "Self Learning embedded dashboard overview",
+            )
+        ]
+    finally:
+        _cleanup_alias(alias)
+
+
 def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
     """Plugin startup modules should import before settings-triggered pip install."""
     import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
