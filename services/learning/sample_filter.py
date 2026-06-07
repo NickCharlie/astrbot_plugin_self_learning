@@ -21,6 +21,21 @@ BARE_COMMANDS = {
     "model",
     "tools",
 }
+COMMAND_LIKE_PATTERN = re.compile(r"^[/!#.][^\W\d_][\w-]*(?:\s+.*)?$")
+COMMAND_REFERENCE_PATTERN = re.compile(r"[/!#.][^\W\d_][\w-]*")
+COMMAND_GUIDANCE_PATTERNS = (
+    re.compile(
+        r"(?:使用|输入|发送|执行|运行|调用|通过).{0,12}"
+        r"(?:命令|指令|菜单|帮助|功能|插件).{0,24}"
+        r"[/!#.][^\W\d_][\w-]*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"[/!#.][^\W\d_][\w-]*.{0,24}"
+        r"(?:命令|指令|菜单|帮助|功能|插件)",
+        re.IGNORECASE,
+    ),
+)
 
 SYSTEM_RESPONSE_PATTERNS = (
     re.compile(r"^AstrBot\s+v?\d", re.IGNORECASE),
@@ -290,8 +305,28 @@ def is_command_message(message_text: Any) -> bool:
     normalized = first_token[1:].lower() if has_prefix else first_token.lower()
 
     if has_prefix:
-        return normalized in BARE_COMMANDS
+        if normalized in BARE_COMMANDS:
+            return True
+        return bool(COMMAND_LIKE_PATTERN.match(text))
     return text.lower() in BARE_COMMANDS
+
+
+def is_command_guidance(message_text: Any) -> bool:
+    """Return true for help/menu text that teaches or lists commands."""
+    text = _normalize_text(message_text)
+    if not text:
+        return False
+
+    command_refs = COMMAND_REFERENCE_PATTERN.findall(text)
+    if command_refs and any(pattern.search(text) for pattern in COMMAND_GUIDANCE_PATTERNS):
+        return True
+
+    if len(command_refs) >= 2 and any(
+        keyword in text
+        for keyword in ("命令", "指令", "菜单", "帮助", "功能", "使用", "输入", "发送")
+    ):
+        return True
+    return False
 
 
 def is_system_response(message_text: Any) -> bool:
@@ -301,6 +336,8 @@ def is_system_response(message_text: Any) -> bool:
         return False
 
     if any(pattern.search(text) for pattern in SYSTEM_RESPONSE_PATTERNS):
+        return True
+    if is_command_guidance(text):
         return True
 
     help_lines = sum(

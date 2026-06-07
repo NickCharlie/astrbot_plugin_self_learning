@@ -4412,8 +4412,8 @@
                             </div>
                             <div class="meta">${escapeHtml(item.timestamp ? formatTime(item.timestamp) : (item.created_at ? formatTime(item.created_at) : '人格备份'))}</div>
                             <div class="item-actions">
-                                ${actionButton('persona-backup-view', item.id, 'visibility', '查看')}
-                                ${actionButton('persona-backup-restore', item.id, 'settings_backup_restore', '恢复', 'warning')}
+                                ${actionButton('persona-backup-view', item.id, 'visibility', '查看', '', { 'group-id': item.group_id })}
+                                ${actionButton('persona-backup-restore', item.id, 'settings_backup_restore', '恢复', 'warning', { 'group-id': item.group_id })}
                             </div>
                         </div>
                     `).join('')}
@@ -5355,7 +5355,7 @@
                 return `置信 ${formatPercent(score <= 1 ? score * 100 : score)}`;
             }
 
-            function actionButton(action, id, icon, label, tone = '') {
+            function actionButton(action, id, icon, label, tone = '', attrs = {}) {
                 if (id === undefined || id === null || id === '') {
                     return '';
                 }
@@ -5364,12 +5364,17 @@
                 const displayIcon = icon;
                 const displayLabel = label;
                 const displayTone = tone;
+                const attrHtml = Object.entries(attrs || {})
+                    .filter(([, value]) => value !== undefined && value !== null && value !== '')
+                    .map(([key, value]) => `data-${key}="${escapeHtml(value)}"`)
+                    .join(' ');
                 return `
                     <button
                         class="action-btn ${displayTone}"
                         type="button"
                         data-dashboard-action="${escapeHtml(action)}"
                         data-id="${escapeHtml(id)}"
+                        ${attrHtml}
                         ${busy ? 'disabled' : ''}
                     >
                         <span class="material-icons" style="font-size:15px;">${escapeHtml(displayIcon)}</span>
@@ -5594,9 +5599,9 @@
                             <div class="meta">${escapeHtml(meta || '暂无元信息')}</div>
                             <div class="body clamp">${escapeHtml(item.reason_short || item.reason || '暂无备份原因')}</div>
                             <div class="item-actions">
-                                ${actionButton('persona-backup-view', backupId, 'visibility', '查看')}
-                                ${actionButton('persona-backup-restore', backupId, 'settings_backup_restore', '恢复', 'warning')}
-                                ${actionButton('persona-backup-delete', backupId, 'delete', '删除', 'danger')}
+                                ${actionButton('persona-backup-view', backupId, 'visibility', '查看', '', { 'group-id': item.group_id })}
+                                ${actionButton('persona-backup-restore', backupId, 'settings_backup_restore', '恢复', 'warning', { 'group-id': item.group_id })}
+                                ${actionButton('persona-backup-delete', backupId, 'delete', '删除', 'danger', { 'group-id': item.group_id })}
                             </div>
                         </div>
                     `;
@@ -7205,7 +7210,7 @@
                 return payload;
             }
 
-            async function runDashboardAction(action, id) {
+            async function runDashboardAction(action, id, meta = {}) {
                 if (action === 'module-refresh') {
                     if (id === 'jargon') {
                         await loadJargonList();
@@ -7260,6 +7265,10 @@
 
                 try {
                     let payload = null;
+                    const backupGroupId = meta.groupId || '';
+                    const backupQuery = backupGroupId
+                        ? `?${new URLSearchParams({ group_id: backupGroupId }).toString()}`
+                        : '';
                     if (action === 'persona-approve') {
                         if (!(await showConfirm('审批确认', '确定通过这条人格更新？', '批准'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'approve' });
@@ -7269,7 +7278,7 @@
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'persona-backup-view') {
-                        payload = await safeFetch(`/api/persona_backups/${encodeURIComponent(id)}?group_id=default`);
+                        payload = await safeFetch(`/api/persona_backups/${encodeURIComponent(id)}${backupQuery}`);
                         if (!payload) {
                             throw new Error('人格备份不存在');
                         }
@@ -7279,9 +7288,9 @@
                         showToast('人格备份详情已读取', 'ok');
                         return;
                     } else if (action === 'persona-backup-restore') {
-                        payload = await postJson(`/api/persona_backups/${encodeURIComponent(id)}/restore`, { group_id: 'default' });
+                        payload = await postJson(`/api/persona_backups/${encodeURIComponent(id)}/restore`, backupGroupId ? { group_id: backupGroupId } : {});
                     } else if (action === 'persona-backup-delete') {
-                        payload = await deleteJson(`/api/persona_backups/${encodeURIComponent(id)}?group_id=default`);
+                        payload = await deleteJson(`/api/persona_backups/${encodeURIComponent(id)}${backupQuery}`);
                     } else if (action === 'jargon-approve') {
                         if (!(await showConfirm('审批确认', '确定确认这条黑话？', '确认'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'approve' });
@@ -8127,7 +8136,7 @@
                     safeFetch('/api/persona_updates?limit=10'),
                     safeFetch('/api/persona_updates/reviewed?limit=5'),
                     safeFetch('/api/persona_management/current?group_id=default'),
-                    safeFetch('/api/persona_backups/list?group_id=default&limit=8'),
+                    safeFetch('/api/persona_backups/list?limit=8'),
                     safeFetch('/api/style_learning/reviews?limit=5'),
                     safeFetch('/api/jargon/stats'),
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
@@ -8539,7 +8548,9 @@
                 document.body.addEventListener('click', (event) => {
                     const actionTarget = event.target.closest('[data-dashboard-action]');
                     if (actionTarget) {
-                        runDashboardAction(actionTarget.dataset.dashboardAction, actionTarget.dataset.id);
+                        runDashboardAction(actionTarget.dataset.dashboardAction, actionTarget.dataset.id, {
+                            groupId: actionTarget.dataset.groupId || '',
+                        });
                         return;
                     }
 

@@ -53,6 +53,31 @@ async def test_get_backup_uses_database_detail(mock_container):
 
 
 @pytest.mark.asyncio
+async def test_list_backups_without_group_queries_all_groups(mock_container):
+    mock_container.database_manager.get_persona_backups = AsyncMock(return_value=[
+        {
+            'id': 4,
+            'group_id': 'real-group',
+            'backup_name': 'real-group-backup',
+            'timestamp': 1710000001,
+            'backup_reason': 'Before style update',
+            'original_persona': {'name': 'Group Persona', 'prompt': 'hello'},
+        }
+    ])
+    service = PersonaBackupService(mock_container)
+
+    result = await service.list_backups(limit=8)
+
+    assert result['group_id'] is None
+    assert result['backups'][0]['group_id'] == 'real-group'
+    mock_container.database_manager.get_persona_backups.assert_awaited_once_with(
+        group_id=None,
+        limit=8,
+        include_content=True,
+    )
+
+
+@pytest.mark.asyncio
 async def test_restore_backup_falls_back_to_persona_manager(mock_container):
     mock_container.persona_backup_manager = None
     mock_container.persona_web_manager = None

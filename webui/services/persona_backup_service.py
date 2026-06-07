@@ -75,14 +75,24 @@ class PersonaBackupService:
         if not self.database_manager:
             raise ValueError('数据库服务未初始化，无法管理人格备份')
 
-    async def list_backups(self, group_id: str = 'default', limit: Any = 20) -> Dict[str, Any]:
+    @staticmethod
+    def _normalize_group_id(group_id: Any) -> Optional[str]:
+        if group_id is None:
+            return None
+        value = str(group_id).strip()
+        if not value or value.lower() in {'all', '*'}:
+            return None
+        return value
+
+    async def list_backups(self, group_id: Optional[str] = None, limit: Any = 20) -> Dict[str, Any]:
         """获取人格备份列表。"""
         self._ensure_database()
+        normalized_group_id = self._normalize_group_id(group_id)
         normalized_limit = self._normalize_limit(limit)
 
         if not hasattr(self.database_manager, 'get_persona_backups'):
             return {
-                'group_id': group_id,
+                'group_id': normalized_group_id,
                 'backups': [],
                 'total': 0,
                 'available': False,
@@ -91,30 +101,32 @@ class PersonaBackupService:
 
         try:
             backups = await self.database_manager.get_persona_backups(
-                group_id=group_id,
+                group_id=normalized_group_id,
                 limit=normalized_limit,
                 include_content=True,
             )
         except TypeError:
             try:
-                backups = await self.database_manager.get_persona_backups(group_id, normalized_limit)
+                backups = await self.database_manager.get_persona_backups(normalized_group_id, normalized_limit)
             except TypeError:
                 backups = await self.database_manager.get_persona_backups(normalized_limit)
         summaries = [self._backup_summary(backup) for backup in backups]
         return {
-            'group_id': group_id,
+            'group_id': normalized_group_id,
             'backups': summaries,
             'total': len(summaries),
             'available': True,
+            'message': '' if summaries else '暂无人格备份',
         }
 
-    async def get_backup(self, backup_id: int, group_id: str = 'default') -> Dict[str, Any]:
+    async def get_backup(self, backup_id: int, group_id: Optional[str] = None) -> Dict[str, Any]:
         """获取人格备份详情。"""
         self._ensure_database()
+        normalized_group_id = self._normalize_group_id(group_id)
         if hasattr(self.database_manager, 'get_persona_backup'):
-            backup = await self.database_manager.get_persona_backup(backup_id, group_id=group_id)
+            backup = await self.database_manager.get_persona_backup(backup_id, group_id=normalized_group_id)
         elif hasattr(self.database_manager, 'restore_persona_backup'):
-            backup = await self.database_manager.restore_persona_backup(group_id, backup_id)
+            backup = await self.database_manager.restore_persona_backup(normalized_group_id, backup_id)
         else:
             backup = None
 
@@ -125,17 +137,20 @@ class PersonaBackupService:
         detail['summary'] = self._backup_summary(detail)
         return detail
 
-    async def restore_backup(self, backup_id: int, group_id: str = 'default') -> Tuple[bool, str]:
+    async def restore_backup(self, backup_id: int, group_id: Optional[str] = None) -> Tuple[bool, str]:
         """恢复人格备份。"""
+        normalized_group_id = self._normalize_group_id(group_id)
+        backup = await self.get_backup(backup_id, group_id=normalized_group_id)
+        effective_group_id = normalized_group_id or backup.get('group_id') or 'default'
+
         if self.persona_backup_manager and hasattr(self.persona_backup_manager, 'restore_backup'):
             try:
-                success = await self.persona_backup_manager.restore_backup(group_id, backup_id)
+                success = await self.persona_backup_manager.restore_backup(effective_group_id, backup_id)
                 if success:
                     return True, '人格备份恢复成功'
             except Exception as e:
                 logger.warning(f"正式备份管理器恢复失败，尝试 WebUI fallback: {e}")
 
-        backup = await self.get_backup(backup_id, group_id=group_id)
         persona = self._persona_from_backup(backup)
         if not persona:
             return False, '备份中没有可恢复的人格内容'
@@ -171,11 +186,12 @@ class PersonaBackupService:
 
         return False, 'PersonaManager 未初始化，无法恢复备份'
 
-    async def delete_backup(self, backup_id: int, group_id: str = 'default') -> Tuple[bool, str]:
+    async def delete_backup(self, backup_id: int, group_id: Optional[str] = None) -> Tuple[bool, str]:
         """删除人格备份。"""
         self._ensure_database()
+        normalized_group_id = self._normalize_group_id(group_id)
         if not hasattr(self.database_manager, 'delete_persona_backup'):
             return False, '当前数据库实现不支持删除人格备份'
 
-        success = await self.database_manager.delete_persona_backup(backup_id, group_id=group_id)
+        success = await self.database_manager.delete_persona_backup(backup_id, group_id=normalized_group_id)
         return (True, '人格备份已删除') if success else (False, '人格备份不存在或删除失败')

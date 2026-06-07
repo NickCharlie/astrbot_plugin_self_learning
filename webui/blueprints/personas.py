@@ -180,7 +180,7 @@ async def get_current_persona_state():
 @require_auth
 async def list_persona_backups():
     """获取人格备份列表"""
-    group_id = request.args.get("group_id", "default")
+    group_id = request.args.get("group_id")
     try:
         limit = _parse_backup_limit(request.args.get("limit", 20))
         container = get_container()
@@ -208,7 +208,7 @@ async def get_persona_backup(backup_id: int):
     try:
         container = get_container()
         backup_service = PersonaBackupService(container)
-        group_id = request.args.get("group_id", "default")
+        group_id = request.args.get("group_id")
         backup = await backup_service.get_backup(backup_id, group_id=group_id)
         return jsonify(backup), 200
 
@@ -225,7 +225,7 @@ async def restore_persona_backup(backup_id: int):
     """恢复人格备份"""
     try:
         data = await request.get_json(silent=True) or {}
-        group_id = data.get("group_id") or request.args.get("group_id", "default")
+        group_id = data.get("group_id") or request.args.get("group_id")
 
         container = get_container()
         backup_service = PersonaBackupService(container)
@@ -249,7 +249,7 @@ async def delete_persona_backup(backup_id: int):
     try:
         container = get_container()
         backup_service = PersonaBackupService(container)
-        group_id = request.args.get("group_id", "default")
+        group_id = request.args.get("group_id")
         success, message = await backup_service.delete_backup(backup_id, group_id=group_id)
 
         if success:

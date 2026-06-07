@@ -310,7 +310,12 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     assert should_ignore_learning_sample("/help me") is True
     assert should_ignore_learning_sample("help") is True
     assert should_ignore_learning_sample("help me") is False
-    assert should_ignore_learning_sample("/a hello") is False
+    assert should_ignore_learning_sample("/a hello") is True
+    assert should_ignore_learning_sample("/帮助 查看菜单") is True
+    assert should_ignore_learning_sample("使用 /help 命令查看菜单", sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample("发送 /帮助 查看菜单", sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample("可用命令：/help /provider", sender_id="bot", is_bot=True) is True
+    assert should_ignore_learning_sample("我不会使用命令式的语气聊天") is False
     assert should_ignore_learning_sample(bot_help, sender_id="bot", is_bot=True) is True
     assert should_ignore_learning_sample(livingmemory_shutdown_log) is True
     assert should_ignore_learning_sample("MemoryEngine 已关闭") is True

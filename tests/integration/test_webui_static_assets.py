@@ -162,7 +162,9 @@ def test_dashboard_exposes_persona_state_and_backup_management():
     assert "personaStateStats" in text
     assert "personaBackupList" in text
     assert "/api/persona_management/current?group_id=default" in text
-    assert "/api/persona_backups/list?group_id=default&limit=8" in text
+    assert "/api/persona_backups/list?limit=8" in text
+    assert "data-${key}" in text
+    assert "group-id" in text
     assert "persona-backup-view" in text
     assert "persona-backup-restore" in text
     assert "persona-backup-delete" in text
