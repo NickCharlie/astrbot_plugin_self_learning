@@ -1104,7 +1104,8 @@ class PersonaReviewService:
         self,
         limit: int = 50,
         offset: int = 0,
-        status_filter: Optional[str] = None
+        status_filter: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         获取已审查的人格更新列表
@@ -1118,9 +1119,15 @@ class PersonaReviewService:
             Dict: 包含已审查更新的字典
         """
         reviewed_updates = []
+        source = (source_filter or "all").strip().lower().replace("-", "_")
+        if source not in {"all", "persona", "traditional", "persona_learning", "style", "style_learning"}:
+            source = "all"
+        include_traditional = source in {"all", "persona", "traditional"}
+        include_persona_learning = source in {"all", "persona", "persona_learning"}
+        include_style_learning = source in {"all", "style", "style_learning"}
 
         # 从传统人格更新审查获取
-        if self.persona_updater:
+        if include_traditional and self.persona_updater:
             try:
                 traditional_updates = await self.persona_updater.get_reviewed_persona_updates(limit, offset, status_filter)
                 if traditional_updates:
@@ -1159,7 +1166,7 @@ class PersonaReviewService:
                 logger.warning(f"获取传统已审查人格更新失败: {e}")
 
         # 从人格学习审查获取
-        if self.database_manager:
+        if include_persona_learning and self.database_manager:
             try:
                 persona_learning_updates = await self.database_manager.get_reviewed_persona_learning_updates(limit, offset, status_filter)
                 if persona_learning_updates:
@@ -1186,7 +1193,7 @@ class PersonaReviewService:
                 logger.warning(f"获取已审查人格学习更新失败: {e}")
 
         # 从风格学习审查获取
-        if self.database_manager:
+        if include_style_learning and self.database_manager:
             try:
                 style_updates = await self.database_manager.get_reviewed_style_learning_updates(limit, offset, status_filter)
                 if style_updates:

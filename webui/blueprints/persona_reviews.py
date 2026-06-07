@@ -69,10 +69,11 @@ async def get_reviewed_persona_updates():
         limit = int(request.args.get('limit', 50))
         offset = int(request.args.get('offset', 0))
         status_filter = request.args.get('status')
+        source_filter = request.args.get('source')
 
         container = get_container()
         review_service = PersonaReviewService(container)
-        result = await review_service.get_reviewed_persona_updates(limit, offset, status_filter)
+        result = await review_service.get_reviewed_persona_updates(limit, offset, status_filter, source_filter)
 
         return jsonify(result), 200
 

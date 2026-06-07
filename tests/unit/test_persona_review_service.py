@@ -443,6 +443,64 @@ class TestPersonaReviewService:
         assert mock_container.database_manager.get_persona_change_snapshot.await_count == 3
 
     @pytest.mark.asyncio
+    async def test_get_reviewed_persona_updates_filters_persona_sources(self, mock_container):
+        """Persona reviewed history should not be crowded out by style review records."""
+        service = PersonaReviewService(mock_container)
+
+        traditional = [{'id': 1, 'status': 'approved', 'review_time': 1000}]
+        persona_learning = [{'id': 2, 'status': 'approved', 'review_time': 2000}]
+
+        mock_container.persona_updater.get_reviewed_persona_updates.return_value = traditional
+        mock_container.database_manager.get_reviewed_persona_learning_updates.return_value = persona_learning
+        mock_container.database_manager.get_reviewed_style_learning_updates.return_value = [
+            {'id': 3, 'status': 'rejected', 'review_time': 3000}
+        ]
+        mock_container.database_manager.get_persona_change_snapshot.return_value = None
+
+        result = await service.get_reviewed_persona_updates(
+            limit=50,
+            offset=0,
+            source_filter='persona',
+        )
+
+        assert result['success'] is True
+        assert result['total'] == 2
+        assert [item['review_source'] for item in result['updates']] == [
+            'persona_learning',
+            'traditional',
+        ]
+        mock_container.database_manager.get_reviewed_style_learning_updates.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_reviewed_persona_updates_filters_style_source(self, mock_container):
+        """Style reviewed history should stay separate from persona review records."""
+        service = PersonaReviewService(mock_container)
+
+        mock_container.persona_updater.get_reviewed_persona_updates.return_value = [
+            {'id': 1, 'status': 'approved', 'review_time': 1000}
+        ]
+        mock_container.database_manager.get_reviewed_persona_learning_updates.return_value = [
+            {'id': 2, 'status': 'approved', 'review_time': 2000}
+        ]
+        mock_container.database_manager.get_reviewed_style_learning_updates.return_value = [
+            {'id': 3, 'status': 'rejected', 'review_time': 3000}
+        ]
+        mock_container.database_manager.get_persona_change_snapshot.return_value = None
+
+        result = await service.get_reviewed_persona_updates(
+            limit=50,
+            offset=0,
+            source_filter='style',
+        )
+
+        assert result['success'] is True
+        assert result['total'] == 1
+        assert result['updates'][0]['id'] == 'style_3'
+        assert result['updates'][0]['review_source'] == 'style_learning'
+        mock_container.persona_updater.get_reviewed_persona_updates.assert_not_called()
+        mock_container.database_manager.get_reviewed_persona_learning_updates.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_revert_persona_update_traditional(self, mock_container):
         """Test reverting traditional persona update"""
         service = PersonaReviewService(mock_container)
