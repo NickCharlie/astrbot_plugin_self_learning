@@ -186,6 +186,7 @@
             max-width: 1440px;
             margin: 0 auto;
             padding: 24px 28px;
+            overflow-x: clip;
         }
 
         .topbar {
@@ -416,6 +417,358 @@
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
+        }
+
+        .learning-dashboard {
+            display: grid;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .learning-command {
+            display: grid;
+            grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+            gap: 16px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .learning-command::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background:
+                radial-gradient(circle at 14% 18%, rgba(16, 185, 129, 0.11), transparent 28%),
+                radial-gradient(circle at 84% 20%, rgba(245, 158, 11, 0.10), transparent 26%),
+                linear-gradient(135deg, rgba(99, 102, 241, 0.08), transparent 48%);
+            pointer-events: none;
+        }
+
+        .learning-command > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .learning-command-title {
+            display: grid;
+            gap: 10px;
+            align-content: start;
+        }
+
+        .learning-command-title h2 {
+            margin: 0;
+            font-size: var(--text-2xl);
+            line-height: 1.15;
+        }
+
+        .learning-command-title p {
+            margin: 0;
+            max-width: 680px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .learning-pulse-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 4px;
+        }
+
+        .learning-pulse {
+            min-width: 0;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: color-mix(in srgb, var(--panel) 76%, transparent);
+            backdrop-filter: blur(12px);
+        }
+
+        .learning-pulse .k {
+            color: var(--muted);
+            font-size: 11px;
+        }
+
+        .learning-pulse .v {
+            margin-top: 5px;
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1;
+            overflow-wrap: anywhere;
+        }
+
+        .quick-dock {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-content: flex-start;
+            justify-content: flex-end;
+        }
+
+        .quick-action {
+            min-height: 38px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 0 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: color-mix(in srgb, var(--panel) 82%, transparent);
+            color: var(--text);
+            cursor: pointer;
+            font: inherit;
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 650;
+            line-height: 1;
+            box-shadow: var(--shadow-sm);
+            backdrop-filter: blur(14px);
+            transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .quick-action:hover,
+        .quick-action:focus-visible {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--panel);
+            box-shadow: var(--shadow);
+            outline: none;
+        }
+
+        .quick-action .material-icons {
+            font-size: 17px;
+        }
+
+        .learning-module-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .learning-module-card {
+            --module-accent: var(--accent);
+            min-height: 238px;
+            display: grid;
+            gap: 12px;
+            align-content: space-between;
+            padding: 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--panel);
+            color: var(--text);
+            text-decoration: none;
+            box-shadow: var(--shadow-sm);
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease;
+        }
+
+        .learning-module-card::before {
+            content: '';
+            position: absolute;
+            inset: 0 0 auto;
+            height: 4px;
+            background: linear-gradient(90deg, var(--module-accent), color-mix(in srgb, var(--module-accent) 35%, transparent));
+        }
+
+        .learning-module-card:hover,
+        .learning-module-card:focus-visible,
+        .learning-module-card.active {
+            border-color: color-mix(in srgb, var(--module-accent) 58%, var(--border));
+            box-shadow: var(--shadow-lg);
+            outline: none;
+        }
+
+        .learning-module-card.jargon {
+            --module-accent: var(--success);
+        }
+
+        .learning-module-card.expression {
+            --module-accent: var(--accent-3);
+        }
+
+        .learning-module-card.persona {
+            --module-accent: var(--accent-2);
+        }
+
+        .learning-module-card .module-icon {
+            background: color-mix(in srgb, var(--module-accent) 13%, transparent);
+            color: var(--module-accent);
+        }
+
+        .learning-module-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .learning-module-title {
+            display: grid;
+            gap: 5px;
+            min-width: 0;
+        }
+
+        .learning-module-title strong {
+            font-size: 17px;
+            line-height: 1.25;
+        }
+
+        .learning-module-title span {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .learning-module-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .learning-module-metric {
+            min-width: 0;
+            padding: 9px 10px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--panel-soft);
+        }
+
+        .learning-module-metric .k {
+            color: var(--muted);
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .learning-module-metric .v {
+            margin-top: 5px;
+            font-size: 16px;
+            font-weight: 800;
+            overflow-wrap: anywhere;
+        }
+
+        .mini-chart {
+            width: 100%;
+            height: 72px;
+        }
+
+        .home-section-label {
+            margin: 2px 0 10px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 750;
+            text-transform: uppercase;
+            letter-spacing: 0;
+        }
+
+        .learning-module-page-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 0.96fr) minmax(0, 1.36fr);
+            gap: 16px;
+        }
+
+        .learning-module-hero {
+            display: grid;
+            gap: 14px;
+            padding: 18px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            background: var(--panel);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .learning-module-hero .icon-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 12px;
+        }
+
+        .learning-module-hero h3 {
+            margin: 0;
+            font-size: var(--text-xl);
+            line-height: 1.2;
+        }
+
+        .learning-module-hero p {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .module-kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .module-kpi {
+            min-height: 84px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--panel-soft);
+            display: grid;
+            align-content: space-between;
+        }
+
+        .module-kpi .k {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .module-kpi .v {
+            margin-top: 8px;
+            font-size: 24px;
+            font-weight: 850;
+            line-height: 1;
+        }
+
+        .learning-module-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .module-list-compact {
+            display: grid;
+            gap: 10px;
+            max-height: 520px;
+            overflow: auto;
+            padding-right: 2px;
+        }
+
+        .module-chart-large {
+            height: 300px;
+        }
+
+        .physics-surface {
+            --spring-x: 0px;
+            --spring-y: 0px;
+            --spring-rx: 0deg;
+            --spring-ry: 0deg;
+            --spring-scale: 1;
+            transform:
+                perspective(900px)
+                translate3d(var(--spring-x), var(--spring-y), 0)
+                rotateX(var(--spring-rx))
+                rotateY(var(--spring-ry))
+                scale(var(--spring-scale));
+            transform-style: preserve-3d;
+            will-change: transform;
+        }
+
+        .physics-surface.is-pressing {
+            cursor: grabbing;
         }
 
         .page-titlebar {
@@ -2002,6 +2355,19 @@
                 grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
+            .learning-command,
+            .learning-module-page-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .learning-module-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .quick-dock {
+                justify-content: flex-start;
+            }
+
             .grid2,
             .queue-grid {
                 grid-template-columns: 1fr;
@@ -2026,12 +2392,36 @@
         }
 
         @media (max-width: 720px) {
+            body {
+                overflow-x: hidden;
+            }
+
             .shell {
                 padding: 14px;
             }
 
             .topbar {
                 flex-direction: column;
+                overflow: hidden;
+            }
+
+            .toolbar {
+                justify-content: flex-start;
+                max-width: 100%;
+            }
+
+            .pill {
+                max-width: 100%;
+            }
+
+            .learning-command {
+                padding: 14px;
+            }
+
+            .learning-pulse-grid,
+            .learning-module-metrics,
+            .module-kpi-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
             .page-titlebar {
@@ -2071,6 +2461,52 @@
                 grid-template-columns: 1fr;
             }
         }
+
+        @media (max-width: 460px) {
+            .learning-pulse-grid,
+            .learning-module-metrics,
+            .module-kpi-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .quick-action {
+                flex: 1 0 calc(33.333% - 8px);
+                max-width: calc(33.333% - 5px);
+                min-width: 0;
+                padding: 0 8px;
+            }
+
+            .quick-dock,
+            .learning-module-actions,
+            .panel-tools {
+                width: 100%;
+                justify-content: flex-start;
+            }
+
+            .content-search {
+                width: 100% !important;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .page.active,
+            .toast,
+            .spinner {
+                animation: none !important;
+            }
+
+            .physics-surface,
+            .module-card,
+            .learning-module-card,
+            .metric,
+            .panel,
+            .item,
+            .small-stat,
+            .quick-action {
+                transition: none !important;
+                transform: none !important;
+            }
+        }
         .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);}
         .confirm-overlay.show{display:flex;}
         .confirm-box{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-lg);padding:var(--space-lg);max-width:360px;width:90%;box-shadow:var(--shadow-lg);}
@@ -2080,8 +2516,8 @@
         .confirm-box .cbtns button{padding:var(--space-sm) 18px;border-radius:var(--radius-md);border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-size:var(--text-sm);transition:opacity .16s,background .16s;}
         .confirm-box .cbtns button.danger{background:var(--danger);border-color:var(--danger);color:#fff;}
         .confirm-box .cbtns button:hover{opacity:.85;}
-        .toast-wrap{position:fixed;top:var(--space-md);right:var(--space-md);z-index:10000;display:flex;flex-direction:column;gap:var(--space-sm);pointer-events:none;}
-        .toast{padding:12px 20px;border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;color:#fff;pointer-events:auto;animation:toast-in .35s cubic-bezier(0.4,0,0.2,1);box-shadow:var(--shadow-lg);cursor:pointer;backdrop-filter:blur(8px);}
+        .toast-wrap{position:fixed;top:var(--space-md);right:var(--space-md);left:var(--space-md);z-index:10000;display:flex;flex-direction:column;align-items:flex-end;gap:var(--space-sm);pointer-events:none;max-width:calc(100vw - 32px);}
+        .toast{padding:12px 20px;border-radius:var(--radius-md);font-size:var(--text-sm);font-weight:500;color:#fff;pointer-events:auto;animation:toast-in .35s cubic-bezier(0.4,0,0.2,1);box-shadow:var(--shadow-lg);cursor:pointer;backdrop-filter:blur(8px);max-width:100%;overflow-wrap:anywhere;}
         .toast.ok{background:var(--toast-success);} .toast.err{background:var(--toast-error);} .toast.warn{background:var(--toast-warning);} .toast.info{background:var(--toast-info);}
         .toast.out{animation:toast-out .25s ease forwards;}
         @keyframes toast-in{from{opacity:0;transform:translateX(60px) scale(0.95)}to{opacity:1;transform:translateX(0) scale(1)}}
@@ -2130,6 +2566,138 @@
 
         <main>
         <section class="page module-home active" id="page-home" data-page="home" aria-label="模块入口">
+            <section class="learning-dashboard" aria-label="学习模块总览">
+                <div class="learning-command physics-surface" data-physics>
+                    <div class="learning-command-title">
+                        <h2>学习模块控制台</h2>
+                        <p>黑话、表达方式和人格学习分开运行，首页汇总全部队列、内容、批次与系统状态。</p>
+                        <div class="learning-pulse-grid">
+                            <div class="learning-pulse">
+                                <div class="k">学习效率</div>
+                                <div class="v" id="learningPulseEfficiency">--</div>
+                            </div>
+                            <div class="learning-pulse">
+                                <div class="k">待办总量</div>
+                                <div class="v" id="learningPulseBacklog">0</div>
+                            </div>
+                            <div class="learning-pulse">
+                                <div class="k">内容样本</div>
+                                <div class="v" id="learningPulseContent">--</div>
+                            </div>
+                            <div class="learning-pulse">
+                                <div class="k">最近批次</div>
+                                <div class="v" id="learningPulseBatches">--</div>
+                            </div>
+                        </div>
+                    </div>
+                    <nav class="quick-dock" aria-label="学习快捷入口">
+                        <a class="quick-action" href="#/jargon-learning">
+                            <span class="material-icons">translate</span>
+                            黑话
+                        </a>
+                        <a class="quick-action" href="#/expression-learning">
+                            <span class="material-icons">record_voice_over</span>
+                            表达
+                        </a>
+                        <a class="quick-action" href="#/persona-learning">
+                            <span class="material-icons">psychology</span>
+                            人格
+                        </a>
+                        <a class="quick-action" href="#/reviews">
+                            <span class="material-icons">rule</span>
+                            审查
+                        </a>
+                        <a class="quick-action" href="#/content">
+                            <span class="material-icons">article</span>
+                            内容
+                        </a>
+                        <a class="quick-action" href="#/monitoring">
+                            <span class="material-icons">monitor_heart</span>
+                            监控
+                        </a>
+                    </nav>
+                </div>
+
+                <div>
+                    <div class="home-section-label">Independent Learning Modules</div>
+                    <div class="learning-module-grid">
+                        <a class="learning-module-card jargon physics-surface" href="#/jargon-learning" data-route-card="jargon-learning" data-physics>
+                            <div class="learning-module-head">
+                                <div class="learning-module-title">
+                                    <strong>黑话学习</strong>
+                                    <span>候选、确认、全局化与出现频次</span>
+                                </div>
+                                <span class="module-icon"><span class="material-icons">translate</span></span>
+                            </div>
+                            <div class="learning-module-metrics">
+                                <div class="learning-module-metric">
+                                    <div class="k">候选</div>
+                                    <div class="v" id="homeJargonCandidates">0</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">已确认</div>
+                                    <div class="v" id="homeJargonConfirmed">0</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">待确认</div>
+                                    <div class="v" id="homeJargonPending">0</div>
+                                </div>
+                            </div>
+                            <div id="homeJargonMiniChart" class="mini-chart"></div>
+                        </a>
+                        <a class="learning-module-card expression physics-surface" href="#/expression-learning" data-route-card="expression-learning" data-physics>
+                            <div class="learning-module-head">
+                                <div class="learning-module-title">
+                                    <strong>表达方式学习</strong>
+                                    <span>对话样本、分析、表达模式和批次</span>
+                                </div>
+                                <span class="module-icon"><span class="material-icons">record_voice_over</span></span>
+                            </div>
+                            <div class="learning-module-metrics">
+                                <div class="learning-module-metric">
+                                    <div class="k">样本</div>
+                                    <div class="v" id="homeExpressionSamples">--</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">模式</div>
+                                    <div class="v" id="homeExpressionPatterns">--</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">待审</div>
+                                    <div class="v" id="homeExpressionPending">0</div>
+                                </div>
+                            </div>
+                            <div id="homeExpressionMiniChart" class="mini-chart"></div>
+                        </a>
+                        <a class="learning-module-card persona physics-surface" href="#/persona-learning" data-route-card="persona-learning" data-physics>
+                            <div class="learning-module-head">
+                                <div class="learning-module-title">
+                                    <strong>人格学习</strong>
+                                    <span>当前人格、更新审查、备份和回滚</span>
+                                </div>
+                                <span class="module-icon"><span class="material-icons">psychology</span></span>
+                            </div>
+                            <div class="learning-module-metrics">
+                                <div class="learning-module-metric">
+                                    <div class="k">待审</div>
+                                    <div class="v" id="homePersonaPending">0</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">已审</div>
+                                    <div class="v" id="homePersonaReviewed">0</div>
+                                </div>
+                                <div class="learning-module-metric">
+                                    <div class="k">备份</div>
+                                    <div class="v" id="homePersonaBackups">0</div>
+                                </div>
+                            </div>
+                            <div id="homePersonaMiniChart" class="mini-chart"></div>
+                        </a>
+                    </div>
+                </div>
+            </section>
+
+            <div class="home-section-label">System Entry Points</div>
             <div class="module-grid">
                 <a class="module-card" href="#/overview" data-route-card="overview">
                     <div class="module-card-top">
@@ -2587,6 +3155,250 @@
         </section>
         </section>
 
+        <section class="page" id="page-jargon-learning" data-page="jargon-learning">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>黑话学习</h2>
+                    <p>独立管理候选、确认、全局化、出现频次和上下文样例。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="learning-module-page-grid">
+                <div class="learning-module-hero physics-surface" data-physics>
+                    <div class="icon-row">
+                        <div>
+                            <h3>黑话词库</h3>
+                            <p id="jargonLearningSummary">等待黑话统计。</p>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">translate</span></span>
+                    </div>
+                    <div class="module-kpi-strip">
+                        <div class="module-kpi">
+                            <div class="k">候选词条</div>
+                            <div class="v" id="jargonModuleCandidates">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">待确认</div>
+                            <div class="v" id="jargonModulePending">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">已确认</div>
+                            <div class="v" id="jargonModuleConfirmed">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">出现次数</div>
+                            <div class="v" id="jargonModuleOccurrences">0</div>
+                        </div>
+                    </div>
+                    <div class="learning-module-actions">
+                        <a class="quick-action" href="#/reviews"><span class="material-icons">rate_review</span>审查队列</a>
+                        <a class="quick-action" href="#/content"><span class="material-icons">article</span>学习内容</a>
+                        <button class="quick-action" type="button" data-dashboard-action="module-refresh" data-id="jargon">
+                            <span class="material-icons">sync</span>刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>黑话分布</h2>
+                        <span class="hint" id="jargonModuleChartHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="jargonModuleChart" class="chart module-chart-large"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel" style="margin-top:16px;">
+                <div class="panel-head">
+                    <div>
+                        <h2>黑话词条</h2>
+                        <span class="hint" id="jargonModuleListHint">同步审查队列筛选</span>
+                    </div>
+                    <div class="panel-tools">
+                        <select id="jargonModuleFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
+                            <option value="all">全部</option>
+                            <option value="pending">待确认</option>
+                            <option value="confirmed">已确认</option>
+                            <option value="global">全局</option>
+                            <option value="local">本地</option>
+                        </select>
+                        <input id="jargonModuleSearchInput" class="content-search" style="width:180px;height:32px;font-size:12px;" type="search" placeholder="搜索黑话" autocomplete="off">
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="jargonModuleList" class="module-list-compact"></div>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-expression-learning" data-page="expression-learning">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>表达方式学习</h2>
+                    <p>独立查看对话样本、分析结果、表达模式和学习批次。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="learning-module-page-grid">
+                <div class="learning-module-hero physics-surface" data-physics>
+                    <div class="icon-row">
+                        <div>
+                            <h3>表达样本库</h3>
+                            <p id="expressionLearningSummary">等待表达学习内容。</p>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">record_voice_over</span></span>
+                    </div>
+                    <div class="module-kpi-strip">
+                        <div class="module-kpi">
+                            <div class="k">原始对话</div>
+                            <div class="v" id="expressionModuleDialogues">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">分析结果</div>
+                            <div class="v" id="expressionModuleAnalysis">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">表达模式</div>
+                            <div class="v" id="expressionModuleFeatures">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">待审风格</div>
+                            <div class="v" id="expressionModulePending">0</div>
+                        </div>
+                    </div>
+                    <div class="learning-module-actions">
+                        <a class="quick-action" href="#/content"><span class="material-icons">article</span>内容浏览</a>
+                        <a class="quick-action" href="#/reviews"><span class="material-icons">rule</span>风格审查</a>
+                        <button class="quick-action" type="button" data-dashboard-action="module-refresh" data-id="expression">
+                            <span class="material-icons">sync</span>刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>表达学习构成</h2>
+                        <span class="hint" id="expressionModuleChartHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="expressionModuleChart" class="chart module-chart-large"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel" style="margin-top:16px;">
+                <div class="panel-head">
+                    <div>
+                        <h2>表达内容流</h2>
+                        <span class="hint" id="expressionModuleListHint">最近学习内容</span>
+                    </div>
+                    <div class="graph-tabs" aria-label="表达内容类型">
+                        <button class="seg-btn active" type="button" data-expression-module-type="dialogues">
+                            <span class="material-icons" style="font-size:16px;">forum</span>
+                            对话
+                        </button>
+                        <button class="seg-btn" type="button" data-expression-module-type="analysis">
+                            <span class="material-icons" style="font-size:16px;">fact_check</span>
+                            分析
+                        </button>
+                        <button class="seg-btn" type="button" data-expression-module-type="features">
+                            <span class="material-icons" style="font-size:16px;">auto_awesome</span>
+                            模式
+                        </button>
+                        <button class="seg-btn" type="button" data-expression-module-type="history">
+                            <span class="material-icons" style="font-size:16px;">history</span>
+                            批次
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="expressionModuleList" class="module-list-compact"></div>
+                </div>
+            </section>
+        </section>
+
+        <section class="page" id="page-persona-learning" data-page="persona-learning">
+            <div class="page-titlebar">
+                <div class="page-title">
+                    <h2>人格学习</h2>
+                    <p>独立管理当前人格、人格更新、审查历史、备份和恢复。</p>
+                </div>
+                <a class="back-home" href="#/home"><span class="material-icons" style="font-size:18px;">apps</span>模块</a>
+            </div>
+
+            <section class="learning-module-page-grid">
+                <div class="learning-module-hero physics-surface" data-physics>
+                    <div class="icon-row">
+                        <div>
+                            <h3>人格状态</h3>
+                            <p id="personaLearningSummary">等待人格状态。</p>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">psychology</span></span>
+                    </div>
+                    <div class="module-kpi-strip">
+                        <div class="module-kpi">
+                            <div class="k">待审人格</div>
+                            <div class="v" id="personaModulePending">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">已审人格</div>
+                            <div class="v" id="personaModuleReviewed">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">人格备份</div>
+                            <div class="v" id="personaModuleBackups">0</div>
+                        </div>
+                        <div class="module-kpi">
+                            <div class="k">Prompt</div>
+                            <div class="v" id="personaModulePrompt">0</div>
+                        </div>
+                    </div>
+                    <div class="learning-module-actions">
+                        <a class="quick-action" href="#/reviews"><span class="material-icons">rate_review</span>审查队列</a>
+                        <a class="quick-action" href="#/settings"><span class="material-icons">tune</span>人格配置</a>
+                        <button class="quick-action" type="button" data-dashboard-action="module-refresh" data-id="persona">
+                            <span class="material-icons">sync</span>刷新
+                        </button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>人格学习状态</h2>
+                        <span class="hint" id="personaModuleChartHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="personaModuleChart" class="chart module-chart-large"></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="queue-grid" style="margin-top:16px;">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>当前人格</h2>
+                        <span class="hint" id="personaModuleStateHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="personaModuleState" class="module-list-compact"></div>
+                    </div>
+                </div>
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>待审人格更新</h2>
+                        <span class="hint" id="personaModuleListHint">--</span>
+                    </div>
+                    <div class="panel-body">
+                        <div id="personaModuleList" class="module-list-compact"></div>
+                    </div>
+                </div>
+            </section>
+        </section>
+
         <section class="page" id="page-content" data-page="content">
             <div class="page-titlebar">
                 <div class="page-title">
@@ -2937,9 +3749,12 @@
                     items: [],
                     loading: false,
                 },
+                learningModules: {
+                    expressionType: 'dialogues',
+                },
                 activePage: 'home',
             };
-            const DASHBOARD_PAGES = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'content', 'reply-strategy', 'graphs', 'integrations', 'settings'];
+            const DASHBOARD_PAGES = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'jargon-learning', 'expression-learning', 'persona-learning', 'content', 'reply-strategy', 'graphs', 'integrations', 'settings'];
 
             const numberFmt = new Intl.NumberFormat('zh-CN', {
                 maximumFractionDigits: 1,
@@ -3029,6 +3844,27 @@
 
             function safeArray(value) {
                 return Array.isArray(value) ? value : [];
+            }
+
+            function setText(id, value) {
+                const element = $(id);
+                if (element) {
+                    element.textContent = value;
+                }
+            }
+
+            function setHTML(id, value) {
+                const element = $(id);
+                if (element) {
+                    element.innerHTML = value;
+                }
+            }
+
+            function syncFieldValue(id, value) {
+                const element = $(id);
+                if (element && document.activeElement !== element) {
+                    element.value = value;
+                }
             }
 
             function patternCount(value) {
@@ -3412,7 +4248,176 @@
                     if (!state.batch.items.length || force) {
                         loadBatchList();
                     }
+                } else if (page === 'jargon-learning') {
+                    if (!state.jargon.items.length || force) {
+                        loadJargonList();
+                    } else {
+                        renderLearningModules(state.data || {});
+                    }
+                } else if (page === 'expression-learning') {
+                    if (force || !state.content.loaded) {
+                        loadLearningContent({ quiet: true });
+                    } else {
+                        renderLearningModules(state.data || {});
+                    }
+                } else if (page === 'persona-learning') {
+                    renderLearningModules(state.data || {});
                 }
+            }
+
+            function learningModuleSnapshot(data) {
+                const payload = data || {};
+                const metrics = payload.metrics || {};
+                const trends = payload.trends || {};
+                const persona = payload.persona || {};
+                const personaReviewed = payload.personaReviewed || {};
+                const personaState = payload.personaState || {};
+                const personaBackups = payload.personaBackups || {};
+                const style = payload.style || {};
+                const contentPayload = getContentPayload();
+                const jargonStats = extractJargonStats(payload.jargonStats);
+                const personaUpdates = safeArray(persona.updates);
+                const styleBacklog = safeNumber(style.total);
+                const personaTotal = safeNumber(persona.total);
+                const personaPayloadIncludesStyle = personaUpdates.some((item) => item && item.review_source === 'style_learning');
+                const personaBacklog = personaPayloadIncludesStyle ? Math.max(0, personaTotal - styleBacklog) : personaTotal;
+                const totalCandidates = safeNumber(jargonStats.total_candidates);
+                const confirmedJargon = safeNumber(jargonStats.confirmed_jargon);
+                const pendingJargon = Math.max(0, totalCandidates - confirmedJargon);
+                const contentCounts = {
+                    dialogues: safeArray(contentPayload.dialogues).length,
+                    analysis: safeArray(contentPayload.analysis).length,
+                    features: safeArray(contentPayload.features).length,
+                    history: safeArray(contentPayload.history).length,
+                };
+                const expressionTotal = Object.values(contentCounts).reduce((sum, value) => sum + value, 0);
+                const backups = safeArray(personaBackups.backups);
+
+                return {
+                    metrics,
+                    trends,
+                    jargon: {
+                        stats: jargonStats,
+                        totalCandidates,
+                        confirmed: confirmedJargon,
+                        pending: pendingJargon,
+                        occurrences: safeNumber(jargonStats.total_occurrences),
+                        completed: safeNumber(jargonStats.completed_inference),
+                        items: state.jargon.items.length ? state.jargon.items : extractJargonItems(payload.jargonList),
+                    },
+                    expression: {
+                        content: contentPayload,
+                        counts: contentCounts,
+                        total: expressionTotal,
+                        pending: styleBacklog,
+                        reviews: safeArray(style.reviews),
+                        batches: safeArray(trends.recent_batches),
+                    },
+                    persona: {
+                        state: personaState,
+                        backups,
+                        backupTotal: safeNumber(personaBackups.total || backups.length),
+                        pending: personaBacklog,
+                        reviewed: safeNumber(personaReviewed.total || safeArray(personaReviewed.updates).length),
+                        updates: personaUpdates.filter((item) => !(item && item.review_source === 'style_learning')),
+                        promptLength: safeNumber(personaState.prompt_length),
+                        beginDialogs: safeNumber(personaState.begin_dialog_count),
+                    },
+                    backlog: personaBacklog + styleBacklog + pendingJargon,
+                    contentTotal: expressionTotal,
+                    batchCount: safeArray(trends.recent_batches).length,
+                    efficiency: safeNumber(metrics.learning_efficiency),
+                };
+            }
+
+            function moduleStatMarkup(rows) {
+                return rows.map(([label, value]) => `
+                    <div class="small-stat">
+                        <div class="k">${escapeHtml(label)}</div>
+                        <div class="v">${escapeHtml(value)}</div>
+                    </div>
+                `).join('');
+            }
+
+            function renderCompactJargonItems(items, limit = 10) {
+                const rows = safeArray(items).slice(0, limit).map((item) => {
+                    const id = item.id;
+                    const title = item.term || item.content || item.word || '未命名';
+                    const definition = item.definition || item.meaning || item.review_detail || item.description || '';
+                    const meta = [
+                        item.group_id ? `群组 ${item.group_id}` : null,
+                        item.is_confirmed !== undefined ? (item.is_confirmed ? '已确认' : '待确认') : null,
+                        item.is_global ? '全局' : '本地',
+                        item.occurrences !== undefined ? `出现 ${formatCount(item.occurrences)}` : null,
+                    ].filter(Boolean).join(' · ');
+                    return `
+                        <div class="item" data-jargon-id="${escapeHtml(id)}">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state ${item.is_confirmed ? 'healthy' : 'degraded'}">${item.is_confirmed ? '已确认' : '待确认'}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '未分组')}</div>
+                            <div class="body clamp">${escapeHtml(definition || '暂无释义')}</div>
+                            <div class="item-actions">
+                                ${item.is_confirmed ? actionButton('jargon-edit', id, 'edit', '编辑') : actionButton('jargon-approve', id, 'done', '确认', 'success')}
+                                ${item.is_confirmed ? '' : actionButton('jargon-reject', id, 'block', '驳回', 'warning')}
+                                ${actionButton('jargon-toggle-global', id, item.is_global ? 'public_off' : 'public', item.is_global ? '取消全局' : '设为全局')}
+                            </div>
+                        </div>
+                    `;
+                });
+                return rows.length ? rows.join('') : '<div class="empty-state"><span class="material-icons">translate</span><p>暂无黑话记录</p></div>';
+            }
+
+            function renderCompactContentItems(type, items, limit = 12) {
+                const rows = safeArray(items).slice(0, limit).map((item) => {
+                    const title = item.title || item.type || contentTypeLabel(type);
+                    const meta = [item.timestamp ? formatTime(item.timestamp) : null, item.metadata, item.status ? `状态 ${item.status}` : null].filter(Boolean).join(' · ');
+                    const text = item.text || item.detail || renderObjectSummary(item.raw) || '暂无内容';
+                    return `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(title)}</div>
+                                <span class="state unknown">${escapeHtml(contentTypeLabel(type))}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(meta || '学习内容')}</div>
+                            <div class="body clamp">${escapeHtml(text)}</div>
+                        </div>
+                    `;
+                });
+                return rows.length ? rows.join('') : `<div class="empty-state"><span class="material-icons">article</span><p>暂无${escapeHtml(contentTypeLabel(type))}</p></div>`;
+            }
+
+            function renderPersonaStateModule(snapshot) {
+                const statePayload = snapshot.persona.state || {};
+                const persona = statePayload.persona || {};
+                const services = statePayload.available_services || {};
+                const activeServices = Object.entries(services).filter(([, available]) => available).map(([name]) => name);
+                const promptPreview = statePayload.prompt_preview || persona.prompt || persona.system_prompt || '';
+                setText('personaModuleStateHint', statePayload.degraded ? '降级预览' : (persona.name || persona.persona_id || 'default'));
+                setHTML('personaModuleState', `
+                    <div class="item">
+                        <div class="top">
+                            <div class="title">${escapeHtml(persona.name || persona.persona_id || '默认人格')}</div>
+                            <span class="state ${statePayload.degraded ? 'degraded' : 'healthy'}">${escapeHtml(statePayload.group_id || 'default')}</span>
+                        </div>
+                        <div class="meta">Begin dialogs ${formatCount(snapshot.persona.beginDialogs)} · Tools ${formatCount(statePayload.tool_count || 0)} · 服务 ${escapeHtml(activeServices.length ? activeServices.join(', ') : 'fallback')}</div>
+                        <div class="body clamp">${escapeHtml(promptPreview || '暂无人格 Prompt')}</div>
+                    </div>
+                    ${snapshot.persona.backups.slice(0, 3).map((item) => `
+                        <div class="item">
+                            <div class="top">
+                                <div class="title">${escapeHtml(item.backup_name || `备份 ${item.id}`)}</div>
+                                <span class="state unknown">${escapeHtml(item.persona_name || 'persona')}</span>
+                            </div>
+                            <div class="meta">${escapeHtml(item.timestamp ? formatTime(item.timestamp) : (item.created_at ? formatTime(item.created_at) : '人格备份'))}</div>
+                            <div class="item-actions">
+                                ${actionButton('persona-backup-view', item.id, 'visibility', '查看')}
+                                ${actionButton('persona-backup-restore', item.id, 'settings_backup_restore', '恢复', 'warning')}
+                            </div>
+                        </div>
+                    `).join('')}
+                `);
             }
 
             function renderHomeModules(data) {
@@ -3483,6 +4488,97 @@
                 $('homeSettingsNote').textContent = state.config.dirtyKeys && state.config.dirtyKeys.size
                     ? `${formatCount(state.config.dirtyKeys.size)} 项未保存`
                     : '配置中心';
+            }
+
+            function renderLearningModuleCharts(snapshot) {
+                renderMiniBarChart('homeJargonMiniChart', ['候选', '确认', '待确认'], [
+                    snapshot.jargon.totalCandidates,
+                    snapshot.jargon.confirmed,
+                    snapshot.jargon.pending,
+                ], 3);
+                renderMiniBarChart('homeExpressionMiniChart', ['对话', '分析', '模式', '批次'], [
+                    snapshot.expression.counts.dialogues,
+                    snapshot.expression.counts.analysis,
+                    snapshot.expression.counts.features,
+                    snapshot.expression.counts.history,
+                ], 2);
+                renderMiniBarChart('homePersonaMiniChart', ['待审', '已审', '备份'], [
+                    snapshot.persona.pending,
+                    snapshot.persona.reviewed,
+                    snapshot.persona.backupTotal,
+                ], 1);
+
+                renderModuleDonutChart('jargonModuleChart', [
+                    ['待确认', snapshot.jargon.pending],
+                    ['已确认', snapshot.jargon.confirmed],
+                    ['完成推理', snapshot.jargon.completed],
+                ], `出现 ${formatCount(snapshot.jargon.occurrences)}`);
+                renderModuleDonutChart('expressionModuleChart', [
+                    ['原始对话', snapshot.expression.counts.dialogues],
+                    ['分析结果', snapshot.expression.counts.analysis],
+                    ['表达模式', snapshot.expression.counts.features],
+                    ['学习批次', snapshot.expression.counts.history],
+                ], `总计 ${formatCount(snapshot.expression.total)}`);
+                renderModuleGaugeChart('personaModuleChart', [
+                    ['待审人格', snapshot.persona.pending],
+                    ['已审人格', snapshot.persona.reviewed],
+                    ['人格备份', snapshot.persona.backupTotal],
+                    ['Begin dialogs', snapshot.persona.beginDialogs],
+                ], `Prompt ${formatCount(snapshot.persona.promptLength)}`);
+            }
+
+            function renderLearningModules(data) {
+                const snapshot = learningModuleSnapshot(data);
+                setText('learningPulseEfficiency', formatPercent(snapshot.efficiency));
+                setText('learningPulseBacklog', formatCount(snapshot.backlog));
+                setText('learningPulseContent', snapshot.contentTotal ? formatCount(snapshot.contentTotal) : '--');
+                setText('learningPulseBatches', snapshot.batchCount ? formatCount(snapshot.batchCount) : '--');
+
+                setText('homeJargonCandidates', formatCount(snapshot.jargon.totalCandidates));
+                setText('homeJargonConfirmed', formatCount(snapshot.jargon.confirmed));
+                setText('homeJargonPending', formatCount(snapshot.jargon.pending));
+                setText('homeExpressionSamples', snapshot.expression.total ? formatCount(snapshot.expression.total) : '--');
+                setText('homeExpressionPatterns', snapshot.expression.counts.features ? formatCount(snapshot.expression.counts.features) : '--');
+                setText('homeExpressionPending', formatCount(snapshot.expression.pending));
+                setText('homePersonaPending', formatCount(snapshot.persona.pending));
+                setText('homePersonaReviewed', formatCount(snapshot.persona.reviewed));
+                setText('homePersonaBackups', formatCount(snapshot.persona.backupTotal));
+
+                setText('jargonModuleCandidates', formatCount(snapshot.jargon.totalCandidates));
+                setText('jargonModulePending', formatCount(snapshot.jargon.pending));
+                setText('jargonModuleConfirmed', formatCount(snapshot.jargon.confirmed));
+                setText('jargonModuleOccurrences', formatCount(snapshot.jargon.occurrences));
+                setText('jargonLearningSummary', `候选 ${formatCount(snapshot.jargon.totalCandidates)} · 确认 ${formatCount(snapshot.jargon.confirmed)} · 出现 ${formatCount(snapshot.jargon.occurrences)}`);
+                setText('jargonModuleChartHint', `待确认 ${formatCount(snapshot.jargon.pending)} 条`);
+                setText('jargonModuleListHint', `当前筛选 ${state.jargon.filter} · ${formatCount(state.jargon.total || snapshot.jargon.items.length)} 条`);
+                setHTML('jargonModuleList', renderCompactJargonItems(snapshot.jargon.items));
+                syncFieldValue('jargonModuleFilterSelect', state.jargon.filter);
+                syncFieldValue('jargonModuleSearchInput', state.jargon.search || '');
+
+                setText('expressionModuleDialogues', formatCount(snapshot.expression.counts.dialogues));
+                setText('expressionModuleAnalysis', formatCount(snapshot.expression.counts.analysis));
+                setText('expressionModuleFeatures', formatCount(snapshot.expression.counts.features));
+                setText('expressionModulePending', formatCount(snapshot.expression.pending));
+                setText('expressionLearningSummary', `样本 ${formatCount(snapshot.expression.total)} · 待审风格 ${formatCount(snapshot.expression.pending)} · 最近批次 ${formatCount(snapshot.batchCount)}`);
+                setText('expressionModuleChartHint', `${formatCount(snapshot.expression.total)} 条学习内容`);
+                const expressionType = state.learningModules.expressionType || 'dialogues';
+                document.querySelectorAll('[data-expression-module-type]').forEach((tab) => {
+                    tab.classList.toggle('active', tab.dataset.expressionModuleType === expressionType);
+                });
+                setText('expressionModuleListHint', `${contentTypeLabel(expressionType)} · ${formatCount(safeArray(snapshot.expression.content[expressionType]).length)} 条`);
+                setHTML('expressionModuleList', renderCompactContentItems(expressionType, snapshot.expression.content[expressionType]));
+
+                setText('personaModulePending', formatCount(snapshot.persona.pending));
+                setText('personaModuleReviewed', formatCount(snapshot.persona.reviewed));
+                setText('personaModuleBackups', formatCount(snapshot.persona.backupTotal));
+                setText('personaModulePrompt', formatCount(snapshot.persona.promptLength));
+                setText('personaLearningSummary', `待审 ${formatCount(snapshot.persona.pending)} · 已审 ${formatCount(snapshot.persona.reviewed)} · 备份 ${formatCount(snapshot.persona.backupTotal)}`);
+                setText('personaModuleChartHint', `Prompt ${formatCount(snapshot.persona.promptLength)} 字 · Begin dialogs ${formatCount(snapshot.persona.beginDialogs)}`);
+                setText('personaModuleListHint', `${formatCount(snapshot.persona.pending)} 条待审`);
+                setHTML('personaModuleList', renderPersonaQueue(snapshot.persona.updates));
+                renderPersonaStateModule(snapshot);
+
+                renderLearningModuleCharts(snapshot);
             }
 
             function collectLLMCalls(llmCalls, llmCallBreakdown, llmCallSummary, filterModelSummary) {
@@ -3864,7 +4960,7 @@
                     llm: 'monitoring',
                     efficiency: 'monitoring',
                     reviews: 'reviews',
-                    jargon: 'reviews',
+                    jargon: 'jargon-learning',
                     batches: 'reviews',
                     messages: 'overview',
                     stable: 'overview',
@@ -4072,6 +5168,182 @@
 
                 state.charts[id] = echarts.init(dom);
                 return state.charts[id];
+            }
+
+            function renderMiniBarChart(id, labels, values, accentIndex = 0) {
+                const chart = ensureChart(id);
+                if (!chart) {
+                    return;
+                }
+                const palette = getThemePalette();
+                chart.setOption({
+                    backgroundColor: 'transparent',
+                    animation: true,
+                    grid: { left: 4, right: 4, top: 6, bottom: 4 },
+                    xAxis: {
+                        type: 'category',
+                        data: labels,
+                        show: false,
+                    },
+                    yAxis: {
+                        type: 'value',
+                        show: false,
+                    },
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
+                    },
+                    series: [{
+                        type: 'bar',
+                        data: values,
+                        barWidth: '48%',
+                        itemStyle: {
+                            color: palette[accentIndex] || palette[0],
+                            borderRadius: [6, 6, 2, 2],
+                        },
+                    }],
+                }, true);
+            }
+
+            function renderModuleDonutChart(id, rows, centerLabel) {
+                const chart = ensureChart(id);
+                if (!chart) {
+                    return;
+                }
+                const data = rows
+                    .map(([name, value]) => ({ name, value: Math.max(0, safeNumber(value)) }))
+                    .filter((item) => item.value > 0);
+
+                if (!data.length) {
+                    chart.setOption({
+                        graphic: [{
+                            type: 'text',
+                            left: 'center',
+                            top: 'middle',
+                            style: {
+                                text: '暂无数据',
+                                fill: getTextColor(),
+                                fontSize: 14,
+                            },
+                        }],
+                    }, true);
+                    return;
+                }
+
+                chart.setOption({
+                    backgroundColor: 'transparent',
+                    color: getThemePalette(),
+                    textStyle: { color: getTextColor() },
+                    tooltip: {
+                        trigger: 'item',
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
+                    },
+                    legend: {
+                        bottom: 0,
+                        itemWidth: 10,
+                        itemHeight: 10,
+                        textStyle: { color: getMutedColor(), fontSize: 11 },
+                    },
+                    series: [{
+                        type: 'pie',
+                        radius: ['48%', '70%'],
+                        center: ['50%', '43%'],
+                        avoidLabelOverlap: true,
+                        label: {
+                            formatter: '{b}\n{c}',
+                            color: getTextColor(),
+                            fontSize: 12,
+                        },
+                        labelLine: {
+                            length: 10,
+                            length2: 8,
+                            lineStyle: { color: getBorderColor() },
+                        },
+                        emphasis: {
+                            scale: true,
+                            scaleSize: 8,
+                        },
+                        data,
+                    }],
+                    graphic: [{
+                        type: 'text',
+                        left: 'center',
+                        top: '38%',
+                        style: {
+                            text: centerLabel || '',
+                            fill: getMutedColor(),
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textAlign: 'center',
+                        },
+                    }],
+                }, true);
+            }
+
+            function renderModuleGaugeChart(id, rows, centerValue) {
+                const chart = ensureChart(id);
+                if (!chart) {
+                    return;
+                }
+                const maxValue = Math.max(1, ...rows.map(([, value]) => safeNumber(value)));
+                chart.setOption({
+                    backgroundColor: 'transparent',
+                    color: getThemePalette(),
+                    textStyle: { color: getTextColor() },
+                    grid: { left: 100, right: 28, top: 16, bottom: 24 },
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: { type: 'shadow' },
+                        backgroundColor: getTooltipBackground(),
+                        borderColor: getTooltipBorderColor(),
+                        borderWidth: 1,
+                        textStyle: { color: getTextColor() },
+                    },
+                    xAxis: {
+                        type: 'value',
+                        max: Math.ceil(maxValue * 1.2),
+                        axisLabel: { color: getMutedColor() },
+                        splitLine: { lineStyle: { color: getGridColor() } },
+                    },
+                    yAxis: {
+                        type: 'category',
+                        data: rows.map(([label]) => label),
+                        axisLabel: { color: getTextColor() },
+                        axisLine: { lineStyle: { color: getBorderColor() } },
+                    },
+                    series: [{
+                        type: 'bar',
+                        data: rows.map(([, value]) => safeNumber(value)),
+                        barWidth: 18,
+                        itemStyle: {
+                            color: getTrendBarGradient(),
+                            borderRadius: [0, 8, 8, 0],
+                        },
+                        label: {
+                            show: true,
+                            position: 'right',
+                            color: getMutedColor(),
+                            formatter: '{c}',
+                        },
+                    }],
+                    graphic: centerValue ? [{
+                        type: 'text',
+                        right: 18,
+                        top: 8,
+                        style: {
+                            text: centerValue,
+                            fill: getMutedColor(),
+                            fontSize: 12,
+                            fontWeight: 700,
+                        },
+                    }] : [],
+                }, true);
             }
 
             function confidenceLabel(value) {
@@ -5934,6 +7206,20 @@
             }
 
             async function runDashboardAction(action, id) {
+                if (action === 'module-refresh') {
+                    if (id === 'jargon') {
+                        await loadJargonList();
+                    } else if (id === 'expression') {
+                        await loadLearningContent();
+                    } else if (id === 'persona') {
+                        await loadDashboard();
+                    } else {
+                        await loadDashboard();
+                    }
+                    showToast('模块已刷新', 'ok');
+                    return;
+                }
+
                 if (id === undefined || id === null || id === '') {
                     setQueueStatus('缺少可操作的 ID。', 'error');
                     return;
@@ -6625,6 +7911,7 @@
                     renderLearningContent();
                     if (state.data) {
                         renderHomeModules(state.data);
+                        renderLearningModules(state.data);
                     }
                 }
             }
@@ -6634,11 +7921,13 @@
                 renderSummary(data);
                 renderInsightPanel(data);
                 renderHomeModules(data);
+                renderLearningModules(data);
                 renderTrendChart(data.trends || {});
                 renderEfficiencyChart(data.metrics || {});
                 if (state.content.data) {
                     renderLearningContent();
                     renderHomeModules(data);
+                    renderLearningModules(data);
                 }
                 if (Object.values(state.charts).length) {
                     Object.values(state.charts).forEach((chart) => chart && chart.resize());
@@ -6726,6 +8015,61 @@
                 }
             }
 
+            function initPhysicsMotion() {
+                const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                if (reduceMotion) {
+                    return;
+                }
+
+                const surfaces = Array.from(document.querySelectorAll('[data-physics]'));
+                surfaces.forEach((surface) => {
+                    const settle = () => {
+                        surface.classList.remove('is-pressing');
+                        surface.animate([
+                            {
+                                transform: getComputedStyle(surface).transform === 'none'
+                                    ? 'perspective(900px) translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) scale(1)'
+                                    : getComputedStyle(surface).transform,
+                            },
+                            {
+                                transform: 'perspective(900px) translate3d(0, 0, 0) rotateX(0deg) rotateY(0deg) scale(1)',
+                            },
+                        ], {
+                            duration: 520,
+                            easing: 'cubic-bezier(0.22, 1.35, 0.36, 1)',
+                        });
+                        surface.style.setProperty('--spring-x', '0px');
+                        surface.style.setProperty('--spring-y', '0px');
+                        surface.style.setProperty('--spring-rx', '0deg');
+                        surface.style.setProperty('--spring-ry', '0deg');
+                        surface.style.setProperty('--spring-scale', '1');
+                    };
+
+                    surface.addEventListener('pointermove', (event) => {
+                        const rect = surface.getBoundingClientRect();
+                        if (!rect.width || !rect.height) {
+                            return;
+                        }
+                        const px = (event.clientX - rect.left) / rect.width - 0.5;
+                        const py = (event.clientY - rect.top) / rect.height - 0.5;
+                        const strength = surface.classList.contains('is-pressing') ? 1.2 : 0.72;
+                        surface.style.setProperty('--spring-x', `${(px * 7 * strength).toFixed(2)}px`);
+                        surface.style.setProperty('--spring-y', `${(py * 7 * strength).toFixed(2)}px`);
+                        surface.style.setProperty('--spring-rx', `${(-py * 4 * strength).toFixed(2)}deg`);
+                        surface.style.setProperty('--spring-ry', `${(px * 4 * strength).toFixed(2)}deg`);
+                    });
+
+                    surface.addEventListener('pointerdown', () => {
+                        surface.classList.add('is-pressing');
+                        surface.style.setProperty('--spring-scale', '0.985');
+                    });
+                    surface.addEventListener('pointerup', settle);
+                    surface.addEventListener('pointercancel', settle);
+                    surface.addEventListener('pointerleave', settle);
+                    surface.addEventListener('blur', settle);
+                });
+            }
+
             function updateLastUpdated() {
                 $('lastUpdated').textContent = new Intl.DateTimeFormat('zh-CN', {
                     hour: '2-digit',
@@ -6774,6 +8118,7 @@
                     style,
                     jargonStats,
                     jargonList,
+                    contentText,
                 ] = await Promise.all([
                     safeFetch('/api/metrics'),
                     safeFetch('/api/metrics/trends'),
@@ -6786,6 +8131,7 @@
                     safeFetch('/api/style_learning/reviews?limit=5'),
                     safeFetch('/api/jargon/stats'),
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
+                    safeFetch('/api/style_learning/content_text'),
                 ]);
 
                 const fetchErrors = [];
@@ -6810,6 +8156,11 @@
                     jargonList: extractJargonItems(jargonList),
                     _errors: fetchErrors,
                 };
+
+                if (contentText) {
+                    state.content.data = contentText;
+                    state.content.loaded = true;
+                }
 
                 renderAll(merged);
 
@@ -6865,6 +8216,9 @@
                     state.jargon.totalPages = Math.max(1, Math.ceil(total / state.jargon.pageSize));
 
                     renderJargonPanel();
+                    if (state.data) {
+                        renderLearningModules(state.data);
+                    }
                 } catch (e) {
                     console.error('Failed to load jargon list:', e);
                 } finally {
@@ -6897,6 +8251,9 @@
                     }
 
                     renderBatchPanel();
+                    if (state.data) {
+                        renderLearningModules(state.data);
+                    }
                 } catch (e) {
                     console.error('Failed to load batch list:', e);
                 } finally {
@@ -6986,6 +8343,9 @@
                 $('jargonNextBtn').disabled = page >= totalPages;
 
                 $('jargonHint').textContent = `候选 ${formatCount((jargonStats.total_candidates ?? jargonStats.totalCandidates) || 0)} · 第 ${page}/${totalPages} 页`;
+                if (state.data) {
+                    renderLearningModules(state.data);
+                }
             }
 
             function renderBatchPanel() {
@@ -7105,6 +8465,7 @@
                 $('jargonFilterSelect').addEventListener('change', (event) => {
                     state.jargon.filter = event.target.value;
                     state.jargon.page = 1;
+                    syncFieldValue('jargonModuleFilterSelect', state.jargon.filter);
                     loadJargonList();
                 });
                 $('jargonSortSelect').addEventListener('change', (event) => {
@@ -7118,9 +8479,32 @@
                     jargonSearchTimer = setTimeout(() => {
                         state.jargon.search = event.target.value || '';
                         state.jargon.page = 1;
+                        syncFieldValue('jargonModuleSearchInput', state.jargon.search);
                         loadJargonList();
                     }, 300);
                 });
+                const jargonModuleFilterSelect = $('jargonModuleFilterSelect');
+                if (jargonModuleFilterSelect) {
+                    jargonModuleFilterSelect.addEventListener('change', (event) => {
+                        state.jargon.filter = event.target.value;
+                        state.jargon.page = 1;
+                        syncFieldValue('jargonFilterSelect', state.jargon.filter);
+                        loadJargonList();
+                    });
+                }
+                const jargonModuleSearchInput = $('jargonModuleSearchInput');
+                if (jargonModuleSearchInput) {
+                    let jargonModuleSearchTimer = null;
+                    jargonModuleSearchInput.addEventListener('input', (event) => {
+                        clearTimeout(jargonModuleSearchTimer);
+                        jargonModuleSearchTimer = setTimeout(() => {
+                            state.jargon.search = event.target.value || '';
+                            state.jargon.page = 1;
+                            syncFieldValue('jargonSearchInput', state.jargon.search);
+                            loadJargonList();
+                        }, 300);
+                    });
+                }
                 $('jargonPrevBtn').addEventListener('click', () => {
                     if (state.jargon.page > 1) {
                         state.jargon.page--;
@@ -7197,6 +8581,15 @@
                         }
                         return;
                     }
+
+                    const expressionModuleTab = event.target.closest('[data-expression-module-type]');
+                    if (expressionModuleTab) {
+                        state.learningModules.expressionType = ['dialogues', 'analysis', 'features', 'history'].includes(expressionModuleTab.dataset.expressionModuleType)
+                            ? expressionModuleTab.dataset.expressionModuleType
+                            : 'dialogues';
+                        renderLearningModules(state.data || {});
+                        return;
+                    }
                 });
 
                 const graphReloadBtn = $('graphReloadBtn');
@@ -7243,6 +8636,7 @@
             function init() {
                 applyTheme(state.theme);
                 bindEvents();
+                initPhysicsMotion();
                 navigateToPage(resolvePageFromHash(), { skipHash: true, instant: true });
                 loadDashboard();
                 loadConfigPanel();

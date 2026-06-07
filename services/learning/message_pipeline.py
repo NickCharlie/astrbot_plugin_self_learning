@@ -7,6 +7,7 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
+from .jargon_learning import JargonLearningModule
 from .sample_filter import (
     extract_learning_event_metadata,
     filter_learning_messages,
@@ -43,10 +44,20 @@ class MessagePipeline:
         self._affection_manager = affection_manager
         self._db_manager = db_manager
         self._subtasks: Set[asyncio.Task] = set()
-        self._active_jargon_groups: Set[str] = set()
-        self._last_jargon_trigger_counts: dict[str, int] = {}
-        self._group_raw_message_counts: dict[str, int] = {}
-        self._groups_seeded: set[str] = set()
+        self._jargon_learning = JargonLearningModule(
+            config=plugin_config,
+            message_collector=message_collector,
+            jargon_miner_manager=jargon_miner_manager,
+            jargon_statistical_filter=jargon_statistical_filter,
+            db_manager=db_manager,
+        )
+        # Compatibility attributes for existing tests and integrations.
+        self._active_jargon_groups = self._jargon_learning.active_groups
+        self._last_jargon_trigger_counts = self._jargon_learning.last_trigger_counts
+        self._group_raw_message_counts = (
+            self._jargon_learning.group_raw_message_counts
+        )
+        self._groups_seeded = self._jargon_learning.groups_seeded
 
     # 后台学习流水线（6 步）
 
@@ -102,9 +113,7 @@ class MessagePipeline:
 
             # Track raw message count in memory for jargon trigger
             if message_collected:
-                self._group_raw_message_counts[group_id] = (
-                    self._group_raw_message_counts.get(group_id, 0) + 1
-                )
+                self._jargon_learning.note_collected_message(group_id)
 
             # 2. 增强交互（多轮对话管理）
             try:
@@ -115,13 +124,9 @@ class MessagePipeline:
                 logger.error(LogMessages.ENHANCED_INTERACTION_FAILED.format(error=e))
 
             # 2.5 黑话统计预筛（<1ms, 零 LLM 成本）
-            if self._config.enable_jargon_learning and self._jargon_statistical_filter:
-                try:
-                    self._jargon_statistical_filter.update_from_message(
-                        message_text, group_id, sender_id
-                    )
-                except Exception:
-                    pass # best-effort
+            self._jargon_learning.update_statistical_filter(
+                message_text, group_id, sender_id
+            )
 
             # 3. 黑话挖掘 — 每收集 10 条消息触发一次
             if self._config.enable_jargon_learning:
@@ -203,66 +208,7 @@ class MessagePipeline:
         4. 保存/更新到数据库并在阈值处触发推理
         """
         try:
-            if not self._config.enable_jargon_learning:
-                logger.debug("[JargonMining] Jargon learning disabled, skip")
-                return
-
-            if not self._jargon_miner_manager:
-                logger.debug("[JargonMining] JargonMinerManager not initialised, skip")
-                return
-
-            jargon_miner = self._jargon_miner_manager.get_or_create_miner(group_id)
-
-            stats = await self._message_collector.get_statistics(group_id)
-            recent_message_count = stats.get("raw_messages", 0)
-
-            if not jargon_miner.should_trigger(recent_message_count):
-                logger.debug(
-                    f"[JargonMining] Group {group_id} trigger conditions not met"
-                )
-                return
-
-            recent_messages = await self._db_manager.get_recent_raw_messages(
-                group_id, limit=30
-            )
-            recent_messages = filter_learning_messages(recent_messages)
-
-            if len(recent_messages) < 10:
-                logger.debug(
-                    f"[JargonMining] Group {group_id} insufficient messages "
-                    f"({len(recent_messages)}<10)"
-                )
-                return
-
-            logger.debug(
-                f"[JargonMining] Analysing {len(recent_messages)} messages "
-                f"from group {group_id}"
-            )
-
-            chat_messages = "\n".join(
-                [
-                    f"{msg.get('sender_id', 'unknown')}: {msg.get('message', '')}"
-                    for msg in recent_messages
-                ]
-            )
-
-            statistical_candidates = None
-            if self._jargon_statistical_filter:
-                statistical_candidates = (
-                    self._jargon_statistical_filter.get_jargon_candidates(
-                        group_id, top_k=20
-                    )
-                )
-                if not statistical_candidates:
-                    statistical_candidates = None
-
-            await jargon_miner.run_once(
-                chat_messages,
-                len(recent_messages),
-                statistical_candidates=statistical_candidates,
-            )
-
-            logger.debug(f"[JargonMining] Group {group_id} learning complete")
+            await self._jargon_learning.mine_jargon(group_id)
 
         except Exception as e:
             logger.error(
@@ -295,37 +241,24 @@ class MessagePipeline:
 
     async def _get_raw_message_count(self, group_id: str) -> int:
         """Get raw message count for a group, seeded from DB once."""
-        if group_id not in self._groups_seeded:
-            try:
-                stats = await self._message_collector.get_statistics(group_id)
-                db_count = stats.get("raw_messages", 0)
-                # Merge DB count with any messages collected in memory since startup
-                memory_count = self._group_raw_message_counts.get(group_id, 0)
-                self._group_raw_message_counts[group_id] = max(db_count, memory_count)
-            except Exception:
-                pass  # fall back to memory-only count
-            self._groups_seeded.add(group_id)
-        return self._group_raw_message_counts.get(group_id, 0)
+        return await self._jargon_learning.get_raw_message_count(group_id)
 
     def _should_schedule_jargon_mining(
         self, group_id: str, raw_message_count: int
     ) -> bool:
         """Trigger jargon mining once per additional 10 messages per group."""
-        if raw_message_count < 10:
-            return False
-        if group_id in self._active_jargon_groups:
-            return False
-        last_trigger = self._last_jargon_trigger_counts.get(group_id, 0)
-        return raw_message_count - last_trigger >= 10
+        return self._jargon_learning.should_schedule_mining(
+            group_id,
+            raw_message_count,
+        )
 
     def _spawn_jargon_task(self, group_id: str, raw_message_count: int) -> None:
         """Spawn a jargon-mining task and track group-level trigger state."""
-        self._last_jargon_trigger_counts[group_id] = raw_message_count
-        self._active_jargon_groups.add(group_id)
+        self._jargon_learning.mark_mining_started(group_id, raw_message_count)
         task = self._spawn(self.mine_jargon(group_id))
 
         def _on_complete(_: asyncio.Task) -> None:
-            self._active_jargon_groups.discard(group_id)
+            self._jargon_learning.mark_mining_finished(group_id)
 
         task.add_done_callback(_on_complete)
 

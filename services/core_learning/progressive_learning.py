@@ -5,24 +5,19 @@ import asyncio
 import json
 import time
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass
 
 from astrbot.api import logger
 from astrbot.api.star import Context
 
 from ...config import PluginConfig
-from ...constants import (
-    UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
-    UPDATE_TYPE_STYLE_LEARNING,
-)
 from ...exceptions import LearningError
 
-from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
-from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
-
 from ..database import DatabaseManager
-from ..learning.sample_filter import filter_learning_messages, should_ignore_learning_sample
+from ..learning.expression_learning import ExpressionLearningModule
+from ..learning.persona_learning import PersonaLearningModule
+from ..learning.sample_filter import filter_learning_messages
 
 
 @dataclass
@@ -62,6 +57,21 @@ class ProgressiveLearningService:
         self.persona_manager = persona_manager # 注入 persona_manager
         self.ml_analyzer = ml_analyzer # 注入 ml_analyzer
         self.prompts = prompts # 保存 prompts 实例
+
+        # MaiBot-style learning domains: expression learning and persona
+        # learning are independent modules; this service only orchestrates
+        # the batch lifecycle.
+        self.expression_learning = ExpressionLearningModule(db_manager)
+        self.persona_learning = PersonaLearningModule(
+            config=config,
+            context=context,
+            db_manager=db_manager,
+            persona_manager=persona_manager,
+            multidimensional_analyzer=multidimensional_analyzer,
+            prompts=prompts,
+            resolve_umo=self._resolve_umo,
+            json_serializer=self._json_serializer,
+        )
         
         # 学习状态 - 使用字典管理每个群组的学习状态
         self.learning_active = {} # 改为字典，按群组ID管理
@@ -85,6 +95,33 @@ class ProgressiveLearningService:
         if hasattr(self, 'group_id_to_unified_origin'):
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
+
+    def _get_expression_learning_module(self) -> ExpressionLearningModule:
+        """Return the expression-learning domain module, creating it lazily for tests."""
+        module = getattr(self, "expression_learning", None)
+        if module is None:
+            module = ExpressionLearningModule(self.db_manager)
+            self.expression_learning = module
+        return module
+
+    def _get_persona_learning_module(self) -> PersonaLearningModule:
+        """Return the persona-learning domain module, creating it lazily for tests."""
+        module = getattr(self, "persona_learning", None)
+        if module is None:
+            module = PersonaLearningModule(
+                config=getattr(self, "config", None),
+                context=getattr(self, "context", None),
+                db_manager=getattr(self, "db_manager", None),
+                persona_manager=getattr(self, "persona_manager", None),
+                multidimensional_analyzer=getattr(
+                    self, "multidimensional_analyzer", None
+                ),
+                prompts=getattr(self, "prompts", None),
+                resolve_umo=self._resolve_umo,
+                json_serializer=self._json_serializer,
+            )
+            self.persona_learning = module
+        return module
 
     @staticmethod
     def _quality_value(value) -> Optional[float]:
@@ -766,65 +803,12 @@ class ProgressiveLearningService:
             logger.error(f"后台策略优化失败: {e}")
 
     async def _generate_updated_persona_with_refinement(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Any) -> Dict[str, Any]:
-        """使用提炼模型生成更新后的人格"""
-        try:
-            # 正确处理AnalysisResult对象和字典类型
-            from ...core.interfaces import AnalysisResult
-            
-            if isinstance(style_analysis, AnalysisResult):
-                # 如果是AnalysisResult对象，提取data属性
-                analysis_data = style_analysis.data if style_analysis.data else {}
-                logger.debug(f"从AnalysisResult提取data: success={style_analysis.success}, confidence={style_analysis.confidence}")
-            elif isinstance(style_analysis, dict):
-                analysis_data = style_analysis
-                logger.debug("使用字典形式的style_analysis")
-            elif hasattr(style_analysis, 'data'):
-                # 兼容其他具有data属性的对象
-                analysis_data = style_analysis.data if style_analysis.data else {}
-                logger.debug(f"从对象提取data属性: {type(style_analysis)}")
-            else:
-                analysis_data = {}
-                logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
-            
-            # 使用多维度分析器的框架适配器生成人格更新
-            if hasattr(self.multidimensional_analyzer, 'llm_adapter') and self.multidimensional_analyzer.llm_adapter:
-                llm_adapter = self.multidimensional_analyzer.llm_adapter
-                
-                if llm_adapter.has_refine_provider() and llm_adapter.providers_configured >= 2:
-                    # 准备输入数据
-                    current_persona_json = json.dumps(current_persona, ensure_ascii=False, indent=2, default=self._json_serializer)
-                    style_analysis_json = json.dumps(analysis_data, ensure_ascii=False, indent=2, default=self._json_serializer)
-                    
-                    # 调用框架适配器
-                    response = await llm_adapter.refine_chat_completion(
-                        prompt=self.prompts.PROGRESSIVE_LEARNING_GENERATE_UPDATED_PERSONA_PROMPT.format(
-                            current_persona_json=current_persona_json,
-                            style_analysis_json=style_analysis_json
-                        ),
-                        temperature=0.6
-                    )
-                    
-                    if response:
-                        # 清理响应文本，移除markdown标识符（使用统一的json_utils工具）
-                        clean_response = clean_llm_json_response(response)
-
-                        try:
-                            updated_persona = safe_parse_llm_json(clean_response)
-                            logger.info("使用提炼模型成功生成更新后的人格")
-                            return updated_persona
-                        except json.JSONDecodeError as e:
-                            logger.error(f"提炼模型返回的JSON格式不正确: {e}, 响应: {clean_response}")
-                            return await self._generate_updated_persona(group_id, current_persona, style_analysis)
-                else:
-                    logger.warning("提炼模型Provider未配置，使用传统方法生成人格")
-                    return await self._generate_updated_persona(group_id, current_persona, style_analysis)
-            else:
-                logger.warning("框架适配器未找到，使用传统方法生成人格")
-                return await self._generate_updated_persona(group_id, current_persona, style_analysis)
-            
-        except Exception as e:
-            logger.error(f"使用提炼模型生成人格失败: {e}")
-            return await self._generate_updated_persona(group_id, current_persona, style_analysis)
+        """使用提炼模型生成更新后的人格（兼容转发）"""
+        return await self._get_persona_learning_module().generate_updated_persona_with_refinement(
+            group_id,
+            current_persona,
+            style_analysis,
+        )
 
     def _json_serializer(self, obj):
         """自定义JSON序列化器，处理不能直接序列化的对象"""
@@ -866,327 +850,35 @@ class ProgressiveLearningService:
         return messages
 
     async def _get_current_persona(self, group_id: str) -> Dict[str, Any]:
-        """获取当前人格设置 (针对特定群组)"""
-        try:
-            # 通过 PersonaManagerService 获取当前人格
-            persona = await self.persona_manager.get_current_persona(group_id)
-            if persona:
-                return persona
-
-            # 如果没有特定群组的人格，尝试从框架获取默认人格
-            if hasattr(self.context, 'persona_manager') and self.context.persona_manager:
-                try:
-                    default_persona = await resolve_target_persona(
-                        self.context.persona_manager,
-                        self.config,
-                        self._resolve_umo(group_id),
-                        require_existing=True,
-                        log=logger,
-                    )
-                    if default_persona:
-                        return {
-                            'prompt': default_persona.get('prompt', '默认人格'),
-                            'name': get_persona_identifier(default_persona),
-                            'style_parameters': {},
-                            'last_updated': datetime.now().isoformat()
-                        }
-                except Exception as e:
-                    logger.warning(f"从框架获取默认人格失败: {e}")
-
-            # 如果都失败，返回默认结构
-            return {
-                'prompt': "默认人格",
-                'name': 'default',
-                'style_parameters': {},
-                'last_updated': datetime.now().isoformat()
-            }
-        except Exception as e:
-            logger.error(f"获取当前人格失败 for group {group_id}: {e}")
-            return {'prompt': '默认人格', 'name': 'default', 'style_parameters': {}}
+        """获取当前人格设置 (针对特定群组，兼容转发)"""
+        return await self._get_persona_learning_module().get_current_persona(group_id)
 
     async def _generate_updated_persona(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Dict[str, Any]) -> Dict[str, Any]:
-        """生成更新后的人格 - 直接在原有文本后面追加增量学习内容"""
-        try:
-            # 使用新版框架API获取当前人格
-            if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
-                logger.warning(f"无法获取PersonaManager for group {group_id}")
-                return current_persona
-
-            default_persona = await resolve_target_persona(
-                self.context.persona_manager,
-                self.config,
-                self._resolve_umo(group_id),
-                require_existing=True,
-                log=logger,
-            )
-            if not default_persona:
-                logger.warning(f"无法获取当前人格 for group {group_id}")
-                return current_persona
-
-            # 获取原有人格文本
-            original_prompt = default_persona.get('prompt', '')
-
-            # 构建增量学习内容
-            learning_content = []
-
-            # 正确处理AnalysisResult对象和字典类型
-            from ...core.interfaces import AnalysisResult
-
-            if isinstance(style_analysis, AnalysisResult):
-                # 如果是AnalysisResult对象，提取data属性
-                analysis_data = style_analysis.data if style_analysis.data else {}
-                logger.debug(f"从AnalysisResult提取data: success={style_analysis.success}, confidence={style_analysis.confidence}")
-            elif isinstance(style_analysis, dict):
-                analysis_data = style_analysis
-                logger.debug("使用字典形式的style_analysis")
-            elif hasattr(style_analysis, 'data'):
-                # 兼容其他具有data属性的对象
-                analysis_data = style_analysis.data if style_analysis.data else {}
-                logger.debug(f"从对象提取data属性: {type(style_analysis)}")
-            else:
-                analysis_data = {}
-                logger.warning(f"style_analysis类型不正确: {type(style_analysis)}, 使用空字典")
-
-            # 修复：从实际的 style_analysis 结构中提取内容
-            # 优先提取 enhanced_prompt 和 learning_insights（如果有）
-            if 'enhanced_prompt' in analysis_data:
-                learning_content.append(analysis_data['enhanced_prompt'])
-                logger.debug("找到 enhanced_prompt 字段")
-
-            if 'learning_insights' in analysis_data:
-                insights = analysis_data['learning_insights']
-                if insights:
-                    learning_content.append(insights)
-                    logger.debug("找到 learning_insights 字段")
-
-            # 新增：从 style_analysis 字段提取内容（StyleAnalyzer返回的结构）
-            if not learning_content and 'style_analysis' in analysis_data:
-                style_report = analysis_data['style_analysis']
-                if isinstance(style_report, dict):
-                    # 提取关键的风格分析内容
-                    extracted_parts = []
-
-                    # 提取文本风格描述
-                    if 'text_style' in style_report:
-                        extracted_parts.append(f"文本风格: {style_report['text_style']}")
-
-                    # 提取表达特点
-                    if 'expression_features' in style_report:
-                        features = style_report['expression_features']
-                        if isinstance(features, list):
-                            extracted_parts.append(f"表达特点: {', '.join(features)}")
-                        elif isinstance(features, str):
-                            extracted_parts.append(f"表达特点: {features}")
-
-                    # 提取语气倾向
-                    if 'tone' in style_report:
-                        extracted_parts.append(f"语气倾向: {style_report['tone']}")
-
-                    # 提取话题偏好
-                    if 'topics' in style_report:
-                        topics = style_report['topics']
-                        if isinstance(topics, list):
-                            extracted_parts.append(f"话题偏好: {', '.join(topics)}")
-                        elif isinstance(topics, str):
-                            extracted_parts.append(f"话题偏好: {topics}")
-
-                    if extracted_parts:
-                        learning_content.append("【对话风格学习结果】\n" + "\n".join(extracted_parts))
-                        logger.debug(f"从 style_analysis 提取了 {len(extracted_parts)} 个风格特征")
-
-            # 新增：如果还是没有内容，从 style_profile 提取
-            if not learning_content and 'style_profile' in analysis_data:
-                style_profile = analysis_data['style_profile']
-                if isinstance(style_profile, dict):
-                    profile_parts = []
-
-                    # 提取语气强度
-                    if 'tone_intensity' in style_profile:
-                        profile_parts.append(f"语气强度: {style_profile['tone_intensity']:.2f}")
-
-                    # 提取情感倾向
-                    if 'sentiment' in style_profile:
-                        profile_parts.append(f"情感倾向: {style_profile['sentiment']:.2f}")
-
-                    # 提取词汇丰富度
-                    if 'vocabulary_richness' in style_profile:
-                        profile_parts.append(f"词汇丰富度: {style_profile['vocabulary_richness']:.2f}")
-
-                    if profile_parts:
-                        learning_content.append("【风格量化指标】\n" + "\n".join(profile_parts))
-                        logger.debug(f"从 style_profile 提取了 {len(profile_parts)} 个量化指标")
-
-            # 新增：如果还是没有内容，尝试提取任何有用的信息
-            if not learning_content:
-                # 尝试从顶层提取任何看起来有用的字段
-                useful_fields = ['summary', 'description', 'analysis', 'insights', 'findings']
-                for field in useful_fields:
-                    if field in analysis_data and analysis_data[field]:
-                        learning_content.append(f"【{field}】\n{analysis_data[field]}")
-                        logger.debug(f"从顶层字段 {field} 提取了内容")
-                        break
-
-            # 直接在原有文本后面追加新内容
-            if learning_content:
-                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
-                new_content = f"\n\n【学习更新 - {timestamp}】\n" + "\n".join(learning_content)
-
-                # 创建更新后的人格 (Personality是TypedDict)
-                updated_persona = dict(default_persona)
-                updated_persona['prompt'] = original_prompt + new_content
-                updated_persona['last_updated'] = timestamp
-
-                logger.info(f" 成功追加 {len(learning_content)} 项学习内容到人格 for group {group_id}")
-                return updated_persona
-            else:
-                logger.warning(f" style_analysis中没有可提取的学习内容 for group {group_id}, 数据结构: {list(analysis_data.keys())}")
-                # 即使没有学习内容，也返回一个副本以确保有updated_persona用于对比
-                return dict(default_persona)
-
-        except Exception as e:
-            logger.error(f"生成更新人格失败 for group {group_id}: {e}", exc_info=True)
-            return current_persona
+        """生成更新后的人格 - 直接在原有文本后面追加增量学习内容（兼容转发）"""
+        return await self._get_persona_learning_module().generate_updated_persona(
+            group_id,
+            current_persona,
+            style_analysis,
+        )
 
     async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
                                      current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
                                      quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None):
-        """应用学习更新，并创建人格学习审查记录和风格学习记录
-
-        Args:
-            group_id: 群组ID
-            style_analysis: 风格分析结果
-            messages: 处理的消息列表
-            current_persona: 当前人格
-            updated_persona: 更新后的人格
-            quality_metrics: 质量指标
-            relearn_mode: 重新学习模式，为True时即使内容相同也创建审查记录
-            ml_tuning_info: 强化学习调优信息（包含是否使用保守融合策略等）
-        """
+        """应用学习更新，并创建人格学习审查记录和风格学习记录。"""
         try:
-            # 处理可能的list类型参数
-            if isinstance(current_persona, list):
-                logger.warning(f"current_persona为list类型(长度{len(current_persona)})，转换为空字典")
-                current_persona = {}
-
-            if isinstance(updated_persona, list):
-                logger.warning(f"updated_persona为list类型(长度{len(updated_persona)})，转换为空字典")
-                updated_persona = {}
-
-            # 1. 保存对话风格学习记录（不需要审查，直接保存）
             await self._save_style_learning_record(group_id, style_analysis, messages, quality_metrics)
 
-            # 2. 更新人格prompt（通过 PersonaManagerService）
-            logger.info(f"应用人格更新 for group {group_id}")
+            await self._get_persona_learning_module().apply_persona_learning(
+                group_id,
+                style_analysis,
+                messages,
+                current_persona=current_persona,
+                updated_persona=updated_persona,
+                quality_metrics=quality_metrics,
+                relearn_mode=relearn_mode,
+                ml_tuning_info=ml_tuning_info,
+            )
 
-            # 正确处理 AnalysisResult 对象
-            if hasattr(style_analysis, 'success'):
-                # 这是一个 AnalysisResult 对象
-                if not style_analysis.success:
-                    logger.error(f"风格分析失败，跳过人格更新: {style_analysis.error}")
-                    return
-
-                # 使用 AnalysisResult 的 data 属性
-                style_analysis_dict = style_analysis.data
-                confidence = style_analysis.confidence
-                logger.debug(f"使用 AnalysisResult 对象，置信度: {confidence:.3f}")
-            elif isinstance(style_analysis, dict):
-                # 向后兼容：如果传入的是字典
-                style_analysis_dict = style_analysis
-                confidence = style_analysis.get('confidence', 0.5)
-                logger.debug("使用字典形式的 style_analysis（向后兼容）")
-            else:
-                logger.error(f"style_analysis 类型不正确: {type(style_analysis)}")
-                return
-
-            update_success = await self.persona_manager.update_persona(group_id, style_analysis_dict, messages)
-            if not update_success:
-                logger.error(f"通过 PersonaManagerService 更新人格失败 for group {group_id}")
-
-            # 2. 创建人格学习审查记录（新增）
-            # 重新学习模式：即使内容相同也创建审查记录（作为重新确认）
-            # 正常模式：只在内容不同时创建审查记录
-            should_create_review = False
-            if relearn_mode:
-                # 重新学习模式：总是创建审查记录
-                should_create_review = bool(updated_persona and current_persona)
-                if should_create_review:
-                    # 检查是否有实质性变化
-                    has_changes = updated_persona.get('prompt', '') != current_persona.get('prompt', '')
-                    if has_changes:
-                        logger.info(f" 重新学习模式：检测到人格变化，创建审查记录（group: {group_id}）")
-                    else:
-                        logger.info(f" 重新学习模式：未检测到人格变化，但仍创建审查记录供审核（group: {group_id}）")
-                else:
-                    logger.warning(f" 重新学习模式：无法创建审查记录 - updated_persona={bool(updated_persona)}, current_persona={bool(current_persona)}")
-            elif updated_persona and current_persona and updated_persona.get('prompt') != current_persona.get('prompt'):
-                # 正常模式：只在内容不同时创建
-                should_create_review = True
-                logger.info(f" 正常模式：检测到人格变化，创建审查记录（group: {group_id}）")
-            else:
-                logger.debug(f" 正常模式：人格未变化，跳过审查记录 - updated={bool(updated_persona)}, current={bool(current_persona)}, same_prompt={updated_persona.get('prompt') == current_persona.get('prompt') if updated_persona and current_persona else 'N/A'}")
-
-            if should_create_review:
-                try:
-                    # 提取原人格和新人格的完整文本
-                    original_prompt = current_persona.get('prompt', '')
-                    new_prompt = updated_persona.get('prompt', '')
-
-                    # 计算新增内容（用于单独标记）
-                    if len(new_prompt) > len(original_prompt):
-                        incremental_content = new_prompt[len(original_prompt):].strip()
-                    else:
-                        incremental_content = new_prompt
-
-                    # 准备元数据（包含高亮信息）
-                    metadata = {
-                        "progressive_learning": True,
-                        "message_count": len(messages),
-                        "style_analysis_fields": list(style_analysis.data.keys()) if (hasattr(style_analysis, "data") and isinstance(style_analysis.data, dict)) else (list(style_analysis.keys()) if isinstance(style_analysis, dict) else []),
-                        "original_prompt_length": len(original_prompt),
-                        "new_prompt_length": len(new_prompt),
-                        "incremental_content": incremental_content, # 单独记录增量内容，用于高亮
-                        "incremental_start_pos": len(original_prompt), # 标记新增内容的起始位置
-                        "relearn_mode": relearn_mode # 标记是否���重新学习模式
-                    }
-
-                    # 添加强化学习调优信息到元数据
-                    if ml_tuning_info:
-                        metadata['ml_tuning'] = ml_tuning_info
-
-                    # 获取质量得分
-                    confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.5
-
-                    # 构建 raw_analysis 说明（包含强化学习信息）
-                    raw_analysis_parts = [f"基于{len(messages)}条消息的风格分析"]
-                    if relearn_mode:
-                        raw_analysis_parts.append("（重新学习）")
-                    if ml_tuning_info and ml_tuning_info.get('applied'):
-                        if ml_tuning_info.get('used_conservative_fusion'):
-                            raw_analysis_parts.append(f"强化学习生成的prompt过短({ml_tuning_info['tuned_length']} vs {ml_tuning_info['original_length']})，采用保守融合策略")
-                        else:
-                            raw_analysis_parts.append(f"已应用强化学习优化，预期改进: {ml_tuning_info['expected_improvement']:.2%}")
-                    raw_analysis = "；".join(raw_analysis_parts)
-
-                    # 创建审查记录 - proposed_content 仅包含新增内容，审批时拼接 original_content
-                    review_id = await self.db_manager.add_persona_learning_review(
-                        group_id=group_id,
-                        proposed_content=incremental_content, # 仅新增内容，不重复原始人格
-                        learning_source=UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING,
-                        confidence_score=confidence_score,
-                        raw_analysis=raw_analysis,
-                        metadata=metadata,
-                        original_content=original_prompt, # 原人格完整文本
-                        new_content=new_prompt # 完整新人格文本（original + incremental），用于审批应用
-                    )
-
-                    logger.info(f" 已创建人格学习审查记录 (ID: {review_id})，置信度: {confidence_score:.3f}")
-
-                except Exception as review_error:
-                    logger.error(f"创建人格学习审查记录失败: {review_error}", exc_info=True)
-            else:
-                logger.debug(f"人格未变化或缺少必要参数，跳过审查记录创建")
-
-            # 3. 记录学习更新
             if group_id in self._group_sessions:
                 self._group_sessions[group_id].style_updates += 1
 
@@ -1270,276 +962,47 @@ class ProgressiveLearningService:
 
     async def _save_style_learning_record(self, group_id: str, style_analysis: Dict[str, Any],
                                          messages: List[Dict[str, Any]], quality_metrics=None):
-        """
-        保存对话风格学习记录（直接保存，不需要审查）
-
-        Args:
-            group_id: 群组ID
-            style_analysis: 风格分析结果（可以为空，会基于消息创建简单记录）
-            messages: 处理的消息列表
-            quality_metrics: 质量指标
-        """
-        try:
-            messages = filter_learning_messages(messages or [])
-
-            # 处理 AnalysisResult 对象，提取其 data 属性
-            if style_analysis and hasattr(style_analysis, 'data'):
-                style_analysis_dict = style_analysis.data
-            elif isinstance(style_analysis, dict):
-                style_analysis_dict = style_analysis
-            else:
-                style_analysis_dict = {}
-
-            # 即使没有 style_analysis，也应该基于消息创建学习记录
-            if not style_analysis_dict and not messages:
-                logger.debug(f"群组 {group_id} 没有风格分析结果且没有消息，跳过风格学习记录保存")
-                return
-
-            # 1. 保存表达模式到 expression_patterns 表
-            expression_patterns = style_analysis_dict.get('expression_patterns', [])
-            expression_patterns = self._filter_expression_patterns(expression_patterns)
-
-            # 在 fewshot 模式下，style_analysis 可能不包含 expression_patterns。
-            # 此时从数据库获取 bot 消息与用户消息合并，提取 user->bot 对话对。
-            if not expression_patterns and messages:
-                try:
-                    merged = await self._merge_bot_messages_for_pairs(group_id, messages)
-                    if merged:
-                        expression_patterns = self._extract_fewshot_pairs_from_merged(merged, group_id)
-                except Exception as pair_err:
-                    logger.debug(f"提取 fewshot 对话对失败: {pair_err}")
-
-            if expression_patterns:
-                await self._save_expression_patterns(group_id, expression_patterns)
-
-            # 2. 构建 few_shots 内容（仅使用原始 A/B 对话对，不做 LLM 总结）
-            few_shots_content = ''
-            if expression_patterns:
-                few_shots_content = self._build_few_shots_from_patterns(expression_patterns)
-
-            # 如果没有 few_shots_content，从消息中构建简单的学习内容
-            if not few_shots_content and messages:
-                few_shots_content = f"基于 {len(messages)} 条对话消息的风格学习"
-
-            # 3. 构建学习模式列表
-            learned_patterns = []
-            for pattern in expression_patterns[:10]: # 取前10个模式
-                learned_patterns.append({
-                    'situation': pattern.get('situation', ''),
-                    'expression': pattern.get('expression', ''),
-                    'weight': pattern.get('weight', 1.0),
-                    'confidence': pattern.get('confidence', 0.8)
-                })
-
-            # 4. 获取质量得分
-            confidence_score = quality_metrics.consistency_score if quality_metrics and hasattr(quality_metrics, 'consistency_score') else 0.75
-
-            # 5. 构建描述
-            pattern_count = len(learned_patterns) if learned_patterns else 0
-            message_count = len(messages) if messages else 0
-            description = f"群组 {group_id} 的对话风格学习结果（处理 {message_count} 条消息，提取 {pattern_count} 个表达模式）"
-
-            # 6. 保存风格学习记录（使用 ORM）
-            # 提取到有效对话对时设为 pending 等待审查，否则自动批准
-            try:
-                async with self.db_manager.get_session() as session:
-                    from ...models.orm.learning import StyleLearningReview
-                    from datetime import datetime
-
-                    current_timestamp = time.time()
-                    has_patterns = bool(learned_patterns)
-
-                    review = StyleLearningReview(
-                        type=UPDATE_TYPE_STYLE_LEARNING,
-                        group_id=group_id,
-                        timestamp=current_timestamp,
-                        learned_patterns=json.dumps(learned_patterns, ensure_ascii=False),
-                        few_shots_content=few_shots_content,
-                        status='pending' if has_patterns else 'approved',
-                        description=description,
-                        reviewer_comment=None if has_patterns else '自动批准（无有效对话对）',
-                        review_time=None if has_patterns else current_timestamp,
-                        created_at=datetime.fromtimestamp(current_timestamp),
-                        updated_at=datetime.fromtimestamp(current_timestamp),
-                    )
-
-                    session.add(review)
-                    await session.commit()
-                    await session.refresh(review)
-
-                    logger.info(f" 对话风格学习记录已保存 (ID: {review.id})，处理 {message_count} 条消息，提取 {pattern_count} 个模式")
-
-            except Exception as e:
-                logger.error(f"保存对话风格学习记录失败: {e}", exc_info=True)
-
-        except Exception as e:
-            logger.error(f"保存风格学习记录失败: {e}", exc_info=True)
+        """保存对话风格学习记录（兼容转发）。"""
+        await self._get_expression_learning_module().save_style_learning_record(
+            group_id,
+            style_analysis,
+            messages,
+            quality_metrics,
+        )
 
     @staticmethod
     def _filter_expression_patterns(patterns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Remove command/system-derived pairs before saving style samples."""
-        filtered = []
-        for pattern in patterns or []:
-            if not isinstance(pattern, dict):
-                continue
-            situation = pattern.get('situation', '')
-            expression = pattern.get('expression', '')
-            if should_ignore_learning_sample(situation):
-                continue
-            if should_ignore_learning_sample(expression, sender_id='bot', is_bot=True):
-                continue
-            filtered.append(pattern)
-        return filtered
+        return ExpressionLearningModule.filter_expression_patterns(patterns)
 
     def _build_few_shots_from_patterns(self, patterns: List[Dict[str, Any]]) -> str:
-        """从表达模式构建 few-shots 内容"""
-        few_shots = "*Here are few shots of dialogs, you need to imitate the tone of 'B' in the following dialogs to respond:\n"
-
-        for i, pattern in enumerate(self._filter_expression_patterns(patterns)[:5], 1): # 只取前5个
-            situation = pattern.get('situation', '')
-            expression = pattern.get('expression', '')
-            if situation and expression:
-                few_shots += f"A: {situation}\nB: {expression}\n\n"
-
-        return few_shots.strip()
+        """从表达模式构建 few-shots 内容。"""
+        return self._get_expression_learning_module().build_few_shots_from_patterns(
+            patterns
+        )
 
     async def _merge_bot_messages_for_pairs(
         self, group_id: str, user_messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Merge user messages with bot messages from DB to form a timeline.
-
-        Fetches recent bot messages for the group and interleaves them with
-        user messages sorted by timestamp, producing a unified stream that
-        allows user->bot pair extraction.
-        """
-        user_messages = filter_learning_messages(user_messages)
-        if not user_messages:
-            return []
-
-        bot_texts = await self.db_manager.get_recent_bot_responses(group_id, limit=50)
-        if not bot_texts:
-            return []
-
-        # bot_texts is List[str]; build dicts with bot sender_id
-        bot_msgs = []
-        # Retrieve full BotMessage records to get timestamps
-        async with self.db_manager.get_session() as session:
-            from ...models.orm.message import BotMessage
-            from sqlalchemy import select, desc
-            stmt = (
-                select(BotMessage)
-                .where(BotMessage.group_id == group_id)
-                .order_by(desc(BotMessage.timestamp))
-                .limit(50)
-            )
-            result = await session.execute(stmt)
-            for row in result.scalars().all():
-                if should_ignore_learning_sample(
-                    row.message,
-                    sender_id='bot',
-                    is_bot=True,
-                ):
-                    continue
-                bot_msgs.append({
-                    'sender_id': 'bot',
-                    'message': row.message,
-                    'timestamp': row.timestamp,
-                })
-
-        if not bot_msgs:
-            return []
-
-        merged = list(user_messages) + bot_msgs
-        merged.sort(key=lambda m: m.get('timestamp', 0))
-        return merged
+        """Merge user messages with bot messages from DB to form a timeline."""
+        return await self._get_expression_learning_module().merge_bot_messages_for_pairs(
+            group_id,
+            user_messages,
+        )
 
     @staticmethod
     def _extract_fewshot_pairs_from_merged(
         merged: List[Dict[str, Any]], group_id: str
     ) -> List[Dict[str, Any]]:
-        """Extract user->bot conversation pairs from a merged message timeline.
-
-        Mirrors the logic of ExpressionPatternLearner._extract_few_shot_pairs
-        but operates on plain dicts and returns expression pattern dicts.
-        """
-        pairs = []
-        current_time = time.time()
-
-        for i in range(len(merged) - 1):
-            msg = merged[i]
-            nxt = merged[i + 1]
-
-            msg_is_bot = msg.get('sender_id') == 'bot'
-            nxt_is_bot = nxt.get('sender_id') == 'bot'
-            msg_text = msg.get('message', '').strip()
-            nxt_text = nxt.get('message', '').strip()
-
-            if not msg_is_bot and nxt_is_bot and msg_text and nxt_text:
-                if should_ignore_learning_sample(msg_text):
-                    continue
-                if should_ignore_learning_sample(nxt_text, sender_id='bot', is_bot=True):
-                    continue
-                if len(msg_text) < 3 or len(nxt_text) < 3:
-                    continue
-                if msg_text.startswith(('[', 'http', '@')):
-                    continue
-                if nxt_text.startswith(('[', 'http', '@')):
-                    continue
-                if '@' in msg_text or '@' in nxt_text:
-                    continue
-
-                pairs.append({
-                    'situation': msg_text[:50],
-                    'expression': nxt_text[:100],
-                    'weight': 1.0,
-                    'confidence': 0.8,
-                    'group_id': group_id,
-                    'last_active_time': current_time,
-                    'create_time': current_time,
-                })
-
-        return pairs
+        """Extract user->bot conversation pairs from a merged message timeline."""
+        return ExpressionLearningModule.extract_fewshot_pairs_from_merged(
+            merged,
+            group_id,
+        )
 
     async def _save_expression_patterns(self, group_id: str, patterns: List[Dict[str, Any]]):
-        """
-        保存表达模式到 expression_patterns 表
-
-        Args:
-            group_id: 群组ID
-            patterns: 表达模式列表
-        """
-        try:
-            if not patterns:
-                return
-
-            # 使用 ORM 批量保存表达模式
-            async with self.db_manager.get_session() as session:
-                from ...models.orm.expression import ExpressionPattern
-                import time
-
-                current_time = time.time()
-                objects = []
-
-                for pattern in patterns:
-                    situation = pattern.get('situation', '').strip()
-                    expression = pattern.get('expression', '').strip()
-
-                    if not situation or not expression:
-                        continue
-
-                    objects.append(ExpressionPattern(
-                        group_id=group_id,
-                        situation=situation,
-                        expression=expression,
-                        weight=float(pattern.get('weight', 1.0)),
-                        last_active_time=current_time,
-                        create_time=current_time
-                    ))
-
-                if objects:
-                    session.add_all(objects)
-                    await session.commit()
-                    logger.info(f"已保存 {len(objects)} 个表达模式到数据库 (群组: {group_id})")
-
-        except Exception as e:
-            logger.error(f"保存表达模式失败: {e}", exc_info=True)
+        """保存表达模式到 expression_patterns 表。"""
+        await self._get_expression_learning_module().save_expression_patterns(
+            group_id,
+            patterns,
+        )

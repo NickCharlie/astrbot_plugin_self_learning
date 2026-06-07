@@ -6,7 +6,7 @@ AstrBot 自主学习插件的实现文档和使用文档。
 
 - 插件名: `astrbot_plugin_self_learning`
 - 展示名: `self-learning`
-- 当前元数据版本: `3.0.5`
+- 当前元数据版本: `3.2.0`
 - 最低 AstrBot 版本: `4.11.4`
 - 主要入口: `main.py`
 - 配置入口: `_conf_schema.json`, `config.py`
