@@ -2,6 +2,18 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.2.1] - 2026-06-07
+
+### AstrBot WebUI
+
+- 新增 AstrBot 官方内嵌插件页入口 `#/plugin-page/astrbot_plugin_self_learning/dashboard`，可在 AstrBot Dashboard 内直接查看自学习概览。
+- 新增官方插件页后端 API `/astrbot_plugin_self_learning/page/overview`，复用现有运行时服务容器聚合黑话学习、表达方式学习、人格学习、人格备份和智能指标状态。
+- 内嵌 Dashboard 提供模块化信息卡、快捷入口、可视化进度图和 iOS-like spring 物理反馈动效，同时保留独立 WebUI 的快捷跳转。
+
+### 版本
+
+- 将插件发布版本号提升至 `3.2.1`。
+
 ## [3.2.0] - 2026-06-07
 
 ### 学习模块
