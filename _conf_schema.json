@@ -721,6 +721,12 @@
         "hint": "当知识+记忆候选文档数量低于此阈值时，跳过Reranker以节省延迟。设为0则始终执行重排序",
         "default": 3
       },
+      "provider_retry_interval_seconds": {
+        "description": "Provider 重试间隔(秒)",
+        "type": "float",
+        "hint": "AstrBot 冷启动时 Provider 注册表可能尚未就绪。插件会按此间隔重试绑定 Embedding/Reranker Provider。",
+        "default": 10.0
+      },
       "knowledge_engine": {
         "description": "知识引擎",
         "type": "string",

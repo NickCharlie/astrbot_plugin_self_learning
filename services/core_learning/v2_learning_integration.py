@@ -30,6 +30,7 @@ Design notes:
 
 import asyncio
 import hashlib
+import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -77,6 +78,15 @@ class V2LearningIntegration:
         self._db = db_manager
         self._context = context
         self._feature_delegation = feature_delegation
+        self._started = False
+        self._provider_retry_lock = asyncio.Lock()
+        self._last_provider_retry: float = 0.0
+        self._provider_retry_interval: float = max(
+            0.1,
+            float(getattr(config, "provider_retry_interval_seconds", 10.0) or 10.0),
+        )
+        self._knowledge_manager_retryable = True
+        self._memory_manager_retryable = True
 
         # --- Resolve framework providers via factories ---------------
         self._embedding_provider = self._create_embedding_provider()
@@ -115,7 +125,106 @@ class V2LearningIntegration:
 
     async def start(self) -> None:
         """Start all active v2 modules that expose a ``start`` method."""
-        modules: List[Tuple[str, Any]] = [
+        await self.refresh_provider_bindings(force=True)
+
+        await asyncio.gather(*(
+            self._start_one(name, module)
+            for name, module in self._active_modules()
+            if module and hasattr(module, "start")
+        ))
+        self._started = True
+        logger.info("[V2Integration] All modules started")
+
+    async def refresh_provider_bindings(self, *, force: bool = False) -> bool:
+        """Retry framework provider binding and create dependent modules.
+
+        AstrBot can load plugins before provider registries are populated. This
+        lets startup, warmup, and first-use paths bind providers later without a
+        manual plugin reload.
+        """
+        if not self._needs_provider_or_module_retry():
+            return False
+
+        if not force and not self._provider_retry_due():
+            return False
+
+        async with self._provider_retry_lock:
+            if not self._needs_provider_or_module_retry():
+                return False
+
+            if not force and not self._provider_retry_due():
+                return False
+            self._last_provider_retry = time.monotonic()
+
+            changed = False
+            modules_to_start: List[Tuple[str, Any]] = []
+
+            if not self._embedding_provider and self._embedding_provider_configured():
+                provider = self._create_embedding_provider()
+                if provider:
+                    self._embedding_provider = provider
+                    changed = True
+
+            if not self._rerank_provider and self._rerank_provider_configured():
+                provider = self._create_rerank_provider()
+                if provider:
+                    self._rerank_provider = provider
+                    changed = True
+
+            if self._embedding_provider:
+                if self._knowledge_manager is None:
+                    self._knowledge_manager = self._create_knowledge_manager()
+                    if self._knowledge_manager:
+                        changed = True
+                        modules_to_start.append((
+                            "knowledge_manager",
+                            self._knowledge_manager,
+                        ))
+
+                if self._memory_manager is None:
+                    self._memory_manager = self._create_memory_manager()
+                    if self._memory_manager:
+                        changed = True
+                        modules_to_start.append((
+                            "memory_manager",
+                            self._memory_manager,
+                        ))
+
+                if self._exemplar_library_needs_embedding_refresh():
+                    self._exemplar_library = self._create_exemplar_library()
+                    changed = True
+
+            if changed:
+                self._register_trigger_operations()
+                if self._started and modules_to_start:
+                    await asyncio.gather(*(
+                        self._start_one(name, module)
+                        for name, module in modules_to_start
+                        if module and hasattr(module, "start")
+                    ))
+                logger.info(
+                    "[V2Integration] Provider bindings refreshed — "
+                    f"embedding={'yes' if self._embedding_provider else 'no'}, "
+                    f"reranker={'yes' if self._rerank_provider else 'no'}"
+                )
+            return changed
+
+    def _provider_retry_due(self) -> bool:
+        return (
+            time.monotonic() - self._last_provider_retry
+            >= self._provider_retry_interval
+        )
+
+    async def _start_one(self, name: str, module: Any) -> None:
+        try:
+            await module.start()
+        except Exception as exc:
+            logger.warning(
+                f"[V2Integration] {name} start failed: {exc}"
+            )
+
+    def _active_modules(self) -> List[Tuple[str, Any]]:
+        return [
             ("knowledge_manager", self._knowledge_manager),
             ("memory_manager", self._memory_manager),
             ("exemplar_library", self._exemplar_library),
@@ -123,20 +232,38 @@ class V2LearningIntegration:
             ("jargon_filter", self._jargon_filter),
         ]
 
-        async def _start_one(name: str, module: Any) -> None:
-            try:
-                await module.start()
-            except Exception as exc:
-                logger.warning(
-                    f"[V2Integration] {name} start failed: {exc}"
-                )
+    def _needs_provider_or_module_retry(self) -> bool:
+        if self._embedding_provider_configured() and not self._embedding_provider:
+            return True
+        if self._rerank_provider_configured() and not self._rerank_provider:
+            return True
+        if self._embedding_provider and self._knowledge_manager is None:
+            return (
+                self._config.knowledge_engine == "lightrag"
+                and self._knowledge_manager_retryable
+            )
+        if self._embedding_provider and self._memory_manager is None:
+            return (
+                self._config.memory_engine == "mem0"
+                and not self._memory_delegated()
+                and self._memory_manager_retryable
+            )
+        return self._exemplar_library_needs_embedding_refresh()
 
-        await asyncio.gather(*(
-            _start_one(name, module)
-            for name, module in modules
-            if module and hasattr(module, "start")
-        ))
-        logger.info("[V2Integration] All modules started")
+    def _embedding_provider_configured(self) -> bool:
+        return bool(
+            str(getattr(self._config, "embedding_provider_id", "") or "").strip()
+        )
+
+    def _rerank_provider_configured(self) -> bool:
+        return bool(
+            str(getattr(self._config, "rerank_provider_id", "") or "").strip()
+        )
+
+    def _exemplar_library_needs_embedding_refresh(self) -> bool:
+        if not (self._db and self._embedding_provider and self._exemplar_library):
+            return False
+        return getattr(self._exemplar_library, "_embedding", None) is None
 
     async def warmup(self, group_ids: List[str]) -> None:
         """Pre-warm heavyweight module instances for *group_ids*.
@@ -146,6 +273,7 @@ class V2LearningIntegration:
         (each cold-start avoids a 12-15s initialisation penalty on the
         first user query).
         """
+        await self.refresh_provider_bindings()
         if (
             self._knowledge_manager
             and hasattr(self._knowledge_manager, "warmup_instances")
@@ -228,6 +356,7 @@ class V2LearningIntegration:
         Tier 1 operations run concurrently on every message. Tier 2
         operations fire when their policies are satisfied.
         """
+        await self.refresh_provider_bindings()
         return await self._trigger.process_message(message, group_id)
 
     @monitored
@@ -256,6 +385,8 @@ class V2LearningIntegration:
         All retrieval tasks run concurrently via ``asyncio.gather`` to
         minimise total latency.
         """
+        await self.refresh_provider_bindings()
+
         # --- Check query result cache ---
         cache_key = self._make_cache_key(query, group_id)
         cached_result = self._cache.get("context", cache_key)
@@ -403,10 +534,17 @@ class V2LearningIntegration:
         """Create knowledge manager based on configured engine."""
         if self._config.knowledge_engine == "lightrag":
             if not self._embedding_provider:
-                logger.warning(
-                    "[V2Integration] LightRAG requires an embedding provider "
-                    "but none is available; knowledge engine disabled"
-                )
+                if self._embedding_provider_configured():
+                    logger.info(
+                        "[V2Integration] LightRAG is waiting for the "
+                        "embedding provider registry to become ready"
+                    )
+                else:
+                    logger.warning(
+                        "[V2Integration] LightRAG requires an embedding "
+                        "provider; configure embedding_provider_id or use "
+                        "the legacy knowledge engine"
+                    )
                 return None
             try:
                 from ..integration import LightRAGKnowledgeManager
@@ -414,6 +552,7 @@ class V2LearningIntegration:
                     self._config, self._llm, self._embedding_provider
                 )
             except ImportError:
+                self._knowledge_manager_retryable = False
                 logger.warning(
                     "[V2Integration] lightrag-hku not installed, "
                     "falling back to legacy knowledge engine"
@@ -433,12 +572,26 @@ class V2LearningIntegration:
             logger.info("[V2Integration] Memory engine skipped: delegated to LivingMemory")
             return None
         if self._config.memory_engine == "mem0":
+            if not self._embedding_provider:
+                if self._embedding_provider_configured():
+                    logger.info(
+                        "[V2Integration] Mem0 is waiting for the embedding "
+                        "provider registry to become ready"
+                    )
+                else:
+                    logger.warning(
+                        "[V2Integration] Mem0 requires an embedding provider; "
+                        "configure embedding_provider_id or use the legacy "
+                        "memory engine"
+                    )
+                return None
             try:
                 from ..integration import Mem0MemoryManager
                 return Mem0MemoryManager(
                     self._config, self._llm, self._embedding_provider
                 )
             except ImportError:
+                self._memory_manager_retryable = False
                 logger.warning(
                     "[V2Integration] mem0ai not installed, "
                     "falling back to legacy memory engine"

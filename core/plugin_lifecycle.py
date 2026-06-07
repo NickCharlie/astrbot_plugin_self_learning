@@ -590,6 +590,13 @@ class PluginLifecycle:
                     logger.info(
                         f"成功配置了 {p.llm_adapter.providers_configured} 个提供商"
                     )
+
+            if getattr(p, "v2_integration", None):
+                refreshed = await p.v2_integration.refresh_provider_bindings(
+                    force=True
+                )
+                if refreshed:
+                    logger.info("V2 Provider 延迟绑定刷新完成")
         except Exception as e:
             logger.error(f"延迟重新初始化提供商配置失败: {e}")
 

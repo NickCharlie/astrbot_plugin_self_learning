@@ -85,6 +85,7 @@ class TestPluginConfigDefaults:
         assert config.reinforce_provider_id is None
         assert config.embedding_provider_id is None
         assert config.rerank_provider_id is None
+        assert config.provider_retry_interval_seconds == 10.0
 
     def test_sqlalchemy_always_true(self):
         """Test that use_sqlalchemy is always True (hardcoded)."""
@@ -226,6 +227,7 @@ class TestPluginConfigFromDict:
             'V2_Architecture_Settings': {
                 'embedding_provider_id': 'embed_provider',
                 'rerank_provider_id': 'rerank_provider',
+                'provider_retry_interval_seconds': 2.5,
                 'knowledge_engine': 'lightrag',
                 'memory_engine': 'mem0',
             }
@@ -235,6 +237,7 @@ class TestPluginConfigFromDict:
 
         assert config.embedding_provider_id == 'embed_provider'
         assert config.rerank_provider_id == 'rerank_provider'
+        assert config.provider_retry_interval_seconds == 2.5
         assert config.knowledge_engine == 'lightrag'
         assert config.memory_engine == 'mem0'
 

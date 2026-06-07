@@ -94,6 +94,7 @@ class PluginConfig(BaseModel):
     rerank_provider_id: Optional[str] = None
     rerank_top_k: int = 5
     rerank_min_candidates: int = 3 # 候选文档数低于此阈值时跳过 rerank 以节省延迟
+    provider_retry_interval_seconds: float = 10.0 # Provider 注册表未就绪时的重试间隔
 
     # v2 Architecture: Knowledge engine
     knowledge_engine: str = "legacy" # "lightrag" | "legacy"
@@ -363,6 +364,9 @@ class PluginConfig(BaseModel):
             rerank_provider_id=v2_settings.get('rerank_provider_id', None),
             rerank_top_k=v2_settings.get('rerank_top_k', 5),
             rerank_min_candidates=v2_settings.get('rerank_min_candidates', 3),
+            provider_retry_interval_seconds=v2_settings.get(
+                'provider_retry_interval_seconds', 10.0
+            ),
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
             lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),
             memory_engine=v2_settings.get('memory_engine', 'legacy'),
@@ -615,6 +619,9 @@ class PluginConfig(BaseModel):
 
         if self.topic_detection_interval_messages <= 0:
             errors.append("话题检测触发消息数必须大于0")
+
+        if self.provider_retry_interval_seconds <= 0:
+            errors.append("Provider重试间隔必须大于0秒")
 
         if self.message_min_length >= self.message_max_length:
             errors.append("消息最小长度必须小于最大长度")
