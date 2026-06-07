@@ -50,8 +50,62 @@ class WebUIManager:
         self._database_degraded = False
         self._database_start_error: Optional[str] = None
         self._database_start_attempted = False
+        self._register_plugin_pages_api()
 
     # 创建
+
+    def _public_webui_base_url(self) -> str:
+        host = str(getattr(self._config, "web_interface_host", "127.0.0.1") or "127.0.0.1")
+        port = int(getattr(self._config, "web_interface_port", 7833) or 7833)
+        if host in {"0.0.0.0", "::", "[::]"}:
+            try:
+                from quart import request
+
+                host_header = request.host.split(":", 1)[0]
+            except (ImportError, RuntimeError):
+                host_header = ""
+            host = host_header or "127.0.0.1"
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{port}"
+
+    def _register_plugin_pages_api(self) -> None:
+        register_web_api = getattr(self._context, "register_web_api", None)
+        if not callable(register_web_api):
+            logger.debug("[WebUI] AstrBot Plugin Pages API is not available")
+            return
+
+        plugin_name = "astrbot_plugin_self_learning"
+        plugin_instance_name = getattr(self._plugin_instance, "name", None)
+        if isinstance(plugin_instance_name, str) and plugin_instance_name.strip():
+            plugin_name = plugin_instance_name.strip()
+
+        async def dashboard_url():
+            try:
+                from quart import jsonify
+            except ImportError:
+                def jsonify(payload):
+                    return payload
+
+            base_url = self._public_webui_base_url()
+            return jsonify({
+                "url": f"{base_url}/static/html/dashboard.html",
+                "base_url": base_url,
+            })
+
+        for route in {
+            f"{plugin_name}/dashboard_url",
+            "astrbot_plugin_self_learning/dashboard_url",
+        }:
+            try:
+                register_web_api(
+                    route,
+                    dashboard_url,
+                    ["GET"],
+                    "Self Learning dashboard URL for AstrBot Plugin Pages",
+                )
+            except Exception as exc:
+                logger.debug(f"[WebUI] register Plugin Pages API failed for {route}: {exc}")
 
     def create_server(self) -> bool:
         """创建 Server 实例（不启动）。返回 True 表示需要立即启动。"""

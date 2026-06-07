@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Self Learning Dashboard</title>
+    <script src="/api/plugin/page/bridge-sdk.js"></script>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #eef3f8;
+            --panel: #ffffff;
+            --text: #102033;
+            --muted: #64748b;
+            --border: #d8e1ec;
+            --accent: #2563eb;
+            --accent-soft: rgba(37, 99, 235, 0.12);
+            --danger: #dc2626;
+            --shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg: #0b111c;
+            --panel: #121c2b;
+            --text: #e5edf7;
+            --muted: #9aa8bc;
+            --border: #273449;
+            --accent: #60a5fa;
+            --accent-soft: rgba(96, 165, 250, 0.16);
+            --danger: #f87171;
+            --shadow: 0 16px 40px rgba(0, 0, 0, 0.36);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        body {
+            overflow: hidden;
+        }
+
+        .shell {
+            width: 100%;
+            height: 100%;
+            min-height: 100vh;
+        }
+
+        .frame-wrap {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+        }
+
+        iframe {
+            display: block;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            background: var(--bg);
+        }
+
+        .status {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            background: var(--bg);
+        }
+
+        .status-card {
+            width: min(520px, 100%);
+            padding: 24px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+
+        .status-title {
+            margin: 0;
+            font-size: 20px;
+            letter-spacing: 0;
+            line-height: 1.3;
+        }
+
+        .status-text {
+            margin: 10px 0 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .status.error .status-title {
+            color: var(--danger);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <main class="frame-wrap">
+            <iframe id="dashboardFrame" title="Self Learning Dashboard"></iframe>
+            <section class="status" id="status">
+                <div class="status-card">
+                    <h2 class="status-title" id="statusTitle">正在加载 Dashboard</h2>
+                    <p class="status-text" id="statusText">正在通过 AstrBot Plugin Page bridge 读取 Self Learning WebUI 地址。</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        (function () {
+            const statusEl = document.getElementById('status');
+            const statusTitleEl = document.getElementById('statusTitle');
+            const statusTextEl = document.getElementById('statusText');
+            const frameEl = document.getElementById('dashboardFrame');
+
+            function fallbackDashboardUrl() {
+                const host = window.location.hostname || '127.0.0.1';
+                const safeHost = host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
+                return `http://${safeHost}:7833/static/html/dashboard.html`;
+            }
+
+            function setStatus(title, message, tone) {
+                statusTitleEl.textContent = title;
+                statusTextEl.textContent = message;
+                statusEl.className = `status${tone ? ` ${tone}` : ''}`;
+            }
+
+            function hideStatus() {
+                statusEl.classList.add('hidden');
+            }
+
+            function setDashboardUrl(url) {
+                frameEl.src = url;
+            }
+
+            frameEl.addEventListener('load', hideStatus);
+
+            if (!window.AstrBotPluginPage) {
+                setDashboardUrl(fallbackDashboardUrl());
+                return;
+            }
+
+            window.AstrBotPluginPage.ready().then(async () => {
+                try {
+                    const payload = await window.AstrBotPluginPage.apiGet('dashboard_url');
+                    if (!payload || !payload.url) {
+                        throw new Error('dashboard_url 未返回 url');
+                    }
+                    setDashboardUrl(payload.url);
+                } catch (error) {
+                    setStatus(
+                        '无法加载 Dashboard',
+                        `已进入插件 Page，但读取独立 WebUI 地址失败：${error.message || error}`,
+                        'error',
+                    );
+                }
+            }).catch((error) => {
+                setStatus(
+                    '插件页面上下文读取失败',
+                    error.message || String(error),
+                    'error',
+                );
+            });
+        })();
+    </script>
+</body>
+</html>

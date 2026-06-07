@@ -3371,10 +3371,26 @@
                 embedding: 'Embedding',
                 rerank: 'Reranker',
             };
+            function safeLocalStorageGet(key, fallback = null) {
+                try {
+                    return localStorage.getItem(key) ?? fallback;
+                } catch {
+                    return fallback;
+                }
+            }
+
+            function safeLocalStorageSet(key, value) {
+                try {
+                    localStorage.setItem(key, value);
+                } catch {
+                    // Storage may be unavailable in sandboxed AstrBot Plugin Pages.
+                }
+            }
+
             const state = {
                 charts: {},
                 data: null,
-                theme: themeFromDocument || localStorage.getItem('sl-dashboard-theme') || 'light',
+                theme: themeFromDocument || safeLocalStorageGet('sl-dashboard-theme', 'light') || 'light',
                 config: {
                     schema: null,
                     original: {},
@@ -3392,7 +3408,7 @@
                 },
                 dependencyInstall: {
                     busy: false,
-                    mirror: localStorage.getItem('sl-pip-mirror') || 'default',
+                    mirror: safeLocalStorageGet('sl-pip-mirror', 'default') || 'default',
                 },
                 actionBusy: new Set(),
                 reviews: {
@@ -7607,7 +7623,7 @@
                 document.documentElement.setAttribute('data-theme', state.theme);
                 document.documentElement.style.colorScheme = state.theme;
                 document.body.setAttribute('data-theme', state.theme);
-                localStorage.setItem('sl-dashboard-theme', state.theme);
+                safeLocalStorageSet('sl-dashboard-theme', state.theme);
                 updateThemeIcon();
                 if (state.data) {
                     renderAll(state.data);
@@ -8000,7 +8016,7 @@
                     pipMirrorSelect.value = state.dependencyInstall.mirror;
                     pipMirrorSelect.addEventListener('change', (event) => {
                         state.dependencyInstall.mirror = event.target.value || 'default';
-                        localStorage.setItem('sl-pip-mirror', state.dependencyInstall.mirror);
+                        safeLocalStorageSet('sl-pip-mirror', state.dependencyInstall.mirror);
                     });
                 }
 

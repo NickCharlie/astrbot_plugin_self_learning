@@ -5,6 +5,7 @@ from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 HTML_FILES = [
+    PLUGIN_ROOT / "pages" / "dashboard" / "index.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "change_password.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html",
     PLUGIN_ROOT / "web_res" / "static" / "html" / "graph_share.html",
@@ -39,6 +40,26 @@ def test_webui_frontend_vendor_assets_exist():
 
     for path in expected_paths:
         assert path.exists(), f"Missing vendored frontend asset: {path}"
+
+
+def test_astrbot_plugin_pages_dashboard_entry_exists():
+    text = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    zh_i18n = (PLUGIN_ROOT / ".astrbot-plugin" / "i18n" / "zh-CN.json").read_text(encoding="utf-8")
+    en_i18n = (PLUGIN_ROOT / ".astrbot-plugin" / "i18n" / "en-US.json").read_text(encoding="utf-8")
+
+    assert "AstrBotPluginPage" in text
+    assert "/api/plugin/page/bridge-sdk.js" in text
+    assert "apiGet('dashboard_url')" in text
+    assert 'id="dashboardFrame"' in text
+    assert "setDashboardUrl(payload.url)" in text
+    assert "toolbar" not in text
+    assert "brand-title" not in text
+    assert "brand-meta" not in text
+    assert "pageLabel" not in text
+    assert "openDashboard" not in text
+    assert "reloadDashboard" not in text
+    assert '"dashboard"' in zh_i18n
+    assert '"dashboard"' in en_i18n
 
 
 def test_dashboard_exposes_learning_content_browser():
