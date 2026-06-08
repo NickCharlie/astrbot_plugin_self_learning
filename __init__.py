@@ -1,5 +1,5 @@
 # AstrBot 自学习插件
-__version__ = "3.2.3"
+__version__ = "3.2.4"
 
 # Ensure parent namespace packages ("data", "data.plugins") are
 # durably registered in sys.modules.  AstrBot loads plugins via
