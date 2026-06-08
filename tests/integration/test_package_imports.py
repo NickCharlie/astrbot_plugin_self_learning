@@ -68,7 +68,7 @@ def test_webui_manager_uses_deferred_annotations_for_lazy_server_import():
     assert "from __future__ import annotations" in manager_source
 
 
-def test_official_plugin_page_api_registers_dashboard_overview_route():
+def test_official_plugin_page_api_registers_embedded_dashboard_routes():
     alias = "data.plugins.astrbot_plugin_self_learning_pageapi_pkgtest"
     _cleanup_alias(alias)
 
@@ -91,14 +91,33 @@ def test_official_plugin_page_api_registers_dashboard_overview_route():
         api.register_routes()
 
         assert module.PAGE_API_PREFIX == "/astrbot_plugin_self_learning/page"
-        assert plugin.context.routes == [
-            (
-                "/astrbot_plugin_self_learning/page/overview",
-                api.get_overview,
-                ["GET"],
-                "Self Learning embedded dashboard overview",
-            )
-        ]
+        routes = {route: (handler, methods, desc) for route, handler, methods, desc in plugin.context.routes}
+        expected_methods = {
+            "/astrbot_plugin_self_learning/page/overview": ["GET"],
+            "/astrbot_plugin_self_learning/page/dashboard": ["GET"],
+            "/astrbot_plugin_self_learning/page/jargon": ["GET"],
+            "/astrbot_plugin_self_learning/page/jargon/action": ["POST"],
+            "/astrbot_plugin_self_learning/page/style": ["GET"],
+            "/astrbot_plugin_self_learning/page/style/action": ["POST"],
+            "/astrbot_plugin_self_learning/page/reviews": ["GET"],
+            "/astrbot_plugin_self_learning/page/reviews/action": ["POST"],
+            "/astrbot_plugin_self_learning/page/persona": ["GET"],
+            "/astrbot_plugin_self_learning/page/persona/action": ["POST"],
+            "/astrbot_plugin_self_learning/page/content": ["GET"],
+            "/astrbot_plugin_self_learning/page/content/action": ["POST"],
+            "/astrbot_plugin_self_learning/page/graphs": ["GET"],
+            "/astrbot_plugin_self_learning/page/metrics": ["GET"],
+            "/astrbot_plugin_self_learning/page/monitoring": ["GET"],
+            "/astrbot_plugin_self_learning/page/integrations": ["GET"],
+            "/astrbot_plugin_self_learning/page/settings": ["GET"],
+            "/astrbot_plugin_self_learning/page/settings/action": ["POST"],
+        }
+        assert set(expected_methods).issubset(routes)
+        for route, methods in expected_methods.items():
+            assert routes[route][1] == methods
+
+        assert routes["/astrbot_plugin_self_learning/page/overview"][0] == api.get_overview
+        assert routes["/astrbot_plugin_self_learning/page/settings/action"][0] == api.post_settings_action
     finally:
         _cleanup_alias(alias)
 
