@@ -175,6 +175,29 @@ class TestPersonaReviewService:
         mock_container.database_manager.update_style_review_status.assert_called()
 
     @pytest.mark.asyncio
+    async def test_style_learning_approval_locks_review_by_group_without_polluting_comment(
+        self, mock_container, sample_style_review_data
+    ):
+        """Approving one style review should lock by row/group and keep comments clean."""
+        service = PersonaReviewService(mock_container)
+        sample_style_review_data["group_id"] = "group-a"
+        mock_container.database_manager.get_pending_style_reviews.return_value = [
+            sample_style_review_data,
+            {**sample_style_review_data, "id": 2, "group_id": "group-b"},
+        ]
+        mock_container.database_manager.update_style_review_status.return_value = True
+
+        success, message = await service.review_persona_update("style_1", "approve")
+
+        assert success is True
+        assert "group-a" not in message
+        mock_container.database_manager.update_style_review_status.assert_awaited_once_with(
+            1,
+            "approved",
+            group_id="group-a",
+        )
+
+    @pytest.mark.asyncio
     async def test_style_learning_preview_targets_begin_dialogs(self, mock_container, sample_style_review_data):
         """Style review previews should show begin_dialogs changes, not system prompt edits."""
         service = PersonaReviewService(mock_container)

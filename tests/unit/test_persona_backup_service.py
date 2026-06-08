@@ -1,5 +1,6 @@
 """Unit tests for WebUI persona backup management service."""
 from unittest.mock import AsyncMock
+from unittest.mock import Mock
 
 import pytest
 
@@ -100,6 +101,50 @@ async def test_restore_backup_falls_back_to_persona_manager(mock_container):
     assert success is True
     assert '恢复成功' in message
     mock_container.persona_manager.update_persona.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_restore_default_backup_targets_current_real_persona(mock_container):
+    """Backups created from the legacy default placeholder restore into the real current persona."""
+    mock_container.persona_backup_manager = None
+    mock_container.persona_web_manager = Mock()
+    mock_container.persona_web_manager.get_persona_for_group = AsyncMock(return_value={
+        'persona_id': 'default',
+        'system_prompt': '',
+        'begin_dialogs': [],
+    })
+    mock_container.persona_web_manager.get_all_personas_for_web = AsyncMock(return_value=[
+        {
+            'persona_id': 'suleng',
+            'name': 'SuLeng',
+            'system_prompt': 'current prompt',
+            'begin_dialogs': [],
+        }
+    ])
+    mock_container.persona_web_manager.update_persona_via_web = AsyncMock(return_value={
+        'success': True,
+    })
+    mock_container.database_manager.get_persona_backup = AsyncMock(return_value={
+        'id': 10,
+        'group_id': 'default',
+        'backup_name': 'legacy-default',
+        'original_persona': {
+            'persona_id': 'default',
+            'name': 'default',
+            'prompt': 'restored prompt',
+        },
+        'imitation_dialogues': [],
+    })
+    service = PersonaBackupService(mock_container)
+
+    success, message = await service.restore_backup(10, group_id='default')
+
+    assert success is True
+    assert '恢复成功' in message
+    persona_id, payload = mock_container.persona_web_manager.update_persona_via_web.await_args.args
+    assert persona_id == 'suleng'
+    assert payload['persona_id'] == 'suleng'
+    assert payload['system_prompt'] == 'restored prompt'
 
 
 @pytest.mark.asyncio
