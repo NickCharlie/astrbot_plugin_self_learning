@@ -49,16 +49,57 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     styles = (PLUGIN_ROOT / "pages" / "dashboard" / "styles.css").read_text(encoding="utf-8")
 
     assert "AstrBot Embedded WebUI" in index
-    assert "黑话学习" in index
-    assert "表达方式学习" in index
-    assert "人格学习" in index
+    for label in [
+        "Dashboard",
+        "AI 巡检",
+        "监控",
+        "审查队列",
+        "黑话学习",
+        "表达方式学习",
+        "人格学习",
+        "学习内容",
+        "图谱",
+        "回复策略",
+        "功能融合",
+        "设置",
+    ]:
+        assert label in index
+    for page in [
+        "home",
+        "insights",
+        "monitoring",
+        "reviews",
+        "jargon-learning",
+        "expression-learning",
+        "persona-learning",
+        "content",
+        "graphs",
+        "reply-strategy",
+        "integrations",
+        "settings",
+    ]:
+        assert f'data-page="{page}"' in index
     assert "window.AstrBotPluginPage" in script
-    assert 'apiGet(buildEndpoint(path)' in script
-    assert 'apiGet("overview")' in script
-    assert 'buildEndpoint(path)' in script
+    assert 'apiGet("dashboard")' in script
+    assert 'apiGet("jargon"' in script
+    assert 'apiGet("style"' in script
+    assert 'apiGet("persona"' in script
+    assert 'apiGet("graphs"' in script
+    assert 'apiPost("reviews/action"' in script
+    assert 'apiPost("settings/action"' in script
+    assert 'return `page/${String(path || "")' in script
     assert "initSpringMotion" in script
+    assert "startGraphRender" in script
+    assert "syncGraphCanvasSize" in script
+    assert "hitGraphNode" in script
+    assert 'id="physics-canvas"' in index
+    assert 'id="graph-canvas"' in index
+    assert 'id="graph-canvas" width=' not in index
     assert ".module-card" in styles
     assert ".ring-chart" in styles
+    assert ".sidebar" in styles
+    assert ".graph-panel" in styles
+    assert "touch-action: none" in styles
 
 
 def test_webui_frontend_vendor_assets_exist():
