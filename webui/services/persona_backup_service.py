@@ -7,6 +7,17 @@ from astrbot.api import logger
 
 from .persona_service import _optional_container_attr
 
+try:
+    from ...utils.persona_selection import (
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
+except ImportError:
+    from utils.persona_selection import (
+        resolve_target_persona,
+        resolve_target_persona_from_web,
+    )
+
 
 class PersonaBackupService:
     """人格备份管理服务。"""
@@ -17,6 +28,13 @@ class PersonaBackupService:
         self.persona_backup_manager = _optional_container_attr(container, 'persona_backup_manager')
         self.persona_manager = _optional_container_attr(container, 'persona_manager')
         self.persona_web_mgr = _optional_container_attr(container, 'persona_web_manager')
+        self.astrbot_persona_manager = (
+            _optional_container_attr(container, 'astrbot_persona_manager')
+            or self.persona_manager
+        )
+        self.plugin_config = _optional_container_attr(container, 'plugin_config')
+        group_mapping = _optional_container_attr(container, 'group_id_to_unified_origin', {})
+        self.group_id_to_unified_origin = group_mapping if isinstance(group_mapping, dict) else {}
 
     @staticmethod
     def _normalize_limit(limit: Any, default: int = 20, maximum: int = 100) -> int:
@@ -74,6 +92,14 @@ class PersonaBackupService:
     def _ensure_database(self):
         if not self.database_manager:
             raise ValueError('数据库服务未初始化，无法管理人格备份')
+
+    def _resolve_umo(self, group_id: str) -> str:
+        return self.group_id_to_unified_origin.get(group_id, group_id)
+
+    @staticmethod
+    def _is_placeholder_persona_id(persona_id: Any) -> bool:
+        value = str(persona_id or '').strip().lower()
+        return not value or value in {'default', '[%none]'}
 
     @staticmethod
     def _normalize_group_id(group_id: Any) -> Optional[str]:
@@ -142,18 +168,30 @@ class PersonaBackupService:
         normalized_group_id = self._normalize_group_id(group_id)
         backup = await self.get_backup(backup_id, group_id=normalized_group_id)
         effective_group_id = normalized_group_id or backup.get('group_id') or 'default'
+        persona = self._persona_from_backup(backup)
+        if not persona:
+            return False, '备份中没有可恢复的人格内容'
 
-        if self.persona_backup_manager and hasattr(self.persona_backup_manager, 'restore_backup'):
+        target_persona_id = await self._resolve_restore_persona_id(persona, effective_group_id)
+        if target_persona_id:
+            persona['persona_id'] = target_persona_id
+            if self._is_placeholder_persona_id(persona.get('name')):
+                persona['name'] = target_persona_id
+
+        if (
+            self.persona_backup_manager
+            and hasattr(self.persona_backup_manager, 'restore_backup')
+            and not self._is_placeholder_persona_id(
+                (backup.get('original_persona') or {}).get('persona_id')
+                or (backup.get('original_persona') or {}).get('name')
+            )
+        ):
             try:
                 success = await self.persona_backup_manager.restore_backup(effective_group_id, backup_id)
                 if success:
                     return True, '人格备份恢复成功'
             except Exception as e:
                 logger.warning(f"正式备份管理器恢复失败，尝试 WebUI fallback: {e}")
-
-        persona = self._persona_from_backup(backup)
-        if not persona:
-            return False, '备份中没有可恢复的人格内容'
 
         persona_id = persona['persona_id']
         if self.persona_web_mgr and hasattr(self.persona_web_mgr, 'update_persona_via_web'):
@@ -185,6 +223,42 @@ class PersonaBackupService:
                     return True, '人格备份恢复成功'
 
         return False, 'PersonaManager 未初始化，无法恢复备份'
+
+    async def _resolve_restore_persona_id(
+        self,
+        persona: Dict[str, Any],
+        group_id: str,
+    ) -> str:
+        """Resolve placeholder backup IDs like default to the current real AstrBot persona."""
+        persona_id = persona.get('persona_id') or persona.get('name')
+        if not self._is_placeholder_persona_id(persona_id):
+            return str(persona_id)
+
+        try:
+            current = None
+            if self.persona_web_mgr:
+                current = await resolve_target_persona_from_web(
+                    self.persona_web_mgr,
+                    self.plugin_config,
+                    group_id,
+                    log=logger,
+                )
+            elif self.astrbot_persona_manager:
+                current = await resolve_target_persona(
+                    self.astrbot_persona_manager,
+                    self.plugin_config,
+                    self._resolve_umo(group_id),
+                    require_existing=True,
+                    log=logger,
+                )
+            if isinstance(current, dict):
+                resolved = current.get('persona_id') or current.get('name')
+                if resolved and not self._is_placeholder_persona_id(resolved):
+                    return str(resolved)
+        except Exception as e:
+            logger.warning(f"解析备份恢复目标人格失败，将使用备份内 ID: {e}", exc_info=True)
+
+        return str(persona.get('persona_id') or persona.get('name') or 'default')
 
     async def delete_backup(self, backup_id: int, group_id: Optional[str] = None) -> Tuple[bool, str]:
         """删除人格备份。"""

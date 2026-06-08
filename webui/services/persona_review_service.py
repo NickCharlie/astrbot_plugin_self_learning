@@ -992,7 +992,7 @@ class PersonaReviewService:
 
         # 更新状态
         success = await self.database_manager.update_style_review_status(
-            review_id, 'approved', target_review['group_id']
+            review_id, 'approved', group_id=group_id
         )
 
         if success and target_review['few_shots_content']:

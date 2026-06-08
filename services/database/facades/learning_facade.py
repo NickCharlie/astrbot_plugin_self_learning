@@ -219,7 +219,8 @@ class LearningFacade(BaseFacade):
         return await self.add_persona_learning_review(record)
 
     async def update_persona_update_record_status(
-        self, record_id: int, new_status: str, reviewer_comment: str = ''
+        self, record_id: int, new_status: str, reviewer_comment: str = '',
+        group_id: str = None,
     ) -> bool:
         """更新人格更新记录的状态
 
@@ -237,6 +238,8 @@ class LearningFacade(BaseFacade):
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == record_id
                 )
+                if group_id:
+                    stmt = stmt.where(PersonaLearningReview.group_id == group_id)
                 result = await session.execute(stmt)
                 record = result.scalar_one_or_none()
                 if not record:
@@ -531,7 +534,7 @@ class LearningFacade(BaseFacade):
 
     async def update_persona_learning_review_status(
         self, review_id, new_status, reviewer_comment='',
-        modified_content=None,
+        modified_content=None, group_id: str = None,
     ) -> bool:
         """更新人格学习审核记录状态
 
@@ -550,6 +553,8 @@ class LearningFacade(BaseFacade):
                 stmt = select(PersonaLearningReview).where(
                     PersonaLearningReview.id == review_id
                 )
+                if group_id:
+                    stmt = stmt.where(PersonaLearningReview.group_id == group_id)
                 result = await session.execute(stmt)
                 record = result.scalar_one_or_none()
                 if not record:
@@ -772,7 +777,7 @@ class LearningFacade(BaseFacade):
             return []
 
     async def update_style_review_status(
-        self, review_id, new_status, reviewer_comment=''
+        self, review_id, new_status, reviewer_comment='', group_id: str = None,
     ) -> bool:
         """更新风格学习审核记录状态
 
@@ -790,6 +795,8 @@ class LearningFacade(BaseFacade):
                 stmt = select(StyleLearningReview).where(
                     StyleLearningReview.id == review_id
                 )
+                if group_id:
+                    stmt = stmt.where(StyleLearningReview.group_id == group_id)
                 result = await session.execute(stmt)
                 record = result.scalar_one_or_none()
                 if not record:

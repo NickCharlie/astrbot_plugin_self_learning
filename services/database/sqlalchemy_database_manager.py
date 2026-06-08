@@ -783,11 +783,12 @@ class SQLAlchemyDatabaseManager:
 
     async def update_persona_update_record_status(
         self, record_id: int, status: str, comment: str = None,
+        group_id: str = None,
     ) -> bool:
         return await self._call_learning(
             "update_persona_update_record_status",
             False,
-            record_id, status, comment,
+            record_id, status, comment, group_id,
         )
 
     async def create_style_learning_review(
@@ -811,11 +812,12 @@ class SQLAlchemyDatabaseManager:
 
     async def update_style_review_status(
         self, review_id: int, status: str, reviewer_comment: str = '',
+        group_id: str = None,
     ) -> bool:
         return await self._call_learning(
             "update_style_review_status",
             False,
-            review_id, status, reviewer_comment,
+            review_id, status, reviewer_comment, group_id,
         )
 
     async def update_style_review_metadata(
@@ -870,12 +872,12 @@ class SQLAlchemyDatabaseManager:
 
     async def update_persona_learning_review_status(
         self, review_id: int, status: str, comment: str = None,
-        modified_content: str = None,
+        modified_content: str = None, group_id: str = None,
     ) -> bool:
         return await self._call_learning(
             "update_persona_learning_review_status",
             False,
-            review_id, status, comment, modified_content,
+            review_id, status, comment, modified_content, group_id,
         )
 
     async def update_persona_learning_review_metadata(
