@@ -102,8 +102,8 @@
       "current_persona_name": {
         "description": "当前目标人格",
         "type": "string",
-        "hint": "插件将学习并优化此人格的对话风格。需要在人格设置中存在",
-        "default": "default"
+        "hint": "插件将学习并优化此人格的对话风格。留空或填 default 表示跟随 AstrBot 当前人格；填写具体 ID 时需在人格设置中存在",
+        "default": ""
       }
     }
   },

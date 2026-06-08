@@ -40,6 +40,7 @@
       height: 0,
       canvasBound: false,
     },
+    toastTimer: null,
   };
 
   const physics = {
@@ -188,13 +189,32 @@
   function showToast(message, tone = "ok") {
     const region = $("toast-region");
     if (!region) return;
+    if (state.toastTimer) {
+      clearTimeout(state.toastTimer);
+      state.toastTimer = null;
+    }
+    region.replaceChildren();
     const el = document.createElement("div");
     el.className = `toast ${tone}`;
-    el.textContent = message;
+    const text = document.createElement("span");
+    text.textContent = message;
+    const close = document.createElement("button");
+    close.className = "toast-close";
+    close.type = "button";
+    close.setAttribute("aria-label", "关闭提示");
+    close.textContent = "×";
+    close.addEventListener("click", () => {
+      if (state.toastTimer) clearTimeout(state.toastTimer);
+      el.remove();
+    });
+    el.append(text, close);
     region.appendChild(el);
-    setTimeout(() => {
+    state.toastTimer = setTimeout(() => {
       el.classList.add("leaving");
-      setTimeout(() => el.remove(), 220);
+      setTimeout(() => {
+        el.remove();
+        if (state.toastTimer) state.toastTimer = null;
+      }, 220);
     }, 3200);
   }
 
@@ -212,14 +232,24 @@
     const modal = $("detail-modal");
     setText("modal-title", title);
     setHtml("modal-body", html);
-    if (modal && typeof modal.showModal === "function") {
-      modal.showModal();
+    if (!modal) return;
+    if (modal.open && typeof modal.close === "function") {
+      modal.close();
     }
+    if (typeof modal.showModal === "function") {
+      try {
+        modal.showModal();
+        return;
+      } catch (_) {}
+    }
+    modal.setAttribute("open", "");
   }
 
   function closeModal() {
     const modal = $("detail-modal");
-    if (modal && typeof modal.close === "function") modal.close();
+    if (!modal) return;
+    if (typeof modal.close === "function") modal.close();
+    else modal.removeAttribute("open");
   }
 
   function resolvePageFromHash() {
@@ -527,6 +557,7 @@
     renderGenericBarChart("style-pattern-chart", chartItems);
     const reviews = ((data.reviews || {}).reviews || []);
     setHtml("expression-review-list", reviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
+    state.pageData.lastStyleItems = reviews;
   }
 
   function renderReviews(data) {
@@ -541,6 +572,7 @@
     setHtml("persona-review-list", personaPending.map((item) => personaReviewHtml(item)).join("") || empty("暂无人格更新"));
     setHtml("style-review-list", styleReviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
     setHtml("jargon-review-list", pendingJargon.map((item) => jargonReviewHtml(item)).join("") || empty("暂无黑话候选"));
+    state.pageData.lastStyleItems = styleReviews;
     setHtml("reviewed-persona-list", personaReviewed.slice(0, 12).map((item) => `
       <div class="table-row">
         <span>${escapeHtml(item.id)}</span>
@@ -576,6 +608,7 @@
         <p>${escapeHtml(item.few_shots_content || item.learned_patterns || "").slice(0, 220)}</p>
       </div>
       <div class="row-actions">
+        ${button("编辑", `data-style-action="edit" data-id="${escapeAttr(item.id)}"`)}
         ${button("详情", `data-review-action="detail" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
         ${button("批准", `data-review-action="approve" data-kind="style" data-id="${escapeAttr(item.id)}"`, "solid-button")}
         ${button("拒绝", `data-review-action="reject" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
@@ -616,11 +649,13 @@
         <span>${escapeHtml(id)}</span>
         <strong>${escapeHtml(item.name || id)}</strong>
         <div class="row-actions">
+          ${button("编辑", `data-persona-action="edit" data-persona-id="${escapeAttr(id)}"`)}
           ${button("导出", `data-persona-action="export" data-persona-id="${escapeAttr(id)}"`)}
           ${button("删除", `data-persona-action="delete" data-persona-id="${escapeAttr(id)}"`, "danger-button")}
         </div>
       </div>`;
     }).join("") || empty("暂无人格列表"));
+    state.pageData.lastPersonaItems = personas;
 
     const backups = ((data.backups || {}).backups || []);
     setText("persona-backup-count", fmt(backups.length, 0));
@@ -951,8 +986,50 @@
     await loadPageData(state.page, { force: true });
   }
 
+  function modalFieldValue(id) {
+    return $(id)?.value ?? "";
+  }
+
+  function parseModalJson(id, fallback) {
+    const raw = modalFieldValue(id).trim();
+    if (!raw) return fallback;
+    try {
+      return JSON.parse(raw);
+    } catch (_) {
+      return raw.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    }
+  }
+
+  async function handleStyleAction(action, id) {
+    if (action === "edit") {
+      const item = (state.pageData.lastStyleItems || []).find((entry) => String(entry.id) === String(id)) || {};
+      const patterns = typeof item.learned_patterns === "string"
+        ? item.learned_patterns
+        : JSON.stringify(item.learned_patterns || [], null, 2);
+      showModal("编辑表达方式", `
+        <label class="config-field"><span><strong>描述</strong></span><input id="modal-style-description" value="${escapeAttr(item.description || "")}"></label>
+        <label class="config-field"><span><strong>Few-shot 示例</strong></span><textarea id="modal-style-few-shots" rows="7">${escapeHtml(item.few_shots_content || "")}</textarea></label>
+        <label class="config-field"><span><strong>学习模式 JSON</strong></span><textarea id="modal-style-patterns" rows="7">${escapeHtml(patterns)}</textarea></label>
+        <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(id)}">保存</button>
+      `);
+    }
+  }
+
   async function handlePersonaAction(buttonEl) {
     const action = buttonEl.dataset.personaAction;
+    if (action === "edit") {
+      const personaId = buttonEl.dataset.personaId;
+      const item = (state.pageData.lastPersonaItems || []).find((entry) => String(entry.persona_id || entry.id || entry.name) === String(personaId)) || {};
+      const beginDialogs = JSON.stringify(item.begin_dialogs || [], null, 2);
+      showModal("编辑人格", `
+        <label class="config-field"><span><strong>人格 ID</strong></span><input id="modal-persona-id" value="${escapeAttr(personaId)}" disabled></label>
+        <label class="config-field"><span><strong>名称</strong></span><input id="modal-persona-name" value="${escapeAttr(item.name || personaId || "")}"></label>
+        <label class="config-field"><span><strong>系统提示词</strong></span><textarea id="modal-persona-prompt" rows="9">${escapeHtml(item.system_prompt || item.prompt || "")}</textarea></label>
+        <label class="config-field"><span><strong>开场对话 JSON</strong></span><textarea id="modal-persona-dialogs" rows="6">${escapeHtml(beginDialogs)}</textarea></label>
+        <button class="solid-button" type="button" id="modal-persona-save" data-persona-id="${escapeAttr(personaId)}">保存</button>
+      `);
+      return;
+    }
     const body = {
       action,
       id: buttonEl.dataset.id,
@@ -1064,12 +1141,13 @@
     });
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-jargon-action],[data-persona-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-jargon-action],[data-style-action],[data-persona-action],[data-content-action],[data-settings-group]");
       if (!target) return;
       if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
       if (target.dataset.reviewAction) await handleReviewAction(target.dataset.kind, target.dataset.id, target.dataset.reviewAction);
       if (target.dataset.jargonAction) await handleJargonAction(target.dataset.jargonAction, target.dataset.id);
+      if (target.dataset.styleAction) await handleStyleAction(target.dataset.styleAction, target.dataset.id);
       if (target.dataset.personaAction) await handlePersonaAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
       if (target.dataset.settingsGroup) {
@@ -1097,6 +1175,45 @@
       showToast(result.message || "黑话已更新", result.success ? "ok" : "error");
       state.pageData = {};
       await loadPageData("jargon-learning", { force: true });
+    });
+
+    document.addEventListener("click", async (event) => {
+      const save = event.target.closest("#modal-style-save");
+      if (!save) return;
+      const result = await apiPost("style/action", {
+        action: "update",
+        id: save.dataset.id,
+        description: modalFieldValue("modal-style-description"),
+        few_shots_content: modalFieldValue("modal-style-few-shots"),
+        learned_patterns: parseModalJson("modal-style-patterns", []),
+      });
+      closeModal();
+      showToast(result.message || "表达方式已更新", result.success ? "ok" : "error");
+      state.pageData.style = null;
+      state.pageData.lastStyleItems = [];
+      await loadPageData("expression-learning", { force: true });
+    });
+
+    document.addEventListener("click", async (event) => {
+      const save = event.target.closest("#modal-persona-save");
+      if (!save) return;
+      const personaId = save.dataset.personaId;
+      const result = await apiPost("persona/action", {
+        action: "update",
+        persona_id: personaId,
+        persona: {
+          persona_id: personaId,
+          name: modalFieldValue("modal-persona-name"),
+          system_prompt: modalFieldValue("modal-persona-prompt"),
+          prompt: modalFieldValue("modal-persona-prompt"),
+          begin_dialogs: parseModalJson("modal-persona-dialogs", []),
+        },
+      });
+      closeModal();
+      showToast(result.message || "人格已更新", result.success ? "ok" : "error");
+      state.pageData.persona = null;
+      state.pageData.lastPersonaItems = [];
+      await loadPageData("persona-learning", { force: true });
     });
 
     qsa(".nav-item").forEach((item) => {

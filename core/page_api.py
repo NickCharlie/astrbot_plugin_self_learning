@@ -10,6 +10,7 @@ embedded page does not proxy or iframe it.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import sys
 import time
@@ -212,6 +213,9 @@ class PluginPageApi:
                     self._body_int(body, "id")
                 )
                 return self._operation(success, message)
+            if action == "update":
+                success, message, item = await self._update_style_review(body)
+                return self._operation(success, message, item=item)
             return self._operation(False, f"未知表达学习操作: {action or '(empty)'}")
         except Exception as exc:
             logger.error(f"[PluginPageAPI] style action failed: {exc}", exc_info=True)
@@ -1158,6 +1162,62 @@ class PluginPageApi:
         except Exception as exc:
             logger.error(f"[PluginPageAPI] delete content failed: {exc}", exc_info=True)
             return False, str(exc)
+
+    async def _update_style_review(self, body: Mapping[str, Any]) -> tuple[bool, str, dict[str, Any]]:
+        review_id = self._body_int(body, "id")
+        updates: dict[str, Any] = {}
+
+        if "description" in body:
+            updates["description"] = str(body.get("description") or "")
+        if "few_shots_content" in body:
+            updates["few_shots_content"] = str(body.get("few_shots_content") or "")
+        if "learned_patterns" in body:
+            patterns = body.get("learned_patterns")
+            updates["learned_patterns"] = (
+                json.dumps(patterns, ensure_ascii=False)
+                if isinstance(patterns, (list, dict))
+                else str(patterns or "")
+            )
+
+        if not updates:
+            return False, "没有可保存的表达方式字段", {}
+
+        database_manager = getattr(self._container(), "database_manager", None)
+        if not database_manager or not hasattr(database_manager, "get_session"):
+            return False, "数据库管理器未初始化", {}
+
+        try:
+            from sqlalchemy import select
+
+            try:
+                from ..models.orm import StyleLearningReview
+            except ImportError:
+                from models.orm import StyleLearningReview
+
+            async with database_manager.get_session() as session:
+                result = await session.execute(
+                    select(StyleLearningReview).where(StyleLearningReview.id == review_id)
+                )
+                review = result.scalar_one_or_none()
+                if not review:
+                    return False, f"表达方式审查 {review_id} 不存在", {}
+                for key, value in updates.items():
+                    setattr(review, key, value)
+                if hasattr(review, "updated_at"):
+                    review.updated_at = datetime.now()
+                item = {
+                    "id": review.id,
+                    "description": review.description,
+                    "few_shots_content": review.few_shots_content,
+                    "learned_patterns": review.learned_patterns,
+                    "status": review.status,
+                    "group_id": review.group_id,
+                }
+                await session.commit()
+                return True, "表达方式已更新", item
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] update style review failed: {exc}", exc_info=True)
+            return False, str(exc), {}
 
     async def _delete_learning_batch(self, batch_id: int) -> tuple[bool, str]:
         return await self._delete_content_item("history", batch_id)

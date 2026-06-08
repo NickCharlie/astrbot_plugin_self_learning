@@ -112,7 +112,7 @@ class PluginConfig(BaseModel):
     disable_local_reply_when_delegated: bool = True # 检测到 Group Chat Plus 时禁用本地回复器
 
     # 当前人格设置
-    current_persona_name: str = "default"
+    current_persona_name: str = ""
 
     # 学习参数
     learning_interval_hours: int = 6 # 学习间隔（小时）
@@ -353,7 +353,7 @@ class PluginConfig(BaseModel):
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),
-            current_persona_name=target_settings.get('current_persona_name', 'default'),
+            current_persona_name=target_settings.get('current_persona_name', ''),
 
             filter_provider_id=model_configuration.get('filter_provider_id', None),
             refine_provider_id=model_configuration.get('refine_provider_id', None),
