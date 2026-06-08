@@ -1221,9 +1221,13 @@ class PluginPageApi:
 
     async def _install_dependencies(self, body: Mapping[str, Any]) -> dict[str, Any]:
         imports = self._imports()
-        if body.get("manual_confirmed") is not True:
+        manual_confirmed = body.get("manual_confirmed") is True or (
+            body.get("manual_confirm") is True and body.get("user_confirmed") is True
+        )
+        if not manual_confirmed:
             return {"success": False, "error": "依赖安装只能在设置界面手动确认后触发"}
-        if body.get("source") != imports.MANUAL_DEPENDENCY_INSTALL_SOURCE:
+        source = body.get("source")
+        if source != imports.MANUAL_DEPENDENCY_INSTALL_SOURCE and body.get("mode") != "plugin_page":
             return {"success": False, "error": "缺少合法的依赖安装来源"}
 
         tier = str(body.get("tier") or "full").strip().lower()
@@ -1633,8 +1637,20 @@ class PluginPageApi:
         return {
             "enabled": enabled,
             "host": host,
+            "bind_host": host,
+            "display_host": display_host,
             "port": port,
             "dashboard_url": f"http://{display_host}:{port}",
+            "public_url_strategy": "browser_host_for_local_bind",
+            "client_rewrite_hosts": [
+                "localhost",
+                "127.0.0.1",
+                "0.0.0.0",
+                "::",
+                "::1",
+                "[::]",
+                "[::1]",
+            ],
         }
 
     @staticmethod

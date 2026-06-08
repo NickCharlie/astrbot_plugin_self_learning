@@ -16,6 +16,9 @@
     settings: ["Settings", "设置"],
   };
   const GRAPH_SAFE_PADDING = 34;
+  const GRAPH_HOME_STRENGTH = 0.0064;
+  const GRAPH_CENTER_STRENGTH = 0.00016;
+  const GRAPH_LINK_STRENGTH = 0.000035;
 
   const state = {
     page: "home",
@@ -101,6 +104,46 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, "&#96;");
+  }
+
+  function localNavigationHost(hostname) {
+    const host = String(hostname || "").trim().replace(/^\[(.*)\]$/, "$1").toLowerCase();
+    if (!host) return true;
+    return host === "localhost"
+      || host === "0.0.0.0"
+      || host === "::"
+      || host === "::1"
+      || host === "0:0:0:0:0:0:0:0"
+      || host === "0:0:0:0:0:0:0:1"
+      || /^127(?:\.\d{1,3}){3}$/.test(host);
+  }
+
+  function hostForUrl(hostname) {
+    const host = String(hostname || "").trim().replace(/^\[(.*)\]$/, "$1");
+    return host.includes(":") ? `[${host}]` : host;
+  }
+
+  function resolveHostUrl(value) {
+    const raw = String(value || "").trim();
+    if (!raw || raw === "#") return raw || "#";
+    if (raw.startsWith("#")) return raw;
+
+    let parsed;
+    try {
+      parsed = new URL(raw, window.location.href);
+    } catch (_) {
+      return raw;
+    }
+
+    if (!/^https?:$/.test(parsed.protocol) || !localNavigationHost(parsed.hostname)) {
+      return raw;
+    }
+
+    const browserHost = window.location.hostname;
+    if (!browserHost) return raw;
+    const replacementHost = hostForUrl(browserHost);
+    parsed.host = parsed.port ? `${replacementHost}:${parsed.port}` : replacementHost;
+    return parsed.href;
   }
 
   function fmt(value, digits = 1) {
@@ -260,9 +303,10 @@
     const degraded = runtime.database_degraded || Object.keys(errors).length > 0;
 
     const statusLabel = degraded ? "部分可用" : "运行正常";
+    const resolvedDashboardUrl = resolveHostUrl(webui.dashboard_url || "");
     const summary = degraded
       ? "嵌入式页面已载入，部分服务处于降级状态。"
-      : `已连接官方插件页 API，独立 WebUI: ${webui.dashboard_url || "未配置"}`;
+      : `已连接官方插件页 API，独立 WebUI: ${resolvedDashboardUrl || "未配置"}`;
     setText("runtime-status", statusLabel);
     setText("hero-status", statusLabel);
     setText("runtime-summary", summary);
@@ -271,7 +315,7 @@
     $("hero-status")?.classList.toggle("warn", degraded);
 
     const fullLink = $("full-dashboard-link");
-    if (fullLink && webui.dashboard_url) fullLink.href = webui.dashboard_url;
+    if (fullLink && resolvedDashboardUrl) fullLink.href = resolvedDashboardUrl;
 
     setText("stat-messages", fmt(learning.total_messages_collected));
     setText("stat-jargon", fmt(jargon.confirmed_jargon));
@@ -288,8 +332,9 @@
 
   function renderQuickActions(links) {
     const html = links.map((link) => {
-      const external = String(link.url || "").startsWith("http");
-      return `<a class="quick-entry" href="${escapeAttr(link.url || "#")}" target="${external ? "_blank" : "_self"}" rel="noreferrer">
+      const url = resolveHostUrl(link.url || "#");
+      const external = /^https?:\/\//.test(String(url || ""));
+      return `<a class="quick-entry" href="${escapeAttr(url || "#")}" target="${external ? "_blank" : "_self"}" rel="noreferrer">
         <span>${escapeHtml(link.label || "入口")}</span>
         <small>${escapeHtml(link.description || "")}</small>
       </a>`;
@@ -642,6 +687,7 @@
       createGraphNode(node, index, rawNodes.length, size.width, size.height),
     );
     state.graph.links = normalizeGraphLinks(graph.links || []);
+    settleGraphLayout(state.graph.nodes, state.graph.links, size.width, size.height);
     state.graph.dragged = null;
     state.graph.hovered = null;
     setHtml("graph-stat-grid", statCards([
@@ -665,29 +711,77 @@
     const radius = graphNodeRadius(node);
     const safeWidth = Math.max(320, width || 960);
     const safeHeight = Math.max(320, height || 520);
-    const centerX = safeWidth / 2;
-    const centerY = safeHeight / 2;
-    const spread = Math.max(64, Math.min(safeWidth, safeHeight) * 0.38);
-    const angle = index * 2.399963229728653 + (state.graph.type === "knowledge" ? 0.72 : 0);
-    const ring = Math.sqrt((index + 0.5) / Math.max(1, total));
-    const x = centerX + Math.cos(angle) * spread * ring;
-    const y = centerY + Math.sin(angle) * spread * ring;
-    const min = radius + GRAPH_SAFE_PADDING;
-    const maxX = safeWidth - radius - GRAPH_SAFE_PADDING;
-    const maxY = safeHeight - radius - GRAPH_SAFE_PADDING;
+    const home = graphHomePosition(id, index, total, safeWidth, safeHeight, radius);
     return {
       ...node,
       id,
       label: node.name || node.label || id,
       radius,
-      x: clamp(x, min, maxX),
-      y: clamp(y, min, maxY),
-      homeX: clamp(x, min, maxX),
-      homeY: clamp(y, min, maxY),
+      x: home.x,
+      y: home.y,
+      homeX: home.x,
+      homeY: home.y,
       vx: 0,
       vy: 0,
       pinned: false,
     };
+  }
+
+  function graphHomePosition(id, index, total, width, height, radius) {
+    const margin = graphNodeMargin(radius);
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const seed = graphStableSeed(id);
+    const angleOffset = state.graph.type === "knowledge" ? 0.72 : 0;
+    const angle = index * 2.399963229728653 + angleOffset + seed * 0.0007;
+    const ring = Math.sqrt((index + 0.5) / Math.max(1, total));
+    const spreadX = Math.max(86, (width - margin * 2) * 0.36);
+    const spreadY = Math.max(72, (height - margin * 2) * 0.34);
+    return {
+      x: clamp(centerX + Math.cos(angle) * spreadX * ring, margin, width - margin),
+      y: clamp(centerY + Math.sin(angle) * spreadY * ring, margin, height - margin),
+    };
+  }
+
+  function settleGraphLayout(nodes, links, width, height) {
+    if (!nodes.length) return;
+    const byId = new Map(nodes.map((node) => [String(node.id), node]));
+    for (let iteration = 0; iteration < 18; iteration += 1) {
+      links.slice(0, 220).forEach((link) => {
+        const source = byId.get(String(link.source));
+        const target = byId.get(String(link.target));
+        if (!source || !target) return;
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const desired = Math.max(78, Math.min(132, Math.min(width, height) * 0.23));
+        const adjust = (dist - desired) * 0.0035;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        if (!source.pinned) {
+          source.x += nx * adjust;
+          source.y += ny * adjust;
+        }
+        if (!target.pinned) {
+          target.x -= nx * adjust;
+          target.y -= ny * adjust;
+        }
+      });
+
+      for (let i = 0; i < nodes.length; i += 1) {
+        for (let j = i + 1; j < Math.min(nodes.length, i + 42); j += 1) {
+          separateGraphNodes(nodes[i], nodes[j], 0.45);
+        }
+      }
+
+      nodes.forEach((node) => {
+        if (!node.pinned) {
+          node.x += (node.homeX - node.x) * 0.12;
+          node.y += (node.homeY - node.y) * 0.12;
+        }
+        clampGraphNode(node, width, height);
+      });
+    }
   }
 
   function normalizeGraphLinks(links) {
@@ -717,8 +811,8 @@
 
   function integrationCardHtml(item) {
     const dash = item.dashboard || {};
-    const url = dash.external_url || dash.official_page_url || dash.url || "#";
-    const disabled = !dash.available || !url;
+    const url = resolveHostUrl(dash.external_url || dash.official_page_url || dash.url || "#");
+    const disabled = !dash.available || !url || url === "#";
     return `<article class="integration-card ${item.active ? "active" : ""}">
       <div>
         <span>${escapeHtml(item.role || "")}</span>
@@ -936,15 +1030,37 @@
       await loadPageData("settings", { force: true });
     });
     $("dependency-install-button")?.addEventListener("click", async () => {
-      const result = await apiPost("settings/action", {
-        action: "install_dependencies",
-        manual_confirmed: true,
-        source: "system_settings",
-        tier: $("dependency-tier")?.value || "full",
-        pip_mirror: $("pip-mirror-select")?.value || "default",
-      });
-      setText("dependency-output", (result.result || result).output || result.message || "");
-      showToast(result.message || "依赖安装任务结束", result.success ? "ok" : "error");
+      const installButton = $("dependency-install-button");
+      const originalLabel = installButton?.textContent || "手动安装";
+      const settings = state.pageData.settings || {};
+      if (installButton) {
+        installButton.disabled = true;
+        installButton.classList.add("is-busy");
+        installButton.textContent = "安装中";
+      }
+      setText("dependency-output", "正在调用 pip 安装依赖，请等待命令输出...");
+      try {
+        const result = await apiPost("settings/action", {
+          action: "install_dependencies",
+          manual_confirmed: true,
+          source: settings.manual_dependency_source || "system_settings",
+          tier: $("dependency-tier")?.value || "full",
+          pip_mirror: $("pip-mirror-select")?.value || "default",
+        });
+        const detail = result.result || result;
+        setText("dependency-output", detail.output || detail.message || result.message || "依赖安装任务结束");
+        showToast(result.message || detail.message || "依赖安装任务结束", result.success !== false ? "ok" : "error");
+      } catch (error) {
+        const message = error.message || String(error);
+        setText("dependency-output", message);
+        showToast(message, "error");
+      } finally {
+        if (installButton) {
+          installButton.disabled = false;
+          installButton.classList.remove("is-busy");
+          installButton.textContent = originalLabel;
+        }
+      }
     });
 
     document.addEventListener("click", async (event) => {
@@ -1015,6 +1131,7 @@
   function initSpringMotion() {
     const stage = qs(".spring-stage");
     const canvas = $("physics-canvas");
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     if (!stage || !canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -1054,37 +1171,37 @@
     const dt = Math.min(0.033, Math.max(0.001, (now - physics.last) / 1000));
     physics.last = now;
     ctx.clearRect(0, 0, rect.width, rect.height);
-    ctx.strokeStyle = "rgba(65, 105, 225, 0.22)";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(65, 105, 225, 0.14)";
+    ctx.lineWidth = 1.2;
 
     const core = { x: rect.width / 2, y: rect.height / 2 };
     physics.particles.forEach((point) => {
       const own = point.el.getBoundingClientRect();
       const baseX = own.left - rect.left + own.width / 2 - point.x;
       const baseY = own.top - rect.top + own.height / 2 - point.y;
-      let targetX = Math.sin(now / 1100 + point.seed) * 16;
-      let targetY = Math.cos(now / 1250 + point.seed) * 14;
+      let targetX = Math.sin(now / 1350 + point.seed) * 6;
+      let targetY = Math.cos(now / 1500 + point.seed) * 5;
       if (physics.pointer.active) {
         const cx = baseX + point.x;
         const cy = baseY + point.y;
         const dx = cx - physics.pointer.x;
         const dy = cy - physics.pointer.y;
         const dist = Math.max(1, Math.hypot(dx, dy));
-        const force = Math.max(0, 120 - dist) / 120;
-        targetX += dx / dist * force * 52;
-        targetY += dy / dist * force * 52;
+        const force = Math.max(0, 96 - dist) / 96;
+        targetX += dx / dist * force * 18;
+        targetY += dy / dist * force * 18;
       }
-      point.vx += (targetX - point.x) * 42 * dt;
-      point.vy += (targetY - point.y) * 42 * dt;
-      point.vx *= Math.max(0, 1 - 12 * dt);
-      point.vy *= Math.max(0, 1 - 12 * dt);
+      point.vx += (targetX - point.x) * 28 * dt;
+      point.vy += (targetY - point.y) * 28 * dt;
+      point.vx *= Math.max(0, 1 - 14 * dt);
+      point.vy *= Math.max(0, 1 - 14 * dt);
       point.x += point.vx * dt * 60;
       point.y += point.vy * dt * 60;
       const px = baseX + point.x;
       const py = baseY + point.y;
       ctx.beginPath();
       ctx.moveTo(core.x, core.y);
-      ctx.quadraticCurveTo((core.x + px) / 2, (core.y + py) / 2 - 16, px, py);
+      ctx.quadraticCurveTo((core.x + px) / 2, (core.y + py) / 2 - 8, px, py);
       ctx.stroke();
       point.el.style.transform = `translate3d(${point.x.toFixed(2)}px, ${point.y.toFixed(2)}px, 0)`;
     });
@@ -1128,7 +1245,7 @@
       const point = graphPointer(event, canvas);
       const drag = state.graph.dragged;
       if (drag && drag.pointerId === event.pointerId) {
-        const min = drag.node.radius + GRAPH_SAFE_PADDING;
+        const min = graphNodeMargin(drag.node.radius || graphNodeRadius(drag.node));
         drag.node.x = clamp(point.x + drag.offsetX, min, state.graph.width - min);
         drag.node.y = clamp(point.y + drag.offsetY, min, state.graph.height - min);
         drag.node.homeX = drag.node.x;
@@ -1185,15 +1302,15 @@
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
-      const desired = Math.max(98, Math.min(168, width * 0.18));
-      const force = (dist - desired) * 0.00032;
+      const desired = Math.max(78, Math.min(132, Math.min(width, height) * 0.23));
+      const force = (dist - desired) * GRAPH_LINK_STRENGTH;
       if (!source.pinned) {
-        source.vx += dx * force;
-        source.vy += dy * force;
+        source.vx += (dx / dist) * force;
+        source.vy += (dy / dist) * force;
       }
       if (!target.pinned) {
-        target.vx -= dx * force;
-        target.vy -= dy * force;
+        target.vx -= (dx / dist) * force;
+        target.vy -= (dy / dist) * force;
       }
       ctx.strokeStyle = "rgba(100, 116, 139, 0.28)";
       ctx.lineWidth = Math.max(1, Math.min(4, Number(link.value || 1)));
@@ -1205,20 +1322,7 @@
 
     for (let i = 0; i < nodes.length; i += 1) {
       for (let j = i + 1; j < Math.min(nodes.length, i + 45); j += 1) {
-        const a = nodes[i];
-        const b = nodes[j];
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const dist = Math.max(18, Math.hypot(dx, dy));
-        const repel = Math.min(0.2, 260 / (dist * dist));
-        if (!a.pinned) {
-          a.vx -= dx * repel;
-          a.vy -= dy * repel;
-        }
-        if (!b.pinned) {
-          b.vx += dx * repel;
-          b.vy += dy * repel;
-        }
+        separateGraphNodes(nodes[i], nodes[j], 0.022);
       }
     }
 
@@ -1226,17 +1330,18 @@
       const cx = width / 2 + Math.sin(index) * 30;
       const cy = height / 2 + Math.cos(index) * 24;
       if (!node.pinned) {
-        node.vx += ((node.homeX || cx) - node.x) * 0.0011 + (cx - node.x) * 0.00012;
-        node.vy += ((node.homeY || cy) - node.y) * 0.0011 + (cy - node.y) * 0.00012;
-        node.vx *= 0.86;
-        node.vy *= 0.86;
+        node.vx += ((node.homeX || cx) - node.x) * GRAPH_HOME_STRENGTH + (cx - node.x) * GRAPH_CENTER_STRENGTH;
+        node.vy += ((node.homeY || cy) - node.y) * GRAPH_HOME_STRENGTH + (cy - node.y) * GRAPH_CENTER_STRENGTH;
+        node.vx *= 0.74;
+        node.vy *= 0.74;
         node.x += node.vx;
         node.y += node.vy;
       }
       const radius = node.radius || graphNodeRadius(node);
-      const min = radius + GRAPH_SAFE_PADDING;
-      node.x = clamp(node.x, min, width - min);
-      node.y = clamp(node.y, min, height - min);
+      if (clampGraphNode(node, width, height) && !node.pinned) {
+        node.vx *= 0.12;
+        node.vy *= 0.12;
+      }
       const isHovered = state.graph.hovered === node || state.graph.dragged?.node === node;
       if (isHovered) {
         ctx.fillStyle = "rgba(15, 159, 143, 0.14)";
@@ -1250,7 +1355,11 @@
       ctx.fill();
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#162033";
       ctx.font = "12px system-ui";
-      ctx.fillText(String(node.name || "").slice(0, 12), node.x + radius + 4, node.y + 4);
+      const label = String(node.name || node.label || "").slice(0, 12);
+      const labelWidth = ctx.measureText(label).width;
+      const labelX = clamp(node.x + radius + 4, 6, width - labelWidth - 6);
+      const labelY = clamp(node.y + 4, 14, height - 6);
+      ctx.fillText(label, labelX, labelY);
     });
     requestAnimationFrame(tickGraph);
   }
@@ -1268,12 +1377,18 @@
       const oldHeight = state.graph.height || height;
       canvas.width = nextWidth;
       canvas.height = nextHeight;
-      state.graph.nodes.forEach((node) => {
-        const min = node.radius + GRAPH_SAFE_PADDING;
+      state.graph.nodes.forEach((node, index) => {
+        const radius = node.radius || graphNodeRadius(node);
+        const min = graphNodeMargin(radius);
+        const home = graphHomePosition(node.id, index, state.graph.nodes.length, width, height, radius);
         node.x = clamp((node.x / oldWidth) * width, min, width - min);
         node.y = clamp((node.y / oldHeight) * height, min, height - min);
-        node.homeX = clamp(((node.homeX || node.x) / oldWidth) * width, min, width - min);
-        node.homeY = clamp(((node.homeY || node.y) / oldHeight) * height, min, height - min);
+        node.homeX = home.x;
+        node.homeY = home.y;
+        if (options.force && !node.pinned) {
+          node.x = node.x * 0.55 + home.x * 0.45;
+          node.y = node.y * 0.55 + home.y * 0.45;
+        }
       });
     }
     state.graph.width = width;
@@ -1303,6 +1418,53 @@
   function graphNodeRadius(node) {
     const raw = Number(node.symbolSize || node.value || node.weight || 12);
     return Math.max(9, Math.min(24, Number.isFinite(raw) ? raw : 12));
+  }
+
+  function graphNodeMargin(radius) {
+    return Math.max(52, radius + GRAPH_SAFE_PADDING);
+  }
+
+  function clampGraphNode(node, width, height) {
+    const radius = node.radius || graphNodeRadius(node);
+    const min = graphNodeMargin(radius);
+    const nextX = clamp(node.x, min, width - min);
+    const nextY = clamp(node.y, min, height - min);
+    const clamped = nextX !== node.x || nextY !== node.y;
+    node.x = nextX;
+    node.y = nextY;
+    return clamped;
+  }
+
+  function separateGraphNodes(a, b, strength) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    const minDist = (a.radius || graphNodeRadius(a)) + (b.radius || graphNodeRadius(b)) + 20;
+    if (dist >= minDist) return;
+    const shift = (minDist - dist) / minDist * strength;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    if (!a.pinned) {
+      a.vx -= nx * shift;
+      a.vy -= ny * shift;
+      a.x -= nx * shift * 6;
+      a.y -= ny * shift * 6;
+    }
+    if (!b.pinned) {
+      b.vx += nx * shift;
+      b.vy += ny * shift;
+      b.x += nx * shift * 6;
+      b.y += ny * shift * 6;
+    }
+  }
+
+  function graphStableSeed(value) {
+    let hash = 0;
+    const text = String(value || "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+    }
+    return hash % 997;
   }
 
   function graphValueKey(value) {

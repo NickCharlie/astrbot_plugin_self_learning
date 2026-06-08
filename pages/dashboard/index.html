@@ -44,7 +44,7 @@
             <h2 id="page-title">完整内嵌 WebUI</h2>
           </div>
           <div class="top-actions">
-            <a class="icon-button" id="full-dashboard-link" href="http://127.0.0.1:7833" target="_blank" rel="noreferrer" title="打开独立 WebUI" aria-label="打开独立 WebUI">↗</a>
+            <a class="icon-button" id="full-dashboard-link" href="#" target="_blank" rel="noreferrer" title="打开独立 WebUI" aria-label="打开独立 WebUI">↗</a>
             <button class="icon-button" id="refresh-button" type="button" title="刷新当前模块" aria-label="刷新当前模块">⟳</button>
           </div>
         </header>
@@ -243,18 +243,18 @@
             </div>
             <button class="ghost-button" type="button" data-refresh-page="persona-learning">刷新</button>
           </div>
-          <div class="content-grid two-col">
-            <div class="panel">
+          <div class="content-grid two-col persona-layout">
+            <div class="panel persona-state-panel">
               <h3>当前人格状态</h3>
               <section class="stat-grid compact" id="persona-state-stats"></section>
               <pre class="code-preview" id="persona-prompt-preview"></pre>
             </div>
-            <div class="panel">
+            <div class="panel persona-list-panel">
               <h3>人格列表</h3>
               <div class="compact-table" id="persona-list"></div>
             </div>
           </div>
-          <div class="panel">
+          <div class="panel persona-backup-panel">
             <div class="panel-heading">
               <h3>人格备份</h3>
               <span class="mini-badge" id="persona-backup-count">0</span>

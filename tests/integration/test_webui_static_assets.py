@@ -92,13 +92,34 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "startGraphRender" in script
     assert "syncGraphCanvasSize" in script
     assert "hitGraphNode" in script
+    assert "settleGraphLayout" in script
+    assert "graphHomePosition" in script
+    assert "GRAPH_HOME_STRENGTH" in script
+    assert "graphNodeMargin" in script
+    assert "manual_dependency_source" in script
+    assert "installButton.disabled = true" in script
+    assert "正在调用 pip 安装依赖" in script
+    assert "function resolveHostUrl" in script
+    assert "function localNavigationHost" in script
+    assert "browserHost = window.location.hostname" in script
+    assert 'resolveHostUrl(webui.dashboard_url || "")' in script
+    assert "resolveHostUrl(link.url || \"#\")" in script
+    assert "resolveHostUrl(dash.external_url || dash.official_page_url || dash.url || \"#\")" in script
     assert 'id="physics-canvas"' in index
     assert 'id="graph-canvas"' in index
     assert 'id="graph-canvas" width=' not in index
+    assert 'id="full-dashboard-link" href="#"' in index
+    assert "persona-layout" in index
+    assert 'http://127.0.0.1:7833' not in index
     assert ".module-card" in styles
     assert ".ring-chart" in styles
     assert ".sidebar" in styles
     assert ".graph-panel" in styles
+    assert ".persona-layout" in styles
+    assert "overflow-wrap: anywhere" in styles
+    assert "aspect-ratio: 16 / 9" in styles
+    assert "button:disabled" in styles
+    assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "touch-action: none" in styles
 
 

@@ -1,9 +1,11 @@
 """Package-path import coverage for AstrBot plugin loading."""
+import asyncio
 import builtins
 import importlib
 import importlib.util
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
@@ -118,6 +120,68 @@ def test_official_plugin_page_api_registers_embedded_dashboard_routes():
 
         assert routes["/astrbot_plugin_self_learning/page/overview"][0] == api.get_overview
         assert routes["/astrbot_plugin_self_learning/page/settings/action"][0] == api.post_settings_action
+
+        snapshot = api._build_webui_snapshot(_Plugin(), type("WebUI", (), {"host": "0.0.0.0", "port": 7833})())
+        assert snapshot["dashboard_url"] == "http://127.0.0.1:7833"
+        assert snapshot["bind_host"] == "0.0.0.0"
+        assert snapshot["public_url_strategy"] == "browser_host_for_local_bind"
+        assert "localhost" in snapshot["client_rewrite_hosts"]
+    finally:
+        _cleanup_alias(alias)
+
+
+def test_plugin_page_dependency_install_accepts_legacy_plugin_page_confirmation(monkeypatch):
+    alias = "data.plugins.astrbot_plugin_self_learning_pageapi_deps_pkgtest"
+    _cleanup_alias(alias)
+
+    class _Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"installed", b""
+
+    captured: dict[str, object] = {}
+
+    async def _fake_subprocess(*cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return _Process()
+
+    try:
+        _load_plugin_package(alias)
+        module = importlib.import_module(f"{alias}.core.page_api")
+        imports = SimpleNamespace(
+            DEPENDENCY_TIERS={
+                "full": {
+                    "label": "全能力依赖",
+                    "packages": ["quart"],
+                }
+            },
+            MANUAL_DEPENDENCY_INSTALL_SOURCE="system_settings",
+            PIP_MIRROR_SOURCES={
+                "default": {
+                    "label": "PyPI 默认源",
+                    "index_url": None,
+                }
+            },
+        )
+        monkeypatch.setattr(module.PluginPageApi, "_imports", staticmethod(lambda: imports))
+        monkeypatch.setattr(module.asyncio, "create_subprocess_exec", _fake_subprocess)
+
+        result = asyncio.run(
+            module.PluginPageApi(object())._install_dependencies(
+                {
+                    "manual_confirm": True,
+                    "user_confirmed": True,
+                    "mode": "plugin_page",
+                }
+            )
+        )
+
+        assert result["success"] is True
+        assert result["tier"] == "full"
+        assert captured["cmd"][:4] == (sys.executable, "-m", "pip", "install")
+        assert "quart" in captured["cmd"]
     finally:
         _cleanup_alias(alias)
 
