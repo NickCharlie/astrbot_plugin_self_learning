@@ -997,6 +997,10 @@ textarea {
 }
 
 .toast {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
   max-width: min(360px, calc(100vw - 36px));
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -1005,6 +1009,21 @@ textarea {
   background: var(--surface-strong);
   box-shadow: var(--shadow);
   animation: toastIn 180ms var(--spring);
+}
+
+.toast-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  color: var(--muted);
+  background: transparent;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toast-close:hover {
+  color: var(--text);
 }
 
 .toast.error {

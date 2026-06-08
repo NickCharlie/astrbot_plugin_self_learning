@@ -1,6 +1,11 @@
 """Helpers for resolving the AstrBot persona targeted by this plugin."""
 import inspect
+import time
 from typing import Any, Dict, Optional
+
+
+_WARNING_TTL_SECONDS = 300.0
+_RECENT_WARNINGS: Dict[str, float] = {}
 
 
 def _is_unset_mock(obj: Any, name: str) -> bool:
@@ -43,7 +48,7 @@ def get_configured_persona_id(config: Any) -> Optional[str]:
     if value is None:
         return None
     persona_id = str(value).strip()
-    if not persona_id or persona_id == "[%None]":
+    if not persona_id or persona_id == "[%None]" or persona_id.lower() == "default":
         return None
     return persona_id
 
@@ -97,6 +102,18 @@ def _warn(log: Any, message: str) -> None:
         log.warning(message)
 
 
+def _warn_once(log: Any, message: str, *, key: Optional[str] = None) -> None:
+    if not log or not hasattr(log, "warning"):
+        return
+    cache_key = key or message
+    now = time.monotonic()
+    last = _RECENT_WARNINGS.get(cache_key)
+    if last is not None and now - last < _WARNING_TTL_SECONDS:
+        return
+    _RECENT_WARNINGS[cache_key] = now
+    log.warning(message)
+
+
 async def _read_persona_by_id(
     persona_manager: Any,
     persona_id: str,
@@ -108,14 +125,18 @@ async def _read_persona_by_id(
     try:
         persona = await _maybe_await(get_persona(persona_id))
     except Exception as exc:
-        _warn(log, f"读取人格 {persona_id} 失败: {exc}")
+        _warn_once(log, f"读取人格 {persona_id} 失败: {exc}", key=f"read:{persona_id}:{exc}")
         return None
 
     normalized = normalize_persona_data(persona)
     if normalized:
         returned_id = normalized.get("persona_id")
         if returned_id and str(returned_id) != persona_id:
-            _warn(log, f"读取人格 {persona_id} 返回了 {returned_id}，按未命中处理")
+            _warn_once(
+                log,
+                f"读取人格 {persona_id} 返回了 {returned_id}，按未命中处理",
+                key=f"mismatch:{persona_id}:{returned_id}",
+            )
             return None
         normalized["persona_id"] = returned_id or persona_id
         normalized.setdefault("name", normalized["persona_id"])
@@ -164,7 +185,11 @@ async def resolve_target_persona_from_web(
         if configured:
             configured["selection_source"] = "plugin_config"
             return configured
-        _warn(log, f"插件配置的人格 {configured_id} 不存在，将尝试 AstrBot 当前人格")
+        _warn_once(
+            log,
+            f"插件配置的人格 {configured_id} 不存在，将尝试 AstrBot 当前人格",
+            key=f"web-config-missing:{configured_id}",
+        )
 
     get_persona_for_group = _explicit_attr(persona_web_manager, "get_persona_for_group")
     get_all_personas = _explicit_attr(persona_web_manager, "get_all_personas_for_web")
@@ -182,7 +207,11 @@ async def resolve_target_persona_from_web(
                 if existing:
                     existing["selection_source"] = "astrbot_default"
                     return existing
-                _warn(log, f"AstrBot 当前人格 {normalized['persona_id']} 不存在于 PersonaManager")
+                _warn_once(
+                    log,
+                    f"AstrBot 当前人格 {normalized['persona_id']} 不存在于 PersonaManager",
+                    key=f"web-current-missing:{normalized['persona_id']}",
+                )
             else:
                 normalized["selection_source"] = "astrbot_default"
                 return normalized
@@ -199,7 +228,11 @@ async def resolve_target_persona_from_web(
                 if existing:
                     existing["selection_source"] = "astrbot_default"
                     return existing
-                _warn(log, f"AstrBot 全局人格 {normalized['persona_id']} 不存在于 PersonaManager")
+                _warn_once(
+                    log,
+                    f"AstrBot 全局人格 {normalized['persona_id']} 不存在于 PersonaManager",
+                    key=f"web-global-missing:{normalized['persona_id']}",
+                )
             else:
                 normalized["selection_source"] = "astrbot_default"
                 return normalized
@@ -212,7 +245,11 @@ async def resolve_target_persona_from_web(
             if persona and persona.get("persona_id")
         ]
         if len(normalized) == 1:
-            _warn(log, f"目标人格不可用，回退到唯一可用人格 {normalized[0]['persona_id']}")
+            _warn_once(
+                log,
+                f"目标人格不可用，回退到唯一可用人格 {normalized[0]['persona_id']}",
+                key=f"web-single-fallback:{normalized[0]['persona_id']}",
+            )
             normalized[0]["selection_source"] = "single_existing"
             return normalized[0]
 
@@ -229,7 +266,7 @@ async def _read_single_existing_persona(
     try:
         personas = await _maybe_await(get_all_personas())
     except Exception as exc:
-        _warn(log, f"读取人格列表失败: {exc}")
+        _warn_once(log, f"读取人格列表失败: {exc}", key=f"list:{exc}")
         return None
 
     normalized = [
@@ -238,7 +275,11 @@ async def _read_single_existing_persona(
         if persona and persona.get("persona_id")
     ]
     if len(normalized) == 1:
-        _warn(log, f"目标人格不可用，回退到唯一可用人格 {normalized[0]['persona_id']}")
+        _warn_once(
+            log,
+            f"目标人格不可用，回退到唯一可用人格 {normalized[0]['persona_id']}",
+            key=f"single-fallback:{normalized[0]['persona_id']}",
+        )
         return normalized[0]
     return None
 
@@ -260,19 +301,24 @@ async def resolve_target_persona(
         return None
 
     configured_id = get_configured_persona_id(config)
+    placeholder_persona: Optional[Dict[str, Any]] = None
     if configured_id:
         configured = await _read_persona_by_id(persona_manager, configured_id, log)
         if configured:
             configured["selection_source"] = "plugin_config"
             return configured
-        _warn(log, f"插件配置的人格 {configured_id} 不存在，将尝试 AstrBot 当前人格")
+        _warn_once(
+            log,
+            f"插件配置的人格 {configured_id} 不存在，将尝试 AstrBot 当前人格",
+            key=f"config-missing:{configured_id}",
+        )
 
     get_default_persona = _explicit_attr(persona_manager, "get_default_persona_v3")
     if get_default_persona:
         try:
             default_persona = await _maybe_await(get_default_persona(umo))
         except Exception as exc:
-            _warn(log, f"读取 AstrBot 当前人格失败: {exc}")
+            _warn_once(log, f"读取 AstrBot 当前人格失败: {exc}", key=f"current:{umo}:{exc}")
         else:
             normalized = normalize_persona_data(default_persona)
             if normalized:
@@ -285,17 +331,18 @@ async def resolve_target_persona(
                     normalized["selection_source"] = "astrbot_default"
                     return normalized
                 if existing_id:
-                    existing = await _read_persona_by_id(persona_manager, existing_id, log)
-                    if existing:
-                        normalized["selection_source"] = "astrbot_default"
-                        return normalized
-                    _warn(log, f"AstrBot 当前人格 {existing_id} 不存在于 PersonaManager")
+                    _warn_once(
+                        log,
+                        "AstrBot 当前人格 default 可能是占位值，将尝试回退到可用人格",
+                        key="current-placeholder-default",
+                    )
+                    placeholder_persona = normalized
 
         if umo != "default":
             try:
                 default_persona = await _maybe_await(get_default_persona("default"))
             except Exception as exc:
-                _warn(log, f"读取 AstrBot default 人格失败: {exc}")
+                _warn_once(log, f"读取 AstrBot default 人格失败: {exc}", key=f"default:{exc}")
             else:
                 normalized = normalize_persona_data(default_persona)
                 if normalized:
@@ -308,16 +355,23 @@ async def resolve_target_persona(
                         normalized["selection_source"] = "astrbot_default"
                         return normalized
                     if existing_id:
-                        existing = await _read_persona_by_id(persona_manager, existing_id, log)
-                        if existing:
-                            normalized["selection_source"] = "astrbot_default"
-                            return normalized
-                        _warn(log, f"AstrBot default 人格 {existing_id} 不存在于 PersonaManager")
+                        _warn_once(
+                            log,
+                            "AstrBot default 人格可能是占位值，将尝试回退到可用人格",
+                            key="current-placeholder-default",
+                        )
+                        placeholder_persona = placeholder_persona or normalized
 
     if require_existing:
         single_persona = await _read_single_existing_persona(persona_manager, log)
         if single_persona:
+            if placeholder_persona and str(single_persona.get("persona_id") or "").lower() == "default":
+                placeholder_persona["selection_source"] = "astrbot_default_placeholder"
+                return placeholder_persona
             single_persona["selection_source"] = "single_existing"
             return single_persona
+        if placeholder_persona:
+            placeholder_persona["selection_source"] = "astrbot_default_placeholder"
+            return placeholder_persona
 
     return None

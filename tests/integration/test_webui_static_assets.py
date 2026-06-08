@@ -86,7 +86,17 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert 'apiGet("persona"' in script
     assert 'apiGet("graphs"' in script
     assert 'apiPost("reviews/action"' in script
+    assert 'apiPost("style/action"' in script
+    assert 'apiPost("persona/action"' in script
     assert 'apiPost("settings/action"' in script
+    assert 'data-jargon-action="edit"' in script
+    assert 'data-style-action="edit"' in script
+    assert 'data-persona-action="edit"' in script
+    assert 'id="modal-jargon-save"' in script
+    assert 'id="modal-style-save"' in script
+    assert 'id="modal-persona-save"' in script
+    assert "region.replaceChildren()" in script
+    assert "toast-close" in script
     assert 'return `page/${String(path || "")' in script
     assert "initSpringMotion" in script
     assert "startGraphRender" in script
