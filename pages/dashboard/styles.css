@@ -12,7 +12,7 @@
   --rose: #e11d48;
   --green: #16a34a;
   --shadow: 0 18px 44px rgba(15, 23, 42, 0.09);
-  --spring: cubic-bezier(0.2, 0.82, 0.18, 1);
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -216,7 +216,7 @@ h1 {
   color: var(--text);
   text-decoration: none;
   cursor: pointer;
-  transition: transform 180ms var(--spring), border-color 180ms ease, background 180ms ease;
+  transition: transform 160ms var(--spring), border-color 160ms ease, background 160ms ease, opacity 160ms ease;
 }
 
 .icon-button {
@@ -247,6 +247,13 @@ h1 {
 .disabled {
   pointer-events: none;
   opacity: 0.55;
+}
+
+button:disabled,
+button.is-busy {
+  cursor: wait;
+  opacity: 0.64;
+  transform: none;
 }
 
 .icon-button:hover,
@@ -285,7 +292,7 @@ h1 {
 
 .page {
   display: none;
-  animation: pageIn 260ms var(--spring);
+  animation: pageIn 190ms var(--spring);
 }
 
 .page.active {
@@ -295,7 +302,7 @@ h1 {
 @keyframes pageIn {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -550,7 +557,7 @@ h1 {
 }
 
 .module-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
 }
 
 .module-card-head {
@@ -690,6 +697,7 @@ h1 {
 .compact-table,
 .content-list,
 .config-form {
+  min-width: 0;
   display: grid;
   gap: 8px;
 }
@@ -699,6 +707,7 @@ h1 {
 .table-row,
 .config-field,
 .pattern-column {
+  min-width: 0;
   display: grid;
   gap: 9px;
   padding: 12px;
@@ -715,7 +724,7 @@ h1 {
 .review-main p,
 .content-item p {
   margin-bottom: 0;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .table-row {
@@ -724,7 +733,23 @@ h1 {
 }
 
 .rich-row {
-  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  grid-template-columns: minmax(180px, 1fr) auto auto minmax(118px, auto);
+}
+
+.table-row > *,
+.rich-row > *,
+.config-field > *,
+.panel > * {
+  min-width: 0;
+}
+
+.table-row span,
+.table-row strong,
+.table-row small,
+.rich-row span,
+.rich-row strong,
+.rich-row small {
+  overflow-wrap: anywhere;
 }
 
 .row-actions {
@@ -792,18 +817,22 @@ textarea {
   color: var(--text);
   background: var(--surface-muted);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .graph-panel {
+  container-type: inline-size;
   padding: 10px;
+  overflow: hidden;
 }
 
 #graph-canvas {
   width: 100%;
-  height: clamp(360px, 56vw, 560px);
-  max-height: 62vh;
-  min-height: 360px;
+  height: clamp(320px, 56.25cqw, 520px);
+  aspect-ratio: 16 / 9;
+  max-height: 58vh;
+  min-height: 320px;
   display: block;
   touch-action: none;
   border-radius: 8px;
@@ -813,6 +842,42 @@ textarea {
     linear-gradient(90deg, var(--border) 1px, transparent 1px),
     color-mix(in srgb, var(--surface-strong), transparent 4%);
   background-size: 34px 34px;
+}
+
+@supports not (height: 1cqw) {
+  #graph-canvas {
+    height: clamp(320px, 48vw, 520px);
+  }
+}
+
+.persona-layout,
+.persona-state-panel,
+.persona-list-panel,
+.persona-backup-panel {
+  min-width: 0;
+}
+
+.persona-layout {
+  grid-template-columns: minmax(0, 1.08fr) minmax(260px, 0.92fr);
+}
+
+.persona-state-panel .stat-grid.compact {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+.persona-state-panel .code-preview {
+  max-height: min(42vh, 420px);
+}
+
+.persona-list-panel .table-row,
+.persona-backup-panel .table-row {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.persona-list-panel .row-actions,
+.persona-backup-panel .row-actions {
+  justify-content: flex-start;
 }
 
 #graph-canvas.has-hover {
@@ -1046,6 +1111,11 @@ textarea {
   .row-actions {
     justify-content: flex-start;
   }
+
+  #graph-canvas {
+    min-height: 300px;
+    max-height: none;
+  }
 }
 
 @media (max-width: 560px) {
@@ -1076,5 +1146,21 @@ textarea {
 
   .hero-copy h3 {
     font-size: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+
+  .spring-node {
+    will-change: auto;
+    transform: none !important;
   }
 }
