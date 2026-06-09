@@ -842,6 +842,7 @@
         <strong>${escapeHtml(value === true ? "开启" : value === false ? "关闭" : value ?? "未设置")}</strong>
       </div>
     `).join("") || empty("暂无融合设置"));
+    renderMaiBotImportPreview(data.maibot_learning || null);
   }
 
   function integrationCardHtml(item) {
@@ -857,6 +858,61 @@
       <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || "打开")}</a>
       <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>
     </article>`;
+  }
+
+  function collectMaiBotPayload() {
+    const payload = {
+      maibot_root: $("maibot-root-input")?.value?.trim() || "",
+      db_path: $("maibot-db-input")?.value?.trim() || "",
+      memorix_db_path: $("maibot-memorix-input")?.value?.trim() || "",
+      default_group_id: $("maibot-default-group-input")?.value?.trim() || "global",
+      import_expressions: Boolean($("maibot-import-expressions")?.checked),
+      import_jargons: Boolean($("maibot-import-jargons")?.checked),
+      import_memories: Boolean($("maibot-import-memories")?.checked),
+      approve_checked_expressions: Boolean($("maibot-approve-checked")?.checked),
+    };
+    if (!payload.maibot_root && !payload.db_path) {
+      throw new Error("请填写 MaiBot 项目目录或主数据库路径");
+    }
+    return payload;
+  }
+
+  function renderMaiBotImportPreview(summary) {
+    const output = $("maibot-import-output");
+    if (!output || !summary) return;
+    output.textContent = JSON.stringify(summary, null, 2);
+  }
+
+  async function runMaiBotImportAction(action) {
+    const buttonEl = action === "maibot_import" ? $("maibot-import-button") : $("maibot-preview-button");
+    const originalLabel = buttonEl?.textContent || "";
+    try {
+      const payload = collectMaiBotPayload();
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.classList.add("is-busy");
+        buttonEl.textContent = action === "maibot_import" ? "导入中" : "预览中";
+      }
+      setText("maibot-import-output", "正在读取 MaiBot 学习数据...");
+      const result = await apiPost("integrations/action", { action, ...payload });
+      const detail = result.preview || result.result || result.payload || result;
+      renderMaiBotImportPreview(detail);
+      showToast(result.message || "MaiBot 学习数据操作完成", result.success !== false ? "ok" : "error");
+      if (action === "maibot_import") {
+        state.pageData = {};
+        await loadDashboard(true);
+      }
+    } catch (error) {
+      const message = error.message || String(error);
+      setText("maibot-import-output", message);
+      showToast(message, "error");
+    } finally {
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.classList.remove("is-busy");
+        buttonEl.textContent = originalLabel;
+      }
+    }
   }
 
   function renderSettings(data) {
@@ -1139,6 +1195,8 @@
         }
       }
     });
+    $("maibot-preview-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_preview"));
+    $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
 
     document.addEventListener("click", async (event) => {
       const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-jargon-action],[data-style-action],[data-persona-action],[data-content-action],[data-settings-group]");

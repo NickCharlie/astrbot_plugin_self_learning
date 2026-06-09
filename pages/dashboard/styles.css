@@ -969,6 +969,46 @@ textarea {
   min-height: 80px;
 }
 
+.maibot-import-panel {
+  margin-bottom: 14px;
+}
+
+.maibot-import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.maibot-import-panel .config-field {
+  align-items: center;
+}
+
+.toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.toggle-row label {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.maibot-import-panel .code-preview {
+  min-height: 136px;
+}
+
 .empty-state {
   min-height: 54px;
   display: grid;
@@ -1092,6 +1132,7 @@ textarea {
   .review-layout,
   .integration-cards,
   .settings-grid,
+  .maibot-import-grid,
   .graph-grid {
     grid-template-columns: 1fr;
   }

@@ -1,23 +1,38 @@
-"""External integrations -- MaiBot, knowledge graphs, memory engines."""
+"""External integrations -- MaiBot, knowledge graphs, memory engines.
 
-from .maibot_integration_factory import MaiBotIntegrationFactory
-from .maibot_adapters import MaiBotStyleAnalyzer, MaiBotLearningStrategy, MaiBotQualityMonitor
-from .maibot_enhanced_learning_manager import MaiBotEnhancedLearningManager
-from .exemplar_library import ExemplarLibrary
-from .knowledge_graph_manager import KnowledgeGraphManager
-from .lightrag_knowledge_manager import LightRAGKnowledgeManager
-from .mem0_memory_manager import Mem0MemoryManager
-from .training_data_exporter import TrainingDataExporter
+The integration package contains optional-heavy adapters.  Keep package import
+lightweight and load concrete classes on demand so tests and WebUI startup can
+import a single integration module without initializing every companion engine.
+"""
 
-__all__ = [
-    "MaiBotIntegrationFactory",
-    "MaiBotStyleAnalyzer",
-    "MaiBotLearningStrategy",
-    "MaiBotQualityMonitor",
-    "MaiBotEnhancedLearningManager",
-    "ExemplarLibrary",
-    "KnowledgeGraphManager",
-    "LightRAGKnowledgeManager",
-    "Mem0MemoryManager",
-    "TrainingDataExporter",
-]
+from __future__ import annotations
+
+from importlib import import_module
+from typing import Any
+
+
+_EXPORTS = {
+    "MaiBotIntegrationFactory": ".maibot_integration_factory",
+    "MaiBotStyleAnalyzer": ".maibot_adapters",
+    "MaiBotLearningStrategy": ".maibot_adapters",
+    "MaiBotQualityMonitor": ".maibot_adapters",
+    "MaiBotEnhancedLearningManager": ".maibot_enhanced_learning_manager",
+    "MaiBotLearningImporter": ".maibot_learning_importer",
+    "ExemplarLibrary": ".exemplar_library",
+    "KnowledgeGraphManager": ".knowledge_graph_manager",
+    "LightRAGKnowledgeManager": ".lightrag_knowledge_manager",
+    "Mem0MemoryManager": ".mem0_memory_manager",
+    "TrainingDataExporter": ".training_data_exporter",
+}
+
+__all__ = list(_EXPORTS)
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _EXPORTS.get(name)
+    if not module_name:
+        raise AttributeError(name)
+    module = import_module(module_name, __name__)
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
