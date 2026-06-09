@@ -257,9 +257,6 @@ class RealtimeProcessor:
                     group_id, limit=5
                 )
                 if learned_patterns:
-                    await self._apply_style_to_prompt_temporarily(
-                        group_id, learned_patterns
-                    )
                     few_shots_content = (
                         await self._dialog_analyzer.generate_few_shots_dialog(
                             group_id, message_data_list
@@ -270,69 +267,21 @@ class RealtimeProcessor:
                             group_id, learned_patterns, few_shots_content
                         )
                         logger.info(
-                            f"群组 {group_id} 表达风格学习结果已临时应用到prompt，"
-                            "并已提交人格审查"
+                            f"群组 {group_id} 表达风格学习结果已提交人格审查，"
+                            "等待批准后再写入 begin_dialogs"
                         )
                     else:
                         logger.info(
-                            f"群组 {group_id} 表达风格学习结果已临时应用到prompt"
+                            f"群组 {group_id} 表达风格学习成功，"
+                            "但未生成可审查的 few-shot 示例，跳过人格写入"
                         )
             except Exception as e:
                 logger.error(f"处理表达风格学习结果失败: {e}")
 
             self._learning_stats.style_updates += 1
 
-            if self.update_system_prompt_callback:
-                await self.update_system_prompt_callback(group_id)
-                logger.info(
-                    f"群组 {group_id} 表达风格学习结果已应用到system_prompt"
-                )
-
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
-
-    # Temporary style application — injected as begin_dialogs example conversations
-
-    async def _apply_style_to_prompt_temporarily(
-        self, group_id: str, learned_patterns: List[Any]
-    ) -> None:
-        """Inject learned style patterns as begin_dialogs example conversations."""
-        try:
-            if not learned_patterns:
-                return
-
-            dialog_pairs: list = []
-            for pattern in learned_patterns[:5]:
-                situation = (
-                    pattern.situation
-                    if hasattr(pattern, "situation")
-                    else pattern.get("situation", "")
-                )
-                expression = (
-                    pattern.expression
-                    if hasattr(pattern, "expression")
-                    else pattern.get("expression", "")
-                )
-                if situation and expression:
-                    dialog_pairs.append((situation, expression))
-
-            if not dialog_pairs:
-                return
-
-            success = await self._temporary_persona_updater.apply_style_as_begin_dialogs(
-                group_id, dialog_pairs
-            )
-
-            if success:
-                logger.info(
-                    f"群组 {group_id} 风格示例已注入 begin_dialogs，"
-                    f"包含 {len(dialog_pairs)} 组示例对话"
-                )
-            else:
-                logger.warning(f"群组 {group_id} begin_dialogs 风格注入失败")
-
-        except Exception as e:
-            logger.error(f"追加 few-shot 风格示例失败: {e}")
 
     # Helpers
 

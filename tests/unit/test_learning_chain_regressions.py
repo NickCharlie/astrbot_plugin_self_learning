@@ -45,6 +45,9 @@ from self_learning_EterU.services.learning.sample_filter import (
     filter_learning_messages,
     should_ignore_learning_sample,
 )
+from self_learning_EterU.services.persona.temporary_persona_updater import (
+    TemporaryPersonaUpdater,
+)
 from self_learning_EterU.services.state.enhanced_interaction import (
     EnhancedInteractionService,
 )
@@ -877,6 +880,124 @@ async def test_realtime_expression_learning_is_batch_gated():
         )
 
     assert learner.trigger_learning_for_group.await_count == 2
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_realtime_expression_learning_creates_review_without_persona_write():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=True,
+        expression_learning_trigger_messages=1,
+    )
+    collector = SimpleNamespace(
+        get_statistics=AsyncMock(return_value={"raw_messages": 10})
+    )
+    pattern = SimpleNamespace(
+        situation="用户问候",
+        expression="元气回应",
+        to_dict=lambda: {"situation": "用户问候", "expression": "元气回应"},
+    )
+    learner = SimpleNamespace(
+        trigger_learning_for_group=AsyncMock(return_value=True),
+        get_expression_patterns=AsyncMock(return_value=[pattern]),
+    )
+    factory_manager = SimpleNamespace(
+        get_component_factory=lambda: SimpleNamespace(
+            create_expression_pattern_learner=lambda: learner
+        )
+    )
+    db_manager = SimpleNamespace(
+        get_recent_raw_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": idx,
+                    "sender_id": f"user-{idx}",
+                    "sender_name": f"User {idx}",
+                    "message": f"这是第{idx}条足够长的表达学习消息",
+                    "timestamp": time.time() + idx,
+                    "platform": "test",
+                }
+                for idx in range(1, 6)
+            ]
+        )
+    )
+    dialog_analyzer = SimpleNamespace(
+        generate_few_shots_dialog=AsyncMock(return_value="A: 你好\nB: 我来了"),
+        create_style_learning_review_request=AsyncMock(),
+    )
+    temporary_persona_updater = SimpleNamespace(
+        apply_style_as_begin_dialogs=AsyncMock(),
+    )
+    update_callback = AsyncMock()
+
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        temporary_persona_updater=temporary_persona_updater,
+        dialog_analyzer=dialog_analyzer,
+        learning_stats=SimpleNamespace(style_updates=0),
+        factory_manager=factory_manager,
+        db_manager=db_manager,
+    )
+    processor.update_system_prompt_callback = update_callback
+
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习审查的消息",
+        "user-a",
+    )
+
+    dialog_analyzer.create_style_learning_review_request.assert_awaited_once()
+    temporary_persona_updater.apply_style_as_begin_dialogs.assert_not_awaited()
+    update_callback.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_runtime_context_updates_are_queued_for_review_without_persona_write():
+    updater = TemporaryPersonaUpdater.__new__(TemporaryPersonaUpdater)
+    updater.db_manager = SimpleNamespace(
+        get_pending_persona_learning_reviews=AsyncMock(return_value=[]),
+        add_persona_learning_review=AsyncMock(return_value=99),
+    )
+    updater._get_framework_persona = AsyncMock(
+        return_value={"name": "default", "prompt": "Base prompt"}
+    )
+    updater._update_framework_persona = AsyncMock()
+
+    update_data = {
+        "learning_insights": {
+            "interaction_patterns": "喜欢短句互动",
+            "improvement_suggestions": "少把记忆主题写进固定人格",
+            "effective_strategies": "先审查再应用",
+            "learning_focus": "记忆重放学习",
+        },
+        "context_awareness": {
+            "current_topic": "MaiBot 记忆主题",
+            "recent_focus": "人格污染",
+            "dialogue_flow": "话题相关度: 0.8",
+        },
+    }
+
+    success = await updater.apply_comprehensive_update_to_system_prompt(
+        "group-a",
+        update_data,
+    )
+
+    assert success is True
+    updater._update_framework_persona.assert_not_awaited()
+    updater.db_manager.add_persona_learning_review.assert_awaited_once()
+    review_kwargs = updater.db_manager.add_persona_learning_review.await_args.kwargs
+    assert review_kwargs["group_id"] == "group-a"
+    assert review_kwargs["original_content"] == "Base prompt"
+    assert review_kwargs["new_content"].startswith("Base prompt\n\n")
+    assert "MaiBot 记忆主题" in review_kwargs["proposed_content"]
+    assert review_kwargs["metadata"]["runtime_context_review"] is True
+    assert review_kwargs["metadata"]["review_flow"] == "maibot_web_review_before_apply"
 
 
 @pytest.mark.unit
