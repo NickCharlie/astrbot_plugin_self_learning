@@ -2,13 +2,17 @@
 
 from html import escape
 
-from quart import Blueprint, Response, jsonify
+from quart import Blueprint, Response, jsonify, request
 from astrbot.api import logger
 
 from ..dependencies import get_container
 from ..middleware.auth import require_auth
 from ..services.integration_service import IntegrationService
 from ..utils.response import error_response
+try:
+    from ...services.integration.maibot_learning_importer import MaiBotLearningImporter
+except ImportError:
+    from services.integration.maibot_learning_importer import MaiBotLearningImporter
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/api")
 
@@ -41,6 +45,80 @@ async def embed_integration_dashboard(plugin_id: str):
     except Exception as e:
         logger.error(f"获取伴随插件嵌入页失败: {e}", exc_info=True)
         return error_response(f"获取伴随插件嵌入页失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/maibot-learning/preview", methods=["POST"])
+@require_auth
+async def preview_maibot_learning():
+    """Preview MaiBot learning data before importing it."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        importer = MaiBotLearningImporter()
+        return jsonify({
+            "success": True,
+            "data": importer.preview(**_maibot_source_args(body)),
+        }), 200
+    except Exception as e:
+        logger.error(f"预览 MaiBot 学习数据失败: {e}", exc_info=True)
+        return error_response(f"预览 MaiBot 学习数据失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/maibot-learning/import", methods=["POST"])
+@require_auth
+async def import_maibot_learning():
+    """Import MaiBot learning data into this plugin."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        container = get_container()
+        database_manager = getattr(container, "database_manager", None)
+        importer = MaiBotLearningImporter(database_manager)
+        result = await importer.import_from_source(
+            **_maibot_source_args(body),
+            default_group_id=body.get("default_group_id") or "global",
+            import_expressions=_body_bool(body, "import_expressions", True),
+            import_jargons=_body_bool(body, "import_jargons", True),
+            import_memories=_body_bool(body, "import_memories", True),
+            approve_checked_expressions=_body_bool(body, "approve_checked_expressions", True),
+        )
+        return jsonify({"success": bool(result.get("success")), "data": result}), 200
+    except Exception as e:
+        logger.error(f"导入 MaiBot 学习数据失败: {e}", exc_info=True)
+        return error_response(f"导入 MaiBot 学习数据失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/maibot-learning/export", methods=["POST"])
+@require_auth
+async def export_maibot_learning():
+    """Export MaiBot learning data as a normalized JSON package."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        importer = MaiBotLearningImporter()
+        return jsonify({
+            "success": True,
+            "data": importer.export_json(**_maibot_source_args(body)),
+        }), 200
+    except Exception as e:
+        logger.error(f"导出 MaiBot 学习数据失败: {e}", exc_info=True)
+        return error_response(f"导出 MaiBot 学习数据失败: {str(e)}", 500)
+
+
+def _maibot_source_args(body: dict) -> dict:
+    payload = body.get("payload")
+    return {
+        "maibot_root": body.get("maibot_root") or None,
+        "db_path": body.get("db_path") or body.get("maibot_db_path") or None,
+        "memorix_db_path": body.get("memorix_db_path") or None,
+        "payload": payload if isinstance(payload, dict) else None,
+    }
+
+
+def _body_bool(body: dict, key: str, default: bool) -> bool:
+    value = body.get(key, default)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _render_embed_shell(target: dict) -> str:

@@ -50,6 +50,7 @@ class PluginPageApi:
             ("metrics", self.get_metrics, ["GET"], "Self Learning embedded metrics module"),
             ("monitoring", self.get_monitoring, ["GET"], "Self Learning embedded monitoring module"),
             ("integrations", self.get_integrations, ["GET"], "Self Learning embedded integrations module"),
+            ("integrations/action", self.post_integrations_action, ["POST"], "Self Learning embedded integrations actions"),
             ("settings", self.get_settings, ["GET"], "Self Learning embedded settings module"),
             ("settings/action", self.post_settings_action, ["POST"], "Self Learning embedded settings actions"),
         ]
@@ -425,6 +426,46 @@ class PluginPageApi:
 
     async def get_integrations(self) -> dict[str, Any]:
         return self._ok(await self._load_integrations())
+
+    async def post_integrations_action(self) -> dict[str, Any]:
+        body = await self._body()
+        action = str(body.get("action", "")).strip()
+        try:
+            imports = self._imports()
+            database_manager = getattr(self._container(), "database_manager", None)
+            importer = imports.MaiBotLearningImporter(database_manager)
+            source_args = {
+                "maibot_root": body.get("maibot_root") or None,
+                "db_path": body.get("db_path") or body.get("maibot_db_path") or None,
+                "memorix_db_path": body.get("memorix_db_path") or None,
+                "payload": body.get("payload") if isinstance(body.get("payload"), dict) else None,
+            }
+            if action == "maibot_preview":
+                preview = importer.preview(**source_args)
+                return self._operation(True, "MaiBot 学习数据预览完成", preview=preview)
+            if action == "maibot_export":
+                payload = importer.export_json(**source_args)
+                return self._operation(True, "MaiBot 学习数据已导出为标准包", payload=payload)
+            if action == "maibot_import":
+                result = await importer.import_from_source(
+                    **source_args,
+                    default_group_id=str(body.get("default_group_id") or "global"),
+                    import_expressions=self._body_bool(body, "import_expressions", True),
+                    import_jargons=self._body_bool(body, "import_jargons", True),
+                    import_memories=self._body_bool(body, "import_memories", True),
+                    approve_checked_expressions=self._body_bool(
+                        body, "approve_checked_expressions", True
+                    ),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    "MaiBot 学习数据导入完成" if result.get("success") else "MaiBot 学习数据导入存在错误",
+                    result=result,
+                )
+            return self._operation(False, f"未知融合操作: {action or '(empty)'}")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] integrations action failed: {exc}", exc_info=True)
+            return self._operation(False, str(exc))
 
     async def get_settings(self) -> dict[str, Any]:
         args = self._query()
@@ -1479,6 +1520,7 @@ class PluginPageApi:
             from ..webui.services.persona_backup_service import PersonaBackupService
             from ..webui.services.persona_review_service import PersonaReviewService
             from ..webui.services.persona_service import PersonaService
+            from ..services.integration.maibot_learning_importer import MaiBotLearningImporter
         except ImportError:
             from webui.blueprints.config import (
                 DEPENDENCY_TIERS,
@@ -1495,6 +1537,7 @@ class PluginPageApi:
             from webui.services.persona_backup_service import PersonaBackupService
             from webui.services.persona_review_service import PersonaReviewService
             from webui.services.persona_service import PersonaService
+            from services.integration.maibot_learning_importer import MaiBotLearningImporter
 
         imports.get_container = get_container
         imports.ConfigService = ConfigService
@@ -1506,6 +1549,7 @@ class PluginPageApi:
         imports.PersonaBackupService = PersonaBackupService
         imports.PersonaReviewService = PersonaReviewService
         imports.PersonaService = PersonaService
+        imports.MaiBotLearningImporter = MaiBotLearningImporter
         imports.DEPENDENCY_TIERS = DEPENDENCY_TIERS
         imports.MANUAL_DEPENDENCY_INSTALL_SOURCE = MANUAL_DEPENDENCY_INSTALL_SOURCE
         imports.PIP_MIRROR_SOURCES = PIP_MIRROR_SOURCES
@@ -1571,6 +1615,15 @@ class PluginPageApi:
     @classmethod
     def _body_int(cls, body: Mapping[str, Any], key: str, default: int = 0) -> int:
         return cls._as_int(body.get(key), default)
+
+    @staticmethod
+    def _body_bool(body: Mapping[str, Any], key: str, default: bool) -> bool:
+        value = body.get(key, default)
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     @staticmethod
     def _body_list(

@@ -337,6 +337,55 @@
             <button class="ghost-button" type="button" data-refresh-page="integrations">刷新</button>
           </div>
           <div class="integration-cards" id="integration-cards"></div>
+          <div class="panel maibot-import-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>MaiBot 学习数据迁移</h3>
+                <p>读取 MaiBot 的表达方式、黑话与 A_memorix 记忆段落，导入到当前插件的独立学习模块。</p>
+              </div>
+              <div class="inline-actions">
+                <button class="ghost-button" type="button" id="maibot-preview-button">预览</button>
+                <button class="solid-button" type="button" id="maibot-import-button">导入</button>
+              </div>
+            </div>
+            <div class="maibot-import-grid">
+              <label class="config-field">
+                <span>
+                  <strong>MaiBot 项目目录</strong>
+                  <small>例如 C:\Users\zacza\Desktop\x\MaiBot；也可以只填写数据库路径。</small>
+                </span>
+                <input id="maibot-root-input" type="text" placeholder="C:\Users\zacza\Desktop\x\MaiBot">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong>MaiBot 主数据库</strong>
+                  <small>可选；填写后优先读取该 SQLite 文件。</small>
+                </span>
+                <input id="maibot-db-input" type="text" placeholder="...\data\maibot.db">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong>A_memorix metadata.db</strong>
+                  <small>可选；用于导入记忆段落。</small>
+                </span>
+                <input id="maibot-memorix-input" type="text" placeholder="...\metadata.db">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong>默认群组</strong>
+                  <small>无法映射 MaiBot session 时使用。</small>
+                </span>
+                <input id="maibot-default-group-input" type="text" value="global">
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label><input id="maibot-import-expressions" type="checkbox" checked> 表达方式</label>
+              <label><input id="maibot-import-jargons" type="checkbox" checked> 黑话</label>
+              <label><input id="maibot-import-memories" type="checkbox" checked> 记忆段落</label>
+              <label><input id="maibot-approve-checked" type="checkbox" checked> MaiBot 已确认表达自动批准</label>
+            </div>
+            <pre class="code-preview" id="maibot-import-output">等待预览。</pre>
+          </div>
           <div class="panel">
             <h3>融合设置</h3>
             <div class="compact-table" id="integration-settings"></div>
