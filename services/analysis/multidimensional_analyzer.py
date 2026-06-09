@@ -570,10 +570,12 @@ class MultidimensionalAnalyzer:
                         await self.temporary_persona_updater.apply_comprehensive_update_to_system_prompt(
                             group_id, update_data
                         )
-                        logger.info(f"成功将多维度分析结果集成到system_prompt: {group_id}")
+                        logger.info(
+                            f"多维度分析结果已提交 WebUI 人格审查: {group_id}"
+                        )
                     
                 except Exception as e:
-                    logger.error(f"集成分析结果到system_prompt失败: {e}")
+                    logger.error(f"提交分析结果到人格审查失败: {e}")
                     # 这里不抛出异常，让分析结果正常返回
             
             return analysis_result

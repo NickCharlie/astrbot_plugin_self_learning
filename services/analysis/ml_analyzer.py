@@ -441,10 +441,12 @@ class LightweightMLAnalyzer:
                                 await self.temporary_persona_updater.apply_comprehensive_update_to_system_prompt(
                                     group_id, insights_data
                                 )
-                                logger.info(f"成功将强化学习结果集成到system_prompt: {group_id}")
+                                logger.info(
+                                    f"强化学习结果已提交 WebUI 人格审查: {group_id}"
+                                )
                             
                         except Exception as e:
-                            logger.error(f"集成强化学习结果到system_prompt失败: {e}")
+                            logger.error(f"提交强化学习结果到人格审查失败: {e}")
                     
                     
                     # 这里可以将 refined_data 传递给 PersonaUpdater 进行人格更新
