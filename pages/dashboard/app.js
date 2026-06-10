@@ -561,7 +561,8 @@
   }
 
   function renderReviews(data) {
-    const personaPending = ((data.persona_pending || {}).updates || []);
+    const personaPending = ((data.persona_pending || {}).updates || [])
+      .filter((item) => item && item.review_source !== "style_learning");
     const personaReviewed = ((data.persona_reviewed || {}).updates || []);
     const styleReviews = ((data.style_reviews || {}).reviews || []);
     const pendingJargon = (((data.jargon_pending || {}).jargon_list) || []);
@@ -880,7 +881,62 @@
   function renderMaiBotImportPreview(summary) {
     const output = $("maibot-import-output");
     if (!output || !summary) return;
-    output.textContent = JSON.stringify(summary, null, 2);
+    const counts = summary.counts || {};
+    const breakdown = summary.review_breakdown || {};
+    const destinations = summary.destinations || {};
+    const lines = [];
+    if (Object.keys(counts).length) {
+      lines.push(`预览: 表达 ${fmt(counts.expressions, 0)} · 黑话 ${fmt(counts.jargons, 0)} · 记忆 ${fmt(counts.memories, 0)}`);
+    }
+    if (Object.keys(breakdown).length) {
+      lines.push(`导入: 表达审查 ${fmt(breakdown.style_learning_reviews, 0)} · 黑话候选 ${fmt(breakdown.jargon_candidates, 0)} · 记忆审查 ${fmt(breakdown.persona_memory_reviews, 0)}`);
+    }
+    if (Object.keys(destinations).length) {
+      lines.push(`分类去向: 表达 -> ${destinations.expressions}; 黑话 -> ${destinations.jargons}; 记忆 -> ${destinations.memories}`);
+    }
+    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+  }
+
+  function currentBatchReviewIds(kind) {
+    const reviews = state.pageData.reviews || {};
+    if (kind === "persona") {
+      return ((reviews.persona_pending || {}).updates || [])
+        .filter((item) => item && item.review_source !== "style_learning")
+        .map((item) => item.id)
+        .filter((id) => id !== undefined && id !== null && String(id) !== "");
+    }
+    if (kind === "style") {
+      return ((reviews.style_reviews || {}).reviews || [])
+        .map((item) => item.id)
+        .filter((id) => id !== undefined && id !== null && String(id) !== "");
+    }
+    if (kind === "jargon") {
+      return (((reviews.jargon_pending || {}).jargon_list) || [])
+        .map((item) => item.id)
+        .filter((id) => id !== undefined && id !== null && String(id) !== "");
+    }
+    return [];
+  }
+
+  async function handleBatchReviewAction(kind, action) {
+    const ids = currentBatchReviewIds(kind);
+    if (!ids.length) {
+      showToast("当前页没有可批量处理的审查项", "error");
+      return;
+    }
+    const typeText = { persona: "人格更新", style: "表达审查", jargon: "黑话候选" }[kind] || "审查项";
+    const actionText = action === "approve" ? "通过" : "拒绝";
+    if (!window.confirm(`确定批量${actionText}当前页 ${ids.length} 条${typeText}？`)) return;
+
+    const payload = {
+      action: kind === "persona" ? "batch_review" : kind === "style" ? "batch_review_style" : "batch_review_jargon",
+      ids,
+      decision: action,
+    };
+    const result = await apiPost("reviews/action", payload);
+    showToast(result.message || "批量审查完成", result.success ? "ok" : "error");
+    state.pageData.reviews = null;
+    await loadPageData(state.page, { force: true });
   }
 
   async function runMaiBotImportAction(action) {
@@ -1199,11 +1255,12 @@
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-jargon-action],[data-style-action],[data-persona-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-style-action],[data-persona-action],[data-content-action],[data-settings-group]");
       if (!target) return;
       if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
       if (target.dataset.reviewAction) await handleReviewAction(target.dataset.kind, target.dataset.id, target.dataset.reviewAction);
+      if (target.dataset.batchReviewKind) await handleBatchReviewAction(target.dataset.batchReviewKind, target.dataset.batchReviewAction || "approve");
       if (target.dataset.jargonAction) await handleJargonAction(target.dataset.jargonAction, target.dataset.id);
       if (target.dataset.styleAction) await handleStyleAction(target.dataset.styleAction, target.dataset.id);
       if (target.dataset.personaAction) await handlePersonaAction(target);

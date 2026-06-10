@@ -279,6 +279,40 @@ class PluginPageApi:
                     result.get("message") or result.get("error") or "批量删除完成",
                     result=result,
                 )
+            if action == "batch_review_style":
+                learning_service = imports.LearningService(container)
+                review_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="review_ids")
+                ]
+                review_ids = [review_id for review_id in review_ids if review_id]
+                result = await learning_service.batch_review_style_learning_reviews(
+                    review_ids,
+                    str(body.get("decision") or body.get("review_action") or "approve"),
+                    str(body.get("comment") or ""),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量表达审查完成",
+                    result=result,
+                )
+            if action == "batch_review_jargon":
+                jargon_service = imports.JargonService(container)
+                jargon_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="jargon_ids")
+                ]
+                jargon_ids = [jargon_id for jargon_id in jargon_ids if jargon_id]
+                result = await jargon_service.batch_review_jargon(
+                    jargon_ids,
+                    str(body.get("decision") or body.get("review_action") or "approve"),
+                    meaning=body.get("meaning"),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量黑话审查完成",
+                    result=result,
+                )
             if action.startswith("style_"):
                 learning_service = imports.LearningService(container)
                 review_id = self._body_int(body, "id")

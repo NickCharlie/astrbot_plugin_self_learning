@@ -244,6 +244,17 @@ async def test_maibot_learning_importer_imports_into_plugin_tables(tmp_path):
         assert result["expression_patterns_imported"] == 1
         assert result["jargons_imported"] == 1
         assert result["memory_reviews_imported"] == 2
+        assert result["destinations"] == {
+            "expressions": "style_learning_reviews",
+            "approved_expression_patterns": "expression_patterns",
+            "jargons": "jargon",
+            "memories": "persona_update_reviews",
+        }
+        assert result["review_breakdown"] == {
+            "style_learning_reviews": 1,
+            "jargon_candidates": 1,
+            "persona_memory_reviews": 2,
+        }
 
         async with manager.get_session() as session:
             style_reviews = (await session.execute(select(StyleLearningReview))).scalars().all()
@@ -264,3 +275,76 @@ async def test_maibot_learning_importer_imports_into_plugin_tables(tmp_path):
         assert persona_reviews[0].group_id == "group-1"
     finally:
         await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_maibot_learning_importer_import_from_source_parses_string_flags(tmp_path):
+    maibot_db = tmp_path / "maibot.db"
+    memorix_db = tmp_path / "metadata.db"
+    _create_maibot_db(maibot_db)
+    _create_memorix_db(memorix_db)
+
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path / "plugin"),
+            db_type="sqlite",
+            enable_web_interface=False,
+        )
+    )
+    try:
+        assert await manager.start() is True
+        importer = MaiBotLearningImporter(manager)
+        package = importer.load_package(db_path=maibot_db, memorix_db_path=memorix_db)
+        result = await importer.import_from_source(
+            payload=package.to_dict(),
+            import_expressions="false",
+            import_jargons="false",
+            import_memories="true",
+        )
+
+        assert result["success"] is True
+        assert result["expressions_imported"] == 0
+        assert result["jargons_imported"] == 0
+        assert result["memory_reviews_imported"] == 2
+        assert result["review_breakdown"] == {
+            "style_learning_reviews": 0,
+            "jargon_candidates": 0,
+            "persona_memory_reviews": 2,
+        }
+
+        async with manager.get_session() as session:
+            style_reviews = (await session.execute(select(StyleLearningReview))).scalars().all()
+            jargons = (await session.execute(select(Jargon))).scalars().all()
+            persona_reviews = (
+                await session.execute(
+                    select(PersonaLearningReview).where(
+                        PersonaLearningReview.update_type == "maibot_memory"
+                    )
+                )
+            ).scalars().all()
+
+        assert style_reviews == []
+        assert jargons == []
+        assert len(persona_reviews) == 2
+    finally:
+        await manager.stop()
+
+
+def test_maibot_learning_importer_preview_reports_destinations(tmp_path):
+    maibot_db = tmp_path / "maibot.db"
+    memorix_db = tmp_path / "metadata.db"
+    _create_maibot_db(maibot_db)
+    _create_memorix_db(memorix_db)
+
+    importer = MaiBotLearningImporter()
+    package = importer.load_package(db_path=maibot_db, memorix_db_path=memorix_db)
+    summary = importer.package_summary(package)
+
+    assert summary["destinations"]["expressions"] == "style_learning_reviews"
+    assert summary["destinations"]["jargons"] == "jargon"
+    assert summary["destinations"]["memories"] == "persona_update_reviews"
+    assert summary["review_breakdown"] == {
+        "style_learning_reviews": 1,
+        "jargon_candidates": 1,
+        "persona_memory_reviews": 2,
+    }

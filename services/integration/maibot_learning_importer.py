@@ -236,6 +236,12 @@ class MaiBotLearningImporter:
             "expression_patterns_imported": 0,
             "jargons_imported": 0,
             "memory_reviews_imported": 0,
+            "destinations": _maibot_import_destinations(),
+            "review_breakdown": {
+                "style_learning_reviews": 0,
+                "jargon_candidates": 0,
+                "persona_memory_reviews": 0,
+            },
             "skipped": 0,
             "errors": [],
         }
@@ -253,6 +259,11 @@ class MaiBotLearningImporter:
             await self._import_memories(package, result, default_group_id=default_group_id)
 
         result["success"] = not result["errors"]
+        result["review_breakdown"] = {
+            "style_learning_reviews": result["expressions_imported"],
+            "jargon_candidates": result["jargons_imported"],
+            "persona_memory_reviews": result["memory_reviews_imported"],
+        }
         return result
 
     async def import_from_source(self, **kwargs: Any) -> dict[str, Any]:
@@ -265,10 +276,13 @@ class MaiBotLearningImporter:
         return await self.import_package(
             package,
             default_group_id=str(kwargs.get("default_group_id") or "global"),
-            import_expressions=bool(kwargs.get("import_expressions", True)),
-            import_jargons=bool(kwargs.get("import_jargons", True)),
-            import_memories=bool(kwargs.get("import_memories", True)),
-            approve_checked_expressions=bool(kwargs.get("approve_checked_expressions", True)),
+            import_expressions=_to_bool(kwargs.get("import_expressions", True), True),
+            import_jargons=_to_bool(kwargs.get("import_jargons", True), True),
+            import_memories=_to_bool(kwargs.get("import_memories", True), True),
+            approve_checked_expressions=_to_bool(
+                kwargs.get("approve_checked_expressions", True),
+                True,
+            ),
         )
 
     def package_summary(self, package: MaiBotLearningPackage) -> dict[str, Any]:
@@ -292,6 +306,12 @@ class MaiBotLearningImporter:
                 "expressions": [asdict(item) for item in package.expressions[:5]],
                 "jargons": [asdict(item) for item in package.jargons[:5]],
                 "memories": [asdict(item) for item in package.memories[:3]],
+            },
+            "destinations": _maibot_import_destinations(),
+            "review_breakdown": {
+                "style_learning_reviews": len(package.expressions),
+                "jargon_candidates": len(package.jargons),
+                "persona_memory_reviews": len(package.memories),
             },
         }
 
@@ -860,6 +880,20 @@ def _optional_bool(value: Any) -> Optional[bool]:
     if text in {"false", "0", "no"}:
         return False
     return None
+
+
+def _to_bool(value: Any, default: bool) -> bool:
+    parsed = _optional_bool(value)
+    return default if parsed is None else parsed
+
+
+def _maibot_import_destinations() -> dict[str, str]:
+    return {
+        "expressions": "style_learning_reviews",
+        "approved_expression_patterns": "expression_patterns",
+        "jargons": "jargon",
+        "memories": "persona_update_reviews",
+    }
 
 
 def _pick_keys(item: Mapping[str, Any], cls: type) -> dict[str, Any]:

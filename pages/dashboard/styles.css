@@ -199,6 +199,17 @@ h1 {
   flex-wrap: wrap;
 }
 
+.compact-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.compact-actions .ghost-button {
+  min-height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .icon-button,
 .ghost-button,
 .solid-button,

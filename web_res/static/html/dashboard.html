@@ -3051,7 +3051,15 @@
             <div class="panel">
                 <div class="panel-head">
                     <h2>待审人格</h2>
-                    <span class="hint" id="personaCount">0</span>
+                    <div class="panel-tools">
+                        <span class="hint" id="personaCount">0</span>
+                        <button class="action-btn success" type="button" data-dashboard-action="persona-batch-approve" data-id="visible">
+                            <span class="material-icons">done_all</span> 批量批准
+                        </button>
+                        <button class="action-btn warning" type="button" data-dashboard-action="persona-batch-reject" data-id="visible">
+                            <span class="material-icons">block</span> 批量拒绝
+                        </button>
+                    </div>
                 </div>
                 <div class="panel-body">
                     <div id="personaList" class="list"></div>
@@ -3061,7 +3069,15 @@
             <div class="panel">
                 <div class="panel-head">
                     <h2>风格审查</h2>
-                    <span class="hint" id="styleCount">0</span>
+                    <div class="panel-tools">
+                        <span class="hint" id="styleCount">0</span>
+                        <button class="action-btn success" type="button" data-dashboard-action="style-batch-approve" data-id="visible">
+                            <span class="material-icons">done_all</span> 批量批准
+                        </button>
+                        <button class="action-btn warning" type="button" data-dashboard-action="style-batch-reject" data-id="visible">
+                            <span class="material-icons">block</span> 批量拒绝
+                        </button>
+                    </div>
                 </div>
                 <div class="panel-body">
                     <div id="styleList" class="list"></div>
@@ -3087,6 +3103,12 @@
                         <span class="hint" id="jargonHint">--</span>
                     </div>
                     <div class="panel-tools">
+                        <button class="action-btn success" type="button" data-dashboard-action="jargon-batch-approve" data-id="visible">
+                            <span class="material-icons">done_all</span> 批量确认
+                        </button>
+                        <button class="action-btn warning" type="button" data-dashboard-action="jargon-batch-reject" data-id="visible">
+                            <span class="material-icons">block</span> 批量驳回
+                        </button>
                         <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
                             <option value="all">全部</option>
                             <option value="pending">待确认</option>
@@ -5435,6 +5457,70 @@
                 status.className = `config-status queue-status${tone ? ` ${tone}` : ''}`;
             }
 
+            function currentDashboardReviewIds(kind) {
+                if (kind === 'persona') {
+                    return safeArray(state.data && state.data.persona && state.data.persona.updates)
+                        .filter((item) => item && item.review_source !== 'style_learning')
+                        .slice(0, 5)
+                        .map((item) => item.id)
+                        .filter((item) => item !== undefined && item !== null && String(item) !== '');
+                }
+                if (kind === 'style') {
+                    const personaUpdates = safeArray(state.data && state.data.persona && state.data.persona.updates);
+                    const styleUpdatesFromPersona = personaUpdates.filter(
+                        (item) => item && item.review_source === 'style_learning'
+                    );
+                    return safeArray(
+                        styleUpdatesFromPersona.length
+                            ? styleUpdatesFromPersona
+                            : state.data && state.data.style && state.data.style.reviews
+                    )
+                        .slice(0, 5)
+                        .map((item) => String(item.id || '').replace(/^style_/, ''))
+                        .filter((item) => item);
+                }
+                if (kind === 'jargon') {
+                    return safeArray(state.jargon.items)
+                        .filter((item) => item && !item.is_confirmed && !item.is_complete)
+                        .map((item) => item.id)
+                        .filter((item) => item !== undefined && item !== null && String(item) !== '');
+                }
+                return [];
+            }
+
+            async function batchReviewDashboardQueue(kind, action) {
+                const ids = currentDashboardReviewIds(kind);
+                if (!ids.length) {
+                    setQueueStatus('当前页没有可批量处理的审查项。', 'error');
+                    showToast('当前页没有可批量处理的审查项', 'warn');
+                    return null;
+                }
+
+                const kindText = { persona: '人格更新', style: '风格审查', jargon: '黑话候选' }[kind] || '审查项';
+                const actionText = action === 'approve' ? '通过' : '拒绝';
+                if (!(await showConfirm('批量审批确认', `确定批量${actionText}当前页 ${ids.length} 条${kindText}？`, actionText))) {
+                    showToast('已取消', 'warn');
+                    return null;
+                }
+
+                if (kind === 'persona') {
+                    return postJson('/api/persona_updates/batch_review', {
+                        update_ids: ids,
+                        action,
+                    });
+                }
+                if (kind === 'style') {
+                    return postJson('/api/style_learning/reviews/batch_review', {
+                        review_ids: ids,
+                        action,
+                    });
+                }
+                return postJson('/api/jargon/batch_review', {
+                    jargon_ids: ids,
+                    action,
+                });
+            }
+
             function renderPersonaQueue(updates) {
                 const rows = safeArray(updates)
                     .filter((item) => item && item.review_source !== 'style_learning')
@@ -7275,6 +7361,12 @@
                     } else if (action === 'persona-reject') {
                         if (!(await showConfirm('审批确认', '确定驳回这条人格更新？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/review`, { action: 'reject' });
+                    } else if (action === 'persona-batch-approve') {
+                        payload = await batchReviewDashboardQueue('persona', 'approve');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'persona-batch-reject') {
+                        payload = await batchReviewDashboardQueue('persona', 'reject');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'persona-backup-view') {
@@ -7297,6 +7389,18 @@
                     } else if (action === 'jargon-reject') {
                         if (!(await showConfirm('审批确认', '确定驳回这条黑话？', '驳回'))) { showToast('已取消', 'warn'); state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/review`, { action: 'reject' });
+                    } else if (action === 'style-batch-approve') {
+                        payload = await batchReviewDashboardQueue('style', 'approve');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'style-batch-reject') {
+                        payload = await batchReviewDashboardQueue('style', 'reject');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'jargon-batch-approve') {
+                        payload = await batchReviewDashboardQueue('jargon', 'approve');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'jargon-batch-reject') {
+                        payload = await batchReviewDashboardQueue('jargon', 'reject');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);
                     } else if (action === 'jargon-delete') {

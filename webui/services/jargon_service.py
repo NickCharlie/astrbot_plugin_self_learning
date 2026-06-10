@@ -332,6 +332,53 @@ class JargonService:
             logger.error(f"审查黑话失败: {e}", exc_info=True)
             raise
 
+    async def batch_review_jargon(
+        self,
+        jargon_ids: List[int],
+        action: str,
+        meaning: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """批量确认或驳回黑话候选。"""
+        if action not in {"approve", "reject"}:
+            return {
+                "success": False,
+                "error": "action must be 'approve' or 'reject'",
+            }
+
+        success_count = 0
+        failed_count = 0
+        errors = []
+
+        for jargon_id in jargon_ids:
+            try:
+                normalized_id = int(jargon_id)
+                success, message, _ = await self.review_jargon(
+                    normalized_id,
+                    action,
+                    meaning=meaning,
+                )
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({"id": normalized_id, "message": message})
+            except Exception as e:
+                logger.error(f"批量审查黑话 {jargon_id} 失败: {e}", exc_info=True)
+                failed_count += 1
+                errors.append({"id": jargon_id, "message": str(e)})
+
+        action_text = "确认" if action == "approve" else "驳回"
+        return {
+            "success": True,
+            "message": f"批量{action_text}黑话完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(jargon_ids),
+                "errors": errors,
+            },
+        }
+
     async def update_jargon(
         self,
         jargon_id: int,

@@ -154,21 +154,33 @@
             <div class="panel">
               <div class="panel-heading">
                 <h3>人格更新</h3>
-                <span class="mini-badge" id="persona-review-count">0</span>
+                <div class="inline-actions compact-actions">
+                  <span class="mini-badge" id="persona-review-count">0</span>
+                  <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="approve">全批</button>
+                  <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="reject">全拒</button>
+                </div>
               </div>
               <div class="review-list" id="persona-review-list"></div>
             </div>
             <div class="panel">
               <div class="panel-heading">
                 <h3>表达审查</h3>
-                <span class="mini-badge" id="style-review-count">0</span>
+                <div class="inline-actions compact-actions">
+                  <span class="mini-badge" id="style-review-count">0</span>
+                  <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="approve">全批</button>
+                  <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="reject">全拒</button>
+                </div>
               </div>
               <div class="review-list" id="style-review-list"></div>
             </div>
             <div class="panel">
               <div class="panel-heading">
                 <h3>黑话候选</h3>
-                <span class="mini-badge" id="jargon-review-count">0</span>
+                <div class="inline-actions compact-actions">
+                  <span class="mini-badge" id="jargon-review-count">0</span>
+                  <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="approve">全批</button>
+                  <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="reject">全拒</button>
+                </div>
               </div>
               <div class="review-list" id="jargon-review-list"></div>
             </div>

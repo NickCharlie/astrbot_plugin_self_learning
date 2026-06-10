@@ -250,6 +250,54 @@ class LearningService:
             "reject",
         )
 
+    async def batch_review_style_learning_reviews(
+        self,
+        review_ids: List[int],
+        action: str,
+        comment: str = "",
+    ) -> Dict[str, Any]:
+        """批量批准或拒绝表达方式学习审查。"""
+        if action not in {"approve", "reject"}:
+            return {
+                "success": False,
+                "error": "action must be 'approve' or 'reject'",
+            }
+
+        success_count = 0
+        failed_count = 0
+        errors = []
+        review_service = PersonaReviewService(self.container)
+
+        for review_id in review_ids:
+            try:
+                normalized_id = int(review_id)
+                success, message = await review_service.review_persona_update(
+                    f"style_{normalized_id}",
+                    action,
+                    comment,
+                )
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({"id": normalized_id, "message": message})
+            except Exception as e:
+                logger.error(f"批量审查风格学习 {review_id} 失败: {e}", exc_info=True)
+                failed_count += 1
+                errors.append({"id": review_id, "message": str(e)})
+
+        action_text = "批准" if action == "approve" else "拒绝"
+        return {
+            "success": True,
+            "message": f"批量{action_text}表达审查完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(review_ids),
+                "errors": errors,
+            },
+        }
+
     async def get_style_learning_patterns(self) -> Dict[str, Any]:
         """
         获取风格学习模式
