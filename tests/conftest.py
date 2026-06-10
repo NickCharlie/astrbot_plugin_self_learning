@@ -9,6 +9,7 @@ This module provides reusable test fixtures for WebUI testing:
 """
 import pytest
 import asyncio
+from types import SimpleNamespace
 from typing import Dict, Any, Optional
 from unittest.mock import Mock, AsyncMock, MagicMock
 from datetime import datetime
@@ -114,20 +115,23 @@ def mock_database_manager():
     manager.get_chat_message_detail = AsyncMock(return_value=None)
     manager.delete_chat_message = AsyncMock(return_value=True)
 
-    # Metrics methods
-    manager.get_diversity_metrics = AsyncMock(return_value={
-        'vocabulary_diversity': 0.5,
-        'topic_diversity': 0.6,
-        'style_diversity': 0.7,
-        'total_score': 0.6
+    # Metrics methods (real API used by MetricsService after refactor)
+    manager.get_detailed_metrics = AsyncMock(return_value={
+        'messages': {'raw': 100, 'filtered': 40, 'bot': 10},
+        'learning': {
+            'persona_reviews': 4,
+            'style_reviews': 3,
+            'batches': 2,
+            'style_patterns': 6,
+        },
+        'group_id': 'default',
     })
-    manager.get_affection_metrics = AsyncMock(return_value={
-        'average_affection': 50,
-        'total_users': 10,
-        'high_affection_count': 3,
-        'low_affection_count': 2,
-        'distribution': []
-    })
+    manager.get_all_user_affections = AsyncMock(return_value=[
+        {'user_id': 'u1', 'affection_level': 80},
+        {'user_id': 'u2', 'affection_level': 50},
+        {'user_id': 'u3', 'affection_level': 20},
+    ])
+    manager.get_total_affection = AsyncMock(return_value=150)
 
     return manager
 
@@ -178,15 +182,18 @@ def mock_intelligence_metrics_service():
     """Mock IntelligenceMetricsService"""
     service = AsyncMock()
 
-    service.calculate_metrics = AsyncMock(return_value={
-        'overall_score': 75,
-        'dimensions': {
-            'coherence': 80,
-            'relevance': 75,
-            'creativity': 70
-        },
-        'trends': []
-    })
+    # Real API: returns a LearningEfficiencyMetrics-like object
+    service.calculate_learning_efficiency = AsyncMock(return_value=SimpleNamespace(
+        overall_efficiency=72.5,
+        message_filter_rate=40.0,
+        content_refine_quality=0.0,
+        style_learning_progress=60.0,
+        persona_update_quality=50.0,
+        jargon_learning_score=0.0,
+        social_relation_score=0.0,
+        affection_score=30.0,
+        active_strategies_count=0,
+    ))
 
     return service
 
