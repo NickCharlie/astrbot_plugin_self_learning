@@ -115,18 +115,11 @@ class RealtimeProcessor:
                     group_id, message_text, sender_id
                 )
 
-            # Batch mode: skip LLM filtering if disabled
-            if not self._config.enable_realtime_llm_filter:
-                await self._message_collector.add_filtered_message(
-                    {
-                        "message": message_text,
-                        "sender_id": sender_id,
-                        "group_id": group_id,
-                        "timestamp": time.time(),
-                        "confidence": 0.6,
-                    }
+            # Batch mode: skip realtime LLM filtering completely when disabled.
+            if not getattr(self._config, "enable_realtime_llm_filter", False):
+                logger.debug(
+                    f"群组 {group_id} 实时LLM筛选未启用，跳过实时 filtered_messages 写入"
                 )
-                self._learning_stats.filtered_messages += 1
                 return
             current_persona_description = (
                 await self._persona_manager.get_current_persona_description(group_id)

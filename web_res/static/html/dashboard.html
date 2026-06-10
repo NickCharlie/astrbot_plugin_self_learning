@@ -3059,6 +3059,9 @@
                         <button class="action-btn warning" type="button" data-dashboard-action="persona-batch-reject" data-id="visible">
                             <span class="material-icons">block</span> 批量拒绝
                         </button>
+                        <button class="action-btn danger" type="button" data-dashboard-action="persona-batch-delete" data-id="visible">
+                            <span class="material-icons">delete</span> 批量删除
+                        </button>
                     </div>
                 </div>
                 <div class="panel-body">
@@ -3076,6 +3079,9 @@
                         </button>
                         <button class="action-btn warning" type="button" data-dashboard-action="style-batch-reject" data-id="visible">
                             <span class="material-icons">block</span> 批量拒绝
+                        </button>
+                        <button class="action-btn danger" type="button" data-dashboard-action="style-batch-delete" data-id="visible">
+                            <span class="material-icons">delete</span> 批量删除
                         </button>
                     </div>
                 </div>
@@ -3108,6 +3114,9 @@
                         </button>
                         <button class="action-btn warning" type="button" data-dashboard-action="jargon-batch-reject" data-id="visible">
                             <span class="material-icons">block</span> 批量驳回
+                        </button>
+                        <button class="action-btn danger" type="button" data-dashboard-action="jargon-batch-delete" data-id="visible">
+                            <span class="material-icons">delete</span> 批量删除
                         </button>
                         <select id="jargonFilterSelect" class="content-search" style="width:120px;height:32px;font-size:12px;">
                             <option value="all">全部</option>
@@ -5497,22 +5506,37 @@
                 }
 
                 const kindText = { persona: '人格更新', style: '风格审查', jargon: '黑话候选' }[kind] || '审查项';
-                const actionText = action === 'approve' ? '通过' : '拒绝';
-                if (!(await showConfirm('批量审批确认', `确定批量${actionText}当前页 ${ids.length} 条${kindText}？`, actionText))) {
+                const actionText = action === 'approve' ? '通过' : action === 'reject' ? '拒绝' : '删除';
+                if (!(await showConfirm('批量操作确认', `确定批量${actionText}当前页 ${ids.length} 条${kindText}？`, actionText))) {
                     showToast('已取消', 'warn');
                     return null;
                 }
 
                 if (kind === 'persona') {
+                    if (action === 'delete') {
+                        return postJson('/api/persona_updates/batch_delete', {
+                            update_ids: ids,
+                        });
+                    }
                     return postJson('/api/persona_updates/batch_review', {
                         update_ids: ids,
                         action,
                     });
                 }
                 if (kind === 'style') {
+                    if (action === 'delete') {
+                        return postJson('/api/style_learning/reviews/batch_delete', {
+                            review_ids: ids,
+                        });
+                    }
                     return postJson('/api/style_learning/reviews/batch_review', {
                         review_ids: ids,
                         action,
+                    });
+                }
+                if (action === 'delete') {
+                    return postJson('/api/jargon/batch_delete', {
+                        jargon_ids: ids,
                     });
                 }
                 return postJson('/api/jargon/batch_review', {
@@ -7367,6 +7391,9 @@
                     } else if (action === 'persona-batch-reject') {
                         payload = await batchReviewDashboardQueue('persona', 'reject');
                         if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'persona-batch-delete') {
+                        payload = await batchReviewDashboardQueue('persona', 'delete');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'persona-delete') {
                         payload = await postJson(`/api/persona_updates/${encodeURIComponent(id)}/delete`);
                     } else if (action === 'persona-backup-view') {
@@ -7395,11 +7422,17 @@
                     } else if (action === 'style-batch-reject') {
                         payload = await batchReviewDashboardQueue('style', 'reject');
                         if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'style-batch-delete') {
+                        payload = await batchReviewDashboardQueue('style', 'delete');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'jargon-batch-approve') {
                         payload = await batchReviewDashboardQueue('jargon', 'approve');
                         if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'jargon-batch-reject') {
                         payload = await batchReviewDashboardQueue('jargon', 'reject');
+                        if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
+                    } else if (action === 'jargon-batch-delete') {
+                        payload = await batchReviewDashboardQueue('jargon', 'delete');
                         if (!payload) { state.actionBusy.delete(busyKey); renderAll(state.data || {}); return; }
                     } else if (action === 'jargon-toggle-global') {
                         payload = await postJson(`/api/jargon/${encodeURIComponent(id)}/toggle_global`);

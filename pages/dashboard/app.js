@@ -26,6 +26,12 @@
     dashboard: null,
     overview: null,
     pageData: {},
+    selectedReviews: {
+      persona: new Set(),
+      style: new Set(),
+      jargon: new Set(),
+    },
+    selectedJargon: new Set(),
     contentType: "dialogues",
     settingsGroup: null,
     dirtySettings: new Map(),
@@ -179,6 +185,98 @@
 
   function button(label, attrs = "", cls = "ghost-button") {
     return `<button class="${cls}" type="button" ${attrs}>${escapeHtml(label)}</button>`;
+  }
+
+  function normalizeId(id) {
+    return String(id ?? "").trim();
+  }
+
+  function selectedReviewSet(kind) {
+    if (!state.selectedReviews[kind]) state.selectedReviews[kind] = new Set();
+    return state.selectedReviews[kind];
+  }
+
+  function selectedReviewIds(kind) {
+    return Array.from(selectedReviewSet(kind)).filter(Boolean);
+  }
+
+  function isReviewSelected(kind, id) {
+    return selectedReviewSet(kind).has(normalizeId(id));
+  }
+
+  function isJargonSelected(id) {
+    return state.selectedJargon.has(normalizeId(id));
+  }
+
+  function pruneSelection(selection, validIds) {
+    const valid = new Set((validIds || []).map(normalizeId).filter(Boolean));
+    Array.from(selection).forEach((id) => {
+      if (!valid.has(id)) selection.delete(id);
+    });
+  }
+
+  function reviewCheckbox(kind, id) {
+    const safeId = normalizeId(id);
+    return `<label class="select-cell" title="选择">
+      <input type="checkbox" data-review-select-kind="${escapeAttr(kind)}" data-review-select-id="${escapeAttr(safeId)}" ${isReviewSelected(kind, safeId) ? "checked" : ""}>
+    </label>`;
+  }
+
+  function jargonCheckbox(id) {
+    const safeId = normalizeId(id);
+    return `<label class="select-cell" title="选择">
+      <input type="checkbox" data-jargon-select-id="${escapeAttr(safeId)}" ${isJargonSelected(safeId) ? "checked" : ""}>
+    </label>`;
+  }
+
+  function reviewCountText(kind, total) {
+    const selected = selectedReviewIds(kind).length;
+    return selected ? `${fmt(selected, 0)}/${fmt(total, 0)}` : fmt(total, 0);
+  }
+
+  function visibleReviewIds(kind) {
+    const reviews = state.pageData.reviews || {};
+    if (kind === "persona") {
+      return ((reviews.persona_pending || {}).updates || [])
+        .filter((item) => item && item.review_source !== "style_learning")
+        .map((item) => normalizeId(item.id))
+        .filter(Boolean);
+    }
+    if (kind === "style") {
+      return ((reviews.style_reviews || {}).reviews || [])
+        .map((item) => normalizeId(item.id))
+        .filter(Boolean);
+    }
+    if (kind === "jargon") {
+      return (((reviews.jargon_pending || {}).jargon_list) || [])
+        .map((item) => normalizeId(item.id))
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  function stylePageReviewIds() {
+    const style = state.pageData.style || {};
+    return (((style.reviews || {}).reviews) || [])
+      .map((item) => normalizeId(item.id))
+      .filter(Boolean);
+  }
+
+  function jargonPageIds() {
+    return (state.pageData.lastJargonItems || [])
+      .map((item) => normalizeId(item.id))
+      .filter(Boolean);
+  }
+
+  function refreshSelectionLabels() {
+    ["persona", "style", "jargon"].forEach((kind) => {
+      const ids = visibleReviewIds(kind);
+      setText(`${kind}-review-count`, reviewCountText(kind, ids.length));
+    });
+    setText("expression-review-count", `已选 ${fmt(selectedReviewIds("style").length, 0)}`);
+    const selectedJargon = Array.from(state.selectedJargon).filter(Boolean).length;
+    const visibleJargon = jargonPageIds().length;
+    setText("jargon-selection-count", `已选 ${fmt(selectedJargon, 0)}/${fmt(visibleJargon, 0)}`);
   }
 
   function setBusy(label = "加载中") {
@@ -510,8 +608,10 @@
       ["活跃群组", stats.active_groups],
     ]));
     const items = ((data.list || {}).jargon_list || []);
+    pruneSelection(state.selectedJargon, items.map((item) => item.id));
     const html = items.map((item) => `
-      <div class="table-row rich-row">
+      <div class="table-row rich-row selectable-row">
+        ${jargonCheckbox(item.id)}
         <div>
           <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
           <small>${escapeHtml(item.meaning || item.definition || "暂无释义")}</small>
@@ -530,6 +630,8 @@
     `).join("");
     setHtml("jargon-list", html || empty("暂无黑话数据"));
     state.pageData.lastJargonItems = items;
+    state.pageData.currentJargonData = data;
+    refreshSelectionLabels();
     showErrors(data.errors || {});
   }
 
@@ -556,8 +658,10 @@
     const chartItems = patternGroups.map(([title, list]) => ({ title, metric: (list || []).length, accent: "#4169e1" }));
     renderGenericBarChart("style-pattern-chart", chartItems);
     const reviews = ((data.reviews || {}).reviews || []);
+    pruneSelection(selectedReviewSet("style"), reviews.map((item) => item.id));
     setHtml("expression-review-list", reviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
     state.pageData.lastStyleItems = reviews;
+    refreshSelectionLabels();
   }
 
   function renderReviews(data) {
@@ -566,9 +670,12 @@
     const personaReviewed = ((data.persona_reviewed || {}).updates || []);
     const styleReviews = ((data.style_reviews || {}).reviews || []);
     const pendingJargon = (((data.jargon_pending || {}).jargon_list) || []);
-    setText("persona-review-count", fmt(personaPending.length, 0));
-    setText("style-review-count", fmt(styleReviews.length, 0));
-    setText("jargon-review-count", fmt(pendingJargon.length, 0));
+    pruneSelection(selectedReviewSet("persona"), personaPending.map((item) => item.id));
+    pruneSelection(selectedReviewSet("style"), styleReviews.map((item) => item.id));
+    pruneSelection(selectedReviewSet("jargon"), pendingJargon.map((item) => item.id));
+    setText("persona-review-count", reviewCountText("persona", personaPending.length));
+    setText("style-review-count", reviewCountText("style", styleReviews.length));
+    setText("jargon-review-count", reviewCountText("jargon", pendingJargon.length));
     setText("reviewed-count", fmt(personaReviewed.length, 0));
     setHtml("persona-review-list", personaPending.map((item) => personaReviewHtml(item)).join("") || empty("暂无人格更新"));
     setHtml("style-review-list", styleReviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
@@ -586,7 +693,8 @@
 
   function personaReviewHtml(item) {
     const id = item.id;
-    return `<article class="review-item">
+    return `<article class="review-item selectable">
+      ${reviewCheckbox("persona", id)}
       <div class="review-main">
         <strong>${escapeHtml(item.update_type || item.review_source || "人格更新")}</strong>
         <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.reason || item.description || "")}</small>
@@ -602,7 +710,8 @@
   }
 
   function styleReviewHtml(item) {
-    return `<article class="review-item">
+    return `<article class="review-item selectable">
+      ${reviewCheckbox("style", item.id)}
       <div class="review-main">
         <strong>${escapeHtml(item.description || "表达方式学习")}</strong>
         <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.status || "pending")}</small>
@@ -613,12 +722,14 @@
         ${button("详情", `data-review-action="detail" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
         ${button("批准", `data-review-action="approve" data-kind="style" data-id="${escapeAttr(item.id)}"`, "solid-button")}
         ${button("拒绝", `data-review-action="reject" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
+        ${button("删除", `data-review-action="delete" data-kind="style" data-id="${escapeAttr(item.id)}"`, "danger-button")}
       </div>
     </article>`;
   }
 
   function jargonReviewHtml(item) {
-    return `<article class="review-item">
+    return `<article class="review-item selectable">
+      ${reviewCheckbox("jargon", item.id)}
       <div class="review-main">
         <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
         <small>${escapeHtml(item.group_id || "global")} · ${escapeHtml(fmt(item.occurrences || item.count, 0))} 次</small>
@@ -898,24 +1009,8 @@
   }
 
   function currentBatchReviewIds(kind) {
-    const reviews = state.pageData.reviews || {};
-    if (kind === "persona") {
-      return ((reviews.persona_pending || {}).updates || [])
-        .filter((item) => item && item.review_source !== "style_learning")
-        .map((item) => item.id)
-        .filter((id) => id !== undefined && id !== null && String(id) !== "");
-    }
-    if (kind === "style") {
-      return ((reviews.style_reviews || {}).reviews || [])
-        .map((item) => item.id)
-        .filter((id) => id !== undefined && id !== null && String(id) !== "");
-    }
-    if (kind === "jargon") {
-      return (((reviews.jargon_pending || {}).jargon_list) || [])
-        .map((item) => item.id)
-        .filter((id) => id !== undefined && id !== null && String(id) !== "");
-    }
-    return [];
+    const selected = selectedReviewIds(kind);
+    return selected.length ? selected : visibleReviewIds(kind);
   }
 
   async function handleBatchReviewAction(kind, action) {
@@ -925,16 +1020,20 @@
       return;
     }
     const typeText = { persona: "人格更新", style: "表达审查", jargon: "黑话候选" }[kind] || "审查项";
-    const actionText = action === "approve" ? "通过" : "拒绝";
-    if (!window.confirm(`确定批量${actionText}当前页 ${ids.length} 条${typeText}？`)) return;
+    const actionText = action === "approve" ? "通过" : action === "reject" ? "拒绝" : "删除";
+    const scopeText = selectedReviewIds(kind).length ? "选中" : "当前页";
+    if (!window.confirm(`确定批量${actionText}${scopeText} ${ids.length} 条${typeText}？`)) return;
 
     const payload = {
-      action: kind === "persona" ? "batch_review" : kind === "style" ? "batch_review_style" : "batch_review_jargon",
+      action: action === "delete"
+        ? kind === "persona" ? "batch_delete" : kind === "style" ? "batch_delete_style" : "batch_delete_jargon"
+        : kind === "persona" ? "batch_review" : kind === "style" ? "batch_review_style" : "batch_review_jargon",
       ids,
       decision: action,
     };
     const result = await apiPost("reviews/action", payload);
-    showToast(result.message || "批量审查完成", result.success ? "ok" : "error");
+    showToast(result.message || "批量操作完成", result.success ? "ok" : "error");
+    selectedReviewSet(kind).clear();
     state.pageData.reviews = null;
     await loadPageData(state.page, { force: true });
   }
@@ -1078,6 +1177,7 @@
     }
     const result = await apiPost("reviews/action", payload);
     showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    selectedReviewSet(kind).delete(normalizeId(id));
     state.pageData.reviews = null;
     await loadPageData(state.page, { force: true });
   }
@@ -1094,8 +1194,41 @@
     }
     const result = await apiPost("jargon/action", { action, id });
     showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    state.selectedJargon.delete(normalizeId(id));
     state.pageData = {};
     await loadPageData(state.page, { force: true });
+  }
+
+  async function handleJargonBatchAction(action) {
+    const visibleIds = jargonPageIds();
+    if (action === "select_all") {
+      visibleIds.forEach((id) => state.selectedJargon.add(id));
+      renderJargon(state.pageData.currentJargonData || {});
+      return;
+    }
+    if (action === "clear") {
+      state.selectedJargon.clear();
+      renderJargon(state.pageData.currentJargonData || {});
+      return;
+    }
+
+    const ids = Array.from(state.selectedJargon).filter(Boolean);
+    if (!ids.length) {
+      showToast("请先选择黑话条目", "error");
+      return;
+    }
+    const actionText = action === "approve" ? "确认" : action === "reject" ? "驳回" : "删除";
+    if (!window.confirm(`确定批量${actionText}选中的 ${ids.length} 条黑话？`)) return;
+
+    const result = await apiPost("jargon/action", {
+      action: action === "delete" ? "batch_delete" : "batch_review",
+      ids,
+      decision: action,
+    });
+    showToast(result.message || "批量黑话操作完成", result.success ? "ok" : "error");
+    state.selectedJargon.clear();
+    state.pageData = {};
+    await loadPageData("jargon-learning", { force: true });
   }
 
   function modalFieldValue(id) {
@@ -1125,6 +1258,40 @@
         <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(id)}">保存</button>
       `);
     }
+  }
+
+  async function handleStyleBatchAction(action) {
+    const visibleIds = stylePageReviewIds();
+    const selected = selectedReviewSet("style");
+    if (action === "select_all") {
+      visibleIds.forEach((id) => selected.add(id));
+      renderStyle(state.pageData.style || {});
+      return;
+    }
+    if (action === "clear") {
+      selected.clear();
+      renderStyle(state.pageData.style || {});
+      return;
+    }
+
+    const ids = selectedReviewIds("style");
+    if (!ids.length) {
+      showToast("请先选择表达审查项", "error");
+      return;
+    }
+    const actionText = action === "approve" ? "批准" : action === "reject" ? "拒绝" : "删除";
+    if (!window.confirm(`确定批量${actionText}选中的 ${ids.length} 条表达审查？`)) return;
+
+    const result = await apiPost("style/action", {
+      action: action === "delete" ? "batch_delete" : "batch_review",
+      ids,
+      decision: action,
+    });
+    showToast(result.message || "批量表达审查完成", result.success ? "ok" : "error");
+    selected.clear();
+    state.pageData.style = null;
+    state.pageData.lastStyleItems = [];
+    await loadPageData("expression-learning", { force: true });
   }
 
   async function handlePersonaAction(buttonEl) {
@@ -1255,14 +1422,16 @@
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-style-action],[data-persona-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-content-action],[data-settings-group]");
       if (!target) return;
       if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
       if (target.dataset.reviewAction) await handleReviewAction(target.dataset.kind, target.dataset.id, target.dataset.reviewAction);
       if (target.dataset.batchReviewKind) await handleBatchReviewAction(target.dataset.batchReviewKind, target.dataset.batchReviewAction || "approve");
       if (target.dataset.jargonAction) await handleJargonAction(target.dataset.jargonAction, target.dataset.id);
+      if (target.dataset.jargonBatchAction) await handleJargonBatchAction(target.dataset.jargonBatchAction);
       if (target.dataset.styleAction) await handleStyleAction(target.dataset.styleAction, target.dataset.id);
+      if (target.dataset.styleBatchAction) await handleStyleBatchAction(target.dataset.styleBatchAction);
       if (target.dataset.personaAction) await handlePersonaAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
       if (target.dataset.settingsGroup) {
@@ -1272,6 +1441,23 @@
     });
 
     document.addEventListener("change", (event) => {
+      const reviewSelect = event.target.closest("[data-review-select-kind]");
+      if (reviewSelect) {
+        const selection = selectedReviewSet(reviewSelect.dataset.reviewSelectKind);
+        const id = normalizeId(reviewSelect.dataset.reviewSelectId);
+        if (reviewSelect.checked) selection.add(id);
+        else selection.delete(id);
+        refreshSelectionLabels();
+        return;
+      }
+      const jargonSelect = event.target.closest("[data-jargon-select-id]");
+      if (jargonSelect) {
+        const id = normalizeId(jargonSelect.dataset.jargonSelectId);
+        if (jargonSelect.checked) state.selectedJargon.add(id);
+        else state.selectedJargon.delete(id);
+        refreshSelectionLabels();
+        return;
+      }
       const field = event.target.closest("[data-config-field]");
       if (!field) return;
       state.dirtySettings.set(field.dataset.configField, field.type === "checkbox" ? field.checked : field.value);

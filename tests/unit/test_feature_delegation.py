@@ -117,6 +117,27 @@ async def test_llm_hook_omits_local_v2_memories_when_livingmemory_delegated():
 
 
 @pytest.mark.asyncio
+async def test_llm_hook_skips_social_context_when_disabled():
+    injector = SimpleNamespace(format_complete_context=AsyncMock(return_value="social"))
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(enable_social_context_injection=False),
+        diversity_manager=object(),
+        social_context_injector=injector,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+    )
+
+    result = await handler._fetch_social("group-a", "user-a")
+
+    assert result is None
+    injector.format_complete_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_service_factory_initialize_all_services_can_skip_local_responder():
     factory = ServiceFactory.__new__(ServiceFactory)
     factory.config = SimpleNamespace(debug_mode=False)

@@ -149,6 +149,29 @@ async def reject_style_learning_review(review_id: int):
         return error_response(str(e), 500)
 
 
+@learning_bp.route("/style_learning/reviews/<int:review_id>", methods=["DELETE"])
+@require_auth
+async def delete_style_learning_review(review_id: int):
+    """删除对话风格学习审查"""
+    try:
+        container = get_container()
+        learning_service = LearningService(container)
+        success, message = await learning_service.delete_style_learning_review(review_id)
+
+        if success:
+            return jsonify({
+                'success': True,
+                'message': message
+            }), 200
+        return error_response(message, 404 if '不存在' in message or '未找到' in message else 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"删除风格学习审查失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @learning_bp.route("/style_learning/reviews/batch_review", methods=["POST"])
 @require_auth
 async def batch_review_style_learning_reviews():
@@ -180,6 +203,32 @@ async def batch_review_style_learning_reviews():
         return error_response(str(e), 500)
     except Exception as e:
         logger.error(f"批量审查风格学习失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
+@learning_bp.route("/style_learning/reviews/batch_delete", methods=["POST"])
+@require_auth
+async def batch_delete_style_learning_reviews():
+    """批量删除对话风格学习审查"""
+    try:
+        data = await request.get_json() or {}
+        review_ids = data.get("review_ids") or data.get("ids") or []
+
+        if not review_ids or not isinstance(review_ids, list):
+            return error_response("review_ids is required and must be a list", 400)
+
+        container = get_container()
+        learning_service = LearningService(container)
+        result = await learning_service.batch_delete_style_learning_reviews(review_ids)
+
+        if result.get("success"):
+            return jsonify(result), 200
+        return error_response(result.get("error") or "批量删除失败", 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"批量删除风格学习失败: {e}", exc_info=True)
         return error_response(str(e), 500)
 
 

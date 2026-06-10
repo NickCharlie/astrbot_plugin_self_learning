@@ -210,6 +210,23 @@ async def test_batch_review_jargon_reviews_each_candidate():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_batch_delete_jargon_deletes_each_candidate():
+    database_manager = SimpleNamespace(
+        delete_jargon_by_id=AsyncMock(side_effect=[True, False]),
+    )
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.batch_delete_jargon([7, "8"])
+
+    assert result["success"] is True
+    assert result["details"]["success_count"] == 1
+    assert result["details"]["failed_count"] == 1
+    assert database_manager.delete_jargon_by_id.await_args_list[0].args == (7,)
+    assert database_manager.delete_jargon_by_id.await_args_list[1].args == (8,)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_get_jargon_list_can_filter_pending_candidates():
     database_manager = SimpleNamespace(
         get_jargon_count=AsyncMock(return_value=3),

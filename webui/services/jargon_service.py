@@ -379,6 +379,37 @@ class JargonService:
             },
         }
 
+    async def batch_delete_jargon(self, jargon_ids: List[int]) -> Dict[str, Any]:
+        """批量删除黑话或黑话候选。"""
+        success_count = 0
+        failed_count = 0
+        errors = []
+
+        for jargon_id in jargon_ids:
+            try:
+                normalized_id = int(jargon_id)
+                success, message = await self.delete_jargon(normalized_id)
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({"id": normalized_id, "message": message})
+            except Exception as e:
+                logger.error(f"批量删除黑话 {jargon_id} 失败: {e}", exc_info=True)
+                failed_count += 1
+                errors.append({"id": jargon_id, "message": str(e)})
+
+        return {
+            "success": True,
+            "message": f"批量删除黑话完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(jargon_ids),
+                "errors": errors,
+            },
+        }
+
     async def update_jargon(
         self,
         jargon_id: int,

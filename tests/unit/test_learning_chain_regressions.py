@@ -822,6 +822,45 @@ async def test_message_pipeline_jargon_trigger_uses_threshold_crossing_not_exact
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_realtime_filter_disabled_does_not_enqueue_filtered_messages():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=False,
+        enable_realtime_llm_filter=False,
+    )
+    collector = SimpleNamespace(add_filtered_message=AsyncMock())
+    analyzer = SimpleNamespace(filter_message_with_llm=AsyncMock(return_value=True))
+    persona_manager = SimpleNamespace(
+        get_current_persona_description=AsyncMock(return_value="persona")
+    )
+    learning_stats = SimpleNamespace(filtered_messages=0, style_updates=0)
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=analyzer,
+        persona_manager=persona_manager,
+        temporary_persona_updater=SimpleNamespace(),
+        dialog_analyzer=SimpleNamespace(),
+        learning_stats=learning_stats,
+        factory_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+
+    await processor.process_message_realtime(
+        "group-a",
+        "这是一条足够长的实时消息",
+        "user-a",
+    )
+
+    collector.add_filtered_message.assert_not_awaited()
+    persona_manager.get_current_persona_description.assert_not_awaited()
+    analyzer.filter_message_with_llm.assert_not_awaited()
+    assert learning_stats.filtered_messages == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_realtime_expression_learning_is_batch_gated():
     config = SimpleNamespace(
         message_min_length=1,
@@ -1222,6 +1261,41 @@ async def test_learning_service_batch_style_reviews_use_unified_persona_review_p
         ("style_1", "approve", "batch"),
         ("style_2", "approve", "batch"),
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_learning_service_batch_delete_style_reviews_use_unified_persona_review_path(
+    monkeypatch,
+):
+    calls = []
+
+    class _FakePersonaReviewService:
+        def __init__(self, container):
+            self.container = container
+
+        async def delete_persona_update(self, update_id):
+            calls.append(update_id)
+            return True, "ok"
+
+    monkeypatch.setattr(
+        "self_learning_EterU.webui.services.learning_service.PersonaReviewService",
+        _FakePersonaReviewService,
+    )
+
+    service = LearningService(
+        SimpleNamespace(
+            database_manager=SimpleNamespace(),
+            persona_updater=SimpleNamespace(),
+        )
+    )
+
+    result = await service.batch_delete_style_learning_reviews([1, "2"])
+
+    assert result["success"] is True
+    assert result["details"]["success_count"] == 2
+    assert result["details"]["failed_count"] == 0
+    assert calls == ["style_1", "style_2"]
 
 
 @pytest.mark.unit

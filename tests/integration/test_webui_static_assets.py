@@ -192,22 +192,29 @@ def test_dashboard_exposes_batch_review_actions():
     for action in [
         "persona-batch-approve",
         "persona-batch-reject",
+        "persona-batch-delete",
         "style-batch-approve",
         "style-batch-reject",
+        "style-batch-delete",
         "jargon-batch-approve",
         "jargon-batch-reject",
+        "jargon-batch-delete",
     ]:
         assert f'data-dashboard-action="{action}"' in text
 
     assert "function currentDashboardReviewIds(kind)" in text
     assert "function batchReviewDashboardQueue(kind, action)" in text
     assert "/api/persona_updates/batch_review" in text
+    assert "/api/persona_updates/batch_delete" in text
     assert "/api/style_learning/reviews/batch_review" in text
+    assert "/api/style_learning/reviews/batch_delete" in text
     assert "/api/jargon/batch_review" in text
+    assert "/api/jargon/batch_delete" in text
     assert "review_source !== 'style_learning'" in text
     assert 'data-batch-review-kind="persona"' in embedded_index
     assert 'data-batch-review-kind="style"' in embedded_index
     assert 'data-batch-review-kind="jargon"' in embedded_index
+    assert 'data-batch-review-action="delete"' in embedded_index
 
 
 def test_dashboard_review_deletes_use_inline_confirmation():

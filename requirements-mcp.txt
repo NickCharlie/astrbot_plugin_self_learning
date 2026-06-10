@@ -1,0 +1,9 @@
+# Dependencies for running the self-learning MCP server.
+mcp>=1.27.0
+pydantic>=2.0
+SQLAlchemy>=2.0
+aiosqlite>=0.19
+
+# Optional database drivers. Install only for the configured backend.
+# asyncpg>=0.29
+# aiomysql>=0.2

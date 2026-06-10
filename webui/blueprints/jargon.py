@@ -272,6 +272,32 @@ async def batch_review_jargon():
         return error_response(str(e), 500)
 
 
+@jargon_bp.route("/jargon/batch_delete", methods=["POST"])
+@require_auth
+async def batch_delete_jargon():
+    """批量删除黑话或黑话候选"""
+    try:
+        data = await request.get_json() or {}
+        jargon_ids = data.get("jargon_ids") or data.get("ids") or []
+
+        if not jargon_ids or not isinstance(jargon_ids, list):
+            return error_response("jargon_ids is required and must be a list", 400)
+
+        container = get_container()
+        jargon_service = JargonService(container)
+        result = await jargon_service.batch_delete_jargon(jargon_ids)
+
+        if result.get("success"):
+            return jsonify(result), 200
+        return error_response(result.get("error") or "批量删除失败", 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"批量删除黑话失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @jargon_bp.route("/jargon/<int:jargon_id>/toggle_global", methods=["POST"])
 @require_auth
 async def toggle_jargon_global(jargon_id: int):
