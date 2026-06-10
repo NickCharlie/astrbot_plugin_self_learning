@@ -158,6 +158,7 @@
                   <span class="mini-badge" id="persona-review-count">0</span>
                   <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="approve">全批</button>
                   <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="reject">全拒</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="persona" data-batch-review-action="delete">删除</button>
                 </div>
               </div>
               <div class="review-list" id="persona-review-list"></div>
@@ -169,6 +170,7 @@
                   <span class="mini-badge" id="style-review-count">0</span>
                   <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="approve">全批</button>
                   <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="reject">全拒</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="style" data-batch-review-action="delete">删除</button>
                 </div>
               </div>
               <div class="review-list" id="style-review-list"></div>
@@ -180,6 +182,7 @@
                   <span class="mini-badge" id="jargon-review-count">0</span>
                   <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="approve">全批</button>
                   <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="reject">全拒</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="delete">删除</button>
                 </div>
               </div>
               <div class="review-list" id="jargon-review-list"></div>
@@ -218,6 +221,16 @@
             <button class="solid-button" type="button" id="jargon-search-button">筛选</button>
           </div>
           <div class="panel">
+            <div class="batch-toolbar">
+              <span class="mini-badge" id="jargon-selection-count">已选 0</span>
+              <div class="inline-actions compact-actions">
+                <button class="ghost-button" type="button" data-jargon-batch-action="select_all">全选</button>
+                <button class="ghost-button" type="button" data-jargon-batch-action="clear">取消选择</button>
+                <button class="ghost-button" type="button" data-jargon-batch-action="approve">批量确认</button>
+                <button class="ghost-button" type="button" data-jargon-batch-action="reject">批量驳回</button>
+                <button class="danger-button" type="button" data-jargon-batch-action="delete">批量删除</button>
+              </div>
+            </div>
             <div class="compact-table" id="jargon-list"></div>
           </div>
         </section>
@@ -237,7 +250,17 @@
               <div class="bar-chart" id="style-pattern-chart"></div>
             </div>
             <div class="panel">
-              <h3>待审查表达</h3>
+              <div class="panel-heading">
+                <h3>待审查表达</h3>
+                <div class="inline-actions compact-actions">
+                  <span class="mini-badge" id="expression-review-count">已选 0</span>
+                  <button class="ghost-button" type="button" data-style-batch-action="select_all">全选</button>
+                  <button class="ghost-button" type="button" data-style-batch-action="clear">取消选择</button>
+                  <button class="ghost-button" type="button" data-style-batch-action="approve">批量批准</button>
+                  <button class="ghost-button" type="button" data-style-batch-action="reject">批量拒绝</button>
+                  <button class="danger-button" type="button" data-style-batch-action="delete">批量删除</button>
+                </div>
+              </div>
               <div class="review-list" id="expression-review-list"></div>
             </div>
           </div>

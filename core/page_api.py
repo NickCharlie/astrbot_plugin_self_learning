@@ -137,6 +137,22 @@ class PluginPageApi:
                     meaning=body.get("meaning"),
                 )
                 return self._operation(success, message, item=item)
+            if action == "batch_review":
+                jargon_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="jargon_ids")
+                ]
+                jargon_ids = [jargon_id for jargon_id in jargon_ids if jargon_id]
+                result = await service.batch_review_jargon(
+                    jargon_ids,
+                    str(body.get("decision") or body.get("review_action") or "approve"),
+                    meaning=body.get("meaning"),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量审查黑话完成",
+                    result=result,
+                )
             if action == "update":
                 success, message, item = await service.update_jargon(
                     self._body_int(body, "id"),
@@ -152,6 +168,18 @@ class PluginPageApi:
             if action == "delete":
                 success, message = await service.delete_jargon(self._body_int(body, "id"))
                 return self._operation(success, message)
+            if action == "batch_delete":
+                jargon_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="jargon_ids")
+                ]
+                jargon_ids = [jargon_id for jargon_id in jargon_ids if jargon_id]
+                result = await service.batch_delete_jargon(jargon_ids)
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量删除黑话完成",
+                    result=result,
+                )
             if action == "sync_global":
                 target_group_id = str(body.get("group_id") or "").strip()
                 if not target_group_id:
@@ -214,6 +242,39 @@ class PluginPageApi:
                     self._body_int(body, "id")
                 )
                 return self._operation(success, message)
+            if action == "batch_review":
+                review_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="review_ids")
+                ]
+                review_ids = [review_id for review_id in review_ids if review_id]
+                result = await service.batch_review_style_learning_reviews(
+                    review_ids,
+                    str(body.get("decision") or body.get("review_action") or "approve"),
+                    str(body.get("comment") or ""),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量表达审查完成",
+                    result=result,
+                )
+            if action == "delete":
+                success, message = await service.delete_style_learning_review(
+                    self._body_int(body, "id")
+                )
+                return self._operation(success, message)
+            if action == "batch_delete":
+                review_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="review_ids")
+                ]
+                review_ids = [review_id for review_id in review_ids if review_id]
+                result = await service.batch_delete_style_learning_reviews(review_ids)
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量删除表达审查完成",
+                    result=result,
+                )
             if action == "update":
                 success, message, item = await self._update_style_review(body)
                 return self._operation(success, message, item=item)
@@ -296,6 +357,21 @@ class PluginPageApi:
                     result.get("message") or result.get("error") or "批量表达审查完成",
                     result=result,
                 )
+            if action == "batch_delete_style":
+                learning_service = imports.LearningService(container)
+                review_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="review_ids")
+                ]
+                review_ids = [review_id for review_id in review_ids if review_id]
+                result = await learning_service.batch_delete_style_learning_reviews(
+                    review_ids
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量删除表达审查完成",
+                    result=result,
+                )
             if action == "batch_review_jargon":
                 jargon_service = imports.JargonService(container)
                 jargon_ids = [
@@ -313,6 +389,19 @@ class PluginPageApi:
                     result.get("message") or result.get("error") or "批量黑话审查完成",
                     result=result,
                 )
+            if action == "batch_delete_jargon":
+                jargon_service = imports.JargonService(container)
+                jargon_ids = [
+                    self._as_int(item, 0)
+                    for item in self._body_list(body, "ids", fallback_key="jargon_ids")
+                ]
+                jargon_ids = [jargon_id for jargon_id in jargon_ids if jargon_id]
+                result = await jargon_service.batch_delete_jargon(jargon_ids)
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "批量删除黑话完成",
+                    result=result,
+                )
             if action.startswith("style_"):
                 learning_service = imports.LearningService(container)
                 review_id = self._body_int(body, "id")
@@ -320,6 +409,8 @@ class PluginPageApi:
                     success, message = await learning_service.approve_style_learning_review(review_id)
                 elif action == "style_reject":
                     success, message = await learning_service.reject_style_learning_review(review_id)
+                elif action == "style_delete":
+                    success, message = await learning_service.delete_style_learning_review(review_id)
                 else:
                     return self._operation(False, f"未知风格审查操作: {action}")
                 return self._operation(success, message)

@@ -250,6 +250,11 @@ class LearningService:
             "reject",
         )
 
+    async def delete_style_learning_review(self, review_id: int) -> Tuple[bool, str]:
+        """删除对话风格学习审查。"""
+        review_service = PersonaReviewService(self.container)
+        return await review_service.delete_persona_update(f"style_{review_id}")
+
     async def batch_review_style_learning_reviews(
         self,
         review_ids: List[int],
@@ -290,6 +295,43 @@ class LearningService:
         return {
             "success": True,
             "message": f"批量{action_text}表达审查完成：成功 {success_count} 条，失败 {failed_count} 条",
+            "details": {
+                "success_count": success_count,
+                "failed_count": failed_count,
+                "total_count": len(review_ids),
+                "errors": errors,
+            },
+        }
+
+    async def batch_delete_style_learning_reviews(
+        self,
+        review_ids: List[int],
+    ) -> Dict[str, Any]:
+        """批量删除表达方式学习审查。"""
+        success_count = 0
+        failed_count = 0
+        errors = []
+        review_service = PersonaReviewService(self.container)
+
+        for review_id in review_ids:
+            try:
+                normalized_id = int(review_id)
+                success, message = await review_service.delete_persona_update(
+                    f"style_{normalized_id}"
+                )
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    errors.append({"id": normalized_id, "message": message})
+            except Exception as e:
+                logger.error(f"批量删除风格学习 {review_id} 失败: {e}", exc_info=True)
+                failed_count += 1
+                errors.append({"id": review_id, "message": str(e)})
+
+        return {
+            "success": True,
+            "message": f"批量删除表达审查完成：成功 {success_count} 条，失败 {failed_count} 条",
             "details": {
                 "success_count": success_count,
                 "failed_count": failed_count,

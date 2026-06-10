@@ -128,3 +128,32 @@ async def test_jargon_batch_review_route_calls_service(client, monkeypatch):
     data = await response.get_json()
     assert data["success"] is True
     assert calls == [([7, 8], "reject", "ignored")]
+
+
+@pytest.mark.asyncio
+async def test_jargon_batch_delete_route_calls_service(client, monkeypatch):
+    calls = []
+
+    class _FakeJargonService:
+        def __init__(self, container):
+            self.container = container
+
+        async def batch_delete_jargon(self, jargon_ids):
+            calls.append(jargon_ids)
+            return {
+                "success": True,
+                "message": "批量删除完成",
+                "details": {"success_count": len(jargon_ids), "failed_count": 0},
+            }
+
+    monkeypatch.setattr(jargon_module, "JargonService", _FakeJargonService)
+
+    response = await client.post(
+        "/api/jargon/batch_delete",
+        json={"jargon_ids": [7, 8]},
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert calls == [[7, 8]]

@@ -82,6 +82,40 @@ async def test_style_learning_batch_review_route_calls_service(client, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_style_learning_batch_delete_route_calls_service(client, monkeypatch):
+    calls = []
+
+    class _FakeLearningService:
+        def __init__(self, container):
+            self.container = container
+
+        async def batch_delete_style_learning_reviews(self, review_ids):
+            calls.append(review_ids)
+            return {
+                "success": True,
+                "message": "批量删除完成",
+                "details": {"success_count": len(review_ids), "failed_count": 0},
+            }
+
+    monkeypatch.setattr(
+        learning_module,
+        "get_container",
+        lambda: SimpleNamespace(database_manager=SimpleNamespace()),
+    )
+    monkeypatch.setattr(learning_module, "LearningService", _FakeLearningService)
+
+    response = await client.post(
+        "/api/style_learning/reviews/batch_delete",
+        json={"review_ids": [1, 2]},
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert calls == [[1, 2]]
+
+
+@pytest.mark.asyncio
 async def test_learning_content_route_returns_database_rows(client, monkeypatch):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)

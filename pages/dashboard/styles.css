@@ -204,7 +204,8 @@ h1 {
   gap: 6px;
 }
 
-.compact-actions .ghost-button {
+.compact-actions .ghost-button,
+.compact-actions .danger-button {
   min-height: 28px;
   padding: 0 8px;
   font-size: 12px;
@@ -732,6 +733,15 @@ button.is-busy {
   align-items: start;
 }
 
+.review-item.selectable {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.review-item.selectable .row-actions {
+  grid-column: 2;
+}
+
 .review-main p,
 .content-item p {
   margin-bottom: 0;
@@ -745,6 +755,10 @@ button.is-busy {
 
 .rich-row {
   grid-template-columns: minmax(180px, 1fr) auto auto minmax(118px, auto);
+}
+
+.table-row.selectable-row {
+  grid-template-columns: auto minmax(180px, 1fr) auto auto auto minmax(118px, auto);
 }
 
 .table-row > *,
@@ -768,6 +782,30 @@ button.is-busy {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.select-cell {
+  width: 22px;
+  min-width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.select-cell input {
+  width: 16px;
+  min-height: 16px;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .toolbar-panel {

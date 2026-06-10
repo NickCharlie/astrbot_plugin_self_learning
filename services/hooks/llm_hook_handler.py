@@ -211,6 +211,12 @@ class LLMHookHandler:
     async def _fetch_social(
         self, group_id: str, user_id: str
     ) -> Optional[str]:
+        social_enabled = bool(
+            getattr(self._config, "enable_social_context_injection", True)
+        )
+        if not social_enabled:
+            logger.debug("[LLM Hook] 社交关系上下文注入已关闭，跳过社交上下文")
+            return None
         if not self._social_context_injector:
             logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
             return None
@@ -223,7 +229,7 @@ class LLMHookHandler:
                 include_mood=False,
                 include_expression_patterns=self._config.enable_expression_patterns,
                 include_psychological=True,
-                include_behavior_guidance=True,
+                include_behavior_guidance=social_enabled,
                 include_conversation_goal=self._config.enable_goal_driven_chat,
                 enable_protection=True,
             )
