@@ -238,6 +238,40 @@ async def review_jargon(jargon_id: int):
         return error_response(str(e), 500)
 
 
+@jargon_bp.route("/jargon/batch_review", methods=["POST"])
+@require_auth
+async def batch_review_jargon():
+    """批量确认或驳回黑话候选"""
+    try:
+        data = await request.get_json() or {}
+        jargon_ids = data.get("jargon_ids") or data.get("ids") or []
+        action = data.get("action")
+        meaning = data.get("meaning")
+
+        if not jargon_ids or not isinstance(jargon_ids, list):
+            return error_response("jargon_ids is required and must be a list", 400)
+        if action not in ["approve", "reject"]:
+            return error_response("action must be 'approve' or 'reject'", 400)
+
+        container = get_container()
+        jargon_service = JargonService(container)
+        result = await jargon_service.batch_review_jargon(
+            jargon_ids,
+            action,
+            meaning=meaning,
+        )
+
+        if result.get("success"):
+            return jsonify(result), 200
+        return error_response(result.get("error") or "批量审查失败", 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"批量审查黑话失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @jargon_bp.route("/jargon/<int:jargon_id>/toggle_global", methods=["POST"])
 @require_auth
 async def toggle_jargon_global(jargon_id: int):

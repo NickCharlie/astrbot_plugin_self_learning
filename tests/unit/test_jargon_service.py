@@ -143,6 +143,73 @@ async def test_review_jargon_updates_candidate_status():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_batch_review_jargon_reviews_each_candidate():
+    database_manager = SimpleNamespace(
+        get_jargon_by_id=AsyncMock(
+            side_effect=[
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "",
+                    "is_jargon": False,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "",
+                    "is_jargon": True,
+                    "is_complete": True,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 8,
+                    "content": "绷不住",
+                    "meaning": "",
+                    "is_jargon": False,
+                    "count": 2,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 8,
+                    "content": "绷不住",
+                    "meaning": "",
+                    "is_jargon": True,
+                    "is_complete": True,
+                    "count": 2,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+            ]
+        ),
+        update_jargon=AsyncMock(return_value=True),
+    )
+    service = JargonService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.batch_review_jargon([7, "8"], "approve")
+
+    assert result["success"] is True
+    assert result["details"]["success_count"] == 2
+    assert result["details"]["failed_count"] == 0
+    assert database_manager.update_jargon.await_args_list[0].args[0] == {
+        "id": 7,
+        "is_jargon": True,
+        "is_complete": True,
+    }
+    assert database_manager.update_jargon.await_args_list[1].args[0] == {
+        "id": 8,
+        "is_jargon": True,
+        "is_complete": True,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_get_jargon_list_can_filter_pending_candidates():
     database_manager = SimpleNamespace(
         get_jargon_count=AsyncMock(return_value=3),

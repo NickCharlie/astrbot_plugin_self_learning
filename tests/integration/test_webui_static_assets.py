@@ -89,6 +89,16 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert 'apiPost("style/action"' in script
     assert 'apiPost("persona/action"' in script
     assert 'apiPost("settings/action"' in script
+    assert 'data-batch-review-kind="persona"' in index
+    assert 'data-batch-review-kind="style"' in index
+    assert 'data-batch-review-kind="jargon"' in index
+    assert "function handleBatchReviewAction" in script
+    assert "batch_review_style" in script
+    assert "batch_review_jargon" in script
+    assert 'review_source !== "style_learning"' in script
+    assert "分类去向" in script
+    assert "style_learning_reviews" in script
+    assert "persona_memory_reviews" in script
     assert 'data-jargon-action="edit"' in script
     assert 'data-style-action="edit"' in script
     assert 'data-persona-action="edit"' in script
@@ -173,6 +183,31 @@ def test_dashboard_review_details_use_backend_structured_fields():
     assert "追加到 begin_dialogs" in text
     assert "item.definition || item.meaning || item.review_detail" in text
     assert "renderContextExamples(item)" in text
+
+
+def test_dashboard_exposes_batch_review_actions():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    embedded_index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+
+    for action in [
+        "persona-batch-approve",
+        "persona-batch-reject",
+        "style-batch-approve",
+        "style-batch-reject",
+        "jargon-batch-approve",
+        "jargon-batch-reject",
+    ]:
+        assert f'data-dashboard-action="{action}"' in text
+
+    assert "function currentDashboardReviewIds(kind)" in text
+    assert "function batchReviewDashboardQueue(kind, action)" in text
+    assert "/api/persona_updates/batch_review" in text
+    assert "/api/style_learning/reviews/batch_review" in text
+    assert "/api/jargon/batch_review" in text
+    assert "review_source !== 'style_learning'" in text
+    assert 'data-batch-review-kind="persona"' in embedded_index
+    assert 'data-batch-review-kind="style"' in embedded_index
+    assert 'data-batch-review-kind="jargon"' in embedded_index
 
 
 def test_dashboard_review_deletes_use_inline_confirmation():

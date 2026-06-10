@@ -99,3 +99,32 @@ async def test_jargon_list_search_respects_pending_filter(client):
     assert response.status_code == 200
     data = await response.get_json()
     assert [item["term"] for item in data["jargon_list"]] == ["待审"]
+
+
+@pytest.mark.asyncio
+async def test_jargon_batch_review_route_calls_service(client, monkeypatch):
+    calls = []
+
+    class _FakeJargonService:
+        def __init__(self, container):
+            self.container = container
+
+        async def batch_review_jargon(self, jargon_ids, action, meaning=None):
+            calls.append((jargon_ids, action, meaning))
+            return {
+                "success": True,
+                "message": "批量审查完成",
+                "details": {"success_count": len(jargon_ids), "failed_count": 0},
+            }
+
+    monkeypatch.setattr(jargon_module, "JargonService", _FakeJargonService)
+
+    response = await client.post(
+        "/api/jargon/batch_review",
+        json={"jargon_ids": [7, 8], "action": "reject", "meaning": "ignored"},
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert calls == [([7, 8], "reject", "ignored")]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from quart import Quart
@@ -44,6 +45,40 @@ async def test_learning_content_route_returns_all_buckets(client):
     assert data["analysis"] == []
     assert data["features"] == []
     assert data["history"] == []
+
+
+@pytest.mark.asyncio
+async def test_style_learning_batch_review_route_calls_service(client, monkeypatch):
+    calls = []
+
+    class _FakeLearningService:
+        def __init__(self, container):
+            self.container = container
+
+        async def batch_review_style_learning_reviews(self, review_ids, action, comment=""):
+            calls.append((review_ids, action, comment))
+            return {
+                "success": True,
+                "message": "批量审查完成",
+                "details": {"success_count": len(review_ids), "failed_count": 0},
+            }
+
+    monkeypatch.setattr(
+        learning_module,
+        "get_container",
+        lambda: SimpleNamespace(database_manager=SimpleNamespace()),
+    )
+    monkeypatch.setattr(learning_module, "LearningService", _FakeLearningService)
+
+    response = await client.post(
+        "/api/style_learning/reviews/batch_review",
+        json={"review_ids": [1, 2], "action": "approve", "comment": "batch"},
+    )
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert calls == [([1, 2], "approve", "batch")]
 
 
 @pytest.mark.asyncio

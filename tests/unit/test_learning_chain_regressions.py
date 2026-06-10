@@ -1188,6 +1188,44 @@ async def test_learning_service_style_review_uses_unified_persona_review_path(
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_learning_service_batch_style_reviews_use_unified_persona_review_path(
+    monkeypatch,
+):
+    calls = []
+
+    class _FakePersonaReviewService:
+        def __init__(self, container):
+            self.container = container
+
+        async def review_persona_update(self, update_id, action, comment=""):
+            calls.append((update_id, action, comment))
+            return True, "ok"
+
+    monkeypatch.setattr(
+        "self_learning_EterU.webui.services.learning_service.PersonaReviewService",
+        _FakePersonaReviewService,
+    )
+
+    service = LearningService(
+        SimpleNamespace(
+            database_manager=SimpleNamespace(),
+            persona_updater=SimpleNamespace(),
+        )
+    )
+
+    result = await service.batch_review_style_learning_reviews([1, "2"], "approve", "batch")
+
+    assert result["success"] is True
+    assert result["details"]["success_count"] == 2
+    assert result["details"]["failed_count"] == 0
+    assert calls == [
+        ("style_1", "approve", "batch"),
+        ("style_2", "approve", "batch"),
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_learning_service_style_review_exposes_detail_fields():
     database_manager = SimpleNamespace(
         get_pending_style_reviews=AsyncMock(

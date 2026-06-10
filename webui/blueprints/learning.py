@@ -149,6 +149,40 @@ async def reject_style_learning_review(review_id: int):
         return error_response(str(e), 500)
 
 
+@learning_bp.route("/style_learning/reviews/batch_review", methods=["POST"])
+@require_auth
+async def batch_review_style_learning_reviews():
+    """批量批准或拒绝对话风格学习审查"""
+    try:
+        data = await request.get_json() or {}
+        review_ids = data.get("review_ids") or data.get("ids") or []
+        action = data.get("action")
+        comment = data.get("comment", "")
+
+        if not review_ids or not isinstance(review_ids, list):
+            return error_response("review_ids is required and must be a list", 400)
+        if action not in ["approve", "reject"]:
+            return error_response("action must be 'approve' or 'reject'", 400)
+
+        container = get_container()
+        learning_service = LearningService(container)
+        result = await learning_service.batch_review_style_learning_reviews(
+            review_ids,
+            action,
+            comment,
+        )
+
+        if result.get("success"):
+            return jsonify(result), 200
+        return error_response(result.get("error") or "批量审查失败", 500)
+
+    except ValueError as e:
+        return error_response(str(e), 500)
+    except Exception as e:
+        logger.error(f"批量审查风格学习失败: {e}", exc_info=True)
+        return error_response(str(e), 500)
+
+
 @learning_bp.route("/style_learning/patterns", methods=["GET"])
 @require_auth
 async def get_style_learning_patterns():
