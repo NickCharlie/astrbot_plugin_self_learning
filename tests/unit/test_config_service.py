@@ -280,6 +280,116 @@ class TestConfigServiceSchema:
         assert schema["provider_options_by_type"]["embedding"][0]["provider_type_label"] == "Embedding"
         assert schema["provider_options_by_type"]["rerank"][0]["provider_type_label"] == "Reranker"
 
+    @pytest.mark.asyncio
+    async def test_provider_schema_replaces_stale_config_model_with_live_models(self, tmp_path, monkeypatch):
+        plugin_config = PluginConfig.create_default()
+        plugin_config.data_dir = str(tmp_path / "self_learning_data")
+
+        context = Mock()
+        context.get_all_providers = Mock(return_value=[])
+        context.get_all_embedding_providers = Mock(return_value=[])
+        context.provider_manager = SimpleNamespace(
+            provider_insts=[],
+            embedding_provider_insts=[],
+            rerank_provider_insts=[],
+            inst_map={},
+            provider_sources_config=[
+                {
+                    "id": "openai-source",
+                    "provider_type": "chat_completion",
+                    "api_base": "https://models.example.test/v1/chat/completions",
+                    "key": ["sk-test"],
+                },
+            ],
+            providers_config=[
+                {
+                    "id": "chat-config",
+                    "provider_source_id": "openai-source",
+                    "model": "deleted-model",
+                },
+            ],
+        )
+
+        service_factory = Mock()
+        service_factory.context = context
+        factory_manager = Mock()
+        factory_manager.get_service_factory = Mock(return_value=service_factory)
+
+        container = Mock()
+        container.plugin_config = plugin_config
+        container.factory_manager = factory_manager
+
+        calls = []
+
+        async def fake_fetch(self, models_url, api_key="", custom_headers=None):
+            calls.append((models_url, api_key, custom_headers))
+            return ["live-model-b", "live-model-a"]
+
+        monkeypatch.setattr(ConfigService, "_fetch_models_from_endpoint", fake_fetch)
+
+        schema = await ConfigService(container).get_config_schema()
+        option = schema["provider_options_by_type"]["chat_completion"][0]
+        groups = {group["key"]: group for group in schema["groups"]}
+        model_fields = {field["key"]: field for field in groups["Model_Configuration"]["fields"]}
+
+        assert calls == [
+            ("https://models.example.test/v1/models", "sk-test", None),
+        ]
+        assert option["value"] == "chat-config"
+        assert option["model_source"] == "live"
+        assert option["available_models"] == ["live-model-a", "live-model-b"]
+        assert option["configured_model_available"] is False
+        assert "deleted-model" not in option["label"]
+        assert "live-model-a" in option["label"]
+        assert model_fields["filter_provider_id"]["options"][0] == option
+
+    @pytest.mark.asyncio
+    async def test_provider_schema_falls_back_to_config_model_when_live_models_unavailable(self, tmp_path, monkeypatch):
+        plugin_config = PluginConfig.create_default()
+        plugin_config.data_dir = str(tmp_path / "self_learning_data")
+
+        context = Mock()
+        context.get_all_providers = Mock(return_value=[])
+        context.get_all_embedding_providers = Mock(return_value=[])
+        context.provider_manager = SimpleNamespace(
+            provider_insts=[],
+            embedding_provider_insts=[],
+            rerank_provider_insts=[],
+            inst_map={},
+            provider_sources_config=[],
+            providers_config=[
+                {
+                    "id": "chat-config",
+                    "provider_type": "chat_completion",
+                    "api_base": "https://models.example.test/v1",
+                    "key": ["sk-test"],
+                    "model": "configured-model",
+                },
+            ],
+        )
+
+        service_factory = Mock()
+        service_factory.context = context
+        factory_manager = Mock()
+        factory_manager.get_service_factory = Mock(return_value=service_factory)
+
+        container = Mock()
+        container.plugin_config = plugin_config
+        container.factory_manager = factory_manager
+
+        async def fake_fetch(self, models_url, api_key="", custom_headers=None):
+            return []
+
+        monkeypatch.setattr(ConfigService, "_fetch_models_from_endpoint", fake_fetch)
+
+        schema = await ConfigService(container).get_config_schema()
+        option = schema["provider_options_by_type"]["chat_completion"][0]
+
+        assert option["value"] == "chat-config"
+        assert option["model_source"] == "configured"
+        assert "configured-model" in option["label"]
+        assert "available_models" not in option
+
     def test_provider_option_builders_share_metadata_shape(self):
         provider_meta = SimpleNamespace(
             id="embed-live",
@@ -304,6 +414,38 @@ class TestConfigServiceSchema:
         assert live_option["provider_type_label"] == "Embedding"
         assert config_option["provider_type"] == "embedding"
         assert config_option["provider_type_label"] == "Embedding"
+
+    def test_generic_provider_field_uses_combined_prefetched_options(self, tmp_path):
+        service = ConfigService(build_container(tmp_path))
+        provider_options_by_type = {
+            "chat_completion": [
+                ConfigService._build_provider_option("chat-a", "gpt-test", "chat_completion"),
+            ],
+            "embedding": [
+                ConfigService._build_provider_option("embed-a", "embed-test", "embedding"),
+            ],
+            "rerank": [
+                ConfigService._build_provider_option("rerank-a", "rerank-test", "rerank"),
+            ],
+        }
+
+        field = service._build_field_spec(
+            "custom_provider_id",
+            {
+                "description": "自定义 Provider",
+                "type": "string",
+            },
+            {},
+            provider_options_by_type,
+        )
+
+        assert field["widget"] == "provider"
+        assert field["provider_type"] == ""
+        assert {option["value"] for option in field["options"]} == {
+            "chat-a",
+            "embed-a",
+            "rerank-a",
+        }
 
     @pytest.mark.asyncio
     async def test_config_schema_covers_all_plugin_config_fields(self, tmp_path):
