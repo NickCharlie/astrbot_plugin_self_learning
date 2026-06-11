@@ -19,9 +19,11 @@ from .auth_service import (
 )
 
 try:
+    from ...config import get_config_cost_warnings
     from ...statics.messages import FileNames
     from ...utils.logging_utils import apply_astrbot_log_level
 except ImportError:
+    from config import get_config_cost_warnings
     from statics.messages import FileNames
     from utils.logging_utils import apply_astrbot_log_level
 
@@ -1045,6 +1047,7 @@ class ConfigService:
         return {
             "config": self.plugin_config.to_dict(),
             "groups": self._build_group_schema(merged_schema),
+            "warnings": get_config_cost_warnings(self.plugin_config),
             "provider_options": self._provider_options(),
             "provider_options_by_type": {
                 "chat_completion": self._provider_options("chat_completion"),

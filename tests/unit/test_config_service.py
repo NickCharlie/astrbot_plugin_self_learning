@@ -204,6 +204,24 @@ class TestConfigServiceSchema:
         assert schema["provider_options_by_type"]["rerank"][0]["value"] == "rerank-a"
 
     @pytest.mark.asyncio
+    async def test_config_schema_exposes_lightrag_livingmemory_cost_warning(self, tmp_path):
+        container = build_container(tmp_path)
+        container.plugin_config.knowledge_engine = "lightrag"
+        container.plugin_config.lightrag_query_mode = "hybrid"
+        container.plugin_config.delegate_memory_to_livingmemory = True
+
+        schema = await ConfigService(container).get_config_schema()
+        groups = {group["key"]: group for group in schema["groups"]}
+        v2_fields = {field["key"]: field for field in groups["V2_Architecture_Settings"]["fields"]}
+        integration_fields = {field["key"]: field for field in groups["Integration_Settings"]["fields"]}
+
+        assert schema["warnings"]
+        assert "LivingMemory" in schema["warnings"][0]
+        assert "token" in schema["warnings"][0]
+        assert "LivingMemory" in v2_fields["lightrag_query_mode"]["hint"]
+        assert "LightRAG" in integration_fields["delegate_memory_to_livingmemory"]["hint"]
+
+    @pytest.mark.asyncio
     async def test_provider_schema_uses_astrbot_provider_config_classification(self, tmp_path):
         plugin_config = PluginConfig.create_default()
         plugin_config.data_dir = str(tmp_path / "self_learning_data")
@@ -490,6 +508,29 @@ class TestConfigServiceUpdate:
         assert saved["postgresql_schema"] == "bot_space"
         assert saved["relevance_threshold"] == 0.75
         assert saved["log_level"] == "debug"
+
+    @pytest.mark.asyncio
+    async def test_update_config_returns_cost_warning_for_high_cost_combo(self, tmp_path):
+        container = build_container(tmp_path)
+        service = ConfigService(container)
+
+        success, message, updated = await service.update_config(
+            {
+                "V2_Architecture_Settings": {
+                    "knowledge_engine": "lightrag",
+                    "lightrag_query_mode": "hybrid",
+                },
+                "Integration_Settings": {
+                    "delegate_memory_to_livingmemory": True,
+                },
+            }
+        )
+
+        assert success is True
+        assert updated["knowledge_engine"] == "lightrag"
+        assert updated["lightrag_query_mode"] == "hybrid"
+        assert "LivingMemory" in message
+        assert "token" in message
 
     @pytest.mark.asyncio
     async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):

@@ -504,6 +504,41 @@ button.is-busy {
   margin-bottom: 14px;
 }
 
+.settings-warning-list {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.settings-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 8px;
+  color: #92400e;
+  background: rgba(217, 119, 6, 0.10);
+}
+
+.settings-warning strong {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.settings-warning span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+html[data-theme="dark"] .settings-warning {
+  color: #fbbf24;
+  background: rgba(217, 119, 6, 0.16);
+}
+
 .panel {
   padding: 16px;
 }

@@ -669,12 +669,12 @@
   "Integration_Settings": {
     "description": "功能融合",
     "type": "object",
-    "hint": "与专门插件协同：记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。本插件保留学习、审查、黑话、表达方式和上下文注入能力。",
+    "hint": "与专门插件协同：记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。本插件保留学习、审查、黑话、表达方式和上下文注入能力。若同时使用 LightRAG hybrid/mix 查询与 LivingMemory 委托，可能显著增加 LLM 调用与 token 消耗。",
     "items": {
       "delegate_memory_to_livingmemory": {
         "description": "记忆委托给 LivingMemory",
         "type": "bool",
-        "hint": "开启后，检测到 LivingMemory 插件已加载时，本插件不再写入或注入本地长期记忆，避免双重记忆系统互相污染。",
+        "hint": "开启后，检测到 LivingMemory 插件已加载时，本插件不再写入或注入本地长期记忆，避免双重记忆系统互相污染。若 V2 知识引擎使用 LightRAG 且查询模式为 hybrid/mix，建议评估调用量与 token 成本。",
         "default": true
       },
       "livingmemory_plugin_name": {
@@ -755,7 +755,7 @@
       "lightrag_query_mode": {
         "description": "LightRAG 查询模式",
         "type": "string",
-        "hint": "LightRAG检索模式。local=仅实体邻域检索（低延迟），hybrid=实体邻域+全局社区聚合（高质量但慢约4-5秒），naive=纯向量检索，global=仅全局社区，mix=混合模式",
+        "hint": "LightRAG检索模式。local=仅实体邻域检索（低延迟），hybrid=实体邻域+全局社区聚合（高质量但慢约4-5秒），naive=纯向量检索，global=仅全局社区，mix=混合模式。若同时委托 LivingMemory，hybrid/mix 会叠加记忆检索与融合上下文，可能显著增加 LLM 调用与 token 消耗，优先建议 local/naive。",
         "default": "local"
       },
       "memory_engine": {

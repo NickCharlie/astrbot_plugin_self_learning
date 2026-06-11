@@ -273,6 +273,22 @@ def test_dashboard_exposes_companion_plugin_api_hub():
     assert "GET /api/data/overview" in service
 
 
+def test_dashboard_exposes_config_cost_warnings():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    app = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+    service = (PLUGIN_ROOT / "webui" / "services" / "config_service.py").read_text(encoding="utf-8")
+
+    assert "configWarnings" in text
+    assert "settings-warning-list" in text
+    assert "成本提醒" in text
+    assert "settings-warnings" in index
+    assert "integration-warnings" in index
+    assert "warningListHtml" in app
+    assert "schema.warnings" in app
+    assert "get_config_cost_warnings" in service
+
+
 def test_dashboard_exposes_tiered_dependency_install_controls():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

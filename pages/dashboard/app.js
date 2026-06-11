@@ -316,6 +316,20 @@
     }, 3200);
   }
 
+  function warningListHtml(warnings) {
+    const items = Array.isArray(warnings)
+      ? warnings
+          .map((message) => String(message).trim())
+          .filter(Boolean)
+      : [];
+    return items.map((message) => `
+      <div class="settings-warning">
+        <strong>成本提醒</strong>
+        <span>${escapeHtml(message)}</span>
+      </div>
+    `).join("");
+  }
+
   function showErrors(errors) {
     const panel = $("error-panel");
     if (!panel) return;
@@ -947,6 +961,7 @@
 
   function renderIntegrations(data) {
     setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty("暂无融合状态"));
+    setHtml("integration-warnings", warningListHtml(data.warnings || []));
     const settings = data.settings || {};
     setHtml("integration-settings", Object.entries(settings).map(([key, value]) => `
       <div class="table-row">
@@ -1072,6 +1087,7 @@
 
   function renderSettings(data) {
     const schema = data.schema || {};
+    setHtml("settings-warnings", warningListHtml(schema.warnings || data.warnings || []));
     const groups = schema.groups || [];
     if (!state.settingsGroup && groups.length) state.settingsGroup = groups[0].key;
     setHtml("settings-groups", groups.map((group) => `
