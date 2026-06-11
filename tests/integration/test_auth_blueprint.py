@@ -3,14 +3,23 @@ Integration tests for Authentication Blueprint
 
 Tests the auth blueprint routes with mock dependencies
 """
+from types import SimpleNamespace
+
 import pytest
 from quart import Quart
 from webui.blueprints.auth import auth_bp
+from webui.dependencies import get_container
+from webui.services.auth_service import DEFAULT_WEBUI_PASSWORD
 
 
 @pytest.fixture
 async def app(mock_container):
     """Create test Quart application"""
+    container = get_container()
+    previous_plugin_config = container.plugin_config
+    mock_container.plugin_config.enable_webui_password = False
+    container.plugin_config = mock_container.plugin_config
+
     app = Quart(__name__)
     app.config['TESTING'] = True
     app.secret_key = 'test-secret-key'
@@ -19,6 +28,8 @@ async def app(mock_container):
     app.register_blueprint(auth_bp)
 
     yield app
+
+    container.plugin_config = previous_plugin_config
 
 
 @pytest.fixture
@@ -143,3 +154,71 @@ class TestAuthMiddleware:
         response = await client.post('/api/logout')
 
         assert response.status_code == 200
+
+
+class TestPasswordEnabledAuthBlueprint:
+    """Integration tests for optional password mode."""
+
+    @pytest.mark.asyncio
+    async def test_login_page_renders_when_password_enabled(self, client, tmp_path):
+        get_container().plugin_config = SimpleNamespace(
+            enable_webui_password=True,
+            data_dir=str(tmp_path),
+        )
+
+        response = await client.get('/api/login')
+
+        assert response.status_code == 200
+        body = await response.get_data(as_text=True)
+        assert "SELF LEARNING" in body
+        assert "登录密码" in body
+
+    @pytest.mark.asyncio
+    async def test_index_redirects_to_login_when_password_enabled(self, client, tmp_path):
+        get_container().plugin_config = SimpleNamespace(
+            enable_webui_password=True,
+            data_dir=str(tmp_path),
+        )
+
+        response = await client.get('/api/index')
+
+        assert response.status_code in [302, 303, 307]
+        assert response.headers["Location"].endswith("/api/login")
+
+    @pytest.mark.asyncio
+    async def test_login_post_checks_password_when_enabled(self, client, tmp_path):
+        get_container().plugin_config = SimpleNamespace(
+            enable_webui_password=True,
+            data_dir=str(tmp_path),
+        )
+
+        failed = await client.post('/api/login', json={'password': 'wrong_password'})
+        assert failed.status_code == 401
+
+        response = await client.post(
+            '/api/login',
+            json={'password': DEFAULT_WEBUI_PASSWORD},
+        )
+
+        assert response.status_code == 200
+        data = await response.get_json()
+        assert data['must_change'] is True
+        assert data['redirect'] == '/api/plugin_change_password'
+
+    @pytest.mark.asyncio
+    async def test_change_password_when_enabled(self, client, tmp_path):
+        get_container().plugin_config = SimpleNamespace(
+            enable_webui_password=True,
+            data_dir=str(tmp_path),
+        )
+        await client.post('/api/login', json={'password': DEFAULT_WEBUI_PASSWORD})
+
+        response = await client.post('/api/plugin_change_password', json={
+            'old_password': DEFAULT_WEBUI_PASSWORD,
+            'new_password': 'NewPass123!',
+        })
+
+        assert response.status_code == 200
+        data = await response.get_json()
+        assert data["success"] is True
+        assert data["redirect"] == "/api/index"

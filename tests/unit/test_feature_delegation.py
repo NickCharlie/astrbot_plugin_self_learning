@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -81,6 +81,40 @@ def test_feature_delegation_keeps_local_fallback_when_companion_missing_or_disab
     )
 
     assert delegation.should_delegate_memory() is False
+
+
+@pytest.mark.asyncio
+async def test_llm_hook_handle_returns_without_context_fetches_when_disabled():
+    diversity = SimpleNamespace(
+        build_diversity_prompt_injection=AsyncMock(return_value="diversity")
+    )
+    perf_tracker = Mock()
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(enable_llm_hooks=False),
+        diversity_manager=diversity,
+        social_context_injector=SimpleNamespace(
+            format_complete_context=AsyncMock(return_value="social")
+        ),
+        v2_integration=SimpleNamespace(
+            get_enhanced_context=AsyncMock(return_value={"knowledge_context": "k"})
+        ),
+        jargon_query_service=SimpleNamespace(
+            check_and_explain_jargon=AsyncMock(return_value="jargon")
+        ),
+        temporary_persona_updater=SimpleNamespace(session_updates={"group-a": ["u"]}),
+        perf_tracker=perf_tracker,
+        group_id_to_unified_origin={},
+        db_manager=SimpleNamespace(
+            get_approved_few_shots=AsyncMock(return_value=["few-shot"])
+        ),
+    )
+    req = SimpleNamespace(prompt="你好", system_prompt="", extra_user_content_parts=[])
+
+    await handler.handle(SimpleNamespace(), req)
+
+    diversity.build_diversity_prompt_injection.assert_not_awaited()
+    perf_tracker.record.assert_not_called()
+    assert req.extra_user_content_parts == []
 
 
 @pytest.mark.asyncio

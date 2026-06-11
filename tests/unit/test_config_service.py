@@ -157,6 +157,16 @@ class TestConfigServiceSchema:
 
         runtime_fields = {field["key"]: field for field in groups["Runtime_Internal_Settings"]["fields"]}
         assert runtime_fields["messages_db_path"]["editable"] is False
+        assert runtime_fields["enable_llm_hooks"]["widget"] == "toggle"
+        assert runtime_fields["enable_llm_hooks"]["value"] is False
+
+        basic_fields = {field["key"]: field for field in groups["Self_Learning_Basic"]["fields"]}
+        assert basic_fields["enable_webui_password"]["widget"] == "toggle"
+        assert basic_fields["enable_webui_password"]["value"] is False
+
+        maibot_fields = {field["key"]: field for field in groups["MaiBot_Enhancement"]["fields"]}
+        assert maibot_fields["enable_realtime_expression_learning"]["widget"] == "toggle"
+        assert maibot_fields["enable_realtime_expression_learning"]["value"] is False
 
         advanced_fields = {field["key"]: field for field in groups["Advanced_Settings"]["fields"]}
         assert advanced_fields["log_level"]["widget"] == "select"
@@ -342,6 +352,7 @@ class TestConfigServiceSchema:
                 "Self_Learning_Basic": {
                     "enable_realtime_learning": True,
                     "enable_realtime_llm_filter": True,
+                    "enable_webui_password": True,
                 },
                 "enable_realtime_learning": False,
                 "enable_realtime_llm_filter": False,
@@ -457,6 +468,7 @@ class TestConfigServiceUpdate:
                 "Self_Learning_Basic": {
                     "enable_realtime_learning": True,
                     "enable_realtime_llm_filter": True,
+                    "enable_webui_password": True,
                 },
                 "Target_Settings": {
                     "target_qq_list": ["10001", "group_20002"],
@@ -465,6 +477,10 @@ class TestConfigServiceUpdate:
                 "Learning_Parameters": {
                     "learning_interval_hours": 2,
                     "max_messages_per_batch": 25,
+                    "expression_learning_min_interval_seconds": 120,
+                },
+                "Runtime_Internal_Settings": {
+                    "enable_llm_hooks": True,
                 },
                 "Style_Analysis": {
                     "style_update_threshold": 0.72,
@@ -482,9 +498,13 @@ class TestConfigServiceUpdate:
         assert updated["learning_interval_hours"] == 2
         assert updated["enable_realtime_learning"] is True
         assert updated["enable_realtime_llm_filter"] is True
+        assert updated["enable_webui_password"] is True
+        assert updated["enable_llm_hooks"] is True
+        assert updated["expression_learning_min_interval_seconds"] == 120
 
         assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_learning"] is True
         assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_llm_filter"] is True
+        assert container.astrbot_config["Self_Learning_Basic"]["enable_webui_password"] is True
         assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
             "10001",
             "group_20002",
@@ -492,6 +512,8 @@ class TestConfigServiceUpdate:
         assert container.astrbot_config["Target_Settings"]["target_blacklist"] == ["blocked"]
         assert container.astrbot_config["Learning_Parameters"]["learning_interval_hours"] == 2
         assert container.astrbot_config["Learning_Parameters"]["max_messages_per_batch"] == 25
+        assert container.astrbot_config["Learning_Parameters"]["expression_learning_min_interval_seconds"] == 120
+        assert container.astrbot_config["Runtime_Internal_Settings"]["enable_llm_hooks"] is True
         assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
         assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
         assert "enable_realtime_learning" not in container.astrbot_config

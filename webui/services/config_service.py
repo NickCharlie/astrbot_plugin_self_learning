@@ -55,6 +55,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                 "hint": "学习并维护群聊中的表达模式和常见句式",
                 "default": True,
             },
+            "enable_realtime_expression_learning": {
+                "description": "实时表达方式学习",
+                "type": "bool",
+                "hint": "实时学习关闭时，是否仍按消息增量触发表达方式学习。默认关闭以避免旁听群聊时产生高频 LLM 调用和审查记录",
+                "default": False,
+            },
             "enable_memory_graph": {
                 "description": "启用记忆图系统",
                 "type": "bool",
@@ -142,6 +148,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                     {"value": "system_prompt", "label": "system_prompt"},
                     {"value": "prompt", "label": "prompt"},
                 ],
+            },
+            "enable_llm_hooks": {
+                "description": "启用 LLM Hook 上下文注入",
+                "type": "bool",
+                "hint": "开启后每次回复前会并行拉取社交、记忆、黑话、few-shot 等上下文；默认关闭以避免高频模型调用",
+                "default": False,
             },
             "use_sqlalchemy": {
                 "description": "强制使用 SQLAlchemy ORM",
