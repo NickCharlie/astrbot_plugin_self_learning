@@ -6,7 +6,7 @@
 
 让 AstrBot 在群聊中持续采集、学习、审查并注入上下文，使 Bot 逐步具备表达风格、群组黑话、社交关系、长期记忆和人格演化能力。
 
-[![Version](https://img.shields.io/badge/version-3.2.7-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-3.2.8-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
