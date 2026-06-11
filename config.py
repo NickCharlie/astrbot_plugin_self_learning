@@ -20,6 +20,16 @@ DEFAULT_DB_TYPE = "postgresql"
 SUPPORTED_DB_TYPES = {"sqlite", "mysql", "postgresql"}
 POSTGRESQL_DB_TYPE_ALIASES = {"postgres", "pg", "pgsql"}
 HIGH_COST_LIGHTRAG_QUERY_MODES = {"hybrid", "mix"}
+CACHE_FRIENDLY_LLM_HOOK_TARGET = "extra_user_content_parts"
+LEGACY_LLM_HOOK_TARGETS = {"system_prompt", "prompt"}
+LLM_HOOK_TARGET_ALIASES = {
+    "extra_user_content_parts": CACHE_FRIENDLY_LLM_HOOK_TARGET,
+    "extra_user_content": CACHE_FRIENDLY_LLM_HOOK_TARGET,
+    "user_content": CACHE_FRIENDLY_LLM_HOOK_TARGET,
+    "user_message_tail": CACHE_FRIENDLY_LLM_HOOK_TARGET,
+    "system_prompt": "system_prompt",
+    "prompt": "prompt",
+}
 LIGHTRAG_LIVINGMEMORY_COST_WARNING = (
     "当前配置选择 LightRAG 的 hybrid/mix 查询，并允许记忆委托给 LivingMemory；"
     "当 LivingMemory 插件已加载时，会叠加 LightRAG 全局/混合检索与 LivingMemory 记忆检索，"
@@ -283,11 +293,10 @@ class PluginConfig(BaseModel):
     include_mood_info: bool = True # 注入Bot情绪信息
     context_injection_position: str = "start" # 上下文注入位置: "start" 或 "end"
 
-    # LLM Hook 注入位置设置（v1.1.1新增）
-    # 控制注入内容添加到 req.system_prompt 还是 req.prompt
-    # - "system_prompt": 注入到系统提示（推荐，不会被保存到对话历史）
-    # - "prompt": 注入到用户消息（旧版行为，会导致对话历史膨胀）
-    llm_hook_injection_target: str = "system_prompt" # 可选值: "system_prompt" 或 "prompt"
+    # LLM Hook 注入位置设置
+    # 动态上下文优先注入 req.extra_user_content_parts，避免改动稳定 system_prompt
+    # 以提高 provider prefix cache 命中率；旧版 AstrBot 不支持时才按 legacy 目标回退。
+    llm_hook_injection_target: str = CACHE_FRIENDLY_LLM_HOOK_TARGET
 
     # 目标驱动对话配置
     enable_goal_driven_chat: bool = False # 启用目标驱动对话
@@ -331,6 +340,19 @@ class PluginConfig(BaseModel):
     @classmethod
     def _normalize_target_blacklist(cls, value) -> List[str]:
         return normalize_identifier_list(value)
+
+    @field_validator("llm_hook_injection_target", mode="before")
+    @classmethod
+    def _normalize_llm_hook_injection_target(cls, value) -> str:
+        target = str(value or CACHE_FRIENDLY_LLM_HOOK_TARGET).strip()
+        normalized = LLM_HOOK_TARGET_ALIASES.get(target)
+        if normalized:
+            return normalized
+        logger.warning(
+            f"未知 LLM Hook 注入目标 {value!r}，"
+            "已回退到 cache-friendly extra_user_content_parts"
+        )
+        return CACHE_FRIENDLY_LLM_HOOK_TARGET
 
     def model_post_init(self, __context) -> None:
         """Normalize and apply the configured AstrBot log level."""
@@ -549,7 +571,7 @@ class PluginConfig(BaseModel):
             llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
             llm_hook_injection_target=runtime_internal_settings.get(
                 'llm_hook_injection_target',
-                'system_prompt',
+                CACHE_FRIENDLY_LLM_HOOK_TARGET,
             ),
 
             # 社交上下文注入设置

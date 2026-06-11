@@ -70,7 +70,7 @@ flowchart TD
     M["Bot 回复发送后"] --> N["on_bot_message_sent"]
     N --> O["BotMessage"]
     P["下一次 LLM 请求"] --> Q["LLMHookHandler.handle"]
-    Q --> R["extra_user_content_parts 或 system_prompt 注入"]
+    Q --> R["临时 extra_user_content_parts 注入，旧版 fallback"]
     FD --> S["LivingMemory: 长期记忆委托"]
     FD --> T["Group Chat Plus: 回复委托"]
 ```
