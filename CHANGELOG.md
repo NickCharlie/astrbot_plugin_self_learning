@@ -2,6 +2,18 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.3.0] - 2026-06-11
+
+### 性能优化
+
+- LLM Hook 动态上下文默认注入 AstrBot `extra_user_content_parts`，并在框架支持时标记为临时 `TextPart`，避免写入对话历史。
+- 保持 `system_prompt` 稳定，减少每轮动态上下文对 provider prefix cache 命中的破坏。
+- 保留旧版 AstrBot 的 `system_prompt` / `prompt` fallback，并更新 WebUI 设置提示与文档说明。
+
+### 版本
+
+- 将插件发布版本号提升至 `3.3.0`。
+
 ## [3.2.9] - 2026-06-11
 
 ### 配置提醒
