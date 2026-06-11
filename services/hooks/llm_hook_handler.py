@@ -14,6 +14,11 @@ from astrbot.api.event import AstrMessageEvent
 
 from ..monitoring.instrumentation import monitored
 try:
+    from ...config import CACHE_FRIENDLY_LLM_HOOK_TARGET, LEGACY_LLM_HOOK_TARGETS
+except ImportError:
+    from config import CACHE_FRIENDLY_LLM_HOOK_TARGET, LEGACY_LLM_HOOK_TARGETS
+
+try:
     from astrbot.core.agent.message import TextPart
 except ImportError:
     TextPart = None
@@ -407,32 +412,24 @@ class LLMHookHandler:
         self, req: Any, injections: List[str], hook_start: float
     ) -> None:
         injection_text = "\n\n".join(injections)
+        context_text = f"<context>\n{injection_text}\n</context>"
+        target = getattr(
+            self._config,
+            "llm_hook_injection_target",
+            CACHE_FRIENDLY_LLM_HOOK_TARGET,
+        )
 
         # Use AstrBot's extra_user_content_parts API to inject context.
         # This keeps system_prompt stable for LLM API prefix caching,
         # while appending dynamic context as extra content blocks after
         # the user message.
-        if hasattr(req, "extra_user_content_parts") and TextPart is not None:
-            req.extra_user_content_parts.append(
-                TextPart(text=f"<context>\n{injection_text}\n</context>")
-            )
+        if self._append_extra_user_content(req, context_text):
             logger.debug(
                 f"[LLM Hook] extra_user_content_parts 注入完成 - "
-                f"新增: {len(injection_text)} chars"
+                f"新增: {len(injection_text)} chars, target={target}"
             )
         else:
-            # Fallback for older AstrBot versions without extra_user_content_parts
-            if not req.system_prompt:
-                req.system_prompt = ""
-            req.system_prompt += "\n\n" + injection_text
-            logger.debug(
-                f"[LLM Hook] system_prompt fallback 注入完成 - "
-                f"新增: {len(injection_text)} chars"
-            )
-            logger.warning(
-                "[LLM Hook] 当前 AstrBot 版本不支持 extra_user_content_parts，"
-                "回退到 system_prompt 注入（会影响缓存命中率）"
-            )
+            self._legacy_inject(req, injection_text, target)
 
         current_style = self._diversity_manager.get_current_style()
         current_pattern = self._diversity_manager.get_current_pattern()
@@ -444,3 +441,54 @@ class LLMHookHandler:
             f"耗时: {time.time() - hook_start:.3f}s"
         )
         logger.debug(f"[LLM Hook] 注入内容预览: {injection_text[:200]}...")
+
+    @staticmethod
+    def _append_extra_user_content(req: Any, context_text: str) -> bool:
+        """Append dynamic context as a temporary AstrBot content part when possible."""
+        content_parts = getattr(req, "extra_user_content_parts", None)
+        if (
+            TextPart is None
+            or content_parts is None
+            or not hasattr(content_parts, "append")
+        ):
+            return False
+
+        part = TextPart(text=context_text)
+        mark_as_temp = getattr(part, "mark_as_temp", None)
+        if callable(mark_as_temp):
+            mark_as_temp()
+        content_parts.append(part)
+        return True
+
+    @staticmethod
+    def _legacy_inject(req: Any, injection_text: str, target: str) -> None:
+        """Fallback for old AstrBot versions without extra_user_content_parts."""
+        fallback_target = target if target in LEGACY_LLM_HOOK_TARGETS else "system_prompt"
+
+        if fallback_target == "prompt":
+            prompt = getattr(req, "prompt", "") or ""
+            req.prompt = f"{prompt}\n\n{injection_text}" if prompt else injection_text
+            logger.debug(
+                f"[LLM Hook] prompt fallback 注入完成 - "
+                f"新增: {len(injection_text)} chars"
+            )
+            logger.warning(
+                "[LLM Hook] 当前 AstrBot 版本不支持 extra_user_content_parts，"
+                "回退到 prompt 注入（可能膨胀对话历史并降低缓存命中率）"
+            )
+            return
+
+        system_prompt = getattr(req, "system_prompt", "") or ""
+        req.system_prompt = (
+            f"{system_prompt}\n\n{injection_text}"
+            if system_prompt
+            else injection_text
+        )
+        logger.debug(
+            f"[LLM Hook] system_prompt fallback 注入完成 - "
+            f"新增: {len(injection_text)} chars"
+        )
+        logger.warning(
+            "[LLM Hook] 当前 AstrBot 版本不支持 extra_user_content_parts，"
+            "回退到 system_prompt 注入（会影响缓存命中率）"
+        )

@@ -159,6 +159,10 @@ class TestConfigServiceSchema:
         assert runtime_fields["messages_db_path"]["editable"] is False
         assert runtime_fields["enable_llm_hooks"]["widget"] == "toggle"
         assert runtime_fields["enable_llm_hooks"]["value"] is False
+        hook_target = runtime_fields["llm_hook_injection_target"]
+        assert hook_target["value"] == "extra_user_content_parts"
+        assert hook_target["options"][0]["value"] == "extra_user_content_parts"
+        assert "prefix cache" in hook_target["hint"]
 
         basic_fields = {field["key"]: field for field in groups["Self_Learning_Basic"]["fields"]}
         assert basic_fields["enable_webui_password"]["widget"] == "toggle"

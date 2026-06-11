@@ -121,8 +121,8 @@ AstrBot 完成 handler 绑定后调用 `initialize()`，它委托给 `PluginLife
 
 1. 委托 `LLMHookHandler.handle(event, req)`。
 2. 并行拉取社交上下文、V2 上下文、多样性提示、黑话解释、已批准 few-shot。
-3. 优先写入 `req.extra_user_content_parts`。
-4. 旧版 AstrBot 缺少 `extra_user_content_parts` 时回退追加 `req.system_prompt`。
+3. 优先写入 `req.extra_user_content_parts`，并在框架支持时标记为临时 `TextPart`。
+4. 旧版 AstrBot 缺少 `extra_user_content_parts` 时才回退追加 `req.system_prompt` 或 `req.prompt`。
 
 ### `on_bot_message_sent`
 

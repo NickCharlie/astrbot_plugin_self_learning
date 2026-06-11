@@ -45,6 +45,7 @@ class TestPluginConfigDefaults:
         assert config.web_interface_port == 7833
         assert config.web_interface_host == "0.0.0.0"
         assert config.log_level == "info"
+        assert config.llm_hook_injection_target == "extra_user_content_parts"
 
     def test_create_default_classmethod(self):
         """Test the create_default classmethod."""
@@ -349,6 +350,13 @@ class TestPluginConfigFromDict:
         assert config.target_qq_list == []
         assert config.learning_interval_hours == 6
         assert config.db_type == 'postgresql'
+        assert config.llm_hook_injection_target == 'extra_user_content_parts'
+
+    def test_llm_hook_injection_target_aliases_normalize_to_cache_friendly_default(self):
+        """Short aliases should still resolve to the cache-friendly AstrBot API."""
+        config = PluginConfig(llm_hook_injection_target="user_message_tail")
+
+        assert config.llm_hook_injection_target == "extra_user_content_parts"
 
     def test_target_list_blank_values_keep_full_learning_default(self):
         """Blank settings-page rows should not disable full learning."""

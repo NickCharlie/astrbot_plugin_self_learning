@@ -13,6 +13,7 @@ if str(PARENT) not in sys.path:
 from self_learning_EterU.config import PluginConfig
 from self_learning_EterU.core.feature_delegation import FeatureDelegation
 from self_learning_EterU.core.factory import ServiceFactory
+from self_learning_EterU.services.hooks import llm_hook_handler as llm_hook_module
 from self_learning_EterU.services.hooks.llm_hook_handler import LLMHookHandler
 
 
@@ -115,6 +116,70 @@ async def test_llm_hook_handle_returns_without_context_fetches_when_disabled():
     diversity.build_diversity_prompt_injection.assert_not_awaited()
     perf_tracker.record.assert_not_called()
     assert req.extra_user_content_parts == []
+
+
+def test_llm_hook_injects_temp_extra_user_content_without_touching_system_prompt(monkeypatch):
+    class FakeTextPart:
+        def __init__(self, text):
+            self.text = text
+            self.temp = False
+
+        def mark_as_temp(self):
+            self.temp = True
+
+    monkeypatch.setattr(llm_hook_module, "TextPart", FakeTextPart)
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(
+            llm_hook_injection_target="extra_user_content_parts"
+        ),
+        diversity_manager=SimpleNamespace(
+            get_current_style=lambda: "style",
+            get_current_pattern=lambda: "pattern",
+        ),
+        social_context_injector=None,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+    )
+    req = SimpleNamespace(
+        prompt="用户消息",
+        system_prompt="stable system prompt",
+        extra_user_content_parts=[],
+    )
+
+    handler._inject(req, ["dynamic context"], 0)
+
+    assert req.system_prompt == "stable system prompt"
+    assert len(req.extra_user_content_parts) == 1
+    assert req.extra_user_content_parts[0].text == "<context>\ndynamic context\n</context>"
+    assert req.extra_user_content_parts[0].temp is True
+
+
+def test_llm_hook_legacy_prompt_fallback_when_extra_parts_unavailable(monkeypatch):
+    monkeypatch.setattr(llm_hook_module, "TextPart", None)
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(llm_hook_injection_target="prompt"),
+        diversity_manager=SimpleNamespace(
+            get_current_style=lambda: "style",
+            get_current_pattern=lambda: "pattern",
+        ),
+        social_context_injector=None,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+    )
+    req = SimpleNamespace(prompt="用户消息", system_prompt="stable system prompt")
+
+    handler._inject(req, ["legacy context"], 0)
+
+    assert req.system_prompt == "stable system prompt"
+    assert req.prompt == "用户消息\n\nlegacy context"
 
 
 @pytest.mark.asyncio

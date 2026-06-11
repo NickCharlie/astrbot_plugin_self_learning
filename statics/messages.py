@@ -292,7 +292,7 @@ class LogMessages:
     AFFECTION_PROCESSING_SUCCESS = "好感度处理成功: {result}"
     AFFECTION_PROCESSING_FAILED = "好感度系统处理失败: {error}"
     ENHANCED_INTERACTION_FAILED = "增强交互处理失败: {error}"
-    LLM_REQUEST_HOOK_SUCCESS = "已注入情绪状态到system_prompt，群组: {group_id}"
+    LLM_REQUEST_HOOK_SUCCESS = "已注入临时 LLM 上下文，群组: {group_id}"
     LLM_REQUEST_HOOK_FAILED = "LLM请求hook处理失败: {error}"
     PLUGIN_CONFIG_SAVED = "插件配置已保存"
     PLUGIN_UNLOAD_SUCCESS = "自学习插件已安全卸载"

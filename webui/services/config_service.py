@@ -150,11 +150,19 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
             "llm_hook_injection_target": {
                 "description": "LLM Hook 注入目标",
                 "type": "string",
-                "hint": "控制注入到 system_prompt 还是 prompt",
-                "default": "system_prompt",
+                "hint": (
+                    "推荐保持 extra_user_content_parts：动态上下文会追加到用户消息尾部"
+                    "并标记为临时内容，避免改动 system_prompt 影响 provider prefix cache。"
+                    "system_prompt/prompt 仅作为旧版 AstrBot fallback"
+                ),
+                "default": "extra_user_content_parts",
                 "options": [
-                    {"value": "system_prompt", "label": "system_prompt"},
-                    {"value": "prompt", "label": "prompt"},
+                    {
+                        "value": "extra_user_content_parts",
+                        "label": "extra_user_content_parts（推荐）",
+                    },
+                    {"value": "system_prompt", "label": "system_prompt（旧版 fallback）"},
+                    {"value": "prompt", "label": "prompt（旧版 fallback）"},
                 ],
             },
             "enable_llm_hooks": {

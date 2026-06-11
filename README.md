@@ -156,7 +156,7 @@ sequenceDiagram
     G->>Review: 写入人格审查 / 风格审查
     LLM->>H: 下一次请求前触发
     H->>DB: 读取已批准 few-shot / 黑话 / 记忆 / 社交关系
-    H->>LLM: 注入 extra_user_content_parts 或 system_prompt
+    H->>LLM: 临时 extra_user_content_parts 注入，旧版 fallback
 ```
 
 ```mermaid
