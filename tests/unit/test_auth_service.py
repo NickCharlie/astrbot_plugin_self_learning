@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from webui.services.auth_service import DEFAULT_WEBUI_PASSWORD, AuthService
+from webui.services.auth_service import (
+    INITIAL_WEBUI_PASSWORD_ENV_VAR,
+    AuthService,
+)
 
 
 class TestAuthService:
@@ -61,7 +64,8 @@ class TestAuthService:
         assert mock_container.plugin_config.password_config == new_config
 
     @pytest.mark.asyncio
-    async def test_login_uses_default_password_when_enabled(self, tmp_path):
+    async def test_login_requires_initial_password_when_enabled(self, tmp_path, monkeypatch):
+        monkeypatch.delenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, raising=False)
         container = SimpleNamespace(
             plugin_config=SimpleNamespace(
                 enable_webui_password=True,
@@ -71,8 +75,29 @@ class TestAuthService:
         service = AuthService(container)
 
         success, message, extra_data = await service.login(
-            DEFAULT_WEBUI_PASSWORD,
+            "AnyPass123!",
             "127.0.0.2",
+        )
+
+        assert success is False
+        assert "尚未配置初始密码" in message
+        assert extra_data == {"setup_required": True}
+        assert not (tmp_path / "password.json").exists()
+
+    @pytest.mark.asyncio
+    async def test_login_uses_explicit_initial_password_when_enabled(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "InitialPass123!")
+        container = SimpleNamespace(
+            plugin_config=SimpleNamespace(
+                enable_webui_password=True,
+                data_dir=str(tmp_path),
+            )
+        )
+        service = AuthService(container)
+
+        success, message, extra_data = await service.login(
+            "InitialPass123!",
+            "127.0.0.4",
         )
 
         assert success is True
@@ -85,7 +110,8 @@ class TestAuthService:
         assert "password_hash" in container.plugin_config.password_config
 
     @pytest.mark.asyncio
-    async def test_change_password_when_enabled_updates_login_secret(self, tmp_path):
+    async def test_change_password_when_enabled_updates_login_secret(self, tmp_path, monkeypatch):
+        monkeypatch.setenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "InitialPass123!")
         container = SimpleNamespace(
             plugin_config=SimpleNamespace(
                 enable_webui_password=True,
@@ -94,11 +120,11 @@ class TestAuthService:
         )
         service = AuthService(container)
 
-        success, _, _ = await service.login(DEFAULT_WEBUI_PASSWORD, "127.0.0.3")
+        success, _, _ = await service.login("InitialPass123!", "127.0.0.3")
         assert success is True
 
         success, message = await service.change_password(
-            DEFAULT_WEBUI_PASSWORD,
+            "InitialPass123!",
             "NewPass123!",
         )
 

@@ -34,6 +34,7 @@ class TestPluginConfigDefaults:
         assert config.enable_llm_hooks is False
         assert config.enable_web_interface is True
         assert config.enable_webui_password is False
+        assert config.webui_initial_password == ""
         assert config.web_interface_port == 7833
         assert config.web_interface_host == "0.0.0.0"
         assert config.log_level == "info"
@@ -122,6 +123,7 @@ class TestPluginConfigFromDict:
                 'enable_auto_learning': False,
                 'enable_realtime_llm_filter': True,
                 'enable_webui_password': True,
+                'webui_initial_password': 'InitPass123!',
                 'web_interface_port': 8080,
             }
         }
@@ -132,6 +134,7 @@ class TestPluginConfigFromDict:
         assert config.enable_auto_learning is False
         assert config.enable_realtime_llm_filter is True
         assert config.enable_webui_password is True
+        assert config.webui_initial_password == 'InitPass123!'
         assert config.web_interface_port == 8080
         assert config.data_dir == "/tmp/test"
 

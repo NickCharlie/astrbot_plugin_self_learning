@@ -9,7 +9,7 @@ import pytest
 from quart import Quart
 from webui.blueprints.auth import auth_bp
 from webui.dependencies import get_container
-from webui.services.auth_service import DEFAULT_WEBUI_PASSWORD
+from webui.services.auth_service import INITIAL_WEBUI_PASSWORD_ENV_VAR
 
 
 @pytest.fixture
@@ -186,7 +186,8 @@ class TestPasswordEnabledAuthBlueprint:
         assert response.headers["Location"].endswith("/api/login")
 
     @pytest.mark.asyncio
-    async def test_login_post_checks_password_when_enabled(self, client, tmp_path):
+    async def test_login_post_checks_password_when_enabled(self, client, tmp_path, monkeypatch):
+        monkeypatch.setenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "InitialPass123!")
         get_container().plugin_config = SimpleNamespace(
             enable_webui_password=True,
             data_dir=str(tmp_path),
@@ -197,7 +198,7 @@ class TestPasswordEnabledAuthBlueprint:
 
         response = await client.post(
             '/api/login',
-            json={'password': DEFAULT_WEBUI_PASSWORD},
+            json={'password': 'InitialPass123!'},
         )
 
         assert response.status_code == 200
@@ -206,15 +207,16 @@ class TestPasswordEnabledAuthBlueprint:
         assert data['redirect'] == '/api/plugin_change_password'
 
     @pytest.mark.asyncio
-    async def test_change_password_when_enabled(self, client, tmp_path):
+    async def test_change_password_when_enabled(self, client, tmp_path, monkeypatch):
+        monkeypatch.setenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "InitialPass123!")
         get_container().plugin_config = SimpleNamespace(
             enable_webui_password=True,
             data_dir=str(tmp_path),
         )
-        await client.post('/api/login', json={'password': DEFAULT_WEBUI_PASSWORD})
+        await client.post('/api/login', json={'password': 'InitialPass123!'})
 
         response = await client.post('/api/plugin_change_password', json={
-            'old_password': DEFAULT_WEBUI_PASSWORD,
+            'old_password': 'InitialPass123!',
             'new_password': 'NewPass123!',
         })
 

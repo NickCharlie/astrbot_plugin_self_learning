@@ -163,6 +163,9 @@ class TestConfigServiceSchema:
         basic_fields = {field["key"]: field for field in groups["Self_Learning_Basic"]["fields"]}
         assert basic_fields["enable_webui_password"]["widget"] == "toggle"
         assert basic_fields["enable_webui_password"]["value"] is False
+        assert basic_fields["webui_initial_password"]["widget"] == "password"
+        assert basic_fields["webui_initial_password"]["value"] == ""
+        assert basic_fields["webui_initial_password"]["secret"] is True
 
         maibot_fields = {field["key"]: field for field in groups["MaiBot_Enhancement"]["fields"]}
         assert maibot_fields["enable_realtime_expression_learning"]["widget"] == "toggle"
@@ -353,6 +356,7 @@ class TestConfigServiceSchema:
                     "enable_realtime_learning": True,
                     "enable_realtime_llm_filter": True,
                     "enable_webui_password": True,
+                    "webui_initial_password": "InitPass123!",
                 },
                 "enable_realtime_learning": False,
                 "enable_realtime_llm_filter": False,
@@ -365,6 +369,7 @@ class TestConfigServiceSchema:
 
         assert schema["config"]["enable_realtime_learning"] is True
         assert schema["config"]["enable_realtime_llm_filter"] is True
+        assert schema["config"]["webui_initial_password"] == ""
 
         fields = {
             field["key"]: field
@@ -373,10 +378,21 @@ class TestConfigServiceSchema:
         }
         assert fields["enable_realtime_learning"]["value"] is True
         assert fields["enable_realtime_llm_filter"]["value"] is True
+        assert fields["webui_initial_password"]["value"] == ""
 
         saved = json.loads(config_file.read_text(encoding="utf-8"))
         assert saved["enable_realtime_learning"] is True
         assert saved["enable_realtime_llm_filter"] is True
+        assert saved["webui_initial_password"] == ""
+        assert container.astrbot_config["Self_Learning_Basic"]["webui_initial_password"] == ""
+
+        password_config = json.loads(
+            (Path(container.plugin_config.data_dir) / "password.json").read_text(
+                encoding="utf-8",
+            )
+        )
+        assert "password_hash" in password_config
+        assert "password" not in password_config
 
     @pytest.mark.asyncio
     async def test_config_schema_refresh_pushes_newer_webui_config_to_plugin_page(self, tmp_path):
@@ -413,6 +429,25 @@ class TestConfigServiceSchema:
 
 @pytest.mark.unit
 class TestConfigServiceUpdate:
+    @pytest.mark.asyncio
+    async def test_update_config_rejects_password_mode_without_initial_secret(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("ASTRBOT_WEBUI_INITIAL_PASSWORD", raising=False)
+        container = build_container(tmp_path)
+        service = ConfigService(container)
+
+        success, message, updated = await service.update_config(
+            {
+                "Self_Learning_Basic": {
+                    "enable_webui_password": True,
+                },
+            }
+        )
+
+        assert success is False
+        assert "初始密码" in message
+        assert updated["enable_webui_password"] is False
+        assert not (Path(container.plugin_config.data_dir) / "password.json").exists()
+
     @pytest.mark.asyncio
     async def test_update_config_persists_and_syncs_paths(self, tmp_path):
         container = build_container(tmp_path)
@@ -469,6 +504,7 @@ class TestConfigServiceUpdate:
                     "enable_realtime_learning": True,
                     "enable_realtime_llm_filter": True,
                     "enable_webui_password": True,
+                    "webui_initial_password": "InitPass123!",
                 },
                 "Target_Settings": {
                     "target_qq_list": ["10001", "group_20002"],
@@ -499,12 +535,14 @@ class TestConfigServiceUpdate:
         assert updated["enable_realtime_learning"] is True
         assert updated["enable_realtime_llm_filter"] is True
         assert updated["enable_webui_password"] is True
+        assert updated["webui_initial_password"] == ""
         assert updated["enable_llm_hooks"] is True
         assert updated["expression_learning_min_interval_seconds"] == 120
 
         assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_learning"] is True
         assert container.astrbot_config["Self_Learning_Basic"]["enable_realtime_llm_filter"] is True
         assert container.astrbot_config["Self_Learning_Basic"]["enable_webui_password"] is True
+        assert container.astrbot_config["Self_Learning_Basic"]["webui_initial_password"] == ""
         assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
             "10001",
             "group_20002",
@@ -516,6 +554,13 @@ class TestConfigServiceUpdate:
         assert container.astrbot_config["Runtime_Internal_Settings"]["enable_llm_hooks"] is True
         assert container.astrbot_config["Style_Analysis"]["style_update_threshold"] == 0.72
         assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.68
+        password_config = json.loads(
+            (Path(container.plugin_config.data_dir) / "password.json").read_text(
+                encoding="utf-8",
+            )
+        )
+        assert "password_hash" in password_config
+        assert "password" not in password_config
         assert "enable_realtime_learning" not in container.astrbot_config
         assert "enable_realtime_llm_filter" not in container.astrbot_config
         assert container.astrbot_config.save_calls == 1

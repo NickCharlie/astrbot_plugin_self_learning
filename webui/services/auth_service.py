@@ -26,11 +26,14 @@ except ImportError:
 
 logger = get_astrbot_logger("self_learning.webui.auth")
 PASSWORDLESS_PASSWORD_CONFIG = {"must_change": False}
-DEFAULT_WEBUI_PASSWORD = "self_learning_pwd"
-DEFAULT_PASSWORD_CONFIG = {
-    "password": DEFAULT_WEBUI_PASSWORD,
-    "must_change": True,
-}
+PASSWORD_SETUP_REQUIRED_CONFIG = {"must_change": False, "setup_required": True}
+INITIAL_WEBUI_PASSWORD_ENV_VAR = "ASTRBOT_WEBUI_INITIAL_PASSWORD"
+DEFAULT_PASSWORD_CONFIG = PASSWORDLESS_PASSWORD_CONFIG.copy()
+
+
+def is_webui_password_enabled(plugin_config) -> bool:
+    """Return whether WebUI password auth is explicitly enabled."""
+    return getattr(plugin_config, "enable_webui_password", False) is True
 
 
 def hash_password_with_salt(password: str) -> Dict[str, Any]:
@@ -64,7 +67,40 @@ class AuthService:
 
     def is_password_enabled(self) -> bool:
         """Return whether WebUI password auth is explicitly enabled."""
-        return getattr(self.plugin_config, "enable_webui_password", False) is True
+        return is_webui_password_enabled(self.plugin_config)
+
+    def _configured_initial_password(self) -> str:
+        config_password = getattr(self.plugin_config, "webui_initial_password", "")
+        if isinstance(config_password, str) and config_password.strip():
+            return config_password.strip()
+        return os.getenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "").strip()
+
+    def _build_initial_password_config(self) -> Dict[str, Any]:
+        initial_password = self._configured_initial_password()
+        if not initial_password:
+            logger.warning(
+                "WebUI 密码已启用，但未配置初始密码。请在设置页填写 WebUI "
+                f"初始密码，或设置环境变量 {INITIAL_WEBUI_PASSWORD_ENV_VAR}。"
+            )
+            return PASSWORD_SETUP_REQUIRED_CONFIG.copy()
+        return {
+            "password": initial_password,
+            "must_change": True,
+        }
+
+    def has_password_config(self) -> bool:
+        """Return whether a persisted or in-memory password secret exists."""
+        config_attr = getattr(self.plugin_config, 'password_config', None) if self.plugin_config else None
+        if isinstance(config_attr, dict) and (
+            config_attr.get("password_hash") or config_attr.get("password")
+        ):
+            return True
+
+        if not self._should_persist_password_file():
+            return False
+
+        password_file = self.get_password_file_path()
+        return os.path.exists(password_file)
 
     def get_password_file_path(self) -> str:
         """获取密码文件路径"""
@@ -98,7 +134,11 @@ class AuthService:
         password_file = self.get_password_file_path()
         if not self._should_persist_password_file():
             logger.debug("跳过密码文件读取：plugin_config 未提供有效 data_dir")
-            return DEFAULT_PASSWORD_CONFIG.copy()
+            return (
+                self._build_initial_password_config()
+                if self.is_password_enabled()
+                else PASSWORDLESS_PASSWORD_CONFIG.copy()
+            )
 
         try:
             if os.path.exists(password_file):
@@ -110,9 +150,9 @@ class AuthService:
             else:
                 if self.is_password_enabled():
                     logger.warning(
-                        f"密码配置文件不存在: {password_file}，使用默认初始密码"
+                        f"密码配置文件不存在: {password_file}，等待显式初始密码"
                     )
-                    config = DEFAULT_PASSWORD_CONFIG.copy()
+                    config = self._build_initial_password_config()
                 else:
                     logger.debug(f"密码配置文件不存在: {password_file}，使用免密配置")
                     config = PASSWORDLESS_PASSWORD_CONFIG.copy()
@@ -121,12 +161,41 @@ class AuthService:
         except Exception as e:
             logger.error(f"加载密码配置失败: {e}", exc_info=True)
             config = (
-                DEFAULT_PASSWORD_CONFIG.copy()
+                self._build_initial_password_config()
                 if self.is_password_enabled()
                 else PASSWORDLESS_PASSWORD_CONFIG.copy()
             )
             self._password_config = config
             return config
+
+    def configure_password(self, password: str, *, must_change: bool = False) -> Tuple[bool, str]:
+        """Persist a new WebUI password as a hash."""
+        password = SecurityValidator.sanitize_input(password, max_length=128)
+        if not password:
+            return False, "密码不能为空"
+
+        strength_result = SecurityValidator.validate_password_strength(password)
+        if not strength_result["valid"]:
+            issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
+            return False, issues
+
+        password_hash, salt = PasswordHasher.hash_password(password)
+        new_config = {
+            "password_hash": password_hash,
+            "salt": salt,
+            "must_change": must_change,
+            "version": 2,
+            "last_changed": time.time(),
+        }
+        if self.save_password_config(new_config):
+            if self.plugin_config is not None and hasattr(self.plugin_config, "webui_initial_password"):
+                try:
+                    setattr(self.plugin_config, "webui_initial_password", "")
+                except Exception:
+                    logger.debug("无法清空 webui_initial_password", exc_info=True)
+            logger.info("WebUI 密码已配置")
+            return True, "密码配置成功"
+        return False, "保存密码配置失败"
 
     def save_password_config(self, config: Dict[str, Any]) -> bool:
         """
@@ -181,9 +250,12 @@ class AuthService:
                 "redirect": "/api/index",
             }
 
-        password = SecurityValidator.sanitize_input(password, max_length=128)
-        if not password:
-            return False, "密码不能为空", None
+        password_config = self.load_password_config()
+        if password_config.get("setup_required"):
+            return False, (
+                "WebUI 密码已启用但尚未配置初始密码，请在设置页填写 WebUI 初始密码，"
+                f"或设置环境变量 {INITIAL_WEBUI_PASSWORD_ENV_VAR}"
+            ), {"setup_required": True}
 
         is_locked, remaining_time = login_attempt_tracker.is_locked(client_ip)
         if is_locked:
@@ -193,7 +265,10 @@ class AuthService:
                 "remaining_time": remaining_time,
             }
 
-        password_config = self.load_password_config()
+        password = SecurityValidator.sanitize_input(password, max_length=128)
+        if not password:
+            return False, "密码不能为空", None
+
         is_valid, updated_config = verify_password_with_migration(
             password,
             password_config,
@@ -252,6 +327,9 @@ class AuthService:
             return False, "旧密码和新密码不能为空"
 
         password_config = self.load_password_config()
+        if password_config.get("setup_required"):
+            return False, "WebUI 尚未配置初始密码，无法修改密码"
+
         is_valid, updated_config = verify_password_with_migration(
             old_password,
             password_config,
@@ -269,19 +347,11 @@ class AuthService:
             issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
             return False, issues
 
-        password_hash, salt = PasswordHasher.hash_password(new_password)
-        new_config = {
-            "password_hash": password_hash,
-            "salt": salt,
-            "must_change": False,
-            "version": 2,
-            "last_changed": time.time(),
-        }
-
-        if self.save_password_config(new_config):
+        success, message = self.configure_password(new_password, must_change=False)
+        if success:
             logger.info("WebUI 密码已更新")
             return True, "密码修改成功"
-        return False, "保存密码配置失败"
+        return False, message
 
     def check_must_change_password(self) -> bool:
         """

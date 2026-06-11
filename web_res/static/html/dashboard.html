@@ -6527,6 +6527,21 @@
                             data-config-widget="${escapeHtml(field.widget)}"
                         >
                     `;
+                } else if (field.widget === 'password') {
+                    controlHtml = `
+                        <input
+                            id="${fieldId}"
+                            class="config-input"
+                            type="password"
+                            value=""
+                            autocomplete="new-password"
+                            placeholder="保存后不会回显"
+                            data-config-key="${escapeHtml(field.key)}"
+                            data-config-type="${escapeHtml(field.type)}"
+                            data-config-widget="${escapeHtml(field.widget)}"
+                            ${field.editable ? '' : 'disabled'}
+                        >
+                    `;
                 } else if (field.type === 'list') {
                     controlHtml = `
                         <textarea

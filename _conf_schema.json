@@ -65,8 +65,15 @@
       "enable_webui_password": {
         "description": "启用WebUI登录密码",
         "type": "bool",
-        "hint": "默认关闭，WebUI 免密访问；开启后访问 WebUI 需要登录密码。首次开启使用默认密码 self_learning_pwd 登录并按提示修改",
+        "hint": "默认关闭，WebUI 免密访问；开启后访问 WebUI 需要登录密码。首次开启前请填写下方一次性初始密码，或设置环境变量 ASTRBOT_WEBUI_INITIAL_PASSWORD",
         "default": false
+      },
+      "webui_initial_password": {
+        "description": "WebUI一次性初始密码",
+        "type": "string",
+        "hint": "仅在首次启用 WebUI 登录密码且尚未生成 password.json 时使用。保存后会写入哈希密码并清空，不会回显明文",
+        "default": "",
+        "_secret": true
       },
       "web_interface_port": {
         "description": "Web界面端口",

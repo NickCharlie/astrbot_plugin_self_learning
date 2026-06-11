@@ -69,6 +69,7 @@ class PluginConfig(BaseModel):
     enable_style_learning: bool = True # 启用对话风格学习
     enable_web_interface: bool = True
     enable_webui_password: bool = False # 启用 WebUI 登录密码，默认免密
+    webui_initial_password: str = "" # WebUI 密码首次启用时的一次性初始密码
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
     web_interface_host: str = "0.0.0.0" # Web 界面监听地址
 
@@ -347,6 +348,7 @@ class PluginConfig(BaseModel):
             enable_style_learning=basic_settings.get('enable_style_learning', True),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
             enable_webui_password=basic_settings.get('enable_webui_password', False),
+            webui_initial_password=basic_settings.get('webui_initial_password', ''),
             web_interface_port=basic_settings.get('web_interface_port', 7833),
             web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
 

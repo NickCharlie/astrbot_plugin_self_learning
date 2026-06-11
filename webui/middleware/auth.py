@@ -5,6 +5,7 @@ from functools import wraps
 from quart import jsonify, redirect, request, session, url_for
 
 from ..dependencies import get_container
+from ..services.auth_service import is_webui_password_enabled
 
 
 def _webui_password_enabled() -> bool:
@@ -12,7 +13,7 @@ def _webui_password_enabled() -> bool:
         config = get_container().plugin_config
     except Exception:
         return False
-    return getattr(config, "enable_webui_password", False) is True
+    return is_webui_password_enabled(config)
 
 
 def require_auth(f):
