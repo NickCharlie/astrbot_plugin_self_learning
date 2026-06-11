@@ -57,6 +57,7 @@ class RealtimeProcessor:
         self._db_manager = db_manager
         self._expression_learner = None  # lazily resolved, cached
         self._last_expression_trigger_counts: Dict[str, int] = {}
+        self._last_expression_learning_times: Dict[str, float] = {}
 
         # Callback set by the plugin to trigger incremental prompt updates
         self.update_system_prompt_callback: Optional[
@@ -165,6 +166,27 @@ class RealtimeProcessor:
     ) -> None:
         """Learn expression styles directly from raw messages."""
         try:
+            now = time.time()
+            min_interval = max(
+                0,
+                int(
+                    getattr(
+                        self._config,
+                        "expression_learning_min_interval_seconds",
+                        3600,
+                    )
+                    or 0
+                ),
+            )
+            last_learning_time = self._last_expression_learning_times.get(group_id, 0)
+            if min_interval and last_learning_time and now - last_learning_time < min_interval:
+                remaining = int(min_interval - (now - last_learning_time))
+                logger.debug(
+                    f"群组 {group_id} 表达风格学习处于冷却中，"
+                    f"剩余约 {remaining} 秒"
+                )
+                return
+
             stats = await self._message_collector.get_statistics(group_id)
             raw_message_count = stats.get("raw_messages", 0)
 
@@ -186,6 +208,7 @@ class RealtimeProcessor:
                 )
                 return
             self._last_expression_trigger_counts[group_id] = raw_message_count
+            self._last_expression_learning_times[group_id] = now
 
             logger.info(
                 f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}"

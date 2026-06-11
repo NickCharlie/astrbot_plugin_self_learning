@@ -472,11 +472,65 @@ def test_fresh_jargon_miner_first_trigger_is_not_blocked_by_cooldown():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_message_pipeline_runs_expression_learning_without_realtime_mode():
+async def test_message_pipeline_skips_expression_learning_without_realtime_mode_by_default():
     config = SimpleNamespace(
         enable_jargon_learning=False,
         enable_expression_patterns=True,
         enable_realtime_learning=False,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    collector = SimpleNamespace(collect_message=AsyncMock())
+    enhanced_interaction = SimpleNamespace(
+        update_conversation_context=AsyncMock(),
+    )
+    realtime_processor = SimpleNamespace(
+        process_expression_learning_background=AsyncMock(),
+        process_realtime_background=AsyncMock(),
+    )
+
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=collector,
+        enhanced_interaction=enhanced_interaction,
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=None,
+        realtime_processor=realtime_processor,
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+
+    spawned = []
+
+    def spawn_now(coro):
+        task = asyncio.create_task(coro)
+        spawned.append(task)
+        return task
+
+    pipeline._spawn = spawn_now
+    event = SimpleNamespace(
+        get_sender_name=lambda: "User A",
+        get_platform_name=lambda: "test",
+    )
+
+    await pipeline.process_learning("group-a", "user-a", "这是表达学习消息", event)
+    await asyncio.gather(*spawned)
+
+    realtime_processor.process_expression_learning_background.assert_not_called()
+    realtime_processor.process_realtime_background.assert_not_called()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_message_pipeline_can_run_expression_learning_when_explicitly_enabled():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_expression_patterns=True,
+        enable_realtime_learning=False,
+        enable_realtime_expression_learning=True,
         enable_style_learning=False,
         enable_goal_driven_chat=False,
     )
@@ -591,6 +645,7 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
         enable_jargon_learning=True,
         enable_expression_patterns=True,
         enable_realtime_learning=False,
+        enable_realtime_expression_learning=True,
         enable_style_learning=False,
         enable_goal_driven_chat=False,
     )
@@ -867,6 +922,7 @@ async def test_realtime_expression_learning_is_batch_gated():
         message_max_length=500,
         enable_expression_patterns=True,
         expression_learning_trigger_messages=10,
+        expression_learning_min_interval_seconds=0,
     )
     collector = SimpleNamespace(
         get_statistics=AsyncMock(
@@ -923,12 +979,74 @@ async def test_realtime_expression_learning_is_batch_gated():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_realtime_expression_learning_respects_min_interval():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=True,
+        expression_learning_trigger_messages=1,
+        expression_learning_min_interval_seconds=3600,
+    )
+    collector = SimpleNamespace(
+        get_statistics=AsyncMock(return_value={"raw_messages": 10})
+    )
+    learner = SimpleNamespace(trigger_learning_for_group=AsyncMock(return_value=False))
+    factory_manager = SimpleNamespace(
+        get_component_factory=lambda: SimpleNamespace(
+            create_expression_pattern_learner=lambda: learner
+        )
+    )
+    db_manager = SimpleNamespace(
+        get_recent_raw_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": idx,
+                    "sender_id": f"user-{idx}",
+                    "sender_name": f"User {idx}",
+                    "message": f"这是第{idx}条足够长的表达学习消息",
+                    "timestamp": time.time(),
+                    "platform": "test",
+                }
+                for idx in range(1, 6)
+            ]
+        )
+    )
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        dialog_analyzer=SimpleNamespace(),
+        learning_stats=SimpleNamespace(style_updates=0),
+        factory_manager=factory_manager,
+        db_manager=db_manager,
+    )
+
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-a",
+    )
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-a",
+    )
+
+    assert learner.trigger_learning_for_group.await_count == 1
+    assert collector.get_statistics.await_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_realtime_expression_learning_creates_review_without_persona_write():
     config = SimpleNamespace(
         message_min_length=1,
         message_max_length=500,
         enable_expression_patterns=True,
         expression_learning_trigger_messages=1,
+        expression_learning_min_interval_seconds=0,
     )
     collector = SimpleNamespace(
         get_statistics=AsyncMock(return_value={"raw_messages": 10})

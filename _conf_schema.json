@@ -62,6 +62,19 @@
         "hint": "是否启用Web界面用于查看和管理学习数据",
         "default": true
       },
+      "enable_webui_password": {
+        "description": "启用WebUI登录密码",
+        "type": "bool",
+        "hint": "默认关闭，WebUI 免密访问；开启后访问 WebUI 需要登录密码。首次开启前请填写下方一次性初始密码，或设置环境变量 ASTRBOT_WEBUI_INITIAL_PASSWORD",
+        "default": false
+      },
+      "webui_initial_password": {
+        "description": "WebUI一次性初始密码",
+        "type": "string",
+        "hint": "仅在首次启用 WebUI 登录密码且尚未生成 password.json 时使用。保存后会写入哈希密码并清空，不会回显明文",
+        "default": "",
+        "_secret": true
+      },
       "web_interface_port": {
         "description": "Web界面端口",
         "type": "int",
@@ -163,6 +176,12 @@
         "type": "int",
         "hint": "每个群每新增多少条原始消息才触发表达方式学习。调大可降低筛选/分析模型调用频率",
         "default": 10
+      },
+      "expression_learning_min_interval_seconds": {
+        "description": "表达方式学习最小间隔(秒)",
+        "type": "int",
+        "hint": "同一群两次表达方式学习之间的最小间隔。默认3600秒，避免实时模式下频繁生成审查/人格更新",
+        "default": 3600
       },
       "topic_detection_interval_messages": {
         "description": "话题检测触发消息数",

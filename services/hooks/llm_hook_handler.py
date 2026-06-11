@@ -76,6 +76,10 @@ class LLMHookHandler:
                 logger.warning("[LLM Hook] req 参数为 None，跳过注入")
                 return
 
+            if not getattr(self._config, "enable_llm_hooks", False):
+                logger.debug("[LLM Hook] 总开关未启用，跳过上下文注入")
+                return
+
             if not self._diversity_manager:
                 logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
                 return

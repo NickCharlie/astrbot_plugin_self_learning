@@ -68,12 +68,15 @@ class PluginConfig(BaseModel):
     enable_jargon_learning: bool = True # 启用黑话学习
     enable_style_learning: bool = True # 启用对话风格学习
     enable_web_interface: bool = True
+    enable_webui_password: bool = False # 启用 WebUI 登录密码，默认免密
+    webui_initial_password: str = "" # WebUI 密码首次启用时的一次性初始密码
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
     web_interface_host: str = "0.0.0.0" # Web 界面监听地址
 
     # MaiBot增强功能（默认启用）
     enable_maibot_features: bool = True # 启用MaiBot增强功能
     enable_expression_patterns: bool = True # 启用表达模式学习
+    enable_realtime_expression_learning: bool = False # 实时学习关闭时是否仍按消息触发表达学习
     enable_memory_graph: bool = True # 启用记忆图系统
     enable_knowledge_graph: bool = True # 启用知识图谱
     enable_time_decay: bool = True # 启用时间衰减机制
@@ -119,6 +122,7 @@ class PluginConfig(BaseModel):
     min_messages_for_learning: int = 50 # 最少消息数量才开始学习
     max_messages_per_batch: int = 200 # 每批处理的最大消息数量
     expression_learning_trigger_messages: int = 10 # 表达方式学习触发消息增量
+    expression_learning_min_interval_seconds: int = 3600 # 表达方式学习最小触发间隔（秒）
     topic_detection_interval_messages: int = 10 # 话题检测触发消息增量
 
     # 筛选参数
@@ -155,6 +159,7 @@ class PluginConfig(BaseModel):
     shutdown_step_timeout: int = 8       # 每个关停步骤的超时
     task_cancel_timeout: int = 3         # 后台任务取消等待超时
     service_stop_timeout: int = 5        # 单个服务停止超时
+    enable_llm_hooks: bool = False       # 启用 LLM Hook 上下文注入，默认关闭以避免高频调用
     llm_hook_context_timeout: float = 3.0  # LLM Hook 单个上下文源超时（秒）
 
     # PersonaUpdater配置
@@ -342,11 +347,14 @@ class PluginConfig(BaseModel):
             enable_jargon_learning=basic_settings.get('enable_jargon_learning', True),
             enable_style_learning=basic_settings.get('enable_style_learning', True),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
+            enable_webui_password=basic_settings.get('enable_webui_password', False),
+            webui_initial_password=basic_settings.get('webui_initial_password', ''),
             web_interface_port=basic_settings.get('web_interface_port', 7833),
             web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
 
             enable_maibot_features=maibot_enhancement.get('enable_maibot_features', True),
             enable_expression_patterns=maibot_enhancement.get('enable_expression_patterns', True),
+            enable_realtime_expression_learning=maibot_enhancement.get('enable_realtime_expression_learning', False),
             enable_memory_graph=maibot_enhancement.get('enable_memory_graph', True),
             enable_knowledge_graph=maibot_enhancement.get('enable_knowledge_graph', True),
             enable_time_decay=maibot_enhancement.get('enable_time_decay', True),
@@ -383,6 +391,7 @@ class PluginConfig(BaseModel):
             min_messages_for_learning=learning_params.get('min_messages_for_learning', 50),
             max_messages_per_batch=learning_params.get('max_messages_per_batch', 200),
             expression_learning_trigger_messages=learning_params.get('expression_learning_trigger_messages', 10),
+            expression_learning_min_interval_seconds=learning_params.get('expression_learning_min_interval_seconds', 3600),
             topic_detection_interval_messages=learning_params.get('topic_detection_interval_messages', 10),
 
             message_min_length=filter_params.get('message_min_length', 5),
@@ -483,6 +492,7 @@ class PluginConfig(BaseModel):
             shutdown_step_timeout=runtime_internal_settings.get('shutdown_step_timeout', 8),
             task_cancel_timeout=runtime_internal_settings.get('task_cancel_timeout', 3),
             service_stop_timeout=runtime_internal_settings.get('service_stop_timeout', 5),
+            enable_llm_hooks=runtime_internal_settings.get('enable_llm_hooks', False),
             llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
             llm_hook_injection_target=runtime_internal_settings.get(
                 'llm_hook_injection_target',
@@ -616,6 +626,9 @@ class PluginConfig(BaseModel):
 
         if self.expression_learning_trigger_messages <= 0:
             errors.append("表达方式学习触发消息数必须大于0")
+
+        if self.expression_learning_min_interval_seconds < 0:
+            errors.append("表达方式学习最小触发间隔不能小于0秒")
 
         if self.topic_detection_interval_messages <= 0:
             errors.append("话题检测触发消息数必须大于0")

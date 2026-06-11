@@ -29,7 +29,12 @@ class TestPluginConfigDefaults:
         assert config.enable_message_capture is True
         assert config.enable_auto_learning is True
         assert config.enable_realtime_learning is False
+        assert config.enable_realtime_llm_filter is False
+        assert config.enable_realtime_expression_learning is False
+        assert config.enable_llm_hooks is False
         assert config.enable_web_interface is True
+        assert config.enable_webui_password is False
+        assert config.webui_initial_password == ""
         assert config.web_interface_port == 7833
         assert config.web_interface_host == "0.0.0.0"
         assert config.log_level == "info"
@@ -43,6 +48,7 @@ class TestPluginConfigDefaults:
         assert config.min_messages_for_learning == 50
         assert config.max_messages_per_batch == 200
         assert config.expression_learning_trigger_messages == 10
+        assert config.expression_learning_min_interval_seconds == 3600
         assert config.topic_detection_interval_messages == 10
 
     def test_default_learning_parameters(self):
@@ -116,6 +122,8 @@ class TestPluginConfigFromDict:
                 'enable_message_capture': False,
                 'enable_auto_learning': False,
                 'enable_realtime_llm_filter': True,
+                'enable_webui_password': True,
+                'webui_initial_password': 'InitPass123!',
                 'web_interface_port': 8080,
             }
         }
@@ -125,6 +133,8 @@ class TestPluginConfigFromDict:
         assert config.enable_message_capture is False
         assert config.enable_auto_learning is False
         assert config.enable_realtime_llm_filter is True
+        assert config.enable_webui_password is True
+        assert config.webui_initial_password == 'InitPass123!'
         assert config.web_interface_port == 8080
         assert config.data_dir == "/tmp/test"
 
@@ -270,6 +280,7 @@ class TestPluginConfigFromDict:
             'MaiBot_Enhancement': {
                 'enable_maibot_features': False,
                 'enable_expression_patterns': False,
+                'enable_realtime_expression_learning': True,
                 'enable_memory_graph': False,
                 'enable_knowledge_graph': False,
                 'enable_time_decay': False,
@@ -285,6 +296,7 @@ class TestPluginConfigFromDict:
             },
             'Runtime_Internal_Settings': {
                 'llm_hook_injection_target': 'prompt',
+                'enable_llm_hooks': True,
                 'enable_memory_cleanup': False,
                 'memory_cleanup_days': 14,
                 'memory_importance_threshold': 0.45,
@@ -292,12 +304,16 @@ class TestPluginConfigFromDict:
                 'task_cancel_timeout': 6,
                 'service_stop_timeout': 7,
             },
+            'Learning_Parameters': {
+                'expression_learning_min_interval_seconds': 120,
+            },
         }
 
         config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
 
         assert config.enable_maibot_features is False
         assert config.enable_expression_patterns is False
+        assert config.enable_realtime_expression_learning is True
         assert config.enable_memory_graph is False
         assert config.enable_knowledge_graph is False
         assert config.enable_time_decay is False
@@ -309,12 +325,14 @@ class TestPluginConfigFromDict:
         assert config.auto_apply_persona_updates is False
         assert config.persona_update_backup_enabled is False
         assert config.llm_hook_injection_target == 'prompt'
+        assert config.enable_llm_hooks is True
         assert config.enable_memory_cleanup is False
         assert config.memory_cleanup_days == 14
         assert config.memory_importance_threshold == 0.45
         assert config.shutdown_step_timeout == 11
         assert config.task_cancel_timeout == 6
         assert config.service_stop_timeout == 7
+        assert config.expression_learning_min_interval_seconds == 120
 
     def test_create_from_empty_config(self):
         """Test config creation from empty dict uses all defaults."""

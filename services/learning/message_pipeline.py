@@ -158,7 +158,7 @@ class MessagePipeline:
                         group_id, message_text, sender_id
                     )
                 )
-            elif self._config.enable_expression_patterns:
+            elif getattr(self._config, "enable_realtime_expression_learning", False):
                 self._spawn(
                     self._realtime_processor.process_expression_learning_background(
                         group_id, message_text, sender_id

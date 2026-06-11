@@ -12,6 +12,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from astrbot.api import logger
 from pydantic import ValidationError
 
+from .auth_service import (
+    AuthService,
+    INITIAL_WEBUI_PASSWORD_ENV_VAR,
+    validate_password_strength,
+)
+
 try:
     from ...statics.messages import FileNames
     from ...utils.logging_utils import apply_astrbot_log_level
@@ -54,6 +60,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                 "type": "bool",
                 "hint": "学习并维护群聊中的表达模式和常见句式",
                 "default": True,
+            },
+            "enable_realtime_expression_learning": {
+                "description": "实时表达方式学习",
+                "type": "bool",
+                "hint": "实时学习关闭时，是否仍按消息增量触发表达方式学习。默认关闭以避免旁听群聊时产生高频 LLM 调用和审查记录",
+                "default": False,
             },
             "enable_memory_graph": {
                 "description": "启用记忆图系统",
@@ -142,6 +154,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                     {"value": "system_prompt", "label": "system_prompt"},
                     {"value": "prompt", "label": "prompt"},
                 ],
+            },
+            "enable_llm_hooks": {
+                "description": "启用 LLM Hook 上下文注入",
+                "type": "bool",
+                "hint": "开启后每次回复前会并行拉取社交、记忆、黑话、few-shot 等上下文；默认关闭以避免高频模型调用",
+                "default": False,
             },
             "use_sqlalchemy": {
                 "description": "强制使用 SQLAlchemy ORM",
@@ -426,6 +444,12 @@ class ConfigService:
         }
         if not known_config:
             return False
+        initial_webui_password = ""
+        if "webui_initial_password" in known_config:
+            initial_webui_password = str(
+                known_config.get("webui_initial_password") or ""
+            ).strip()
+            known_config["webui_initial_password"] = ""
 
         original_config = self.plugin_config.to_dict()
         changed_keys = [
@@ -455,10 +479,27 @@ class ConfigService:
                 self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
             )
 
+        if (
+            initial_webui_password
+            and getattr(self.plugin_config, "enable_webui_password", False) is True
+        ):
+            strength_result = validate_password_strength(initial_webui_password)
+            if strength_result["valid"]:
+                password_success, password_message = AuthService(self.container).configure_password(
+                    initial_webui_password,
+                    must_change=False,
+                )
+                if not password_success:
+                    logger.warning(f"AstrBot 插件页 WebUI 初始密码保存失败: {password_message}")
+            else:
+                issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
+                logger.warning(f"AstrBot 插件页 WebUI 初始密码无效: {issues}")
+
         self._sync_runtime_components(changed_keys)
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):
             logger.warning("AstrBot 插件页配置已同步到内存，但写入 WebUI 配置文件失败")
+        self._sync_astrbot_group_config(self.plugin_config, list(known_config))
 
         logger.info(
             "AstrBot 插件页配置已同步到 WebUI: "
@@ -859,6 +900,8 @@ class ConfigService:
         widget = "text"
         if raw_spec.get("_readonly"):
             widget = "readonly"
+        elif raw_spec.get("_secret"):
+            widget = "password"
         elif raw_spec.get("_special") == "select_provider" or key.endswith("_provider_id"):
             widget = "provider"
         elif key in _ENUM_FIELD_OPTIONS:
@@ -884,9 +927,12 @@ class ConfigService:
             "default": default_value,
             "value": value,
             "editable": not raw_spec.get("_readonly", False),
+            "secret": bool(raw_spec.get("_secret")),
             "nullable": default_value is None or raw_spec.get("_nullable", False) or key.endswith("_provider_id"),
             "restart_required": key in _RESTART_REQUIRED_KEYS,
         }
+        if raw_spec.get("_secret"):
+            field_spec["value"] = ""
 
         if field_type == "list":
             items_spec = raw_spec.get("items", {})
@@ -1029,6 +1075,11 @@ class ConfigService:
                     break
 
         flat_config = self._flatten_payload(payload if isinstance(payload, dict) else {})
+        initial_webui_password = ""
+        if "webui_initial_password" in flat_config:
+            initial_webui_password = str(flat_config.get("webui_initial_password") or "").strip()
+            flat_config["webui_initial_password"] = ""
+
         original_config = self.plugin_config.to_dict()
         merged_config = dict(original_config)
         changed_keys: List[str] = []
@@ -1059,6 +1110,28 @@ class ConfigService:
         if provider_error in "；".join(blocking_errors):
             warnings.append("至少需要配置一个模型提供商ID，系统将继续依赖 AstrBot 的自动兜底 Provider 选择")
 
+        auth_service = AuthService(self.container)
+        password_enabled = getattr(validated_config, "enable_webui_password", False) is True
+        if initial_webui_password and not password_enabled:
+            return False, "设置 WebUI 初始密码前请先启用 WebUI 登录密码", original_config
+
+        if initial_webui_password:
+            strength_result = validate_password_strength(initial_webui_password)
+            if not strength_result["valid"]:
+                issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
+                return False, issues, original_config
+
+        if (
+            password_enabled
+            and not initial_webui_password
+            and not auth_service.has_password_config()
+            and not os.getenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, "").strip()
+        ):
+            return False, (
+                "开启 WebUI 登录密码前，请填写 WebUI 一次性初始密码，"
+                f"或设置环境变量 {INITIAL_WEBUI_PASSWORD_ENV_VAR}"
+            ), original_config
+
         for field_name, value in validated_config.model_dump().items():
             if hasattr(self.plugin_config, field_name):
                 setattr(self.plugin_config, field_name, value)
@@ -1080,9 +1153,17 @@ class ConfigService:
                 self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
             )
 
+        if initial_webui_password:
+            password_success, password_message = AuthService(self.container).configure_password(
+                initial_webui_password,
+                must_change=False,
+            )
+            if not password_success:
+                return False, password_message, original_config
+
         self._sync_runtime_components(changed_keys)
         astrbot_config_synced = self._sync_astrbot_group_config(
-            validated_config,
+            self.plugin_config,
             list(flat_config),
         )
 
