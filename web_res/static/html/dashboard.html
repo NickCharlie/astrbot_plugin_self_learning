@@ -2336,6 +2336,36 @@
             color: var(--danger);
         }
 
+        .settings-warning-list {
+            display: grid;
+            gap: 8px;
+            margin: 0 0 12px;
+        }
+
+        .settings-warning {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: 10px;
+            align-items: start;
+            padding: 10px 12px;
+            border: 1px solid color-mix(in srgb, var(--warning), transparent 68%);
+            border-radius: var(--radius-md);
+            color: var(--warning);
+            background: var(--warning-soft);
+            font-size: var(--text-sm);
+            line-height: 1.55;
+        }
+
+        .settings-warning strong {
+            white-space: nowrap;
+            color: var(--text);
+        }
+
+        .settings-warning span {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
         .settings-empty {
             padding: 24px 0 8px;
             color: var(--muted);
@@ -3678,6 +3708,7 @@
             </div>
             <div id="dependencyStatus" class="config-status dependency-status">依赖安装需手动确认，不会在插件安装或启动时自动执行。</div>
             <div class="settings-summary" id="configSummary"></div>
+            <div class="settings-warning-list" id="configWarnings"></div>
             <div id="configGroups" class="settings-grid"></div>
             <div id="configStatus" class="config-status">正在加载配置中。</div>
         </section>
@@ -6199,6 +6230,27 @@
                 return state.config.schema || { groups: [], config: {} };
             }
 
+            function getConfigWarnings() {
+                const payload = getConfigSchemaPayload();
+                return safeArray(payload.warnings || payload.config_warnings)
+                    .map((warning) => String(warning || '').trim())
+                    .filter(Boolean);
+            }
+
+            function renderConfigWarnings() {
+                const warningsEl = $('configWarnings');
+                if (!warningsEl) {
+                    return;
+                }
+                const warnings = getConfigWarnings();
+                warningsEl.innerHTML = warnings.map((warning) => `
+                    <div class="settings-warning">
+                        <strong>成本提醒</strong>
+                        <span>${escapeHtml(warning)}</span>
+                    </div>
+                `).join('');
+            }
+
             function getConfigEditableKeys() {
                 const payload = getConfigSchemaPayload();
                 return safeArray(payload.groups)
@@ -6633,6 +6685,7 @@
                         : '<div class="settings-empty">暂无配置项。</div>';
                 }
 
+                renderConfigWarnings();
                 state.config.dirtyKeys = new Set(state.config.dirtyKeys);
                 updateConfigSummary();
                 applyConfigSearch();

@@ -91,6 +91,7 @@ async def test_config_schema_route_returns_groups(client):
     assert response.status_code == 200
     data = await response.get_json()
     assert "groups" in data
+    assert "warnings" in data
     assert any(group["key"] == "Database_Settings" for group in data["groups"])
     assert any(
         field["key"] == "relevance_threshold"

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+try:
+    from ...config import get_config_cost_warnings
+except ImportError:
+    from config import get_config_cost_warnings
+
 LIVINGMEMORY_EMBED_URL = "/api/integrations/embed/livingmemory"
 GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
 
@@ -95,6 +100,7 @@ class IntegrationService:
         return {
             "delegation": status,
             "settings": self._settings(config),
+            "warnings": get_config_cost_warnings(config),
             "dashboards": [
                 self._self_learning_dashboard(),
                 self._livingmemory_dashboard(memory_star, status),

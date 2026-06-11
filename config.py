@@ -19,6 +19,12 @@ DEFAULT_DATA_DIR = "./data/plugin_data/astrbot_plugin_self_learning"
 DEFAULT_DB_TYPE = "postgresql"
 SUPPORTED_DB_TYPES = {"sqlite", "mysql", "postgresql"}
 POSTGRESQL_DB_TYPE_ALIASES = {"postgres", "pg", "pgsql"}
+HIGH_COST_LIGHTRAG_QUERY_MODES = {"hybrid", "mix"}
+LIGHTRAG_LIVINGMEMORY_COST_WARNING = (
+    "当前配置选择 LightRAG 的 hybrid/mix 查询，并允许记忆委托给 LivingMemory；"
+    "当 LivingMemory 插件已加载时，会叠加 LightRAG 全局/混合检索与 LivingMemory 记忆检索，"
+    "可能显著增加 LLM 调用与 token 消耗。建议优先改为 local/naive，或只保留一种记忆/检索策略。"
+)
 
 
 def normalize_db_type(db_type: Any) -> Optional[str]:
@@ -29,6 +35,53 @@ def normalize_db_type(db_type: Any) -> Optional[str]:
     if value not in SUPPORTED_DB_TYPES:
         return None
     return value
+
+
+def _read_config_value(config_like: Any, key: str, default: Any = None) -> Any:
+    if isinstance(config_like, dict):
+        if key in config_like:
+            return config_like.get(key, default)
+        for group_key in ("V2_Architecture_Settings", "Integration_Settings"):
+            group = config_like.get(group_key)
+            if isinstance(group, dict) and key in group:
+                return group.get(key, default)
+        return default
+    return getattr(config_like, key, default)
+
+
+def _read_config_bool(config_like: Any, key: str, default: bool = False) -> bool:
+    value = _read_config_value(config_like, key, default)
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def is_lightrag_livingmemory_high_cost_config(config_like: Any) -> bool:
+    """Return True for the known high-cost LightRAG + LivingMemory combination."""
+    knowledge_engine = str(
+        _read_config_value(config_like, "knowledge_engine", "legacy") or "legacy"
+    ).strip().lower()
+    query_mode = str(
+        _read_config_value(config_like, "lightrag_query_mode", "local") or "local"
+    ).strip().lower()
+    delegate_memory = _read_config_bool(config_like, "delegate_memory_to_livingmemory")
+
+    return (
+        knowledge_engine == "lightrag"
+        and query_mode in HIGH_COST_LIGHTRAG_QUERY_MODES
+        and delegate_memory
+    )
+
+
+def get_config_cost_warnings(config_like: Any) -> List[str]:
+    """Return non-blocking warnings for expensive cross-feature config combinations."""
+    if is_lightrag_livingmemory_high_cost_config(config_like):
+        return [LIGHTRAG_LIVINGMEMORY_COST_WARNING]
+    return []
 
 
 def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False) -> List[str]:
@@ -660,6 +713,8 @@ class PluginConfig(BaseModel):
                 errors.append("PostgreSQL schema 不能为空")
 
         # 提示性警告而非错误
+        errors.extend(f" {warning}" for warning in get_config_cost_warnings(self))
+
         provider_warnings = []
         if not self.filter_provider_id:
             provider_warnings.append("未配置筛选模型提供商ID，将尝试自动配置或使用备选模型")

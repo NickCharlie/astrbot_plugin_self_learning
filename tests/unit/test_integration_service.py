@@ -62,6 +62,8 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
             delegate_reply_to_group_chat_plus=True,
             group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
             disable_local_reply_when_delegated=True,
+            knowledge_engine="legacy",
+            lightrag_query_mode="local",
         ),
         webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
         feature_delegation=delegation,
@@ -88,3 +90,35 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
     group_chat_plus_embed = IntegrationService(container).get_embed_target("reply-strategy")
     assert livingmemory_embed["target_url"] == "http://127.0.0.1:8888"
     assert group_chat_plus_embed["target_url"] == "http://127.0.0.1:8787/panel?embed=1"
+
+
+def test_integration_service_reports_high_cost_v2_warning():
+    container = SimpleNamespace(
+        plugin_config=SimpleNamespace(
+            delegate_memory_to_livingmemory=True,
+            livingmemory_plugin_name="LivingMemory",
+            disable_local_memory_when_delegated=True,
+            delegate_reply_to_group_chat_plus=True,
+            group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
+            disable_local_reply_when_delegated=True,
+            knowledge_engine="lightrag",
+            lightrag_query_mode="mix",
+        ),
+        webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
+        feature_delegation=SimpleNamespace(
+            status=lambda: {
+                "memory_delegated": True,
+                "memory_plugin": "LivingMemory",
+                "reply_delegated": False,
+                "reply_plugin": None,
+            },
+            memory_plugin=lambda: None,
+            reply_plugin=lambda: None,
+        ),
+    )
+
+    payload = IntegrationService(container).get_status()
+
+    assert payload["warnings"]
+    assert "LivingMemory" in payload["warnings"][0]
+    assert "token" in payload["warnings"][0]

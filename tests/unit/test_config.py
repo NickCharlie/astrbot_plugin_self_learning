@@ -14,7 +14,14 @@ import tempfile
 import pytest
 from unittest.mock import patch, MagicMock
 
-from config import DEFAULT_DATA_DIR, DEFAULT_DB_TYPE, PluginConfig, normalize_db_type
+from config import (
+    DEFAULT_DATA_DIR,
+    DEFAULT_DB_TYPE,
+    PluginConfig,
+    get_config_cost_warnings,
+    is_lightrag_livingmemory_high_cost_config,
+    normalize_db_type,
+)
 
 
 @pytest.mark.unit
@@ -460,6 +467,52 @@ class TestPluginConfigValidation:
         # Should have warnings but no blocking errors
         blocking_errors = [e for e in errors if not e.startswith(" ")]
         assert len(blocking_errors) == 0
+
+    def test_lightrag_hybrid_livingmemory_combo_warns_without_blocking(self):
+        """LightRAG hybrid plus LivingMemory delegation should surface cost warnings."""
+        config = PluginConfig(
+            filter_provider_id="provider_1",
+            knowledge_engine="lightrag",
+            lightrag_query_mode="hybrid",
+            delegate_memory_to_livingmemory=True,
+        )
+
+        warnings = get_config_cost_warnings(config)
+        errors = config.validate_config()
+        blocking_errors = [e for e in errors if not e.startswith(" ")]
+
+        assert is_lightrag_livingmemory_high_cost_config(config) is True
+        assert warnings
+        assert "LivingMemory" in warnings[0]
+        assert "token" in warnings[0]
+        assert any("LivingMemory" in error and error.startswith(" ") for error in errors)
+        assert blocking_errors == []
+
+    def test_lightrag_local_livingmemory_combo_does_not_warn(self):
+        """Low-latency LightRAG local mode should not raise the high-cost warning."""
+        config = PluginConfig(
+            knowledge_engine="lightrag",
+            lightrag_query_mode="local",
+            delegate_memory_to_livingmemory=True,
+        )
+
+        assert is_lightrag_livingmemory_high_cost_config(config) is False
+        assert get_config_cost_warnings(config) == []
+
+    def test_lightrag_hybrid_string_false_delegation_does_not_warn(self):
+        """Raw grouped config values should parse string false as disabled."""
+        raw_config = {
+            "V2_Architecture_Settings": {
+                "knowledge_engine": "lightrag",
+                "lightrag_query_mode": "hybrid",
+            },
+            "Integration_Settings": {
+                "delegate_memory_to_livingmemory": "false",
+            },
+        }
+
+        assert is_lightrag_livingmemory_high_cost_config(raw_config) is False
+        assert get_config_cost_warnings(raw_config) == []
 
     @pytest.mark.parametrize(
         "raw_db_type",
