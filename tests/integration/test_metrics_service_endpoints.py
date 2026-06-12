@@ -13,6 +13,7 @@ from quart import Quart
 
 import webui.blueprints.metrics as metrics_module
 from webui.blueprints.metrics import metrics_bp
+from webui.services.metrics_service import MetricsService
 
 
 class DummyDatabaseManager:
@@ -116,3 +117,21 @@ async def test_diversity_metrics_estimated_from_style_patterns(client):
     assert data["vocabulary_diversity"] == 0
     assert data["topic_diversity"] == 0
     assert data["total_score"] == 4.0  # (12 + 0 + 0) / 3
+
+
+@pytest.mark.asyncio
+async def test_diversity_metrics_handles_missing_database_manager():
+    service = MetricsService(SimpleNamespace(
+        database_manager=None,
+        intelligence_metrics_service=DummyIntelligenceMetricsService(),
+    ))
+
+    data = await service.get_diversity_metrics("g1")
+
+    assert "error" not in data
+    assert data == {
+        "vocabulary_diversity": 0,
+        "topic_diversity": 0,
+        "style_diversity": 0,
+        "total_score": 0,
+    }
