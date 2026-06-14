@@ -277,6 +277,7 @@ WebUI 提供以下入口：
 | `/start_learning` | 手动启动学习 |
 | `/stop_learning` | 停止学习 |
 | `/force_learning` | 强制执行一次学习 |
+| `/remember <引用或上下文> => <表达示例>` | 手动记住对话上下文，并链入表达方式和对话示例 |
 | `/affection_status` | 查看好感度状态 |
 | `/set_mood <类型>` | 设置 Bot 情绪 |
 

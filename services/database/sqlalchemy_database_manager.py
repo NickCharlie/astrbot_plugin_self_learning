@@ -616,6 +616,18 @@ class SQLAlchemyDatabaseManager:
     async def save_raw_message(self, message_data) -> int:
         return await self._message.save_raw_message(message_data)
 
+    async def save_manual_memory(
+        self,
+        group_id: str,
+        user_id: str,
+        content: str,
+        memory_type: str = "manual_remember",
+        importance: int = 9,
+    ) -> int:
+        return await self._message.save_manual_memory(
+            group_id, user_id, content, memory_type, importance
+        )
+
     async def get_recent_raw_messages(
         self, group_id: str, limit: int = 200,
     ) -> List[Dict[str, Any]]:

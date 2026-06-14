@@ -142,6 +142,7 @@ AstrBot 完成 handler 绑定后调用 `initialize()`，它委托给 `PluginLife
 | `/start_learning` | ADMIN | `PluginCommandHandlers.start_learning` |
 | `/stop_learning` | ADMIN | `PluginCommandHandlers.stop_learning` |
 | `/force_learning` | ADMIN | `PluginCommandHandlers.force_learning` |
+| `/remember` | ADMIN | `PluginCommandHandlers.remember` |
 | `/affection_status` | ADMIN | `PluginCommandHandlers.affection_status` |
 | `/set_mood` | ADMIN | `PluginCommandHandlers.set_mood` |
 

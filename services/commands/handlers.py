@@ -1,4 +1,4 @@
-"""插件命令业务逻辑实现 — 6 个 admin 命令的处理体"""
+"""插件命令业务逻辑实现 — admin 命令的处理体"""
 import time
 from typing import Any, AsyncGenerator
 
@@ -21,6 +21,7 @@ class PluginCommandHandlers:
         temporary_persona_updater: Any,
         db_manager: Any,
         llm_adapter: Any,
+        remember_service: Any = None,
     ):
         self._config = plugin_config
         self._service_factory = service_factory
@@ -31,6 +32,7 @@ class PluginCommandHandlers:
         self._temporary_persona_updater = temporary_persona_updater
         self._db_manager = db_manager
         self._llm_adapter = llm_adapter
+        self._remember_service = remember_service
         self._force_learning_in_progress: set = set()
 
     # learning_status
@@ -245,6 +247,46 @@ class PluginCommandHandlers:
                 CommandMessages.ERROR_FORCE_LEARNING.format(error=str(e))
             )
 
+    # remember
+
+    async def remember(self, event: Any) -> AsyncGenerator:
+        """手动记住一段对话上下文并链入表达方式和对话示例。"""
+        try:
+            if not self._remember_service:
+                yield event.plain_result("remember 服务未初始化，请检查启动日志")
+                return
+
+            payload = self._extract_command_payload(event, "remember")
+            quoted_context = self._extract_referenced_text(event)
+            content = self._merge_remember_payload(quoted_context, payload)
+            if not content:
+                yield event.plain_result(
+                    "使用方法：/remember <引用或上下文> => <期望表达示例>\n"
+                    "也可只写：/remember <需要记住的上下文>"
+                )
+                return
+
+            group_id = event.get_group_id() or event.get_sender_id()
+            sender_id = event.get_sender_id()
+            result = await self._remember_service.remember(
+                group_id=group_id,
+                sender_id=sender_id,
+                content=content,
+            )
+
+            yield event.plain_result(
+                "已记住这段对话上下文，并同步到表达方式和对话示例。\n"
+                f"• memory_id: {result.memory_id}\n"
+                f"• exemplar_id: {result.exemplar_id or '未生成'}\n"
+                f"• style_review_id: {result.style_review_id or '未生成'}"
+            )
+
+        except ValueError as e:
+            yield event.plain_result(f"remember 失败：{e}")
+        except Exception as e:
+            logger.error(f"remember 命令处理失败: {e}", exc_info=True)
+            yield event.plain_result(f"remember 失败：{str(e)}")
+
     # affection_status
 
     async def affection_status(self, event: Any) -> AsyncGenerator:
@@ -415,3 +457,117 @@ class PluginCommandHandlers:
             yield event.plain_result(
                 CommandMessages.ERROR_SET_MOOD.format(error=str(e))
             )
+
+    @staticmethod
+    def _extract_command_payload(event: Any, command_name: str) -> str:
+        message = event.get_message_str() or ""
+        stripped = message.strip()
+        if not stripped:
+            return ""
+
+        parts = stripped.split(maxsplit=1)
+        if not parts:
+            return ""
+        token = parts[0].lstrip("/!#.")
+        if token.lower() != command_name.lower():
+            return stripped
+        return parts[1].strip() if len(parts) > 1 else ""
+
+    @classmethod
+    def _merge_remember_payload(cls, quoted_context: str, payload: str) -> str:
+        quoted_context = (quoted_context or "").strip()
+        payload = (payload or "").strip()
+        if not quoted_context:
+            return payload
+        if not payload:
+            return quoted_context
+        if cls._looks_like_pair_payload(payload):
+            if payload.lstrip().startswith(("=>", "->", "→")):
+                return f"{quoted_context} {payload}"
+            return payload
+        return f"{quoted_context} => {payload}"
+
+    @staticmethod
+    def _looks_like_pair_payload(payload: str) -> bool:
+        return any(
+            marker in payload
+            for marker in ("=>", "->", "→", "回复：", "回答：", "回应：", "\nB:")
+        )
+
+    @classmethod
+    def _extract_referenced_text(cls, event: Any) -> str:
+        for getter_name in ("get_message", "get_messages", "get_raw_message"):
+            getter = getattr(event, getter_name, None)
+            if not callable(getter):
+                continue
+            try:
+                text = cls._extract_text_from_candidate(getter())
+            except Exception:
+                continue
+            if text:
+                return text
+
+        for attr_name in ("raw_event", "raw", "message_obj", "message"):
+            try:
+                text = cls._extract_text_from_candidate(getattr(event, attr_name, None))
+            except Exception:
+                continue
+            if text:
+                return text
+        return ""
+
+    @classmethod
+    def _extract_text_from_candidate(cls, candidate: Any, depth: int = 0) -> str:
+        if candidate is None or depth > 4:
+            return ""
+        if isinstance(candidate, str):
+            return ""
+        if isinstance(candidate, dict):
+            for key in (
+                "quote",
+                "quoted_message",
+                "reply",
+                "reply_message",
+                "referenced_message",
+                "source",
+            ):
+                text = cls._extract_text_from_candidate(candidate.get(key), depth + 1)
+                if text:
+                    return text
+            for key in ("text", "message", "content", "raw_message"):
+                value = candidate.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return ""
+        if isinstance(candidate, (list, tuple)):
+            for item in candidate:
+                text = cls._extract_text_from_candidate(item, depth + 1)
+                if text:
+                    return text
+            return ""
+
+        class_name = type(candidate).__name__.lower()
+        candidate_type = str(
+            getattr(candidate, "type", "")
+            or getattr(candidate, "name", "")
+            or getattr(candidate, "component_type", "")
+        ).lower()
+        is_reference = any(
+            token in f"{class_name} {candidate_type}"
+            for token in ("reply", "quote", "source")
+        )
+        if is_reference:
+            for attr_name in ("text", "message", "content", "raw_message"):
+                value = getattr(candidate, attr_name, None)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                text = cls._extract_text_from_candidate(value, depth + 1)
+                if text:
+                    return text
+
+        for attr_name in ("chain", "message", "messages", "components"):
+            value = getattr(candidate, attr_name, None)
+            text = cls._extract_text_from_candidate(value, depth + 1)
+            if text:
+                return text
+        return ""

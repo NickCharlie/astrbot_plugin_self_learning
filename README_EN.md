@@ -204,6 +204,7 @@ More configuration options are available in the WebUI settings page.
 | `/start_learning` | Manually start learning |
 | `/stop_learning` | Stop automatic learning |
 | `/force_learning` | Force execute one learning cycle |
+| `/remember <context> => <example>` | Manually remember conversation context and link it to expression/few-shot examples |
 | `/affection_status` | View affection leaderboard |
 | `/set_mood <type>` | Set bot mood |
 

@@ -247,6 +247,16 @@ class PluginLifecycle:
 
             # ------ 命令处理器 ------
             from ..services.commands import PluginCommandHandlers, CommandFilter
+            from ..services.learning import RememberService
+
+            p.remember_service = RememberService(
+                db_manager=p.db_manager,
+                embedding_provider=getattr(
+                    getattr(p, "v2_integration", None),
+                    "_embedding_provider",
+                    None,
+                ),
+            )
 
             p._command_handlers = PluginCommandHandlers(
                 plugin_config=plugin_config,
@@ -258,6 +268,7 @@ class PluginLifecycle:
                 temporary_persona_updater=p.temporary_persona_updater,
                 db_manager=p.db_manager,
                 llm_adapter=p.llm_adapter,
+                remember_service=p.remember_service,
             )
             p._command_filter = CommandFilter()
 

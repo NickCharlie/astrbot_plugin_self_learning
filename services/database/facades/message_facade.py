@@ -12,9 +12,11 @@ try:
     from ....repositories.raw_message_repository import RawMessageRepository
     from ....repositories.filtered_message_repository import FilteredMessageRepository
     from ....repositories.bot_message_repository import BotMessageRepository
+    from ....models.orm.memory import Memory
     from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
     from ....models.orm.social_relation import SocialRelation
 except ImportError:
+    from models.orm.memory import Memory
     from repositories.raw_message_repository import RawMessageRepository
     from repositories.filtered_message_repository import FilteredMessageRepository
     from repositories.bot_message_repository import BotMessageRepository
@@ -62,6 +64,36 @@ class MessageFacade(BaseFacade):
                 return raw_msg.id
         except Exception as e:
             self._logger.error(f"[MessageFacade] 保存原始消息失败: {e}")
+            return 0
+
+    async def save_manual_memory(
+        self,
+        group_id: str,
+        user_id: str,
+        content: str,
+        memory_type: str = "manual_remember",
+        importance: int = 9,
+    ) -> int:
+        """保存手动 remember 记忆。"""
+        try:
+            async with self.get_session() as session:
+                now = int(time.time())
+                record = Memory(
+                    group_id=group_id,
+                    user_id=user_id,
+                    content=content,
+                    importance=importance,
+                    memory_type=memory_type,
+                    created_at=now,
+                    last_accessed=now,
+                    access_count=0,
+                )
+                session.add(record)
+                await session.commit()
+                await session.refresh(record)
+                return record.id
+        except Exception as e:
+            self._logger.error(f"[MessageFacade] 保存手动记忆失败: {e}")
             return 0
 
     async def get_recent_raw_messages(

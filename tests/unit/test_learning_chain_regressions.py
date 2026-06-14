@@ -29,14 +29,20 @@ from self_learning_EterU.services.database.sqlalchemy_database_manager import (
 from self_learning_EterU.models.orm.expression import (
     ExpressionPattern as ExpressionPatternORM,
 )
+from self_learning_EterU.models.orm.exemplar import Exemplar
+from self_learning_EterU.models.orm.learning import StyleLearningReview
+from self_learning_EterU.models.orm.memory import Memory
 from self_learning_EterU.services.analysis.expression_pattern_learner import (
     ExpressionPattern,
     ExpressionPatternLearner,
 )
+from self_learning_EterU.services.commands.command_filter import CommandFilter
+from self_learning_EterU.services.commands.handlers import PluginCommandHandlers
 from self_learning_EterU.services.integration.maibot_enhanced_learning_manager import (
     MaiBotEnhancedLearningManager,
 )
 from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
+from self_learning_EterU.services.learning.remember_service import RememberService
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
@@ -337,6 +343,150 @@ def test_learning_sample_filter_blocks_commands_and_system_outputs():
     ) is False
     assert should_ignore_learning_sample("LivingMemory 今天真好用") is False
     assert should_ignore_learning_sample("这是一条普通聊天消息") is False
+
+
+@pytest.mark.unit
+def test_command_filter_recognizes_remember_command():
+    command_filter = CommandFilter()
+
+    assert command_filter.is_plugin_command("/remember 这段要记住") is True
+    assert command_filter.is_plugin_command("remember 这段要记住") is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_remember_service_links_memory_expression_exemplar_and_review(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        service = RememberService(db)
+
+        result = await service.remember(
+            group_id="group-a",
+            sender_id="user-a",
+            content="今天状态怎么样 => 我今天状态不错，想继续聊",
+        )
+
+        assert result.memory_id > 0
+        assert result.expression_saved is True
+        assert result.exemplar_id
+        assert result.style_review_id > 0
+
+        async with db.get_session() as session:
+            memories = (
+                await session.execute(select(Memory))
+            ).scalars().all()
+            expressions = (
+                await session.execute(select(ExpressionPatternORM))
+            ).scalars().all()
+            exemplars = (
+                await session.execute(select(Exemplar))
+            ).scalars().all()
+            reviews = (
+                await session.execute(select(StyleLearningReview))
+            ).scalars().all()
+
+        assert memories[0].memory_type == "manual_remember"
+        assert memories[0].importance == 9
+        assert expressions[0].situation == "今天状态怎么样"
+        assert expressions[0].expression == "我今天状态不错，想继续聊"
+        assert "A: 今天状态怎么样" in exemplars[0].content
+        assert reviews[0].status == "pending"
+        assert reviews[0].metadata_
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_remember_command_delegates_to_service():
+    remember_service = SimpleNamespace(
+        remember=AsyncMock(
+            return_value=SimpleNamespace(
+                memory_id=1,
+                exemplar_id=2,
+                style_review_id=3,
+            )
+        )
+    )
+    handler = PluginCommandHandlers(
+        plugin_config=SimpleNamespace(),
+        service_factory=SimpleNamespace(),
+        message_collector=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        progressive_learning=SimpleNamespace(),
+        affection_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+        llm_adapter=SimpleNamespace(),
+        remember_service=remember_service,
+    )
+    event = SimpleNamespace(
+        get_message_str=lambda: "/remember 打招呼 => 我来了",
+        get_group_id=lambda: "group-a",
+        get_sender_id=lambda: "user-a",
+        plain_result=lambda text: text,
+    )
+
+    results = [item async for item in handler.remember(event)]
+
+    remember_service.remember.assert_awaited_once_with(
+        group_id="group-a",
+        sender_id="user-a",
+        content="打招呼 => 我来了",
+    )
+    assert "已记住这段对话上下文" in results[0]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_remember_command_uses_quoted_context_when_present():
+    remember_service = SimpleNamespace(
+        remember=AsyncMock(
+            return_value=SimpleNamespace(
+                memory_id=1,
+                exemplar_id=2,
+                style_review_id=3,
+            )
+        )
+    )
+    handler = PluginCommandHandlers(
+        plugin_config=SimpleNamespace(),
+        service_factory=SimpleNamespace(),
+        message_collector=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        progressive_learning=SimpleNamespace(),
+        affection_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+        llm_adapter=SimpleNamespace(),
+        remember_service=remember_service,
+    )
+    event = SimpleNamespace(
+        get_message_str=lambda: "/remember 我来了",
+        get_group_id=lambda: "group-a",
+        get_sender_id=lambda: "user-a",
+        get_message=lambda: [
+            SimpleNamespace(type="Reply", text="用户说你好"),
+            SimpleNamespace(type="Plain", text="/remember 我来了"),
+        ],
+        plain_result=lambda text: text,
+    )
+
+    results = [item async for item in handler.remember(event)]
+
+    remember_service.remember.assert_awaited_once_with(
+        group_id="group-a",
+        sender_id="user-a",
+        content="用户说你好 => 我来了",
+    )
+    assert "已记住这段对话上下文" in results[0]
 
 
 @pytest.mark.unit

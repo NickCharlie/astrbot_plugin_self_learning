@@ -13,6 +13,7 @@ class CommandFilter:
         "force_learning",
         "affection_status",
         "set_mood",
+        "remember",
     ]
 
     def is_astrbot_command(self, event: Any) -> bool:
