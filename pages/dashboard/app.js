@@ -2,19 +2,20 @@
   "use strict";
 
   const PAGE_META = {
-    home: ["Dashboard", "完整内嵌 WebUI"],
-    insights: ["Insights", "AI 巡检"],
-    monitoring: ["Monitoring", "运行监控"],
-    reviews: ["Reviews", "审查队列"],
-    "jargon-learning": ["Jargon", "黑话学习"],
-    "expression-learning": ["Expression", "表达方式学习"],
-    "persona-learning": ["Persona", "人格学习"],
-    content: ["Content", "学习内容"],
-    graphs: ["Graphs", "图谱"],
-    "reply-strategy": ["Reply", "回复策略"],
-    integrations: ["Integrations", "功能融合"],
-    settings: ["Settings", "设置"],
+    home: ["page.home.kicker", "page.home.title", "Dashboard", "完整内嵌 WebUI"],
+    insights: ["page.insights.kicker", "page.insights.title", "Insights", "AI 巡检"],
+    monitoring: ["page.monitoring.kicker", "page.monitoring.title", "Monitoring", "运行监控"],
+    reviews: ["page.reviews.kicker", "page.reviews.title", "Reviews", "审查队列"],
+    "jargon-learning": ["page.jargon.kicker", "page.jargon.title", "Jargon", "黑话学习"],
+    "expression-learning": ["page.style.kicker", "page.style.title", "Expression", "表达方式学习"],
+    "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
+    content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
+    graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
+    "reply-strategy": ["page.reply.kicker", "page.reply.title", "Reply", "回复策略"],
+    integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
+    settings: ["page.settings.kicker", "page.settings.title", "Settings", "设置"],
   };
+  const I18N_ROOT = "pages.dashboard";
   const GRAPH_SAFE_PADDING = 34;
   const GRAPH_HOME_STRENGTH = 0.0064;
   const GRAPH_CENTER_STRENGTH = 0.00016;
@@ -60,6 +61,47 @@
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
+  function locale() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      return bridge?.getLocale?.() || bridge?.getContext?.()?.locale || document.documentElement.lang || "zh-CN";
+    } catch (_) {
+      return document.documentElement.lang || "zh-CN";
+    }
+  }
+
+  function t(key, fallback = "") {
+    const fullKey = key.startsWith("pages.") || key.startsWith("metadata.") || key.startsWith("config.")
+      ? key
+      : `${I18N_ROOT}.${key}`;
+    try {
+      const bridge = window.AstrBotPluginPage;
+      const value = bridge?.t?.(fullKey, fallback);
+      if (value !== undefined && value !== null && value !== fullKey) return String(value);
+    } catch (_) {}
+    return String(fallback || "");
+  }
+
+  function configT(path, fallback = "") {
+    return t(`config.${path}`, fallback);
+  }
+
+  function applyStaticI18n(root = document) {
+    document.documentElement.lang = locale();
+    qsa("[data-i18n]", root).forEach((el) => {
+      el.textContent = t(el.dataset.i18n, el.textContent);
+    });
+    qsa("[data-i18n-title]", root).forEach((el) => {
+      el.setAttribute("title", t(el.dataset.i18nTitle, el.getAttribute("title") || ""));
+    });
+    qsa("[data-i18n-aria-label]", root).forEach((el) => {
+      el.setAttribute("aria-label", t(el.dataset.i18nAriaLabel, el.getAttribute("aria-label") || ""));
+    });
+    qsa("[data-i18n-placeholder]", root).forEach((el) => {
+      el.setAttribute("placeholder", t(el.dataset.i18nPlaceholder, el.getAttribute("placeholder") || ""));
+    });
+  }
+
   function endpoint(path) {
     return `page/${String(path || "").replace(/^\/+/, "").replace(/\/+/g, "/")}`;
   }
@@ -67,7 +109,7 @@
   async function bridgeReady() {
     const bridge = window.AstrBotPluginPage;
     if (!bridge) {
-      throw new Error("AstrBot 插件页桥接 SDK 未加载");
+      throw new Error(t("errors.bridgeMissing", "AstrBot 插件页桥接 SDK 未加载"));
     }
     const context = await bridge.ready();
     state.ready = true;
@@ -92,10 +134,10 @@
       return body.data || {};
     }
     if (body && body.status === "error") {
-      throw new Error(body.message || "请求失败");
+      throw new Error(body.message || t("errors.requestFailed", "请求失败"));
     }
     if (body && body.success === false) {
-      throw new Error(body.message || body.error || "请求失败");
+      throw new Error(body.message || body.error || t("errors.requestFailed", "请求失败"));
     }
     return body || {};
   }
@@ -156,7 +198,7 @@
   function fmt(value, digits = 1) {
     const num = Number(value || 0);
     if (!Number.isFinite(num)) return "0";
-    return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: digits }).format(num);
+    return new Intl.NumberFormat(locale(), { maximumFractionDigits: digits }).format(num);
   }
 
   function normalizeScore(value) {
@@ -175,7 +217,7 @@
     if (el) el.innerHTML = html;
   }
 
-  function empty(text = "暂无数据") {
+  function empty(text = t("empty.default", "暂无数据")) {
     return `<div class="empty-state">${escapeHtml(text)}</div>`;
   }
 
@@ -217,14 +259,14 @@
 
   function reviewCheckbox(kind, id) {
     const safeId = normalizeId(id);
-    return `<label class="select-cell" title="选择">
+    return `<label class="select-cell" title="${escapeAttr(t("actions.select", "选择"))}">
       <input type="checkbox" data-review-select-kind="${escapeAttr(kind)}" data-review-select-id="${escapeAttr(safeId)}" ${isReviewSelected(kind, safeId) ? "checked" : ""}>
     </label>`;
   }
 
   function jargonCheckbox(id) {
     const safeId = normalizeId(id);
-    return `<label class="select-cell" title="选择">
+    return `<label class="select-cell" title="${escapeAttr(t("actions.select", "选择"))}">
       <input type="checkbox" data-jargon-select-id="${escapeAttr(safeId)}" ${isJargonSelected(safeId) ? "checked" : ""}>
     </label>`;
   }
@@ -273,13 +315,15 @@
       const ids = visibleReviewIds(kind);
       setText(`${kind}-review-count`, reviewCountText(kind, ids.length));
     });
-    setText("expression-review-count", `已选 ${fmt(selectedReviewIds("style").length, 0)}`);
+    setText("expression-review-count", t("selection.selectedCount", "已选 {count}").replace("{count}", fmt(selectedReviewIds("style").length, 0)));
     const selectedJargon = Array.from(state.selectedJargon).filter(Boolean).length;
     const visibleJargon = jargonPageIds().length;
-    setText("jargon-selection-count", `已选 ${fmt(selectedJargon, 0)}/${fmt(visibleJargon, 0)}`);
+    setText("jargon-selection-count", t("selection.selectedOfTotal", "已选 {selected}/{total}")
+      .replace("{selected}", fmt(selectedJargon, 0))
+      .replace("{total}", fmt(visibleJargon, 0)));
   }
 
-  function setBusy(label = "加载中") {
+  function setBusy(label = t("status.loading", "加载中")) {
     setText("runtime-status", label);
     setText("hero-status", label);
   }
@@ -299,7 +343,7 @@
     const close = document.createElement("button");
     close.className = "toast-close";
     close.type = "button";
-    close.setAttribute("aria-label", "关闭提示");
+    close.setAttribute("aria-label", t("actions.closeToast", "关闭提示"));
     close.textContent = "×";
     close.addEventListener("click", () => {
       if (state.toastTimer) clearTimeout(state.toastTimer);
@@ -378,8 +422,8 @@
     qsa(".page").forEach((el) => el.classList.toggle("active", el.dataset.page === next));
     qsa(".nav-item").forEach((el) => el.classList.toggle("active", el.dataset.page === next));
     const meta = PAGE_META[next] || PAGE_META.home;
-    setText("page-kicker", meta[0]);
-    setText("page-title", meta[1]);
+    setText("page-kicker", t(meta[0], meta[2]));
+    setText("page-title", t(meta[1], meta[3]));
     loadPageData(next, { force: !!options.force });
   }
 
@@ -388,7 +432,7 @@
       renderDashboard(state.dashboard);
       return state.dashboard;
     }
-    setBusy("同步中");
+    setBusy(t("status.syncing", "同步中"));
     try {
       const data = await apiGet("dashboard");
       state.dashboard = data;
@@ -427,7 +471,7 @@
 
   async function cached(key, loader, force) {
     if (!force && state.pageData[key]) return state.pageData[key];
-    setBusy("加载中");
+    setBusy(t("status.loading", "加载中"));
     const data = await loader();
     state.pageData[key] = data;
     return data;
@@ -444,11 +488,12 @@
     const errors = data.errors || overview.errors || {};
     const degraded = runtime.database_degraded || Object.keys(errors).length > 0;
 
-    const statusLabel = degraded ? "部分可用" : "运行正常";
+    const statusLabel = degraded ? t("status.partial", "部分可用") : t("status.healthy", "运行正常");
     const resolvedDashboardUrl = resolveHostUrl(webui.dashboard_url || "");
     const summary = degraded
-      ? "嵌入式页面已载入，部分服务处于降级状态。"
-      : `已连接官方插件页 API，独立 WebUI: ${resolvedDashboardUrl || "未配置"}`;
+      ? t("status.degradedSummary", "嵌入式页面已载入，部分服务处于降级状态。")
+      : t("status.connectedSummary", "已连接官方插件页 API，独立 WebUI: {url}")
+        .replace("{url}", resolvedDashboardUrl || t("status.notConfigured", "未配置"));
     setText("runtime-status", statusLabel);
     setText("hero-status", statusLabel);
     setText("runtime-summary", summary);
@@ -477,7 +522,7 @@
       const url = resolveHostUrl(link.url || "#");
       const external = /^https?:\/\//.test(String(url || ""));
       return `<a class="quick-entry" href="${escapeAttr(url || "#")}" target="${external ? "_blank" : "_self"}" rel="noreferrer">
-        <span>${escapeHtml(link.label || "入口")}</span>
+        <span>${escapeHtml(link.label || t("actions.entry", "入口"))}</span>
         <small>${escapeHtml(link.description || "")}</small>
       </a>`;
     }).join("");
@@ -489,7 +534,7 @@
       <article class="module-card" style="--accent:${escapeAttr(item.accent || "#2563eb")}" data-route-card="${escapeAttr(item.target || "home")}">
         <div class="module-card-head">
           <h3>${escapeHtml(item.title)}</h3>
-          ${pill(item.enabled ? "启用" : "关闭", item.enabled ? "ok" : "warn")}
+          ${pill(item.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), item.enabled ? "ok" : "warn")}
         </div>
         <p>${escapeHtml(item.description || "")}</p>
         <div class="metric-line">
@@ -521,7 +566,9 @@
     const dimCount = metrics.dimensions && typeof metrics.dimensions === "object"
       ? Object.keys(metrics.dimensions).length
       : 0;
-    setText("metrics-summary", dimCount ? `已有 ${dimCount} 个维度参与评估。` : "智能指标服务暂未产生维度数据。");
+    setText("metrics-summary", dimCount
+      ? t("home.metricsSummary", "已有 {count} 个维度参与评估。").replace("{count}", fmt(dimCount, 0))
+      : t("home.noMetrics", "智能指标服务暂未产生维度数据。"));
   }
 
   function buildInsights(data) {
@@ -534,32 +581,34 @@
     const push = (severity, title, detail, target) => items.push({ severity, title, detail, target });
 
     if ((overview.runtime || {}).database_degraded) {
-      push("warn", "数据库处于降级状态", (overview.runtime || {}).database_error || "数据库服务未完整启动。", "monitoring");
+      push("warn", t("insights.databaseDegraded", "数据库处于降级状态"), (overview.runtime || {}).database_error || t("insights.databaseNotReady", "数据库服务未完整启动。"), "monitoring");
     }
     const pendingPersona = ((reviews.persona_pending || {}).updates || []).length;
     const pendingStyle = ((reviews.style_reviews || {}).reviews || []).length;
     const pendingJargon = (((reviews.jargon_pending || {}).jargon_list) || []).length;
     const totalBacklog = pendingPersona + pendingStyle + pendingJargon;
     if (totalBacklog > 0) {
-      push("action", "审查队列有积压", `当前有 ${totalBacklog} 条学习结果等待确认。`, "reviews");
+      push("action", t("insights.reviewBacklog", "审查队列有积压"), t("insights.reviewBacklogDetail", "当前有 {count} 条学习结果等待确认。").replace("{count}", fmt(totalBacklog, 0)), "reviews");
     }
     const score = normalizeScore(((overview.metrics || {}).overall_score));
     if (score > 0 && score < 60) {
-      push("warn", "智能评分偏低", `综合评分 ${fmt(score)}，建议查看表达样本和学习批次。`, "metrics");
+      push("warn", t("insights.lowScore", "智能评分偏低"), t("insights.lowScoreDetail", "综合评分 {score}，建议查看表达样本和学习批次。").replace("{score}", fmt(score)), "metrics");
     }
     const health = (monitoring.health || {}).overall;
     if (health && health !== "healthy") {
-      push("warn", "健康检查提示异常", `当前健康状态为 ${health}。`, "monitoring");
+      push("warn", t("insights.healthWarn", "健康检查提示异常"), t("insights.healthWarnDetail", "当前健康状态为 {status}。").replace("{status}", health), "monitoring");
     }
     const delegation = integrations.delegation || {};
     if (delegation.memory_delegated || delegation.reply_delegated) {
-      push("ok", "伴随插件委托已启用", `记忆委托: ${delegation.memory_delegated ? "是" : "否"}，回复委托: ${delegation.reply_delegated ? "是" : "否"}。`, "integrations");
+      push("ok", t("insights.delegationEnabled", "伴随插件委托已启用"), t("insights.delegationDetail", "记忆委托: {memory}，回复委托: {reply}。")
+        .replace("{memory}", delegation.memory_delegated ? t("state.yes", "是") : t("state.no", "否"))
+        .replace("{reply}", delegation.reply_delegated ? t("state.yes", "是") : t("state.no", "否")), "integrations");
     }
     Object.entries(errors).forEach(([key, value]) => {
-      push("warn", `模块 ${key} 读取失败`, String(value), "monitoring");
+      push("warn", t("insights.moduleFailed", "模块 {name} 读取失败").replace("{name}", key), String(value), "monitoring");
     });
     if (!items.length) {
-      push("ok", "暂无高优先级问题", "核心学习、审查和监控模块均已返回可用数据。", "home");
+      push("ok", t("insights.noIssues", "暂无高优先级问题"), t("insights.noIssuesDetail", "核心学习、审查和监控模块均已返回可用数据。"), "home");
     }
     return items;
   }
@@ -571,7 +620,7 @@
         <span>${escapeHtml(item.severity === "ok" ? "OK" : item.severity === "action" ? "ACTION" : "WARN")}</span>
         <h3>${escapeHtml(item.title)}</h3>
         <p>${escapeHtml(item.detail)}</p>
-        ${button("前往", `data-route-card="${escapeAttr(item.target)}"`)}
+        ${button(t("actions.go", "前往"), `data-route-card="${escapeAttr(item.target)}"`)}
       </article>
     `).join("");
     setHtml("ai-insight-list", html);
@@ -587,7 +636,7 @@
         <small>${escapeHtml(summarizeObject(item.detail || {}))}</small>
       </article>
     `).join("");
-    setHtml("health-grid", healthHtml || empty("暂无健康检查数据"));
+    setHtml("health-grid", healthHtml || empty(t("empty.healthChecks", "暂无健康检查数据")));
 
     const functions = ((data.functions || {}).functions || []).slice(0, 20);
     const fnHtml = functions.map((item) => `
@@ -597,7 +646,7 @@
         <small>${escapeHtml(fmt(item.calls || 0, 0))} calls</small>
       </div>
     `).join("");
-    setHtml("function-list", fnHtml || empty((data.functions || {}).debug_mode ? "暂无函数性能数据" : "debug_mode 未启用"));
+    setHtml("function-list", fnHtml || empty((data.functions || {}).debug_mode ? t("empty.functionStats", "暂无函数性能数据") : t("empty.debugDisabled", "debug_mode 未启用")));
     showErrors(data.errors || {});
   }
 
@@ -616,10 +665,10 @@
   function renderJargon(data) {
     const stats = data.stats || {};
     setHtml("jargon-stat-grid", statCards([
-      ["候选词", stats.total_candidates],
-      ["已确认", stats.confirmed_jargon],
-      ["推断完成", stats.completed_inference],
-      ["活跃群组", stats.active_groups],
+      [t("jargon.stats.candidates", "候选词"), stats.total_candidates],
+      [t("jargon.stats.confirmed", "已确认"), stats.confirmed_jargon],
+      [t("jargon.stats.inferred", "推断完成"), stats.completed_inference],
+      [t("jargon.stats.activeGroups", "活跃群组"), stats.active_groups],
     ]));
     const items = ((data.list || {}).jargon_list || []);
     pruneSelection(state.selectedJargon, items.map((item) => item.id));
@@ -628,21 +677,21 @@
         ${jargonCheckbox(item.id)}
         <div>
           <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
-          <small>${escapeHtml(item.meaning || item.definition || "暂无释义")}</small>
+          <small>${escapeHtml(item.meaning || item.definition || t("empty.definition", "暂无释义"))}</small>
         </div>
         <span>${escapeHtml(item.group_id || "global")}</span>
-        ${pill(item.is_confirmed ? "已确认" : "待确认", item.is_confirmed ? "ok" : "warn")}
-        ${pill(item.is_global ? "全局" : "本地")}
+        ${pill(item.is_confirmed ? t("jargon.confirmed", "已确认") : t("jargon.pending", "待确认"), item.is_confirmed ? "ok" : "warn")}
+        ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
         <div class="row-actions">
-          ${button("编辑", `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
-          ${button("确认", `data-jargon-action="approve" data-id="${escapeAttr(item.id)}"`)}
-          ${button("驳回", `data-jargon-action="reject" data-id="${escapeAttr(item.id)}"`)}
-          ${button(item.is_global ? "取消全局" : "设为全局", `data-jargon-action="toggle_global" data-id="${escapeAttr(item.id)}"`)}
-          ${button("删除", `data-jargon-action="delete" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+          ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
+          ${button(t("actions.confirm", "确认"), `data-jargon-action="approve" data-id="${escapeAttr(item.id)}"`)}
+          ${button(t("actions.reject", "驳回"), `data-jargon-action="reject" data-id="${escapeAttr(item.id)}"`)}
+          ${button(item.is_global ? t("actions.unsetGlobal", "取消全局") : t("actions.setGlobal", "设为全局"), `data-jargon-action="toggle_global" data-id="${escapeAttr(item.id)}"`)}
+          ${button(t("actions.delete", "删除"), `data-jargon-action="delete" data-id="${escapeAttr(item.id)}"`, "danger-button")}
         </div>
       </div>
     `).join("");
-    setHtml("jargon-list", html || empty("暂无黑话数据"));
+    setHtml("jargon-list", html || empty(t("empty.jargon", "暂无黑话数据")));
     state.pageData.lastJargonItems = items;
     state.pageData.currentJargonData = data;
     refreshSelectionLabels();
@@ -652,28 +701,28 @@
   function renderStyle(data) {
     const stats = ((data.results || {}).statistics) || {};
     setHtml("style-stat-grid", statCards([
-      ["风格样本", stats.unique_styles || stats.total_samples],
-      ["平均置信度", stats.avg_confidence],
-      ["总样本", stats.total_samples],
-      ["最近更新", stats.latest_update ? "有" : "无"],
+      [t("style.stats.samples", "风格样本"), stats.unique_styles || stats.total_samples],
+      [t("style.stats.avgConfidence", "平均置信度"), stats.avg_confidence],
+      [t("style.stats.totalSamples", "总样本"), stats.total_samples],
+      [t("style.stats.latestUpdate", "最近更新"), stats.latest_update ? t("state.yes", "有") : t("state.none", "无")],
     ]));
     const patterns = data.patterns || {};
     const patternGroups = [
-      ["情绪模式", patterns.emotion_patterns || []],
-      ["语言模式", patterns.language_patterns || []],
-      ["话题模式", patterns.topic_patterns || []],
+      [t("style.patterns.emotion", "情绪模式"), patterns.emotion_patterns || []],
+      [t("style.patterns.language", "语言模式"), patterns.language_patterns || []],
+      [t("style.patterns.topic", "话题模式"), patterns.topic_patterns || []],
     ];
     setHtml("style-pattern-columns", patternGroups.map(([title, list]) => `
       <div class="pattern-column">
         <h4>${escapeHtml(title)}</h4>
-        ${(list || []).slice(0, 12).map((item) => `<span>${escapeHtml(item.name || item.pattern || item.text || "")}</span>`).join("") || empty("暂无模式")}
+        ${(list || []).slice(0, 12).map((item) => `<span>${escapeHtml(item.name || item.pattern || item.text || "")}</span>`).join("") || empty(t("empty.patterns", "暂无模式"))}
       </div>
     `).join(""));
     const chartItems = patternGroups.map(([title, list]) => ({ title, metric: (list || []).length, accent: "#4169e1" }));
     renderGenericBarChart("style-pattern-chart", chartItems);
     const reviews = ((data.reviews || {}).reviews || []);
     pruneSelection(selectedReviewSet("style"), reviews.map((item) => item.id));
-    setHtml("expression-review-list", reviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
+    setHtml("expression-review-list", reviews.map((item) => styleReviewHtml(item)).join("") || empty(t("empty.styleReviews", "暂无表达审查")));
     state.pageData.lastStyleItems = reviews;
     refreshSelectionLabels();
   }
@@ -691,9 +740,9 @@
     setText("style-review-count", reviewCountText("style", styleReviews.length));
     setText("jargon-review-count", reviewCountText("jargon", pendingJargon.length));
     setText("reviewed-count", fmt(personaReviewed.length, 0));
-    setHtml("persona-review-list", personaPending.map((item) => personaReviewHtml(item)).join("") || empty("暂无人格更新"));
-    setHtml("style-review-list", styleReviews.map((item) => styleReviewHtml(item)).join("") || empty("暂无表达审查"));
-    setHtml("jargon-review-list", pendingJargon.map((item) => jargonReviewHtml(item)).join("") || empty("暂无黑话候选"));
+    setHtml("persona-review-list", personaPending.map((item) => personaReviewHtml(item)).join("") || empty(t("empty.personaUpdates", "暂无人格更新")));
+    setHtml("style-review-list", styleReviews.map((item) => styleReviewHtml(item)).join("") || empty(t("empty.styleReviews", "暂无表达审查")));
+    setHtml("jargon-review-list", pendingJargon.map((item) => jargonReviewHtml(item)).join("") || empty(t("empty.jargonCandidates", "暂无黑话候选")));
     state.pageData.lastStyleItems = styleReviews;
     setHtml("reviewed-persona-list", personaReviewed.slice(0, 12).map((item) => `
       <div class="table-row">
@@ -701,7 +750,7 @@
         <strong>${escapeHtml(item.status || item.review_status || "reviewed")}</strong>
         <small>${escapeHtml(item.reason || item.update_type || item.review_source || "")}</small>
       </div>
-    `).join("") || empty("暂无已审查记录"));
+    `).join("") || empty(t("empty.reviewed", "暂无已审查记录")));
     showErrors(data.errors || {});
   }
 
@@ -710,15 +759,15 @@
     return `<article class="review-item selectable">
       ${reviewCheckbox("persona", id)}
       <div class="review-main">
-        <strong>${escapeHtml(item.update_type || item.review_source || "人格更新")}</strong>
+        <strong>${escapeHtml(item.update_type || item.review_source || t("reviews.personaUpdates", "人格更新"))}</strong>
         <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.reason || item.description || "")}</small>
         <p>${escapeHtml(item.proposed_content || item.new_content || item.incremental_content || "").slice(0, 220)}</p>
       </div>
       <div class="row-actions">
-        ${button("详情", `data-review-action="detail" data-kind="persona" data-id="${escapeAttr(id)}"`)}
-        ${button("批准", `data-review-action="approve" data-kind="persona" data-id="${escapeAttr(id)}"`, "solid-button")}
-        ${button("拒绝", `data-review-action="reject" data-kind="persona" data-id="${escapeAttr(id)}"`)}
-        ${button("删除", `data-review-action="delete" data-kind="persona" data-id="${escapeAttr(id)}"`, "danger-button")}
+        ${button(t("actions.details", "详情"), `data-review-action="detail" data-kind="persona" data-id="${escapeAttr(id)}"`)}
+        ${button(t("actions.approve", "批准"), `data-review-action="approve" data-kind="persona" data-id="${escapeAttr(id)}"`, "solid-button")}
+        ${button(t("actions.reject", "拒绝"), `data-review-action="reject" data-kind="persona" data-id="${escapeAttr(id)}"`)}
+        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="persona" data-id="${escapeAttr(id)}"`, "danger-button")}
       </div>
     </article>`;
   }
@@ -727,16 +776,16 @@
     return `<article class="review-item selectable">
       ${reviewCheckbox("style", item.id)}
       <div class="review-main">
-        <strong>${escapeHtml(item.description || "表达方式学习")}</strong>
+        <strong>${escapeHtml(item.description || t("style.title", "表达方式学习"))}</strong>
         <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.status || "pending")}</small>
         <p>${escapeHtml(item.few_shots_content || item.learned_patterns || "").slice(0, 220)}</p>
       </div>
       <div class="row-actions">
-        ${button("编辑", `data-style-action="edit" data-id="${escapeAttr(item.id)}"`)}
-        ${button("详情", `data-review-action="detail" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
-        ${button("批准", `data-review-action="approve" data-kind="style" data-id="${escapeAttr(item.id)}"`, "solid-button")}
-        ${button("拒绝", `data-review-action="reject" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
-        ${button("删除", `data-review-action="delete" data-kind="style" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+        ${button(t("actions.edit", "编辑"), `data-style-action="edit" data-id="${escapeAttr(item.id)}"`)}
+        ${button(t("actions.details", "详情"), `data-review-action="detail" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
+        ${button(t("actions.approve", "批准"), `data-review-action="approve" data-kind="style" data-id="${escapeAttr(item.id)}"`, "solid-button")}
+        ${button(t("actions.reject", "拒绝"), `data-review-action="reject" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
+        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="style" data-id="${escapeAttr(item.id)}"`, "danger-button")}
       </div>
     </article>`;
   }
@@ -746,13 +795,13 @@
       ${reviewCheckbox("jargon", item.id)}
       <div class="review-main">
         <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
-        <small>${escapeHtml(item.group_id || "global")} · ${escapeHtml(fmt(item.occurrences || item.count, 0))} 次</small>
-        <p>${escapeHtml(item.meaning || item.definition || item.review_detail || "暂无释义")}</p>
+        <small>${escapeHtml(item.group_id || "global")} · ${escapeHtml(t("units.times", "{count} 次").replace("{count}", fmt(item.occurrences || item.count, 0)))}</small>
+        <p>${escapeHtml(item.meaning || item.definition || item.review_detail || t("empty.definition", "暂无释义"))}</p>
       </div>
       <div class="row-actions">
-        ${button("确认", `data-review-action="approve" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "solid-button")}
-        ${button("驳回", `data-review-action="reject" data-kind="jargon" data-id="${escapeAttr(item.id)}"`)}
-        ${button("删除", `data-review-action="delete" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+        ${button(t("actions.confirm", "确认"), `data-review-action="approve" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "solid-button")}
+        ${button(t("actions.rejectBack", "驳回"), `data-review-action="reject" data-kind="jargon" data-id="${escapeAttr(item.id)}"`)}
+        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "danger-button")}
       </div>
     </article>`;
   }
@@ -761,12 +810,12 @@
     const current = data.current || {};
     const persona = current.persona || {};
     setHtml("persona-state-stats", statCards([
-      ["提示词字数", current.prompt_length],
-      ["开场对话", current.begin_dialog_count],
-      ["工具数量", current.tool_count],
-      ["当前群组", current.group_id || "default"],
+      [t("persona.stats.promptLength", "提示词字数"), current.prompt_length],
+      [t("persona.stats.beginDialogs", "开场对话"), current.begin_dialog_count],
+      [t("persona.stats.toolCount", "工具数量"), current.tool_count],
+      [t("persona.stats.currentGroup", "当前群组"), current.group_id || "default"],
     ]));
-    setText("persona-prompt-preview", current.prompt_preview || persona.system_prompt || persona.prompt || "暂无人格提示词");
+    setText("persona-prompt-preview", current.prompt_preview || persona.system_prompt || persona.prompt || t("empty.personaPrompt", "暂无人格提示词"));
 
     const personas = data.personas || [];
     setHtml("persona-list", personas.map((item) => {
@@ -775,12 +824,12 @@
         <span>${escapeHtml(id)}</span>
         <strong>${escapeHtml(item.name || id)}</strong>
         <div class="row-actions">
-          ${button("编辑", `data-persona-action="edit" data-persona-id="${escapeAttr(id)}"`)}
-          ${button("导出", `data-persona-action="export" data-persona-id="${escapeAttr(id)}"`)}
-          ${button("删除", `data-persona-action="delete" data-persona-id="${escapeAttr(id)}"`, "danger-button")}
+          ${button(t("actions.edit", "编辑"), `data-persona-action="edit" data-persona-id="${escapeAttr(id)}"`)}
+          ${button(t("actions.export", "导出"), `data-persona-action="export" data-persona-id="${escapeAttr(id)}"`)}
+          ${button(t("actions.delete", "删除"), `data-persona-action="delete" data-persona-id="${escapeAttr(id)}"`, "danger-button")}
         </div>
       </div>`;
-    }).join("") || empty("暂无人格列表"));
+    }).join("") || empty(t("empty.personaList", "暂无人格列表")));
     state.pageData.lastPersonaItems = personas;
 
     const backups = ((data.backups || {}).backups || []);
@@ -788,18 +837,18 @@
     setHtml("persona-backup-list", backups.map((item) => `
       <div class="table-row rich-row">
         <div>
-          <strong>${escapeHtml(item.backup_name || `备份 ${item.id}`)}</strong>
-          <small>${escapeHtml(item.reason_short || item.reason || "无备注")}</small>
+          <strong>${escapeHtml(item.backup_name || t("persona.backupName", "备份 {id}").replace("{id}", item.id))}</strong>
+          <small>${escapeHtml(item.reason_short || item.reason || t("empty.noRemark", "无备注"))}</small>
         </div>
         <span>${escapeHtml(item.group_id || "default")}</span>
         <small>${escapeHtml(item.timestamp || item.created_at || "")}</small>
         <div class="row-actions">
-          ${button("查看", `data-persona-action="backup_detail" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`)}
-          ${button("恢复", `data-persona-action="backup_restore" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "solid-button")}
-          ${button("删除", `data-persona-action="backup_delete" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "danger-button")}
+          ${button(t("actions.view", "查看"), `data-persona-action="backup_detail" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`)}
+          ${button(t("actions.restore", "恢复"), `data-persona-action="backup_restore" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "solid-button")}
+          ${button(t("actions.delete", "删除"), `data-persona-action="backup_delete" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "danger-button")}
         </div>
       </div>
-    `).join("") || empty("暂无人格备份"));
+    `).join("") || empty(t("empty.personaBackups", "暂无人格备份")));
     showErrors(data.errors || {});
   }
 
@@ -814,9 +863,9 @@
           <small>${escapeHtml(item.timestamp || "")} ${escapeHtml(item.metadata || "")}</small>
           <p>${escapeHtml(item.text || item.detail || "").slice(0, 360)}</p>
         </div>
-        ${button("删除", `data-content-action="delete_content" data-bucket="${escapeAttr(state.contentType)}" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+        ${button(t("actions.delete", "删除"), `data-content-action="delete_content" data-bucket="${escapeAttr(state.contentType)}" data-id="${escapeAttr(item.id)}"`, "danger-button")}
       </article>
-    `).join("") || empty("暂无学习内容"));
+    `).join("") || empty(t("empty.learningContent", "暂无学习内容")));
 
     const batches = ((data.batches || {}).batches || []);
     setHtml("batch-list", batches.map((item) => `
@@ -824,9 +873,9 @@
         <span>${escapeHtml(item.batch_name || item.batch_id || item.id)}</span>
         <strong>${escapeHtml(item.status || (item.success ? "success" : "unknown"))}</strong>
         <small>${escapeHtml(fmt(item.quality_score || 0, 3))}</small>
-        ${button("删除", `data-content-action="delete_batch" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+        ${button(t("actions.delete", "删除"), `data-content-action="delete_batch" data-id="${escapeAttr(item.id)}"`, "danger-button")}
       </div>
-    `).join("") || empty("暂无批次历史"));
+    `).join("") || empty(t("empty.batchHistory", "暂无批次历史")));
     showErrors(data.errors || {});
   }
 
@@ -852,18 +901,18 @@
     state.graph.dragged = null;
     state.graph.hovered = null;
     setHtml("graph-stat-grid", statCards([
-      ["节点", (graph.stats || {}).nodes || state.graph.nodes.length],
-      ["连线", (graph.stats || {}).links || state.graph.links.length],
-      ["群组", (graph.stats || {}).groups || (graph.groups || []).length],
-      ["来源", graph.data_source || "self_learning"],
+      [t("graphs.stats.nodes", "节点"), (graph.stats || {}).nodes || state.graph.nodes.length],
+      [t("graphs.stats.links", "连线"), (graph.stats || {}).links || state.graph.links.length],
+      [t("graphs.stats.groups", "群组"), (graph.stats || {}).groups || (graph.groups || []).length],
+      [t("graphs.stats.source", "来源"), graph.data_source || "self_learning"],
     ]));
     setHtml("graph-node-list", state.graph.nodes.slice(0, 18).map((node) => `
       <div class="table-row">
         <span>${escapeHtml(node.name || node.id)}</span>
-        <strong>${escapeHtml(node.category_name || node.category || "节点")}</strong>
+        <strong>${escapeHtml(node.category_name || node.category || t("graphs.node", "节点"))}</strong>
         <small>${escapeHtml(node.detail || "")}</small>
       </div>
-    `).join("") || empty("暂无图谱节点"));
+    `).join("") || empty(t("empty.graphNodes", "暂无图谱节点")));
     startGraphRender();
   }
 
@@ -956,19 +1005,19 @@
 
   function renderReplyStrategy(data) {
     const cards = (data.dashboards || []).filter((item) => item.id === "group_chat_plus");
-    setHtml("reply-strategy-cards", cards.map(integrationCardHtml).join("") || empty("未检测到 Group Chat Plus"));
+    setHtml("reply-strategy-cards", cards.map(integrationCardHtml).join("") || empty(t("empty.groupChatPlus", "未检测到 Group Chat Plus")));
   }
 
   function renderIntegrations(data) {
-    setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty("暂无融合状态"));
+    setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
     setHtml("integration-warnings", warningListHtml(data.warnings || []));
     const settings = data.settings || {};
     setHtml("integration-settings", Object.entries(settings).map(([key, value]) => `
       <div class="table-row">
         <span>${escapeHtml(key)}</span>
-        <strong>${escapeHtml(value === true ? "开启" : value === false ? "关闭" : value ?? "未设置")}</strong>
+        <strong>${escapeHtml(value === true ? t("state.on", "开启") : value === false ? t("state.off", "关闭") : value ?? t("state.unset", "未设置"))}</strong>
       </div>
-    `).join("") || empty("暂无融合设置"));
+    `).join("") || empty(t("empty.integrationSettings", "暂无融合设置")));
     renderMaiBotImportPreview(data.maibot_learning || null);
   }
 
@@ -980,9 +1029,9 @@
       <div>
         <span>${escapeHtml(item.role || "")}</span>
         <h3>${escapeHtml(item.title || item.id)}</h3>
-        <p>${escapeHtml(item.delegated ? "已委托" : item.active ? "可用" : "未启用")}</p>
+        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : item.active ? t("state.available", "可用") : t("state.disabled", "未启用"))}</p>
       </div>
-      <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || "打开")}</a>
+      <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || t("actions.open", "打开"))}</a>
       <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>
     </article>`;
   }
@@ -999,7 +1048,7 @@
       approve_checked_expressions: Boolean($("maibot-approve-checked")?.checked),
     };
     if (!payload.maibot_root && !payload.db_path) {
-      throw new Error("请填写 MaiBot 项目目录或主数据库路径");
+      throw new Error(t("maibot.missingPath", "请填写 MaiBot 项目目录或主数据库路径"));
     }
     return payload;
   }
@@ -1012,13 +1061,22 @@
     const destinations = summary.destinations || {};
     const lines = [];
     if (Object.keys(counts).length) {
-      lines.push(`预览: 表达 ${fmt(counts.expressions, 0)} · 黑话 ${fmt(counts.jargons, 0)} · 记忆 ${fmt(counts.memories, 0)}`);
+      lines.push(t("maibot.previewCounts", "预览: 表达 {expressions} · 黑话 {jargons} · 记忆 {memories}")
+        .replace("{expressions}", fmt(counts.expressions, 0))
+        .replace("{jargons}", fmt(counts.jargons, 0))
+        .replace("{memories}", fmt(counts.memories, 0)));
     }
     if (Object.keys(breakdown).length) {
-      lines.push(`导入: 表达审查 ${fmt(breakdown.style_learning_reviews, 0)} · 黑话候选 ${fmt(breakdown.jargon_candidates, 0)} · 记忆审查 ${fmt(breakdown.persona_memory_reviews, 0)}`);
+      lines.push(t("maibot.importCounts", "导入: 表达审查 {style} · 黑话候选 {jargon} · 记忆审查 {memory}")
+        .replace("{style}", fmt(breakdown.style_learning_reviews, 0))
+        .replace("{jargon}", fmt(breakdown.jargon_candidates, 0))
+        .replace("{memory}", fmt(breakdown.persona_memory_reviews, 0)));
     }
     if (Object.keys(destinations).length) {
-      lines.push(`分类去向: 表达 -> ${destinations.expressions}; 黑话 -> ${destinations.jargons}; 记忆 -> ${destinations.memories}`);
+      lines.push(t("maibot.destinations", "分类去向: 表达 -> {expressions}; 黑话 -> {jargons}; 记忆 -> {memories}")
+        .replace("{expressions}", destinations.expressions)
+        .replace("{jargons}", destinations.jargons)
+        .replace("{memories}", destinations.memories));
     }
     output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
   }
@@ -1031,13 +1089,17 @@
   async function handleBatchReviewAction(kind, action) {
     const ids = currentBatchReviewIds(kind);
     if (!ids.length) {
-      showToast("当前页没有可批量处理的审查项", "error");
+      showToast(t("reviews.noBatchItems", "当前页没有可批量处理的审查项"), "error");
       return;
     }
-    const typeText = { persona: "人格更新", style: "表达审查", jargon: "黑话候选" }[kind] || "审查项";
-    const actionText = action === "approve" ? "通过" : action === "reject" ? "拒绝" : "删除";
-    const scopeText = selectedReviewIds(kind).length ? "选中" : "当前页";
-    if (!window.confirm(`确定批量${actionText}${scopeText} ${ids.length} 条${typeText}？`)) return;
+    const typeText = { persona: t("reviews.personaUpdates", "人格更新"), style: t("reviews.expressionReviews", "表达审查"), jargon: t("reviews.jargonCandidates", "黑话候选") }[kind] || t("reviews.items", "审查项");
+    const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
+    const scopeText = selectedReviewIds(kind).length ? t("selection.selected", "选中") : t("selection.currentPage", "当前页");
+    if (!window.confirm(t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
+      .replace("{action}", actionText)
+      .replace("{scope}", scopeText)
+      .replace("{count}", fmt(ids.length, 0))
+      .replace("{type}", typeText))) return;
 
     const payload = {
       action: action === "delete"
@@ -1047,7 +1109,7 @@
       decision: action,
     };
     const result = await apiPost("reviews/action", payload);
-    showToast(result.message || "批量操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("messages.batchDone", "批量操作完成"), result.success ? "ok" : "error");
     selectedReviewSet(kind).clear();
     state.pageData.reviews = null;
     await loadPageData(state.page, { force: true });
@@ -1061,13 +1123,13 @@
       if (buttonEl) {
         buttonEl.disabled = true;
         buttonEl.classList.add("is-busy");
-        buttonEl.textContent = action === "maibot_import" ? "导入中" : "预览中";
+        buttonEl.textContent = action === "maibot_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
       }
-      setText("maibot-import-output", "正在读取 MaiBot 学习数据...");
+      setText("maibot-import-output", t("maibot.reading", "正在读取 MaiBot 学习数据..."));
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderMaiBotImportPreview(detail);
-      showToast(result.message || "MaiBot 学习数据操作完成", result.success !== false ? "ok" : "error");
+      showToast(result.message || t("maibot.done", "MaiBot 学习数据操作完成"), result.success !== false ? "ok" : "error");
       if (action === "maibot_import") {
         state.pageData = {};
         await loadDashboard(true);
@@ -1092,19 +1154,22 @@
     if (!state.settingsGroup && groups.length) state.settingsGroup = groups[0].key;
     setHtml("settings-groups", groups.map((group) => `
       <button class="settings-group ${group.key === state.settingsGroup ? "active" : ""}" type="button" data-settings-group="${escapeAttr(group.key)}">
-        <strong>${escapeHtml(group.title || group.key)}</strong>
-        <small>${escapeHtml(group.hint || "")}</small>
+        <strong>${escapeHtml(configT(`${group.key}.description`, group.title || group.key))}</strong>
+        <small>${escapeHtml(configT(`${group.key}.hint`, group.hint || ""))}</small>
       </button>
-    `).join("") || empty("配置 schema 暂不可用"));
+    `).join("") || empty(t("empty.configSchema", "配置 schema 暂不可用")));
 
     const active = groups.find((group) => group.key === state.settingsGroup) || groups[0] || { fields: [] };
-    setHtml("config-form", (active.fields || []).map(fieldHtml).join("") || empty("请选择配置分组"));
+    setHtml("config-form", (active.fields || []).map(fieldHtml).join("") || empty(t("empty.selectConfigGroup", "请选择配置分组")));
     renderPipMirrors(data.pip_mirrors || {});
   }
 
   function fieldHtml(field) {
     const value = state.dirtySettings.has(field.key) ? state.dirtySettings.get(field.key) : field.value;
     const common = `data-config-field="${escapeAttr(field.key)}" data-config-type="${escapeAttr(field.type)}" ${field.editable ? "" : "disabled"}`;
+    const groupKey = field.group_key || activeSettingsGroupKeyForField(field.key);
+    const label = configT(`${groupKey}.${field.key}.description`, field.label || field.key);
+    const hint = configT(`${groupKey}.${field.key}.hint`, field.hint || "");
     let control = "";
     if (field.widget === "toggle") {
       control = `<label class="switch"><input type="checkbox" ${common} ${value ? "checked" : ""}><span></span></label>`;
@@ -1121,11 +1186,17 @@
     }
     return `<label class="config-field">
       <span>
-        <strong>${escapeHtml(field.label || field.key)}</strong>
-        <small>${escapeHtml(field.hint || "")}${field.restart_required ? " · 重启后生效" : ""}</small>
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(hint)}${field.restart_required ? t("settings.restartRequired", " · 重启后生效") : ""}</small>
       </span>
       ${control}
     </label>`;
+  }
+
+  function activeSettingsGroupKeyForField(fieldKey) {
+    const groups = ((state.pageData.settings || {}).schema || {}).groups || [];
+    const group = groups.find((item) => (item.fields || []).some((field) => field.key === fieldKey));
+    return group?.key || state.settingsGroup || "";
   }
 
   function renderPipMirrors(mirrors) {
@@ -1178,7 +1249,7 @@
 
   async function handleReviewAction(kind, id, action) {
     if (action === "detail") {
-      showModal("审查详情", `<pre class="code-preview">${escapeHtml(JSON.stringify(findReviewItem(kind, id) || {}, null, 2))}</pre>`);
+      showModal(t("modal.reviewDetails", "审查详情"), `<pre class="code-preview">${escapeHtml(JSON.stringify(findReviewItem(kind, id) || {}, null, 2))}</pre>`);
       return;
     }
     let payload;
@@ -1192,7 +1263,7 @@
       payload = { action: `jargon_${action}`, id };
     }
     const result = await apiPost("reviews/action", payload);
-    showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
     selectedReviewSet(kind).delete(normalizeId(id));
     state.pageData.reviews = null;
     await loadPageData(state.page, { force: true });
@@ -1201,15 +1272,15 @@
   async function handleJargonAction(action, id) {
     if (action === "edit") {
       const item = (state.pageData.lastJargonItems || []).find((entry) => String(entry.id) === String(id)) || {};
-      showModal("编辑黑话", `
-        <label class="config-field"><span><strong>词条</strong></span><input id="modal-jargon-content" value="${escapeAttr(item.term || item.content || "")}"></label>
-        <label class="config-field"><span><strong>释义</strong></span><textarea id="modal-jargon-meaning" rows="4">${escapeHtml(item.meaning || item.definition || "")}</textarea></label>
-        <button class="solid-button" type="button" id="modal-jargon-save" data-id="${escapeAttr(id)}">保存</button>
+      showModal(t("modal.editJargon", "编辑黑话"), `
+        <label class="config-field"><span><strong>${escapeHtml(t("jargon.term", "词条"))}</strong></span><input id="modal-jargon-content" value="${escapeAttr(item.term || item.content || "")}"></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("jargon.definition", "释义"))}</strong></span><textarea id="modal-jargon-meaning" rows="4">${escapeHtml(item.meaning || item.definition || "")}</textarea></label>
+        <button class="solid-button" type="button" id="modal-jargon-save" data-id="${escapeAttr(id)}">${escapeHtml(t("actions.save", "保存"))}</button>
       `);
       return;
     }
     const result = await apiPost("jargon/action", { action, id });
-    showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
     state.selectedJargon.delete(normalizeId(id));
     state.pageData = {};
     await loadPageData(state.page, { force: true });
@@ -1230,18 +1301,18 @@
 
     const ids = Array.from(state.selectedJargon).filter(Boolean);
     if (!ids.length) {
-      showToast("请先选择黑话条目", "error");
+      showToast(t("jargon.selectFirst", "请先选择黑话条目"), "error");
       return;
     }
-    const actionText = action === "approve" ? "确认" : action === "reject" ? "驳回" : "删除";
-    if (!window.confirm(`确定批量${actionText}选中的 ${ids.length} 条黑话？`)) return;
+    const actionText = action === "approve" ? t("actions.confirm", "确认") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
+    if (!window.confirm(t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
 
     const result = await apiPost("jargon/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",
       ids,
       decision: action,
     });
-    showToast(result.message || "批量黑话操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("jargon.batchDone", "批量黑话操作完成"), result.success ? "ok" : "error");
     state.selectedJargon.clear();
     state.pageData = {};
     await loadPageData("jargon-learning", { force: true });
@@ -1267,11 +1338,11 @@
       const patterns = typeof item.learned_patterns === "string"
         ? item.learned_patterns
         : JSON.stringify(item.learned_patterns || [], null, 2);
-      showModal("编辑表达方式", `
-        <label class="config-field"><span><strong>描述</strong></span><input id="modal-style-description" value="${escapeAttr(item.description || "")}"></label>
-        <label class="config-field"><span><strong>Few-shot 示例</strong></span><textarea id="modal-style-few-shots" rows="7">${escapeHtml(item.few_shots_content || "")}</textarea></label>
-        <label class="config-field"><span><strong>学习模式 JSON</strong></span><textarea id="modal-style-patterns" rows="7">${escapeHtml(patterns)}</textarea></label>
-        <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(id)}">保存</button>
+      showModal(t("modal.editStyle", "编辑表达方式"), `
+        <label class="config-field"><span><strong>${escapeHtml(t("style.description", "描述"))}</strong></span><input id="modal-style-description" value="${escapeAttr(item.description || "")}"></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("style.fewShots", "Few-shot 示例"))}</strong></span><textarea id="modal-style-few-shots" rows="7">${escapeHtml(item.few_shots_content || "")}</textarea></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("style.patternJson", "学习模式 JSON"))}</strong></span><textarea id="modal-style-patterns" rows="7">${escapeHtml(patterns)}</textarea></label>
+        <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(id)}">${escapeHtml(t("actions.save", "保存"))}</button>
       `);
     }
   }
@@ -1292,18 +1363,18 @@
 
     const ids = selectedReviewIds("style");
     if (!ids.length) {
-      showToast("请先选择表达审查项", "error");
+      showToast(t("style.selectFirst", "请先选择表达审查项"), "error");
       return;
     }
-    const actionText = action === "approve" ? "批准" : action === "reject" ? "拒绝" : "删除";
-    if (!window.confirm(`确定批量${actionText}选中的 ${ids.length} 条表达审查？`)) return;
+    const actionText = action === "approve" ? t("actions.approve", "批准") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
+    if (!window.confirm(t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
 
     const result = await apiPost("style/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",
       ids,
       decision: action,
     });
-    showToast(result.message || "批量表达审查完成", result.success ? "ok" : "error");
+    showToast(result.message || t("style.batchDone", "批量表达审查完成"), result.success ? "ok" : "error");
     selected.clear();
     state.pageData.style = null;
     state.pageData.lastStyleItems = [];
@@ -1316,12 +1387,12 @@
       const personaId = buttonEl.dataset.personaId;
       const item = (state.pageData.lastPersonaItems || []).find((entry) => String(entry.persona_id || entry.id || entry.name) === String(personaId)) || {};
       const beginDialogs = JSON.stringify(item.begin_dialogs || [], null, 2);
-      showModal("编辑人格", `
-        <label class="config-field"><span><strong>人格 ID</strong></span><input id="modal-persona-id" value="${escapeAttr(personaId)}" disabled></label>
-        <label class="config-field"><span><strong>名称</strong></span><input id="modal-persona-name" value="${escapeAttr(item.name || personaId || "")}"></label>
-        <label class="config-field"><span><strong>系统提示词</strong></span><textarea id="modal-persona-prompt" rows="9">${escapeHtml(item.system_prompt || item.prompt || "")}</textarea></label>
-        <label class="config-field"><span><strong>开场对话 JSON</strong></span><textarea id="modal-persona-dialogs" rows="6">${escapeHtml(beginDialogs)}</textarea></label>
-        <button class="solid-button" type="button" id="modal-persona-save" data-persona-id="${escapeAttr(personaId)}">保存</button>
+      showModal(t("modal.editPersona", "编辑人格"), `
+        <label class="config-field"><span><strong>${escapeHtml(t("persona.id", "人格 ID"))}</strong></span><input id="modal-persona-id" value="${escapeAttr(personaId)}" disabled></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("persona.name", "名称"))}</strong></span><input id="modal-persona-name" value="${escapeAttr(item.name || personaId || "")}"></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("persona.systemPrompt", "系统提示词"))}</strong></span><textarea id="modal-persona-prompt" rows="9">${escapeHtml(item.system_prompt || item.prompt || "")}</textarea></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("persona.beginDialogsJson", "开场对话 JSON"))}</strong></span><textarea id="modal-persona-dialogs" rows="6">${escapeHtml(beginDialogs)}</textarea></label>
+        <button class="solid-button" type="button" id="modal-persona-save" data-persona-id="${escapeAttr(personaId)}">${escapeHtml(t("actions.save", "保存"))}</button>
       `);
       return;
     }
@@ -1333,10 +1404,10 @@
     };
     const result = await apiPost("persona/action", body);
     if (action === "backup_detail" || action === "export") {
-      showModal(action === "export" ? "人格导出" : "备份详情", `<pre class="code-preview">${escapeHtml(JSON.stringify(result.persona || result.backup || result, null, 2))}</pre>`);
+      showModal(action === "export" ? t("modal.personaExport", "人格导出") : t("modal.backupDetails", "备份详情"), `<pre class="code-preview">${escapeHtml(JSON.stringify(result.persona || result.backup || result, null, 2))}</pre>`);
       return;
     }
-    showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
     state.pageData.persona = null;
     await loadPageData("persona-learning", { force: true });
   }
@@ -1347,7 +1418,7 @@
       bucket: buttonEl.dataset.bucket,
       id: buttonEl.dataset.id,
     });
-    showToast(result.message || "操作完成", result.success ? "ok" : "error");
+    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
     state.pageData.content = null;
     await loadPageData("content", { force: true });
   }
@@ -1385,32 +1456,32 @@
       const text = JSON.stringify(state.dashboard || {}, null, 2);
       try {
         await navigator.clipboard.writeText(text);
-        showToast("巡检上下文已复制");
+        showToast(t("messages.contextCopied", "巡检上下文已复制"));
       } catch (_) {
-        showModal("巡检上下文", `<pre class="code-preview">${escapeHtml(text)}</pre>`);
+        showModal(t("modal.insightContext", "巡检上下文"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
       }
     });
     $("relearn-button")?.addEventListener("click", async () => {
       const result = await apiPost("content/action", { action: "relearn", group_id: "default" });
-      showToast(result.message || "重新学习已提交", result.success ? "ok" : "error");
+      showToast(result.message || t("messages.relearnSubmitted", "重新学习已提交"), result.success ? "ok" : "error");
     });
     $("graph-type")?.addEventListener("change", () => loadGraphs(true));
     $("config-save-button")?.addEventListener("click", async () => {
       const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
-      showToast(result.message || "设置已保存", result.success ? "ok" : "error");
+      showToast(result.message || t("messages.settingsSaved", "设置已保存"), result.success ? "ok" : "error");
       state.pageData.settings = null;
       await loadPageData("settings", { force: true });
     });
     $("dependency-install-button")?.addEventListener("click", async () => {
       const installButton = $("dependency-install-button");
-      const originalLabel = installButton?.textContent || "手动安装";
+      const originalLabel = installButton?.textContent || t("actions.manualInstall", "手动安装");
       const settings = state.pageData.settings || {};
       if (installButton) {
         installButton.disabled = true;
         installButton.classList.add("is-busy");
-        installButton.textContent = "安装中";
+        installButton.textContent = t("actions.installing", "安装中");
       }
-      setText("dependency-output", "正在调用 pip 安装依赖，请等待命令输出...");
+      setText("dependency-output", t("settings.installingDeps", "正在调用 pip 安装依赖，请等待命令输出..."));
       try {
         const result = await apiPost("settings/action", {
           action: "install_dependencies",
@@ -1420,8 +1491,8 @@
           pip_mirror: $("pip-mirror-select")?.value || "default",
         });
         const detail = result.result || result;
-        setText("dependency-output", detail.output || detail.message || result.message || "依赖安装任务结束");
-        showToast(result.message || detail.message || "依赖安装任务结束", result.success !== false ? "ok" : "error");
+        setText("dependency-output", detail.output || detail.message || result.message || t("settings.installDone", "依赖安装任务结束"));
+        showToast(result.message || detail.message || t("settings.installDone", "依赖安装任务结束"), result.success !== false ? "ok" : "error");
       } catch (error) {
         const message = error.message || String(error);
         setText("dependency-output", message);
@@ -1489,7 +1560,7 @@
         meaning: $("modal-jargon-meaning")?.value,
       });
       closeModal();
-      showToast(result.message || "黑话已更新", result.success ? "ok" : "error");
+      showToast(result.message || t("messages.jargonUpdated", "黑话已更新"), result.success ? "ok" : "error");
       state.pageData = {};
       await loadPageData("jargon-learning", { force: true });
     });
@@ -1505,7 +1576,7 @@
         learned_patterns: parseModalJson("modal-style-patterns", []),
       });
       closeModal();
-      showToast(result.message || "表达方式已更新", result.success ? "ok" : "error");
+      showToast(result.message || t("messages.styleUpdated", "表达方式已更新"), result.success ? "ok" : "error");
       state.pageData.style = null;
       state.pageData.lastStyleItems = [];
       await loadPageData("expression-learning", { force: true });
@@ -1527,7 +1598,7 @@
         },
       });
       closeModal();
-      showToast(result.message || "人格已更新", result.success ? "ok" : "error");
+      showToast(result.message || t("messages.personaUpdated", "人格已更新"), result.success ? "ok" : "error");
       state.pageData.persona = null;
       state.pageData.lastPersonaItems = [];
       await loadPageData("persona-learning", { force: true });
@@ -1560,6 +1631,34 @@
       if (bridge && bridge.onContextChange) bridge.onContextChange(apply);
       if (bridge && bridge.onContext) bridge.onContext(apply);
     } catch (_) {}
+  }
+
+  function setI18nFromBridge() {
+    const rerender = () => {
+      applyStaticI18n();
+      const meta = PAGE_META[state.page] || PAGE_META.home;
+      setText("page-kicker", t(meta[0], meta[2]));
+      setText("page-title", t(meta[1], meta[3]));
+      if (state.dashboard) renderDashboard(state.dashboard);
+      const data = state.pageData[state.page] || state.pageData[state.page === "expression-learning" ? "style" : state.page];
+      if (state.page === "monitoring" && state.pageData.monitoring) renderMonitoring(state.pageData.monitoring);
+      else if (state.page === "reviews" && state.pageData.reviews) renderReviews(state.pageData.reviews);
+      else if (state.page === "jargon-learning" && state.pageData.currentJargonData) renderJargon(state.pageData.currentJargonData);
+      else if (state.page === "expression-learning" && state.pageData.style) renderStyle(state.pageData.style);
+      else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
+      else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
+      else if (state.page === "graphs" && data) renderGraphs(data);
+      else if ((state.page === "reply-strategy" || state.page === "integrations") && state.pageData.integrations) {
+        if (state.page === "reply-strategy") renderReplyStrategy(state.pageData.integrations);
+        else renderIntegrations(state.pageData.integrations);
+      } else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
+    };
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (bridge && bridge.onContextChange) bridge.onContextChange(rerender);
+      if (bridge && bridge.onContext) bridge.onContext(rerender);
+    } catch (_) {}
+    rerender();
   }
 
   function initSpringMotion() {
@@ -1919,10 +2018,11 @@
     initSpringMotion();
     try {
       await bridgeReady();
+      setI18nFromBridge();
       navigateToPage(resolvePageFromHash(), { skipHash: true, force: true });
     } catch (error) {
       showToast(error.message || String(error), "error");
-      setText("runtime-status", "桥接失败");
+      setText("runtime-status", t("status.bridgeFailed", "桥接失败"));
       setText("runtime-summary", error.message || String(error));
     }
   }

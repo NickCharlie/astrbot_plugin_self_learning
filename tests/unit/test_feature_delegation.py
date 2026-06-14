@@ -15,6 +15,7 @@ from self_learning_EterU.core.feature_delegation import FeatureDelegation
 from self_learning_EterU.core.factory import ServiceFactory
 from self_learning_EterU.services.hooks import llm_hook_handler as llm_hook_module
 from self_learning_EterU.services.hooks.llm_hook_handler import LLMHookHandler
+from self_learning_EterU.webui.services.metrics_service import MetricsService
 
 
 def _star(name, *, root_dir_name=None, active=True, loaded=True):
@@ -234,6 +235,22 @@ async def test_llm_hook_skips_social_context_when_disabled():
 
     assert result is None
     injector.format_complete_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_metrics_service_falls_back_to_legacy_calculate_metrics():
+    legacy = SimpleNamespace(
+        calculate_metrics=AsyncMock(return_value={"overall_score": 12, "dimensions": {}, "trends": []})
+    )
+    service = MetricsService(SimpleNamespace(
+        intelligence_metrics_service=legacy,
+        database_manager=None,
+    ))
+
+    metrics = await service.get_intelligence_metrics("group-a")
+
+    assert metrics["overall_score"] == 12
+    legacy.calculate_metrics.assert_awaited_once_with("group-a")
 
 
 @pytest.mark.asyncio

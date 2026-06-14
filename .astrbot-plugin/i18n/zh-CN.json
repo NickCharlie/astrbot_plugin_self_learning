@@ -1,0 +1,864 @@
+{
+  "metadata": {
+    "display_name": "Self Learning 自主学习",
+    "short_desc": "让 AI 聊天机器人自主学习对话风格、群组黑话、社交关系和人格演化。",
+    "desc": "SELF LEARNING 自主学习插件，让 AI 聊天机器人自主学习对话风格、理解群组黑话、管理社交关系与好感度、自适应人格演化，像真人一样自然对话。使用前请手动备份人格数据。"
+  },
+  "config": {
+    "Dependency_Install_Guide": {
+      "description": "依赖安装",
+      "hint": "依赖不会在插件安装或启动时自动安装。请进入插件 WebUI Dashboard 的全量设置顶部，手动点击基础能力依赖或全能力依赖。",
+      "dependency_install_entry": {
+        "description": "手动安装入口",
+        "hint": "基础能力依赖：人格审查、黑话学习、表达方式学习与 WebUI 所需依赖。全能力依赖：在基础能力上增加图谱、监控、外部数据库、LightRAG 与 Mem0 等完整能力依赖。"
+      }
+    },
+    "Self_Learning_Basic": {
+      "description": "基础学习设置",
+      "hint": "控制插件的基本学习行为",
+      "enable_message_capture": {
+        "description": "启用消息抓取",
+        "hint": "是否抓取用户消息用于学习。关闭后插件将停止收集新消息"
+      },
+      "enable_auto_learning": {
+        "description": "启用自动学习",
+        "hint": "是否启用定时自动学习。关闭后需要手动触发学习"
+      },
+      "enable_realtime_learning": {
+        "description": "启用实时学习",
+        "hint": "是否在收到消息时立即进行筛选处理。会增加实时负载"
+      },
+      "enable_jargon_learning": {
+        "description": "启用黑话学习",
+        "hint": "是否启用黑话统计预筛、黑话挖掘和黑话上下文能力"
+      },
+      "enable_style_learning": {
+        "description": "启用对话风格学习",
+        "hint": "是否启用自动风格学习、表达模式和相关学习批次处理"
+      },
+      "enable_realtime_llm_filter": {
+        "description": "启用实时LLM筛选",
+        "hint": "是否对每条实时消息都使用LLM进行筛选。关闭可减少LLM调用频率"
+      },
+      "enable_web_interface": {
+        "description": "启用Web管理界面",
+        "hint": "是否启用Web界面用于查看和管理学习数据"
+      },
+      "web_interface_port": {
+        "description": "Web界面端口",
+        "hint": "Web管理界面的访问端口号"
+      },
+      "web_interface_host": {
+        "description": "Web界面监听地址",
+        "hint": "Web管理界面绑定的地址。0.0.0.0 表示监听所有网卡（局域网可访问），127.0.0.1 表示仅本机可访问"
+      }
+    },
+    "Target_Settings": {
+      "description": "抓取目标设置",
+      "hint": "配置要学习哪些用户的消息",
+      "target_qq_list": {
+        "description": "目标QQ号列表",
+        "hint": "默认全量学习：留空、空行或填写 all/*/全部/全量 时学习所有非黑名单消息。也可填写个人QQ号或群聊格式 group_群号 作为白名单。"
+      },
+      "target_blacklist": {
+        "description": "学习黑名单",
+        "hint": "黑名单内的成员消息不进行学习。为空则没有黑名单。支持个人QQ号和群聊格式group_群号"
+      },
+      "current_persona_name": {
+        "description": "当前目标人格",
+        "hint": "插件将学习并优化此人格的对话风格。留空或填 default 表示跟随 AstrBot 当前人格；填写具体 ID 时需在人格设置中存在"
+      }
+    },
+    "Model_Configuration": {
+      "description": "模型配置",
+      "hint": "配置用于筛选和提炼的AI模型提供商",
+      "filter_provider_id": {
+        "description": "筛选模型提供商",
+        "hint": "用于消息筛选的提供商，建议选择速度快、成本低的模型如gpt-4o-mini"
+      },
+      "refine_provider_id": {
+        "description": "提炼模型提供商",
+        "hint": "用于深度分析和提炼对话风格的提供商，建议选择能力强的模型如gpt-4o"
+      },
+      "reinforce_provider_id": {
+        "description": "强化模型提供商",
+        "hint": "用于强化学习的提供商，建议选择能力强的模型"
+      }
+    },
+    "Learning_Parameters": {
+      "description": "学习参数",
+      "hint": "控制学习过程的各种参数",
+      "learning_interval_hours": {
+        "description": "学习间隔(小时)",
+        "hint": "自动学习的时间间隔，单位为小时"
+      },
+      "min_messages_for_learning": {
+        "description": "最少学习消息数量",
+        "hint": "开始学习所需的最少消息数量"
+      },
+      "max_messages_per_batch": {
+        "description": "每批处理的最大消息数量",
+        "hint": "单次学习处理的最大消息数量，避免一次处理过多消息"
+      },
+      "expression_learning_trigger_messages": {
+        "description": "表达方式学习触发消息数",
+        "hint": "每个群每新增多少条原始消息才触发表达方式学习。调大可降低筛选/分析模型调用频率"
+      },
+      "topic_detection_interval_messages": {
+        "description": "话题检测触发消息数",
+        "hint": "每个群每新增多少条消息才进行一次LLM话题检测。调大可降低筛选模型调用频率"
+      }
+    },
+    "Filter_Parameters": {
+      "description": "筛选参数",
+      "hint": "控制消息筛选的参数",
+      "message_min_length": {
+        "description": "消息最小长度",
+        "hint": "参与学习的消息最小字符长度"
+      },
+      "message_max_length": {
+        "description": "消息最大长度",
+        "hint": "参与学习的消息最大字符长度"
+      },
+      "confidence_threshold": {
+        "description": "筛选置信度阈值",
+        "hint": "消息筛选的置信度阈值，0-1之间，越高越严格"
+      }
+    },
+    "Style_Analysis": {
+      "description": "风格分析参数",
+      "hint": "控制对话风格分析的参数",
+      "style_analysis_batch_size": {
+        "description": "风格分析批次大小",
+        "hint": "单次风格分析处理的消息数量"
+      },
+      "style_update_threshold": {
+        "description": "风格更新阈值",
+        "hint": "触发人格风格更新的置信度阈值，0-1之间"
+      }
+    },
+    "Advanced_Settings": {
+      "description": "高级设置",
+      "hint": "高级用户配置选项",
+      "debug_mode": {
+        "description": "调试模式",
+        "hint": "启用函数级性能监控，并在未指定日志等级时自动使用 debug"
+      },
+      "log_level": {
+        "description": "AstrBot日志等级",
+        "hint": "控制插件在 AstrBot 日志中的详细程度。error 最少，debug 最多"
+      },
+      "save_raw_messages": {
+        "description": "保存原始消息",
+        "hint": "是否保存未经处理的原始消息用于分析"
+      },
+      "auto_backup_interval_days": {
+        "description": "自动备份间隔(天)",
+        "hint": "学习数据自动备份的间隔天数，0为禁用"
+      },
+      "auto_apply_approved_persona": {
+        "description": "⚠️ 审查批准后自动应用到默认人格",
+        "hint": "【危险功能 - 谨慎开启】批准人格审查后自动将内容直接应用到当前使用的默认人格，而非创建新人格副本。开启后将直接覆盖正在使用的默认人格的系统提示词，此操作不可逆（除非从备份恢复）。强烈建议同时开启人格自动备份功能以防止数据丢失"
+      }
+    },
+    "Machine_Learning_Settings": {
+      "description": "机器学习设置",
+      "hint": "轻量级机器学习分析配置",
+      "enable_ml_analysis": {
+        "description": "启用ML分析",
+        "hint": "是否启用scikit-learn进行文本聚类和行为分析"
+      },
+      "max_ml_sample_size": {
+        "description": "ML样本最大数量",
+        "hint": "机器学习分析的最大样本数量，控制资源使用"
+      },
+      "ml_cache_timeout_hours": {
+        "description": "ML缓存超时(小时)",
+        "hint": "机器学习分析结果的缓存时间"
+      }
+    },
+    "Persona_Backup_Settings": {
+      "description": "人格备份设置",
+      "hint": "人格数据备份和恢复配置",
+      "auto_backup_enabled": {
+        "description": "启用自动备份",
+        "hint": "是否在人格更新前自动创建备份"
+      },
+      "backup_interval_hours": {
+        "description": "备份间隔(小时)",
+        "hint": "自动备份的时间间隔"
+      },
+      "max_backups_per_group": {
+        "description": "每群最大备份数",
+        "hint": "每个群保留的最大备份数量"
+      }
+    },
+    "Goal_Driven_Chat_Settings": {
+      "description": "目标驱动对话系统设置",
+      "hint": "智能对话目标管理系统，支持动态目标检测和阶段规划",
+      "enable_goal_driven_chat": {
+        "description": "启用目标驱动对话",
+        "hint": "是否启用智能对话目标系统。启用后会自动检测对话目标并动态调整回复策略"
+      },
+      "goal_session_timeout_hours": {
+        "description": "会话超时时间(小时)",
+        "hint": "对话目标会话的超时时间，超过该时间未活跃的会话将被自动清理"
+      },
+      "goal_auto_detect": {
+        "description": "自动检测对话目标",
+        "hint": "是否自动使用LLM分析用户消息检测对话目标类型。关闭后使用默认的闲聊模式"
+      },
+      "goal_max_conversation_history": {
+        "description": "最大对话历史记录数",
+        "hint": "保留在会话中的最大对话轮次（用户消息+Bot回复=1轮）。建议20-40轮"
+      }
+    },
+    "Affection_System_Settings": {
+      "description": "好感度系统设置",
+      "hint": "用户好感度和bot情绪管理配置",
+      "enable_affection_system": {
+        "description": "启用好感度系统",
+        "hint": "是否启用用户好感度和情绪响应系统"
+      },
+      "max_total_affection": {
+        "description": "总好感度上限",
+        "hint": "bot对所有用户的总好感度上限值"
+      },
+      "max_user_affection": {
+        "description": "单用户好感度上限",
+        "hint": "单个用户可获得的最大好感度"
+      },
+      "affection_decay_rate": {
+        "description": "好感度衰减比例",
+        "hint": "好感度重新分配时的衰减比例，0-1之间"
+      },
+      "daily_mood_change": {
+        "description": "启用每日情绪变化",
+        "hint": "是否每天随机更换bot的情绪状态"
+      },
+      "mood_affect_affection": {
+        "description": "情绪影响好感度变化",
+        "hint": "当前情绪是否影响好感度变化幅度"
+      }
+    },
+    "Mood_System_Settings": {
+      "description": "情绪系统设置",
+      "hint": "bot情绪状态管理配置",
+      "enable_daily_mood": {
+        "description": "启用每日情绪",
+        "hint": "是否启用每日随机情绪系统"
+      },
+      "enable_startup_random_mood": {
+        "description": "启用启动时随机情绪",
+        "hint": "插件启动时是否为活跃群组设置随机初始情绪"
+      },
+      "mood_change_hour": {
+        "description": "情绪更新时间",
+        "hint": "每日更新情绪的小时(0-23)"
+      },
+      "mood_persistence_hours": {
+        "description": "情绪持续时间",
+        "hint": "每次情绪状态持续的小时数"
+      }
+    },
+    "Social_Context_Settings": {
+      "description": "社交上下文注入设置",
+      "hint": "控制向LLM prompt注入社交关系、好感度和情绪信息",
+      "enable_social_context_injection": {
+        "description": "启用社交上下文注入",
+        "hint": "是否向LLM prompt中注入用户社交关系、好感度和情绪信息"
+      },
+      "include_social_relations": {
+        "description": "注入用户社交关系",
+        "hint": "是否在prompt中包含用户的社交关系网络信息"
+      },
+      "include_affection_info": {
+        "description": "注入好感度信息",
+        "hint": "是否在prompt中包含对该用户的好感度信息"
+      },
+      "include_mood_info": {
+        "description": "注入Bot情绪信息",
+        "hint": "是否在prompt中包含Bot当前的情绪状态信息"
+      },
+      "expression_patterns_hours": {
+        "description": "风格特征提取时间范围(小时)",
+        "hint": "从多少小时内提取学到的表达风格特征注入到prompt中，默认24小时，可设置为7*24=168小时(一周)"
+      },
+      "context_injection_position": {
+        "description": "上下文注入位置",
+        "hint": "社交上下文注入到prompt的位置，可选值：start(开头)、end(结尾)"
+      }
+    },
+    "Storage_Settings": {
+      "description": "存储路径设置",
+      "hint": "自定义插件数据存储位置",
+      "data_dir": {
+        "description": "数据存储目录",
+        "hint": "插件数据存储的根目录路径。默认位于 AstrBot 数据目录的 plugin_data/astrbot_plugin_self_learning 下；可以改为绝对路径"
+      }
+    },
+    "Database_Settings": {
+      "description": "数据库配置",
+      "hint": "配置数据库类型和连接参数。默认使用 PostgreSQL；插件会尝试自动创建 PostgreSQL 数据库、schema 和 ORM 表。SQLite 和 MySQL 可作为显式配置的兼容后端。",
+      "db_type": {
+        "description": "数据库类型",
+        "hint": "填写 postgresql、pgsql、sqlite 或 mysql。默认使用 PostgreSQL，启动时会先建库和 schema，再同步 ORM 表；单机无 PostgreSQL 服务时可显式改为 sqlite"
+      },
+      "mysql_host": {
+        "description": "MySQL服务器地址",
+        "hint": "MySQL服务器的IP地址或域名，如：localhost 或 192.168.1.100（仅当db_type为mysql时需要填写）"
+      },
+      "mysql_port": {
+        "description": "MySQL端口",
+        "hint": "MySQL服务器的端口号，通常为3306（仅当db_type为mysql时需要填写）"
+      },
+      "mysql_user": {
+        "description": "MySQL用户名",
+        "hint": "MySQL数据库的用户名，如：root 或 astrbot（仅当db_type为mysql时需要填写）"
+      },
+      "mysql_password": {
+        "description": "MySQL密码",
+        "hint": "MySQL数据库的密码（仅当db_type为mysql时需要填写）"
+      },
+      "mysql_database": {
+        "description": "MySQL数据库名",
+        "hint": "MySQL数据库名称。使用MySQL 自动创建数据库以及数据库表"
+      },
+      "postgresql_host": {
+        "description": "PostgreSQL服务器地址",
+        "hint": "PostgreSQL服务器的IP地址或域名（仅当db_type为postgresql时需要填写）"
+      },
+      "postgresql_port": {
+        "description": "PostgreSQL端口",
+        "hint": "PostgreSQL服务器的端口号，通常为5432（仅当db_type为postgresql时需要填写）"
+      },
+      "postgresql_user": {
+        "description": "PostgreSQL用户名",
+        "hint": "PostgreSQL数据库的用户名，如：postgres 或 astrbot（仅当db_type为postgresql时需要填写）"
+      },
+      "postgresql_password": {
+        "description": "PostgreSQL密码",
+        "hint": "PostgreSQL数据库的密码（仅当db_type为postgresql时需要填写）"
+      },
+      "postgresql_database": {
+        "description": "PostgreSQL数据库名",
+        "hint": "PostgreSQL数据库名称。插件会尝试自动创建数据库以及数据库表"
+      },
+      "postgresql_schema": {
+        "description": "PostgreSQL Schema",
+        "hint": "PostgreSQL schema 名称。默认 public；填写其他名称时插件会自动创建并使用该 schema"
+      },
+      "max_connections": {
+        "description": "最大连接数",
+        "hint": "数据库连接池的最大连接数，高并发场景可适当增加"
+      },
+      "min_connections": {
+        "description": "最小连接数",
+        "hint": "数据库连接池的最小连接数，保持一定预热连接提高性能"
+      }
+    },
+    "API_Settings": {
+      "description": "外部API设置",
+      "hint": "外部API接口的安全配置",
+      "api_key": {
+        "description": "API访问密钥",
+        "hint": "外部API接口的访问密钥。留空则不需要密钥认证。建议设置一个强密码保护API安全"
+      },
+      "enable_api_auth": {
+        "description": "启用API认证",
+        "hint": "是否启用API密钥认证。关闭后任何人都可以访问外部API接口"
+      }
+    },
+    "Repository_Settings": {
+      "description": "数据访问层配置",
+      "hint": "配置SQLAlchemy Repository数据访问的默认参数和限制",
+      "default_review_limit": {
+        "description": "默认审查记录查询数量",
+        "hint": "获取待审查的人格学习/风格学习记录时的默认数量限制"
+      },
+      "default_pattern_limit": {
+        "description": "默认表达模式查询数量",
+        "hint": "获取表达模式时的默认数量限制"
+      },
+      "default_memory_limit": {
+        "description": "默认记忆查询数量",
+        "hint": "获取记忆记录时的默认数量限制"
+      },
+      "default_affection_limit": {
+        "description": "默认好感度记录查询数量",
+        "hint": "获取好感度交互记录时的默认数量限制"
+      },
+      "default_social_limit": {
+        "description": "默认社交记录查询数量",
+        "hint": "获取社交关系记录时的默认数量限制"
+      },
+      "default_psychological_limit": {
+        "description": "默认心理状态记录查询数量",
+        "hint": "获取心理状态记录时的默认数量限制"
+      },
+      "max_interaction_batch_size": {
+        "description": "最大交互批处理数量",
+        "hint": "批量处理交互记录时的最大数量限制，避免单次处理过多数据"
+      },
+      "top_patterns_limit": {
+        "description": "顶级模式查询数量",
+        "hint": "获取权重最高的表达模式时的默认数量限制"
+      },
+      "recent_interactions_limit": {
+        "description": "近期交互查询数量",
+        "hint": "获取近期交互记录时的默认数量限制"
+      },
+      "trend_analysis_days": {
+        "description": "趋势分析天数",
+        "hint": "进行趋势分析时默认查询的天数范围"
+      }
+    },
+    "Integration_Settings": {
+      "description": "功能融合",
+      "hint": "与专门插件协同：记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。本插件保留学习、审查、黑话、表达方式和上下文注入能力。",
+      "delegate_memory_to_livingmemory": {
+        "description": "记忆委托给 LivingMemory",
+        "hint": "开启后，检测到 LivingMemory 插件已加载时，本插件不再写入或注入本地长期记忆，避免双重记忆系统互相污染。"
+      },
+      "livingmemory_plugin_name": {
+        "description": "LivingMemory 插件名",
+        "hint": "用于检测 LivingMemory 插件是否已加载。通常保持默认值即可。"
+      },
+      "disable_local_memory_when_delegated": {
+        "description": "委托时禁用本地记忆",
+        "hint": "开启后，只有检测到 LivingMemory 时才禁用本插件本地长期记忆；LivingMemory 未加载时自动保留本地降级能力。"
+      },
+      "delegate_reply_to_group_chat_plus": {
+        "description": "回复交给 Group Chat Plus",
+        "hint": "开启后，检测到 Group Chat Plus 插件已加载时，本插件不再接管回复决策和回复生成，只负责学习上下文增强。"
+      },
+      "group_chat_plus_plugin_name": {
+        "description": "Group Chat Plus 插件名",
+        "hint": "用于检测 Group Chat Plus 插件是否已加载。通常保持默认值即可。"
+      },
+      "disable_local_reply_when_delegated": {
+        "description": "委托时禁用本地回复",
+        "hint": "开启后，只有检测到 Group Chat Plus 时才禁用本插件本地回复器；目标插件未加载时保留兼容降级。"
+      }
+    },
+    "V2_Architecture_Settings": {
+      "description": "v2架构升级配置",
+      "hint": "高级功能配置：Embedding向量化、Reranker重排序、知识引擎和记忆引擎。需要先在AstrBot中配置对应类型的Provider",
+      "embedding_provider_id": {
+        "description": "Embedding 提供商 ID",
+        "hint": "填写Embedding提供商的完整ID（如 'openai/text-embedding-3-large'）。需要先在AstrBot的Provider管理中创建Embedding类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'"
+      },
+      "rerank_provider_id": {
+        "description": "Reranker 提供商 ID",
+        "hint": "填写Reranker提供商的完整ID（如 'openai/qwen3-rerank'）。需要先在AstrBot的Provider管理中创建Reranker类型的提供商，然后将其ID填写到此处。格式通常为 '来源名/模型名'"
+      },
+      "rerank_top_k": {
+        "description": "重排序保留结果数",
+        "hint": "Reranker重排序后保留的Top-K结果数量，值越小越精准但可能遗漏"
+      },
+      "rerank_min_candidates": {
+        "description": "触发重排序的最低候选文档数",
+        "hint": "当知识+记忆候选文档数量低于此阈值时，跳过Reranker以节省延迟。设为0则始终执行重排序"
+      },
+      "provider_retry_interval_seconds": {
+        "description": "Provider 重试间隔(秒)",
+        "hint": "AstrBot 冷启动时 Provider 注册表可能尚未就绪。插件会按此间隔重试绑定 Embedding/Reranker Provider。"
+      },
+      "knowledge_engine": {
+        "description": "知识引擎",
+        "hint": "知识存储引擎类型。legacy=现有NetworkX实现，lightrag=使用LightRAG进行向量+图谱混合检索（需配置Embedding提供商）"
+      },
+      "lightrag_query_mode": {
+        "description": "LightRAG 查询模式",
+        "hint": "LightRAG检索模式。local=仅实体邻域检索（低延迟），hybrid=实体邻域+全局社区聚合（高质量但慢约4-5秒），naive=纯向量检索，global=仅全局社区，mix=混合模式"
+      },
+      "memory_engine": {
+        "description": "记忆引擎",
+        "hint": "记忆管理引擎类型。legacy=现有实现，mem0=使用mem0进行自动记忆提取和检索（需配置Embedding提供商）"
+      }
+    }
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Self Learning Dashboard",
+      "description": "Self Learning 插件的内嵌管理面板。",
+      "sidebar": {
+        "aria": "Self Learning 模块"
+      },
+      "brand": {
+        "eyebrow": "AstrBot 内嵌 WebUI"
+      },
+      "nav": {
+        "home": "Dashboard",
+        "insights": "AI 巡检",
+        "monitoring": "监控",
+        "reviews": "审查队列",
+        "jargonLearning": "黑话学习",
+        "expressionLearning": "表达方式学习",
+        "personaLearning": "人格学习",
+        "content": "学习内容",
+        "graphs": "图谱",
+        "replyStrategy": "回复策略",
+        "integrations": "功能融合",
+        "settings": "设置"
+      },
+      "page": {
+        "home": {
+          "kicker": "Dashboard",
+          "title": "完整内嵌 WebUI"
+        },
+        "insights": {
+          "kicker": "Insights",
+          "title": "AI 巡检"
+        },
+        "monitoring": {
+          "kicker": "Monitoring",
+          "title": "运行监控"
+        },
+        "reviews": {
+          "kicker": "Reviews",
+          "title": "审查队列"
+        },
+        "jargon": {
+          "kicker": "Jargon",
+          "title": "黑话学习"
+        },
+        "style": {
+          "kicker": "Expression",
+          "title": "表达方式学习"
+        },
+        "persona": {
+          "kicker": "Persona",
+          "title": "人格学习"
+        },
+        "content": {
+          "kicker": "Content",
+          "title": "学习内容"
+        },
+        "graphs": {
+          "kicker": "Graphs",
+          "title": "图谱"
+        },
+        "reply": {
+          "kicker": "Reply",
+          "title": "回复策略"
+        },
+        "integrations": {
+          "kicker": "Integrations",
+          "title": "功能融合"
+        },
+        "settings": {
+          "kicker": "Settings",
+          "title": "设置"
+        }
+      },
+      "actions": {
+        "approve": "批准",
+        "batchApprove": "批量批准",
+        "batchApproveShort": "全批",
+        "batchConfirm": "批量确认",
+        "batchDelete": "批量删除",
+        "batchReject": "批量驳回",
+        "batchRejectShort": "全拒",
+        "clearSelection": "取消选择",
+        "close": "关闭",
+        "closeToast": "关闭提示",
+        "confirm": "确认",
+        "copyContext": "复制上下文",
+        "delete": "删除",
+        "details": "详情",
+        "edit": "编辑",
+        "entry": "入口",
+        "export": "导出",
+        "filter": "筛选",
+        "go": "前往",
+        "import": "导入",
+        "importing": "导入中",
+        "installing": "安装中",
+        "manualInstall": "手动安装",
+        "open": "打开",
+        "openStandalone": "打开独立 WebUI",
+        "pass": "通过",
+        "preview": "预览",
+        "previewing": "预览中",
+        "refresh": "刷新",
+        "refreshCurrent": "刷新当前模块",
+        "reject": "拒绝",
+        "rejectBack": "驳回",
+        "relearn": "重新学习",
+        "restore": "恢复",
+        "save": "保存",
+        "saveSettings": "保存设置",
+        "select": "选择",
+        "selectAll": "全选",
+        "setGlobal": "设为全局",
+        "unsetGlobal": "取消全局",
+        "view": "查看"
+      },
+      "status": {
+        "bridgeFailed": "桥接失败",
+        "connectedSummary": "已连接官方插件页 API，独立 WebUI: {url}",
+        "connecting": "正在连接 AstrBot 插件页桥接层。",
+        "degradedSummary": "嵌入式页面已载入，部分服务处于降级状态。",
+        "healthy": "运行正常",
+        "loading": "加载中",
+        "notConfigured": "未配置",
+        "partial": "部分可用",
+        "syncing": "同步中"
+      },
+      "state": {
+        "available": "可用",
+        "closed": "关闭",
+        "delegated": "已委托",
+        "disabled": "未启用",
+        "enabled": "启用",
+        "no": "否",
+        "none": "无",
+        "off": "关闭",
+        "on": "开启",
+        "unset": "未设置",
+        "yes": "是"
+      },
+      "selection": {
+        "currentPage": "当前页",
+        "selected": "选中",
+        "selectedCount": "已选 {count}",
+        "selectedOfTotal": "已选 {selected}/{total}"
+      },
+      "home": {
+        "coreStats": "核心数据",
+        "metricsSummary": "已有 {count} 个维度参与评估。",
+        "metricsTitle": "模块指标",
+        "modulesTitle": "学习子模块",
+        "noMetrics": "智能指标服务暂未产生维度数据。",
+        "overviewTitle": "学习模块总览",
+        "reviewEntry": "审查入口",
+        "stats": {
+          "jargon": "已确认黑话",
+          "messages": "采集消息",
+          "persona": "人格更新",
+          "style": "表达样本"
+        }
+      },
+      "insights": {
+        "databaseDegraded": "数据库处于降级状态",
+        "databaseNotReady": "数据库服务未完整启动。",
+        "delegationDetail": "记忆委托: {memory}，回复委托: {reply}。",
+        "delegationEnabled": "伴随插件委托已启用",
+        "desc": "从学习积压、运行健康和配置状态生成可行动提示。",
+        "healthWarn": "健康检查提示异常",
+        "healthWarnDetail": "当前健康状态为 {status}。",
+        "lowScore": "智能评分偏低",
+        "lowScoreDetail": "综合评分 {score}，建议查看表达样本和学习批次。",
+        "moduleFailed": "模块 {name} 读取失败",
+        "noIssues": "暂无高优先级问题",
+        "noIssuesDetail": "核心学习、审查和监控模块均已返回可用数据。",
+        "reviewBacklog": "审查队列有积压",
+        "reviewBacklogDetail": "当前有 {count} 条学习结果等待确认。",
+        "title": "AI 巡检"
+      },
+      "monitoring": {
+        "desc": "健康检查、服务可用性和函数级性能。",
+        "functions": "函数性能",
+        "health": "健康状态",
+        "title": "运行监控"
+      },
+      "reviews": {
+        "confirmBatch": "确定批量{action}{scope} {count} 条{type}？",
+        "desc": "人格更新、表达学习和黑话候选集中处理。",
+        "expressionReviews": "表达审查",
+        "items": "审查项",
+        "jargonCandidates": "黑话候选",
+        "noBatchItems": "当前页没有可批量处理的审查项",
+        "personaUpdates": "人格更新",
+        "recentReviewed": "最近已审查",
+        "title": "审查队列"
+      },
+      "jargon": {
+        "allScopes": "全部范围",
+        "allStatuses": "全部状态",
+        "batchDone": "批量黑话操作完成",
+        "confirmed": "已确认",
+        "confirmBatch": "确定批量{action}选中的 {count} 条黑话？",
+        "definition": "释义",
+        "desc": "管理群内黑话候选、全局共享和语义释义。",
+        "global": "全局",
+        "local": "本地",
+        "pending": "待确认",
+        "searchPlaceholder": "搜索词条或释义",
+        "selectFirst": "请先选择黑话条目",
+        "term": "词条",
+        "title": "黑话学习",
+        "unconfirmed": "未确认",
+        "stats": {
+          "activeGroups": "活跃群组",
+          "candidates": "候选词",
+          "confirmed": "已确认",
+          "inferred": "推断完成"
+        }
+      },
+      "style": {
+        "batchDone": "批量表达审查完成",
+        "confirmBatch": "确定批量{action}选中的 {count} 条表达审查？",
+        "desc": "查看风格统计、学习模式和待确认 few-shot。",
+        "description": "描述",
+        "fewShots": "Few-shot 示例",
+        "patternJson": "学习模式 JSON",
+        "patternsTitle": "学习模式",
+        "pendingReviews": "待审查表达",
+        "selectFirst": "请先选择表达审查项",
+        "statsTitle": "表达统计",
+        "title": "表达方式学习",
+        "patterns": {
+          "emotion": "情绪模式",
+          "language": "语言模式",
+          "topic": "话题模式"
+        },
+        "stats": {
+          "avgConfidence": "平均置信度",
+          "latestUpdate": "最近更新",
+          "samples": "风格样本",
+          "totalSamples": "总样本"
+        }
+      },
+      "persona": {
+        "backupName": "备份 {id}",
+        "backups": "人格备份",
+        "beginDialogsJson": "开场对话 JSON",
+        "currentState": "当前人格状态",
+        "desc": "当前人格状态、人格列表和备份恢复。",
+        "id": "人格 ID",
+        "list": "人格列表",
+        "name": "名称",
+        "systemPrompt": "系统提示词",
+        "title": "人格学习",
+        "stats": {
+          "beginDialogs": "开场对话",
+          "currentGroup": "当前群组",
+          "promptLength": "提示词字数",
+          "toolCount": "工具数量"
+        }
+      },
+      "content": {
+        "batchHistory": "批次历史",
+        "desc": "浏览原始对话、分析结果、表达模式和学习批次。",
+        "title": "学习内容",
+        "tabs": {
+          "analysis": "分析",
+          "dialogues": "对话",
+          "features": "表达模式",
+          "history": "批次"
+        }
+      },
+      "graphs": {
+        "canvasLabel": "记忆图谱与知识图谱",
+        "desc": "记忆图谱与知识图谱会在内嵌页直接绘制。",
+        "details": "图谱详情",
+        "knowledgeGraph": "知识图谱",
+        "memoryGraph": "记忆图谱",
+        "node": "节点",
+        "title": "图谱",
+        "stats": {
+          "groups": "群组",
+          "links": "连线",
+          "nodes": "节点",
+          "source": "来源"
+        }
+      },
+      "reply": {
+        "desc": "查看 Group Chat Plus 委托状态和面板入口。",
+        "title": "回复策略"
+      },
+      "integrations": {
+        "desc": "Self Learning、LivingMemory 与 Group Chat Plus 的协作状态。",
+        "settings": "融合设置",
+        "title": "功能融合"
+      },
+      "maibot": {
+        "autoApprove": "MaiBot 已确认表达自动批准",
+        "db": "MaiBot 主数据库",
+        "dbHint": "可选；填写后优先读取该 SQLite 文件。",
+        "defaultGroup": "默认群组",
+        "defaultGroupHint": "无法映射 MaiBot session 时使用。",
+        "desc": "读取 MaiBot 的表达方式、黑话与 A_memorix 记忆段落，导入到当前插件的独立学习模块。",
+        "destinations": "分类去向: 表达 -> {expressions}; 黑话 -> {jargons}; 记忆 -> {memories}",
+        "done": "MaiBot 学习数据操作完成",
+        "expressions": "表达方式",
+        "importCounts": "导入: 表达审查 {style} · 黑话候选 {jargon} · 记忆审查 {memory}",
+        "jargons": "黑话",
+        "memorix": "A_memorix metadata.db",
+        "memorixHint": "可选；用于导入记忆段落。",
+        "memories": "记忆段落",
+        "missingPath": "请填写 MaiBot 项目目录或主数据库路径",
+        "previewCounts": "预览: 表达 {expressions} · 黑话 {jargons} · 记忆 {memories}",
+        "reading": "正在读取 MaiBot 学习数据...",
+        "root": "MaiBot 项目目录",
+        "rootHint": "例如 C:\\Users\\zacza\\Desktop\\x\\MaiBot；也可以只填写数据库路径。",
+        "title": "MaiBot 学习数据迁移",
+        "waitingPreview": "等待预览。"
+      },
+      "settings": {
+        "basicDeps": "基础能力依赖",
+        "desc": "完整配置 schema、Provider 选项和可选依赖安装。",
+        "fullDeps": "全能力依赖",
+        "installDone": "依赖安装任务结束",
+        "installingDeps": "正在调用 pip 安装依赖，请等待命令输出...",
+        "optionalDeps": "可选依赖",
+        "restartRequired": " · 重启后生效",
+        "title": "设置"
+      },
+      "modal": {
+        "backupDetails": "备份详情",
+        "details": "详情",
+        "editJargon": "编辑黑话",
+        "editPersona": "编辑人格",
+        "editStyle": "编辑表达方式",
+        "insightContext": "巡检上下文",
+        "personaExport": "人格导出",
+        "reviewDetails": "审查详情"
+      },
+      "messages": {
+        "actionDone": "操作完成",
+        "batchDone": "批量操作完成",
+        "contextCopied": "巡检上下文已复制",
+        "jargonUpdated": "黑话已更新",
+        "personaUpdated": "人格已更新",
+        "relearnSubmitted": "重新学习已提交",
+        "settingsSaved": "设置已保存",
+        "styleUpdated": "表达方式已更新"
+      },
+      "empty": {
+        "batchHistory": "暂无批次历史",
+        "configSchema": "配置 schema 暂不可用",
+        "debugDisabled": "debug_mode 未启用",
+        "default": "暂无数据",
+        "definition": "暂无释义",
+        "functionStats": "暂无函数性能数据",
+        "graphNodes": "暂无图谱节点",
+        "groupChatPlus": "未检测到 Group Chat Plus",
+        "healthChecks": "暂无健康检查数据",
+        "integrationSettings": "暂无融合设置",
+        "integrations": "暂无融合状态",
+        "jargon": "暂无黑话数据",
+        "jargonCandidates": "暂无黑话候选",
+        "learningContent": "暂无学习内容",
+        "noRemark": "无备注",
+        "patterns": "暂无模式",
+        "personaBackups": "暂无人格备份",
+        "personaList": "暂无人格列表",
+        "personaPrompt": "暂无人格提示词",
+        "personaUpdates": "暂无人格更新",
+        "reviewed": "暂无已审查记录",
+        "selectConfigGroup": "请选择配置分组",
+        "styleReviews": "暂无表达审查"
+      },
+      "errors": {
+        "bridgeMissing": "AstrBot 插件页桥接 SDK 未加载",
+        "requestFailed": "请求失败"
+      },
+      "units": {
+        "times": "{count} 次"
+      }
+    }
+  }
+}

@@ -13,6 +13,7 @@ from .social_service import SocialService
 from .persona_review_service import PersonaReviewService
 from .graph_share_service import GraphShareService
 from .graph_service import GraphService
+from .hub_service import HubService
 
 __all__ = [
     'AuthService',
@@ -26,5 +27,6 @@ __all__ = [
     'SocialService',
     'PersonaReviewService',
     'GraphShareService',
-    'GraphService'
+    'GraphService',
+    'HubService'
 ]

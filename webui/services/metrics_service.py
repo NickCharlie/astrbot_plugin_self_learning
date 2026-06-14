@@ -50,38 +50,62 @@ class MetricsService:
             }
 
         try:
-            learning_inputs = await self._collect_learning_efficiency_inputs(group_id)
-
-            metrics = await self.intelligence_metrics_service.calculate_learning_efficiency(
-                total_messages=learning_inputs['total_messages'],
-                filtered_messages=learning_inputs['filtered_messages'],
-                style_patterns_learned=learning_inputs['style_patterns'],
-                persona_updates_count=learning_inputs['persona_updates'],
-                affection_users_count=learning_inputs['affection_users'],
+            efficiency_method = getattr(
+                self.intelligence_metrics_service,
+                'calculate_learning_efficiency',
+                None,
             )
+            if callable(efficiency_method):
+                learning_inputs = await self._collect_learning_efficiency_inputs(group_id)
+                try:
+                    metrics = await efficiency_method(
+                        total_messages=learning_inputs['total_messages'],
+                        filtered_messages=learning_inputs['filtered_messages'],
+                        style_patterns_learned=learning_inputs['style_patterns'],
+                        persona_updates_count=learning_inputs['persona_updates'],
+                        affection_users_count=learning_inputs['affection_users'],
+                    )
+                except TypeError:
+                    metrics = await efficiency_method()
+                return {
+                    'overall_score': round(getattr(metrics, 'overall_efficiency', 0), 1),
+                    'dimensions': {
+                        'message_filter_rate': round(getattr(metrics, 'message_filter_rate', 0), 1),
+                        'content_refine_quality': round(getattr(metrics, 'content_refine_quality', 0), 1),
+                        'style_learning_progress': round(getattr(metrics, 'style_learning_progress', 0), 1),
+                        'persona_update_quality': round(getattr(metrics, 'persona_update_quality', 0), 1),
+                        'jargon_learning_score': round(getattr(metrics, 'jargon_learning_score', 0), 1),
+                        'social_relation_score': round(getattr(metrics, 'social_relation_score', 0), 1),
+                        'affection_score': round(getattr(metrics, 'affection_score', 0), 1),
+                        'active_strategies_count': getattr(metrics, 'active_strategies_count', 0),
+                    },
+                    'trends': [],
+                }
 
-            return {
-                'overall_score': round(metrics.overall_efficiency, 1),
-                'dimensions': {
-                    'message_filter_rate': round(metrics.message_filter_rate, 1),
-                    'content_refine_quality': round(metrics.content_refine_quality, 1),
-                    'style_learning_progress': round(metrics.style_learning_progress, 1),
-                    'persona_update_quality': round(metrics.persona_update_quality, 1),
-                    'jargon_learning_score': round(metrics.jargon_learning_score, 1),
-                    'social_relation_score': round(metrics.social_relation_score, 1),
-                    'affection_score': round(metrics.affection_score, 1),
-                    'active_strategies_count': metrics.active_strategies_count,
-                },
+            legacy_method = getattr(self.intelligence_metrics_service, 'calculate_metrics', None)
+            if not callable(legacy_method):
+                logger.warning("智能指标服务缺少可用的计算方法")
+                return self._empty_intelligence_metrics(message='智能指标服务方法不兼容')
+
+            metrics = await legacy_method(group_id)
+            return metrics if metrics else {
+                'overall_score': 0,
+                'dimensions': {},
                 'trends': [],
             }
         except Exception as e:
             logger.error(f"获取智能指标失败: {e}", exc_info=True)
-            return {
-                'overall_score': 0,
-                'dimensions': {},
-                'trends': [],
-                'error': str(e)
-            }
+            return self._empty_intelligence_metrics(error=str(e))
+
+    @staticmethod
+    def _empty_intelligence_metrics(**extra: Any) -> Dict[str, Any]:
+        data = {
+            'overall_score': 0,
+            'dimensions': {},
+            'trends': [],
+        }
+        data.update(extra)
+        return data
 
     async def _collect_learning_efficiency_inputs(self, group_id: str) -> Dict[str, int]:
         """收集学习效率计算所需的数据库输入指标。"""

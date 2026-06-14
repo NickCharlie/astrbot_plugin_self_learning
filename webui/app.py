@@ -56,12 +56,24 @@ def _enable_cors(app: Quart) -> None:
             response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers.setdefault(
             "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, X-Requested-With",
+            "Content-Type, Authorization, X-Requested-With, X-Self-Learning-Key",
         )
         response.headers.setdefault(
             "Access-Control-Allow-Methods",
             "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         )
+        return response
+
+
+def _disable_dynamic_response_cache(app: Quart) -> None:
+    """Avoid CDN/browser caching for WebUI API and auth responses."""
+
+    @app.after_request
+    async def _add_no_store_headers(response):
+        if not request.path.startswith("/static/"):
+            response.headers.setdefault("Cache-Control", "no-store")
+            response.headers.setdefault("Pragma", "no-cache")
+            response.headers.setdefault("Expires", "0")
         return response
 
 
@@ -96,6 +108,7 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
 
     # 启用 CORS
     _enable_cors(app)
+    _disable_dynamic_response_cache(app)
 
     # 存储配置到应用上下文
     if webui_config:

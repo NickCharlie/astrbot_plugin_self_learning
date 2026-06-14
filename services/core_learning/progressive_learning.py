@@ -18,6 +18,7 @@ from ..database import DatabaseManager
 from ..learning.expression_learning import ExpressionLearningModule
 from ..learning.persona_learning import PersonaLearningModule
 from ..learning.sample_filter import filter_learning_messages
+from ..monitoring.instrumentation import monitored
 
 
 @dataclass
@@ -343,6 +344,7 @@ class ProgressiveLearningService:
         # 如果需要加载历史会话，需要 DatabaseManager 提供 load_all_learning_sessions 方法
         logger.info("渐进式学习服务启动，准备开始学习。")
 
+    @monitored
     async def start_learning(self, group_id: str) -> bool:
         """启动学习流程 - 优化为后台任务执行"""
         async with self.learning_lock: # 使用锁防止竞态条件
@@ -417,6 +419,7 @@ class ProgressiveLearningService:
                 logger.info(f"学习会话结束: {session.session_id}")
             self._group_sessions.clear()
 
+    @monitored
     async def _learning_loop_safe(self, group_id: str):
         """安全的学习循环 - 在后台线程执行，包含完整错误处理"""
         try:
@@ -449,6 +452,7 @@ class ProgressiveLearningService:
                 await self.db_manager.save_learning_session_record(group_id, session.__dict__)
             logger.info(f"学习循环结束 for group {group_id}")
 
+    @monitored
     async def _execute_learning_batch(self, group_id: str, relearn_mode: bool = False, from_force_learning: bool = False):
         """执行一个学习批次 - 集成强化学习
 
@@ -599,6 +603,7 @@ class ProgressiveLearningService:
             logger.error(f"学习批次执行失败: {e}")
             raise LearningError(f"学习批次执行失败: {str(e)}")
 
+    @monitored
     async def _execute_learning_batch_background(self, group_id: str):
         """在后台执行学习批次 - 使用线程池避免阻塞主协程"""
         try:
@@ -682,6 +687,7 @@ class ProgressiveLearningService:
             logger.error(f"后台强化学习失败: {e}")
             return {}
 
+    @monitored
     async def _execute_style_analysis_background(self, group_id: str, filtered_messages):
         """在后台执行风格分析"""
         from ...core.interfaces import AnalysisResult
@@ -802,6 +808,7 @@ class ProgressiveLearningService:
         except Exception as e:
             logger.error(f"后台策略优化失败: {e}")
 
+    @monitored
     async def _generate_updated_persona_with_refinement(self, group_id: str, current_persona: Dict[str, Any], style_analysis: Any) -> Dict[str, Any]:
         """使用提炼模型生成更新后的人格（兼容转发）"""
         return await self._get_persona_learning_module().generate_updated_persona_with_refinement(
@@ -835,6 +842,7 @@ class ProgressiveLearningService:
             logger.warning(f"JSON序列化对象时出现错误: {e}, 对象类型: {type(obj)}, 转换为字符串")
             return str(obj)
 
+    @monitored
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """对话风格学习不需要筛选，直接返回所有消息"""
         messages = filter_learning_messages(messages)
@@ -849,6 +857,7 @@ class ProgressiveLearningService:
 
         return messages
 
+    @monitored
     async def _get_current_persona(self, group_id: str) -> Dict[str, Any]:
         """获取当前人格设置 (针对特定群组，兼容转发)"""
         return await self._get_persona_learning_module().get_current_persona(group_id)
@@ -861,6 +870,7 @@ class ProgressiveLearningService:
             style_analysis,
         )
 
+    @monitored
     async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
                                      current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
                                      quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None):

@@ -1,0 +1,864 @@
+{
+  "metadata": {
+    "display_name": "Self Learning",
+    "short_desc": "Helps an AI chatbot learn conversation style, group jargon, social context, and persona evolution.",
+    "desc": "SELF LEARNING lets an AI chatbot learn conversation style, understand group jargon, manage social relationships and affection, and evolve its persona for more natural conversations. Back up persona data manually before use."
+  },
+  "config": {
+    "Dependency_Install_Guide": {
+      "description": "Dependency installation",
+      "hint": "Dependencies are not installed automatically during plugin installation or startup. Open the plugin WebUI Dashboard full settings and manually install basic or full capability dependencies.",
+      "dependency_install_entry": {
+        "description": "Manual install entry",
+        "hint": "Basic dependencies cover persona review, jargon learning, expression learning, and WebUI features. Full dependencies add graph, monitoring, external database, LightRAG, Mem0, and other complete capabilities."
+      }
+    },
+    "Self_Learning_Basic": {
+      "description": "Basic learning settings",
+      "hint": "Controls the plugin's basic learning behavior.",
+      "enable_message_capture": {
+        "description": "Enable message capture",
+        "hint": "Capture user messages for learning. When disabled, the plugin stops collecting new messages."
+      },
+      "enable_auto_learning": {
+        "description": "Enable automatic learning",
+        "hint": "Run scheduled automatic learning. When disabled, learning must be triggered manually."
+      },
+      "enable_realtime_learning": {
+        "description": "Enable real-time learning",
+        "hint": "Filter and process messages as they arrive. This increases real-time load."
+      },
+      "enable_jargon_learning": {
+        "description": "Enable jargon learning",
+        "hint": "Enable jargon pre-filtering, mining, and context capabilities."
+      },
+      "enable_style_learning": {
+        "description": "Enable conversation style learning",
+        "hint": "Enable automatic style learning, expression patterns, and related learning batches."
+      },
+      "enable_realtime_llm_filter": {
+        "description": "Enable real-time LLM filtering",
+        "hint": "Use an LLM to filter every real-time message. Disable this to reduce LLM call frequency."
+      },
+      "enable_web_interface": {
+        "description": "Enable Web management UI",
+        "hint": "Enable the Web UI for viewing and managing learning data."
+      },
+      "web_interface_port": {
+        "description": "Web UI port",
+        "hint": "Access port for the Web management UI."
+      },
+      "web_interface_host": {
+        "description": "Web UI bind address",
+        "hint": "Bind address for the Web management UI. 0.0.0.0 listens on all interfaces; 127.0.0.1 is local only."
+      }
+    },
+    "Target_Settings": {
+      "description": "Capture target settings",
+      "hint": "Configure whose messages should be learned.",
+      "target_qq_list": {
+        "description": "Target QQ ID list",
+        "hint": "Default full learning: leave empty, blank, or enter all/*/全部/全量 to learn all non-blacklisted messages. You can also enter a QQ ID or group_ group-id value as a whitelist."
+      },
+      "target_blacklist": {
+        "description": "Learning blacklist",
+        "hint": "Messages from blacklisted members are not learned. Empty means no blacklist. Supports QQ IDs and group_ group-id values."
+      },
+      "current_persona_name": {
+        "description": "Current target persona",
+        "hint": "The plugin learns and optimizes the conversation style for this persona. Empty or default follows the current AstrBot persona; a specific ID must exist in persona settings."
+      }
+    },
+    "Model_Configuration": {
+      "description": "Model configuration",
+      "hint": "Configure AI model providers used for filtering, refinement, and reinforcement learning.",
+      "filter_provider_id": {
+        "description": "Filter model provider",
+        "hint": "Provider used for message filtering. Fast and low-cost models such as gpt-4o-mini are recommended."
+      },
+      "refine_provider_id": {
+        "description": "Refinement model provider",
+        "hint": "Provider used for deep analysis and conversation style refinement. Stronger models such as gpt-4o are recommended."
+      },
+      "reinforce_provider_id": {
+        "description": "Reinforcement model provider",
+        "hint": "Provider used for reinforcement learning. A capable model is recommended."
+      }
+    },
+    "Learning_Parameters": {
+      "description": "Learning parameters",
+      "hint": "Controls learning process parameters.",
+      "learning_interval_hours": {
+        "description": "Learning interval (hours)",
+        "hint": "Automatic learning interval in hours."
+      },
+      "min_messages_for_learning": {
+        "description": "Minimum messages for learning",
+        "hint": "Minimum number of messages required before learning starts."
+      },
+      "max_messages_per_batch": {
+        "description": "Maximum messages per batch",
+        "hint": "Maximum messages processed in a single learning run to avoid oversized batches."
+      },
+      "expression_learning_trigger_messages": {
+        "description": "Expression learning trigger message count",
+        "hint": "How many new raw messages per group trigger expression learning. Increase this to reduce filter/analysis model calls."
+      },
+      "topic_detection_interval_messages": {
+        "description": "Topic detection trigger message count",
+        "hint": "How many new messages per group trigger one LLM topic detection. Increase this to reduce filter model calls."
+      }
+    },
+    "Filter_Parameters": {
+      "description": "Filter parameters",
+      "hint": "Controls message filtering parameters.",
+      "message_min_length": {
+        "description": "Minimum message length",
+        "hint": "Minimum character length of messages included in learning."
+      },
+      "message_max_length": {
+        "description": "Maximum message length",
+        "hint": "Maximum character length of messages included in learning."
+      },
+      "confidence_threshold": {
+        "description": "Filter confidence threshold",
+        "hint": "Message filter confidence threshold from 0 to 1. Higher values are stricter."
+      }
+    },
+    "Style_Analysis": {
+      "description": "Style analysis parameters",
+      "hint": "Controls conversation style analysis parameters.",
+      "style_analysis_batch_size": {
+        "description": "Style analysis batch size",
+        "hint": "Number of messages processed in one style analysis run."
+      },
+      "style_update_threshold": {
+        "description": "Style update threshold",
+        "hint": "Confidence threshold from 0 to 1 for triggering persona style updates."
+      }
+    },
+    "Advanced_Settings": {
+      "description": "Advanced settings",
+      "hint": "Advanced user configuration options.",
+      "debug_mode": {
+        "description": "Debug mode",
+        "hint": "Enable function-level performance monitoring and automatically use debug logs when no log level is specified."
+      },
+      "log_level": {
+        "description": "AstrBot log level",
+        "hint": "Controls plugin log verbosity in AstrBot logs. error is minimal; debug is most verbose."
+      },
+      "save_raw_messages": {
+        "description": "Save raw messages",
+        "hint": "Whether to save unprocessed raw messages for analysis."
+      },
+      "auto_backup_interval_days": {
+        "description": "Automatic backup interval (days)",
+        "hint": "Learning data auto-backup interval in days. 0 disables it."
+      },
+      "auto_apply_approved_persona": {
+        "description": "Auto-apply approved reviews to the default persona",
+        "hint": "Dangerous feature. After persona review approval, apply content directly to the currently used default persona instead of creating a new persona copy. This overwrites the default persona system prompt and is irreversible unless restored from backup. Strongly enable persona auto-backup when using this."
+      }
+    },
+    "Machine_Learning_Settings": {
+      "description": "Machine learning settings",
+      "hint": "Lightweight machine learning analysis configuration.",
+      "enable_ml_analysis": {
+        "description": "Enable ML analysis",
+        "hint": "Enable scikit-learn for text clustering and behavior analysis."
+      },
+      "max_ml_sample_size": {
+        "description": "Maximum ML sample size",
+        "hint": "Maximum sample count for machine learning analysis to control resource usage."
+      },
+      "ml_cache_timeout_hours": {
+        "description": "ML cache timeout (hours)",
+        "hint": "Cache lifetime for machine learning analysis results."
+      }
+    },
+    "Persona_Backup_Settings": {
+      "description": "Persona backup settings",
+      "hint": "Persona data backup and restore configuration.",
+      "auto_backup_enabled": {
+        "description": "Enable automatic backup",
+        "hint": "Create backups automatically before persona updates."
+      },
+      "backup_interval_hours": {
+        "description": "Backup interval (hours)",
+        "hint": "Automatic backup interval."
+      },
+      "max_backups_per_group": {
+        "description": "Maximum backups per group",
+        "hint": "Maximum backups retained for each group."
+      }
+    },
+    "Goal_Driven_Chat_Settings": {
+      "description": "Goal-driven chat settings",
+      "hint": "Intelligent conversation goal management with dynamic goal detection and stage planning.",
+      "enable_goal_driven_chat": {
+        "description": "Enable goal-driven chat",
+        "hint": "Enable the intelligent conversation goal system. It detects conversation goals and dynamically adjusts reply strategy."
+      },
+      "goal_session_timeout_hours": {
+        "description": "Session timeout (hours)",
+        "hint": "Conversation goal session timeout. Inactive sessions past this time are cleaned automatically."
+      },
+      "goal_auto_detect": {
+        "description": "Auto-detect conversation goals",
+        "hint": "Use an LLM to analyze user messages and detect conversation goal type. When disabled, the default casual chat mode is used."
+      },
+      "goal_max_conversation_history": {
+        "description": "Maximum conversation history turns",
+        "hint": "Maximum conversation turns kept in a session. One user message plus one bot reply counts as one turn. Recommended: 20-40."
+      }
+    },
+    "Affection_System_Settings": {
+      "description": "Affection system settings",
+      "hint": "User affection and bot mood management configuration.",
+      "enable_affection_system": {
+        "description": "Enable affection system",
+        "hint": "Enable user affection and emotional response system."
+      },
+      "max_total_affection": {
+        "description": "Total affection cap",
+        "hint": "Maximum total affection value the bot can hold across all users."
+      },
+      "max_user_affection": {
+        "description": "Per-user affection cap",
+        "hint": "Maximum affection a single user can receive."
+      },
+      "affection_decay_rate": {
+        "description": "Affection decay ratio",
+        "hint": "Decay ratio used during affection redistribution, from 0 to 1."
+      },
+      "daily_mood_change": {
+        "description": "Enable daily mood changes",
+        "hint": "Randomly change the bot's mood every day."
+      },
+      "mood_affect_affection": {
+        "description": "Mood affects affection changes",
+        "hint": "Whether the current mood affects the magnitude of affection changes."
+      }
+    },
+    "Mood_System_Settings": {
+      "description": "Mood system settings",
+      "hint": "Bot mood state management configuration.",
+      "enable_daily_mood": {
+        "description": "Enable daily mood",
+        "hint": "Enable the daily random mood system."
+      },
+      "enable_startup_random_mood": {
+        "description": "Enable random startup mood",
+        "hint": "Set a random initial mood for active groups when the plugin starts."
+      },
+      "mood_change_hour": {
+        "description": "Mood update hour",
+        "hint": "Hour of day for mood updates, from 0 to 23."
+      },
+      "mood_persistence_hours": {
+        "description": "Mood duration",
+        "hint": "How many hours each mood state persists."
+      }
+    },
+    "Social_Context_Settings": {
+      "description": "Social context injection settings",
+      "hint": "Controls injection of social relationships, affection, and mood into LLM prompts.",
+      "enable_social_context_injection": {
+        "description": "Enable social context injection",
+        "hint": "Inject user social relationships, affection, and mood information into LLM prompts."
+      },
+      "include_social_relations": {
+        "description": "Inject user social relationships",
+        "hint": "Include the user's social relationship network information in the prompt."
+      },
+      "include_affection_info": {
+        "description": "Inject affection information",
+        "hint": "Include affection information for the user in the prompt."
+      },
+      "include_mood_info": {
+        "description": "Inject bot mood information",
+        "hint": "Include the bot's current mood state in the prompt."
+      },
+      "expression_patterns_hours": {
+        "description": "Style feature extraction time range (hours)",
+        "hint": "How many recent hours of learned expression style features are injected into the prompt. Default is 24 hours; use 168 for one week."
+      },
+      "context_injection_position": {
+        "description": "Context injection position",
+        "hint": "Where to inject social context into the prompt. Options: start or end."
+      }
+    },
+    "Storage_Settings": {
+      "description": "Storage path settings",
+      "hint": "Customize the plugin data storage location.",
+      "data_dir": {
+        "description": "Data storage directory",
+        "hint": "Root directory for plugin data. Defaults to plugin_data/astrbot_plugin_self_learning under the AstrBot data directory; absolute paths are allowed."
+      }
+    },
+    "Database_Settings": {
+      "description": "Database configuration",
+      "hint": "Configure database type and connection parameters. PostgreSQL is the default; SQLite and MySQL are compatible explicit backends.",
+      "db_type": {
+        "description": "Database type",
+        "hint": "Enter postgresql, pgsql, sqlite, or mysql. PostgreSQL is the default; startup creates database/schema before syncing ORM tables. Use sqlite explicitly when PostgreSQL is unavailable on a single machine."
+      },
+      "mysql_host": {
+        "description": "MySQL server address",
+        "hint": "IP address or domain of the MySQL server, such as localhost or 192.168.1.100. Required only when db_type is mysql."
+      },
+      "mysql_port": {
+        "description": "MySQL port",
+        "hint": "MySQL server port, usually 3306. Required only when db_type is mysql."
+      },
+      "mysql_user": {
+        "description": "MySQL username",
+        "hint": "MySQL database username, such as root or astrbot. Required only when db_type is mysql."
+      },
+      "mysql_password": {
+        "description": "MySQL password",
+        "hint": "MySQL database password. Required only when db_type is mysql."
+      },
+      "mysql_database": {
+        "description": "MySQL database name",
+        "hint": "MySQL database name. The plugin can automatically create the database and tables."
+      },
+      "postgresql_host": {
+        "description": "PostgreSQL server address",
+        "hint": "IP address or domain of the PostgreSQL server. Required only when db_type is postgresql."
+      },
+      "postgresql_port": {
+        "description": "PostgreSQL port",
+        "hint": "PostgreSQL server port, usually 5432. Required only when db_type is postgresql."
+      },
+      "postgresql_user": {
+        "description": "PostgreSQL username",
+        "hint": "PostgreSQL database username, such as postgres or astrbot. Required only when db_type is postgresql."
+      },
+      "postgresql_password": {
+        "description": "PostgreSQL password",
+        "hint": "PostgreSQL database password. Required only when db_type is postgresql."
+      },
+      "postgresql_database": {
+        "description": "PostgreSQL database name",
+        "hint": "PostgreSQL database name. The plugin will try to create the database and tables automatically."
+      },
+      "postgresql_schema": {
+        "description": "PostgreSQL schema",
+        "hint": "PostgreSQL schema name. Default is public; other names are created and used automatically."
+      },
+      "max_connections": {
+        "description": "Maximum connections",
+        "hint": "Maximum database connection pool size. Increase for high concurrency."
+      },
+      "min_connections": {
+        "description": "Minimum connections",
+        "hint": "Minimum database connection pool size to keep warm connections available."
+      }
+    },
+    "API_Settings": {
+      "description": "External API settings",
+      "hint": "Security configuration for external API endpoints.",
+      "api_key": {
+        "description": "API access key",
+        "hint": "Access key for external API endpoints. Leave empty to disable key authentication. A strong password is recommended."
+      },
+      "enable_api_auth": {
+        "description": "Enable API authentication",
+        "hint": "Enable API key authentication. When disabled, anyone can access external API endpoints."
+      }
+    },
+    "Repository_Settings": {
+      "description": "Data access layer configuration",
+      "hint": "Configure default limits and parameters for SQLAlchemy Repository data access.",
+      "default_review_limit": {
+        "description": "Default review query limit",
+        "hint": "Default limit when fetching pending persona/style learning review records."
+      },
+      "default_pattern_limit": {
+        "description": "Default expression pattern query limit",
+        "hint": "Default limit when fetching expression patterns."
+      },
+      "default_memory_limit": {
+        "description": "Default memory query limit",
+        "hint": "Default limit when fetching memory records."
+      },
+      "default_affection_limit": {
+        "description": "Default affection query limit",
+        "hint": "Default limit when fetching affection interaction records."
+      },
+      "default_social_limit": {
+        "description": "Default social record query limit",
+        "hint": "Default limit when fetching social relationship records."
+      },
+      "default_psychological_limit": {
+        "description": "Default psychological state query limit",
+        "hint": "Default limit when fetching psychological state records."
+      },
+      "max_interaction_batch_size": {
+        "description": "Maximum interaction batch size",
+        "hint": "Maximum number of interaction records processed in one batch to avoid oversized operations."
+      },
+      "top_patterns_limit": {
+        "description": "Top pattern query limit",
+        "hint": "Default limit when fetching the highest-weight expression patterns."
+      },
+      "recent_interactions_limit": {
+        "description": "Recent interaction query limit",
+        "hint": "Default limit when fetching recent interaction records."
+      },
+      "trend_analysis_days": {
+        "description": "Trend analysis days",
+        "hint": "Default day range queried for trend analysis."
+      }
+    },
+    "Integration_Settings": {
+      "description": "Integrations",
+      "hint": "Coordinate with specialized plugins: delegate memory to LivingMemory and reply decisions/generation to Group Chat Plus.",
+      "delegate_memory_to_livingmemory": {
+        "description": "Delegate memory to LivingMemory",
+        "hint": "When LivingMemory is loaded, this plugin no longer writes or injects local long-term memory, avoiding double-memory contamination."
+      },
+      "livingmemory_plugin_name": {
+        "description": "LivingMemory plugin name",
+        "hint": "Used to detect whether the LivingMemory plugin is loaded. Usually keep the default."
+      },
+      "disable_local_memory_when_delegated": {
+        "description": "Disable local memory when delegated",
+        "hint": "When enabled, local long-term memory is disabled only if LivingMemory is detected; otherwise local fallback remains available."
+      },
+      "delegate_reply_to_group_chat_plus": {
+        "description": "Delegate replies to Group Chat Plus",
+        "hint": "When Group Chat Plus is loaded, this plugin no longer handles reply decisions or generation and only enhances learning context."
+      },
+      "group_chat_plus_plugin_name": {
+        "description": "Group Chat Plus plugin name",
+        "hint": "Used to detect whether the Group Chat Plus plugin is loaded. Usually keep the default."
+      },
+      "disable_local_reply_when_delegated": {
+        "description": "Disable local replies when delegated",
+        "hint": "When enabled, the local reply system is disabled only if Group Chat Plus is detected; otherwise compatible fallback remains available."
+      }
+    },
+    "V2_Architecture_Settings": {
+      "description": "v2 architecture upgrade",
+      "hint": "Advanced features: embedding vectorization, reranker sorting, knowledge engine, and memory engine.",
+      "embedding_provider_id": {
+        "description": "Embedding provider ID",
+        "hint": "Enter the full Embedding provider ID, such as 'openai/text-embedding-3-large'. Create an Embedding provider in AstrBot Provider management first, then enter its ID here. The format is usually 'source/model'."
+      },
+      "rerank_provider_id": {
+        "description": "Reranker provider ID",
+        "hint": "Enter the full Reranker provider ID, such as 'openai/qwen3-rerank'. Create a Reranker provider in AstrBot Provider management first, then enter its ID here. The format is usually 'source/model'."
+      },
+      "rerank_top_k": {
+        "description": "Top-K results after reranking",
+        "hint": "Number of Top-K results kept after reranking. Smaller values are more precise but may miss relevant results."
+      },
+      "rerank_min_candidates": {
+        "description": "Minimum candidates for reranking",
+        "hint": "Skip Reranker when the number of knowledge + memory candidate documents is below this threshold to save latency. Set to 0 to always rerank."
+      },
+      "provider_retry_interval_seconds": {
+        "description": "Provider retry interval (seconds)",
+        "hint": "AstrBot provider registry may not be ready during cold start. The plugin retries binding Embedding/Reranker providers at this interval."
+      },
+      "knowledge_engine": {
+        "description": "Knowledge engine",
+        "hint": "Knowledge storage engine type. legacy uses the existing NetworkX implementation; lightrag uses LightRAG hybrid vector + graph retrieval and requires an Embedding provider."
+      },
+      "lightrag_query_mode": {
+        "description": "LightRAG query mode",
+        "hint": "LightRAG retrieval mode. local uses entity-neighborhood retrieval with low latency; hybrid combines entity-neighborhood and global community aggregation for higher quality but slower results; naive is pure vector retrieval; global is global community only; mix is mixed mode."
+      },
+      "memory_engine": {
+        "description": "Memory engine",
+        "hint": "Memory management engine type. legacy uses the existing implementation; mem0 uses mem0 for automatic memory extraction and retrieval and requires an Embedding provider."
+      }
+    }
+  },
+  "pages": {
+    "dashboard": {
+      "title": "Self Learning Dashboard",
+      "description": "Embedded management panel for the Self Learning plugin.",
+      "sidebar": {
+        "aria": "Self Learning modules"
+      },
+      "brand": {
+        "eyebrow": "AstrBot Embedded WebUI"
+      },
+      "nav": {
+        "home": "Dashboard",
+        "insights": "AI Insights",
+        "monitoring": "Monitoring",
+        "reviews": "Review Queue",
+        "jargonLearning": "Jargon Learning",
+        "expressionLearning": "Expression Learning",
+        "personaLearning": "Persona Learning",
+        "content": "Learning Content",
+        "graphs": "Graphs",
+        "replyStrategy": "Reply Strategy",
+        "integrations": "Integrations",
+        "settings": "Settings"
+      },
+      "page": {
+        "home": {
+          "kicker": "Dashboard",
+          "title": "Full Embedded WebUI"
+        },
+        "insights": {
+          "kicker": "Insights",
+          "title": "AI Insights"
+        },
+        "monitoring": {
+          "kicker": "Monitoring",
+          "title": "Runtime Monitoring"
+        },
+        "reviews": {
+          "kicker": "Reviews",
+          "title": "Review Queue"
+        },
+        "jargon": {
+          "kicker": "Jargon",
+          "title": "Jargon Learning"
+        },
+        "style": {
+          "kicker": "Expression",
+          "title": "Expression Learning"
+        },
+        "persona": {
+          "kicker": "Persona",
+          "title": "Persona Learning"
+        },
+        "content": {
+          "kicker": "Content",
+          "title": "Learning Content"
+        },
+        "graphs": {
+          "kicker": "Graphs",
+          "title": "Graphs"
+        },
+        "reply": {
+          "kicker": "Reply",
+          "title": "Reply Strategy"
+        },
+        "integrations": {
+          "kicker": "Integrations",
+          "title": "Integrations"
+        },
+        "settings": {
+          "kicker": "Settings",
+          "title": "Settings"
+        }
+      },
+      "actions": {
+        "approve": "Approve",
+        "batchApprove": "Batch approve",
+        "batchApproveShort": "Approve all",
+        "batchConfirm": "Batch confirm",
+        "batchDelete": "Batch delete",
+        "batchReject": "Batch reject",
+        "batchRejectShort": "Reject all",
+        "clearSelection": "Clear selection",
+        "close": "Close",
+        "closeToast": "Close notification",
+        "confirm": "Confirm",
+        "copyContext": "Copy context",
+        "delete": "Delete",
+        "details": "Details",
+        "edit": "Edit",
+        "entry": "Entry",
+        "export": "Export",
+        "filter": "Filter",
+        "go": "Go",
+        "import": "Import",
+        "importing": "Importing",
+        "installing": "Installing",
+        "manualInstall": "Manual install",
+        "open": "Open",
+        "openStandalone": "Open standalone WebUI",
+        "pass": "Pass",
+        "preview": "Preview",
+        "previewing": "Previewing",
+        "refresh": "Refresh",
+        "refreshCurrent": "Refresh current module",
+        "reject": "Reject",
+        "rejectBack": "Reject",
+        "relearn": "Relearn",
+        "restore": "Restore",
+        "save": "Save",
+        "saveSettings": "Save settings",
+        "select": "Select",
+        "selectAll": "Select all",
+        "setGlobal": "Set global",
+        "unsetGlobal": "Unset global",
+        "view": "View"
+      },
+      "status": {
+        "bridgeFailed": "Bridge failed",
+        "connectedSummary": "Connected to official Plugin Page API. Standalone WebUI: {url}",
+        "connecting": "Connecting to AstrBot Plugin Page bridge.",
+        "degradedSummary": "Embedded page loaded; some services are degraded.",
+        "healthy": "Healthy",
+        "loading": "Loading",
+        "notConfigured": "not configured",
+        "partial": "Partially available",
+        "syncing": "Syncing"
+      },
+      "state": {
+        "available": "Available",
+        "closed": "Closed",
+        "delegated": "Delegated",
+        "disabled": "Disabled",
+        "enabled": "Enabled",
+        "no": "No",
+        "none": "No",
+        "off": "Off",
+        "on": "On",
+        "unset": "Unset",
+        "yes": "Yes"
+      },
+      "selection": {
+        "currentPage": "current page",
+        "selected": "selected",
+        "selectedCount": "Selected {count}",
+        "selectedOfTotal": "Selected {selected}/{total}"
+      },
+      "home": {
+        "coreStats": "Core data",
+        "metricsSummary": "{count} dimensions are participating in evaluation.",
+        "metricsTitle": "Module Metrics",
+        "modulesTitle": "Learning Modules",
+        "noMetrics": "The intelligence metrics service has not produced dimension data yet.",
+        "overviewTitle": "Learning Module Overview",
+        "reviewEntry": "Review entry",
+        "stats": {
+          "jargon": "Confirmed jargon",
+          "messages": "Captured messages",
+          "persona": "Persona updates",
+          "style": "Expression samples"
+        }
+      },
+      "insights": {
+        "databaseDegraded": "Database is degraded",
+        "databaseNotReady": "Database service did not start completely.",
+        "delegationDetail": "Memory delegated: {memory}; reply delegated: {reply}.",
+        "delegationEnabled": "Companion plugin delegation is enabled",
+        "desc": "Generate actionable hints from learning backlog, runtime health, and configuration state.",
+        "healthWarn": "Health check warning",
+        "healthWarnDetail": "Current health status: {status}.",
+        "lowScore": "Low intelligence score",
+        "lowScoreDetail": "Overall score {score}. Check expression samples and learning batches.",
+        "moduleFailed": "Module {name} failed to load",
+        "noIssues": "No high-priority issues",
+        "noIssuesDetail": "Core learning, review, and monitoring modules all returned usable data.",
+        "reviewBacklog": "Review queue backlog",
+        "reviewBacklogDetail": "{count} learning results are waiting for confirmation.",
+        "title": "AI Insights"
+      },
+      "monitoring": {
+        "desc": "Health checks, service availability, and function-level performance.",
+        "functions": "Function Performance",
+        "health": "Health Status",
+        "title": "Runtime Monitoring"
+      },
+      "reviews": {
+        "confirmBatch": "Batch {action} {scope} {count} {type}?",
+        "desc": "Process persona updates, expression learning, and jargon candidates in one place.",
+        "expressionReviews": "Expression reviews",
+        "items": "review items",
+        "jargonCandidates": "Jargon candidates",
+        "noBatchItems": "No review items can be processed on this page.",
+        "personaUpdates": "Persona updates",
+        "recentReviewed": "Recently reviewed",
+        "title": "Review Queue"
+      },
+      "jargon": {
+        "allScopes": "All scopes",
+        "allStatuses": "All statuses",
+        "batchDone": "Batch jargon operation completed",
+        "confirmed": "Confirmed",
+        "confirmBatch": "Batch {action} the selected {count} jargon items?",
+        "definition": "Definition",
+        "desc": "Manage group jargon candidates, global sharing, and semantic definitions.",
+        "global": "Global",
+        "local": "Local",
+        "pending": "Pending",
+        "searchPlaceholder": "Search term or definition",
+        "selectFirst": "Select jargon items first.",
+        "term": "Term",
+        "title": "Jargon Learning",
+        "unconfirmed": "Unconfirmed",
+        "stats": {
+          "activeGroups": "Active groups",
+          "candidates": "Candidates",
+          "confirmed": "Confirmed",
+          "inferred": "Inference complete"
+        }
+      },
+      "style": {
+        "batchDone": "Batch expression review completed",
+        "confirmBatch": "Batch {action} the selected {count} expression reviews?",
+        "desc": "View style statistics, learning patterns, and pending few-shot confirmations.",
+        "description": "Description",
+        "fewShots": "Few-shot examples",
+        "patternJson": "Learning pattern JSON",
+        "patternsTitle": "Learning Patterns",
+        "pendingReviews": "Pending Expressions",
+        "selectFirst": "Select expression reviews first.",
+        "statsTitle": "Expression Stats",
+        "title": "Expression Learning",
+        "patterns": {
+          "emotion": "Emotion patterns",
+          "language": "Language patterns",
+          "topic": "Topic patterns"
+        },
+        "stats": {
+          "avgConfidence": "Average confidence",
+          "latestUpdate": "Latest update",
+          "samples": "Style samples",
+          "totalSamples": "Total samples"
+        }
+      },
+      "persona": {
+        "backupName": "Backup {id}",
+        "backups": "Persona Backups",
+        "beginDialogsJson": "Opening dialogue JSON",
+        "currentState": "Current Persona State",
+        "desc": "View current persona state, persona list, and backup recovery.",
+        "id": "Persona ID",
+        "list": "Persona List",
+        "name": "Name",
+        "systemPrompt": "System prompt",
+        "title": "Persona Learning",
+        "stats": {
+          "beginDialogs": "Opening dialogues",
+          "currentGroup": "Current group",
+          "promptLength": "Prompt length",
+          "toolCount": "Tool count"
+        }
+      },
+      "content": {
+        "batchHistory": "Batch History",
+        "desc": "Browse raw conversations, analysis results, expression patterns, and learning batches.",
+        "title": "Learning Content",
+        "tabs": {
+          "analysis": "Analysis",
+          "dialogues": "Dialogues",
+          "features": "Expression patterns",
+          "history": "Batches"
+        }
+      },
+      "graphs": {
+        "canvasLabel": "Memory graph and knowledge graph",
+        "desc": "Memory and knowledge graphs are rendered directly in the embedded page.",
+        "details": "Graph Details",
+        "knowledgeGraph": "Knowledge graph",
+        "memoryGraph": "Memory graph",
+        "node": "Node",
+        "title": "Graphs",
+        "stats": {
+          "groups": "Groups",
+          "links": "Links",
+          "nodes": "Nodes",
+          "source": "Source"
+        }
+      },
+      "reply": {
+        "desc": "View Group Chat Plus delegation status and panel entry.",
+        "title": "Reply Strategy"
+      },
+      "integrations": {
+        "desc": "Collaboration status for Self Learning, LivingMemory, and Group Chat Plus.",
+        "settings": "Integration Settings",
+        "title": "Integrations"
+      },
+      "maibot": {
+        "autoApprove": "Automatically approve MaiBot confirmed expressions",
+        "db": "MaiBot main database",
+        "dbHint": "Optional. If filled, this SQLite file is read first.",
+        "defaultGroup": "Default group",
+        "defaultGroupHint": "Used when a MaiBot session cannot be mapped.",
+        "desc": "Read MaiBot expressions, jargon, and A_memorix memory segments, then import them into this plugin's independent learning modules.",
+        "destinations": "Destinations: expressions -> {expressions}; jargon -> {jargons}; memories -> {memories}",
+        "done": "MaiBot learning data operation completed",
+        "expressions": "Expressions",
+        "importCounts": "Import: expression reviews {style} · jargon candidates {jargon} · memory reviews {memory}",
+        "jargons": "Jargon",
+        "memorix": "A_memorix metadata.db",
+        "memorixHint": "Optional. Used to import memory segments.",
+        "memories": "Memory segments",
+        "missingPath": "Enter a MaiBot project directory or main database path.",
+        "previewCounts": "Preview: expressions {expressions} · jargon {jargons} · memories {memories}",
+        "reading": "Reading MaiBot learning data...",
+        "root": "MaiBot project directory",
+        "rootHint": "For example C:\\Users\\zacza\\Desktop\\x\\MaiBot; you can also enter only a database path.",
+        "title": "MaiBot Learning Data Migration",
+        "waitingPreview": "Waiting for preview."
+      },
+      "settings": {
+        "basicDeps": "Basic capability dependencies",
+        "desc": "Full configuration schema, provider options, and optional dependency installation.",
+        "fullDeps": "Full capability dependencies",
+        "installDone": "Dependency installation task finished",
+        "installingDeps": "Calling pip to install dependencies. Wait for command output...",
+        "optionalDeps": "Optional Dependencies",
+        "restartRequired": " · takes effect after restart",
+        "title": "Settings"
+      },
+      "modal": {
+        "backupDetails": "Backup Details",
+        "details": "Details",
+        "editJargon": "Edit Jargon",
+        "editPersona": "Edit Persona",
+        "editStyle": "Edit Expression",
+        "insightContext": "Insight Context",
+        "personaExport": "Persona Export",
+        "reviewDetails": "Review Details"
+      },
+      "messages": {
+        "actionDone": "Operation completed",
+        "batchDone": "Batch operation completed",
+        "contextCopied": "Insight context copied",
+        "jargonUpdated": "Jargon updated",
+        "personaUpdated": "Persona updated",
+        "relearnSubmitted": "Relearn submitted",
+        "settingsSaved": "Settings saved",
+        "styleUpdated": "Expression updated"
+      },
+      "empty": {
+        "batchHistory": "No batch history",
+        "configSchema": "Configuration schema is unavailable",
+        "debugDisabled": "debug_mode is not enabled",
+        "default": "No data",
+        "definition": "No definition",
+        "functionStats": "No function performance data",
+        "graphNodes": "No graph nodes",
+        "groupChatPlus": "Group Chat Plus was not detected",
+        "healthChecks": "No health check data",
+        "integrationSettings": "No integration settings",
+        "integrations": "No integration status",
+        "jargon": "No jargon data",
+        "jargonCandidates": "No jargon candidates",
+        "learningContent": "No learning content",
+        "noRemark": "No note",
+        "patterns": "No patterns",
+        "personaBackups": "No persona backups",
+        "personaList": "No personas",
+        "personaPrompt": "No persona prompt",
+        "personaUpdates": "No persona updates",
+        "reviewed": "No reviewed records",
+        "selectConfigGroup": "Select a configuration group",
+        "styleReviews": "No expression reviews"
+      },
+      "errors": {
+        "bridgeMissing": "AstrBot Plugin Page bridge SDK is not loaded",
+        "requestFailed": "Request failed"
+      },
+      "units": {
+        "times": "{count} times"
+      }
+    }
+  }
+}

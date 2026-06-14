@@ -1,5 +1,7 @@
 """Regression tests for bundled WebUI frontend assets."""
 
+import json
+import re
 from pathlib import Path
 
 
@@ -16,6 +18,11 @@ PLUGIN_PAGE_FILES = [
     PLUGIN_ROOT / "pages" / "dashboard" / "index.html",
     PLUGIN_ROOT / "pages" / "dashboard" / "app.js",
     PLUGIN_ROOT / "pages" / "dashboard" / "styles.css",
+    PLUGIN_ROOT / "pages" / "dashboard" / "_page.json",
+]
+PLUGIN_I18N_FILES = [
+    PLUGIN_ROOT / ".astrbot-plugin" / "i18n" / "zh-CN.json",
+    PLUGIN_ROOT / ".astrbot-plugin" / "i18n" / "en-US.json",
 ]
 EXTERNAL_ASSET_HOSTS = [
     "fonts.googleapis.com",
@@ -141,6 +148,44 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "button:disabled" in styles
     assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "touch-action: none" in styles
+
+
+def test_embedded_plugin_page_i18n_resources_are_complete():
+    for path in PLUGIN_I18N_FILES:
+        assert path.exists(), f"Missing plugin i18n resource: {path}"
+
+    zh = json.loads(PLUGIN_I18N_FILES[0].read_text(encoding="utf-8"))
+    en = json.loads(PLUGIN_I18N_FILES[1].read_text(encoding="utf-8"))
+    page_meta = json.loads((PLUGIN_ROOT / "pages" / "dashboard" / "_page.json").read_text(encoding="utf-8"))
+    index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+    def leaf_keys(obj, prefix=""):
+        if isinstance(obj, dict):
+            keys = set()
+            for key, value in obj.items():
+                next_prefix = f"{prefix}.{key}" if prefix else key
+                keys |= leaf_keys(value, next_prefix)
+            return keys
+        return {prefix}
+
+    zh_keys = leaf_keys(zh)
+    en_keys = leaf_keys(en)
+    assert zh_keys == en_keys
+    assert page_meta["title"]["i18n_key"] == "pages.dashboard.title"
+    assert page_meta["description"]["i18n_key"] == "pages.dashboard.description"
+
+    used_keys = set()
+    for match in re.finditer(r'data-i18n(?:-[\w-]+)?="([^"]+)"', index):
+        used_keys.add(f"pages.dashboard.{match.group(1)}")
+    for match in re.finditer(r'(?<![A-Za-z0-9_$])t\("([^"]+)"', script):
+        key = match.group(1)
+        if not key.startswith(("pages.", "metadata.", "config.")):
+            key = f"pages.dashboard.{key}"
+        used_keys.add(key)
+
+    missing_keys = sorted(key for key in used_keys if key not in zh_keys)
+    assert not missing_keys
 
 
 def test_webui_frontend_vendor_assets_exist():
@@ -271,6 +316,10 @@ def test_dashboard_exposes_companion_plugin_api_hub():
     assert "Group Chat Plus" in service
     assert "POST /api/auth/login" in service
     assert "GET /api/data/overview" in service
+    assert "GET /api/hub/v1/manifest" in service
+    assert "POST /api/hub/v1/context" in service
+    assert "POST /api/hub/v1/memories/remember" in service
+    assert "POST /api/hub/v1/messages/ingest" in service
 
 
 def test_dashboard_exposes_config_cost_warnings():

@@ -12,6 +12,7 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import StatusMessages
+from ..monitoring.instrumentation import monitored
 from .dialog_analyzer import DialogAnalyzer
 from .sample_filter import should_ignore_learning_sample
 
@@ -66,6 +67,7 @@ class RealtimeProcessor:
 
     # Public API
 
+    @monitored
     async def process_realtime_background(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:
@@ -77,6 +79,7 @@ class RealtimeProcessor:
                 f"实时学习后台处理失败 (group={group_id}): {e}", exc_info=True
             )
 
+    @monitored
     async def process_expression_learning_background(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:
@@ -89,6 +92,7 @@ class RealtimeProcessor:
                 exc_info=True,
             )
 
+    @monitored
     async def process_expression_learning(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:
@@ -101,6 +105,7 @@ class RealtimeProcessor:
             group_id, message_text, sender_id
         )
 
+    @monitored
     async def process_message_realtime(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:
@@ -161,6 +166,7 @@ class RealtimeProcessor:
 
     # Expression-style learning
 
+    @monitored
     async def _process_expression_style_learning(
         self, group_id: str, message_text: str, sender_id: str
     ) -> None:

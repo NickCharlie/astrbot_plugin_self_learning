@@ -86,3 +86,26 @@ async def test_metrics_api_returns_cache_hit_rates_directly(client):
         "total_queries": 6,
         "hit_rate": 0.5,
     }
+
+
+@pytest.mark.asyncio
+async def test_webui_dynamic_responses_disable_caching():
+    import webui.app as app_module
+
+    app = Quart(__name__)
+    app.config["TESTING"] = True
+    app.secret_key = "test-secret-key"
+
+    @app.route("/api/test-cache")
+    async def _test_cache():
+        return {"ok": True}
+
+    app_module._disable_dynamic_response_cache(app)
+
+    client = app.test_client()
+    response = await client.get("/api/test-cache")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"

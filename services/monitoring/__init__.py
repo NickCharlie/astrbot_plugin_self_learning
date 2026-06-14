@@ -33,7 +33,17 @@ from .metrics import (
     SYSTEM_MEMORY_USED_BYTES,
     HOOK_DURATION,
 )
-from .instrumentation import timed, timer, count_errors, monitored, set_debug_mode, is_debug_mode
+from .instrumentation import (
+    timed,
+    timer,
+    count_errors,
+    monitored,
+    set_debug_mode,
+    is_debug_mode,
+    set_trace_enabled,
+    is_trace_enabled,
+    reset_trace_context,
+)
 from .collector import MetricCollector
 from .health_checker import HealthChecker, HealthStatus
 from .profiler import ProfileSession
@@ -65,6 +75,9 @@ __all__ = [
     "monitored",
     "set_debug_mode",
     "is_debug_mode",
+    "set_trace_enabled",
+    "is_trace_enabled",
+    "reset_trace_context",
     # Services
     "MetricCollector",
     "HealthChecker",

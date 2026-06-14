@@ -104,6 +104,7 @@ async def function_metrics():
     try:
         from ...services.monitoring.instrumentation import (
             is_debug_mode,
+            is_trace_enabled,
             _func_histograms,
             _func_counters,
             _func_error_counters,
@@ -159,6 +160,7 @@ async def function_metrics():
 
         return jsonify({
             "debug_mode": is_debug_mode(),
+            "trace_enabled": is_trace_enabled(),
             "functions": functions,
             "timestamp": time.time(),
         }), 200

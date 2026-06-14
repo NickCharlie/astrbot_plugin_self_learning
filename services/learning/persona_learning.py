@@ -13,6 +13,7 @@ from astrbot.api import logger
 from ...constants import UPDATE_TYPE_PROGRESSIVE_PERSONA_LEARNING
 from ...utils.json_utils import clean_llm_json_response, safe_parse_llm_json
 from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
+from ..monitoring.instrumentation import monitored
 
 
 class PersonaLearningModule:
@@ -39,6 +40,7 @@ class PersonaLearningModule:
         self._resolve_umo = resolve_umo
         self._json_serializer = json_serializer
 
+    @monitored
     async def get_current_persona(self, group_id: str) -> Dict[str, Any]:
         """Get current persona settings for a group."""
         try:
@@ -75,6 +77,7 @@ class PersonaLearningModule:
             logger.error(f"获取当前人格失败 for group {group_id}: {exc}")
             return {"prompt": "默认人格", "name": "default", "style_parameters": {}}
 
+    @monitored
     async def generate_updated_persona_with_refinement(
         self,
         group_id: str,
@@ -146,6 +149,7 @@ class PersonaLearningModule:
                 group_id, current_persona, style_analysis
             )
 
+    @monitored
     async def generate_updated_persona(
         self,
         group_id: str,
@@ -199,6 +203,7 @@ class PersonaLearningModule:
             logger.error(f"生成更新人格失败 for group {group_id}: {exc}", exc_info=True)
             return current_persona
 
+    @monitored
     async def apply_persona_learning(
         self,
         group_id: str,
@@ -418,6 +423,7 @@ class PersonaLearningModule:
         )
         return False
 
+    @monitored
     async def create_persona_review(
         self,
         group_id: str,

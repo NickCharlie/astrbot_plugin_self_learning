@@ -8,11 +8,23 @@ from typing import Optional
 from astrbot.api import logger as astrbot_logger
 
 
+TRACE_LEVEL = 5
 _PLUGIN_LOGGER_NAME = "self_learning"
 _PLUGIN_TAG = "[Plug]"
 _FILTER_FLAG = "_self_learning_log_record_defaults"
 
+
+def _trace(self: logging.Logger, message, *args, **kwargs) -> None:
+    if self.isEnabledFor(TRACE_LEVEL):
+        self._log(TRACE_LEVEL, message, args, **kwargs)
+
+
+logging.addLevelName(TRACE_LEVEL, "TRACE")
+if not hasattr(logging.Logger, "trace"):
+    logging.Logger.trace = _trace  # type: ignore[attr-defined]
+
 _LOG_LEVELS = {
+    "trace": TRACE_LEVEL,
     "error": logging.ERROR,
     "warning": logging.WARNING,
     "info": logging.INFO,
@@ -42,7 +54,7 @@ class _AstrBotRecordDefaults(logging.Filter):
         if not hasattr(record, "source_line"):
             record.source_line = record.lineno
         if not hasattr(record, "is_trace"):
-            record.is_trace = False
+            record.is_trace = record.levelno == TRACE_LEVEL
         if not hasattr(record, "ansi_prefix"):
             record.ansi_prefix = ""
         if not hasattr(record, "ansi_reset"):
@@ -125,4 +137,5 @@ __all__ = [
     "get_astrbot_logger",
     "normalize_log_level",
     "resolve_log_level",
+    "TRACE_LEVEL",
 ]

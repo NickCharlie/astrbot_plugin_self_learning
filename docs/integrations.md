@@ -80,6 +80,36 @@ Dashboard -> 功能融合
 - LivingMemory 状态、外部面板入口和本地图谱适配 API 列表。
 - Group Chat Plus 状态、面板入口和开发 API 列表。
 - `Integration_Settings` 快速编辑。
+- Self Learning Hub 稳定 HTTP 契约和可对接能力。
+
+## Self Learning Hub
+
+Self Learning 现在也可以作为学习中枢供其他插件调用。伴随插件可以把“构建上下文”“引用一段对话并学习”“写入外部消息”“触发学习”“读取审查/图谱/指标”视为稳定 HTTP 能力，而不是直接依赖本插件内部 Python 对象。
+
+### 发现方式
+
+优先读取功能融合状态:
+
+```http
+GET /api/integrations/status
+```
+
+返回中的 `hub` 字段包含 `base_path`、`manifest_url`、`status_url`、`auth`、`capabilities` 和 `endpoints`。
+
+也可以直接读取:
+
+```http
+GET /api/hub/v1/manifest
+GET /api/hub/v1/status
+```
+
+### 推荐调用顺序
+
+1. 读取 `manifest`，确认版本、鉴权和 endpoint 列表。
+2. 读取 `status`，检查数据库和能力是否可用。
+3. 调用 `context` 构建 prompt-ready 上下文。
+4. 需要学习时调用 `memories/remember` 或 `messages/ingest`。
+5. 需要编排学习过程时调用 `learning/trigger`。
 
 ## WebUI API
 
@@ -103,7 +133,13 @@ Dashboard -> 功能融合
     "group_chat_plus_plugin_name": "astrbot_plugin_group_chat_plus",
     "disable_local_reply_when_delegated": true
   },
-  "dashboards": []
+  "dashboards": [],
+  "hub": {
+    "base_path": "/api/hub/v1",
+    "manifest_url": "/api/hub/v1/manifest",
+    "status_url": "/api/hub/v1/status",
+    "endpoints": []
+  }
 }
 ```
 
@@ -121,11 +157,38 @@ Dashboard -> 功能融合
 | `dev_api` | 该插件公开 API 列表 |
 | `settings_group` | 相关配置组 |
 
+### Hub API
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/hub/v1/manifest` | Hub 契约、能力列表、MVC/AOP 说明和请求示例 |
+| GET | `/api/hub/v1/status` | 健康状态、数据库降级状态、集成状态和可用能力 |
+| POST | `/api/hub/v1/context` | 构建 prompt-ready 上下文 |
+| POST | `/api/hub/v1/memories/remember` | 写入用户显式选择的记忆，并链入表达方式和示例样本 |
+| POST | `/api/hub/v1/messages/ingest` | 接收外部插件标准化消息，进入学习管道 |
+| POST | `/api/hub/v1/learning/trigger` | 触发指定群组学习 |
+| GET | `/api/hub/v1/reviews` | 获取待审队列 |
+| POST | `/api/hub/v1/reviews/<review_id>/decision` | 提交审查决定 |
+| GET | `/api/hub/v1/graphs/memory` | 读取记忆图 |
+| GET | `/api/hub/v1/graphs/knowledge` | 读取知识图 |
+| GET | `/api/hub/v1/metrics` | 读取 Hub 级指标 |
+
 ## Companion API 列表
 
 ### Self Learning
 
 - `GET /api/integrations/status`
+- `GET /api/hub/v1/manifest`
+- `GET /api/hub/v1/status`
+- `POST /api/hub/v1/context`
+- `POST /api/hub/v1/memories/remember`
+- `POST /api/hub/v1/messages/ingest`
+- `POST /api/hub/v1/learning/trigger`
+- `GET /api/hub/v1/reviews`
+- `POST /api/hub/v1/reviews/<review_id>/decision`
+- `GET /api/hub/v1/graphs/memory`
+- `GET /api/hub/v1/graphs/knowledge`
+- `GET /api/hub/v1/metrics`
 - `GET /api/config/schema`
 - `POST /api/config`
 - `GET /api/metrics`

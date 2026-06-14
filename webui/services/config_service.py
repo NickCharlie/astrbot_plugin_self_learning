@@ -7,6 +7,7 @@ import asyncio
 import inspect
 import json
 import os
+import importlib
 from collections.abc import MutableMapping
 from functools import lru_cache
 from pathlib import Path
@@ -278,6 +279,7 @@ _ENUM_FIELD_OPTIONS: Dict[str, List[Dict[str, str]]] = {
         {"value": "warning", "label": "warning"},
         {"value": "info", "label": "info"},
         {"value": "debug", "label": "debug"},
+        {"value": "trace", "label": "trace"},
     ],
 }
 
@@ -1703,6 +1705,26 @@ class ConfigService:
                 fallback="info",
             )
             self.plugin_config.log_level = applied_level
+            set_debug_mode = None
+            set_trace_enabled = None
+            for module_name in (
+                "self_learning_EterU.services.monitoring.instrumentation",
+                f"{__package__.split('.')[0]}.services.monitoring.instrumentation"
+                if __package__
+                else "",
+            ):
+                if not module_name:
+                    continue
+                try:
+                    instrumentation = importlib.import_module(module_name)
+                    set_debug_mode = getattr(instrumentation, "set_debug_mode")
+                    set_trace_enabled = getattr(instrumentation, "set_trace_enabled")
+                    break
+                except Exception as exc:
+                    logger.debug(f"同步函数级监控配置失败 ({module_name}): {exc}")
+            if set_debug_mode and set_trace_enabled:
+                set_debug_mode(getattr(self.plugin_config, "debug_mode", False))
+                set_trace_enabled(applied_level == "trace")
             logger.info(f"AstrBot 日志等级已更新为: {applied_level}")
 
         if getattr(self.plugin_config, "data_dir", None):

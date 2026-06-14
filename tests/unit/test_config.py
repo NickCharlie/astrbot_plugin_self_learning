@@ -46,6 +46,7 @@ class TestPluginConfigDefaults:
         assert config.web_interface_host == "0.0.0.0"
         assert config.log_level == "info"
         assert config.llm_hook_injection_target == "extra_user_content_parts"
+        assert config.context_injection_position == "end"
 
     def test_create_default_classmethod(self):
         """Test the create_default classmethod."""
@@ -58,6 +59,7 @@ class TestPluginConfigDefaults:
         assert config.expression_learning_trigger_messages == 10
         assert config.expression_learning_min_interval_seconds == 3600
         assert config.topic_detection_interval_messages == 10
+        assert config.context_injection_position == "end"
 
     def test_default_learning_parameters(self):
         """Test default learning parameter values."""
@@ -159,6 +161,20 @@ class TestPluginConfigFromDict:
 
         assert config.debug_mode is False
         assert config.log_level == 'warning'
+
+    def test_create_from_config_with_trace_log_level(self):
+        """Trace is an explicit level for function-chain diagnostics."""
+        raw_config = {
+            'Advanced_Settings': {
+                'debug_mode': False,
+                'log_level': 'trace',
+            }
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.debug_mode is False
+        assert config.log_level == 'trace'
 
     def test_create_from_config_debug_mode_defaults_to_debug_log_level(self):
         """debug_mode remains a shorthand for verbose logging when log_level is omitted."""
@@ -565,7 +581,7 @@ class TestPluginConfigValidation:
     def test_invalid_log_level_rejected(self):
         """Test validation catches invalid log levels."""
         with pytest.raises(ValueError):
-            PluginConfig(log_level="trace")
+            PluginConfig(log_level="verbose")
 
 
 @pytest.mark.unit

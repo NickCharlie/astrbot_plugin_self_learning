@@ -243,19 +243,20 @@
       "debug_mode": {
         "description": "调试模式",
         "type": "bool",
-        "hint": "启用函数级性能监控，并在未指定日志等级时自动使用 debug",
+        "hint": "启用函数级性能指标采集，并在未指定日志等级时自动使用 debug",
         "default": false
       },
       "log_level": {
         "description": "AstrBot日志等级",
         "type": "string",
-        "hint": "控制插件在 AstrBot 日志中的详细程度。error 最少，debug 最多",
+        "hint": "控制插件在 AstrBot 日志中的详细程度。error 最少，trace 会输出函数级进入/退出和耗时日志",
         "default": "info",
         "options": [
           "error",
           "warning",
           "info",
-          "debug"
+          "debug",
+          "trace"
         ]
       },
       "save_raw_messages": {
@@ -471,8 +472,8 @@
       "context_injection_position": {
         "description": "上下文注入位置",
         "type": "string",
-        "hint": "社交上下文注入到prompt的位置，可选值：start(开头)、end(结尾)",
-        "default": "start"
+        "hint": "社交上下文注入到prompt的位置，可选值：start(开头)、end(结尾)。默认 end 可减少动态上下文破坏 provider prompt/prefix cache 的概率",
+        "default": "end"
       }
     }
   },

@@ -1,9 +1,10 @@
 from collections import defaultdict
+import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy.dialects import postgresql
+from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy import select
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
@@ -11,6 +12,7 @@ from sqlalchemy.engine import make_url
 from config import PluginConfig
 from core.database.engine import DatabaseEngine
 from models.orm import Base
+from models.orm.jargon import Jargon
 from models.orm.learning import StyleLearningReview
 from services.database.facades.jargon_facade import JargonFacade
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
@@ -431,6 +433,76 @@ def test_jargon_postgresql_upsert_targets_chat_content_unique_constraint():
     assert "RETURNING jargon.id" in compiled
     assert "created_at" in compiled
     assert "updated_at" in compiled
+
+
+def test_jargon_sqlite_upsert_targets_chat_content_unique_constraint():
+    stmt = JargonFacade._build_sqlite_jargon_upsert(
+        "group-a",
+        "测试黑话",
+        {
+            "raw_content": "[]",
+            "meaning": "释义",
+            "is_jargon": True,
+            "count": 1,
+            "is_complete": True,
+        },
+        123,
+    )
+
+    compiled = str(stmt.compile(dialect=sqlite.dialect()))
+
+    assert "ON CONFLICT (chat_id, content) DO UPDATE" in compiled
+    assert "created_at" in compiled
+    assert "updated_at" in compiled
+
+
+@pytest.mark.asyncio
+async def test_jargon_sqlite_upsert_handles_concurrent_duplicate_terms(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        enable_web_interface=False,
+        db_type="sqlite",
+    )
+    config.messages_db_path = str(tmp_path / "messages.db")
+    manager = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await manager.start() is True
+
+        async def save_term(index: int):
+            return await manager.save_or_update_jargon(
+                "group-race",
+                "打爆",
+                {
+                    "raw_content": f"[\"ctx-{index}\"]",
+                    "meaning": f"meaning-{index}",
+                    "is_jargon": True,
+                    "count": index + 1,
+                    "is_complete": True,
+                },
+            )
+
+        results = await asyncio.gather(*(save_term(i) for i in range(20)))
+
+        assert all(result is not None for result in results)
+        assert len(set(results)) == 1
+
+        async with manager.get_session() as session:
+            rows = (
+                await session.execute(
+                    select(Jargon).where(
+                        Jargon.chat_id == "group-race",
+                        Jargon.content == "打爆",
+                    )
+                )
+            ).scalars().all()
+
+        assert len(rows) == 1
+        assert rows[0].id == results[0]
+        assert rows[0].is_jargon is True
+        assert rows[0].is_complete is True
+    finally:
+        await manager.stop()
 
 
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):

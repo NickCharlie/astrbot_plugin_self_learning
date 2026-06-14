@@ -1547,6 +1547,7 @@ class PluginPageApi:
                     _func_error_counters,
                     _func_histograms,
                     is_debug_mode,
+                    is_trace_enabled,
                 )
             except ImportError:
                 from services.monitoring.instrumentation import (
@@ -1554,6 +1555,7 @@ class PluginPageApi:
                     _func_error_counters,
                     _func_histograms,
                     is_debug_mode,
+                    is_trace_enabled,
                 )
 
             functions = []
@@ -1594,11 +1596,12 @@ class PluginPageApi:
             functions.sort(key=lambda item: item["duration"]["avg"], reverse=True)
             return {
                 "debug_mode": is_debug_mode(),
+                "trace_enabled": is_trace_enabled(),
                 "functions": functions[:80],
                 "timestamp": time.time(),
             }
         except Exception as exc:
-            return {"debug_mode": False, "functions": [], "error": str(exc), "timestamp": time.time()}
+            return {"debug_mode": False, "trace_enabled": False, "functions": [], "error": str(exc), "timestamp": time.time()}
 
     @staticmethod
     async def _safe_section(

@@ -9,6 +9,8 @@ from typing import Any, Dict, List
 
 from astrbot.api import logger
 
+from ..monitoring.instrumentation import monitored
+
 
 class GroupLearningOrchestrator:
     """Orchestrate learning tasks across chat groups.
@@ -48,6 +50,7 @@ class GroupLearningOrchestrator:
 
     # Public API
 
+    @monitored
     async def smart_start_learning_for_group(self, group_id: str) -> None:
         """Smart-start a learning task for *group_id* with frequency throttling."""
         try:
@@ -119,6 +122,7 @@ class GroupLearningOrchestrator:
         except Exception as e:
             logger.error(f"智能启动学习失败: {e}")
 
+    @monitored
     async def delayed_auto_start_learning(self) -> None:
         """Auto-start learning for active groups after a startup delay."""
         try:
@@ -135,6 +139,7 @@ class GroupLearningOrchestrator:
         except Exception as e:
             logger.error(f"延迟自动启动学习失败: {e}")
 
+    @monitored
     async def get_active_groups(self) -> List[str]:
         """Discover active groups using ORM queries with whitelist/blacklist."""
         try:
@@ -295,6 +300,7 @@ class GroupLearningOrchestrator:
             )
             return False
 
+    @monitored
     async def _start_group_learning(self, group_id: str) -> None:
         """Start the progressive learning session for a single group."""
         try:

@@ -2,6 +2,7 @@
 人格审查服务 - 处理人格更新审查相关业务逻辑
 """
 import time
+import re
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 
@@ -127,6 +128,52 @@ class PersonaReviewService:
     @staticmethod
     def _append_prompt(current_prompt: str, incremental_content: str) -> str:
         return PersonaReviewService._append_text_block(current_prompt, incremental_content)
+
+    @staticmethod
+    def _compact_prompt_text(text: str) -> str:
+        return re.sub(r'\s+', '', text or '')
+
+    @classmethod
+    def _extract_incremental_prompt_content(cls, current_prompt: str, proposed_content: str) -> str:
+        """Keep persona-learning approvals from appending the full prompt twice."""
+        current = (current_prompt or '').strip()
+        proposed = (proposed_content or '').strip()
+        if not current or not proposed:
+            return proposed
+
+        if proposed == current:
+            return ''
+
+        if proposed.startswith(current):
+            return proposed[len(current):].strip()
+
+        compact_current = cls._compact_prompt_text(current)
+        compact_proposed = cls._compact_prompt_text(proposed)
+        if compact_current and compact_proposed == compact_current:
+            return ''
+        if compact_current and compact_proposed.startswith(compact_current):
+            current_index = 0
+            for index, char in enumerate(proposed):
+                if char.isspace():
+                    continue
+                if current_index >= len(compact_current):
+                    return proposed[index:].strip()
+                if char == compact_current[current_index]:
+                    current_index += 1
+                    if current_index == len(compact_current):
+                        return proposed[index + 1:].strip()
+                else:
+                    break
+
+        return proposed
+
+    @classmethod
+    def _append_incremental_prompt(cls, current_prompt: str, proposed_content: str) -> Tuple[str, str]:
+        incremental_content = cls._extract_incremental_prompt_content(
+            current_prompt,
+            proposed_content,
+        )
+        return cls._append_text_block(current_prompt, incremental_content), incremental_content
 
     @staticmethod
     def _affected_fields(before: Dict[str, Any], after: Dict[str, Any]) -> List[str]:
@@ -305,6 +352,12 @@ class PersonaReviewService:
         elif review_source == 'traditional':
             after['system_prompt'] = proposed_content or ''
             application_mode = 'replace_system_prompt'
+        elif review_source == 'persona_learning':
+            after['system_prompt'], proposed_content = self._append_incremental_prompt(
+                before.get('system_prompt', ''),
+                proposed_content,
+            )
+            application_mode = 'append_system_prompt'
         else:
             after['system_prompt'] = self._append_text_block(
                 before.get('system_prompt', ''),
@@ -760,6 +813,7 @@ class PersonaReviewService:
                                 proposed_content=incremental_content,
                                 current_snapshot=before_snapshot,
                             )
+                            incremental_content = change_snapshot.get('proposed_content', '')
 
                             auto_apply_enabled = self._auto_apply_enabled()
                             logger.info(

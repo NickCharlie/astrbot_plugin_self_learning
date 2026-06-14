@@ -214,7 +214,7 @@ class PluginConfig(BaseModel):
 
     # 高级设置
     debug_mode: bool = False # 调试模式
-    log_level: str = "info" # AstrBot日志等级: error, warning, info, debug
+    log_level: str = "info" # AstrBot日志等级: error, warning, info, debug, trace
     save_raw_messages: bool = True # 保存原始消息
     auto_backup_interval_days: int = 7 # 自动备份间隔
 
@@ -291,7 +291,7 @@ class PluginConfig(BaseModel):
     include_social_relations: bool = True # 注入用户社交关系网络信息
     include_affection_info: bool = True # 注入好感度信息
     include_mood_info: bool = True # 注入Bot情绪信息
-    context_injection_position: str = "start" # 上下文注入位置: "start" 或 "end"
+    context_injection_position: str = "end" # 上下文注入位置: "start" 或 "end"
 
     # LLM Hook 注入位置设置
     # 动态上下文优先注入 req.extra_user_content_parts，避免改动稳定 system_prompt
@@ -327,8 +327,8 @@ class PluginConfig(BaseModel):
     @classmethod
     def _normalize_log_level_field(cls, value) -> str:
         normalized = normalize_log_level(value, fallback="")
-        if normalized not in {"error", "warning", "info", "debug"}:
-            raise ValueError("日志等级必须是 error、warning、info 或 debug")
+        if normalized not in {"error", "warning", "info", "debug", "trace"}:
+            raise ValueError("日志等级必须是 error、warning、info、debug 或 trace")
         return normalized
 
     @field_validator("target_qq_list", mode="before")
@@ -579,7 +579,7 @@ class PluginConfig(BaseModel):
             include_social_relations=social_context_settings.get('include_social_relations', True),
             include_affection_info=social_context_settings.get('include_affection_info', True),
             include_mood_info=social_context_settings.get('include_mood_info', True),
-            context_injection_position=social_context_settings.get('context_injection_position', 'start'),
+            context_injection_position=social_context_settings.get('context_injection_position', 'end'),
             expression_patterns_hours=social_context_settings.get('expression_patterns_hours', 24),
 
             # 目标驱动对话设置
@@ -720,8 +720,8 @@ class PluginConfig(BaseModel):
         if not 0 <= self.style_update_threshold <= 1:
             errors.append("风格更新阈值必须在0-1之间")
 
-        if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug'}:
-            errors.append("日志等级必须是 error、warning、info 或 debug")
+        if normalize_log_level(self.log_level, fallback="") not in {'error', 'warning', 'info', 'debug', 'trace'}:
+            errors.append("日志等级必须是 error、warning、info、debug 或 trace")
 
         db_type = normalize_db_type(self.db_type)
         if db_type is None:

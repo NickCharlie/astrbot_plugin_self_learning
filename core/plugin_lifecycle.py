@@ -428,13 +428,20 @@ class PluginLifecycle:
                 p.background_tasks.add(_t)
                 _t.add_done_callback(p.background_tasks.discard)
 
-        # ------ 函数级性能监控 ------
-        if plugin_config.debug_mode:
-            try:
-                from ..services.monitoring.instrumentation import set_debug_mode
-                set_debug_mode(True)
+        # ------ 函数级性能监控 / Trace 日志 ------
+        try:
+            from ..services.monitoring.instrumentation import (
+                set_debug_mode,
+                set_trace_enabled,
+            )
+            set_debug_mode(plugin_config.debug_mode)
+            set_trace_enabled(getattr(plugin_config, "log_level", "") == "trace")
+            if plugin_config.debug_mode:
                 logger.info("函数级性能监控已启用 (debug_mode=True)")
-            except ImportError:
+            if getattr(plugin_config, "log_level", "") == "trace":
+                logger.info("函数级 Trace 日志已启用 (log_level=trace)")
+        except ImportError:
+            if plugin_config.debug_mode:
                 logger.warning(
                     "prometheus_client 未安装，函数级性能监控不可用。"
                     "安装 prometheus_client 后重启即可启用。"

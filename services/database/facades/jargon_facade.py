@@ -670,69 +670,18 @@ class JargonFacade(BaseFacade):
                     jargon_data,
                 )
 
-            # SQLite 路径：使用 SELECT→INSERT/UPDATE 模式，
-            # 并在 INSERT 因并发竞争触发 UNIQUE 约束时自动重试一次，
-            # 使重试的 SELECT 能命中另一请求刚提交的记录，走 UPDATE 分支。
-            max_attempts = 2
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    async with self.get_session() as session:
+            if self._is_sqlite_backend():
+                return await self._save_or_update_jargon_sqlite(
+                    chat_id,
+                    content,
+                    jargon_data,
+                )
 
-                        stmt = select(Jargon).where(and_(
-                            Jargon.chat_id == chat_id,
-                            Jargon.content == content,
-                        ))
-                        result = await session.execute(stmt)
-                        record = result.scalars().first()
-
-                        now_ts = self._coerce_jargon_timestamp()
-
-                        if record:
-                            # 更新已有记录
-                            if 'meaning' in jargon_data:
-                                record.meaning = jargon_data['meaning']
-                            if 'raw_content' in jargon_data:
-                                record.raw_content = jargon_data['raw_content']
-                            if 'is_jargon' in jargon_data:
-                                record.is_jargon = jargon_data['is_jargon']
-                            if 'count' in jargon_data:
-                                record.count = jargon_data['count']
-                            if 'last_inference_count' in jargon_data:
-                                record.last_inference_count = jargon_data['last_inference_count']
-                            if 'is_complete' in jargon_data:
-                                record.is_complete = jargon_data['is_complete']
-                            if 'is_global' in jargon_data:
-                                record.is_global = jargon_data['is_global']
-                            record.updated_at = now_ts
-
-                            await session.commit()
-                            self._logger.debug(
-                                f"[JargonFacade] 更新黑话: content='{content}', chat_id={chat_id}, "
-                                f"id={record.id}"
-                            )
-                            return record.id
-                        else:
-                            # 插入新记录
-                            new_record = Jargon(
-                                **self._jargon_insert_values(chat_id, content, jargon_data, now_ts)
-                            )
-                            session.add(new_record)
-                            await session.commit()
-                            await session.refresh(new_record)
-                            self._logger.debug(
-                                f"[JargonFacade] 插入黑话: content='{content}', chat_id={chat_id}, "
-                                f"id={new_record.id}"
-                            )
-                            return new_record.id
-                except IntegrityError:
-                    if attempt < max_attempts:
-                        self._logger.debug(
-                            f"[JargonFacade] 并发竞争导致 UNIQUE 冲突，重试 "
-                            f"(content='{content}', chat_id={chat_id}, attempt={attempt})"
-                        )
-                        continue
-                    # 最后一次尝试也失败，向上抛出
-                    raise
+            return await self._save_or_update_jargon_select_then_write(
+                chat_id,
+                content,
+                jargon_data,
+            )
 
         except Exception as e:
             self._logger.error(
@@ -741,7 +690,7 @@ class JargonFacade(BaseFacade):
             )
             return None
 
-    def _is_postgresql_backend(self) -> bool:
+    def _get_backend_name(self) -> str:
         sync_engine = getattr(self.engine, "engine", None)
         url = getattr(sync_engine, "url", None)
         backend_name = None
@@ -752,7 +701,69 @@ class JargonFacade(BaseFacade):
             database_url = str(getattr(self.engine, "database_url", "") or "")
             backend_name = database_url.split(":", 1)[0].split("+", 1)[0].lower()
 
-        return backend_name in {"postgresql", "postgres"}
+        return (backend_name or "").lower()
+
+    def _is_postgresql_backend(self) -> bool:
+        return self._get_backend_name() in {"postgresql", "postgres"}
+
+    def _is_sqlite_backend(self) -> bool:
+        return self._get_backend_name() == "sqlite"
+
+    async def _save_or_update_jargon_select_then_write(
+        self,
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+    ) -> Optional[int]:
+        """Fallback upsert for backends without a dialect-specific statement."""
+        async with self.get_session() as session:
+
+            stmt = select(Jargon).where(and_(
+                Jargon.chat_id == chat_id,
+                Jargon.content == content,
+            ))
+            result = await session.execute(stmt)
+            record = result.scalars().first()
+
+            now_ts = self._coerce_jargon_timestamp()
+
+            if record:
+                # 更新已有记录
+                if 'meaning' in jargon_data:
+                    record.meaning = jargon_data['meaning']
+                if 'raw_content' in jargon_data:
+                    record.raw_content = truncate_for_db(jargon_data['raw_content'])
+                if 'is_jargon' in jargon_data:
+                    record.is_jargon = jargon_data['is_jargon']
+                if 'count' in jargon_data:
+                    record.count = jargon_data['count']
+                if 'last_inference_count' in jargon_data:
+                    record.last_inference_count = jargon_data['last_inference_count']
+                if 'is_complete' in jargon_data:
+                    record.is_complete = jargon_data['is_complete']
+                if 'is_global' in jargon_data:
+                    record.is_global = jargon_data['is_global']
+                record.updated_at = now_ts
+
+                await session.commit()
+                self._logger.debug(
+                    f"[JargonFacade] 更新黑话: content='{content}', chat_id={chat_id}, "
+                    f"id={record.id}"
+                )
+                return record.id
+
+            # 插入新记录
+            new_record = Jargon(
+                **self._jargon_insert_values(chat_id, content, jargon_data, now_ts)
+            )
+            session.add(new_record)
+            await session.commit()
+            await session.refresh(new_record)
+            self._logger.debug(
+                f"[JargonFacade] 插入黑话: content='{content}', chat_id={chat_id}, "
+                f"id={new_record.id}"
+            )
+            return new_record.id
 
     async def _save_or_update_jargon_postgresql(
         self,
@@ -776,6 +787,37 @@ class JargonFacade(BaseFacade):
             self._logger.debug(
                 f"[JargonFacade] upsert 黑话: content='{content}', chat_id={chat_id}, "
                 f"id={jargon_id}"
+            )
+            return jargon_id
+
+    async def _save_or_update_jargon_sqlite(
+        self,
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+    ) -> Optional[int]:
+        """Atomically upsert jargon rows on SQLite."""
+        now_ts = self._coerce_jargon_timestamp()
+        stmt = self._build_sqlite_jargon_upsert(
+            chat_id,
+            content,
+            jargon_data,
+            now_ts,
+        )
+
+        async with self.get_session() as session:
+            await session.execute(stmt)
+            result = await session.execute(
+                select(Jargon.id).where(and_(
+                    Jargon.chat_id == chat_id,
+                    Jargon.content == content,
+                ))
+            )
+            jargon_id = result.scalar_one_or_none()
+            await session.commit()
+            self._logger.debug(
+                f"[JargonFacade] upsert 黑话(SQLite): content='{content}', "
+                f"chat_id={chat_id}, id={jargon_id}"
             )
             return jargon_id
 
@@ -850,6 +892,31 @@ class JargonFacade(BaseFacade):
                 set_=JargonFacade._jargon_update_values(jargon_data, now_ts),
             )
             .returning(Jargon.id)
+        )
+
+    @staticmethod
+    def _build_sqlite_jargon_upsert(
+        chat_id: str,
+        content: str,
+        jargon_data: Dict[str, Any],
+        now_ts: int,
+    ):
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        return (
+            sqlite_insert(Jargon)
+            .values(
+                **JargonFacade._jargon_insert_values(
+                    chat_id,
+                    content,
+                    jargon_data,
+                    now_ts,
+                )
+            )
+            .on_conflict_do_update(
+                index_elements=[Jargon.chat_id, Jargon.content],
+                set_=JargonFacade._jargon_update_values(jargon_data, now_ts),
+            )
         )
 
     # 13. get_global_jargon_list

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
+from ..monitoring.instrumentation import monitored
 from .sample_filter import should_ignore_learning_sample
 
 
@@ -31,6 +32,7 @@ class DialogAnalyzer:
 
     # Few-shot dialog generation
 
+    @monitored
     async def generate_few_shots_dialog(
         self, group_id: str, message_data_list: List[Any]
     ) -> str:
@@ -120,6 +122,7 @@ class DialogAnalyzer:
 
     # Dialog-pair validation
 
+    @monitored
     async def is_valid_dialog_pair(
         self, msg1: Any, msg2: Any, group_id: str
     ) -> bool:
@@ -183,6 +186,7 @@ class DialogAnalyzer:
 
     # Style-learning review management
 
+    @monitored
     async def create_style_learning_review_request(
         self,
         group_id: str,

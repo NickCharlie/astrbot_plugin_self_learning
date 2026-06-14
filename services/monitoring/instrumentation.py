@@ -30,11 +30,15 @@ Usage::
 
 import asyncio
 import contextlib
+import contextvars
 import functools
 import time
 from typing import Any, Callable, Dict, Optional
 
-from astrbot.api import logger
+try:
+    from ...utils.logging_utils import TRACE_LEVEL, get_astrbot_logger
+except ImportError:
+    from utils.logging_utils import TRACE_LEVEL, get_astrbot_logger
 
 from .metrics import REGISTRY, has_prometheus
 
@@ -155,6 +159,20 @@ def count_errors(
 # -- Debug-mode gated function monitoring ------------------------------------
 
 _debug_mode: bool = False
+_trace_enabled: bool = False
+_trace_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "self_learning_trace_id",
+    default=None,
+)
+_trace_depth_var: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "self_learning_trace_depth",
+    default=0,
+)
+_trace_seq_var: contextvars.ContextVar[int] = contextvars.ContextVar(
+    "self_learning_trace_seq",
+    default=0,
+)
+_trace_logger = get_astrbot_logger("monitoring.trace")
 
 
 def set_debug_mode(enabled: bool) -> None:
@@ -166,12 +184,89 @@ def set_debug_mode(enabled: bool) -> None:
     """
     global _debug_mode
     _debug_mode = enabled
-    logger.info("Function-level monitoring %s", "enabled" if enabled else "disabled")
+    _trace_logger.info("Function-level monitoring %s", "enabled" if enabled else "disabled")
 
 
 def is_debug_mode() -> bool:
     """Return whether function-level monitoring is active."""
     return _debug_mode
+
+
+def set_trace_enabled(enabled: bool) -> None:
+    """Enable or disable function entry/exit trace logs."""
+    global _trace_enabled
+    _trace_enabled = bool(enabled)
+    _trace_logger.setLevel(TRACE_LEVEL if _trace_enabled else 0)
+    _trace_logger.info("Function-level trace logging %s", "enabled" if enabled else "disabled")
+
+
+def is_trace_enabled() -> bool:
+    """Return whether function trace logging is active."""
+    return _trace_enabled
+
+
+def reset_trace_context() -> None:
+    """Clear the current async context trace id and nesting depth."""
+    _trace_id_var.set(None)
+    _trace_depth_var.set(0)
+    _trace_seq_var.set(0)
+
+
+def _next_trace_id() -> str:
+    sequence = _trace_seq_var.get() + 1
+    _trace_seq_var.set(sequence)
+    return f"{int(time.time() * 1000):x}-{sequence:x}"
+
+
+def _start_trace_call(fqn: str) -> tuple[float, contextvars.Token, contextvars.Token, str, int]:
+    trace_id = _trace_id_var.get()
+    if trace_id is None:
+        trace_id = _next_trace_id()
+        trace_token = _trace_id_var.set(trace_id)
+    else:
+        trace_token = _trace_id_var.set(trace_id)
+
+    depth = _trace_depth_var.get()
+    depth_token = _trace_depth_var.set(depth + 1)
+    _trace_logger.trace(
+        "[trace:%s] %s> %s",
+        trace_id,
+        "  " * depth,
+        fqn,
+    )
+    return time.perf_counter(), trace_token, depth_token, trace_id, depth
+
+
+def _finish_trace_call(
+    fqn: str,
+    start: float,
+    trace_token: contextvars.Token,
+    depth_token: contextvars.Token,
+    trace_id: str,
+    depth: int,
+    *,
+    exc: Optional[BaseException] = None,
+) -> None:
+    elapsed_ms = (time.perf_counter() - start) * 1000
+    if exc is None:
+        _trace_logger.trace(
+            "[trace:%s] %s< %s %.2fms",
+            trace_id,
+            "  " * depth,
+            fqn,
+            elapsed_ms,
+        )
+    else:
+        _trace_logger.trace(
+            "[trace:%s] %s! %s %.2fms error=%s",
+            trace_id,
+            "  " * depth,
+            fqn,
+            elapsed_ms,
+            exc.__class__.__name__,
+        )
+    _trace_depth_var.reset(depth_token)
+    _trace_id_var.reset(trace_token)
 
 
 # Lazy per-function metric caches keyed by fully-qualified function name.
@@ -248,42 +343,66 @@ def monitored(func: Callable) -> Callable:
     if asyncio.iscoroutinefunction(func):
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
-            if not _debug_mode:
+            if not _debug_mode and not _trace_enabled:
                 return await func(*args, **kwargs)
 
-            histogram = _get_func_histogram(fqn)
-            counter = _get_func_counter(fqn)
-            error_counter = _get_func_error_counter(fqn)
+            histogram = counter = error_counter = None
+            if _debug_mode:
+                histogram = _get_func_histogram(fqn)
+                counter = _get_func_counter(fqn)
+                error_counter = _get_func_error_counter(fqn)
 
-            counter.inc()
+                counter.inc()
             start = time.perf_counter()
+            trace_state = None
+            if _trace_enabled:
+                trace_state = _start_trace_call(fqn)
             try:
                 return await func(*args, **kwargs)
-            except Exception:
-                error_counter.inc()
+            except Exception as exc:
+                if error_counter is not None:
+                    error_counter.inc()
+                if trace_state is not None:
+                    _finish_trace_call(fqn, *trace_state, exc=exc)
+                    trace_state = None
                 raise
             finally:
-                histogram.observe(time.perf_counter() - start)
+                if histogram is not None:
+                    histogram.observe(time.perf_counter() - start)
+                if trace_state is not None:
+                    _finish_trace_call(fqn, *trace_state)
 
         return async_wrapper
 
     @functools.wraps(func)
     def sync_wrapper(*args, **kwargs):
-        if not _debug_mode:
+        if not _debug_mode and not _trace_enabled:
             return func(*args, **kwargs)
 
-        histogram = _get_func_histogram(fqn)
-        counter = _get_func_counter(fqn)
-        error_counter = _get_func_error_counter(fqn)
+        histogram = counter = error_counter = None
+        if _debug_mode:
+            histogram = _get_func_histogram(fqn)
+            counter = _get_func_counter(fqn)
+            error_counter = _get_func_error_counter(fqn)
 
-        counter.inc()
+            counter.inc()
         start = time.perf_counter()
+        trace_state = None
+        if _trace_enabled:
+            trace_state = _start_trace_call(fqn)
         try:
             return func(*args, **kwargs)
-        except Exception:
-            error_counter.inc()
+        except Exception as exc:
+            if error_counter is not None:
+                error_counter.inc()
+            if trace_state is not None:
+                _finish_trace_call(fqn, *trace_state, exc=exc)
+                trace_state = None
             raise
         finally:
-            histogram.observe(time.perf_counter() - start)
+            if histogram is not None:
+                histogram.observe(time.perf_counter() - start)
+            if trace_state is not None:
+                _finish_trace_call(fqn, *trace_state)
 
     return sync_wrapper

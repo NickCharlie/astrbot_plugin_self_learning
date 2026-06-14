@@ -112,6 +112,35 @@ class TestPersonaReviewService:
         assert preview['after_begin_dialogs'] == ['hello', 'hi']
 
     @pytest.mark.asyncio
+    async def test_pending_persona_learning_preview_strips_duplicated_prompt(
+        self, mock_container, sample_review_data
+    ):
+        """Persona learning previews should only append the learned delta."""
+        service = PersonaReviewService(mock_container)
+        sample_review_data = {
+            **sample_review_data,
+            "proposed_content": "Original prompt\n\nNew trait",
+            "new_content": "Original prompt\n\nNew trait",
+        }
+
+        mock_container.persona_updater.get_pending_persona_updates.return_value = []
+        mock_container.database_manager.get_pending_persona_learning_reviews.return_value = [sample_review_data]
+        mock_container.database_manager.get_pending_style_reviews.return_value = []
+        mock_container.persona_manager.get_default_persona_v3.return_value = {
+            "persona_id": "default",
+            "name": "Default Persona",
+            "prompt": "Original prompt",
+            "begin_dialogs": [],
+        }
+
+        result = await service.get_pending_persona_updates()
+
+        preview = result["updates"][0]["change_preview"]
+        assert preview["proposed_content"] == "New trait"
+        assert preview["after_system_prompt"] == "Original prompt\n\nNew trait"
+        assert "Original prompt\n\nOriginal prompt" not in preview["after_system_prompt"]
+
+    @pytest.mark.asyncio
     async def test_pending_style_learning_includes_begin_dialogs_preview(self, mock_container):
         """Style learning previews append into begin_dialogs, not system_prompt."""
         service = PersonaReviewService(mock_container)
@@ -250,6 +279,74 @@ class TestPersonaReviewService:
         persona_id, payload = mock_container.persona_web_manager.update_persona_via_web.await_args.args
         assert persona_id == "group-persona"
         assert payload["system_prompt"] == "Original prompt\n\nUpdated prompt with learning"
+
+    @pytest.mark.asyncio
+    async def test_persona_learning_approval_strips_duplicated_prompt_before_apply(
+        self, mock_container, sample_review_data
+    ):
+        """Approving a full-prompt proposal should not duplicate the existing prompt."""
+        mock_container.plugin_config.auto_apply_persona_updates = True
+        mock_container.plugin_config.auto_apply_approved_persona = False
+        mock_container.persona_web_manager = AsyncMock()
+        mock_container.persona_web_manager.get_persona_for_group.return_value = {
+            "persona_id": "group-persona",
+            "system_prompt": "Original prompt",
+            "begin_dialogs": [],
+        }
+        mock_container.persona_web_manager.update_persona_via_web.return_value = {
+            "success": True
+        }
+        mock_container.database_manager.get_persona_learning_review_by_id.return_value = {
+            **sample_review_data,
+            "proposed_content": "Original prompt\n\nNew trait",
+        }
+        service = PersonaReviewService(mock_container)
+
+        success, message = await service.review_persona_update(
+            "persona_learning_1",
+            "approve",
+        )
+
+        assert success is True
+        assert "已追加到人格" in message
+        _, payload = mock_container.persona_web_manager.update_persona_via_web.await_args.args
+        assert payload["system_prompt"] == "Original prompt\n\nNew trait"
+        snapshot = mock_container.database_manager.update_persona_learning_review_metadata.await_args.args[1]["change_snapshot"]
+        assert snapshot["proposed_content"] == "New trait"
+
+    @pytest.mark.asyncio
+    async def test_persona_learning_approval_skips_apply_when_proposal_matches_prompt(
+        self, mock_container, sample_review_data
+    ):
+        """A proposal equal to the current prompt should not be appended or applied."""
+        mock_container.plugin_config.auto_apply_persona_updates = True
+        mock_container.plugin_config.auto_apply_approved_persona = False
+        mock_container.persona_web_manager = AsyncMock()
+        mock_container.persona_web_manager.get_persona_for_group.return_value = {
+            "persona_id": "group-persona",
+            "system_prompt": "Original prompt",
+            "begin_dialogs": [],
+        }
+        mock_container.persona_web_manager.update_persona_via_web.return_value = {
+            "success": True
+        }
+        mock_container.database_manager.get_persona_learning_review_by_id.return_value = {
+            **sample_review_data,
+            "proposed_content": "Original prompt",
+        }
+        service = PersonaReviewService(mock_container)
+
+        success, message = await service.review_persona_update(
+            "persona_learning_1",
+            "approve",
+        )
+
+        assert success is True
+        assert "缺少增量内容" in message
+        mock_container.persona_web_manager.update_persona_via_web.assert_not_awaited()
+        snapshot = mock_container.database_manager.update_persona_learning_review_metadata.await_args.args[1]["change_snapshot"]
+        assert snapshot["proposed_content"] == ""
+        assert snapshot["after_system_prompt"] == "Original prompt"
 
     @pytest.mark.asyncio
     async def test_persona_learning_approval_falls_back_to_only_existing_persona(

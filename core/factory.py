@@ -532,8 +532,12 @@ class ServiceFactory(IServiceFactory):
 
             # Enable function-level monitoring when debug_mode is active.
             try:
-                from ..services.monitoring.instrumentation import set_debug_mode
+                from ..services.monitoring.instrumentation import (
+                    set_debug_mode,
+                    set_trace_enabled,
+                )
                 set_debug_mode(self.config.debug_mode)
+                set_trace_enabled(getattr(self.config, "log_level", "") == "trace")
             except ImportError:
                 if self.config.debug_mode:
                     self._logger.warning(

@@ -135,7 +135,7 @@ class TestConfigServiceSchema:
 
         options = schema["Advanced_Settings"]["items"]["log_level"]["options"]
 
-        assert options == ["error", "warning", "info", "debug"]
+        assert options == ["error", "warning", "info", "debug", "trace"]
         assert all(isinstance(option, str) for option in options)
 
     @pytest.mark.asyncio
@@ -182,6 +182,7 @@ class TestConfigServiceSchema:
             "warning",
             "info",
             "debug",
+            "trace",
         ]
 
         v2_fields = {field["key"]: field for field in groups["V2_Architecture_Settings"]["fields"]}

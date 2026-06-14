@@ -7,6 +7,7 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
+from ..monitoring.instrumentation import monitored
 from .jargon_learning import JargonLearningModule
 from .sample_filter import (
     extract_learning_event_metadata,
@@ -61,6 +62,7 @@ class MessagePipeline:
 
     # 后台学习流水线（6 步）
 
+    @monitored
     async def process_learning(
         self,
         group_id: str,
@@ -199,6 +201,7 @@ class MessagePipeline:
 
     # 黑话挖掘
 
+    @monitored
     async def mine_jargon(self, group_id: str) -> None:
         """后台黑话挖掘 — 完全异步、非阻塞
 
@@ -218,6 +221,7 @@ class MessagePipeline:
 
     # 好感度处理
 
+    @monitored
     async def process_affection(
         self, group_id: str, sender_id: str, message_text: str
     ) -> None:

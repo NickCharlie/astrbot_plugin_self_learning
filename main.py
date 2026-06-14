@@ -20,6 +20,7 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from .config import DEFAULT_DATA_DIR, PluginConfig
 from .core.plugin_lifecycle import PluginLifecycle
 from .services.hooks.perf_tracker import PerfTracker
+from .services.monitoring.instrumentation import monitored, reset_trace_context
 from .services.learning.sample_filter import (
     extract_learning_event_metadata,
     should_ignore_learning_sample,
@@ -266,8 +267,10 @@ class SelfLearningPlugin(star.Star):
             logger.debug(msg)
 
     @filter.platform_adapter_type(filter.PlatformAdapterType.ALL, priority=maxsize - 20)
+    @monitored
     async def on_message(self, event: AstrMessageEvent):
         """监听所有消息，收集用户对话数据（非阻塞优化版）"""
+        reset_trace_context()
         try:
             if self._shutting_down:
                 self._log_message_capture_diag("skip:shutting_down", event)
@@ -346,6 +349,7 @@ class SelfLearningPlugin(star.Star):
         except Exception as e:
             logger.error(StatusMessages.MESSAGE_COLLECTION_ERROR.format(error=e), exc_info=True)
 
+    @monitored
     async def _process_learning_message(
         self,
         group_id: str,
@@ -377,8 +381,10 @@ class SelfLearningPlugin(star.Star):
     # LLM Hook
 
     @filter.on_llm_request()
+    @monitored
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """LLM Hook — inject diversity, social context, V2, jargon into request."""
+        reset_trace_context()
         handler = getattr(self, '_hook_handler', None)
         if handler:
             await handler.handle(event, req)
@@ -386,8 +392,10 @@ class SelfLearningPlugin(star.Star):
     # Bot 出站消息捕获
 
     @filter.after_message_sent()
+    @monitored
     async def on_bot_message_sent(self, event: AstrMessageEvent):
         """捕获 Bot 发送的消息并存入数据库，用于 fewshot 对话对提取。"""
+        reset_trace_context()
         try:
             if self._shutting_down:
                 return
@@ -465,6 +473,16 @@ class SelfLearningPlugin(star.Star):
             return
         async for result in self._command_handlers.force_learning(event):
             yield result
+    @filter.command("remember")
+    @filter.permission_type(PermissionType.ADMIN)
+    async def remember_command(self, event: AstrMessageEvent):
+        """手动记住引用对话及上下文，并链入表达方式和对话示例"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
+        async for result in self._command_handlers.remember(event):
+            yield result
+
     @filter.command("remember")
     @filter.permission_type(PermissionType.ADMIN)
     async def remember_command(self, event: AstrMessageEvent):

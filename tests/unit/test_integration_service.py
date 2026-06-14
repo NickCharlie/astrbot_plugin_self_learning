@@ -73,7 +73,13 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
 
     dashboards = {item["id"]: item for item in payload["dashboards"]}
     assert payload["delegation"]["memory_delegated"] is True
+    assert payload["hub"]["base_path"] == "/api/hub/v1"
+    assert payload["hub"]["manifest_url"] == "/api/hub/v1/manifest"
+    assert "POST /api/hub/v1/context" in payload["hub"]["endpoints"]
+    assert payload["hub"]["capabilities"]["graphs"] is True
     assert dashboards["self_learning"]["dev_api"]["base"] == "/api"
+    assert dashboards["self_learning"]["dev_api"]["hub_base"] == "/api/hub/v1"
+    assert "POST /api/hub/v1/messages/ingest" in dashboards["self_learning"]["dev_api"]["endpoints"]
     assert dashboards["livingmemory"]["dashboard"]["url"] == "/api/integrations/embed/livingmemory"
     assert dashboards["livingmemory"]["dashboard"]["external_url"] == "http://127.0.0.1:8888"
     assert dashboards["livingmemory"]["dashboard"]["route"] == "#/graphs"

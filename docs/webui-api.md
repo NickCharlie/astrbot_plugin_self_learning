@@ -93,6 +93,128 @@ $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 
 详见 [功能融合](integrations.md)。
 
+## Self Learning Hub API
+
+蓝图: `webui/blueprints/hub.py`
+
+Hub API 是给其他 AstrBot 插件调用的稳定中枢接口。它把本插件的学习、上下文构建、显式记忆、审查、图谱和指标能力按 MVC 拆分为:
+
+- Controller: `webui/blueprints/hub.py`
+- Service: `webui/services/hub_service.py`
+- AOP 横切层: `webui/middleware/hub_aspects.py`
+
+所有 Hub 响应都使用稳定 envelope:
+
+```json
+{"success": true, "message": "ok", "data": {}}
+```
+
+错误响应:
+
+```json
+{
+  "success": false,
+  "message": "Unauthorized",
+  "error": {"code": "unauthorized", "message": "Unauthorized"}
+}
+```
+
+鉴权:
+
+- 当 `API_Settings.enable_api_auth=false` 时放行，便于本地同源插件调用。
+- 当 `API_Settings.enable_api_auth=true` 时，必须发送 `Authorization: Bearer <api_key>` 或 `X-Self-Learning-Key: <api_key>`。
+- 动态响应统一带 `Cache-Control: no-store`，避免 CDN 或浏览器缓存敏感数据。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/hub/v1/manifest` | 获取版本、能力、鉴权方式、endpoint 列表和示例 payload |
+| GET | `/api/hub/v1/status` | 获取运行健康、数据库降级状态、功能委托状态和可用能力 |
+| POST | `/api/hub/v1/context` | 为伴随插件构建 prompt-ready 上下文 |
+| POST | `/api/hub/v1/memories/remember` | 写入手动选择的记忆，并链入表达方式和对话示例 |
+| POST | `/api/hub/v1/messages/ingest` | 将外部插件消息写入学习链路 |
+| POST | `/api/hub/v1/learning/trigger` | 触发指定群组渐进式学习 |
+| GET | `/api/hub/v1/reviews` | 获取待审队列 |
+| POST | `/api/hub/v1/reviews/<review_id>/decision` | 审查通过或拒绝队列项 |
+| GET | `/api/hub/v1/graphs/memory` | 获取记忆图谱 |
+| GET | `/api/hub/v1/graphs/knowledge` | 获取知识图谱 |
+| GET | `/api/hub/v1/metrics` | 获取智能、多样性、好感度指标 |
+
+### 构建上下文
+
+```http
+POST /api/hub/v1/context
+Authorization: Bearer <api_key>
+Content-Type: application/json
+```
+
+```json
+{
+  "group_id": "group_123",
+  "user_id": "user_456",
+  "query": "最近这句话该怎么接？",
+  "include": {
+    "social": true,
+    "jargon": true,
+    "few_shots": true,
+    "v2": true
+  },
+  "top_k": 5
+}
+```
+
+返回 `data.context_text`、`data.parts[]`、`data.v2` 和 `data.few_shots`。社交上下文默认拼到调用方 prompt 的尾部更利于缓存命中。
+
+### 显式记忆
+
+```http
+POST /api/hub/v1/memories/remember
+```
+
+```json
+{
+  "group_id": "group_123",
+  "sender_id": "user_456",
+  "content": "A: 这事怎么说？\nB: 可以这样接。"
+}
+```
+
+该接口会复用 `RememberService`，把用户明确引用的片段写入手动记忆，同时尽量保存表达方式样本、few-shot exemplar 和风格审查记录。它适合其他插件实现“引用这段并学习”的交互。
+
+### 消息接入
+
+```http
+POST /api/hub/v1/messages/ingest
+```
+
+```json
+{
+  "group_id": "group_123",
+  "sender_id": "user_456",
+  "sender_name": "Alice",
+  "message": "今晚继续测试自学习。",
+  "platform": "companion_plugin",
+  "message_id": "optional",
+  "reply_to": "optional",
+  "process_v2": true
+}
+```
+
+Hub 会优先复用插件运行态的 `message_collector`，否则回退到数据库 `save_raw_message`。`process_v2=true` 时还会把标准 `MessageData` 交给 V2 学习集成。
+
+### 审查和学习
+
+触发学习:
+
+```json
+{"group_id": "group_123", "wait": false}
+```
+
+审查决定:
+
+```json
+{"decision": "approve", "comment": "确认采用", "modified_content": null}
+```
+
 ## 学习内容和风格审查
 
 蓝图: `webui/blueprints/learning.py`

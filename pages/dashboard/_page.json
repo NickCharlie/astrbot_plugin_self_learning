@@ -1,0 +1,8 @@
+{
+  "title": {
+    "i18n_key": "pages.dashboard.title"
+  },
+  "description": {
+    "i18n_key": "pages.dashboard.description"
+  }
+}

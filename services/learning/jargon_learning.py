@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, Set
 
 from astrbot.api import logger
 
+from ..monitoring.instrumentation import monitored
 from .sample_filter import filter_learning_messages
 
 
@@ -58,6 +59,7 @@ class JargonLearningModule:
             self.group_raw_message_counts.get(group_id, 0) + 1
         )
 
+    @monitored
     async def get_raw_message_count(self, group_id: str) -> int:
         """Get raw message count for a group, seeded from DB once."""
         if group_id not in self.groups_seeded:
@@ -89,6 +91,7 @@ class JargonLearningModule:
         """Clear active mining state for a group."""
         self.active_groups.discard(group_id)
 
+    @monitored
     async def mine_jargon(self, group_id: str) -> None:
         """Run one jargon mining iteration for a group."""
         try:

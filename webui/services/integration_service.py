@@ -14,6 +14,17 @@ GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
 
 SELF_LEARNING_API_ENDPOINTS = [
     "GET /api/integrations/status",
+    "GET /api/hub/v1/manifest",
+    "GET /api/hub/v1/status",
+    "POST /api/hub/v1/context",
+    "POST /api/hub/v1/memories/remember",
+    "POST /api/hub/v1/messages/ingest",
+    "POST /api/hub/v1/learning/trigger",
+    "GET /api/hub/v1/reviews",
+    "POST /api/hub/v1/reviews/<review_id>/decision",
+    "GET /api/hub/v1/graphs/memory",
+    "GET /api/hub/v1/graphs/knowledge",
+    "GET /api/hub/v1/metrics",
     "GET /api/config/schema",
     "POST /api/config",
     "GET /api/metrics",
@@ -106,6 +117,7 @@ class IntegrationService:
                 self._livingmemory_dashboard(memory_star, status),
                 self._group_chat_plus_dashboard(reply_star, status),
             ],
+            "hub": self._hub_contract(config),
         }
 
     def get_embed_target(self, plugin_id: str) -> Dict[str, Any]:
@@ -195,6 +207,8 @@ class IntegrationService:
         return {key: getattr(config, key, None) for key in keys}
 
     def _self_learning_dashboard(self) -> Dict[str, Any]:
+        from .hub_service import HubService
+
         webui_config = getattr(self.container, "webui_config", None)
         host = getattr(webui_config, "host", "127.0.0.1")
         port = getattr(webui_config, "port", None)
@@ -220,6 +234,7 @@ class IntegrationService:
                 "base": "/api",
                 "mode": "quart",
                 "endpoints": SELF_LEARNING_API_ENDPOINTS,
+                "hub_base": HubService.BASE_PATH,
             },
             "settings_group": "Integration_Settings",
         }
@@ -308,4 +323,24 @@ class IntegrationService:
             "display_name": getattr(star, "display_name", None),
             "root_dir_name": getattr(star, "root_dir_name", None),
             "module_path": getattr(star, "module_path", None),
+        }
+
+    def _hub_contract(self, config: Any) -> Dict[str, Any]:
+        from .hub_service import HubService
+
+        return {
+            "name": "self-learning-hub",
+            "version": HubService.API_VERSION,
+            "base_path": HubService.BASE_PATH,
+            "manifest_url": f"{HubService.BASE_PATH}/manifest",
+            "status_url": f"{HubService.BASE_PATH}/status",
+            "auth": {
+                "api_key_enabled": bool(getattr(config, "enable_api_auth", False)),
+                "schemes": ["Authorization: Bearer <api_key>", "X-Self-Learning-Key"],
+            },
+            "capabilities": HubService(self.container).capabilities(),
+            "endpoints": [
+                f"{endpoint['method']} {endpoint['path']}"
+                for endpoint in HubService.endpoints()
+            ],
         }
