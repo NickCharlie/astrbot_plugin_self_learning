@@ -300,6 +300,7 @@ _PROVIDER_TYPE_LABELS = {
 }
 
 _PROVIDER_MODELS_TIMEOUT_SECONDS = 3.0
+_PROVIDER_SCHEMA_TIMEOUT_SECONDS = 5.0
 _PROVIDER_OPTION_MODEL_PREVIEW_LIMIT = 3
 
 _RESTART_REQUIRED_KEYS = {
@@ -1128,13 +1129,24 @@ class ConfigService:
         get_models = getattr(provider, "get_models", None)
         if callable(get_models):
             try:
-                result = get_models()
+                if inspect.iscoroutinefunction(get_models):
+                    result = await asyncio.wait_for(
+                        get_models(),
+                        timeout=_PROVIDER_MODELS_TIMEOUT_SECONDS,
+                    )
+                else:
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(get_models),
+                        timeout=_PROVIDER_MODELS_TIMEOUT_SECONDS,
+                    )
                 if inspect.isawaitable(result):
                     result = await asyncio.wait_for(
                         result,
                         timeout=_PROVIDER_MODELS_TIMEOUT_SECONDS,
                     )
                 models = self._normalize_model_list(result)
+            except asyncio.TimeoutError:
+                logger.debug(f"Provider {provider_id} 实时获取模型列表超时")
             except Exception:
                 logger.debug(f"Provider {provider_id} 实时获取模型列表失败", exc_info=True)
 
@@ -1387,6 +1399,39 @@ class ConfigService:
             logger.warning(f"获取 Provider 列表失败: {e}")
             return []
 
+    async def _safe_provider_options_async(
+        self,
+        expected_type: str,
+        model_cache: Dict[Tuple[str, str, str], List[str]],
+    ) -> List[Dict[str, Any]]:
+        try:
+            return await self._provider_options_async(expected_type, model_cache)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"获取 {expected_type} Provider 列表失败: {exc}")
+            return []
+
+    async def _provider_options_by_type_async(
+        self,
+        model_cache: Dict[Tuple[str, str, str], List[str]],
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        provider_types = ("chat_completion", "embedding", "rerank")
+        results = await asyncio.gather(
+            *(
+                self._safe_provider_options_async(provider_type, model_cache)
+                for provider_type in provider_types
+            )
+        )
+        return dict(zip(provider_types, results))
+
+    def _provider_options_by_type_fallback(self) -> Dict[str, List[Dict[str, Any]]]:
+        return {
+            "chat_completion": self._provider_options("chat_completion"),
+            "embedding": self._provider_options("embedding"),
+            "rerank": self._provider_options("rerank"),
+        }
+
     @staticmethod
     def _provider_expected_type_for_field(key: str) -> Optional[str]:
         if key in {"filter_provider_id", "refine_provider_id", "reinforce_provider_id"}:
@@ -1582,20 +1627,16 @@ class ConfigService:
         self._sync_config_sources()
         merged_schema = self._merged_schema_definition()
         model_cache: Dict[Tuple[str, str, str], List[str]] = {}
-        provider_options_by_type = {
-            "chat_completion": await self._provider_options_async(
-                "chat_completion",
-                model_cache,
-            ),
-            "embedding": await self._provider_options_async(
-                "embedding",
-                model_cache,
-            ),
-            "rerank": await self._provider_options_async(
-                "rerank",
-                model_cache,
-            ),
-        }
+        try:
+            provider_options_by_type = await asyncio.wait_for(
+                self._provider_options_by_type_async(model_cache),
+                timeout=_PROVIDER_SCHEMA_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "获取 Provider 模型列表超时，设置页将先使用已配置模型降级渲染"
+            )
+            provider_options_by_type = self._provider_options_by_type_fallback()
         provider_options = self._dedupe_options(
             [
                 option

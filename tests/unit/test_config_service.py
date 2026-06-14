@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import UserDict
 import json
 import os
 from pathlib import Path
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -390,6 +392,83 @@ class TestConfigServiceSchema:
         assert option["model_source"] == "configured"
         assert "configured-model" in option["label"]
         assert "available_models" not in option
+
+    @pytest.mark.asyncio
+    async def test_provider_schema_does_not_block_on_slow_sync_get_models(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "webui.services.config_service._PROVIDER_MODELS_TIMEOUT_SECONDS",
+            0.01,
+        )
+        plugin_config = PluginConfig.create_default()
+        plugin_config.data_dir = str(tmp_path / "self_learning_data")
+
+        provider_meta = SimpleNamespace(
+            id="slow-chat",
+            model="configured-model",
+            provider_type=SimpleNamespace(value="chat_completion"),
+        )
+        provider = Mock()
+        provider.meta = Mock(return_value=provider_meta)
+
+        def slow_get_models():
+            time.sleep(0.2)
+            return ["late-model"]
+
+        provider.get_models = slow_get_models
+
+        context = Mock()
+        context.get_all_providers = Mock(return_value=[provider])
+        context.get_all_embedding_providers = Mock(return_value=[])
+        context.provider_manager = SimpleNamespace(
+            provider_insts=[provider],
+            embedding_provider_insts=[],
+            rerank_provider_insts=[],
+            inst_map={},
+            providers_config=[],
+        )
+
+        service_factory = Mock()
+        service_factory.context = context
+        factory_manager = Mock()
+        factory_manager.get_service_factory = Mock(return_value=service_factory)
+
+        container = Mock()
+        container.plugin_config = plugin_config
+        container.factory_manager = factory_manager
+
+        started = time.perf_counter()
+        schema = await ConfigService(container).get_config_schema()
+        elapsed = time.perf_counter() - started
+
+        option = schema["provider_options_by_type"]["chat_completion"][0]
+        assert elapsed < 0.15
+        assert option["value"] == "slow-chat"
+        assert option["model_source"] == "configured"
+        assert "configured-model" in option["label"]
+        assert "late-model" not in option["label"]
+
+    @pytest.mark.asyncio
+    async def test_config_schema_falls_back_when_provider_discovery_exceeds_budget(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "webui.services.config_service._PROVIDER_SCHEMA_TIMEOUT_SECONDS",
+            0.01,
+        )
+
+        async def slow_provider_options(self, expected_type=None, model_cache=None):
+            await asyncio.sleep(1)
+            return []
+
+        monkeypatch.setattr(
+            ConfigService,
+            "_provider_options_async",
+            slow_provider_options,
+        )
+
+        schema = await ConfigService(build_container(tmp_path)).get_config_schema()
+
+        assert schema["provider_options_by_type"]["chat_completion"][0]["value"] == "chat-a"
+        assert schema["provider_options_by_type"]["embedding"][0]["value"] == "embed-a"
+        assert schema["provider_options_by_type"]["rerank"][0]["value"] == "rerank-a"
 
     def test_provider_option_builders_share_metadata_shape(self):
         provider_meta = SimpleNamespace(
