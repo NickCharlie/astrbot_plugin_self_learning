@@ -733,6 +733,16 @@ class V2LearningIntegration:
                     return
                 for candidate in candidates[:10]:
                     try:
+                        # 跳过已被手动编辑或已完成推断的黑话，避免覆盖用户修改
+                        if db and hasattr(db, "get_jargon"):
+                            existing = await db.get_jargon(group_id, candidate["term"])
+                            if existing and existing.get("is_complete"):
+                                logger.debug(
+                                    f"[V2Integration] 跳过已完成的黑话: "
+                                    f"'{candidate['term']}'"
+                                )
+                                continue
+
                         meaning = await llm.generate_response(
                             f"Explain the slang/jargon term "
                             f"'{candidate['term']}' in the context of an "
@@ -744,16 +754,21 @@ class V2LearningIntegration:
                             and db
                             and hasattr(db, "save_or_update_jargon")
                         ):
+                            jargon_data = {
+                                "meaning": meaning,
+                                "raw_content": "[]",
+                                "is_jargon": True,
+                                "is_complete": True,
+                            }
+                            # 已有记录时保留原始计数，不重置为1
+                            if existing:
+                                jargon_data["count"] = existing.get("count", 1)
+                            else:
+                                jargon_data["count"] = 1
                             await db.save_or_update_jargon(
                                 group_id,
                                 candidate["term"],
-                                {
-                                    "meaning": meaning,
-                                    "raw_content": "[]",
-                                    "is_jargon": True,
-                                    "count": 1,
-                                    "is_complete": True,
-                                },
+                                jargon_data,
                             )
                     except Exception as exc:
                         logger.debug(
