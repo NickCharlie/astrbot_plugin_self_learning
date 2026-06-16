@@ -1302,7 +1302,7 @@
       const item = (state.pageData.lastJargonItems || []).find((entry) => String(entry.id) === String(id)) || {};
       showModal(t("modal.editJargon", "编辑黑话"), `
         <label class="config-field"><span><strong>${escapeHtml(t("jargon.term", "词条"))}</strong></span><input id="modal-jargon-content" value="${escapeAttr(item.term || item.content || "")}"></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("jargon.definition", "释义"))}</strong></span><textarea id="modal-jargon-meaning" rows="4">${escapeHtml(item.meaning || item.definition || "")}</textarea></label>
+        <label class="config-field"><span><strong>${escapeHtml(t("jargon.definition", "释义"))}</strong></span><textarea id="modal-jargon-meaning" rows="10">${escapeHtml(item.meaning || item.definition || "")}</textarea></label>
         <button class="solid-button" type="button" id="modal-jargon-save" data-id="${escapeAttr(id)}">${escapeHtml(t("actions.save", "保存"))}</button>
       `);
       return;
