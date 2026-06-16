@@ -102,6 +102,10 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "function handleBatchReviewAction" in script
     assert "batch_review_style" in script
     assert "batch_review_jargon" in script
+    assert "function showConfirm" in script
+    assert "window.confirm" not in script
+    assert "data-confirm-ok" in script
+    assert "data-confirm-cancel" in script
     assert 'review_source !== "style_learning"' in script
     assert "分类去向" in script
     assert "style_learning_reviews" in script
@@ -123,6 +127,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "graphHomePosition" in script
     assert "GRAPH_HOME_STRENGTH" in script
     assert "graphNodeMargin" in script
+    assert 'const reviewActions = item.is_confirmed ? ""' in script
     assert "manual_dependency_source" in script
     assert "installButton.disabled = true" in script
     assert "正在调用 pip 安装依赖" in script

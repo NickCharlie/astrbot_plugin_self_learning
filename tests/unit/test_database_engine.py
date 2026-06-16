@@ -505,6 +505,57 @@ async def test_jargon_sqlite_upsert_handles_concurrent_duplicate_terms(tmp_path)
         await manager.stop()
 
 
+@pytest.mark.asyncio
+async def test_jargon_relearning_upsert_preserves_completed_manual_definition(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        enable_web_interface=False,
+        db_type="sqlite",
+    )
+    config.messages_db_path = str(tmp_path / "messages.db")
+    manager = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await manager.start() is True
+
+        jargon_id = await manager.save_or_update_jargon(
+            "group-a",
+            "打爆",
+            {
+                "raw_content": "[\"manual\"]",
+                "meaning": "管理员手动释义",
+                "is_jargon": True,
+                "count": 8,
+                "is_complete": True,
+                "is_global": True,
+            },
+        )
+
+        relearned_id = await manager.save_or_update_jargon(
+            "group-a",
+            "打爆",
+            {
+                "raw_content": "[\"auto\"]",
+                "meaning": "LLM 新释义",
+                "is_jargon": True,
+                "count": 1,
+                "is_complete": True,
+                "is_global": False,
+                "_preserve_completed": True,
+            },
+        )
+
+        assert relearned_id == jargon_id
+        saved = await manager.get_jargon("group-a", "打爆")
+        assert saved["meaning"] == "管理员手动释义"
+        assert saved["raw_content"] == "[\"manual\"]"
+        assert saved["count"] == 8
+        assert saved["is_complete"] is True
+        assert saved["is_global"] is True
+    finally:
+        await manager.stop()
+
+
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
     captured = {}
 

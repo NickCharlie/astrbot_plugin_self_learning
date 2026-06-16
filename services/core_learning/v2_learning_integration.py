@@ -733,6 +733,16 @@ class V2LearningIntegration:
                     return
                 for candidate in candidates[:10]:
                     try:
+                        existing = None
+                        if db and hasattr(db, "get_jargon"):
+                            existing = await db.get_jargon(group_id, candidate["term"])
+                            if existing and existing.get("is_complete"):
+                                logger.debug(
+                                    f"[V2Integration] Skip completed jargon "
+                                    f"'{candidate['term']}'"
+                                )
+                                continue
+
                         meaning = await llm.generate_response(
                             f"Explain the slang/jargon term "
                             f"'{candidate['term']}' in the context of an "
@@ -744,6 +754,11 @@ class V2LearningIntegration:
                             and db
                             and hasattr(db, "save_or_update_jargon")
                         ):
+                            observed_count = max(
+                                int(candidate.get("frequency") or 1),
+                                int((existing or {}).get("count") or 0),
+                                1,
+                            )
                             await db.save_or_update_jargon(
                                 group_id,
                                 candidate["term"],
@@ -751,8 +766,9 @@ class V2LearningIntegration:
                                     "meaning": meaning,
                                     "raw_content": "[]",
                                     "is_jargon": True,
-                                    "count": 1,
+                                    "count": observed_count,
                                     "is_complete": True,
+                                    "_preserve_completed": True,
                                 },
                             )
                     except Exception as exc:

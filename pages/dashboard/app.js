@@ -408,6 +408,52 @@
     else modal.removeAttribute("open");
   }
 
+  function showConfirm(title, message, confirmText = t("actions.confirm", "确定")) {
+    return new Promise((resolve) => {
+      const modal = $("detail-modal");
+      if (!modal) {
+        showToast(message, "error");
+        resolve(false);
+        return;
+      }
+
+      if (modal.open && typeof modal.close === "function") modal.close();
+      const closeButton = $("modal-close");
+      let settled = false;
+      const done = (result) => {
+        if (settled) return;
+        settled = true;
+        modal.removeEventListener("close", onClose);
+        closeButton?.removeEventListener("click", onCloseClick);
+        if (typeof modal.close === "function" && modal.open) modal.close();
+        else modal.removeAttribute("open");
+        resolve(result);
+      };
+      const onClose = () => done(false);
+      const onCloseClick = () => done(false);
+
+      setText("modal-title", title);
+      setHtml("modal-body", `
+        <p class="confirm-message">${escapeHtml(message)}</p>
+        <div class="confirm-actions">
+          <button class="ghost-button" type="button" data-confirm-cancel>${escapeHtml(t("actions.cancel", "取消"))}</button>
+          <button class="solid-button" type="button" data-confirm-ok>${escapeHtml(confirmText)}</button>
+        </div>
+      `);
+      $("modal-body")?.querySelector("[data-confirm-cancel]")?.addEventListener("click", () => done(false), { once: true });
+      $("modal-body")?.querySelector("[data-confirm-ok]")?.addEventListener("click", () => done(true), { once: true });
+      modal.addEventListener("close", onClose, { once: true });
+      closeButton?.addEventListener("click", onCloseClick, { once: true });
+      if (typeof modal.showModal === "function") {
+        try {
+          modal.showModal();
+          return;
+        } catch (_) {}
+      }
+      modal.setAttribute("open", "");
+    });
+  }
+
   function resolvePageFromHash() {
     const raw = window.location.hash.replace(/^#\/?/, "");
     return PAGE_META[raw] ? raw : "home";
@@ -672,25 +718,30 @@
     ]));
     const items = ((data.list || {}).jargon_list || []);
     pruneSelection(state.selectedJargon, items.map((item) => item.id));
-    const html = items.map((item) => `
-      <div class="table-row rich-row selectable-row">
-        ${jargonCheckbox(item.id)}
-        <div>
-          <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
-          <small>${escapeHtml(item.meaning || item.definition || t("empty.definition", "暂无释义"))}</small>
-        </div>
-        <span>${escapeHtml(item.group_id || "global")}</span>
-        ${pill(item.is_confirmed ? t("jargon.confirmed", "已确认") : t("jargon.pending", "待确认"), item.is_confirmed ? "ok" : "warn")}
-        ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
-        <div class="row-actions">
-          ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
+    const html = items.map((item) => {
+      const reviewActions = item.is_confirmed ? "" : `
           ${button(t("actions.confirm", "确认"), `data-jargon-action="approve" data-id="${escapeAttr(item.id)}"`)}
           ${button(t("actions.reject", "驳回"), `data-jargon-action="reject" data-id="${escapeAttr(item.id)}"`)}
-          ${button(item.is_global ? t("actions.unsetGlobal", "取消全局") : t("actions.setGlobal", "设为全局"), `data-jargon-action="toggle_global" data-id="${escapeAttr(item.id)}"`)}
-          ${button(t("actions.delete", "删除"), `data-jargon-action="delete" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+      `;
+      return `
+        <div class="table-row rich-row selectable-row">
+          ${jargonCheckbox(item.id)}
+          <div>
+            <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
+            <small>${escapeHtml(item.meaning || item.definition || t("empty.definition", "暂无释义"))}</small>
+          </div>
+          <span>${escapeHtml(item.group_id || "global")}</span>
+          ${pill(item.is_confirmed ? t("jargon.confirmed", "已确认") : t("jargon.pending", "待确认"), item.is_confirmed ? "ok" : "warn")}
+          ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
+          <div class="row-actions">
+            ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
+            ${reviewActions}
+            ${button(item.is_global ? t("actions.unsetGlobal", "取消全局") : t("actions.setGlobal", "设为全局"), `data-jargon-action="toggle_global" data-id="${escapeAttr(item.id)}"`)}
+            ${button(t("actions.delete", "删除"), `data-jargon-action="delete" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+          </div>
         </div>
-      </div>
-    `).join("");
+      `;
+    }).join("");
     setHtml("jargon-list", html || empty(t("empty.jargon", "暂无黑话数据")));
     state.pageData.lastJargonItems = items;
     state.pageData.currentJargonData = data;
@@ -1095,11 +1146,11 @@
     const typeText = { persona: t("reviews.personaUpdates", "人格更新"), style: t("reviews.expressionReviews", "表达审查"), jargon: t("reviews.jargonCandidates", "黑话候选") }[kind] || t("reviews.items", "审查项");
     const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
     const scopeText = selectedReviewIds(kind).length ? t("selection.selected", "选中") : t("selection.currentPage", "当前页");
-    if (!window.confirm(t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
+    if (!await showConfirm(t("reviews.batchConfirmTitle", "批量操作确认"), t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
       .replace("{action}", actionText)
       .replace("{scope}", scopeText)
       .replace("{count}", fmt(ids.length, 0))
-      .replace("{type}", typeText))) return;
+      .replace("{type}", typeText), actionText)) return;
 
     const payload = {
       action: action === "delete"
@@ -1305,7 +1356,7 @@
       return;
     }
     const actionText = action === "approve" ? t("actions.confirm", "确认") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
-    if (!window.confirm(t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
+    if (!await showConfirm(t("jargon.batchConfirmTitle", "批量操作确认"), t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)), actionText)) return;
 
     const result = await apiPost("jargon/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",
@@ -1367,7 +1418,7 @@
       return;
     }
     const actionText = action === "approve" ? t("actions.approve", "批准") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
-    if (!window.confirm(t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
+    if (!await showConfirm(t("style.batchConfirmTitle", "批量操作确认"), t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)), actionText)) return;
 
     const result = await apiPost("style/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",

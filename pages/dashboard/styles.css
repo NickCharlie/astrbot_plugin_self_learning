@@ -1186,6 +1186,18 @@ textarea {
   box-shadow: var(--shadow);
 }
 
+.confirm-message {
+  margin: 0 0 16px;
+  line-height: 1.6;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 1120px) {
   .app-shell {
     grid-template-columns: 1fr;

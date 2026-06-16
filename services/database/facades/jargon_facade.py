@@ -728,20 +728,24 @@ class JargonFacade(BaseFacade):
             now_ts = self._coerce_jargon_timestamp()
 
             if record:
+                preserve_completed = (
+                    self._preserve_completed_jargon(jargon_data)
+                    and bool(record.is_complete)
+                )
                 # 更新已有记录
-                if 'meaning' in jargon_data:
+                if 'meaning' in jargon_data and not preserve_completed:
                     record.meaning = jargon_data['meaning']
-                if 'raw_content' in jargon_data:
+                if 'raw_content' in jargon_data and not preserve_completed:
                     record.raw_content = truncate_for_db(jargon_data['raw_content'])
-                if 'is_jargon' in jargon_data:
+                if 'is_jargon' in jargon_data and not preserve_completed:
                     record.is_jargon = jargon_data['is_jargon']
-                if 'count' in jargon_data:
+                if 'count' in jargon_data and not preserve_completed:
                     record.count = jargon_data['count']
                 if 'last_inference_count' in jargon_data:
                     record.last_inference_count = jargon_data['last_inference_count']
-                if 'is_complete' in jargon_data:
+                if 'is_complete' in jargon_data and not preserve_completed:
                     record.is_complete = jargon_data['is_complete']
-                if 'is_global' in jargon_data:
+                if 'is_global' in jargon_data and not preserve_completed:
                     record.is_global = jargon_data['is_global']
                 record.updated_at = now_ts
 
@@ -826,6 +830,27 @@ class JargonFacade(BaseFacade):
         return int(time.time())
 
     @staticmethod
+    def _preserve_completed_jargon(jargon_data: Dict[str, Any]) -> bool:
+        return bool(jargon_data.get("_preserve_completed"))
+
+    @staticmethod
+    def _completed_preserving_value(new_value: Any, old_column: Any):
+        return case(
+            (Jargon.is_complete.is_(True), old_column),
+            else_=new_value,
+        )
+
+    @staticmethod
+    def _completed_preserving_count(new_value: Any):
+        return case(
+            (
+                Jargon.is_complete.is_(True),
+                Jargon.count,
+            ),
+            else_=new_value,
+        )
+
+    @staticmethod
     def _jargon_insert_values(
         chat_id: str,
         content: str,
@@ -852,20 +877,61 @@ class JargonFacade(BaseFacade):
         now_ts: int,
     ) -> Dict[str, Any]:
         update_values = {"updated_at": now_ts}
+        preserve_completed = JargonFacade._preserve_completed_jargon(jargon_data)
         if "meaning" in jargon_data:
-            update_values["meaning"] = jargon_data["meaning"]
+            update_values["meaning"] = (
+                JargonFacade._completed_preserving_value(
+                    jargon_data["meaning"],
+                    Jargon.meaning,
+                )
+                if preserve_completed
+                else jargon_data["meaning"]
+            )
         if "raw_content" in jargon_data:
-            update_values["raw_content"] = truncate_for_db(jargon_data["raw_content"])
+            raw_content = truncate_for_db(jargon_data["raw_content"])
+            update_values["raw_content"] = (
+                JargonFacade._completed_preserving_value(
+                    raw_content,
+                    Jargon.raw_content,
+                )
+                if preserve_completed
+                else raw_content
+            )
         if "is_jargon" in jargon_data:
-            update_values["is_jargon"] = jargon_data["is_jargon"]
+            update_values["is_jargon"] = (
+                JargonFacade._completed_preserving_value(
+                    jargon_data["is_jargon"],
+                    Jargon.is_jargon,
+                )
+                if preserve_completed
+                else jargon_data["is_jargon"]
+            )
         if "count" in jargon_data:
-            update_values["count"] = jargon_data["count"]
+            update_values["count"] = (
+                JargonFacade._completed_preserving_count(jargon_data["count"])
+                if preserve_completed
+                else jargon_data["count"]
+            )
         if "last_inference_count" in jargon_data:
             update_values["last_inference_count"] = jargon_data["last_inference_count"]
         if "is_complete" in jargon_data:
-            update_values["is_complete"] = jargon_data["is_complete"]
+            update_values["is_complete"] = (
+                JargonFacade._completed_preserving_value(
+                    jargon_data["is_complete"],
+                    Jargon.is_complete,
+                )
+                if preserve_completed
+                else jargon_data["is_complete"]
+            )
         if "is_global" in jargon_data:
-            update_values["is_global"] = jargon_data["is_global"]
+            update_values["is_global"] = (
+                JargonFacade._completed_preserving_value(
+                    jargon_data["is_global"],
+                    Jargon.is_global,
+                )
+                if preserve_completed
+                else jargon_data["is_global"]
+            )
         return update_values
 
     @staticmethod

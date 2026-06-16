@@ -5,7 +5,7 @@ import importlib.util
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from astrbot.core.provider.provider import (
@@ -160,3 +160,82 @@ async def test_v2_integration_rebinds_providers_after_registry_becomes_ready(plu
     assert integration._embedding_provider.provider_id == "embed-a"
     assert integration._rerank_provider.provider_id == "rerank-a"
     context.get_provider_by_id.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_v2_jargon_batch_skips_completed_terms_and_preserves_candidate_count(plugin_modules):
+    class MinimalV2LearningIntegration(plugin_modules.V2LearningIntegration):
+        def _create_embedding_provider(self):
+            return None
+
+        def _create_rerank_provider(self):
+            return None
+
+        def _create_knowledge_manager(self):
+            return None
+
+        def _create_memory_manager(self):
+            return None
+
+        def _create_exemplar_library(self):
+            return None
+
+        def _create_social_analyzer(self):
+            return None
+
+        def _create_jargon_filter(self):
+            return SimpleNamespace(
+                update_from_message=Mock(),
+                get_jargon_candidates=Mock(
+                    return_value=[
+                        {"term": "打爆", "frequency": 9},
+                        {"term": "上桌", "frequency": 6},
+                    ],
+                ),
+            )
+
+    db = SimpleNamespace(
+        get_jargon=AsyncMock(
+            side_effect=[
+                {
+                    "content": "打爆",
+                    "meaning": "管理员手动释义",
+                    "count": 9,
+                    "is_complete": True,
+                },
+                None,
+            ]
+        ),
+        save_or_update_jargon=AsyncMock(return_value=2),
+    )
+    llm = SimpleNamespace(generate_response=AsyncMock(return_value="新释义"))
+    config = plugin_modules.PluginConfig(
+        embedding_provider_id="",
+        rerank_provider_id="",
+        knowledge_engine="legacy",
+        memory_engine="legacy",
+    )
+
+    integration = MinimalV2LearningIntegration(
+        config=config,
+        llm_adapter=llm,
+        db_manager=db,
+        context=SimpleNamespace(),
+    )
+
+    ok = await integration._trigger.force_tier2("jargon", "group-a")
+
+    assert ok is True
+    assert llm.generate_response.await_count == 1
+    db.save_or_update_jargon.assert_awaited_once_with(
+        "group-a",
+        "上桌",
+        {
+            "meaning": "新释义",
+            "raw_content": "[]",
+            "is_jargon": True,
+            "count": 6,
+            "is_complete": True,
+            "_preserve_completed": True,
+        },
+    )
