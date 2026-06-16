@@ -408,6 +408,34 @@
     else modal.removeAttribute("open");
   }
 
+  function showConfirm(title, message, confirmText) {
+    return new Promise((resolve) => {
+      const modal = $("detail-modal");
+      if (!modal) { resolve(window.confirm(message)); return; }
+      setText("modal-title", title);
+      setHtml("modal-body", `
+        <p style="margin:0 0 16px;line-height:1.6">${escapeHtml(message)}</p>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="ghost-button" type="button" id="confirm-cancel">${escapeHtml(t("actions.cancel", "取消"))}</button>
+          <button class="solid-button" type="button" id="confirm-ok">${escapeHtml(confirmText || t("actions.confirm", "确定"))}</button>
+        </div>
+      `);
+      const done = (result) => {
+        if (typeof modal.close === "function") modal.close();
+        else modal.removeAttribute("open");
+        resolve(result);
+      };
+      $("confirm-ok").addEventListener("click", () => done(true), { once: true });
+      $("confirm-cancel").addEventListener("click", () => done(false), { once: true });
+      $("modal-close").addEventListener("click", () => done(false), { once: true });
+      modal.addEventListener("cancel", (e) => { e.preventDefault(); done(false); }, { once: true });
+      if (typeof modal.showModal === "function") {
+        try { modal.showModal(); return; } catch (_) {}
+      }
+      modal.setAttribute("open", "");
+    });
+  }
+
   function resolvePageFromHash() {
     const raw = window.location.hash.replace(/^#\/?/, "");
     return PAGE_META[raw] ? raw : "home";
@@ -1095,11 +1123,11 @@
     const typeText = { persona: t("reviews.personaUpdates", "人格更新"), style: t("reviews.expressionReviews", "表达审查"), jargon: t("reviews.jargonCandidates", "黑话候选") }[kind] || t("reviews.items", "审查项");
     const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
     const scopeText = selectedReviewIds(kind).length ? t("selection.selected", "选中") : t("selection.currentPage", "当前页");
-    if (!window.confirm(t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
+    if (!await showConfirm(t("reviews.batchConfirmTitle", "批量操作确认"), t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
       .replace("{action}", actionText)
       .replace("{scope}", scopeText)
       .replace("{count}", fmt(ids.length, 0))
-      .replace("{type}", typeText))) return;
+      .replace("{type}", typeText), actionText)) return;
 
     const payload = {
       action: action === "delete"
@@ -1305,7 +1333,7 @@
       return;
     }
     const actionText = action === "approve" ? t("actions.confirm", "确认") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
-    if (!window.confirm(t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
+    if (!await showConfirm(t("jargon.batchConfirmTitle", "批量操作确认"), t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)), actionText)) return;
 
     const result = await apiPost("jargon/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",
@@ -1367,7 +1395,7 @@
       return;
     }
     const actionText = action === "approve" ? t("actions.approve", "批准") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
-    if (!window.confirm(t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)))) return;
+    if (!await showConfirm(t("style.batchConfirmTitle", "批量操作确认"), t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)), actionText)) return;
 
     const result = await apiPost("style/action", {
       action: action === "delete" ? "batch_delete" : "batch_review",
