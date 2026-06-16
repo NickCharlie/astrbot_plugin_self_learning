@@ -1167,7 +1167,7 @@ textarea {
 }
 
 .modal {
-  width: min(760px, calc(100vw - 28px));
+  width: min(900px, calc(100vw - 28px));
   padding: 0;
   border: 0;
   background: transparent;
