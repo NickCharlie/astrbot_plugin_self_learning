@@ -36,6 +36,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 
+from ...constants import PRESERVE_COMPLETED_JARGON_KEY
 from ...config import PluginConfig
 from ...core.interfaces import MessageData
 from ...utils.cache_manager import get_cache_manager
@@ -768,7 +769,7 @@ class V2LearningIntegration:
                                     "is_jargon": True,
                                     "count": observed_count,
                                     "is_complete": True,
-                                    "_preserve_completed": True,
+                                    PRESERVE_COMPLETED_JARGON_KEY: True,
                                 },
                             )
                     except Exception as exc:

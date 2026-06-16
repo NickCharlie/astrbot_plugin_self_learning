@@ -10,6 +10,7 @@ from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 
 from config import PluginConfig
+from constants import PRESERVE_COMPLETED_JARGON_KEY
 from core.database.engine import DatabaseEngine
 from models.orm import Base
 from models.orm.jargon import Jargon
@@ -541,7 +542,7 @@ async def test_jargon_relearning_upsert_preserves_completed_manual_definition(tm
                 "count": 1,
                 "is_complete": True,
                 "is_global": False,
-                "_preserve_completed": True,
+                PRESERVE_COMPLETED_JARGON_KEY: True,
             },
         )
 

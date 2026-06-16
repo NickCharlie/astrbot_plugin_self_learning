@@ -35,6 +35,37 @@ EXTERNAL_ASSET_HOSTS = [
 ]
 
 
+def _extract_js_function_source(script: str, name: str) -> str:
+    match = re.search(rf"(?:async\s+)?function\s+{re.escape(name)}\s*\([^)]*\)\s*{{", script)
+    assert match, f"Missing JS function: {name}"
+
+    depth = 1
+    quote = None
+    escaped = False
+    index = match.end()
+
+    while index < len(script):
+        char = script[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+        elif char in {"'", '"', "`"}:
+            quote = char
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return script[match.start(): index + 1]
+        index += 1
+
+    raise AssertionError(f"Unterminated JS function: {name}")
+
+
 def test_webui_html_templates_no_external_frontend_cdn_refs():
     for path in HTML_FILES:
         text = path.read_text(encoding="utf-8")
@@ -103,7 +134,14 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "batch_review_style" in script
     assert "batch_review_jargon" in script
     assert "function showConfirm" in script
-    assert "window.confirm" not in script
+    for function_name in [
+        "handleBatchReviewAction",
+        "handleJargonBatchAction",
+        "handleStyleBatchAction",
+    ]:
+        function_source = _extract_js_function_source(script, function_name)
+        assert "showConfirm(" in function_source
+        assert "window.confirm" not in function_source
     assert "data-confirm-ok" in script
     assert "data-confirm-cancel" in script
     assert 'review_source !== "style_learning"' in script

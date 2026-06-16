@@ -17,6 +17,9 @@ UPDATE_TYPE_EXPRESSION_LEARNING = "expression_learning"
 # 传统人格更新（其他类型）
 UPDATE_TYPE_TRADITIONAL = "traditional"
 
+# 内部黑话重学标记：保护已人工确认/完成的释义不被自动重学覆盖
+PRESERVE_COMPLETED_JARGON_KEY = "_preserve_completed"
+
 # 兼容性：旧的update_type值映射
 # 用于数据库中已存在的旧记录
 LEGACY_UPDATE_TYPE_MAPPING = {

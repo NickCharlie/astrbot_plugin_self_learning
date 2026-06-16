@@ -13,6 +13,8 @@ from astrbot.core.provider.provider import (
     RerankProvider as FrameworkRerankProvider,
 )
 
+from constants import PRESERVE_COMPLETED_JARGON_KEY
+
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -236,6 +238,6 @@ async def test_v2_jargon_batch_skips_completed_terms_and_preserves_candidate_cou
             "is_jargon": True,
             "count": 6,
             "is_complete": True,
-            "_preserve_completed": True,
+            PRESERVE_COMPLETED_JARGON_KEY: True,
         },
     )

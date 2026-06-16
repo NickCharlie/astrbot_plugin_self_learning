@@ -13,9 +13,11 @@ from astrbot.api import logger
 
 from ._base import BaseFacade
 try:
+    from ....constants import PRESERVE_COMPLETED_JARGON_KEY
     from ....models.orm.jargon import Jargon
     from ....utils.text_utils import truncate_for_db
 except ImportError:
+    from constants import PRESERVE_COMPLETED_JARGON_KEY
     from models.orm.jargon import Jargon
     from utils.text_utils import truncate_for_db
 
@@ -831,7 +833,7 @@ class JargonFacade(BaseFacade):
 
     @staticmethod
     def _preserve_completed_jargon(jargon_data: Dict[str, Any]) -> bool:
-        return bool(jargon_data.get("_preserve_completed"))
+        return bool(jargon_data.get(PRESERVE_COMPLETED_JARGON_KEY))
 
     @staticmethod
     def _completed_preserving_value(new_value: Any, old_column: Any):
