@@ -178,6 +178,9 @@ GET /api/hub/v1/status
 ### Self Learning
 
 - `GET /api/integrations/status`
+- `POST /api/integrations/worldbook/preview`
+- `POST /api/integrations/worldbook/import`
+- `GET /api/integrations/worldbook/imports`
 - `GET /api/hub/v1/manifest`
 - `GET /api/hub/v1/status`
 - `POST /api/hub/v1/context`
@@ -197,6 +200,35 @@ GET /api/hub/v1/status
 - `GET /api/persona_updates`
 - `GET /api/jargon/list`
 - `GET /api/style_learning/content_text`
+
+## SillyTavern 世界书导入
+
+Self Learning 支持导入 SillyTavern 世界书 JSON。导入器接受标准格式:
+
+```json
+{
+  "name": "世界书名称",
+  "entries": {
+    "0": {
+      "key": ["关键词"],
+      "secondaryKeys": ["辅助关键词"],
+      "content": "设定正文",
+      "constant": false,
+      "order": 100,
+      "insertion_order": 0
+    }
+  }
+}
+```
+
+`entries` 也可以是数组。当前导入路径复用现有表:
+
+- `content` 写入 `persona_update_reviews`，作为 `worldbook_entry` 待审记忆。
+- `key` 和 `secondaryKeys` 写入 `jargon` 候选池。
+- 世界书条目、关键词及触发关系写入 `kg_entities` 和 `kg_relations`。
+
+导入历史通过 `GET /api/integrations/worldbook/imports` 从审查记录
+metadata 聚合，不需要额外迁移表。
 
 ### LivingMemory
 

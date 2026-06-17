@@ -79,6 +79,9 @@ $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/integrations/status` | 获取 Self Learning、LivingMemory、Group Chat Plus 的委托状态、面板入口和开发 API 列表 |
+| POST | `/api/integrations/worldbook/preview` | 预览 SillyTavern 世界书 JSON，可传 `payload`、`json_text` 或 `json_path` |
+| POST | `/api/integrations/worldbook/import` | 导入 SillyTavern 世界书到人格待审记忆、黑话候选和知识图谱 |
+| GET | `/api/integrations/worldbook/imports` | 从人格审查元数据读取最近世界书导入历史 |
 
 返回字段:
 
@@ -92,6 +95,51 @@ $env:ASTRBOT_ENABLE_WEB_DEP_INSTALL="false"
 | `dashboards` | 三个插件的面板入口、运行状态和 API 列表 |
 
 详见 [功能融合](integrations.md)。
+
+### SillyTavern 世界书导入
+
+预览:
+
+```http
+POST /api/integrations/worldbook/preview
+```
+
+```json
+{
+  "payload": {
+    "name": "世界书名称",
+    "entries": {
+      "0": {
+        "key": ["关键词"],
+        "secondaryKeys": ["辅助关键词"],
+        "content": "设定正文",
+        "constant": false,
+        "order": 100,
+        "insertion_order": 0
+      }
+    }
+  }
+}
+```
+
+导入:
+
+```json
+{
+  "payload": {},
+  "default_group_id": "global",
+  "import_memories": true,
+  "import_jargons": true,
+  "import_knowledge_graph": true,
+  "include_disabled": false
+}
+```
+
+导入器兼容 `entries` 为对象或数组。`content` 会进入
+`persona_update_reviews` 待审队列；`key` 和 `secondaryKeys`
+会进入 `jargon` 候选；知识图谱会写入世界书条目节点、关键词节点和
+`触发关键词` 关系。导入历史不新增表，来自 `worldbook_entry`
+人格审查记录的 metadata。
 
 ## Self Learning Hub API
 

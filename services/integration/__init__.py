@@ -18,6 +18,7 @@ _EXPORTS = {
     "MaiBotQualityMonitor": ".maibot_adapters",
     "MaiBotEnhancedLearningManager": ".maibot_enhanced_learning_manager",
     "MaiBotLearningImporter": ".maibot_learning_importer",
+    "WorldBookImporter": ".worldbook_importer",
     "ExemplarLibrary": ".exemplar_library",
     "KnowledgeGraphManager": ".knowledge_graph_manager",
     "LightRAGKnowledgeManager": ".lightrag_knowledge_manager",

@@ -14,6 +14,9 @@ GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
 
 SELF_LEARNING_API_ENDPOINTS = [
     "GET /api/integrations/status",
+    "POST /api/integrations/worldbook/preview",
+    "POST /api/integrations/worldbook/import",
+    "GET /api/integrations/worldbook/imports",
     "GET /api/hub/v1/manifest",
     "GET /api/hub/v1/status",
     "POST /api/hub/v1/context",
