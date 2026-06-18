@@ -98,7 +98,7 @@ class WorldBookImporter:
     def preview(
         self,
         *,
-        payload: Mapping[str, Any] | str | None = None,
+        payload: Mapping[str, Any] | list[Any] | str | None = None,
         json_text: str | None = None,
         json_path: str | Path | None = None,
     ) -> dict[str, Any]:
@@ -108,7 +108,7 @@ class WorldBookImporter:
     def load_package(
         self,
         *,
-        payload: Mapping[str, Any] | str | None = None,
+        payload: Mapping[str, Any] | list[Any] | str | None = None,
         json_text: str | None = None,
         json_path: str | Path | None = None,
     ) -> WorldBookPackage:
@@ -123,10 +123,14 @@ class WorldBookImporter:
             source_paths["worldbook_json"] = str(path.resolve())
         if isinstance(payload, str):
             payload = _json_decode(payload)
-        if not isinstance(payload, Mapping):
-            raise ValueError("请提供 SillyTavern 世界书 JSON 对象或 JSON 字符串")
+        if not isinstance(payload, (Mapping, list)):
+            raise ValueError("请提供 SillyTavern 世界书 JSON 对象、数组或 JSON 字符串")
 
-        if payload.get("source") == WORLDBOOK_SOURCE and isinstance(payload.get("entries"), list):
+        if (
+            isinstance(payload, Mapping)
+            and payload.get("source") == WORLDBOOK_SOURCE
+            and isinstance(payload.get("entries"), list)
+        ):
             package = WorldBookPackage.from_dict(payload)
             package.source_paths.update(source_paths)
             return package
@@ -356,12 +360,17 @@ class WorldBookImporter:
     def export_json(self, **kwargs: Any) -> dict[str, Any]:
         return self.load_package(**kwargs).to_dict()
 
-    def _parse_sillytavern_payload(self, payload: Mapping[str, Any]) -> WorldBookPackage:
+    def _parse_sillytavern_payload(self, payload: Mapping[str, Any] | list[Any]) -> WorldBookPackage:
+        if isinstance(payload, list):
+            return WorldBookPackage(entries=[
+                entry
+                for index, (source_key, raw_entry) in enumerate(_iter_entries(payload))
+                if (entry := self._parse_entry(source_key, raw_entry, index))
+            ])
+
         entries_payload = payload.get("entries")
         if entries_payload is None and isinstance(payload.get("data"), Mapping):
             entries_payload = payload["data"].get("entries")
-        if entries_payload is None and isinstance(payload, list):
-            entries_payload = payload
         if not isinstance(entries_payload, (Mapping, list)):
             raise ValueError("不是有效的 SillyTavern 世界书 JSON：缺少 entries 对象或数组")
 

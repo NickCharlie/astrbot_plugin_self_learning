@@ -73,6 +73,23 @@ def test_worldbook_importer_parses_list_entries_and_string_payload():
     assert package.entries[0].secondary_keys == ["海岸"]
 
 
+def test_worldbook_importer_parses_top_level_list_payload():
+    package = WorldBookImporter().load_package(
+        payload=[
+            {
+                "key": ["塔"],
+                "secondaryKeys": ["钟声"],
+                "content": "钟塔每天清晨响起。",
+            }
+        ]
+    )
+
+    assert len(package.entries) == 1
+    assert package.entries[0].source_id == "0"
+    assert package.entries[0].keys == ["塔"]
+    assert package.entries[0].secondary_keys == ["钟声"]
+
+
 def test_worldbook_importer_preview_reports_destinations_and_counts():
     summary = WorldBookImporter().preview(payload=_sample_worldbook())
 

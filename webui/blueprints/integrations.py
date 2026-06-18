@@ -176,9 +176,12 @@ def _worldbook_source_args(body: dict) -> dict:
     if payload is None:
         payload = body.get("worldbook")
     return {
-        "payload": payload if isinstance(payload, (dict, str)) else None,
+        "payload": payload if isinstance(payload, (dict, list, str)) else None,
         "json_text": body.get("json_text") or None,
-        "json_path": body.get("json_path") or body.get("worldbook_path") or None,
+        # Do not accept server-side paths from WebUI requests.  Callers should
+        # upload/send JSON content instead; direct Python callers may still use
+        # WorldBookImporter.load_package(json_path=...).
+        "json_path": None,
     }
 
 

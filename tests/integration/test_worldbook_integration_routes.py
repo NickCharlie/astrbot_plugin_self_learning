@@ -6,7 +6,7 @@ from quart import Quart
 from config import PluginConfig
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
 import webui.blueprints.integrations as integrations_module
-from webui.blueprints.integrations import integrations_bp
+from webui.blueprints.integrations import _worldbook_source_args, integrations_bp
 
 
 def _worldbook_payload():
@@ -21,6 +21,19 @@ def _worldbook_payload():
             }
         ],
     }
+
+
+def test_worldbook_source_args_ignores_server_side_paths():
+    args = _worldbook_source_args(
+        {
+            "payload": _worldbook_payload(),
+            "json_path": "C:/Windows/win.ini",
+            "worldbook_path": "C:/Windows/system.ini",
+        }
+    )
+
+    assert args["payload"]["name"] == "路线世界书"
+    assert args["json_path"] is None
 
 
 @pytest.fixture
