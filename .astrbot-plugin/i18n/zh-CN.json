@@ -560,6 +560,7 @@
         "batchDelete": "批量删除",
         "batchReject": "批量驳回",
         "batchRejectShort": "全拒",
+        "cancel": "取消",
         "clearSelection": "取消选择",
         "close": "关闭",
         "closeToast": "关闭提示",
@@ -809,6 +810,7 @@
       },
       "modal": {
         "backupDetails": "备份详情",
+        "confirmBatch": "确认批量操作",
         "details": "详情",
         "editJargon": "编辑黑话",
         "editPersona": "编辑人格",

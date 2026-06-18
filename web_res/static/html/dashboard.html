@@ -2102,6 +2102,128 @@
             margin-top: 14px;
         }
 
+        .worldbook-panel {
+            margin-top: 14px;
+        }
+
+        .worldbook-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+            gap: 14px;
+            align-items: start;
+        }
+
+        .worldbook-form {
+            display: grid;
+            gap: 12px;
+        }
+
+        .worldbook-form textarea,
+        .worldbook-form input[type="text"] {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text);
+            padding: 10px 12px;
+            box-sizing: border-box;
+            box-shadow: none;
+        }
+
+        .worldbook-form textarea {
+            min-height: 260px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.55;
+        }
+
+        .worldbook-form label,
+        .worldbook-option {
+            display: grid;
+            gap: 6px;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .worldbook-form label span,
+        .worldbook-option span {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .worldbook-options {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 10px;
+        }
+
+        .worldbook-option {
+            grid-template-columns: auto minmax(0, 1fr);
+            align-items: start;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+        }
+
+        .worldbook-option input {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--accent);
+        }
+
+        .worldbook-summary {
+            display: grid;
+            gap: 10px;
+        }
+
+        .worldbook-summary .stats-row {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .worldbook-samples,
+        .worldbook-history-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .worldbook-sample,
+        .worldbook-history-item {
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--panel-soft);
+        }
+
+        .worldbook-sample .title,
+        .worldbook-history-item .title {
+            font-size: 13px;
+            font-weight: 700;
+            line-height: 1.35;
+        }
+
+        .worldbook-sample .meta,
+        .worldbook-history-item .meta {
+            margin-top: 5px;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+        }
+
+        .worldbook-sample .body,
+        .worldbook-history-item .body {
+            margin-top: 8px;
+            color: var(--text);
+            font-size: 12px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+
         .chip {
             display: inline-flex;
             align-items: center;
@@ -2400,6 +2522,10 @@
 
             .grid2,
             .queue-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .worldbook-layout {
                 grid-template-columns: 1fr;
             }
 
@@ -2831,6 +2957,19 @@
                     <div>
                         <div class="module-value" id="homeIntegrationValue">--</div>
                         <div class="module-note" id="homeIntegrationNote">联动状态</div>
+                    </div>
+                </a>
+                <a class="module-card" href="#/integrations" data-route-card="integrations">
+                    <div class="module-card-top">
+                        <div class="module-title">
+                            <strong>世界书导入</strong>
+                            <span>SillyTavern JSON、预览、导入和历史</span>
+                        </div>
+                        <span class="module-icon"><span class="material-icons">menu_book</span></span>
+                    </div>
+                    <div>
+                        <div class="module-value" id="homeWorldbookValue">API</div>
+                        <div class="module-note" id="homeWorldbookNote">写入人格、黑话与图谱</div>
                     </div>
                 </a>
                 <a class="module-card" href="#/settings" data-route-card="settings">
@@ -3620,6 +3759,75 @@
                 </div>
             </div>
 
+            <div class="panel worldbook-panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>世界书导入</h2>
+                        <div class="hint">SillyTavern WorldBook JSON 进入人格审查、黑话候选和知识图谱。</div>
+                    </div>
+                    <div class="panel-tools">
+                        <button class="icon-btn" id="worldbookHistoryReloadBtn" type="button" aria-label="刷新世界书导入历史" title="刷新世界书导入历史">
+                            <span class="material-icons">history</span>
+                        </button>
+                        <button class="action-btn" id="worldbookPreviewBtn" type="button" aria-label="预览世界书导入" title="预览世界书导入">
+                            <span class="material-icons" style="font-size:16px;">visibility</span>
+                            预览
+                        </button>
+                        <button class="action-btn primary" id="worldbookImportBtn" type="button" aria-label="导入世界书" title="导入世界书">
+                            <span class="material-icons" style="font-size:16px;">upload_file</span>
+                            导入
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="worldbook-layout">
+                        <div class="worldbook-form">
+                            <label for="worldbookJsonInput">
+                                SillyTavern JSON
+                                <span>支持原始世界书对象、entries 数组或本插件导出的 worldbook 包。</span>
+                            </label>
+                            <textarea id="worldbookJsonInput" spellcheck="false" placeholder='{"name":"世界书名称","entries":{}}'></textarea>
+                            <label for="worldbookGroupId">
+                                默认群组 ID
+                                <span>未指定来源群组时使用。</span>
+                            </label>
+                            <input id="worldbookGroupId" type="text" value="global" autocomplete="off">
+                            <div class="worldbook-options" aria-label="世界书导入选项">
+                                <label class="worldbook-option">
+                                    <input id="worldbookImportMemories" type="checkbox" checked>
+                                    <span>人格待审记忆</span>
+                                </label>
+                                <label class="worldbook-option">
+                                    <input id="worldbookImportJargons" type="checkbox" checked>
+                                    <span>黑话候选</span>
+                                </label>
+                                <label class="worldbook-option">
+                                    <input id="worldbookImportKnowledgeGraph" type="checkbox" checked>
+                                    <span>知识图谱</span>
+                                </label>
+                                <label class="worldbook-option">
+                                    <input id="worldbookIncludeDisabled" type="checkbox">
+                                    <span>包含禁用条目</span>
+                                </label>
+                            </div>
+                            <div id="worldbookStatus" class="config-status">等待世界书 JSON。</div>
+                        </div>
+                        <div class="worldbook-summary">
+                            <div id="worldbookPreviewOutput" class="settings-empty">暂无预览。</div>
+                            <div>
+                                <div class="field-head" style="margin-bottom:8px;">
+                                    <div class="field-label">最近导入</div>
+                                    <span class="field-pill" id="worldbookHistoryHint">等待刷新</span>
+                                </div>
+                                <div id="worldbookHistory" class="worldbook-history-list">
+                                    <div class="settings-empty">暂无导入历史。</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="panel integration-settings">
                 <div class="panel-head">
                     <div>
@@ -3815,6 +4023,7 @@
                     expressionType: 'dialogues',
                 },
                 activePage: 'home',
+                autoRefreshPending: false,
             };
             const DASHBOARD_PAGES = ['home', 'overview', 'insights', 'monitoring', 'reviews', 'jargon-learning', 'expression-learning', 'persona-learning', 'content', 'reply-strategy', 'graphs', 'integrations', 'settings'];
 
@@ -3927,6 +4136,58 @@
                 if (element && document.activeElement !== element) {
                     element.value = value;
                 }
+            }
+
+            function isAutoRefreshSensitiveTarget(element) {
+                if (!element || element === document.body) {
+                    return false;
+                }
+                const tag = String(element.tagName || '').toLowerCase();
+                if (['input', 'textarea', 'select'].includes(tag)) {
+                    return true;
+                }
+                if (element.isContentEditable) {
+                    return true;
+                }
+                return Boolean(element.closest('[contenteditable="true"], .review-diff, .jargon-edit-form, .config-control, .worldbook-form'));
+            }
+
+            function shouldDeferAutoRefresh() {
+                const confirmOverlay = $('cfmOv');
+                if (confirmOverlay && confirmOverlay.classList.contains('show')) {
+                    return true;
+                }
+                if (isAutoRefreshSensitiveTarget(document.activeElement)) {
+                    return true;
+                }
+                if (state.activePage === 'reviews' || state.activePage === 'jargon-learning') {
+                    return true;
+                }
+                const selection = window.getSelection && window.getSelection();
+                return Boolean(selection && !selection.isCollapsed);
+            }
+
+            function scheduleAutoRefresh() {
+                if (state.autoRefreshPending) {
+                    return;
+                }
+                state.autoRefreshPending = true;
+                window.setTimeout(async () => {
+                    state.autoRefreshPending = false;
+                    if (shouldDeferAutoRefresh()) {
+                        scheduleAutoRefresh();
+                        return;
+                    }
+                    await loadDashboard();
+                }, 5000);
+            }
+
+            function autoRefreshDashboard() {
+                if (shouldDeferAutoRefresh()) {
+                    scheduleAutoRefresh();
+                    return;
+                }
+                loadDashboard();
             }
 
             function patternCount(value) {
@@ -4546,6 +4807,8 @@
                 $('homeIntegrationNote').textContent = integrationDashboards.length
                     ? (delegatedIntegrations ? `${formatCount(delegatedIntegrations)} 项已委托` : '插件 API 入口')
                     : '检查插件面板';
+                $('homeWorldbookValue').textContent = integrationDashboards.length ? '可用' : 'API';
+                $('homeWorldbookNote').textContent = '预览 SillyTavern JSON 后导入';
                 $('homeSettingsValue').textContent = state.config.schema ? formatCount(getConfigEditableKeys().length) : '--';
                 $('homeSettingsNote').textContent = state.config.dirtyKeys && state.config.dirtyKeys.size
                     ? `${formatCount(state.config.dirtyKeys.size)} 项未保存`
@@ -7215,6 +7478,204 @@
                 statusEl.className = 'config-status';
             }
 
+            function updateWorldbookStatus(message, tone = '') {
+                const statusEl = $('worldbookStatus');
+                if (!statusEl) {
+                    return;
+                }
+                statusEl.textContent = message;
+                statusEl.className = `config-status${tone ? ` ${tone}` : ''}`;
+            }
+
+            function worldbookPayloadFromForm() {
+                const input = $('worldbookJsonInput');
+                const rawText = input ? input.value.trim() : '';
+                if (!rawText) {
+                    throw new Error('请先粘贴 SillyTavern 世界书 JSON');
+                }
+
+                let payload;
+                try {
+                    payload = JSON.parse(rawText);
+                } catch (error) {
+                    throw new Error(`JSON 解析失败: ${error.message}`);
+                }
+
+                const groupId = (($('worldbookGroupId') && $('worldbookGroupId').value) || 'global').trim() || 'global';
+                return {
+                    payload,
+                    default_group_id: groupId,
+                    import_memories: Boolean($('worldbookImportMemories') && $('worldbookImportMemories').checked),
+                    import_jargons: Boolean($('worldbookImportJargons') && $('worldbookImportJargons').checked),
+                    import_knowledge_graph: Boolean($('worldbookImportKnowledgeGraph') && $('worldbookImportKnowledgeGraph').checked),
+                    include_disabled: Boolean($('worldbookIncludeDisabled') && $('worldbookIncludeDisabled').checked),
+                };
+            }
+
+            function worldbookStatRows(data) {
+                const counts = (data && data.counts) || {};
+                const review = (data && data.review_breakdown) || {};
+                return [
+                    ['条目', formatCount(counts.entries || 0)],
+                    ['启用', formatCount(counts.enabled_entries || 0)],
+                    ['关键词', formatCount((counts.keywords || 0) + (counts.secondary_keywords || 0))],
+                    ['预估 Tokens', formatCount(counts.estimated_tokens || 0)],
+                    ['人格待审', formatCount(review.persona_memory_reviews || 0)],
+                    ['图谱关系', formatCount(review.knowledge_graph_relations || 0)],
+                ];
+            }
+
+            function worldbookEntryPreview(entry) {
+                const keys = safeArray(entry && entry.keys);
+                const secondary = safeArray(entry && entry.secondary_keys);
+                const keywordText = keys.concat(secondary).slice(0, 8).join(', ');
+                return `
+                    <div class="worldbook-sample">
+                        <div class="title">${escapeHtml((entry && (entry.title || entry.comment)) || '未命名条目')}</div>
+                        <div class="meta">
+                            ${escapeHtml(keywordText || '无关键词')}
+                            ${entry && entry.enabled === false ? ' · 禁用' : ''}
+                            ${entry && entry.constant ? ' · 常驻' : ''}
+                        </div>
+                        <div class="body clamp">${escapeHtml((entry && entry.content) || '暂无内容')}</div>
+                    </div>
+                `;
+            }
+
+            function renderWorldbookPreview(data) {
+                const outputEl = $('worldbookPreviewOutput');
+                if (!outputEl) {
+                    return;
+                }
+
+                if (!data) {
+                    outputEl.innerHTML = '<div class="settings-empty">暂无预览。</div>';
+                    return;
+                }
+
+                const samples = safeArray(data.samples && data.samples.entries);
+                outputEl.innerHTML = `
+                    <div class="worldbook-summary">
+                        <div class="stats-row">
+                            ${worldbookStatRows(data).map(([label, value]) => `
+                                <div class="small-stat">
+                                    <div class="k">${escapeHtml(label)}</div>
+                                    <div class="v">${escapeHtml(value)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="chip"><b>${escapeHtml(data.name || 'SillyTavern WorldBook')}</b></div>
+                        <div class="worldbook-samples">
+                            ${samples.length ? samples.map((entry) => worldbookEntryPreview(entry)).join('') : '<div class="settings-empty">暂无样例条目。</div>'}
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderWorldbookImportResult(result) {
+                const outputEl = $('worldbookPreviewOutput');
+                if (!outputEl) {
+                    return;
+                }
+                const rows = [
+                    ['导入条目', formatCount(result && result.entries_imported)],
+                    ['人格待审', formatCount(result && result.memory_reviews_imported)],
+                    ['黑话候选', formatCount(result && result.jargons_imported)],
+                    ['图谱实体', formatCount(result && result.kg_entities_imported)],
+                    ['图谱关系', formatCount(result && result.kg_relations_imported)],
+                    ['跳过', formatCount(result && result.skipped)],
+                ];
+                const errors = safeArray(result && result.errors);
+                outputEl.innerHTML = `
+                    <div class="worldbook-summary">
+                        <div class="stats-row">
+                            ${rows.map(([label, value]) => `
+                                <div class="small-stat">
+                                    <div class="k">${escapeHtml(label)}</div>
+                                    <div class="v">${escapeHtml(value)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${errors.length ? `<div class="config-status error">${escapeHtml(errors.join('；'))}</div>` : '<div class="config-status success">世界书导入完成。</div>'}
+                    </div>
+                `;
+            }
+
+            function renderWorldbookHistory(data) {
+                const listEl = $('worldbookHistory');
+                const hintEl = $('worldbookHistoryHint');
+                if (!listEl) {
+                    return;
+                }
+
+                const items = safeArray(data && data.items);
+                if (hintEl) {
+                    hintEl.textContent = data ? `${formatCount(data.total || items.length)} 条` : '读取失败';
+                }
+
+                listEl.innerHTML = items.length
+                    ? items.map((item) => {
+                        const meta = [
+                            item.group_id ? `群组 ${item.group_id}` : null,
+                            item.status ? `状态 ${item.status}` : null,
+                            item.imported_at ? formatTime(item.imported_at) : null,
+                        ].filter(Boolean).join(' · ');
+                        return `
+                            <div class="worldbook-history-item">
+                                <div class="title">${escapeHtml(item.title || item.worldbook_entry_id || '世界书条目')}</div>
+                                <div class="meta">${escapeHtml(item.worldbook_name || 'SillyTavern WorldBook')} · ${escapeHtml(meta || '导入记录')}</div>
+                                <div class="body clamp">${escapeHtml(item.content_preview || '')}</div>
+                            </div>
+                        `;
+                    }).join('')
+                    : '<div class="settings-empty">暂无导入历史。</div>';
+            }
+
+            async function loadWorldbookHistory() {
+                const hintEl = $('worldbookHistoryHint');
+                if (hintEl) {
+                    hintEl.textContent = '读取中';
+                }
+                const payload = await safeFetch('/api/integrations/worldbook/imports?limit=8');
+                const data = payload && (payload.data || payload);
+                renderWorldbookHistory(data);
+            }
+
+            async function previewWorldbook() {
+                try {
+                    updateWorldbookStatus('正在预览世界书。');
+                    const payload = await postJson('/api/integrations/worldbook/preview', worldbookPayloadFromForm());
+                    const data = payload && (payload.data || payload);
+                    renderWorldbookPreview(data);
+                    updateWorldbookStatus('预览完成。', 'success');
+                } catch (error) {
+                    console.error('预览世界书失败:', error);
+                    updateWorldbookStatus(`预览失败: ${error.message}`, 'error');
+                }
+            }
+
+            async function importWorldbook() {
+                try {
+                    const body = worldbookPayloadFromForm();
+                    const confirmed = await showConfirm('导入世界书', '确定导入当前世界书？将写入人格审查、黑话候选或知识图谱。', '确认导入');
+                    if (!confirmed) {
+                        updateWorldbookStatus('已取消导入。', 'warning');
+                        return;
+                    }
+
+                    updateWorldbookStatus('正在导入世界书。');
+                    const payload = await postJson('/api/integrations/worldbook/import', body);
+                    const result = payload && (payload.data || payload);
+                    renderWorldbookImportResult(result || {});
+                    updateWorldbookStatus(result && result.success === false ? '导入完成但存在错误。' : '导入完成。', result && result.success === false ? 'warning' : 'success');
+                    await loadWorldbookHistory();
+                    loadDashboard();
+                } catch (error) {
+                    console.error('导入世界书失败:', error);
+                    updateWorldbookStatus(`导入失败: ${error.message}`, 'error');
+                }
+            }
+
             async function loadIntegrationPanel(options = {}) {
                 const { quiet = false } = options;
                 if (state.integrations.loading) {
@@ -7236,6 +7697,7 @@
                     renderIntegrationPanel(state.integrations.data);
                     renderCompanionStatus('livingmemory');
                     renderCompanionStatus('group_chat_plus');
+                    loadWorldbookHistory();
                     if (state.data) {
                         renderHomeModules(state.data);
                     }
@@ -8666,6 +9128,9 @@
                 $('integrationConfigSaveBtn').addEventListener('click', saveConfigPanel);
                 $('integrationConfigResetBtn').addEventListener('click', resetConfigPanel);
                 $('integrationConfigReloadBtn').addEventListener('click', reloadConfigPanel);
+                $('worldbookPreviewBtn').addEventListener('click', previewWorldbook);
+                $('worldbookImportBtn').addEventListener('click', importWorldbook);
+                $('worldbookHistoryReloadBtn').addEventListener('click', loadWorldbookHistory);
                 const pipMirrorSelect = $('pipMirrorSelect');
                 if (pipMirrorSelect) {
                     pipMirrorSelect.value = state.dependencyInstall.mirror;
@@ -8857,7 +9322,7 @@
                 loadDashboard();
                 loadConfigPanel();
                 loadIntegrationPanel({ quiet: true });
-                setInterval(loadDashboard, 60000);
+                setInterval(autoRefreshDashboard, 60000);
             }
 
             init();

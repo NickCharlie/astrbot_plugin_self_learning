@@ -560,6 +560,7 @@
         "batchDelete": "Batch delete",
         "batchReject": "Batch reject",
         "batchRejectShort": "Reject all",
+        "cancel": "Cancel",
         "clearSelection": "Clear selection",
         "close": "Close",
         "closeToast": "Close notification",
@@ -809,6 +810,7 @@
       },
       "modal": {
         "backupDetails": "Backup Details",
+        "confirmBatch": "Confirm Batch Operation",
         "details": "Details",
         "editJargon": "Edit Jargon",
         "editPersona": "Edit Persona",

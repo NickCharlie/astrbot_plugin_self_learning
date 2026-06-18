@@ -273,6 +273,35 @@ def test_dashboard_review_deletes_use_inline_confirmation():
     assert "window.confirm('确定删除这条黑话" not in text
 
 
+def test_dashboard_auto_refresh_defers_during_review_editing():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+
+    assert "function shouldDeferAutoRefresh()" in text
+    assert "function autoRefreshDashboard()" in text
+    assert "function scheduleAutoRefresh()" in text
+    assert "state.activePage === 'reviews'" in text
+    assert "state.activePage === 'jargon-learning'" in text
+    assert "isAutoRefreshSensitiveTarget(document.activeElement)" in text
+    assert "setInterval(autoRefreshDashboard, 60000)" in text
+    assert "setInterval(loadDashboard, 60000)" not in text
+
+
+def test_embedded_plugin_page_uses_inline_confirmation_for_batch_actions():
+    script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+    assert "function showConfirm(title, message" in script
+    assert "modal-confirm-ok" in script
+    assert "modal.confirmBatch" in script
+    assert "window.confirm(" not in script
+
+
+def test_embedded_plugin_page_hides_review_buttons_for_confirmed_jargon():
+    script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+    assert 'item.is_confirmed ? "" : button(t("actions.confirm"' in script
+    assert 'item.is_confirmed ? "" : button(t("actions.reject"' in script
+
+
 def test_dashboard_exposes_structured_ai_insight_panel():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 
@@ -320,6 +349,22 @@ def test_dashboard_exposes_companion_plugin_api_hub():
     assert "POST /api/hub/v1/context" in service
     assert "POST /api/hub/v1/memories/remember" in service
     assert "POST /api/hub/v1/messages/ingest" in service
+
+
+def test_dashboard_exposes_worldbook_import_module():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    service = (PLUGIN_ROOT / "webui" / "services" / "integration_service.py").read_text(encoding="utf-8")
+
+    assert "世界书导入" in text
+    assert "worldbookJsonInput" in text
+    assert "worldbookPreviewBtn" in text
+    assert "worldbookImportBtn" in text
+    assert "worldbookHistoryReloadBtn" in text
+    assert "renderWorldbookPreview" in text
+    assert "loadWorldbookHistory" in text
+    assert "/api/integrations/worldbook/preview" in text + service
+    assert "/api/integrations/worldbook/import" in text + service
+    assert "/api/integrations/worldbook/imports" in text + service
 
 
 def test_dashboard_exposes_config_cost_warnings():

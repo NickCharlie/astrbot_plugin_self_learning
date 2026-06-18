@@ -728,18 +728,19 @@ class JargonFacade(BaseFacade):
             now_ts = self._coerce_jargon_timestamp()
 
             if record:
-                # 更新已有记录
-                if 'meaning' in jargon_data:
+                is_locked = bool(record.is_complete)
+                if 'meaning' in jargon_data and not is_locked:
                     record.meaning = jargon_data['meaning']
-                if 'raw_content' in jargon_data:
+                if 'raw_content' in jargon_data and not is_locked:
                     record.raw_content = truncate_for_db(jargon_data['raw_content'])
-                if 'is_jargon' in jargon_data:
+                if 'is_jargon' in jargon_data and not is_locked:
                     record.is_jargon = jargon_data['is_jargon']
                 if 'count' in jargon_data:
-                    record.count = jargon_data['count']
+                    count_value = JargonFacade._coerce_jargon_count_delta(jargon_data.get('count'))
+                    record.count = (record.count or 0) + count_value if is_locked else count_value
                 if 'last_inference_count' in jargon_data:
                     record.last_inference_count = jargon_data['last_inference_count']
-                if 'is_complete' in jargon_data:
+                if 'is_complete' in jargon_data and not is_locked:
                     record.is_complete = jargon_data['is_complete']
                 if 'is_global' in jargon_data:
                     record.is_global = jargon_data['is_global']
@@ -826,6 +827,14 @@ class JargonFacade(BaseFacade):
         return int(time.time())
 
     @staticmethod
+    def _coerce_jargon_count_delta(value: Any) -> int:
+        try:
+            delta = int(value)
+        except (TypeError, ValueError):
+            return 0
+        return max(delta, 0)
+
+    @staticmethod
     def _jargon_insert_values(
         chat_id: str,
         content: str,
@@ -851,19 +860,41 @@ class JargonFacade(BaseFacade):
         jargon_data: Dict[str, Any],
         now_ts: int,
     ) -> Dict[str, Any]:
+        excluded = JargonFacade._jargon_insert_values(
+            "",
+            "",
+            jargon_data,
+            now_ts,
+        )
         update_values = {"updated_at": now_ts}
         if "meaning" in jargon_data:
-            update_values["meaning"] = jargon_data["meaning"]
+            update_values["meaning"] = case(
+                (Jargon.is_complete == True, Jargon.meaning),
+                else_=excluded["meaning"],
+            )
         if "raw_content" in jargon_data:
-            update_values["raw_content"] = truncate_for_db(jargon_data["raw_content"])
+            update_values["raw_content"] = case(
+                (Jargon.is_complete == True, Jargon.raw_content),
+                else_=excluded["raw_content"],
+            )
         if "is_jargon" in jargon_data:
-            update_values["is_jargon"] = jargon_data["is_jargon"]
+            update_values["is_jargon"] = case(
+                (Jargon.is_complete == True, Jargon.is_jargon),
+                else_=excluded["is_jargon"],
+            )
         if "count" in jargon_data:
-            update_values["count"] = jargon_data["count"]
+            count_value = JargonFacade._coerce_jargon_count_delta(jargon_data.get("count"))
+            update_values["count"] = case(
+                (Jargon.is_complete == True, func.coalesce(Jargon.count, 0) + count_value),
+                else_=count_value,
+            )
         if "last_inference_count" in jargon_data:
             update_values["last_inference_count"] = jargon_data["last_inference_count"]
         if "is_complete" in jargon_data:
-            update_values["is_complete"] = jargon_data["is_complete"]
+            update_values["is_complete"] = case(
+                (Jargon.is_complete == True, Jargon.is_complete),
+                else_=excluded["is_complete"],
+            )
         if "is_global" in jargon_data:
             update_values["is_global"] = jargon_data["is_global"]
         return update_values

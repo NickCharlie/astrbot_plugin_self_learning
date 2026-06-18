@@ -140,6 +140,36 @@ class TestConfigServiceSchema:
         assert options == ["error", "warning", "info", "debug", "trace"]
         assert all(isinstance(option, str) for option in options)
 
+    def test_astrbot_plugin_schema_keeps_native_config_groups_visible(self):
+        """AstrBot native plugin config reads the root schema, not the WebUI merge."""
+        schema_path = Path(__file__).resolve().parents[2] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        for group_key in [
+            "MaiBot_Enhancement",
+            "Persona_Evolution_Settings",
+            "Runtime_Internal_Settings",
+        ]:
+            assert group_key in schema
+            assert schema[group_key]["type"] == "object"
+            assert schema[group_key]["items"]
+
+        assert schema["MaiBot_Enhancement"]["description"] == "MaiBot 增强"
+        assert schema["Persona_Evolution_Settings"]["description"] == "人格演化"
+        assert schema["Runtime_Internal_Settings"]["description"] == "运行与内部"
+
+        def assert_plain_options(node):
+            if isinstance(node, dict):
+                if "options" in node:
+                    assert all(isinstance(option, str) for option in node["options"])
+                for child in node.values():
+                    assert_plain_options(child)
+            elif isinstance(node, list):
+                for child in node:
+                    assert_plain_options(child)
+
+        assert_plain_options(schema)
+
     @pytest.mark.asyncio
     async def test_get_config_schema_includes_full_settings(self, tmp_path):
         container = build_container(tmp_path)

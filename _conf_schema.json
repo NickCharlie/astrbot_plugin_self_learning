@@ -710,6 +710,209 @@
       }
     }
   },
+  "MaiBot_Enhancement": {
+    "description": "MaiBot 增强",
+    "type": "object",
+    "hint": "启用表达模式、记忆图和知识图谱等扩展能力",
+    "items": {
+      "enable_maibot_features": {
+        "description": "启用 MaiBot 增强功能",
+        "type": "bool",
+        "hint": "开启后会启用 MaiBot 风格的扩展功能总开关",
+        "default": true
+      },
+      "enable_expression_patterns": {
+        "description": "启用表达模式学习",
+        "type": "bool",
+        "hint": "学习并维护群聊中的表达模式和常见句式",
+        "default": true
+      },
+      "enable_realtime_expression_learning": {
+        "description": "实时表达方式学习",
+        "type": "bool",
+        "hint": "实时学习关闭时，是否仍按消息增量触发表达方式学习。默认关闭以避免旁听群聊时产生高频 LLM 调用和审查记录",
+        "default": false
+      },
+      "enable_memory_graph": {
+        "description": "启用记忆图系统",
+        "type": "bool",
+        "hint": "开启记忆关系图与关联记忆能力",
+        "default": true
+      },
+      "enable_knowledge_graph": {
+        "description": "启用知识图谱",
+        "type": "bool",
+        "hint": "开启知识关系图谱与实体关联增强",
+        "default": true
+      },
+      "enable_time_decay": {
+        "description": "启用时间衰减",
+        "type": "bool",
+        "hint": "让旧数据随时间自动弱化权重",
+        "default": true
+      }
+    }
+  },
+  "Persona_Evolution_Settings": {
+    "description": "人格演化",
+    "type": "object",
+    "hint": "控制人格合并、自动应用和更新备份",
+    "items": {
+      "persona_merge_strategy": {
+        "description": "人格合并策略",
+        "type": "string",
+        "hint": "控制人格更新时的合并方式",
+        "default": "smart",
+        "options": [
+          "replace",
+          "append",
+          "prepend",
+          "smart"
+        ],
+        "labels": [
+          "替换",
+          "追加",
+          "前置",
+          "智能"
+        ]
+      },
+      "max_mood_imitation_dialogs": {
+        "description": "最大对话风格模仿数量",
+        "type": "int",
+        "hint": "单次模仿训练最多处理的对话轮数",
+        "default": 20
+      },
+      "enable_persona_evolution": {
+        "description": "启用人格演化跟踪",
+        "type": "bool",
+        "hint": "开启后会记录人格变化轨迹并参与后续更新",
+        "default": true
+      },
+      "persona_compatibility_threshold": {
+        "description": "人格兼容性阈值",
+        "type": "float",
+        "hint": "用于判断更新内容是否与当前人格兼容",
+        "default": 0.6
+      },
+      "use_persona_manager_updates": {
+        "description": "使用 PersonaManager 更新",
+        "type": "bool",
+        "hint": "开启后优先通过 PersonaManager 进行人格更新",
+        "default": true
+      },
+      "auto_apply_persona_updates": {
+        "description": "自动应用人格更新",
+        "type": "bool",
+        "hint": "仅在 PersonaManager 更新模式下生效",
+        "default": true
+      },
+      "persona_update_backup_enabled": {
+        "description": "启用人格更新备份",
+        "type": "bool",
+        "hint": "更新前自动创建备份，降低误操作风险",
+        "default": true
+      }
+    }
+  },
+  "Runtime_Internal_Settings": {
+    "description": "运行与内部",
+    "type": "object",
+    "hint": "运行时注入、内存清理和内部路径",
+    "items": {
+      "llm_hook_injection_target": {
+        "description": "LLM Hook 注入目标",
+        "type": "string",
+        "hint": "推荐保持 extra_user_content_parts：动态上下文会追加到用户消息尾部并标记为临时内容，避免改动 system_prompt 影响 provider prefix cache。system_prompt/prompt 仅作为旧版 AstrBot fallback",
+        "default": "extra_user_content_parts",
+        "options": [
+          "extra_user_content_parts",
+          "system_prompt",
+          "prompt"
+        ],
+        "labels": [
+          "extra_user_content_parts（推荐）",
+          "system_prompt（旧版 fallback）",
+          "prompt（旧版 fallback）"
+        ]
+      },
+      "enable_llm_hooks": {
+        "description": "启用 LLM Hook 上下文注入",
+        "type": "bool",
+        "hint": "开启后每次回复前会并行拉取社交、记忆、黑话、few-shot 等上下文；默认关闭以避免高频模型调用",
+        "default": false
+      },
+      "use_sqlalchemy": {
+        "description": "强制使用 SQLAlchemy ORM",
+        "type": "bool",
+        "hint": "当前版本固定为 true，用于统一 SQLite / MySQL / PostgreSQL 表结构",
+        "default": true,
+        "_readonly": true
+      },
+      "enable_memory_cleanup": {
+        "description": "启用记忆自动清理",
+        "type": "bool",
+        "hint": "开启后会定期清理过旧或低重要度的记忆数据",
+        "default": true
+      },
+      "memory_cleanup_days": {
+        "description": "记忆保留天数",
+        "type": "int",
+        "hint": "低于该天数阈值的旧记忆会被清理",
+        "default": 30
+      },
+      "memory_importance_threshold": {
+        "description": "记忆重要性阈值",
+        "type": "float",
+        "hint": "低于该阈值的重要性记忆会被视为可清理",
+        "default": 0.3
+      },
+      "shutdown_step_timeout": {
+        "description": "关停步骤超时",
+        "type": "int",
+        "hint": "每个关停步骤的最大等待时间（秒）",
+        "default": 8
+      },
+      "task_cancel_timeout": {
+        "description": "任务取消超时",
+        "type": "int",
+        "hint": "后台任务取消时的等待超时（秒）",
+        "default": 3
+      },
+      "service_stop_timeout": {
+        "description": "服务停止超时",
+        "type": "int",
+        "hint": "单个服务停止时的等待超时（秒）",
+        "default": 5
+      },
+      "llm_hook_context_timeout": {
+        "description": "LLM Hook 上下文超时",
+        "type": "float",
+        "hint": "LLM Hook 读取单个上下文源的最大等待时间（秒）",
+        "default": 3.0
+      },
+      "messages_db_path": {
+        "description": "消息数据库路径",
+        "type": "string",
+        "hint": "自动生成的消息数据库路径，通常无需修改",
+        "default": null,
+        "_readonly": true
+      },
+      "learning_log_path": {
+        "description": "学习日志路径",
+        "type": "string",
+        "hint": "自动生成的学习日志路径，通常无需修改",
+        "default": null,
+        "_readonly": true
+      },
+      "total_messages_collected": {
+        "description": "累计消息数",
+        "type": "int",
+        "hint": "当前运行周期内累计收集到的消息数量",
+        "default": 0,
+        "_readonly": true
+      }
+    }
+  },
   "V2_Architecture_Settings": {
     "description": "v2架构升级配置",
     "type": "object",

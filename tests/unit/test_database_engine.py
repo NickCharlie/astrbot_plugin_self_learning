@@ -505,6 +505,63 @@ async def test_jargon_sqlite_upsert_handles_concurrent_duplicate_terms(tmp_path)
         await manager.stop()
 
 
+@pytest.mark.asyncio
+async def test_jargon_sqlite_upsert_preserves_completed_manual_definition(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        enable_web_interface=False,
+        db_type="sqlite",
+    )
+    config.messages_db_path = str(tmp_path / "messages.db")
+    manager = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await manager.start() is True
+
+        first_id = await manager.save_or_update_jargon(
+            "group-manual",
+            "打爆",
+            {
+                "raw_content": "[\"人工确认上下文\"]",
+                "meaning": "人工释义",
+                "is_jargon": True,
+                "count": 5,
+                "is_complete": True,
+            },
+        )
+        second_id = await manager.save_or_update_jargon(
+            "group-manual",
+            "打爆",
+            {
+                "raw_content": "[\"重新学习上下文\"]",
+                "meaning": "自动学习释义",
+                "is_jargon": False,
+                "count": 1,
+                "is_complete": False,
+            },
+        )
+
+        assert second_id == first_id
+
+        async with manager.get_session() as session:
+            row = (
+                await session.execute(
+                    select(Jargon).where(
+                        Jargon.chat_id == "group-manual",
+                        Jargon.content == "打爆",
+                    )
+                )
+            ).scalar_one()
+
+        assert row.meaning == "人工释义"
+        assert row.raw_content == "[\"人工确认上下文\"]"
+        assert row.is_jargon is True
+        assert row.is_complete is True
+        assert row.count == 6
+    finally:
+        await manager.stop()
+
+
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
     captured = {}
 
