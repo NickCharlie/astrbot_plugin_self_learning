@@ -1053,18 +1053,21 @@ textarea {
   min-height: 80px;
 }
 
-.maibot-import-panel {
+.maibot-import-panel,
+.qchat-import-panel {
   margin-bottom: 14px;
 }
 
-.maibot-import-grid {
+.maibot-import-grid,
+.qchat-import-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 12px;
 }
 
-.maibot-import-panel .config-field {
+.maibot-import-panel .config-field,
+.qchat-import-panel .config-field {
   align-items: center;
 }
 
@@ -1089,7 +1092,8 @@ textarea {
   font-weight: 700;
 }
 
-.maibot-import-panel .code-preview {
+.maibot-import-panel .code-preview,
+.qchat-import-panel .code-preview {
   min-height: 136px;
 }
 

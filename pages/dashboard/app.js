@@ -1080,6 +1080,19 @@
     return payload;
   }
 
+  function collectQchatPayload() {
+    const payload = {
+      source_path: $("qchat-source-input")?.value?.trim() || "",
+      default_group_id: $("qchat-default-group-input")?.value?.trim() || "",
+      max_messages: Math.max(1, parseInt($("qchat-max-messages-input")?.value || "100000", 10) || 100000),
+      include_training_pairs: Boolean($("qchat-include-training")?.checked),
+    };
+    if (!payload.source_path) {
+      throw new Error(t("qchat.missingPath", "请填写 QQ 聊天记录路径"));
+    }
+    return payload;
+  }
+
   function renderMaiBotImportPreview(summary) {
     const output = $("maibot-import-output");
     if (!output || !summary) return;
@@ -1104,6 +1117,35 @@
         .replace("{expressions}", destinations.expressions)
         .replace("{jargons}", destinations.jargons)
         .replace("{memories}", destinations.memories));
+    }
+    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+  }
+
+  function renderQchatImportPreview(summary) {
+    const output = $("qchat-import-output");
+    if (!output || !summary) return;
+    const counts = summary.counts || {};
+    const lines = [];
+    if (Object.keys(counts).length) {
+      lines.push(t("qchat.previewCounts", "预览: 消息 {messages} · Bot {bot} · 发送者 {senders}")
+        .replace("{messages}", fmt(counts.messages, 0))
+        .replace("{bot}", fmt(counts.bot_messages, 0))
+        .replace("{senders}", fmt(counts.unique_senders, 0)));
+      lines.push(t("qchat.tokenCounts", "字符 {chars} · 预估 Tokens {tokens}")
+        .replace("{chars}", fmt(counts.content_chars, 0))
+        .replace("{tokens}", fmt(counts.estimated_tokens, 0)));
+    }
+    if (summary.messages_imported !== undefined || summary.messages_seen !== undefined) {
+      lines.push(t("qchat.importCounts", "导入: 扫描 {seen} · 写入 {imported} · 重复 {duplicates}")
+        .replace("{seen}", fmt(summary.messages_seen, 0))
+        .replace("{imported}", fmt(summary.messages_imported, 0))
+        .replace("{duplicates}", fmt(summary.duplicate_messages, 0)));
+    }
+    const destinations = summary.destinations || {};
+    if (Object.keys(destinations).length) {
+      lines.push(t("qchat.destinations", "去向: 原始消息 -> {raw}; 学习队列 -> {queue}")
+        .replace("{raw}", destinations.raw_messages || "raw_messages")
+        .replace("{queue}", destinations.learning_queue || "raw_messages.processed=false"));
     }
     output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
   }
@@ -1165,6 +1207,38 @@
     } catch (error) {
       const message = error.message || String(error);
       setText("maibot-import-output", message);
+      showToast(message, "error");
+    } finally {
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.classList.remove("is-busy");
+        buttonEl.textContent = originalLabel;
+      }
+    }
+  }
+
+  async function runQchatImportAction(action) {
+    const buttonEl = action === "qchat_import" ? $("qchat-import-button") : $("qchat-preview-button");
+    const originalLabel = buttonEl?.textContent || "";
+    try {
+      const payload = collectQchatPayload();
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.classList.add("is-busy");
+        buttonEl.textContent = action === "qchat_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
+      }
+      setText("qchat-import-output", t("qchat.reading", "正在读取 QQ 聊天记录..."));
+      const result = await apiPost("integrations/action", { action, ...payload });
+      const detail = result.preview || result.result || result.payload || result;
+      renderQchatImportPreview(detail);
+      showToast(result.message || t("qchat.done", "QQ 聊天记录操作完成"), result.success !== false ? "ok" : "error");
+      if (action === "qchat_import") {
+        state.pageData = {};
+        await loadDashboard(true);
+      }
+    } catch (error) {
+      const message = error.message || String(error);
+      setText("qchat-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -1545,6 +1619,8 @@
     });
     $("maibot-preview-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_preview"));
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
+    $("qchat-preview-button")?.addEventListener("click", () => runQchatImportAction("qchat_preview"));
+    $("qchat-import-button")?.addEventListener("click", () => runQchatImportAction("qchat_import"));
 
     document.addEventListener("click", async (event) => {
       const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-content-action],[data-settings-group]");

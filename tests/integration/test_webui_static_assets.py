@@ -367,6 +367,28 @@ def test_dashboard_exposes_worldbook_import_module():
     assert "/api/integrations/worldbook/imports" in text + service
 
 
+def test_dashboard_exposes_qq_chat_history_import_module():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    app = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+    service = (PLUGIN_ROOT / "webui" / "services" / "integration_service.py").read_text(encoding="utf-8")
+
+    assert "QQ 聊天记录导入" in text
+    assert "qchatSourcePath" in text
+    assert "qchatPreviewBtn" in text
+    assert "qchatImportBtn" in text
+    assert "renderQchatPreview" in text
+    assert "/api/integrations/qq-chat-history/preview" in text + service
+    assert "/api/integrations/qq-chat-history/import" in text + service
+
+    assert "qchat-source-input" in index
+    assert "qchat-preview-button" in index
+    assert "qchat-import-button" in index
+    assert "runQchatImportAction" in app
+    assert "qchat_preview" in app
+    assert "qchat_import" in app
+
+
 def test_dashboard_exposes_config_cost_warnings():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
     index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")

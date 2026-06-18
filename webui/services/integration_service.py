@@ -17,6 +17,8 @@ SELF_LEARNING_API_ENDPOINTS = [
     "POST /api/integrations/worldbook/preview",
     "POST /api/integrations/worldbook/import",
     "GET /api/integrations/worldbook/imports",
+    "POST /api/integrations/qq-chat-history/preview",
+    "POST /api/integrations/qq-chat-history/import",
     "GET /api/hub/v1/manifest",
     "GET /api/hub/v1/status",
     "POST /api/hub/v1/context",

@@ -2102,24 +2102,29 @@
             margin-top: 14px;
         }
 
-        .worldbook-panel {
+        .worldbook-panel,
+        .qchat-panel {
             margin-top: 14px;
         }
 
-        .worldbook-layout {
+        .worldbook-layout,
+        .qchat-layout {
             display: grid;
             grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
             gap: 14px;
             align-items: start;
         }
 
-        .worldbook-form {
+        .worldbook-form,
+        .qchat-form {
             display: grid;
             gap: 12px;
         }
 
         .worldbook-form textarea,
-        .worldbook-form input[type="text"] {
+        .worldbook-form input[type="text"],
+        .qchat-form input[type="text"],
+        .qchat-form input[type="number"] {
             width: 100%;
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -2139,7 +2144,9 @@
         }
 
         .worldbook-form label,
-        .worldbook-option {
+        .worldbook-option,
+        .qchat-form label,
+        .qchat-option {
             display: grid;
             gap: 6px;
             color: var(--text);
@@ -2148,19 +2155,23 @@
         }
 
         .worldbook-form label span,
-        .worldbook-option span {
+        .worldbook-option span,
+        .qchat-form label span,
+        .qchat-option span {
             color: var(--muted);
             font-size: 12px;
             font-weight: 500;
         }
 
-        .worldbook-options {
+        .worldbook-options,
+        .qchat-options {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
             gap: 10px;
         }
 
-        .worldbook-option {
+        .worldbook-option,
+        .qchat-option {
             grid-template-columns: auto minmax(0, 1fr);
             align-items: start;
             padding: 10px 12px;
@@ -2169,30 +2180,35 @@
             background: var(--panel-soft);
         }
 
-        .worldbook-option input {
+        .worldbook-option input,
+        .qchat-option input {
             width: 18px;
             height: 18px;
             margin: 0;
             accent-color: var(--accent);
         }
 
-        .worldbook-summary {
+        .worldbook-summary,
+        .qchat-summary {
             display: grid;
             gap: 10px;
         }
 
-        .worldbook-summary .stats-row {
+        .worldbook-summary .stats-row,
+        .qchat-summary .stats-row {
             grid-template-columns: repeat(2, minmax(0, 1fr));
         }
 
         .worldbook-samples,
-        .worldbook-history-list {
+        .worldbook-history-list,
+        .qchat-samples {
             display: grid;
             gap: 10px;
         }
 
         .worldbook-sample,
-        .worldbook-history-item {
+        .worldbook-history-item,
+        .qchat-sample {
             padding: 12px;
             border: 1px solid var(--border);
             border-radius: 8px;
@@ -2200,14 +2216,16 @@
         }
 
         .worldbook-sample .title,
-        .worldbook-history-item .title {
+        .worldbook-history-item .title,
+        .qchat-sample .title {
             font-size: 13px;
             font-weight: 700;
             line-height: 1.35;
         }
 
         .worldbook-sample .meta,
-        .worldbook-history-item .meta {
+        .worldbook-history-item .meta,
+        .qchat-sample .meta {
             margin-top: 5px;
             color: var(--muted);
             font-size: 12px;
@@ -2216,7 +2234,8 @@
         }
 
         .worldbook-sample .body,
-        .worldbook-history-item .body {
+        .worldbook-history-item .body,
+        .qchat-sample .body {
             margin-top: 8px;
             color: var(--text);
             font-size: 12px;
@@ -3823,6 +3842,56 @@
                                     <div class="settings-empty">暂无导入历史。</div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel qchat-panel">
+                <div class="panel-head">
+                    <div>
+                        <h2>QQ 聊天记录导入</h2>
+                        <div class="hint">QQChatExporter V5 chunked-jsonl、train_data.json 或常见 TXT/HTML 记录写入原始消息队列。</div>
+                    </div>
+                    <div class="panel-tools">
+                        <button class="action-btn" id="qchatPreviewBtn" type="button" aria-label="预览 QQ 聊天记录导入" title="预览 QQ 聊天记录导入">
+                            <span class="material-icons" style="font-size:16px;">visibility</span>
+                            预览
+                        </button>
+                        <button class="action-btn primary" id="qchatImportBtn" type="button" aria-label="导入 QQ 聊天记录" title="导入 QQ 聊天记录">
+                            <span class="material-icons" style="font-size:16px;">upload_file</span>
+                            导入
+                        </button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="qchat-layout">
+                        <div class="qchat-form">
+                            <label for="qchatSourcePath">
+                                聊天记录路径
+                                <span>支持 QCE 导出目录、chunks/*.jsonl、train_data.json、TXT 或 HTML。</span>
+                            </label>
+                            <input id="qchatSourcePath" type="text" autocomplete="off" placeholder="C:\Users\zacza\Desktop\x\training\group_AstrBot_大学">
+                            <label for="qchatGroupId">
+                                默认群组 ID
+                                <span>留空时优先使用 manifest.json 中的群名称。</span>
+                            </label>
+                            <input id="qchatGroupId" type="text" autocomplete="off" placeholder="AstrBot 大学">
+                            <label for="qchatMaxMessages">
+                                最大导入消息数
+                                <span>用于大文件安全限制，重复消息会自动跳过。</span>
+                            </label>
+                            <input id="qchatMaxMessages" type="number" min="1" step="1" value="100000">
+                            <div class="qchat-options" aria-label="QQ 聊天记录导入选项">
+                                <label class="qchat-option">
+                                    <input id="qchatIncludeTrainingPairs" type="checkbox">
+                                    <span>同时导入 train_data.json 问答对</span>
+                                </label>
+                            </div>
+                            <div id="qchatStatus" class="config-status">等待 QQ 聊天记录路径。</div>
+                        </div>
+                        <div class="qchat-summary">
+                            <div id="qchatPreviewOutput" class="settings-empty">暂无预览。</div>
                         </div>
                     </div>
                 </div>
@@ -7487,6 +7556,15 @@
                 statusEl.className = `config-status${tone ? ` ${tone}` : ''}`;
             }
 
+            function updateQchatStatus(message, tone = '') {
+                const statusEl = $('qchatStatus');
+                if (!statusEl) {
+                    return;
+                }
+                statusEl.textContent = message;
+                statusEl.className = `config-status${tone ? ` ${tone}` : ''}`;
+            }
+
             function worldbookPayloadFromForm() {
                 const input = $('worldbookJsonInput');
                 const rawText = input ? input.value.trim() : '';
@@ -7509,6 +7587,21 @@
                     import_jargons: Boolean($('worldbookImportJargons') && $('worldbookImportJargons').checked),
                     import_knowledge_graph: Boolean($('worldbookImportKnowledgeGraph') && $('worldbookImportKnowledgeGraph').checked),
                     include_disabled: Boolean($('worldbookIncludeDisabled') && $('worldbookIncludeDisabled').checked),
+                };
+            }
+
+            function qchatPayloadFromForm() {
+                const sourcePath = (($('qchatSourcePath') && $('qchatSourcePath').value) || '').trim();
+                if (!sourcePath) {
+                    throw new Error('请先填写 QQ 聊天记录路径');
+                }
+                const maxMessagesRaw = (($('qchatMaxMessages') && $('qchatMaxMessages').value) || '100000').trim();
+                const maxMessages = Math.max(1, parseInt(maxMessagesRaw, 10) || 100000);
+                return {
+                    source_path: sourcePath,
+                    default_group_id: (($('qchatGroupId') && $('qchatGroupId').value) || '').trim(),
+                    max_messages: maxMessages,
+                    include_training_pairs: Boolean($('qchatIncludeTrainingPairs') && $('qchatIncludeTrainingPairs').checked),
                 };
             }
 
@@ -7538,6 +7631,90 @@
                             ${entry && entry.constant ? ' · 常驻' : ''}
                         </div>
                         <div class="body clamp">${escapeHtml((entry && entry.content) || '暂无内容')}</div>
+                    </div>
+                `;
+            }
+
+            function qchatStatRows(data) {
+                const counts = (data && data.counts) || {};
+                return [
+                    ['消息', formatCount(counts.messages || 0)],
+                    ['Bot 消息', formatCount(counts.bot_messages || 0)],
+                    ['发送者', formatCount(counts.unique_senders || 0)],
+                    ['预估 Tokens', formatCount(counts.estimated_tokens || 0)],
+                    ['字符', formatCount(counts.content_chars || 0)],
+                    ['格式', data && data.source_format ? data.source_format : '-'],
+                ];
+            }
+
+            function qchatMessagePreview(message) {
+                const meta = [
+                    message && message.sender_name,
+                    message && message.sender_id,
+                    message && message.timestamp ? formatTime(message.timestamp) : null,
+                ].filter(Boolean).join(' · ');
+                return `
+                    <div class="qchat-sample">
+                        <div class="title">${escapeHtml((message && message.sender_name) || '未知发送者')}</div>
+                        <div class="meta">${escapeHtml(meta || '聊天消息')}</div>
+                        <div class="body clamp">${escapeHtml((message && message.message) || '')}</div>
+                    </div>
+                `;
+            }
+
+            function renderQchatPreview(data) {
+                const outputEl = $('qchatPreviewOutput');
+                if (!outputEl) {
+                    return;
+                }
+                if (!data) {
+                    outputEl.innerHTML = '<div class="settings-empty">暂无预览。</div>';
+                    return;
+                }
+                const samples = safeArray(data.samples && data.samples.messages);
+                const senders = safeArray(data.senders).slice(0, 5);
+                outputEl.innerHTML = `
+                    <div class="qchat-summary">
+                        <div class="stats-row">
+                            ${qchatStatRows(data).map(([label, value]) => `
+                                <div class="small-stat">
+                                    <div class="k">${escapeHtml(label)}</div>
+                                    <div class="v">${escapeHtml(value)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div class="chip"><b>${escapeHtml(data.group_id || (data.chat_info && data.chat_info.name) || 'QQ 聊天记录')}</b></div>
+                        <div class="chip">${escapeHtml(senders.length ? `活跃发送者：${senders.map((item) => item.sender_name || item.sender_id).join('、')}` : '暂无发送者统计')}</div>
+                        <div class="qchat-samples">
+                            ${samples.length ? samples.map((item) => qchatMessagePreview(item)).join('') : '<div class="settings-empty">暂无样例消息。</div>'}
+                        </div>
+                    </div>
+                `;
+            }
+
+            function renderQchatImportResult(result) {
+                const outputEl = $('qchatPreviewOutput');
+                if (!outputEl) {
+                    return;
+                }
+                const rows = [
+                    ['扫描消息', formatCount(result && result.messages_seen)],
+                    ['导入消息', formatCount(result && result.messages_imported)],
+                    ['重复跳过', formatCount(result && result.duplicate_messages)],
+                    ['截断', result && result.truncated ? '是' : '否'],
+                ];
+                const errors = safeArray(result && result.errors);
+                outputEl.innerHTML = `
+                    <div class="qchat-summary">
+                        <div class="stats-row">
+                            ${rows.map(([label, value]) => `
+                                <div class="small-stat">
+                                    <div class="k">${escapeHtml(label)}</div>
+                                    <div class="v">${escapeHtml(value)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                        ${errors.length ? `<div class="config-status error">${escapeHtml(errors.join('；'))}</div>` : '<div class="config-status success">QQ 聊天记录已写入原始消息队列，后续学习任务可消费。</div>'}
                     </div>
                 `;
             }
@@ -7673,6 +7850,40 @@
                 } catch (error) {
                     console.error('导入世界书失败:', error);
                     updateWorldbookStatus(`导入失败: ${error.message}`, 'error');
+                }
+            }
+
+            async function previewQchat() {
+                try {
+                    updateQchatStatus('正在预览 QQ 聊天记录。');
+                    const payload = await postJson('/api/integrations/qq-chat-history/preview', qchatPayloadFromForm());
+                    const data = payload && (payload.data || payload);
+                    renderQchatPreview(data);
+                    updateQchatStatus('预览完成。', 'success');
+                } catch (error) {
+                    console.error('预览 QQ 聊天记录失败:', error);
+                    updateQchatStatus(`预览失败: ${error.message}`, 'error');
+                }
+            }
+
+            async function importQchat() {
+                try {
+                    const body = qchatPayloadFromForm();
+                    const confirmed = await showConfirm('导入 QQ 聊天记录', '确定导入当前聊天记录？将写入原始消息队列，重复消息会跳过。', '确认导入');
+                    if (!confirmed) {
+                        updateQchatStatus('已取消导入。', 'warning');
+                        return;
+                    }
+
+                    updateQchatStatus('正在导入 QQ 聊天记录。');
+                    const payload = await postJson('/api/integrations/qq-chat-history/import', body);
+                    const result = payload && (payload.data || payload);
+                    renderQchatImportResult(result || {});
+                    updateQchatStatus(result && result.success === false ? '导入完成但存在错误。' : '导入完成。', result && result.success === false ? 'warning' : 'success');
+                    loadDashboard();
+                } catch (error) {
+                    console.error('导入 QQ 聊天记录失败:', error);
+                    updateQchatStatus(`导入失败: ${error.message}`, 'error');
                 }
             }
 
@@ -9131,6 +9342,8 @@
                 $('worldbookPreviewBtn').addEventListener('click', previewWorldbook);
                 $('worldbookImportBtn').addEventListener('click', importWorldbook);
                 $('worldbookHistoryReloadBtn').addEventListener('click', loadWorldbookHistory);
+                $('qchatPreviewBtn').addEventListener('click', previewQchat);
+                $('qchatImportBtn').addEventListener('click', importQchat);
                 const pipMirrorSelect = $('pipMirrorSelect');
                 if (pipMirrorSelect) {
                     pipMirrorSelect.value = state.dependencyInstall.mirror;

@@ -421,6 +421,45 @@
             </div>
             <pre class="code-preview" id="maibot-import-output" data-i18n="maibot.waitingPreview">等待预览。</pre>
           </div>
+          <div class="panel qchat-import-panel">
+            <div class="panel-heading">
+              <div>
+                <h3 data-i18n="qchat.title">QQ 聊天记录导入</h3>
+                <p data-i18n="qchat.desc">读取 QQChatExporter V5 chunked-jsonl、train_data.json 或 TXT/HTML 记录，写入原始消息学习队列。</p>
+              </div>
+              <div class="inline-actions">
+                <button class="ghost-button" type="button" id="qchat-preview-button" data-i18n="actions.preview">预览</button>
+                <button class="solid-button" type="button" id="qchat-import-button" data-i18n="actions.import">导入</button>
+              </div>
+            </div>
+            <div class="qchat-import-grid">
+              <label class="config-field">
+                <span>
+                  <strong data-i18n="qchat.path">聊天记录路径</strong>
+                  <small data-i18n="qchat.pathHint">支持 QCE 导出目录、chunks/*.jsonl、train_data.json、TXT 或 HTML。</small>
+                </span>
+                <input id="qchat-source-input" type="text" placeholder="C:\Users\zacza\Desktop\x\training\group_AstrBot_大学">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong data-i18n="qchat.defaultGroup">默认群组</strong>
+                  <small data-i18n="qchat.defaultGroupHint">留空时优先使用 manifest.json 中的群名称。</small>
+                </span>
+                <input id="qchat-default-group-input" type="text" placeholder="AstrBot 大学">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong data-i18n="qchat.maxMessages">最大消息数</strong>
+                  <small data-i18n="qchat.maxMessagesHint">用于大文件安全限制。</small>
+                </span>
+                <input id="qchat-max-messages-input" type="number" min="1" step="1" value="100000">
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label><input id="qchat-include-training" type="checkbox"> <span data-i18n="qchat.includeTraining">同时导入 train_data.json 问答对</span></label>
+            </div>
+            <pre class="code-preview" id="qchat-import-output" data-i18n="qchat.waitingPreview">等待预览。</pre>
+          </div>
           <div class="panel">
             <h3 data-i18n="integrations.settings">融合设置</h3>
             <div class="settings-warning-list" id="integration-warnings"></div>

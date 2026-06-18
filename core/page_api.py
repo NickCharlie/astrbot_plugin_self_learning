@@ -558,22 +558,22 @@ class PluginPageApi:
         try:
             imports = self._imports()
             database_manager = getattr(self._container(), "database_manager", None)
-            importer = imports.MaiBotLearningImporter(database_manager)
-            source_args = {
+            maibot_importer = imports.MaiBotLearningImporter(database_manager)
+            maibot_source_args = {
                 "maibot_root": body.get("maibot_root") or None,
                 "db_path": body.get("db_path") or body.get("maibot_db_path") or None,
                 "memorix_db_path": body.get("memorix_db_path") or None,
                 "payload": body.get("payload") if isinstance(body.get("payload"), dict) else None,
             }
             if action == "maibot_preview":
-                preview = importer.preview(**source_args)
+                preview = maibot_importer.preview(**maibot_source_args)
                 return self._operation(True, "MaiBot 学习数据预览完成", preview=preview)
             if action == "maibot_export":
-                payload = importer.export_json(**source_args)
+                payload = maibot_importer.export_json(**maibot_source_args)
                 return self._operation(True, "MaiBot 学习数据已导出为标准包", payload=payload)
             if action == "maibot_import":
-                result = await importer.import_from_source(
-                    **source_args,
+                result = await maibot_importer.import_from_source(
+                    **maibot_source_args,
                     default_group_id=str(body.get("default_group_id") or "global"),
                     import_expressions=self._body_bool(body, "import_expressions", True),
                     import_jargons=self._body_bool(body, "import_jargons", True),
@@ -585,6 +585,34 @@ class PluginPageApi:
                 return self._operation(
                     bool(result.get("success")),
                     "MaiBot 学习数据导入完成" if result.get("success") else "MaiBot 学习数据导入存在错误",
+                    result=result,
+                )
+            qchat_importer = imports.QQChatHistoryImporter(database_manager)
+            qchat_source_args = {
+                "source_path": body.get("source_path") or body.get("path") or body.get("qq_history_path") or None,
+                "payload": body.get("payload") if isinstance(body.get("payload"), (dict, list, str)) else None,
+                "json_text": body.get("json_text") or None,
+            }
+            if action == "qchat_preview":
+                preview = qchat_importer.preview(
+                    **qchat_source_args,
+                    default_group_id=str(body.get("default_group_id") or body.get("group_id") or ""),
+                    include_training_pairs=self._body_bool(body, "include_training_pairs", False),
+                    max_messages=self._body_int(body, "max_messages", 100000),
+                    min_text_length=self._body_int(body, "min_text_length", 2),
+                )
+                return self._operation(True, "QQ 聊天记录预览完成", preview=preview)
+            if action == "qchat_import":
+                result = await qchat_importer.import_from_source(
+                    **qchat_source_args,
+                    default_group_id=str(body.get("default_group_id") or body.get("group_id") or ""),
+                    include_training_pairs=self._body_bool(body, "include_training_pairs", False),
+                    max_messages=self._body_int(body, "max_messages", 100000),
+                    min_text_length=self._body_int(body, "min_text_length", 2),
+                )
+                return self._operation(
+                    bool(result.get("success")),
+                    "QQ 聊天记录导入完成" if result.get("success") else "QQ 聊天记录导入存在错误",
                     result=result,
                 )
             return self._operation(False, f"未知融合操作: {action or '(empty)'}")
@@ -1649,6 +1677,7 @@ class PluginPageApi:
             from ..webui.services.persona_review_service import PersonaReviewService
             from ..webui.services.persona_service import PersonaService
             from ..services.integration.maibot_learning_importer import MaiBotLearningImporter
+            from ..services.integration.qq_chat_history_importer import QQChatHistoryImporter
         except ImportError:
             from webui.blueprints.config import (
                 DEPENDENCY_TIERS,
@@ -1666,6 +1695,7 @@ class PluginPageApi:
             from webui.services.persona_review_service import PersonaReviewService
             from webui.services.persona_service import PersonaService
             from services.integration.maibot_learning_importer import MaiBotLearningImporter
+            from services.integration.qq_chat_history_importer import QQChatHistoryImporter
 
         imports.get_container = get_container
         imports.ConfigService = ConfigService
@@ -1678,6 +1708,7 @@ class PluginPageApi:
         imports.PersonaReviewService = PersonaReviewService
         imports.PersonaService = PersonaService
         imports.MaiBotLearningImporter = MaiBotLearningImporter
+        imports.QQChatHistoryImporter = QQChatHistoryImporter
         imports.DEPENDENCY_TIERS = DEPENDENCY_TIERS
         imports.MANUAL_DEPENDENCY_INSTALL_SOURCE = MANUAL_DEPENDENCY_INSTALL_SOURCE
         imports.PIP_MIRROR_SOURCES = PIP_MIRROR_SOURCES

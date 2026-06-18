@@ -11,9 +11,11 @@ from ..services.integration_service import IntegrationService
 from ..utils.response import error_response
 try:
     from ...services.integration.maibot_learning_importer import MaiBotLearningImporter
+    from ...services.integration.qq_chat_history_importer import QQChatHistoryImporter
     from ...services.integration.worldbook_importer import WorldBookImporter
 except ImportError:
     from services.integration.maibot_learning_importer import MaiBotLearningImporter
+    from services.integration.qq_chat_history_importer import QQChatHistoryImporter
     from services.integration.worldbook_importer import WorldBookImporter
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/api")
@@ -161,6 +163,48 @@ async def list_worldbook_imports():
         return error_response(f"读取 SillyTavern 世界书导入历史失败: {str(e)}", 500)
 
 
+@integrations_bp.route("/integrations/qq-chat-history/preview", methods=["POST"])
+@require_auth
+async def preview_qq_chat_history():
+    """Preview QQ/QCE chat history before importing it."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        importer = QQChatHistoryImporter()
+        data = importer.preview(
+            **_qq_chat_source_args(body),
+            default_group_id=body.get("default_group_id") or body.get("group_id") or "",
+            include_training_pairs=_body_bool(body, "include_training_pairs", False),
+            max_messages=_query_body_int(body, "max_messages", 100000),
+            min_text_length=_query_body_int(body, "min_text_length", 2),
+        )
+        return jsonify({"success": True, "data": data}), 200
+    except Exception as e:
+        logger.error(f"预览 QQ 聊天记录失败: {e}", exc_info=True)
+        return error_response(f"预览 QQ 聊天记录失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/qq-chat-history/import", methods=["POST"])
+@require_auth
+async def import_qq_chat_history():
+    """Import QQ/QCE chat history into raw message learning data."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        container = get_container()
+        database_manager = getattr(container, "database_manager", None)
+        importer = QQChatHistoryImporter(database_manager)
+        result = await importer.import_from_source(
+            **_qq_chat_source_args(body),
+            default_group_id=body.get("default_group_id") or body.get("group_id") or "",
+            include_training_pairs=_body_bool(body, "include_training_pairs", False),
+            max_messages=_query_body_int(body, "max_messages", 100000),
+            min_text_length=_query_body_int(body, "min_text_length", 2),
+        )
+        return jsonify({"success": bool(result.get("success")), "data": result}), 200
+    except Exception as e:
+        logger.error(f"导入 QQ 聊天记录失败: {e}", exc_info=True)
+        return error_response(f"导入 QQ 聊天记录失败: {str(e)}", 500)
+
+
 def _maibot_source_args(body: dict) -> dict:
     payload = body.get("payload")
     return {
@@ -185,6 +229,15 @@ def _worldbook_source_args(body: dict) -> dict:
     }
 
 
+def _qq_chat_source_args(body: dict) -> dict:
+    payload = body.get("payload")
+    return {
+        "source_path": body.get("source_path") or body.get("path") or body.get("qq_history_path") or None,
+        "payload": payload if isinstance(payload, (dict, list, str)) else None,
+        "json_text": body.get("json_text") or None,
+    }
+
+
 def _body_bool(body: dict, key: str, default: bool) -> bool:
     value = body.get(key, default)
     if isinstance(value, bool):
@@ -192,6 +245,14 @@ def _body_bool(body: dict, key: str, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _query_body_int(body: dict, key: str, default: int) -> int:
+    try:
+        value = int(body.get(key, default))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
 
 
 def _query_int(key: str, default: int) -> int:
