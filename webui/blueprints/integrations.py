@@ -11,8 +11,10 @@ from ..services.integration_service import IntegrationService
 from ..utils.response import error_response
 try:
     from ...services.integration.maibot_learning_importer import MaiBotLearningImporter
+    from ...services.integration.worldbook_importer import WorldBookImporter
 except ImportError:
     from services.integration.maibot_learning_importer import MaiBotLearningImporter
+    from services.integration.worldbook_importer import WorldBookImporter
 
 integrations_bp = Blueprint("integrations", __name__, url_prefix="/api")
 
@@ -102,6 +104,63 @@ async def export_maibot_learning():
         return error_response(f"导出 MaiBot 学习数据失败: {str(e)}", 500)
 
 
+@integrations_bp.route("/integrations/worldbook/preview", methods=["POST"])
+@require_auth
+async def preview_worldbook():
+    """Preview SillyTavern worldbook JSON before importing it."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        importer = WorldBookImporter()
+        return jsonify({
+            "success": True,
+            "data": importer.preview(**_worldbook_source_args(body)),
+        }), 200
+    except Exception as e:
+        logger.error(f"预览 SillyTavern 世界书失败: {e}", exc_info=True)
+        return error_response(f"预览 SillyTavern 世界书失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/worldbook/import", methods=["POST"])
+@require_auth
+async def import_worldbook():
+    """Import SillyTavern worldbook entries into this plugin."""
+    try:
+        body = await request.get_json(silent=True) or {}
+        container = get_container()
+        database_manager = getattr(container, "database_manager", None)
+        importer = WorldBookImporter(database_manager)
+        result = await importer.import_from_source(
+            **_worldbook_source_args(body),
+            default_group_id=body.get("default_group_id") or body.get("group_id") or "global",
+            import_memories=_body_bool(body, "import_memories", True),
+            import_jargons=_body_bool(body, "import_jargons", True),
+            import_knowledge_graph=_body_bool(body, "import_knowledge_graph", True),
+            include_disabled=_body_bool(body, "include_disabled", False),
+        )
+        return jsonify({"success": bool(result.get("success")), "data": result}), 200
+    except Exception as e:
+        logger.error(f"导入 SillyTavern 世界书失败: {e}", exc_info=True)
+        return error_response(f"导入 SillyTavern 世界书失败: {str(e)}", 500)
+
+
+@integrations_bp.route("/integrations/worldbook/imports", methods=["GET"])
+@require_auth
+async def list_worldbook_imports():
+    """List recent worldbook imports derived from review metadata."""
+    try:
+        container = get_container()
+        database_manager = getattr(container, "database_manager", None)
+        importer = WorldBookImporter(database_manager)
+        data = await importer.import_history(
+            limit=_query_int("limit", 20),
+            offset=_query_int("offset", 0),
+        )
+        return jsonify({"success": True, "data": data}), 200
+    except Exception as e:
+        logger.error(f"读取 SillyTavern 世界书导入历史失败: {e}", exc_info=True)
+        return error_response(f"读取 SillyTavern 世界书导入历史失败: {str(e)}", 500)
+
+
 def _maibot_source_args(body: dict) -> dict:
     payload = body.get("payload")
     return {
@@ -112,6 +171,20 @@ def _maibot_source_args(body: dict) -> dict:
     }
 
 
+def _worldbook_source_args(body: dict) -> dict:
+    payload = body.get("payload")
+    if payload is None:
+        payload = body.get("worldbook")
+    return {
+        "payload": payload if isinstance(payload, (dict, list, str)) else None,
+        "json_text": body.get("json_text") or None,
+        # Do not accept server-side paths from WebUI requests.  Callers should
+        # upload/send JSON content instead; direct Python callers may still use
+        # WorldBookImporter.load_package(json_path=...).
+        "json_path": None,
+    }
+
+
 def _body_bool(body: dict, key: str, default: bool) -> bool:
     value = body.get(key, default)
     if isinstance(value, bool):
@@ -119,6 +192,13 @@ def _body_bool(body: dict, key: str, default: bool) -> bool:
     if value is None:
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _query_int(key: str, default: int) -> int:
+    try:
+        return int(request.args.get(key, default))
+    except (TypeError, ValueError):
+        return default
 
 
 def _render_embed_shell(target: dict) -> str:
