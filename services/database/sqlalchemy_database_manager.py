@@ -1194,15 +1194,29 @@ class SQLAlchemyDatabaseManager:
         )
 
     async def get_group_expression_patterns(
-        self, group_id: str, limit: int = None,
+        self,
+        group_id: str,
+        limit: int = None,
+        persona_id: str = "default",
     ) -> List[Dict[str, Any]]:
-        return await self._expression.get_group_expression_patterns(group_id, limit)
+        return await self._expression.get_group_expression_patterns(
+            group_id,
+            limit,
+            persona_id=persona_id,
+        )
 
     async def get_recent_week_expression_patterns(
-        self, group_id: str = None, limit: int = 50, hours: int = 168,
+        self,
+        group_id: str = None,
+        limit: int = 50,
+        hours: int = 168,
+        persona_id: str = "default",
     ) -> List[Dict[str, Any]]:
         return await self._expression.get_recent_week_expression_patterns(
-            group_id, limit, hours,
+            group_id,
+            limit,
+            hours,
+            persona_id=persona_id,
         )
 
     async def load_style_profile(

@@ -388,6 +388,7 @@ class MaiBotLearningImporter:
                     duplicate_stmt = select(ExpressionPattern).where(
                         and_(
                             ExpressionPattern.group_id == group_id,
+                            ExpressionPattern.persona_id == "default",
                             ExpressionPattern.situation == item.situation,
                             ExpressionPattern.expression == item.style,
                         )
@@ -400,6 +401,7 @@ class MaiBotLearningImporter:
                         session.add(
                             ExpressionPattern(
                                 group_id=group_id,
+                                persona_id="default",
                                 situation=item.situation,
                                 expression=item.style,
                                 weight=max(1.0, float(item.count or 1)),

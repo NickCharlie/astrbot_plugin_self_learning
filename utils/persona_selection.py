@@ -97,6 +97,30 @@ def get_persona_identifier(persona: Any, fallback: str = "default") -> str:
     return str(normalized.get("persona_id") or normalized.get("name") or fallback)
 
 
+def normalize_persona_scope(value: Any, fallback: str = "default") -> str:
+    """Return the stable expression-pattern isolation key for a bot/persona."""
+    scope = str(value or "").strip()
+    if not scope or scope == "[%None]":
+        return fallback
+    return scope
+
+
+def get_event_persona_scope(event: Any, config: Any = None) -> str:
+    """Resolve the bot/persona scope for learned expression patterns."""
+    for getter_name in ("get_self_id", "get_bot_id"):
+        getter = getattr(event, getter_name, None)
+        if callable(getter):
+            try:
+                scope = normalize_persona_scope(getter(), fallback="")
+            except Exception:
+                scope = ""
+            if scope:
+                return scope
+
+    configured = get_configured_persona_id(config)
+    return normalize_persona_scope(configured)
+
+
 def _warn(log: Any, message: str) -> None:
     if log and hasattr(log, "warning"):
         log.warning(message)

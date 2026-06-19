@@ -13,6 +13,7 @@ class ExpressionPattern(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(String(255), nullable=False, index=True)
+    persona_id = Column(String(255), nullable=False, default='default', server_default='default', index=True)
     situation = Column(Text, nullable=False)  # 场景描述
     expression = Column(Text, nullable=False)  # 表达方式
     weight = Column(Float, default=1.0, nullable=False)  # 权重
@@ -23,8 +24,8 @@ class ExpressionPattern(Base):
     generation_results = relationship("ExpressionGenerationResult", back_populates="pattern", lazy="selectin")
 
     __table_args__ = (
-        Index('idx_group_weight', 'group_id', 'weight'),
-        Index('idx_group_active', 'group_id', 'last_active_time'),
+        Index('idx_group_persona_weight', 'group_id', 'persona_id', 'weight'),
+        Index('idx_group_persona_active', 'group_id', 'persona_id', 'last_active_time'),
     )
 
     def to_dict(self):
@@ -32,6 +33,7 @@ class ExpressionPattern(Base):
         return {
             'id': self.id,
             'group_id': self.group_id,
+            'persona_id': self.persona_id,
             'situation': self.situation,
             'expression': self.expression,
             'weight': self.weight,

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.engine import make_url
 
@@ -49,6 +49,63 @@ async def test_sqlite_create_tables_creates_all_orm_tables(tmp_path):
 
         assert set(Base.metadata.tables) <= created_tables
         assert db_path.exists()
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_sqlite_auto_migration_adds_expression_persona_id(tmp_path):
+    db_path = tmp_path / "messages.db"
+    engine = DatabaseEngine(f"sqlite:///{db_path.as_posix()}")
+
+    try:
+        async with engine.engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE expression_patterns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        group_id VARCHAR(255) NOT NULL,
+                        situation TEXT NOT NULL,
+                        expression TEXT NOT NULL,
+                        weight FLOAT NOT NULL,
+                        last_active_time FLOAT NOT NULL,
+                        create_time FLOAT NOT NULL
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO expression_patterns (
+                        group_id, situation, expression, weight,
+                        last_active_time, create_time
+                    )
+                    VALUES ('group-a', '打招呼', '旧表达', 1.0, 1.0, 1.0)
+                    """
+                )
+            )
+
+        await engine.create_tables(enable_auto_migration=True)
+
+        async with engine.engine.begin() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    col["name"]
+                    for col in sa_inspect(sync_conn).get_columns(
+                        "expression_patterns"
+                    )
+                }
+            )
+            persona_id = (
+                await conn.execute(
+                    text("SELECT persona_id FROM expression_patterns LIMIT 1")
+                )
+            ).scalar_one()
+
+        assert "persona_id" in columns
+        assert persona_id == "default"
     finally:
         await engine.close()
 

@@ -17,6 +17,10 @@ try:
     from ...config import CACHE_FRIENDLY_LLM_HOOK_TARGET, LEGACY_LLM_HOOK_TARGETS
 except ImportError:
     from config import CACHE_FRIENDLY_LLM_HOOK_TARGET, LEGACY_LLM_HOOK_TARGETS
+try:
+    from ...utils.persona_selection import get_event_persona_scope
+except ImportError:
+    from utils.persona_selection import get_event_persona_scope
 
 try:
     from astrbot.core.agent.message import TextPart
@@ -91,6 +95,7 @@ class LLMHookHandler:
 
             group_id = event.get_group_id() or event.get_sender_id()
             user_id = event.get_sender_id()
+            persona_id = get_event_persona_scope(event, self._config)
 
             # Maintain group_id → unified_msg_origin mapping
             if hasattr(event, "unified_msg_origin") and event.unified_msg_origin:
@@ -124,7 +129,8 @@ class LLMHookHandler:
                 t0 = time.time()
                 try:
                     social_result = await asyncio.wait_for(
-                        self._fetch_social(group_id, user_id), timeout=_ctx_timeout
+                        self._fetch_social(group_id, user_id, persona_id),
+                        timeout=_ctx_timeout,
                     )
                 except asyncio.TimeoutError:
                     logger.warning(f"[LLM Hook] social context timed out ({_ctx_timeout}s)")
@@ -218,7 +224,10 @@ class LLMHookHandler:
 
     @monitored
     async def _fetch_social(
-        self, group_id: str, user_id: str
+        self,
+        group_id: str,
+        user_id: str,
+        persona_id: str = "default",
     ) -> Optional[str]:
         social_enabled = bool(
             getattr(self._config, "enable_social_context_injection", True)
@@ -233,6 +242,7 @@ class LLMHookHandler:
             return await self._social_context_injector.format_complete_context(
                 group_id=group_id,
                 user_id=user_id,
+                persona_id=persona_id,
                 include_social_relations=self._config.include_social_relations,
                 include_affection=self._config.include_affection_info,
                 include_mood=False,

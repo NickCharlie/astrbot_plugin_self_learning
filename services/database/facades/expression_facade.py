@@ -10,6 +10,7 @@ from astrbot.api import logger
 from ._base import BaseFacade
 from sqlalchemy import desc, func, select
 try:
+    from ....utils.persona_selection import normalize_persona_scope
     from ....repositories.style_profile_repository import StyleProfileRepository
     from ....models.orm.expression import (
         ExpressionPattern,
@@ -19,6 +20,7 @@ try:
     )
     from ....repositories.expression_repository import ExpressionPatternRepository
 except ImportError:
+    from utils.persona_selection import normalize_persona_scope
     from repositories.style_profile_repository import StyleProfileRepository
     from models.orm.expression import (
         ExpressionPattern,
@@ -70,7 +72,10 @@ class ExpressionFacade(BaseFacade):
             return {'total_patterns': 0, 'groups_with_patterns': 0}
 
     async def get_group_expression_patterns(
-        self, group_id: str, limit: int = None
+        self,
+        group_id: str,
+        limit: int = None,
+        persona_id: str = "default",
     ) -> List[Dict[str, Any]]:
         """获取指定群组的表达模式"""
         try:
@@ -78,7 +83,9 @@ class ExpressionFacade(BaseFacade):
 
                 repo = ExpressionPatternRepository(session)
                 patterns = await repo.find_many(
-                    group_id=group_id, limit=limit or 100
+                    group_id=group_id,
+                    persona_id=normalize_persona_scope(persona_id),
+                    limit=limit or 100,
                 )
                 return [self._row_to_dict(p) for p in patterns]
         except Exception as e:
@@ -86,15 +93,21 @@ class ExpressionFacade(BaseFacade):
             return []
 
     async def get_recent_week_expression_patterns(
-        self, group_id: str = None, limit: int = 50, hours: int = 168
+        self,
+        group_id: str = None,
+        limit: int = 50,
+        hours: int = 168,
+        persona_id: str = "default",
     ) -> List[Dict[str, Any]]:
         """获取最近指定时间范围的表达模式"""
         try:
             async with self.get_session() as session:
 
                 cutoff = time.time() - (hours * 3600)
+                persona_id = normalize_persona_scope(persona_id)
                 stmt = select(ExpressionPattern).where(
-                    ExpressionPattern.last_active_time >= cutoff
+                    ExpressionPattern.last_active_time >= cutoff,
+                    ExpressionPattern.persona_id == persona_id,
                 )
                 if group_id:
                     stmt = stmt.where(ExpressionPattern.group_id == group_id)

@@ -5,6 +5,7 @@ from typing import Any, AsyncGenerator
 from astrbot.api import logger
 
 from ...statics.messages import CommandMessages, LogMessages
+from ...utils.persona_selection import get_event_persona_scope
 
 
 class PluginCommandHandlers:
@@ -268,10 +269,12 @@ class PluginCommandHandlers:
 
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
+            persona_id = get_event_persona_scope(event, self._config)
             result = await self._remember_service.remember(
                 group_id=group_id,
                 sender_id=sender_id,
                 content=content,
+                persona_id=persona_id,
             )
 
             yield event.plain_result(

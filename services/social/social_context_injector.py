@@ -19,6 +19,10 @@ try:
     from ...utils.cache_manager import TTLCache
 except ImportError:
     from utils.cache_manager import TTLCache
+try:
+    from ...utils.persona_selection import normalize_persona_scope
+except ImportError:
+    from utils.persona_selection import normalize_persona_scope
 
 
 class SocialContextInjector:
@@ -106,6 +110,7 @@ class SocialContextInjector:
         self,
         group_id: str,
         user_id: str,
+        persona_id: str = "default",
         include_social_relations: bool = True,
         include_affection: bool = True,
         include_mood: bool = True,
@@ -122,6 +127,7 @@ class SocialContextInjector:
         Args:
             group_id: 群组ID
             user_id: 用户ID
+            persona_id: Bot/人格隔离ID
             include_social_relations: 是否包含社交关系
             include_affection: 是否包含好感度信息
             include_mood: 是否包含情绪信息
@@ -135,6 +141,7 @@ class SocialContextInjector:
             格式化的完整上下文文本（已保护），如果没有任何信息则返回None
         """
         try:
+            persona_id = normalize_persona_scope(persona_id)
             context_parts = []
 
             # Build a list of independent coroutines (steps 1-5, 7) that can
@@ -161,6 +168,7 @@ class SocialContextInjector:
             async def _fetch_expression() -> Tuple[str, Optional[str]]:
                 result = await self._format_expression_patterns_context(
                     group_id,
+                    persona_id=persona_id,
                     enable_protection=enable_protection
                 )
                 return "expression", result
@@ -452,6 +460,7 @@ class SocialContextInjector:
     async def _format_expression_patterns_context(
         self,
         group_id: str,
+        persona_id: str = "default",
         enable_protection: bool = True,
         enable_global_fallback: bool = True
     ) -> Optional[str]:
@@ -461,6 +470,7 @@ class SocialContextInjector:
 
         Args:
             group_id: 群组ID
+            persona_id: Bot/人格隔离ID
             enable_protection: 是否启用提示词保护
             enable_global_fallback: 是否启用全局回退（当群组无数据时使用全局数据）
 
@@ -468,8 +478,9 @@ class SocialContextInjector:
             格式化的表达模式文本（已保护包装）
         """
         try:
+            persona_id = normalize_persona_scope(persona_id)
             # 尝试从缓存获取
-            cache_key = f"expression_patterns_{group_id}"
+            cache_key = f"expression_patterns_{group_id}_{persona_id}"
             cached = self._get_from_cache(cache_key)
             if cached is not None:
                 return cached
@@ -483,20 +494,25 @@ class SocialContextInjector:
             patterns = await self.database_manager.get_recent_week_expression_patterns(
                 group_id,
                 limit=10,
-                hours=hours
+                hours=hours,
+                persona_id=persona_id,
             )
 
-            source_desc = f"群组 {group_id}"
+            source_desc = f"群组 {group_id} / 人格 {persona_id}"
 
             # 如果当前群组没有表达模式，且启用了全局回退，则获取全局表达模式
             if not patterns and enable_global_fallback:
-                logger.info(f" [表达模式] 群组 {group_id} 无表达模式，尝试使用全局表达模式")
+                logger.info(
+                    f" [表达模式] 群组 {group_id} / 人格 {persona_id} 无表达模式，"
+                    "尝试使用同人格全局表达模式"
+                )
                 patterns = await self.database_manager.get_recent_week_expression_patterns(
                     group_id=None, # None = 全局查询
                     limit=10,
-                    hours=hours
+                    hours=hours,
+                    persona_id=persona_id,
                 )
-                source_desc = "全局所有群组"
+                source_desc = f"全局所有群组 / 人格 {persona_id}"
 
             if not patterns:
                 # 缓存空结果（避免频繁查询空数据）
@@ -638,6 +654,7 @@ class SocialContextInjector:
         group_id: str,
         user_id: str,
         injection_position: str = "end",
+        persona_id: str = "default",
         include_social_relations: bool = True,
         include_affection: bool = True,
         include_mood: bool = True,
@@ -651,6 +668,7 @@ class SocialContextInjector:
             group_id: 群组ID
             user_id: 用户ID
             injection_position: 注入位置，'start' 或 'end'
+            persona_id: Bot/人格隔离ID
             include_social_relations: 是否包含社交关系
             include_affection: 是否包含好感度
             include_mood: 是否包含情绪
@@ -663,6 +681,7 @@ class SocialContextInjector:
             context = await self.format_complete_context(
                 group_id,
                 user_id,
+                persona_id=persona_id,
                 include_social_relations=include_social_relations,
                 include_affection=include_affection,
                 include_mood=include_mood,

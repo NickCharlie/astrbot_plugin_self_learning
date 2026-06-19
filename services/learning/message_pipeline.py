@@ -14,6 +14,7 @@ from .sample_filter import (
     filter_learning_messages,
     should_ignore_learning_sample,
 )
+from ...utils.persona_selection import get_event_persona_scope
 
 
 class MessagePipeline:
@@ -78,6 +79,7 @@ class MessagePipeline:
         message_collected = False
         try:
             event_metadata = extract_learning_event_metadata(event)
+            persona_id = get_event_persona_scope(event, self._config)
             if should_ignore_learning_sample(
                 message_text,
                 sender_id=sender_id,
@@ -157,13 +159,13 @@ class MessagePipeline:
             if self._config.enable_realtime_learning:
                 self._spawn(
                     self._realtime_processor.process_realtime_background(
-                        group_id, message_text, sender_id
+                        group_id, message_text, sender_id, persona_id=persona_id
                     )
                 )
             elif getattr(self._config, "enable_realtime_expression_learning", False):
                 self._spawn(
                     self._realtime_processor.process_expression_learning_background(
-                        group_id, message_text, sender_id
+                        group_id, message_text, sender_id, persona_id=persona_id
                     )
                 )
 

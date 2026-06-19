@@ -9,6 +9,10 @@ from astrbot.api import logger
 
 from .base_repository import BaseRepository
 try:
+    from ..utils.persona_selection import normalize_persona_scope
+except ImportError:
+    from utils.persona_selection import normalize_persona_scope
+try:
     from ..models.orm import ExpressionPattern
 except ImportError:
     from models.orm import ExpressionPattern
@@ -23,7 +27,8 @@ class ExpressionPatternRepository(BaseRepository[ExpressionPattern]):
     async def get_patterns_by_group(
         self,
         group_id: str,
-        limit: int = 10
+        limit: int = 10,
+        persona_id: str = "default",
     ) -> List[ExpressionPattern]:
         """
         获取指定群组的表达模式
@@ -36,8 +41,10 @@ class ExpressionPatternRepository(BaseRepository[ExpressionPattern]):
             List[ExpressionPattern]: 表达模式列表（按权重降序）
         """
         try:
+            persona_id = normalize_persona_scope(persona_id)
             stmt = select(ExpressionPattern).where(
-                ExpressionPattern.group_id == group_id
+                ExpressionPattern.group_id == group_id,
+                ExpressionPattern.persona_id == persona_id,
             ).order_by(
                 desc(ExpressionPattern.weight)
             ).limit(limit)

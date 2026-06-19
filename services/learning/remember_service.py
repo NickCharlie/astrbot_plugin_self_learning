@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
+from ...utils.persona_selection import normalize_persona_scope
 from .sample_filter import should_ignore_learning_sample
 
 
@@ -57,6 +58,7 @@ class RememberService:
         group_id: str,
         sender_id: str,
         content: str,
+        persona_id: str = "default",
     ) -> RememberResult:
         """Store a remembered snippet and link it to style-learning stores."""
         content = self._clean_command_payload(content)
@@ -68,6 +70,7 @@ class RememberService:
             expression = situation
 
         self._validate_sample(situation, expression)
+        persona_id = normalize_persona_scope(persona_id)
 
         result = RememberResult()
         result.memory_id = await self._db.save_manual_memory(
@@ -81,6 +84,7 @@ class RememberService:
             expression_saved = await self._save_expression_pattern(
                 session,
                 group_id=group_id,
+                persona_id=persona_id,
                 situation=situation,
                 expression=expression,
             )
@@ -134,14 +138,17 @@ class RememberService:
         session: Any,
         *,
         group_id: str,
+        persona_id: str = "default",
         situation: str,
         expression: str,
     ) -> bool:
         from ...models.orm.expression import ExpressionPattern
 
         now = time.time()
+        persona_id = normalize_persona_scope(persona_id)
         record = ExpressionPattern(
             group_id=group_id,
+            persona_id=persona_id,
             situation=situation[:300],
             expression=expression[:500],
             weight=2.0,

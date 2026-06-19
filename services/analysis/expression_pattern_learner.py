@@ -16,6 +16,7 @@ from ...core.framework_llm_adapter import FrameworkLLMAdapter
 from ...config import PluginConfig
 from ...exceptions import ExpressionLearningError, ModelAccessError
 from ...utils.json_utils import safe_parse_llm_json
+from ...utils.persona_selection import normalize_persona_scope
 from ..database import DatabaseManager
 
 
@@ -28,6 +29,7 @@ class ExpressionPattern:
     last_active_time: float # 最后活跃时间
     create_time: float # 创建时间
     group_id: str # 所属群组ID
+    persona_id: str = "default" # 所属 Bot/人格隔离ID
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -83,7 +85,7 @@ class ExpressionPatternLearner:
         
         self._status = ServiceLifecycle.CREATED
         
-        # 维护每个群组的上次学习时间
+        # 维护每个群组/人格隔离 scope 的上次学习时间
         self.last_learning_times: Dict[str, float] = {}
 
         # 数据库表初始化标志（将在 start() 中异步初始化）
@@ -141,7 +143,12 @@ class ExpressionPatternLearner:
 
         return True
     
-    async def trigger_learning_for_group(self, group_id: str, recent_messages: List[MessageData]) -> bool:
+    async def trigger_learning_for_group(
+        self,
+        group_id: str,
+        recent_messages: List[MessageData],
+        persona_id: str = "default",
+    ) -> bool:
         """
         为指定群组触发表达模式学习
         
@@ -156,23 +163,36 @@ class ExpressionPatternLearner:
             return False
         
         try:
-            logger.info(f"为群组 {group_id} 触发表达模式学习，消息数量: {len(recent_messages)}")
+            persona_id = normalize_persona_scope(persona_id)
+            learning_scope = f"{group_id}:{persona_id}"
+            logger.info(
+                f"为群组 {group_id} / 人格 {persona_id} 触发表达模式学习，"
+                f"消息数量: {len(recent_messages)}"
+            )
             
             # 学习表达模式
-            learned_patterns = await self.learn_expression_patterns(recent_messages, group_id)
+            learned_patterns = await self.learn_expression_patterns(
+                recent_messages,
+                group_id,
+                persona_id=persona_id,
+            )
             
             if learned_patterns:
                 # 保存到数据库
-                await self._save_expression_patterns(learned_patterns, group_id)
+                await self._save_expression_patterns(
+                    learned_patterns,
+                    group_id,
+                    persona_id=persona_id,
+                )
                 
                 # 应用时间衰减
-                await self._apply_time_decay(group_id)
+                await self._apply_time_decay(group_id, persona_id=persona_id)
                 
                 # 限制最大数量
-                await self._limit_max_expressions(group_id)
+                await self._limit_max_expressions(group_id, persona_id=persona_id)
                 
                 # 更新学习时间
-                self.last_learning_times[group_id] = time.time()
+                self.last_learning_times[learning_scope] = time.time()
                 
                 logger.info(f"群组 {group_id} 表达模式学习完成，学到 {len(learned_patterns)} 个新模式")
                 return True
@@ -184,7 +204,12 @@ class ExpressionPatternLearner:
             logger.error(f"群组 {group_id} 表达模式学习失败: {e}")
             return False
     
-    async def learn_expression_patterns(self, messages: List[MessageData], group_id: str) -> List[ExpressionPattern]:
+    async def learn_expression_patterns(
+        self,
+        messages: List[MessageData],
+        group_id: str,
+        persona_id: str = "default",
+    ) -> List[ExpressionPattern]:
         """
         学习表达模式 - 从原始消息中直接提取 A/B 对话对（不调用LLM）
 
@@ -197,7 +222,11 @@ class ExpressionPatternLearner:
         """
         try:
             # 直接从消息中提取对话对作为 few-shot 样本（不调用LLM）
-            patterns = self._extract_few_shot_pairs(messages, group_id)
+            patterns = self._extract_few_shot_pairs(
+                messages,
+                group_id,
+                persona_id=persona_id,
+            )
 
             if patterns:
                 logger.info(f"从消息中提取到 {len(patterns)} 个 few-shot 对话对 (group: {group_id})")
@@ -210,13 +239,19 @@ class ExpressionPatternLearner:
             logger.error(f"学习表达模式失败: {e}")
             raise ExpressionLearningError(f"表达模式学习失败: {e}")
 
-    def _extract_few_shot_pairs(self, messages: List[MessageData], group_id: str) -> List[ExpressionPattern]:
+    def _extract_few_shot_pairs(
+        self,
+        messages: List[MessageData],
+        group_id: str,
+        persona_id: str = "default",
+    ) -> List[ExpressionPattern]:
         """
         从原始消息中提取用户-bot 对话对作为 few-shot 样本。
         寻找「用户发言 → bot回复」的连续对，直接作为 situation/expression 保存。
         """
         pairs = []
         current_time = time.time()
+        persona_id = normalize_persona_scope(persona_id)
 
         for i in range(len(messages) - 1):
             msg = messages[i]
@@ -252,7 +287,8 @@ class ExpressionPatternLearner:
                     weight=1.0,
                     last_active_time=current_time,
                     create_time=current_time,
-                    group_id=group_id
+                    group_id=group_id,
+                    persona_id=persona_id,
                 ))
 
         return pairs
@@ -283,19 +319,30 @@ class ExpressionPatternLearner:
     # def _generate_fallback_expression_patterns(self, messages): ...
     # def _parse_expression_response(self, response, group_id): ...
     
-    async def _save_expression_patterns(self, patterns: List[ExpressionPattern], group_id: str):
+    async def _save_expression_patterns(
+        self,
+        patterns: List[ExpressionPattern],
+        group_id: str,
+        persona_id: str = "default",
+    ):
         """保存表达模式到数据库（ORM 版本）"""
         try:
             from sqlalchemy import desc, select
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
+            persona_id = normalize_persona_scope(persona_id)
 
             async with self.db_manager.get_session() as session:
                 for pattern in patterns:
+                    pattern_persona_id = normalize_persona_scope(
+                        getattr(pattern, "persona_id", None),
+                        fallback=persona_id,
+                    )
                     # 查找是否已存在相似模式
                     stmt = select(ExpressionPatternORM).where(
                         ExpressionPatternORM.situation == pattern.situation,
                         ExpressionPatternORM.expression == pattern.expression,
                         ExpressionPatternORM.group_id == group_id,
+                        ExpressionPatternORM.persona_id == pattern_persona_id,
                     ).order_by(
                         desc(ExpressionPatternORM.weight),
                         desc(ExpressionPatternORM.last_active_time),
@@ -308,7 +355,8 @@ class ExpressionPatternLearner:
                         logger.warning(
                             "发现重复表达模式记录，已复用权重最高记录: "
                             f"group_id={group_id}, situation={pattern.situation!r}, "
-                            f"expression={pattern.expression!r}, count={len(matches)}"
+                            f"expression={pattern.expression!r}, "
+                            f"persona_id={pattern_persona_id}, count={len(matches)}"
                         )
 
                     if existing:
@@ -327,6 +375,7 @@ class ExpressionPatternLearner:
                             last_active_time=pattern.last_active_time,
                             create_time=pattern.create_time,
                             group_id=pattern.group_id,
+                            persona_id=pattern_persona_id,
                         )
                         session.add(new_record)
 
@@ -337,11 +386,12 @@ class ExpressionPatternLearner:
             logger.error(f"保存表达模式失败: {e}", exc_info=True)
             raise ExpressionLearningError(f"保存表达模式失败: {e}")
     
-    async def _apply_time_decay(self, group_id: str):
+    async def _apply_time_decay(self, group_id: str, persona_id: str = "default"):
         """应用时间衰减 - 完全参考MaiBot的衰减机制（ORM 版本）"""
         try:
             from sqlalchemy import select, delete
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
+            persona_id = normalize_persona_scope(persona_id)
 
             current_time = time.time()
             updated_count = 0
@@ -350,7 +400,8 @@ class ExpressionPatternLearner:
             async with self.db_manager.get_session() as session:
                 # 获取所有该群组的表达模式
                 stmt = select(ExpressionPatternORM).where(
-                    ExpressionPatternORM.group_id == group_id
+                    ExpressionPatternORM.group_id == group_id,
+                    ExpressionPatternORM.persona_id == persona_id,
                 )
                 result = await session.execute(stmt)
                 patterns = result.scalars().all()
@@ -406,16 +457,18 @@ class ExpressionPatternLearner:
         
         return min(0.01, decay)
     
-    async def _limit_max_expressions(self, group_id: str):
+    async def _limit_max_expressions(self, group_id: str, persona_id: str = "default"):
         """限制最大表达模式数量（ORM 版本）"""
         try:
             from sqlalchemy import select, func, delete, asc
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
+            persona_id = normalize_persona_scope(persona_id)
 
             async with self.db_manager.get_session() as session:
                 # 统计当前数量
                 count_stmt = select(func.count()).select_from(ExpressionPatternORM).where(
-                    ExpressionPatternORM.group_id == group_id
+                    ExpressionPatternORM.group_id == group_id,
+                    ExpressionPatternORM.persona_id == persona_id,
                 )
                 count = (await session.execute(count_stmt)).scalar() or 0
 
@@ -425,7 +478,10 @@ class ExpressionPatternLearner:
                     # 查询权重最小的 ID
                     ids_stmt = (
                         select(ExpressionPatternORM.id)
-                        .where(ExpressionPatternORM.group_id == group_id)
+                        .where(
+                            ExpressionPatternORM.group_id == group_id,
+                            ExpressionPatternORM.persona_id == persona_id,
+                        )
                         .order_by(asc(ExpressionPatternORM.weight))
                         .limit(excess_count)
                     )
@@ -444,16 +500,25 @@ class ExpressionPatternLearner:
         except Exception as e:
             logger.error(f"限制表达模式数量失败: {e}", exc_info=True)
     
-    async def get_expression_patterns(self, group_id: str, limit: int = 10) -> List[ExpressionPattern]:
+    async def get_expression_patterns(
+        self,
+        group_id: str,
+        limit: int = 10,
+        persona_id: str = "default",
+    ) -> List[ExpressionPattern]:
         """获取群组的表达模式（ORM 版本）"""
         try:
             from sqlalchemy import select, desc
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
+            persona_id = normalize_persona_scope(persona_id)
 
             async with self.db_manager.get_session() as session:
                 stmt = (
                     select(ExpressionPatternORM)
-                    .where(ExpressionPatternORM.group_id == group_id)
+                    .where(
+                        ExpressionPatternORM.group_id == group_id,
+                        ExpressionPatternORM.persona_id == persona_id,
+                    )
                     .order_by(desc(ExpressionPatternORM.weight))
                     .limit(limit)
                 )
@@ -468,6 +533,7 @@ class ExpressionPatternLearner:
                         last_active_time=row.last_active_time,
                         create_time=row.create_time,
                         group_id=row.group_id,
+                        persona_id=row.persona_id,
                     )
                     for row in rows
                 ]
@@ -476,14 +542,23 @@ class ExpressionPatternLearner:
             logger.error(f"获取表达模式失败: {e}", exc_info=True)
             return []
     
-    async def format_expression_patterns_for_prompt(self, group_id: str, limit: int = 5) -> str:
+    async def format_expression_patterns_for_prompt(
+        self,
+        group_id: str,
+        limit: int = 5,
+        persona_id: str = "default",
+    ) -> str:
         """
         格式化表达模式用于prompt
         
         Returns:
             格式化的表达模式字符串，用于插入到对话prompt中
         """
-        patterns = await self.get_expression_patterns(group_id, limit)
+        patterns = await self.get_expression_patterns(
+            group_id,
+            limit,
+            persona_id=persona_id,
+        )
         
         if not patterns:
             return ""

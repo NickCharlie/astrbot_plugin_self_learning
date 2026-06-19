@@ -15,6 +15,7 @@ from ...statics.messages import StatusMessages
 from ..monitoring.instrumentation import monitored
 from .dialog_analyzer import DialogAnalyzer
 from .sample_filter import should_ignore_learning_sample
+from ...utils.persona_selection import normalize_persona_scope
 
 
 class RealtimeProcessor:
@@ -69,11 +70,20 @@ class RealtimeProcessor:
 
     @monitored
     async def process_realtime_background(
-        self, group_id: str, message_text: str, sender_id: str
+        self,
+        group_id: str,
+        message_text: str,
+        sender_id: str,
+        persona_id: str = "default",
     ) -> None:
         """Background wrapper — fully async, never blocks the main flow."""
         try:
-            await self.process_message_realtime(group_id, message_text, sender_id)
+            await self.process_message_realtime(
+                group_id,
+                message_text,
+                sender_id,
+                persona_id=persona_id,
+            )
         except Exception as e:
             logger.error(
                 f"实时学习后台处理失败 (group={group_id}): {e}", exc_info=True
@@ -81,11 +91,20 @@ class RealtimeProcessor:
 
     @monitored
     async def process_expression_learning_background(
-        self, group_id: str, message_text: str, sender_id: str
+        self,
+        group_id: str,
+        message_text: str,
+        sender_id: str,
+        persona_id: str = "default",
     ) -> None:
         """Run expression-style learning without enabling realtime filtering."""
         try:
-            await self.process_expression_learning(group_id, message_text, sender_id)
+            await self.process_expression_learning(
+                group_id,
+                message_text,
+                sender_id,
+                persona_id=persona_id,
+            )
         except Exception as e:
             logger.error(
                 f"表达风格学习后台处理失败 (group={group_id}): {e}",
@@ -94,7 +113,11 @@ class RealtimeProcessor:
 
     @monitored
     async def process_expression_learning(
-        self, group_id: str, message_text: str, sender_id: str
+        self,
+        group_id: str,
+        message_text: str,
+        sender_id: str,
+        persona_id: str = "default",
     ) -> None:
         """Process a single message for expression-style learning only."""
         if self._should_skip_message(message_text):
@@ -102,12 +125,19 @@ class RealtimeProcessor:
         if not self._config.enable_expression_patterns:
             return
         await self._process_expression_style_learning(
-            group_id, message_text, sender_id
+            group_id,
+            message_text,
+            sender_id,
+            persona_id=persona_id,
         )
 
     @monitored
     async def process_message_realtime(
-        self, group_id: str, message_text: str, sender_id: str
+        self,
+        group_id: str,
+        message_text: str,
+        sender_id: str,
+        persona_id: str = "default",
     ) -> None:
         """Process a single message in realtime — filter + expression learning."""
         try:
@@ -118,7 +148,10 @@ class RealtimeProcessor:
             # Expression-style learning (bypasses filtering)
             if self._config.enable_expression_patterns:
                 await self._process_expression_style_learning(
-                    group_id, message_text, sender_id
+                    group_id,
+                    message_text,
+                    sender_id,
+                    persona_id=persona_id,
                 )
 
             # Batch mode: skip realtime LLM filtering completely when disabled.
@@ -168,10 +201,16 @@ class RealtimeProcessor:
 
     @monitored
     async def _process_expression_style_learning(
-        self, group_id: str, message_text: str, sender_id: str
+        self,
+        group_id: str,
+        message_text: str,
+        sender_id: str,
+        persona_id: str = "default",
     ) -> None:
         """Learn expression styles directly from raw messages."""
         try:
+            persona_id = normalize_persona_scope(persona_id)
+            trigger_scope = f"{group_id}:{persona_id}"
             now = time.time()
             min_interval = max(
                 0,
@@ -184,11 +223,13 @@ class RealtimeProcessor:
                     or 0
                 ),
             )
-            last_learning_time = self._last_expression_learning_times.get(group_id, 0)
+            last_learning_time = self._last_expression_learning_times.get(
+                trigger_scope, 0
+            )
             if min_interval and last_learning_time and now - last_learning_time < min_interval:
                 remaining = int(min_interval - (now - last_learning_time))
                 logger.debug(
-                    f"群组 {group_id} 表达风格学习处于冷却中，"
+                    f"群组 {group_id} / 人格 {persona_id} 表达风格学习处于冷却中，"
                     f"剩余约 {remaining} 秒"
                 )
                 return
@@ -206,18 +247,19 @@ class RealtimeProcessor:
                 1,
                 int(getattr(self._config, "expression_learning_trigger_messages", 10) or 10),
             )
-            last_trigger = self._last_expression_trigger_counts.get(group_id, 0)
+            last_trigger = self._last_expression_trigger_counts.get(trigger_scope, 0)
             if raw_message_count - last_trigger < trigger_messages:
                 logger.debug(
-                    f"群组 {group_id} 表达风格学习未达触发增量，"
+                    f"群组 {group_id} / 人格 {persona_id} 表达风格学习未达触发增量，"
                     f"当前：{raw_message_count}，上次：{last_trigger}，阈值：{trigger_messages}"
                 )
                 return
-            self._last_expression_trigger_counts[group_id] = raw_message_count
-            self._last_expression_learning_times[group_id] = now
+            self._last_expression_trigger_counts[trigger_scope] = raw_message_count
+            self._last_expression_learning_times[trigger_scope] = now
 
             logger.info(
-                f"群组 {group_id} 开始表达风格学习，当前消息数：{raw_message_count}"
+                f"群组 {group_id} / 人格 {persona_id} 开始表达风格学习，"
+                f"当前消息数：{raw_message_count}"
             )
 
             recent_raw_messages = await self._db_manager.get_recent_raw_messages(
@@ -266,7 +308,9 @@ class RealtimeProcessor:
                 return
 
             learning_success = await expression_learner.trigger_learning_for_group(
-                group_id, message_data_list
+                group_id,
+                message_data_list,
+                persona_id=persona_id,
             )
             if not learning_success:
                 logger.debug(f"群组 {group_id} 表达风格学习未产生有效结果")
@@ -276,7 +320,9 @@ class RealtimeProcessor:
 
             try:
                 learned_patterns = await expression_learner.get_expression_patterns(
-                    group_id, limit=5
+                    group_id,
+                    limit=5,
+                    persona_id=persona_id,
                 )
                 if learned_patterns:
                     few_shots_content = (

@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
+from ...utils.persona_selection import normalize_persona_scope
 from .sample_filter import filter_learning_messages, should_ignore_learning_sample
 
 
@@ -27,10 +28,12 @@ class ExpressionLearningModule:
         style_analysis: Any,
         messages: List[Dict[str, Any]],
         quality_metrics: Any = None,
+        persona_id: str = "default",
     ) -> None:
         """Save expression learning output and create a style review record."""
         try:
             messages = filter_learning_messages(messages or [])
+            persona_id = normalize_persona_scope(persona_id)
 
             if style_analysis and hasattr(style_analysis, "data"):
                 style_analysis_dict = style_analysis.data
@@ -59,7 +62,11 @@ class ExpressionLearningModule:
                     logger.debug(f"提取 fewshot 对话对失败: {pair_err}")
 
             if expression_patterns:
-                await self.save_expression_patterns(group_id, expression_patterns)
+                await self.save_expression_patterns(
+                    group_id,
+                    expression_patterns,
+                    persona_id=persona_id,
+                )
 
             few_shots_content = ""
             if expression_patterns:
@@ -263,12 +270,16 @@ class ExpressionLearningModule:
         return pairs
 
     async def save_expression_patterns(
-        self, group_id: str, patterns: List[Dict[str, Any]]
+        self,
+        group_id: str,
+        patterns: List[Dict[str, Any]],
+        persona_id: str = "default",
     ) -> None:
         """Save expression patterns to the expression_patterns table."""
         try:
             if not patterns:
                 return
+            persona_id = normalize_persona_scope(persona_id)
 
             async with self.db_manager.get_session() as session:
                 from ...models.orm.expression import ExpressionPattern
@@ -286,6 +297,10 @@ class ExpressionLearningModule:
                     objects.append(
                         ExpressionPattern(
                             group_id=group_id,
+                            persona_id=normalize_persona_scope(
+                                pattern.get("persona_id"),
+                                fallback=persona_id,
+                            ),
                             situation=situation,
                             expression=expression,
                             weight=float(pattern.get("weight", 1.0)),

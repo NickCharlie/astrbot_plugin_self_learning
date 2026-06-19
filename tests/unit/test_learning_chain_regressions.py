@@ -51,6 +51,9 @@ from self_learning_EterU.services.learning.sample_filter import (
     filter_learning_messages,
     should_ignore_learning_sample,
 )
+from self_learning_EterU.services.social.social_context_injector import (
+    SocialContextInjector,
+)
 from self_learning_EterU.services.persona.temporary_persona_updater import (
     TemporaryPersonaUpdater,
 )
@@ -431,6 +434,7 @@ async def test_remember_command_delegates_to_service():
         get_message_str=lambda: "/remember 打招呼 => 我来了",
         get_group_id=lambda: "group-a",
         get_sender_id=lambda: "user-a",
+        get_self_id=lambda: "bot-a",
         plain_result=lambda text: text,
     )
 
@@ -440,6 +444,7 @@ async def test_remember_command_delegates_to_service():
         group_id="group-a",
         sender_id="user-a",
         content="打招呼 => 我来了",
+        persona_id="bot-a",
     )
     assert "已记住这段对话上下文" in results[0]
 
@@ -472,6 +477,7 @@ async def test_remember_command_uses_quoted_context_when_present():
         get_message_str=lambda: "/remember 我来了",
         get_group_id=lambda: "group-a",
         get_sender_id=lambda: "user-a",
+        get_self_id=lambda: "bot-a",
         get_message=lambda: [
             SimpleNamespace(type="Reply", text="用户说你好"),
             SimpleNamespace(type="Plain", text="/remember 我来了"),
@@ -485,6 +491,7 @@ async def test_remember_command_uses_quoted_context_when_present():
         group_id="group-a",
         sender_id="user-a",
         content="用户说你好 => 我来了",
+        persona_id="bot-a",
     )
     assert "已记住这段对话上下文" in results[0]
 
@@ -664,6 +671,7 @@ async def test_message_pipeline_skips_expression_learning_without_realtime_mode_
     event = SimpleNamespace(
         get_sender_name=lambda: "User A",
         get_platform_name=lambda: "test",
+        get_self_id=lambda: "bot-a",
     )
 
     await pipeline.process_learning("group-a", "user-a", "这是表达学习消息", event)
@@ -718,6 +726,7 @@ async def test_message_pipeline_can_run_expression_learning_when_explicitly_enab
     event = SimpleNamespace(
         get_sender_name=lambda: "User A",
         get_platform_name=lambda: "test",
+        get_self_id=lambda: "bot-a",
     )
 
     await pipeline.process_learning("group-a", "user-a", "这是表达学习消息", event)
@@ -727,6 +736,7 @@ async def test_message_pipeline_can_run_expression_learning_when_explicitly_enab
         "group-a",
         "这是表达学习消息",
         "user-a",
+        persona_id="bot-a",
     )
     realtime_processor.process_realtime_background.assert_not_called()
 
@@ -806,8 +816,13 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
     async def noop(*args, **kwargs):
         return None
 
-    async def expression_background(group_id, message_text, sender_id):
-        expression_calls.append((group_id, message_text, sender_id))
+    async def expression_background(
+        group_id,
+        message_text,
+        sender_id,
+        persona_id="default",
+    ):
+        expression_calls.append((group_id, message_text, sender_id, persona_id))
 
     class Event:
         def get_sender_name(self):
@@ -815,6 +830,9 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
 
         def get_platform_name(self):
             return "test"
+
+        def get_self_id(self):
+            return "bot-a"
 
     try:
         assert await db.start() is True
@@ -872,6 +890,7 @@ async def test_message_pipeline_collects_to_database_and_triggers_learning_paths
         assert stats["raw_messages"] == 10
         assert len(recent) == 10
         assert len(expression_calls) == 10
+        assert {call[3] for call in expression_calls} == {"bot-a"}
         assert pipeline._last_jargon_trigger_counts["group-a"] == 10
     finally:
         if spawned:
@@ -960,6 +979,166 @@ async def test_expression_pattern_save_handles_duplicate_existing_rows(tmp_path)
         strongest_after = max(rows, key=lambda row: row.weight)
         assert strongest_after.id == strongest_before_id
         assert strongest_after.weight == 4.0
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_patterns_are_isolated_by_persona_id(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+
+        await learner._save_expression_patterns(
+            [
+                ExpressionPattern(
+                    situation="打招呼",
+                    expression="我是A的说法",
+                    weight=1.0,
+                    last_active_time=30.0,
+                    create_time=30.0,
+                    group_id="group-a",
+                    persona_id="bot-a",
+                ),
+                ExpressionPattern(
+                    situation="打招呼",
+                    expression="我是B的说法",
+                    weight=1.0,
+                    last_active_time=30.0,
+                    create_time=30.0,
+                    group_id="group-a",
+                    persona_id="bot-b",
+                ),
+            ],
+            "group-a",
+        )
+
+        bot_a_patterns = await learner.get_expression_patterns(
+            "group-a",
+            persona_id="bot-a",
+        )
+        bot_b_patterns = await learner.get_expression_patterns(
+            "group-a",
+            persona_id="bot-b",
+        )
+
+        assert [pattern.expression for pattern in bot_a_patterns] == ["我是A的说法"]
+        assert [pattern.expression for pattern in bot_b_patterns] == ["我是B的说法"]
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_social_context_expression_fallback_keeps_persona_scope():
+    calls = []
+
+    class _DB:
+        async def get_recent_week_expression_patterns(
+            self,
+            group_id=None,
+            limit=50,
+            hours=168,
+            persona_id="default",
+        ):
+            calls.append(
+                {
+                    "group_id": group_id,
+                    "limit": limit,
+                    "hours": hours,
+                    "persona_id": persona_id,
+                }
+            )
+            if group_id is None and persona_id == "bot-a":
+                return [
+                    {
+                        "situation": "打招呼",
+                        "expression": "我是A的说法",
+                    }
+                ]
+            return []
+
+    injector = SocialContextInjector(
+        database_manager=_DB(),
+        config=SimpleNamespace(expression_patterns_hours=24),
+    )
+
+    text = await injector._format_expression_patterns_context(
+        "group-a",
+        persona_id="bot-a",
+        enable_protection=False,
+    )
+
+    assert "我是A的说法" in text
+    assert calls == [
+        {
+            "group_id": "group-a",
+            "limit": 10,
+            "hours": 24,
+            "persona_id": "bot-a",
+        },
+        {
+            "group_id": None,
+            "limit": 10,
+            "hours": 24,
+            "persona_id": "bot-a",
+        },
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_facade_keeps_grouped_shape_with_persona_rows(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    ExpressionPatternORM(
+                        situation="打招呼",
+                        expression="我是A的说法",
+                        weight=1.0,
+                        last_active_time=30.0,
+                        create_time=30.0,
+                        group_id="group-a",
+                        persona_id="bot-a",
+                    ),
+                    ExpressionPatternORM(
+                        situation="打招呼",
+                        expression="我是B的说法",
+                        weight=1.0,
+                        last_active_time=30.0,
+                        create_time=30.0,
+                        group_id="group-a",
+                        persona_id="bot-b",
+                    ),
+                ]
+            )
+            await session.commit()
+
+        grouped = await db.get_all_expression_patterns()
+
+        assert set(grouped) == {"group-a"}
+        assert {row["persona_id"] for row in grouped["group-a"]} == {
+            "bot-a",
+            "bot-b",
+        }
     finally:
         await db.stop()
 
@@ -1122,9 +1301,11 @@ async def test_realtime_expression_learning_is_batch_gated():
             "group-a",
             "这是用于表达学习频控的消息",
             "user-a",
+            persona_id="bot-a",
         )
 
     assert learner.trigger_learning_for_group.await_count == 2
+    assert learner.trigger_learning_for_group.await_args.kwargs["persona_id"] == "bot-a"
 
 
 @pytest.mark.unit
@@ -1186,6 +1367,73 @@ async def test_realtime_expression_learning_respects_min_interval():
 
     assert learner.trigger_learning_for_group.await_count == 1
     assert collector.get_statistics.await_count == 1
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_realtime_expression_learning_cooldown_is_persona_scoped():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=True,
+        expression_learning_trigger_messages=1,
+        expression_learning_min_interval_seconds=3600,
+    )
+    collector = SimpleNamespace(
+        get_statistics=AsyncMock(return_value={"raw_messages": 10})
+    )
+    learner = SimpleNamespace(trigger_learning_for_group=AsyncMock(return_value=False))
+    factory_manager = SimpleNamespace(
+        get_component_factory=lambda: SimpleNamespace(
+            create_expression_pattern_learner=lambda: learner
+        )
+    )
+    db_manager = SimpleNamespace(
+        get_recent_raw_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": idx,
+                    "sender_id": f"user-{idx}",
+                    "sender_name": f"User {idx}",
+                    "message": f"这是第{idx}条足够长的表达学习消息",
+                    "timestamp": time.time(),
+                    "platform": "test",
+                }
+                for idx in range(1, 6)
+            ]
+        )
+    )
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        dialog_analyzer=SimpleNamespace(),
+        learning_stats=SimpleNamespace(style_updates=0),
+        factory_manager=factory_manager,
+        db_manager=db_manager,
+    )
+
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-a",
+        persona_id="bot-a",
+    )
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-a",
+        persona_id="bot-b",
+    )
+
+    assert learner.trigger_learning_for_group.await_count == 2
+    persona_ids = [
+        call.kwargs["persona_id"]
+        for call in learner.trigger_learning_for_group.await_args_list
+    ]
+    assert persona_ids == ["bot-a", "bot-b"]
 
 
 @pytest.mark.unit
@@ -1256,8 +1504,13 @@ async def test_realtime_expression_learning_creates_review_without_persona_write
         "group-a",
         "这是用于表达学习审查的消息",
         "user-a",
+        persona_id="bot-a",
     )
 
+    learner.trigger_learning_for_group.assert_awaited_once()
+    assert learner.trigger_learning_for_group.await_args.kwargs["persona_id"] == "bot-a"
+    learner.get_expression_patterns.assert_awaited_once()
+    assert learner.get_expression_patterns.await_args.kwargs["persona_id"] == "bot-a"
     dialog_analyzer.create_style_learning_review_request.assert_awaited_once()
     temporary_persona_updater.apply_style_as_begin_dialogs.assert_not_awaited()
     update_callback.assert_not_awaited()
