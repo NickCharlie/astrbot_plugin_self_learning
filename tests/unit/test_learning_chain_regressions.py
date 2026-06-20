@@ -1039,6 +1039,104 @@ async def test_expression_patterns_are_isolated_by_persona_id(tmp_path):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_expression_patterns_can_be_isolated_by_user_id(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+        enable_expression_user_scope=True,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await db.start() is True
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+
+        await learner._save_expression_patterns(
+            [
+                ExpressionPattern(
+                    situation="打招呼",
+                    expression="我是A的说法",
+                    weight=1.0,
+                    last_active_time=30.0,
+                    create_time=30.0,
+                    group_id="group-a",
+                    persona_id="bot-a",
+                    user_id="user-a",
+                ),
+                ExpressionPattern(
+                    situation="打招呼",
+                    expression="我是B的说法",
+                    weight=1.0,
+                    last_active_time=31.0,
+                    create_time=31.0,
+                    group_id="group-a",
+                    persona_id="bot-a",
+                    user_id="user-b",
+                ),
+            ],
+            "group-a",
+            persona_id="bot-a",
+        )
+
+        await learner._save_expression_patterns(
+            [
+                ExpressionPattern(
+                    situation="打招呼",
+                    expression="我是A的说法",
+                    weight=1.0,
+                    last_active_time=32.0,
+                    create_time=32.0,
+                    group_id="group-a",
+                    persona_id="bot-a",
+                    user_id="user-a",
+                )
+            ],
+            "group-a",
+            persona_id="bot-a",
+        )
+
+        user_a_patterns = await learner.get_expression_patterns(
+            "group-a",
+            persona_id="bot-a",
+            user_id="user-a",
+        )
+        user_b_patterns = await learner.get_expression_patterns(
+            "group-a",
+            persona_id="bot-a",
+            user_id="user-b",
+        )
+        group_patterns = await learner.get_expression_patterns(
+            "group-a",
+            persona_id="bot-a",
+        )
+
+        assert [pattern.expression for pattern in user_a_patterns] == ["我是A的说法"]
+        assert user_a_patterns[0].weight == 2.0
+        assert [pattern.expression for pattern in user_b_patterns] == ["我是B的说法"]
+        assert group_patterns == []
+
+        async with db.get_session() as session:
+            rows = (
+                await session.execute(
+                    select(ExpressionPatternORM).where(
+                        ExpressionPatternORM.group_id == "group-a",
+                        ExpressionPatternORM.persona_id == "bot-a",
+                    )
+                )
+            ).scalars().all()
+
+        assert {(row.user_id, row.expression, row.weight) for row in rows} == {
+            ("user-a", "我是A的说法", 2.0),
+            ("user-b", "我是B的说法", 1.0),
+        }
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_social_context_expression_fallback_keeps_persona_scope():
     calls = []
 
@@ -1049,6 +1147,7 @@ async def test_social_context_expression_fallback_keeps_persona_scope():
             limit=50,
             hours=168,
             persona_id="default",
+            user_id=None,
         ):
             calls.append(
                 {
@@ -1056,6 +1155,7 @@ async def test_social_context_expression_fallback_keeps_persona_scope():
                     "limit": limit,
                     "hours": hours,
                     "persona_id": persona_id,
+                    "user_id": user_id,
                 }
             )
             if group_id is None and persona_id == "bot-a":
@@ -1085,12 +1185,14 @@ async def test_social_context_expression_fallback_keeps_persona_scope():
             "limit": 10,
             "hours": 24,
             "persona_id": "bot-a",
+            "user_id": None,
         },
         {
             "group_id": None,
             "limit": 10,
             "hours": 24,
             "persona_id": "bot-a",
+            "user_id": None,
         },
     ]
 
@@ -1434,6 +1536,83 @@ async def test_realtime_expression_learning_cooldown_is_persona_scoped():
         for call in learner.trigger_learning_for_group.await_args_list
     ]
     assert persona_ids == ["bot-a", "bot-b"]
+    assert [
+        call.kwargs["user_id"]
+        for call in learner.trigger_learning_for_group.await_args_list
+    ] == [None, None]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_realtime_expression_learning_user_scope_is_opt_in():
+    config = SimpleNamespace(
+        message_min_length=1,
+        message_max_length=500,
+        enable_expression_patterns=True,
+        enable_expression_user_scope=True,
+        expression_learning_trigger_messages=1,
+        expression_learning_min_interval_seconds=3600,
+    )
+    collector = SimpleNamespace(
+        get_statistics=AsyncMock(return_value={"raw_messages": 10})
+    )
+    learner = SimpleNamespace(trigger_learning_for_group=AsyncMock(return_value=False))
+    factory_manager = SimpleNamespace(
+        get_component_factory=lambda: SimpleNamespace(
+            create_expression_pattern_learner=lambda: learner
+        )
+    )
+    db_manager = SimpleNamespace(
+        get_recent_raw_messages=AsyncMock(
+            return_value=[
+                {
+                    "id": idx,
+                    "sender_id": f"user-{idx}",
+                    "sender_name": f"User {idx}",
+                    "message": f"这是第{idx}条足够长的表达学习消息",
+                    "timestamp": time.time(),
+                    "platform": "test",
+                }
+                for idx in range(1, 6)
+            ]
+        )
+    )
+    processor = RealtimeProcessor(
+        plugin_config=config,
+        message_collector=collector,
+        multidimensional_analyzer=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        dialog_analyzer=SimpleNamespace(),
+        learning_stats=SimpleNamespace(style_updates=0),
+        factory_manager=factory_manager,
+        db_manager=db_manager,
+    )
+
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-a",
+        persona_id="bot-a",
+    )
+    await processor.process_expression_learning(
+        "group-a",
+        "这是用于表达学习频控的消息",
+        "user-b",
+        persona_id="bot-a",
+    )
+    await processor.process_expression_learning(
+        "group-a",
+        "这是机器人消息，不应该写成用户 scope",
+        "bot",
+        persona_id="bot-a",
+    )
+
+    assert learner.trigger_learning_for_group.await_count == 3
+    assert [
+        call.kwargs["user_id"]
+        for call in learner.trigger_learning_for_group.await_args_list
+    ] == ["user-a", "user-b", None]
 
 
 @pytest.mark.unit
@@ -1509,8 +1688,10 @@ async def test_realtime_expression_learning_creates_review_without_persona_write
 
     learner.trigger_learning_for_group.assert_awaited_once()
     assert learner.trigger_learning_for_group.await_args.kwargs["persona_id"] == "bot-a"
+    assert learner.trigger_learning_for_group.await_args.kwargs["user_id"] is None
     learner.get_expression_patterns.assert_awaited_once()
     assert learner.get_expression_patterns.await_args.kwargs["persona_id"] == "bot-a"
+    assert learner.get_expression_patterns.await_args.kwargs["user_id"] is None
     dialog_analyzer.create_style_learning_review_request.assert_awaited_once()
     temporary_persona_updater.apply_style_as_begin_dialogs.assert_not_awaited()
     update_callback.assert_not_awaited()

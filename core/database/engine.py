@@ -9,7 +9,7 @@ SQLAlchemy 数据库引擎封装
 """
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
-from sqlalchemy.schema import CreateColumn
+from sqlalchemy.schema import CreateColumn, CreateIndex
 from sqlalchemy.sql.schema import Column
 from sqlalchemy.types import JSON, LargeBinary, Text
 from sqlalchemy.engine import make_url
@@ -308,7 +308,7 @@ class DatabaseEngine:
                 raise
 
     async def _auto_add_missing_columns(self):
-        """检测并补齐已有表的缺失列（轻量级 auto-migration）"""
+        """检测并补齐已有表的缺失列和索引（轻量级 auto-migration）"""
         try:
             from sqlalchemy import text, inspect as sa_inspect
 
@@ -371,6 +371,46 @@ class DatabaseEngine:
                                 )
                 else:
                     logger.debug("[DatabaseEngine] 所有表列已与 ORM 模型一致")
+
+                # create_all(checkfirst=True) 不会为已存在的表补建后续新增索引。
+                def _get_existing_indexes(sync_conn):
+                    insp = sa_inspect(sync_conn)
+                    result = {}
+                    for table_name in insp.get_table_names():
+                        result[table_name] = {
+                            index['name']
+                            for index in insp.get_indexes(table_name)
+                            if index.get('name')
+                        }
+                    return result
+
+                existing_indexes = await conn.run_sync(_get_existing_indexes)
+                index_statements = []
+                for table in Base.metadata.sorted_tables:
+                    if table.name not in existing:
+                        continue
+                    db_indexes = existing_indexes.get(table.name, set())
+                    for index in table.indexes:
+                        if index.name and index.name not in db_indexes:
+                            index_statements.append(
+                                str(CreateIndex(index).compile(dialect=dialect))
+                            )
+
+                if index_statements:
+                    for stmt in index_statements:
+                        try:
+                            await conn.execute(text(stmt))
+                            logger.info(f"[DatabaseEngine] 自动迁移索引: {stmt}")
+                        except Exception as index_err:
+                            error_text = str(index_err).lower()
+                            if 'already exists' in error_text or 'duplicate' in error_text:
+                                pass
+                            else:
+                                logger.warning(
+                                    f"[DatabaseEngine] 自动迁移索引失败: {index_err}"
+                                )
+                else:
+                    logger.debug("[DatabaseEngine] 所有表索引已与 ORM 模型一致")
 
         except Exception as e:
             logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")

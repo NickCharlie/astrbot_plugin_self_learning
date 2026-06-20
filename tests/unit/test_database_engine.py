@@ -111,6 +111,74 @@ async def test_sqlite_auto_migration_adds_expression_persona_id(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sqlite_auto_migration_adds_expression_user_id(tmp_path):
+    db_path = tmp_path / "messages.db"
+    engine = DatabaseEngine(f"sqlite:///{db_path.as_posix()}")
+
+    try:
+        async with engine.engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE expression_patterns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        group_id VARCHAR(255) NOT NULL,
+                        persona_id VARCHAR(255) NOT NULL DEFAULT 'default',
+                        situation TEXT NOT NULL,
+                        expression TEXT NOT NULL,
+                        weight FLOAT NOT NULL,
+                        last_active_time FLOAT NOT NULL,
+                        create_time FLOAT NOT NULL
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO expression_patterns (
+                        group_id, persona_id, situation, expression, weight,
+                        last_active_time, create_time
+                    )
+                    VALUES ('group-a', 'bot-a', '打招呼', '旧表达', 1.0, 1.0, 1.0)
+                    """
+                )
+            )
+
+        await engine.create_tables(enable_auto_migration=True)
+
+        async with engine.engine.begin() as conn:
+            columns = await conn.run_sync(
+                lambda sync_conn: {
+                    col["name"]
+                    for col in sa_inspect(sync_conn).get_columns(
+                        "expression_patterns"
+                    )
+                }
+            )
+            user_id = (
+                await conn.execute(
+                    text("SELECT user_id FROM expression_patterns LIMIT 1")
+                )
+            ).scalar_one()
+            indexes = await conn.run_sync(
+                lambda sync_conn: {
+                    index["name"]
+                    for index in sa_inspect(sync_conn).get_indexes(
+                        "expression_patterns"
+                    )
+                }
+            )
+
+        assert "user_id" in columns
+        assert user_id is None
+        assert "idx_expression_scope_user_weight" in indexes
+        assert "idx_expression_scope_user_active" in indexes
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
 async def test_database_manager_start_initializes_facades_and_learning_storage(tmp_path):
     """Runtime manager startup must create tables and load domain facades."""
     manager = SQLAlchemyDatabaseManager(

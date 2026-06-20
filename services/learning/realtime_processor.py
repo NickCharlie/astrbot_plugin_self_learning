@@ -197,6 +197,14 @@ class RealtimeProcessor:
             return True
         return False
 
+    def _expression_user_scope(self, sender_id: str) -> Optional[str]:
+        if not getattr(self._config, "enable_expression_user_scope", False):
+            return None
+        value = str(sender_id or "").strip()
+        if not value or value == "bot":
+            return None
+        return value
+
     # Expression-style learning
 
     @monitored
@@ -210,7 +218,8 @@ class RealtimeProcessor:
         """Learn expression styles directly from raw messages."""
         try:
             persona_id = normalize_persona_scope(persona_id)
-            trigger_scope = f"{group_id}:{persona_id}"
+            user_scope = self._expression_user_scope(sender_id)
+            trigger_scope = f"{group_id}:{persona_id}:{user_scope or 'group-level'}"
             now = time.time()
             min_interval = max(
                 0,
@@ -311,6 +320,7 @@ class RealtimeProcessor:
                 group_id,
                 message_data_list,
                 persona_id=persona_id,
+                user_id=user_scope,
             )
             if not learning_success:
                 logger.debug(f"群组 {group_id} 表达风格学习未产生有效结果")
@@ -323,6 +333,7 @@ class RealtimeProcessor:
                     group_id,
                     limit=5,
                     persona_id=persona_id,
+                    user_id=user_scope,
                 )
                 if learned_patterns:
                     few_shots_content = (

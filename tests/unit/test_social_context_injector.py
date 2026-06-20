@@ -48,6 +48,7 @@ class _ExpressionDB:
         limit=50,
         hours=168,
         persona_id="default",
+        user_id=None,
     ):
         self.calls.append(
             {
@@ -55,12 +56,13 @@ class _ExpressionDB:
                 "limit": limit,
                 "hours": hours,
                 "persona_id": persona_id,
+                "user_id": user_id,
             }
         )
         return [
             {
-                "situation": f"{group_id or 'global'}-{persona_id}-{hours}",
-                "expression": f"expr-{persona_id}-{hours}",
+                "situation": f"{group_id or 'global'}-{persona_id}-{user_id or 'group'}-{hours}",
+                "expression": f"expr-{persona_id}-{user_id or 'group'}-{hours}",
             }
         ]
 
@@ -91,7 +93,12 @@ async def test_format_complete_context_uses_stable_section_order(monkeypatch):
     async def fast_social(group_id, user_id):
         return "社交段"
 
-    async def fast_expression(group_id, persona_id="default", enable_protection=True):
+    async def fast_expression(
+        group_id,
+        persona_id="default",
+        enable_protection=True,
+        user_id=None,
+    ):
         return "表达风格特征段"
 
     async def fast_goal(group_id, user_id):
@@ -141,18 +148,21 @@ async def test_expression_pattern_cache_key_includes_hours_protection_and_fallba
     first = await injector._format_expression_patterns_context(
         "group-a",
         persona_id="bot-a",
+        user_id="user-a",
         enable_protection=False,
         enable_global_fallback=True,
     )
     second = await injector._format_expression_patterns_context(
         "group-a",
         persona_id="bot-a",
+        user_id="user-b",
         enable_protection=False,
         enable_global_fallback=True,
     )
 
     assert first == second
     assert len(db.calls) == 1
+    assert db.calls[0]["user_id"] is None
 
     injector.config.expression_patterns_hours = 48
     changed_hours = await injector._format_expression_patterns_context(
@@ -174,4 +184,94 @@ async def test_expression_pattern_cache_key_includes_hours_protection_and_fallba
 
     assert changed_fallback_scope == changed_hours
     assert len(db.calls) == 3
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_pattern_context_keeps_legacy_positional_arguments():
+    db = _ExpressionDB()
+    injector = SocialContextInjector(
+        database_manager=db,
+        config=SimpleNamespace(expression_patterns_hours=24),
+    )
+
+    text = await injector._format_expression_patterns_context(
+        "group-a",
+        "bot-a",
+        False,
+        True,
+    )
+
+    assert text is not None
+    assert len(db.calls) == 1
+    assert db.calls[0]["persona_id"] == "bot-a"
+    assert db.calls[0]["user_id"] is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_pattern_user_scope_cache_and_fallback_order():
+    class _DB:
+        def __init__(self):
+            self.calls = []
+
+        async def get_recent_week_expression_patterns(
+            self,
+            group_id=None,
+            limit=50,
+            hours=168,
+            persona_id="default",
+            user_id=None,
+        ):
+            self.calls.append(
+                {
+                    "group_id": group_id,
+                    "limit": limit,
+                    "hours": hours,
+                    "persona_id": persona_id,
+                    "user_id": user_id,
+                }
+            )
+            if user_id == "user-a":
+                return [{"situation": "用户A场景", "expression": "用户A表达"}]
+            if group_id == "group-a" and user_id is None:
+                return [{"situation": "群组场景", "expression": "群组表达"}]
+            if group_id is None and user_id is None:
+                return [{"situation": "全局场景", "expression": "全局表达"}]
+            return []
+
+    db = _DB()
+    injector = SocialContextInjector(
+        database_manager=db,
+        config=SimpleNamespace(
+            expression_patterns_hours=24,
+            enable_expression_user_scope=True,
+        ),
+    )
+
+    user_a = await injector._format_expression_patterns_context(
+        "group-a",
+        persona_id="bot-a",
+        user_id="user-a",
+        enable_protection=False,
+    )
+    user_a_cached = await injector._format_expression_patterns_context(
+        "group-a",
+        persona_id="bot-a",
+        user_id="user-a",
+        enable_protection=False,
+    )
+    user_c = await injector._format_expression_patterns_context(
+        "group-a",
+        persona_id="bot-a",
+        user_id="user-c",
+        enable_protection=False,
+    )
+
+    assert user_a == user_a_cached
+    assert "用户A表达" in user_a
+    assert "群组表达" in user_c
+    assert [call["user_id"] for call in db.calls] == ["user-a", "user-c", None]
+    assert db.calls[1]["group_id"] == "group-a"
+    assert db.calls[2]["group_id"] == "group-a"
 

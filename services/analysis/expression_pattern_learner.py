@@ -30,6 +30,7 @@ class ExpressionPattern:
     create_time: float # 创建时间
     group_id: str # 所属群组ID
     persona_id: str = "default" # 所属 Bot/人格隔离ID
+    user_id: Optional[str] = None # 可选用户维度；None 表示群组级模式
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -92,6 +93,25 @@ class ExpressionPatternLearner:
         self._table_initialized = False
 
         self._initialized = True
+
+    @staticmethod
+    def _normalize_user_scope(
+        user_id: Optional[str],
+        fallback: Optional[str] = None,
+    ) -> Optional[str]:
+        value = user_id if user_id is not None else fallback
+        value = str(value or "").strip()
+        if not value or value == "bot":
+            return None
+        return value
+
+    @staticmethod
+    def _expression_scope_key(
+        group_id: str,
+        persona_id: str,
+        user_id: Optional[str] = None,
+    ) -> str:
+        return f"{group_id}:{persona_id}:{user_id or 'group-level'}"
     
     @classmethod
     def get_instance(cls, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None) -> 'ExpressionPatternLearner':
@@ -148,6 +168,7 @@ class ExpressionPatternLearner:
         group_id: str,
         recent_messages: List[MessageData],
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> bool:
         """
         为指定群组触发表达模式学习
@@ -164,7 +185,8 @@ class ExpressionPatternLearner:
         
         try:
             persona_id = normalize_persona_scope(persona_id)
-            learning_scope = f"{group_id}:{persona_id}"
+            user_scope = self._normalize_user_scope(user_id)
+            learning_scope = self._expression_scope_key(group_id, persona_id, user_scope)
             logger.info(
                 f"为群组 {group_id} / 人格 {persona_id} 触发表达模式学习，"
                 f"消息数量: {len(recent_messages)}"
@@ -175,6 +197,7 @@ class ExpressionPatternLearner:
                 recent_messages,
                 group_id,
                 persona_id=persona_id,
+                user_id=user_scope,
             )
             
             if learned_patterns:
@@ -183,13 +206,14 @@ class ExpressionPatternLearner:
                     learned_patterns,
                     group_id,
                     persona_id=persona_id,
+                    user_id=user_scope,
                 )
                 
                 # 应用时间衰减
-                await self._apply_time_decay(group_id, persona_id=persona_id)
+                await self._apply_time_decay(group_id, persona_id=persona_id, user_id=user_scope)
                 
                 # 限制最大数量
-                await self._limit_max_expressions(group_id, persona_id=persona_id)
+                await self._limit_max_expressions(group_id, persona_id=persona_id, user_id=user_scope)
                 
                 # 更新学习时间
                 self.last_learning_times[learning_scope] = time.time()
@@ -209,6 +233,7 @@ class ExpressionPatternLearner:
         messages: List[MessageData],
         group_id: str,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """
         学习表达模式 - 从原始消息中直接提取 A/B 对话对（不调用LLM）
@@ -226,6 +251,7 @@ class ExpressionPatternLearner:
                 messages,
                 group_id,
                 persona_id=persona_id,
+                user_id=user_id,
             )
 
             if patterns:
@@ -244,6 +270,7 @@ class ExpressionPatternLearner:
         messages: List[MessageData],
         group_id: str,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """
         从原始消息中提取用户-bot 对话对作为 few-shot 样本。
@@ -252,6 +279,7 @@ class ExpressionPatternLearner:
         pairs = []
         current_time = time.time()
         persona_id = normalize_persona_scope(persona_id)
+        user_id = self._normalize_user_scope(user_id)
 
         for i in range(len(messages) - 1):
             msg = messages[i]
@@ -289,6 +317,7 @@ class ExpressionPatternLearner:
                     create_time=current_time,
                     group_id=group_id,
                     persona_id=persona_id,
+                    user_id=user_id,
                 ))
 
         return pairs
@@ -324,12 +353,14 @@ class ExpressionPatternLearner:
         patterns: List[ExpressionPattern],
         group_id: str,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ):
         """保存表达模式到数据库（ORM 版本）"""
         try:
             from sqlalchemy import desc, select
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
             persona_id = normalize_persona_scope(persona_id)
+            user_id = self._normalize_user_scope(user_id)
 
             async with self.db_manager.get_session() as session:
                 for pattern in patterns:
@@ -337,12 +368,19 @@ class ExpressionPatternLearner:
                         getattr(pattern, "persona_id", None),
                         fallback=persona_id,
                     )
+                    pattern_user_id = self._normalize_user_scope(
+                        getattr(pattern, "user_id", None),
+                        fallback=user_id,
+                    )
                     # 查找是否已存在相似模式
                     stmt = select(ExpressionPatternORM).where(
                         ExpressionPatternORM.situation == pattern.situation,
                         ExpressionPatternORM.expression == pattern.expression,
                         ExpressionPatternORM.group_id == group_id,
                         ExpressionPatternORM.persona_id == pattern_persona_id,
+                        ExpressionPatternORM.user_id.is_(None)
+                        if pattern_user_id is None
+                        else ExpressionPatternORM.user_id == pattern_user_id,
                     ).order_by(
                         desc(ExpressionPatternORM.weight),
                         desc(ExpressionPatternORM.last_active_time),
@@ -356,7 +394,8 @@ class ExpressionPatternLearner:
                             "发现重复表达模式记录，已复用权重最高记录: "
                             f"group_id={group_id}, situation={pattern.situation!r}, "
                             f"expression={pattern.expression!r}, "
-                            f"persona_id={pattern_persona_id}, count={len(matches)}"
+                            f"persona_id={pattern_persona_id}, "
+                            f"user_id={pattern_user_id or 'group-level'}, count={len(matches)}"
                         )
 
                     if existing:
@@ -376,6 +415,7 @@ class ExpressionPatternLearner:
                             create_time=pattern.create_time,
                             group_id=pattern.group_id,
                             persona_id=pattern_persona_id,
+                            user_id=pattern_user_id,
                         )
                         session.add(new_record)
 
@@ -386,12 +426,18 @@ class ExpressionPatternLearner:
             logger.error(f"保存表达模式失败: {e}", exc_info=True)
             raise ExpressionLearningError(f"保存表达模式失败: {e}")
     
-    async def _apply_time_decay(self, group_id: str, persona_id: str = "default"):
+    async def _apply_time_decay(
+        self,
+        group_id: str,
+        persona_id: str = "default",
+        user_id: Optional[str] = None,
+    ):
         """应用时间衰减 - 完全参考MaiBot的衰减机制（ORM 版本）"""
         try:
             from sqlalchemy import select, delete
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
             persona_id = normalize_persona_scope(persona_id)
+            user_id = self._normalize_user_scope(user_id)
 
             current_time = time.time()
             updated_count = 0
@@ -402,6 +448,9 @@ class ExpressionPatternLearner:
                 stmt = select(ExpressionPatternORM).where(
                     ExpressionPatternORM.group_id == group_id,
                     ExpressionPatternORM.persona_id == persona_id,
+                    ExpressionPatternORM.user_id.is_(None)
+                    if user_id is None
+                    else ExpressionPatternORM.user_id == user_id,
                 )
                 result = await session.execute(stmt)
                 patterns = result.scalars().all()
@@ -457,18 +506,27 @@ class ExpressionPatternLearner:
         
         return min(0.01, decay)
     
-    async def _limit_max_expressions(self, group_id: str, persona_id: str = "default"):
+    async def _limit_max_expressions(
+        self,
+        group_id: str,
+        persona_id: str = "default",
+        user_id: Optional[str] = None,
+    ):
         """限制最大表达模式数量（ORM 版本）"""
         try:
             from sqlalchemy import select, func, delete, asc
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
             persona_id = normalize_persona_scope(persona_id)
+            user_id = self._normalize_user_scope(user_id)
 
             async with self.db_manager.get_session() as session:
                 # 统计当前数量
                 count_stmt = select(func.count()).select_from(ExpressionPatternORM).where(
                     ExpressionPatternORM.group_id == group_id,
                     ExpressionPatternORM.persona_id == persona_id,
+                    ExpressionPatternORM.user_id.is_(None)
+                    if user_id is None
+                    else ExpressionPatternORM.user_id == user_id,
                 )
                 count = (await session.execute(count_stmt)).scalar() or 0
 
@@ -481,6 +539,9 @@ class ExpressionPatternLearner:
                         .where(
                             ExpressionPatternORM.group_id == group_id,
                             ExpressionPatternORM.persona_id == persona_id,
+                            ExpressionPatternORM.user_id.is_(None)
+                            if user_id is None
+                            else ExpressionPatternORM.user_id == user_id,
                         )
                         .order_by(asc(ExpressionPatternORM.weight))
                         .limit(excess_count)
@@ -505,12 +566,14 @@ class ExpressionPatternLearner:
         group_id: str,
         limit: int = 10,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """获取群组的表达模式（ORM 版本）"""
         try:
             from sqlalchemy import select, desc
             from ...models.orm.expression import ExpressionPattern as ExpressionPatternORM
             persona_id = normalize_persona_scope(persona_id)
+            user_id = self._normalize_user_scope(user_id)
 
             async with self.db_manager.get_session() as session:
                 stmt = (
@@ -518,6 +581,9 @@ class ExpressionPatternLearner:
                     .where(
                         ExpressionPatternORM.group_id == group_id,
                         ExpressionPatternORM.persona_id == persona_id,
+                        ExpressionPatternORM.user_id.is_(None)
+                        if user_id is None
+                        else ExpressionPatternORM.user_id == user_id,
                     )
                     .order_by(desc(ExpressionPatternORM.weight))
                     .limit(limit)
@@ -534,6 +600,7 @@ class ExpressionPatternLearner:
                         create_time=row.create_time,
                         group_id=row.group_id,
                         persona_id=row.persona_id,
+                        user_id=row.user_id,
                     )
                     for row in rows
                 ]
@@ -547,6 +614,7 @@ class ExpressionPatternLearner:
         group_id: str,
         limit: int = 5,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> str:
         """
         格式化表达模式用于prompt
@@ -558,6 +626,7 @@ class ExpressionPatternLearner:
             group_id,
             limit,
             persona_id=persona_id,
+            user_id=user_id,
         )
         
         if not patterns:

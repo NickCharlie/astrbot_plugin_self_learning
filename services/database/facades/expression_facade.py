@@ -76,16 +76,18 @@ class ExpressionFacade(BaseFacade):
         group_id: str,
         limit: int = None,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """获取指定群组的表达模式"""
         try:
             async with self.get_session() as session:
 
                 repo = ExpressionPatternRepository(session)
-                patterns = await repo.find_many(
-                    group_id=group_id,
-                    persona_id=normalize_persona_scope(persona_id),
+                patterns = await repo.get_patterns_by_group(
+                    group_id,
                     limit=limit or 100,
+                    persona_id=normalize_persona_scope(persona_id),
+                    user_id=user_id,
                 )
                 return [self._row_to_dict(p) for p in patterns]
         except Exception as e:
@@ -98,6 +100,7 @@ class ExpressionFacade(BaseFacade):
         limit: int = 50,
         hours: int = 168,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """获取最近指定时间范围的表达模式"""
         try:
@@ -111,6 +114,10 @@ class ExpressionFacade(BaseFacade):
                 )
                 if group_id:
                     stmt = stmt.where(ExpressionPattern.group_id == group_id)
+                if user_id is None:
+                    stmt = stmt.where(ExpressionPattern.user_id.is_(None))
+                else:
+                    stmt = stmt.where(ExpressionPattern.user_id == user_id)
                 stmt = stmt.order_by(desc(ExpressionPattern.weight)).limit(limit)
 
                 result = await session.execute(stmt)

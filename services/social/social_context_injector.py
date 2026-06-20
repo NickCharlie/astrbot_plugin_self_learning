@@ -169,6 +169,7 @@ class SocialContextInjector:
                 result = await self._format_expression_patterns_context(
                     group_id,
                     persona_id=persona_id,
+                    user_id=user_id,
                     enable_protection=enable_protection
                 )
                 return "expression", result
@@ -477,7 +478,9 @@ class SocialContextInjector:
         group_id: str,
         persona_id: str = "default",
         enable_protection: bool = True,
-        enable_global_fallback: bool = True
+        enable_global_fallback: bool = True,
+        *,
+        user_id: Optional[str] = None,
     ) -> Optional[str]:
         """
         格式化最近学到的表达模式（风格特征）- 带提示词保护和缓存
@@ -486,6 +489,7 @@ class SocialContextInjector:
         Args:
             group_id: 群组ID
             persona_id: Bot/人格隔离ID
+            user_id: 可选用户ID；启用 user scope 时优先查询该用户表达模式
             enable_protection: 是否启用提示词保护
             enable_global_fallback: 是否启用全局回退（当群组无数据时使用全局数据）
 
@@ -498,9 +502,17 @@ class SocialContextInjector:
             hours = 24
             if self.config and hasattr(self.config, 'expression_patterns_hours'):
                 hours = getattr(self.config, 'expression_patterns_hours', 24)
+            user_scope_enabled = bool(
+                getattr(self.config, "enable_expression_user_scope", False)
+            )
+            user_scope = str(user_id or "").strip() if user_scope_enabled else ""
+            if user_scope == "bot":
+                user_scope = ""
 
-            cache_key = (
-                f"expression_patterns_{group_id}_{persona_id}_"
+            cache_key = f"expression_patterns_{group_id}_{persona_id}_"
+            if user_scope_enabled:
+                cache_key += f"user{user_scope or 'group'}_"
+            cache_key += (
                 f"h{hours}_protected{int(bool(enable_protection and self._enable_protection))}_"
                 f"fallback{int(bool(enable_global_fallback))}"
             )
@@ -514,9 +526,27 @@ class SocialContextInjector:
                 limit=10,
                 hours=hours,
                 persona_id=persona_id,
+                user_id=user_scope or None,
             )
 
-            source_desc = f"群组 {group_id} / 人格 {persona_id}"
+            source_desc = (
+                f"群组 {group_id} / 人格 {persona_id}"
+                + (f" / 用户 {user_scope}" if user_scope else "")
+            )
+
+            if not patterns and user_scope:
+                logger.info(
+                    f" [表达模式] 群组 {group_id} / 人格 {persona_id} / 用户 {user_scope} "
+                    "无表达模式，回退到同群组人格级表达模式"
+                )
+                patterns = await self.database_manager.get_recent_week_expression_patterns(
+                    group_id,
+                    limit=10,
+                    hours=hours,
+                    persona_id=persona_id,
+                    user_id=None,
+                )
+                source_desc = f"群组 {group_id} / 人格 {persona_id} / 群组级"
 
             # 如果当前群组没有表达模式，且启用了全局回退，则获取全局表达模式
             if not patterns and enable_global_fallback:
@@ -529,6 +559,7 @@ class SocialContextInjector:
                     limit=10,
                     hours=hours,
                     persona_id=persona_id,
+                    user_id=None,
                 )
                 source_desc = f"全局所有群组 / 人格 {persona_id}"
 

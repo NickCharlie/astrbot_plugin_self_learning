@@ -4,7 +4,7 @@
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, distinct
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from astrbot.api import logger
 
 from .base_repository import BaseRepository
@@ -29,6 +29,7 @@ class ExpressionPatternRepository(BaseRepository[ExpressionPattern]):
         group_id: str,
         limit: int = 10,
         persona_id: str = "default",
+        user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """
         获取指定群组的表达模式
@@ -45,7 +46,12 @@ class ExpressionPatternRepository(BaseRepository[ExpressionPattern]):
             stmt = select(ExpressionPattern).where(
                 ExpressionPattern.group_id == group_id,
                 ExpressionPattern.persona_id == persona_id,
-            ).order_by(
+            )
+            if user_id is None:
+                stmt = stmt.where(ExpressionPattern.user_id.is_(None))
+            else:
+                stmt = stmt.where(ExpressionPattern.user_id == user_id)
+            stmt = stmt.order_by(
                 desc(ExpressionPattern.weight)
             ).limit(limit)
 

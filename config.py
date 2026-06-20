@@ -139,6 +139,7 @@ class PluginConfig(BaseModel):
     # MaiBot增强功能（默认启用）
     enable_maibot_features: bool = True # 启用MaiBot增强功能
     enable_expression_patterns: bool = True # 启用表达模式学习
+    enable_expression_user_scope: bool = False # 启用表达模式 user_id 级个性化（默认关闭保持兼容）
     enable_realtime_expression_learning: bool = False # 实时学习关闭时是否仍按消息触发表达学习
     enable_memory_graph: bool = True # 启用记忆图系统
     enable_knowledge_graph: bool = True # 启用知识图谱
@@ -429,6 +430,7 @@ class PluginConfig(BaseModel):
 
             enable_maibot_features=maibot_enhancement.get('enable_maibot_features', True),
             enable_expression_patterns=maibot_enhancement.get('enable_expression_patterns', True),
+            enable_expression_user_scope=maibot_enhancement.get('enable_expression_user_scope', False),
             enable_realtime_expression_learning=maibot_enhancement.get('enable_realtime_expression_learning', False),
             enable_memory_graph=maibot_enhancement.get('enable_memory_graph', True),
             enable_knowledge_graph=maibot_enhancement.get('enable_knowledge_graph', True),

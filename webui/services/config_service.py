@@ -67,6 +67,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                 "hint": "学习并维护群聊中的表达模式和常见句式",
                 "default": True,
             },
+            "enable_expression_user_scope": {
+                "description": "表达模式按用户个性化",
+                "type": "bool",
+                "hint": "开启后表达模式会按 sender_id 建立可选 user_id 维度；默认关闭以保持旧的群组/人格级学习与缓存行为",
+                "default": False,
+            },
             "enable_realtime_expression_learning": {
                 "description": "实时表达方式学习",
                 "type": "bool",
