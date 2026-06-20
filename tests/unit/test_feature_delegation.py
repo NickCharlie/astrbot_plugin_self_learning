@@ -200,6 +200,124 @@ def test_llm_hook_extra_parts_keep_prompt_prefix_stable(monkeypatch):
     ]
 
 
+def test_llm_hook_v2_memory_changes_only_dynamic_late_section(monkeypatch):
+    class FakeTextPart:
+        def __init__(self, text):
+            self.text = text
+            self.temp = False
+
+        def mark_as_temp(self):
+            self.temp = True
+
+    monkeypatch.setattr(llm_hook_module, "TextPart", FakeTextPart)
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(
+            llm_hook_injection_target="extra_user_content_parts"
+        ),
+        diversity_manager=SimpleNamespace(
+            get_current_style=lambda: "style",
+            get_current_pattern=lambda: "pattern",
+        ),
+        social_context_injector=None,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+    )
+
+    no_memory_parts = []
+    LLMHookHandler._collect_v2({"knowledge_context": "knowledge"}, 1.0, no_memory_parts)
+    stable_memory_parts = []
+    LLMHookHandler._collect_v2(
+        {
+            "knowledge_context": "knowledge",
+            "related_memories": ["memory-a", "memory-b"],
+        },
+        1.0,
+        stable_memory_parts,
+    )
+    changed_memory_parts = []
+    LLMHookHandler._collect_v2(
+        {
+            "knowledge_context": "knowledge",
+            "related_memories": ["memory-a", "memory-c"],
+        },
+        1.0,
+        changed_memory_parts,
+    )
+
+    assert "[Related Memories]" not in no_memory_parts[0]
+    assert stable_memory_parts[0] != changed_memory_parts[0]
+
+    req = SimpleNamespace(
+        prompt="stable user prompt",
+        system_prompt="stable system prompt",
+        extra_user_content_parts=[],
+    )
+
+    handler._inject(req, stable_memory_parts, 0)
+
+    assert req.prompt == "stable user prompt"
+    assert req.system_prompt == "stable system prompt"
+    assert "memory-a\nmemory-b" in req.extra_user_content_parts[0].text
+
+
+def test_llm_hook_v2_memory_dicts_are_deterministically_ordered():
+    parts = []
+    LLMHookHandler._collect_v2(
+        {
+            "related_memories": [
+                {"id": "m3", "memory": "lower score", "score": 0.2, "created_at": 3},
+                {"id": "m2", "memory": "newer tied", "score": 0.9, "created_at": 9},
+                {"id": "m1", "memory": "older tied", "score": 0.9, "created_at": 1},
+                {"id": "m2-dup", "memory": "newer tied", "score": 1.0, "created_at": 10},
+                {"id": "m4", "memory": "", "score": 0.95},
+            ]
+        },
+        1.0,
+        parts,
+    )
+
+    assert parts == [
+        "[Related Memories]\nnewer tied\nolder tied\nlower score"
+    ]
+
+
+def test_llm_hook_v2_memory_sorting_handles_zero_score_and_iso_time():
+    parts = []
+    LLMHookHandler._collect_v2(
+        {
+            "related_memories": [
+                {
+                    "id": "m2",
+                    "memory": "older zero score",
+                    "score": 0,
+                    "created_at": "2026-06-19T00:00:00Z",
+                },
+                {
+                    "id": "m1",
+                    "memory": "newer zero score",
+                    "score": 0,
+                    "created_at": "2026-06-20T00:00:00Z",
+                },
+                {
+                    "id": "m3",
+                    "memory": "lower implicit score",
+                    "created_at": "2026-06-21T00:00:00Z",
+                },
+            ]
+        },
+        1.0,
+        parts,
+    )
+
+    assert parts == [
+        "[Related Memories]\nnewer zero score\nolder zero score\nlower implicit score"
+    ]
+
+
 def test_llm_hook_legacy_prompt_fallback_when_extra_parts_unavailable(monkeypatch):
     monkeypatch.setattr(llm_hook_module, "TextPart", None)
     warnings = []
@@ -263,6 +381,34 @@ async def test_llm_hook_omits_local_v2_memories_when_livingmemory_delegated():
         "knowledge_context": "knowledge stays local",
         "few_shot_examples": ["style example"],
     }
+
+
+@pytest.mark.asyncio
+async def test_llm_hook_keeps_local_v2_memories_when_delegation_not_disabling_local():
+    v2 = SimpleNamespace(
+        get_enhanced_context=AsyncMock(
+            return_value={
+                "related_memories": ["local memory remains local"],
+            }
+        )
+    )
+    delegation = SimpleNamespace(should_delegate_memory=lambda: False)
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(rerank_top_k=5),
+        diversity_manager=object(),
+        social_context_injector=None,
+        v2_integration=v2,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+        feature_delegation=delegation,
+    )
+
+    result = await handler._fetch_v2("query", "group-a")
+
+    assert result == {"related_memories": ["local memory remains local"]}
 
 
 @pytest.mark.asyncio

@@ -402,6 +402,10 @@ class IntelligentResponder:
     async def _build_context_enhancement(self, context_info: Dict[str, Any]) -> str:
         """
         构建用户上下文增强信息（添加到系统提示词末尾）
+
+        Long-term memories are intentionally not consumed from context_info here.
+        Runtime memory recall is injected by LLMHookHandler as a late dynamic
+        section so stable persona/system prompt prefixes remain cache-friendly.
         
         Args:
             context_info: 用户上下文信息

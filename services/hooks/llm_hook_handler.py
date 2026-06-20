@@ -3,10 +3,17 @@
 Orchestrates all context providers (social, V2, diversity, jargon, few-shot, session updates)
 in parallel, merges results, and injects them into the LLM request via
 ``extra_user_content_parts`` to preserve system_prompt prefix caching.
+
+Long-term memory injection contract:
+* V2 local memory may only enter this hook as ``related_memories``.
+* When memory is delegated to LivingMemory, local V2 memories are stripped here.
+* Memory text is formatted into a dynamic late section and never written into
+  the stable persona/system prompt unless the framework lacks late-part support.
 """
 
 import asyncio
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from astrbot.api import logger
@@ -346,6 +353,85 @@ class LLMHookHandler:
             logger.debug(f"[LLM Hook] 群组 {group_id} 暂无社交上下文")
 
     @staticmethod
+    def _normalize_related_memories(memories: Any, limit: int = 5) -> List[str]:
+        """Return displayable memories in deterministic order for injection.
+
+        Memory engines may return plain strings or metadata dictionaries. Dict
+        entries are ordered by explicit relevance/time/id fields when present;
+        plain strings preserve provider order to avoid discarding reranker
+        relevance. Duplicates and blank entries are removed before limiting.
+        """
+        if not memories:
+            return []
+
+        def _text(entry: Any) -> str:
+            if isinstance(entry, str):
+                return entry.strip()
+            if isinstance(entry, dict):
+                for key in ("memory", "text", "content", "value"):
+                    value = entry.get(key)
+                    if value:
+                        return str(value).strip()
+            return ""
+
+        def _first_present(entry: Dict[str, Any], keys: tuple[str, ...]) -> Any:
+            for key in keys:
+                if key in entry:
+                    return entry.get(key)
+            return None
+
+        def _number(value: Any, default: float = 0.0) -> float:
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+
+        def _timestamp(value: Any) -> float:
+            if isinstance(value, str):
+                normalized = value.strip()
+                if normalized.endswith("Z"):
+                    normalized = f"{normalized[:-1]}+00:00"
+                try:
+                    return datetime.fromisoformat(normalized).timestamp()
+                except ValueError:
+                    pass
+            return _number(value)
+
+        entries: List[tuple[Any, int, str]] = []
+        seen: set[str] = set()
+        for index, entry in enumerate(memories):
+            text = _text(entry)
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            entries.append((entry, index, text))
+
+        if any(isinstance(entry, dict) for entry, _, _ in entries):
+            def _sort_key(item: tuple[Any, int, str]) -> tuple[float, float, str, int, str]:
+                entry, index, text = item
+                if not isinstance(entry, dict):
+                    return (0.0, 0.0, "", index, text)
+                score = _number(
+                    _first_present(
+                        entry,
+                        ("score", "relevance", "similarity", "rank_score"),
+                    ),
+                    default=float("-inf"),
+                )
+                timestamp = _timestamp(
+                    _first_present(
+                        entry,
+                        ("created_at", "timestamp", "updated_at"),
+                    )
+                )
+                identifier = str(_first_present(entry, ("id", "memory_id")) or "")
+                return (-score, -timestamp, identifier, index, text)
+
+            entries.sort(key=_sort_key)
+
+        return [text for _, _, text in entries[:limit]]
+
+    @staticmethod
     def _collect_v2(
         result: Optional[Dict[str, Any]], ms: float, out: List[str]
     ) -> None:
@@ -355,8 +441,13 @@ class LLMHookHandler:
         if result.get("knowledge_context"):
             v2_parts.append(f"[Related Knowledge]\n{result['knowledge_context']}")
         if result.get("related_memories"):
-            memories_text = "\n".join(result["related_memories"][:5])
-            v2_parts.append(f"[Related Memories]\n{memories_text}")
+            memories = LLMHookHandler._normalize_related_memories(
+                result["related_memories"],
+                limit=5,
+            )
+            if memories:
+                memories_text = "\n".join(memories)
+                v2_parts.append(f"[Related Memories]\n{memories_text}")
         if result.get("few_shot_examples"):
             examples_text = "\n".join(result["few_shot_examples"][:3])
             v2_parts.append(f"[Style Examples]\n{examples_text}")
