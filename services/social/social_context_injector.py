@@ -142,7 +142,7 @@ class SocialContextInjector:
         """
         try:
             persona_id = normalize_persona_scope(persona_id)
-            context_parts = []
+            context_parts_by_label: Dict[str, str] = {}
 
             # Build a list of independent coroutines (steps 1-5, 7) that can
             # run concurrently. Each coroutine returns a (label, result) tuple
@@ -207,7 +207,8 @@ class SocialContextInjector:
             # Run all independent steps concurrently
             gather_results = await asyncio.gather(*independent_tasks, return_exceptions=True)
 
-            # Process gather results, preserving the original insertion order
+            # Process gather results into labels, then emit them in a fixed
+            # section order so async completion timing cannot reorder prompts.
             for result in gather_results:
                 if isinstance(result, Exception):
                     logger.error(f" [社交上下文] 并发上下文步骤异常: {result}", exc_info=result)
@@ -217,36 +218,36 @@ class SocialContextInjector:
 
                 if label == "psychological":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备深度心理状态 (群组: {group_id}, 长度: {len(value)})")
                     else:
                         logger.debug(f" [社交上下文] 群组 {group_id} 暂无活跃的心理状态")
 
                 elif label == "mood":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备情绪信息 (群组: {group_id})")
 
                 elif label == "affection":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备好感度信息 (群组: {group_id}, 用户: {user_id[:8]}...)")
 
                 elif label == "social":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备社交关系 (群组: {group_id}, 用户: {user_id[:8]}...)")
 
                 elif label == "expression":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备表达模式 (群组: {group_id}, 长度: {len(value)})")
                     else:
                         logger.debug(f" [社交上下文] 群组 {group_id} 暂无表达模式学习记录")
 
                 elif label == "goal":
                     if value:
-                        context_parts.append(value)
+                        context_parts_by_label[label] = value
                         logger.debug(f" [社交上下文] 已准备对话目标 (长度: {len(value)})")
                     else:
                         logger.debug(f" [社交上下文] 未找到活跃对话目标 (user={user_id[:8]}..., group={group_id})")
@@ -255,10 +256,24 @@ class SocialContextInjector:
             if include_behavior_guidance and (include_psychological or include_social_relations):
                 behavior_guidance = await self._build_behavior_guidance(group_id, user_id)
                 if behavior_guidance:
-                    context_parts.append(behavior_guidance)
+                    context_parts_by_label["behavior"] = behavior_guidance
                     logger.debug(f" [社交上下文] 已准备行为模式指导 (长度: {len(behavior_guidance)})")
                 else:
                     logger.debug(f" [社交上下文] 未生成行为模式指导")
+
+            context_parts: List[str] = [
+                context_parts_by_label[label]
+                for label in (
+                    "psychological",
+                    "mood",
+                    "affection",
+                    "social",
+                    "goal",
+                    "behavior",
+                    "expression",
+                )
+                if label in context_parts_by_label
+            ]
 
             if not context_parts:
                 return None
@@ -479,16 +494,19 @@ class SocialContextInjector:
         """
         try:
             persona_id = normalize_persona_scope(persona_id)
-            # 尝试从缓存获取
-            cache_key = f"expression_patterns_{group_id}_{persona_id}"
-            cached = self._get_from_cache(cache_key)
-            if cached is not None:
-                return cached
-
             # 从配置中读取时间范围，默认24小时
             hours = 24
             if self.config and hasattr(self.config, 'expression_patterns_hours'):
                 hours = getattr(self.config, 'expression_patterns_hours', 24)
+
+            cache_key = (
+                f"expression_patterns_{group_id}_{persona_id}_"
+                f"h{hours}_protected{int(bool(enable_protection and self._enable_protection))}_"
+                f"fallback{int(bool(enable_global_fallback))}"
+            )
+            cached = self._get_from_cache(cache_key)
+            if cached is not None:
+                return cached
 
             # 优先获取当前群组的表达模式
             patterns = await self.database_manager.get_recent_week_expression_patterns(

@@ -159,8 +159,55 @@ def test_llm_hook_injects_temp_extra_user_content_without_touching_system_prompt
     assert req.extra_user_content_parts[0].temp is True
 
 
+def test_llm_hook_extra_parts_keep_prompt_prefix_stable(monkeypatch):
+    class FakeTextPart:
+        def __init__(self, text):
+            self.text = text
+            self.temp = False
+
+        def mark_as_temp(self):
+            self.temp = True
+
+    monkeypatch.setattr(llm_hook_module, "TextPart", FakeTextPart)
+    handler = LLMHookHandler(
+        plugin_config=SimpleNamespace(
+            llm_hook_injection_target="extra_user_content_parts"
+        ),
+        diversity_manager=SimpleNamespace(
+            get_current_style=lambda: "style",
+            get_current_pattern=lambda: "pattern",
+        ),
+        social_context_injector=None,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+        db_manager=None,
+    )
+    req = SimpleNamespace(
+        prompt="stable user prompt",
+        system_prompt="stable system prompt",
+        extra_user_content_parts=[],
+    )
+
+    handler._inject(req, ["first dynamic", "second dynamic"], 0)
+
+    assert req.prompt == "stable user prompt"
+    assert req.system_prompt == "stable system prompt"
+    assert [part.text for part in req.extra_user_content_parts] == [
+        "<context>\nfirst dynamic\n\nsecond dynamic\n</context>"
+    ]
+
+
 def test_llm_hook_legacy_prompt_fallback_when_extra_parts_unavailable(monkeypatch):
     monkeypatch.setattr(llm_hook_module, "TextPart", None)
+    warnings = []
+    monkeypatch.setattr(
+        llm_hook_module.logger,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append(message),
+    )
     handler = LLMHookHandler(
         plugin_config=SimpleNamespace(llm_hook_injection_target="prompt"),
         diversity_manager=SimpleNamespace(
@@ -175,12 +222,14 @@ def test_llm_hook_legacy_prompt_fallback_when_extra_parts_unavailable(monkeypatc
         group_id_to_unified_origin={},
         db_manager=None,
     )
-    req = SimpleNamespace(prompt="用户消息", system_prompt="stable system prompt")
+    req = SimpleNamespace(prompt="user prompt", system_prompt="stable system prompt")
 
     handler._inject(req, ["legacy context"], 0)
 
     assert req.system_prompt == "stable system prompt"
-    assert req.prompt == "用户消息\n\nlegacy context"
+    assert req.prompt == "user prompt\n\nlegacy context"
+    assert any("extra_user_content_parts" in message for message in warnings)
+    assert any("缓存命中率" in message for message in warnings)
 
 
 @pytest.mark.asyncio
