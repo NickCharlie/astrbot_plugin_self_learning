@@ -5,6 +5,14 @@ from quart import jsonify
 from typing import Any, Optional
 
 
+def add_no_store_headers(response):
+    """Apply defensive no-store headers to dynamic WebUI/API responses."""
+    response.headers.setdefault("Cache-Control", "no-store")
+    response.headers.setdefault("Pragma", "no-cache")
+    response.headers.setdefault("Expires", "0")
+    return response
+
+
 def success_response(data: Any = None, message: str = "成功"):
     """
     成功响应

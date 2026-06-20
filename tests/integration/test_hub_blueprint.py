@@ -15,6 +15,12 @@ from webui.middleware.hub_aspects import HubApiError
 from webui.services.hub_service import HubService
 
 
+def assert_no_store_headers(response):
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+
+
 @dataclass
 class RememberResult:
     memory_id: int = 11
@@ -158,6 +164,7 @@ async def test_hub_manifest_exposes_mvc_and_aop_contract(client):
     response = await client.get("/api/hub/v1/manifest")
 
     assert response.status_code == 200
+    assert_no_store_headers(response)
     data = await response.get_json()
     assert data["success"] is True
     assert data["data"]["name"] == "self-learning-hub"
@@ -300,9 +307,31 @@ async def test_hub_auth_rejects_invalid_api_key_when_enabled(monkeypatch, app):
     )
 
     assert response.status_code == 401
+    assert_no_store_headers(response)
+    body = await response.get_data(as_text=True)
+    assert "wrong" not in body
+    assert "test-key" not in body
     data = await response.get_json()
     assert data["success"] is False
     assert data["error"]["code"] == "unauthorized"
+
+
+@pytest.mark.asyncio
+async def test_hub_auth_accepts_valid_bearer_without_echoing_api_key(app):
+    app.config["TESTING"] = True
+    app.secret_key = "test-secret-key"
+    container = hub_module.get_container()
+    container.plugin_config.enable_api_auth = True
+
+    response = await app.test_client().get(
+        "/api/hub/v1/status",
+        headers={"Authorization": "Bearer test-key"},
+    )
+
+    assert response.status_code == 200
+    assert_no_store_headers(response)
+    body = await response.get_data(as_text=True)
+    assert "test-key" not in body
 
 
 @pytest.mark.asyncio

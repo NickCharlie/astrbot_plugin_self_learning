@@ -8,13 +8,18 @@ from astrbot.api import logger
 from ..dependencies import get_container
 from ..middleware.auth import is_authenticated, require_auth
 from ..services.auth_service import AuthService
-from ..utils.response import error_response
+from ..utils.response import add_no_store_headers, error_response
 
 _TEMPLATE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), '..', '..', 'web_res', 'static', 'html')
 )
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api', template_folder=_TEMPLATE_DIR)
+
+
+@auth_bp.after_request
+async def _disable_auth_response_cache(response):
+    return add_no_store_headers(response)
 
 
 @auth_bp.route("/")

@@ -203,6 +203,19 @@ class TestConfigServiceSchema:
         assert basic_fields["webui_initial_password"]["value"] == ""
         assert basic_fields["webui_initial_password"]["secret"] is True
 
+        database_fields = {field["key"]: field for field in groups["Database_Settings"]["fields"]}
+        assert database_fields["mysql_password"]["widget"] == "password"
+        assert database_fields["mysql_password"]["value"] == ""
+        assert database_fields["mysql_password"]["secret"] is True
+        assert database_fields["postgresql_password"]["widget"] == "password"
+        assert database_fields["postgresql_password"]["value"] == ""
+        assert database_fields["postgresql_password"]["secret"] is True
+
+        api_fields = {field["key"]: field for field in groups["API_Settings"]["fields"]}
+        assert api_fields["api_key"]["widget"] == "password"
+        assert api_fields["api_key"]["value"] == ""
+        assert api_fields["api_key"]["secret"] is True
+
         maibot_fields = {field["key"]: field for field in groups["MaiBot_Enhancement"]["fields"]}
         assert maibot_fields["enable_realtime_expression_learning"]["widget"] == "toggle"
         assert maibot_fields["enable_realtime_expression_learning"]["value"] is False
@@ -787,6 +800,51 @@ class TestConfigServiceUpdate:
         assert updated["lightrag_query_mode"] == "hybrid"
         assert "LivingMemory" in message
         assert "token" in message
+
+    @pytest.mark.asyncio
+    async def test_config_responses_redact_secrets_without_dropping_saved_values(self, tmp_path):
+        container = build_container(tmp_path)
+        service = ConfigService(container)
+
+        success, message, updated = await service.update_config(
+            {
+                "API_Settings": {
+                    "api_key": "hub-secret",
+                    "enable_api_auth": True,
+                },
+                "Database_Settings": {
+                    "mysql_password": "mysql-secret",
+                    "postgresql_password": "postgres-secret",
+                },
+            }
+        )
+
+        assert success is True
+        assert updated["api_key"] == ""
+        assert updated["mysql_password"] == ""
+        assert updated["postgresql_password"] == ""
+        assert container.plugin_config.api_key == "hub-secret"
+        assert container.plugin_config.mysql_password == "mysql-secret"
+        assert container.plugin_config.postgresql_password == "postgres-secret"
+
+        config = await service.get_config()
+        assert config["api_key"] == ""
+        assert config["mysql_password"] == ""
+        assert config["postgresql_password"] == ""
+
+        schema = await service.get_config_schema()
+        assert schema["config"]["api_key"] == ""
+        assert schema["config"]["mysql_password"] == ""
+        assert schema["config"]["postgresql_password"] == ""
+
+        saved = json.loads(
+            (Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE).read_text(
+                encoding="utf-8",
+            )
+        )
+        assert saved["api_key"] == "hub-secret"
+        assert saved["mysql_password"] == "mysql-secret"
+        assert saved["postgresql_password"] == "postgres-secret"
 
     @pytest.mark.asyncio
     async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):

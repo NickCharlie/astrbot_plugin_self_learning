@@ -523,7 +523,8 @@
         "description": "MySQL密码",
         "type": "string",
         "hint": "MySQL数据库的密码（仅当db_type为mysql时需要填写）",
-        "default": ""
+        "default": "",
+        "_secret": true
       },
       "mysql_database": {
         "description": "MySQL数据库名",
@@ -553,7 +554,8 @@
         "description": "PostgreSQL密码",
         "type": "string",
         "hint": "PostgreSQL数据库的密码（仅当db_type为postgresql时需要填写）",
-        "default": ""
+        "default": "",
+        "_secret": true
       },
       "postgresql_database": {
         "description": "PostgreSQL数据库名",
@@ -590,7 +592,8 @@
         "description": "API访问密钥",
         "type": "string",
         "hint": "外部API接口的访问密钥。留空则不需要密钥认证。建议设置一个强密码保护API安全",
-        "default": ""
+        "default": "",
+        "_secret": true
       },
       "enable_api_auth": {
         "description": "启用API认证",

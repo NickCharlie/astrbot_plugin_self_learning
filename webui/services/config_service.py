@@ -323,6 +323,13 @@ _RESTART_REQUIRED_KEYS = {
     "use_sqlalchemy",
 }
 
+_SENSITIVE_RESPONSE_KEYS = {
+    "api_key",
+    "mysql_password",
+    "postgresql_password",
+    "webui_initial_password",
+}
+
 
 class ConfigService:
     """配置服务"""
@@ -423,6 +430,15 @@ class ConfigService:
             ensure_ascii=False,
             default=str,
         )
+
+    @staticmethod
+    def _redact_config_for_response(config: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy safe for WebUI/API read responses."""
+        sanitized = dict(config)
+        for key in _SENSITIVE_RESPONSE_KEYS:
+            if key in sanitized:
+                sanitized[key] = ""
+        return sanitized
 
     def _config_source_signature(
         self,
@@ -1616,7 +1632,7 @@ class ConfigService:
         """
         if self.plugin_config:
             self._sync_config_sources()
-            return self.plugin_config.to_dict()
+            return self._redact_config_for_response(self.plugin_config.to_dict())
         raise ValueError("Plugin config not initialized")
 
     async def get_config_schema(self) -> Dict[str, Any]:
@@ -1646,7 +1662,7 @@ class ConfigService:
         )
 
         return {
-            "config": self.plugin_config.to_dict(),
+            "config": self._redact_config_for_response(self.plugin_config.to_dict()),
             "groups": self._build_group_schema(
                 merged_schema,
                 provider_options_by_type,
@@ -1684,6 +1700,7 @@ class ConfigService:
             flat_config["webui_initial_password"] = ""
 
         original_config = self.plugin_config.to_dict()
+        safe_original_config = self._redact_config_for_response(original_config)
         merged_config = dict(original_config)
         changed_keys: List[str] = []
 
@@ -1699,7 +1716,7 @@ class ConfigService:
             validated_config = self.plugin_config.__class__.model_validate(merged_config)
         except ValidationError as e:
             logger.error(f"配置校验失败: {e}", exc_info=True)
-            return False, f"配置校验失败: {str(e)}", original_config
+            return False, f"配置校验失败: {str(e)}", safe_original_config
 
         validation_messages = validated_config.validate_config()
         blocking_errors = [msg for msg in validation_messages if not msg.startswith(" ")]
@@ -1708,7 +1725,7 @@ class ConfigService:
         provider_error = "至少需要配置一个模型提供商ID"
         non_provider_errors = [msg for msg in blocking_errors if provider_error not in msg]
         if non_provider_errors:
-            return False, "；".join(non_provider_errors), original_config
+            return False, "；".join(non_provider_errors), safe_original_config
 
         if provider_error in "；".join(blocking_errors):
             warnings.append("至少需要配置一个模型提供商ID，系统将继续依赖 AstrBot 的自动兜底 Provider 选择")
@@ -1716,13 +1733,13 @@ class ConfigService:
         auth_service = AuthService(self.container)
         password_enabled = getattr(validated_config, "enable_webui_password", False) is True
         if initial_webui_password and not password_enabled:
-            return False, "设置 WebUI 初始密码前请先启用 WebUI 登录密码", original_config
+            return False, "设置 WebUI 初始密码前请先启用 WebUI 登录密码", safe_original_config
 
         if initial_webui_password:
             strength_result = validate_password_strength(initial_webui_password)
             if not strength_result["valid"]:
                 issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
-                return False, issues, original_config
+                return False, issues, safe_original_config
 
         if (
             password_enabled
@@ -1733,7 +1750,7 @@ class ConfigService:
             return False, (
                 "开启 WebUI 登录密码前，请填写 WebUI 一次性初始密码，"
                 f"或设置环境变量 {INITIAL_WEBUI_PASSWORD_ENV_VAR}"
-            ), original_config
+            ), safe_original_config
 
         for field_name, value in validated_config.model_dump().items():
             if hasattr(self.plugin_config, field_name):
@@ -1782,7 +1799,7 @@ class ConfigService:
                 must_change=False,
             )
             if not password_success:
-                return False, password_message, original_config
+                return False, password_message, safe_original_config
 
         self._sync_runtime_components(changed_keys)
         astrbot_config_synced = self._sync_astrbot_group_config(
@@ -1799,7 +1816,11 @@ class ConfigService:
 
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):
-            return False, "配置已更新到内存，但持久化到文件失败", self.plugin_config.to_dict()
+            return (
+                False,
+                "配置已更新到内存，但持久化到文件失败",
+                self._redact_config_for_response(self.plugin_config.to_dict()),
+            )
         astrbot_config = self._get_astrbot_config()
         if astrbot_config:
             self._remember_config_sync_state(astrbot_config)
@@ -1817,4 +1838,4 @@ class ConfigService:
         if any(key in _RESTART_REQUIRED_KEYS for key in changed_keys):
             message = f"{message}；部分变更重启后生效"
 
-        return True, message, self.plugin_config.to_dict()
+        return True, message, self._redact_config_for_response(self.plugin_config.to_dict())

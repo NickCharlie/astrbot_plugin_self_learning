@@ -14,6 +14,7 @@ except ImportError:
 
 from .config import WebUIConfig
 from .middleware.error_handler import register_error_handlers
+from .utils.response import add_no_store_headers
 
 
 def _get_or_create_secret_key(data_dir: str) -> str:
@@ -71,9 +72,7 @@ def _disable_dynamic_response_cache(app: Quart) -> None:
     @app.after_request
     async def _add_no_store_headers(response):
         if not request.path.startswith("/static/"):
-            response.headers.setdefault("Cache-Control", "no-store")
-            response.headers.setdefault("Pragma", "no-cache")
-            response.headers.setdefault("Expires", "0")
+            return add_no_store_headers(response)
         return response
 
 

@@ -14,6 +14,12 @@ from config import PluginConfig
 from webui.blueprints.config import config_bp
 
 
+def assert_no_store_headers(response):
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+
+
 def build_container(tmp_path: Path):
     plugin_config = PluginConfig.create_default()
     plugin_config.data_dir = str(tmp_path / "self_learning_data")
@@ -89,6 +95,7 @@ async def test_config_schema_route_returns_groups(client):
     response = await client.get("/api/config/schema")
 
     assert response.status_code == 200
+    assert_no_store_headers(response)
     data = await response.get_json()
     assert "groups" in data
     assert "warnings" in data
@@ -142,3 +149,60 @@ async def test_config_post_then_schema_refresh_returns_saved_values(client):
     assert fields["target_qq_list"]["value"] == ["10001", "group_20002"]
     assert fields["learning_interval_hours"]["value"] == 2
     assert fields["delegate_memory_to_livingmemory"]["value"] is False
+
+
+@pytest.mark.asyncio
+async def test_config_responses_redact_sensitive_fields(client):
+    secret_payload = {
+        "API_Settings": {
+            "api_key": "super-secret-api-key",
+            "enable_api_auth": True,
+        },
+        "Database_Settings": {
+            "mysql_password": "mysql-secret",
+            "postgresql_password": "postgres-secret",
+        },
+    }
+
+    update = await client.post("/api/config", json=secret_payload)
+    assert update.status_code == 200
+    assert_no_store_headers(update)
+    update_body = await update.get_data(as_text=True)
+    assert "super-secret-api-key" not in update_body
+    assert "mysql-secret" not in update_body
+    assert "postgres-secret" not in update_body
+    update_data = await update.get_json()
+    assert update_data["new_config"]["api_key"] == ""
+    assert update_data["new_config"]["mysql_password"] == ""
+    assert update_data["new_config"]["postgresql_password"] == ""
+
+    config_response = await client.get("/api/config")
+    assert config_response.status_code == 200
+    assert_no_store_headers(config_response)
+    config_body = await config_response.get_data(as_text=True)
+    assert "super-secret-api-key" not in config_body
+    assert "mysql-secret" not in config_body
+    assert "postgres-secret" not in config_body
+    config_data = await config_response.get_json()
+    assert config_data["api_key"] == ""
+    assert config_data["mysql_password"] == ""
+    assert config_data["postgresql_password"] == ""
+
+    schema_response = await client.get("/api/config/schema")
+    assert schema_response.status_code == 200
+    assert_no_store_headers(schema_response)
+    schema_body = await schema_response.get_data(as_text=True)
+    assert "super-secret-api-key" not in schema_body
+    assert "mysql-secret" not in schema_body
+    assert "postgres-secret" not in schema_body
+    schema_data = await schema_response.get_json()
+    assert schema_data["config"]["api_key"] == ""
+    fields = {
+        field["key"]: field
+        for group in schema_data["groups"]
+        for field in group["fields"]
+    }
+    for key in ("api_key", "mysql_password", "postgresql_password"):
+        assert fields[key]["widget"] == "password"
+        assert fields[key]["secret"] is True
+        assert fields[key]["value"] == ""

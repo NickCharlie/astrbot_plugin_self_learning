@@ -7,8 +7,14 @@ from quart import Blueprint, request
 from ..dependencies import get_container
 from ..middleware.hub_aspects import HubApiError, hub_route, hub_success
 from ..services.hub_service import HubService
+from ..utils.response import add_no_store_headers
 
 hub_bp = Blueprint("hub", __name__, url_prefix="/api/hub/v1")
+
+
+@hub_bp.after_request
+async def _disable_hub_response_cache(response):
+    return add_no_store_headers(response)
 
 
 def _service() -> HubService:

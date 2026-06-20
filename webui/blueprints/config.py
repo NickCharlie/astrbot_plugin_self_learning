@@ -10,9 +10,15 @@ from astrbot.api import logger
 from ..dependencies import get_container
 from ..services.config_service import ConfigService
 from ..middleware.auth import require_auth
-from ..utils.response import error_response
+from ..utils.response import add_no_store_headers, error_response
 
 config_bp = Blueprint('config', __name__, url_prefix='/api')
+
+
+@config_bp.after_request
+async def _disable_config_response_cache(response):
+    return add_no_store_headers(response)
+
 
 BASIC_DEPENDENCY_PACKAGES = [
     "aiohttp",

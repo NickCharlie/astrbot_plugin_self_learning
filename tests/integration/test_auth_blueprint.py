@@ -12,6 +12,12 @@ from webui.dependencies import get_container
 from webui.services.auth_service import INITIAL_WEBUI_PASSWORD_ENV_VAR
 
 
+def assert_no_store_headers(response):
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert response.headers["Expires"] == "0"
+
+
 @pytest.fixture
 async def app(mock_container):
     """Create test Quart application"""
@@ -68,6 +74,9 @@ class TestAuthBlueprint:
         })
 
         assert response.status_code == 200
+        assert_no_store_headers(response)
+        body = await response.get_data(as_text=True)
+        assert 'wrong_password' not in body
         data = await response.get_json()
         assert data['redirect'] == '/api/index'
 
@@ -89,6 +98,7 @@ class TestAuthBlueprint:
         response = await client.post('/api/logout')
 
         assert response.status_code == 200
+        assert_no_store_headers(response)
         data = await response.get_json()
         assert data.get('redirect') == '/api/index'
 
@@ -101,6 +111,10 @@ class TestAuthBlueprint:
         })
 
         assert response.status_code == 410
+        assert_no_store_headers(response)
+        body = await response.get_data(as_text=True)
+        assert 'OldPass123!' not in body
+        assert 'NewPass456!' not in body
         data = await response.get_json()
         assert data.get('success') is False
         assert data.get('redirect') == '/api/index'
@@ -183,6 +197,7 @@ class TestPasswordEnabledAuthBlueprint:
         response = await client.get('/api/index')
 
         assert response.status_code in [302, 303, 307]
+        assert_no_store_headers(response)
         assert response.headers["Location"].endswith("/api/login")
 
     @pytest.mark.asyncio
@@ -195,6 +210,9 @@ class TestPasswordEnabledAuthBlueprint:
 
         failed = await client.post('/api/login', json={'password': 'wrong_password'})
         assert failed.status_code == 401
+        assert_no_store_headers(failed)
+        failed_body = await failed.get_data(as_text=True)
+        assert 'wrong_password' not in failed_body
 
         response = await client.post(
             '/api/login',
@@ -202,6 +220,11 @@ class TestPasswordEnabledAuthBlueprint:
         )
 
         assert response.status_code == 200
+        assert_no_store_headers(response)
+        body = await response.get_data(as_text=True)
+        assert 'InitialPass123!' not in body
+        assert 'password_hash' not in body
+        assert 'salt' not in body
         data = await response.get_json()
         assert data['must_change'] is True
         assert data['redirect'] == '/api/plugin_change_password'
@@ -221,6 +244,12 @@ class TestPasswordEnabledAuthBlueprint:
         })
 
         assert response.status_code == 200
+        assert_no_store_headers(response)
+        body = await response.get_data(as_text=True)
+        assert 'InitialPass123!' not in body
+        assert 'NewPass123!' not in body
+        assert 'password_hash' not in body
+        assert 'salt' not in body
         data = await response.get_json()
         assert data["success"] is True
         assert data["redirect"] == "/api/index"
