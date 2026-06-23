@@ -19,6 +19,17 @@ class JargonService:
         self.container = container
         self.database_manager = container.database_manager
 
+    def _invalidate_query_cache(self) -> None:
+        """Best-effort invalidation for LLM jargon injection cache."""
+        plugin = getattr(self.container, 'plugin_instance', None)
+        query_service = getattr(plugin, 'jargon_query_service', None)
+        clear_cache = getattr(query_service, 'clear_cache', None)
+        if callable(clear_cache):
+            try:
+                clear_cache()
+            except Exception as e:
+                logger.debug(f"清理黑话查询缓存失败: {e}")
+
     @staticmethod
     def _format_jargon_for_frontend(j: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -83,6 +94,19 @@ class JargonService:
             'confirmed_jargon': count,
             'total_candidates': group.get('total_candidates', count),
         }
+
+    @staticmethod
+    def _dedupe_jargon_by_content(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Merge duplicate content rows while preserving the first result's priority."""
+        merged: List[Dict[str, Any]] = []
+        seen = set()
+        for item in items:
+            key = str(item.get('content') or item.get('term') or '').strip().casefold()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+        return merged
 
     async def get_jargon_stats(self, group_id: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -171,7 +195,9 @@ class JargonService:
                 local_only=local_only,
             )
 
-            formatted = [self._format_jargon_for_frontend(j) for j in jargons]
+            formatted = self._dedupe_jargon_by_content([
+                self._format_jargon_for_frontend(j) for j in jargons
+            ])
             if pending_only:
                 unfiltered_count = len(formatted)
                 formatted = [
@@ -180,6 +206,8 @@ class JargonService:
                 ]
                 if unfiltered_count != len(formatted):
                     total = len(formatted)
+            elif len(formatted) != len(jargons):
+                total = len(formatted)
 
             return {
                 'jargon_list': formatted,
@@ -229,7 +257,9 @@ class JargonService:
                 global_only=global_only,
                 local_only=local_only,
             )
-            formatted = [self._format_jargon_for_frontend(r) for r in results]
+            formatted = self._dedupe_jargon_by_content([
+                self._format_jargon_for_frontend(r) for r in results
+            ])
             if pending_only:
                 return [
                     item for item in formatted
@@ -281,6 +311,7 @@ class JargonService:
         try:
             success = await self.database_manager.delete_jargon_by_id(jargon_id)
             if success:
+                self._invalidate_query_cache()
                 logger.info(f"黑话 {jargon_id} 已删除")
                 return True, f"黑话 {jargon_id} 已删除"
             else:
@@ -318,6 +349,7 @@ class JargonService:
             success = await self.database_manager.update_jargon(payload)
             if not success:
                 return False, "审查失败", current
+            self._invalidate_query_cache()
 
             updated = await self.database_manager.get_jargon_by_id(jargon_id) or {
                 **current,
@@ -430,6 +462,9 @@ class JargonService:
                 payload["content"] = content
             if meaning is not None:
                 payload["meaning"] = meaning
+            if content is not None or meaning is not None:
+                payload["is_jargon"] = True
+                payload["is_complete"] = True
 
             if len(payload) <= 1:
                 return False, "没有需要更新的字段", self._format_jargon_for_frontend(current)
@@ -437,6 +472,7 @@ class JargonService:
             success = await self.database_manager.update_jargon(payload)
             if not success:
                 return False, "更新失败", self._format_jargon_for_frontend(current)
+            self._invalidate_query_cache()
 
             updated = await self.database_manager.get_jargon_by_id(jargon_id) or {**current, **payload}
             formatted = self._format_jargon_for_frontend(updated)
@@ -468,6 +504,7 @@ class JargonService:
             success = await self.database_manager.set_jargon_global(jargon_id, new_status)
 
             if success:
+                self._invalidate_query_cache()
                 status_text = "全局" if new_status else "非全局"
                 logger.info(f"黑话 {jargon_id} 已设置为{status_text}")
                 return True, f"黑话已设置为{status_text}", new_status
@@ -509,6 +546,7 @@ class JargonService:
 
         try:
             count = await self.database_manager.sync_global_jargon_to_group(target_group_id)
+            self._invalidate_query_cache()
             logger.info(f"已同步 {count} 个全局黑话到群组 {target_group_id}")
             return True, f"已同步 {count} 个全局黑话", count
         except Exception as e:

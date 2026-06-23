@@ -262,6 +262,38 @@ def test_dashboard_exposes_batch_review_actions():
     assert 'data-batch-review-action="delete"' in embedded_index
 
 
+def test_dashboard_review_queues_expose_keyword_search():
+    text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
+    embedded_index = (PLUGIN_ROOT / "pages" / "dashboard" / "index.html").read_text(encoding="utf-8")
+    embedded_script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
+
+    for token in [
+        "personaReviewSearchInput",
+        "styleReviewSearchInput",
+        "state.reviewSearch.persona",
+        "state.reviewSearch.style",
+        "keyword: state.reviewSearch.persona",
+        "keyword: state.reviewSearch.style",
+    ]:
+        assert token in text
+
+    for token in [
+        "persona-review-keyword",
+        "style-review-keyword",
+        "jargon-review-keyword",
+        "style-page-keyword",
+        "data-review-search=\"persona\"",
+        "data-review-search=\"style\"",
+        "data-review-search=\"jargon\"",
+    ]:
+        assert token in embedded_index
+
+    assert "persona_keyword" in embedded_script
+    assert "style_keyword" in embedded_script
+    assert "jargon_keyword" in embedded_script
+    assert "styleSearchParams" in embedded_script
+
+
 def test_dashboard_review_deletes_use_inline_confirmation():
     text = (PLUGIN_ROOT / "web_res" / "static" / "html" / "dashboard.html").read_text(encoding="utf-8")
 

@@ -310,6 +310,30 @@
       .filter(Boolean);
   }
 
+  function reviewSearchParams() {
+    const params = { limit: 50 };
+    const personaKeyword = $("persona-review-keyword")?.value?.trim() || "";
+    const styleKeyword = $("style-review-keyword")?.value?.trim() || "";
+    const jargonKeyword = $("jargon-review-keyword")?.value?.trim() || "";
+    if (personaKeyword) params.persona_keyword = personaKeyword;
+    if (styleKeyword) params.style_keyword = styleKeyword;
+    if (jargonKeyword) params.jargon_keyword = jargonKeyword;
+    return params;
+  }
+
+  function styleSearchParams() {
+    const params = { limit: 50 };
+    const keyword = $("style-page-keyword")?.value?.trim() || "";
+    if (keyword) params.keyword = keyword;
+    return params;
+  }
+
+  function clearCached(prefix) {
+    Object.keys(state.pageData)
+      .filter((key) => key === prefix || key.startsWith(`${prefix}:`))
+      .forEach((key) => delete state.pageData[key]);
+  }
+
   function refreshSelectionLabels() {
     ["persona", "style", "jargon"].forEach((kind) => {
       const ids = visibleReviewIds(kind);
@@ -482,9 +506,15 @@
         return;
       }
       if (page === "monitoring") return renderMonitoring(await cached("monitoring", () => apiGet("monitoring"), force));
-      if (page === "reviews") return renderReviews(await cached("reviews", () => apiGet("reviews", { limit: 50 }), force));
+      if (page === "reviews") {
+        const params = reviewSearchParams();
+        return renderReviews(await cached(`reviews:${JSON.stringify(params)}`, () => apiGet("reviews", params), force));
+      }
       if (page === "jargon-learning") return loadJargon(force);
-      if (page === "expression-learning") return renderStyle(await cached("style", () => apiGet("style", { limit: 50 }), force));
+      if (page === "expression-learning") {
+        const params = styleSearchParams();
+        return renderStyle(await cached(`style:${JSON.stringify(params)}`, () => apiGet("style", params), force));
+      }
       if (page === "persona-learning") return renderPersona(await cached("persona", () => apiGet("persona", { group_id: "default", limit: 30 }), force));
       if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
       if (page === "graphs") return loadGraphs(force);
@@ -501,6 +531,8 @@
     setBusy(t("status.loading", "加载中"));
     const data = await loader();
     state.pageData[key] = data;
+    if (key.startsWith("reviews:")) state.pageData.reviews = data;
+    if (key.startsWith("style:")) state.pageData.style = data;
     return data;
   }
 
@@ -1561,8 +1593,39 @@
     $("refresh-button")?.addEventListener("click", () => loadPageData(state.page, { force: true }));
     $("modal-close")?.addEventListener("click", closeModal);
     $("jargon-search-button")?.addEventListener("click", () => {
-      Object.keys(state.pageData).filter((key) => key.startsWith("jargon:")).forEach((key) => delete state.pageData[key]);
+      clearCached("jargon");
       loadJargon(true);
+    });
+    $("style-search-button")?.addEventListener("click", () => {
+      clearCached("style");
+      selectedReviewSet("style").clear();
+      loadPageData("expression-learning", { force: true });
+    });
+    qsa("[data-review-search]").forEach((buttonEl) => {
+      buttonEl.addEventListener("click", () => {
+        clearCached("reviews");
+        selectedReviewSet(buttonEl.dataset.reviewSearch || "").clear();
+        loadPageData("reviews", { force: true });
+      });
+    });
+    [
+      "persona-review-keyword",
+      "style-review-keyword",
+      "jargon-review-keyword",
+      "style-page-keyword",
+      "jargon-keyword",
+    ].forEach((id) => {
+      $(id)?.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        if (id === "style-page-keyword") {
+          $("style-search-button")?.click();
+        } else if (id === "jargon-keyword") {
+          $("jargon-search-button")?.click();
+        } else {
+          qs(`[data-review-search="${id.split("-")[0]}"]`)?.click();
+        }
+      });
     });
     $("copy-insight-context")?.addEventListener("click", async () => {
       const text = JSON.stringify(state.dashboard || {}, null, 2);

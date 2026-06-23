@@ -647,3 +647,43 @@ class TestPersonaReviewService:
 
         assert result['success'] is False
         assert 'approve' in result.get('error', '').lower() or 'reject' in result.get('error', '').lower()
+
+    @pytest.mark.asyncio
+    async def test_get_pending_persona_updates_keyword_filters_all_sources(self, mock_container):
+        """Keyword search should filter pending persona audit rows before paging."""
+        service = PersonaReviewService(mock_container)
+
+        first = Mock()
+        first.__dict__ = {
+            'id': 1,
+            'timestamp': 1000,
+            'group_id': 'g1',
+            'update_type': 'prompt_update',
+            'original_content': 'A',
+            'new_content': '普通内容',
+            'reason': '普通原因',
+            'status': 'pending',
+            'reviewer_comment': None,
+            'review_time': None,
+        }
+        second = Mock()
+        second.__dict__ = {
+            'id': 2,
+            'timestamp': 1001,
+            'group_id': 'g2',
+            'update_type': 'prompt_update',
+            'original_content': 'A',
+            'new_content': '包含赛博设定',
+            'reason': '命中关键词',
+            'status': 'pending',
+            'reviewer_comment': None,
+            'review_time': None,
+        }
+        mock_container.persona_updater.get_pending_persona_updates.return_value = [first, second]
+        mock_container.database_manager.get_pending_persona_learning_reviews.return_value = []
+        mock_container.database_manager.get_pending_style_reviews.return_value = []
+
+        result = await service.get_pending_persona_updates(keyword='赛博')
+
+        assert result['total'] == 1
+        assert result['updates'][0]['id'] == 2

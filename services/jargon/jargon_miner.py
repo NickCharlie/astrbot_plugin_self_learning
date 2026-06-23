@@ -498,55 +498,90 @@ class JargonMiner(AsyncServiceBase):
         """保存或更新黑话到数据库"""
 
         try:
-            # 查询现有记录 (返回字典或None)
-            existing_dict = await self.db.get_jargon(self.chat_id, content)
+            content = str(content or '').strip()
+            if not content:
+                return None
 
+            existing_dict = await self.db.get_jargon(self.chat_id, content)
+            existing_list: List[Any] = []
+            next_count = 1
             if existing_dict:
-                # 转换为Jargon对象
-                existing = Jargon(
+                existing_list = safe_parse_llm_json(existing_dict.get('raw_content')) or []
+                if not isinstance(existing_list, list):
+                    existing_list = [existing_list] if existing_list else []
+                existing_count = existing_dict.get('count') or 0
+                next_count = 1 if existing_dict.get('is_complete') else existing_count + 1
+
+            merged_list = list(dict.fromkeys(existing_list + raw_content_list))
+            payload = {
+                'raw_content': json.dumps(merged_list, ensure_ascii=False),
+                'is_jargon': None,
+                'count': next_count,
+                'last_inference_count': 0,
+                'is_complete': False,
+                'is_global': False,
+            }
+            if existing_dict:
+                payload.update({
+                    'meaning': existing_dict.get('meaning'),
+                    'is_jargon': existing_dict.get('is_jargon'),
+                    'last_inference_count': existing_dict.get('last_inference_count', 0),
+                    'is_complete': existing_dict.get('is_complete', False),
+                    'is_global': existing_dict.get('is_global', False),
+                })
+
+            if hasattr(self.db, 'save_or_update_jargon'):
+                jargon_id = await self.db.save_or_update_jargon(
+                    self.chat_id,
+                    content,
+                    payload,
+                )
+            elif existing_dict:
+                updated = Jargon(
                     id=existing_dict.get('id'),
-                    content=existing_dict.get('content', ''),
-                    raw_content=existing_dict.get('raw_content', '[]'),
+                    content=existing_dict.get('content', content),
+                    raw_content=payload['raw_content'],
                     meaning=existing_dict.get('meaning'),
                     is_jargon=existing_dict.get('is_jargon'),
-                    count=existing_dict.get('count', 1),
+                    count=next_count,
                     last_inference_count=existing_dict.get('last_inference_count', 0),
                     is_complete=existing_dict.get('is_complete', False),
                     is_global=existing_dict.get('is_global', False),
-                    chat_id=existing_dict.get('chat_id', ''),
+                    chat_id=existing_dict.get('chat_id', self.chat_id),
                     created_at=existing_dict.get('created_at'),
-                    updated_at=existing_dict.get('updated_at')
+                    updated_at=datetime.now(),
                 )
-
-                # 更新现有记录
-                existing.count = (existing.count or 0) + 1
-
-                # 合并 raw_content
-                existing_list = safe_parse_llm_json(existing.raw_content) or []
-                if not isinstance(existing_list, list):
-                    existing_list = [existing_list] if existing_list else []
-
-                merged_list = list(dict.fromkeys(existing_list + raw_content_list))
-                existing.raw_content = json.dumps(merged_list)
-                existing.updated_at = datetime.now()
-
-                # 转换为字典进行更新
-                await self.db.update_jargon(self._jargon_to_dict(existing))
-                return existing
+                await self.db.update_jargon(self._jargon_to_dict(updated))
+                return updated
             else:
-                # 创建新记录
-                jargon = Jargon(
+                created = Jargon(
                     content=content,
-                    raw_content=json.dumps(raw_content_list),
+                    raw_content=payload['raw_content'],
                     chat_id=self.chat_id,
                     count=1,
                     created_at=datetime.now(),
                     updated_at=datetime.now()
                 )
+                jargon_id = await self.db.insert_jargon(self._jargon_to_dict(created))
 
-                jargon_id = await self.db.insert_jargon(self._jargon_to_dict(jargon))
-                jargon.id = jargon_id
-                return jargon
+            saved_dict = await self.db.get_jargon(self.chat_id, content)
+            if not saved_dict:
+                return None
+
+            return Jargon(
+                id=saved_dict.get('id') or jargon_id,
+                content=saved_dict.get('content', content),
+                raw_content=saved_dict.get('raw_content', '[]'),
+                meaning=saved_dict.get('meaning'),
+                is_jargon=saved_dict.get('is_jargon'),
+                count=saved_dict.get('count', next_count),
+                last_inference_count=saved_dict.get('last_inference_count', 0),
+                is_complete=saved_dict.get('is_complete', False),
+                is_global=saved_dict.get('is_global', False),
+                chat_id=saved_dict.get('chat_id', self.chat_id),
+                created_at=saved_dict.get('created_at'),
+                updated_at=saved_dict.get('updated_at'),
+            )
 
         except Exception as e:
             logger.error(f"保存黑话失败: content={content}, error={e}")
@@ -573,6 +608,13 @@ class JargonMiner(AsyncServiceBase):
         """推断黑话含义并更新"""
 
         try:
+            current = await self.db.get_jargon(jargon.chat_id, jargon.content)
+            if current and current.get('is_complete'):
+                logger.debug(
+                    f"[{self.chat_id}] 黑话 {jargon.content} 已人工完成，跳过自动推断覆盖"
+                )
+                return
+
             raw_content_list = safe_parse_llm_json(jargon.raw_content) or []
             if not isinstance(raw_content_list, list):
                 raw_content_list = [raw_content_list] if raw_content_list else []

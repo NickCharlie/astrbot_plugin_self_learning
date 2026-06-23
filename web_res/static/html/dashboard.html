@@ -3253,6 +3253,9 @@
                     </div>
                 </div>
                 <div class="panel-body">
+                    <div class="content-toolbar" style="justify-content:flex-start;margin-bottom:10px;">
+                        <input id="personaReviewSearchInput" class="content-search" style="width:220px;height:32px;font-size:12px;" type="search" placeholder="搜索人格审核" autocomplete="off">
+                    </div>
                     <div id="personaList" class="list"></div>
                 </div>
             </div>
@@ -3274,6 +3277,9 @@
                     </div>
                 </div>
                 <div class="panel-body">
+                    <div class="content-toolbar" style="justify-content:flex-start;margin-bottom:10px;">
+                        <input id="styleReviewSearchInput" class="content-search" style="width:220px;height:32px;font-size:12px;" type="search" placeholder="搜索风格审核" autocomplete="off">
+                    </div>
                     <div id="styleList" class="list"></div>
                 </div>
             </div>
@@ -4068,6 +4074,10 @@
                     loading: false,
                     loaded: false,
                 },
+                reviewSearch: {
+                    persona: '',
+                    style: '',
+                },
                 jargon: {
                     page: 1,
                     pageSize: 10,
@@ -4109,6 +4119,17 @@
 
             function clamp(value, min = 0, max = 100) {
                 return Math.max(min, Math.min(max, value));
+            }
+
+            function buildUrl(path, params) {
+                const query = new URLSearchParams();
+                Object.entries(params || {}).forEach(([key, value]) => {
+                    if (value !== undefined && value !== null && String(value).trim() !== '') {
+                        query.set(key, value);
+                    }
+                });
+                const qs = query.toString();
+                return qs ? `${path}?${qs}` : path;
             }
 
             function formatCount(value) {
@@ -6218,6 +6239,8 @@
                 $('personaCount').textContent = `${formatCount(personaBacklog)} 条`;
                 $('styleCount').textContent = `${formatCount(styleBacklog)} 条`;
                 $('reviewedPersonaCount').textContent = `${formatCount(personaReviewed.total || 0)} 条`;
+                syncFieldValue('personaReviewSearchInput', state.reviewSearch.persona || '');
+                syncFieldValue('styleReviewSearchInput', state.reviewSearch.style || '');
                 $('personaList').innerHTML = renderPersonaQueue(personaUpdates);
                 const styleUpdatesFromPersona = personaUpdates.filter((item) => item && item.review_source === 'style_learning');
                 $('styleList').innerHTML = renderStyleQueue(styleUpdatesFromPersona.length ? styleUpdatesFromPersona : style.reviews);
@@ -9011,11 +9034,17 @@
                     safeFetch('/api/metrics/trends'),
                     safeFetch('/api/monitoring/health'),
                     safeFetch('/api/monitoring/functions'),
-                    safeFetch('/api/persona_updates?limit=10'),
+                    safeFetch(buildUrl('/api/persona_updates', {
+                        limit: 10,
+                        keyword: state.reviewSearch.persona,
+                    })),
                     safeFetch('/api/persona_updates/reviewed?limit=5'),
                     safeFetch('/api/persona_management/current?group_id=default'),
                     safeFetch('/api/persona_backups/list?limit=8'),
-                    safeFetch('/api/style_learning/reviews?limit=5'),
+                    safeFetch(buildUrl('/api/style_learning/reviews', {
+                        limit: 5,
+                        keyword: state.reviewSearch.style,
+                    })),
                     safeFetch('/api/jargon/stats'),
                     safeFetch('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
                     safeFetch('/api/style_learning/content_text'),
@@ -9350,6 +9379,40 @@
                     pipMirrorSelect.addEventListener('change', (event) => {
                         state.dependencyInstall.mirror = event.target.value || 'default';
                         localStorage.setItem('sl-pip-mirror', state.dependencyInstall.mirror);
+                    });
+                }
+
+                let reviewSearchTimer = null;
+                const personaReviewSearchInput = $('personaReviewSearchInput');
+                if (personaReviewSearchInput) {
+                    personaReviewSearchInput.addEventListener('keydown', (event) => {
+                        if (event.key !== 'Enter') return;
+                        clearTimeout(reviewSearchTimer);
+                        state.reviewSearch.persona = event.target.value || '';
+                        loadDashboard();
+                    });
+                    personaReviewSearchInput.addEventListener('input', (event) => {
+                        clearTimeout(reviewSearchTimer);
+                        reviewSearchTimer = setTimeout(() => {
+                            state.reviewSearch.persona = event.target.value || '';
+                            loadDashboard();
+                        }, 300);
+                    });
+                }
+                const styleReviewSearchInput = $('styleReviewSearchInput');
+                if (styleReviewSearchInput) {
+                    styleReviewSearchInput.addEventListener('keydown', (event) => {
+                        if (event.key !== 'Enter') return;
+                        clearTimeout(reviewSearchTimer);
+                        state.reviewSearch.style = event.target.value || '';
+                        loadDashboard();
+                    });
+                    styleReviewSearchInput.addEventListener('input', (event) => {
+                        clearTimeout(reviewSearchTimer);
+                        reviewSearchTimer = setTimeout(() => {
+                            state.reviewSearch.style = event.target.value || '';
+                            loadDashboard();
+                        }, 300);
                     });
                 }
 

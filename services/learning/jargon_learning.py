@@ -140,9 +140,10 @@ class JargonLearningModule:
 
             statistical_candidates = None
             if self._jargon_statistical_filter:
+                existing_terms = await self._get_existing_jargon_terms(group_id)
                 statistical_candidates = (
                     self._jargon_statistical_filter.get_jargon_candidates(
-                        group_id, top_k=20
+                        group_id, top_k=20, exclude_terms=existing_terms
                     )
                 )
                 if not statistical_candidates:
@@ -161,3 +162,23 @@ class JargonLearningModule:
                 f"[JargonMining] Background task failed (group={group_id}): {exc}",
                 exc_info=True,
             )
+
+    async def _get_existing_jargon_terms(self, group_id: str) -> Set[str]:
+        """Return existing DB jargon/candidate terms for statistical pre-filter exclusion."""
+        if not self._db_manager or not hasattr(self._db_manager, "get_recent_jargon_list"):
+            return set()
+        try:
+            rows = await self._db_manager.get_recent_jargon_list(
+                chat_id=group_id,
+                limit=1000,
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[JargonMining] Failed to load existing jargon terms for {group_id}: {exc}"
+            )
+            return set()
+        return {
+            str(row.get("content") or "").strip()
+            for row in (rows or [])
+            if str(row.get("content") or "").strip()
+        }

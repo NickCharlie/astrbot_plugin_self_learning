@@ -590,6 +590,7 @@
         "restore": "恢复",
         "save": "保存",
         "saveSettings": "保存设置",
+        "search": "搜索",
         "select": "选择",
         "selectAll": "全选",
         "setGlobal": "设为全局",
@@ -673,6 +674,9 @@
         "noBatchItems": "当前页没有可批量处理的审查项",
         "personaUpdates": "人格更新",
         "recentReviewed": "最近已审查",
+        "searchJargon": "搜索黑话候选",
+        "searchPersona": "搜索人格更新",
+        "searchStyle": "搜索表达方式",
         "title": "审查队列"
       },
       "jargon": {
@@ -707,6 +711,7 @@
         "patternJson": "学习模式 JSON",
         "patternsTitle": "学习模式",
         "pendingReviews": "待审查表达",
+        "searchPlaceholder": "搜索表达方式",
         "selectFirst": "请先选择表达审查项",
         "statsTitle": "表达统计",
         "title": "表达方式学习",
@@ -796,6 +801,25 @@
         "root": "MaiBot 项目目录",
         "rootHint": "例如 C:\\Users\\zacza\\Desktop\\x\\MaiBot；也可以只填写数据库路径。",
         "title": "MaiBot 学习数据迁移",
+        "waitingPreview": "等待预览。"
+      },
+      "qchat": {
+        "defaultGroup": "默认群组",
+        "defaultGroupHint": "留空时优先使用 manifest.json 中的群名称。",
+        "desc": "读取 QQChatExporter V5 chunked-jsonl、train_data.json 或 TXT/HTML 记录，写入原始消息学习队列。",
+        "destinations": "去向: 原始消息 -> {raw}; 学习队列 -> {queue}",
+        "done": "QQ 聊天记录操作完成",
+        "importCounts": "导入: 扫描 {seen} · 写入 {imported} · 重复 {duplicates}",
+        "includeTraining": "同时导入 train_data.json 问答对",
+        "maxMessages": "最大消息数",
+        "maxMessagesHint": "用于大文件安全限制。",
+        "missingPath": "请填写 QQ 聊天记录路径",
+        "path": "聊天记录路径",
+        "pathHint": "支持 QCE 导出目录、chunks/*.jsonl、train_data.json、TXT 或 HTML。",
+        "previewCounts": "预览: 消息 {messages} · Bot {bot} · 发送者 {senders}",
+        "reading": "正在读取 QQ 聊天记录...",
+        "title": "QQ 聊天记录导入",
+        "tokenCounts": "字符 {chars} · 预估 Tokens {tokens}",
         "waitingPreview": "等待预览。"
       },
       "settings": {

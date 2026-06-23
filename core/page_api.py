@@ -194,13 +194,14 @@ class PluginPageApi:
     async def get_style(self) -> dict[str, Any]:
         args = self._query()
         limit = self._query_int(args, "limit", 50)
+        keyword = self._query_value(args, "keyword") or ""
         try:
             container = self._container()
             LearningService = self._imports().LearningService
             service = LearningService(container)
             results, reviews, patterns = await asyncio.gather(
                 service.get_style_learning_results(),
-                service.get_style_learning_reviews(limit=limit),
+                service.get_style_learning_reviews(limit=limit, keyword=keyword),
                 service.get_style_learning_patterns(),
             )
             return self._ok(
@@ -290,6 +291,21 @@ class PluginPageApi:
                 limit=self._query_int(args, "limit", 50),
                 offset=self._query_int(args, "offset", 0),
                 status_filter=self._query_value(args, "status"),
+                persona_keyword=(
+                    self._query_value(args, "persona_keyword")
+                    or self._query_value(args, "keyword")
+                    or ""
+                ),
+                style_keyword=(
+                    self._query_value(args, "style_keyword")
+                    or self._query_value(args, "keyword")
+                    or ""
+                ),
+                jargon_keyword=(
+                    self._query_value(args, "jargon_keyword")
+                    or self._query_value(args, "keyword")
+                    or ""
+                ),
             )
         )
 
@@ -835,6 +851,9 @@ class PluginPageApi:
         limit: int = 50,
         offset: int = 0,
         status_filter: Optional[str] = None,
+        persona_keyword: str = "",
+        style_keyword: str = "",
+        jargon_keyword: str = "",
     ) -> dict[str, Any]:
         imports = self._imports()
         container = self._container()
@@ -850,6 +869,7 @@ class PluginPageApi:
                 lambda: review_service.get_pending_persona_updates(
                     limit=bounded_limit,
                     offset=max(0, offset),
+                    keyword=persona_keyword,
                 ),
                 errors,
                 default={"updates": [], "total": 0, "success": True},
@@ -866,17 +886,21 @@ class PluginPageApi:
             ),
             self._safe_section(
                 "style_reviews",
-                lambda: learning_service.get_style_learning_reviews(limit=bounded_limit),
+                lambda: learning_service.get_style_learning_reviews(
+                    limit=bounded_limit,
+                    keyword=style_keyword,
+                ),
                 errors,
                 default={"reviews": [], "total": 0},
             ),
             self._safe_section(
                 "jargon_pending",
-                lambda: jargon_service.get_jargon_list(
-                    page=1,
-                    page_size=min(bounded_limit, 50),
-                    confirmed=False,
-                    pending_only=True,
+                lambda: (
+                    self._load_pending_jargon_reviews(
+                        jargon_service,
+                        keyword=jargon_keyword,
+                        limit=min(bounded_limit, 50),
+                    )
                 ),
                 errors,
                 default={"jargon_list": [], "total": 0},
@@ -890,6 +914,33 @@ class PluginPageApi:
             "jargon_pending": pending_jargon,
             "errors": errors,
         }
+
+    async def _load_pending_jargon_reviews(
+        self,
+        jargon_service: Any,
+        *,
+        keyword: str = "",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        keyword = str(keyword or "").strip()
+        if keyword:
+            items = await jargon_service.search_jargon(
+                keyword,
+                pending_only=True,
+            )
+            return {
+                "jargon_list": items[:limit],
+                "total": len(items),
+                "page": 1,
+                "page_size": limit,
+                "total_pages": 1,
+            }
+        return await jargon_service.get_jargon_list(
+            page=1,
+            page_size=limit,
+            confirmed=False,
+            pending_only=True,
+        )
 
     async def _load_persona(self, *, group_id: str, limit: int) -> dict[str, Any]:
         imports = self._imports()

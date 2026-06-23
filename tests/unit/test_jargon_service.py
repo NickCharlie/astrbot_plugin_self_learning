@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -342,3 +342,57 @@ async def test_search_jargon_can_filter_review_status():
 
     assert [item["term"] for item in unconfirmed] == ["已驳回", "待审"]
     assert [item["term"] for item in pending] == ["待审"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_jargon_marks_manual_edit_complete_and_confirmed():
+    query_service = SimpleNamespace(clear_cache=Mock())
+    database_manager = SimpleNamespace(
+        get_jargon_by_id=AsyncMock(
+            side_effect=[
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "旧释义",
+                    "is_jargon": False,
+                    "is_complete": False,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+                {
+                    "id": 7,
+                    "content": "上强度",
+                    "meaning": "人工释义",
+                    "is_jargon": True,
+                    "is_complete": True,
+                    "count": 4,
+                    "chat_id": "group-a",
+                    "raw_content": "[]",
+                },
+            ]
+        ),
+        update_jargon=AsyncMock(return_value=True),
+    )
+    service = JargonService(
+        SimpleNamespace(
+            database_manager=database_manager,
+            plugin_instance=SimpleNamespace(jargon_query_service=query_service),
+        )
+    )
+
+    success, _, item = await service.update_jargon(7, meaning="人工释义")
+
+    assert success is True
+    assert item["is_confirmed"] is True
+    assert item["is_complete"] is True
+    database_manager.update_jargon.assert_awaited_once_with(
+        {
+            "id": 7,
+            "meaning": "人工释义",
+            "is_jargon": True,
+            "is_complete": True,
+        }
+    )
+    query_service.clear_cache.assert_called_once_with()

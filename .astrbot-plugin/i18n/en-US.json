@@ -590,6 +590,7 @@
         "restore": "Restore",
         "save": "Save",
         "saveSettings": "Save settings",
+        "search": "Search",
         "select": "Select",
         "selectAll": "Select all",
         "setGlobal": "Set global",
@@ -673,6 +674,9 @@
         "noBatchItems": "No review items can be processed on this page.",
         "personaUpdates": "Persona updates",
         "recentReviewed": "Recently reviewed",
+        "searchJargon": "Search jargon candidates",
+        "searchPersona": "Search persona updates",
+        "searchStyle": "Search expressions",
         "title": "Review Queue"
       },
       "jargon": {
@@ -707,6 +711,7 @@
         "patternJson": "Learning pattern JSON",
         "patternsTitle": "Learning Patterns",
         "pendingReviews": "Pending Expressions",
+        "searchPlaceholder": "Search expressions",
         "selectFirst": "Select expression reviews first.",
         "statsTitle": "Expression Stats",
         "title": "Expression Learning",
@@ -796,6 +801,25 @@
         "root": "MaiBot project directory",
         "rootHint": "For example C:\\Users\\zacza\\Desktop\\x\\MaiBot; you can also enter only a database path.",
         "title": "MaiBot Learning Data Migration",
+        "waitingPreview": "Waiting for preview."
+      },
+      "qchat": {
+        "defaultGroup": "Default group",
+        "defaultGroupHint": "When empty, the group name from manifest.json is preferred.",
+        "desc": "Read QQChatExporter V5 chunked-jsonl, train_data.json, TXT, or HTML records and write them into the raw message learning queue.",
+        "destinations": "Destinations: raw messages -> {raw}; learning queue -> {queue}",
+        "done": "QQ chat history operation completed",
+        "importCounts": "Import: scanned {seen} · written {imported} · duplicates {duplicates}",
+        "includeTraining": "Also import train_data.json Q&A pairs",
+        "maxMessages": "Maximum messages",
+        "maxMessagesHint": "Safety limit for large files.",
+        "missingPath": "Enter a QQ chat history path.",
+        "path": "Chat history path",
+        "pathHint": "Supports QCE export directories, chunks/*.jsonl, train_data.json, TXT, or HTML.",
+        "previewCounts": "Preview: messages {messages} · bot {bot} · senders {senders}",
+        "reading": "Reading QQ chat history...",
+        "title": "QQ Chat History Import",
+        "tokenCounts": "Characters {chars} · estimated tokens {tokens}",
         "waitingPreview": "Waiting for preview."
       },
       "settings": {

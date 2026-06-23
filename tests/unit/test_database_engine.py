@@ -687,6 +687,72 @@ async def test_jargon_sqlite_upsert_preserves_completed_manual_definition(tmp_pa
         await manager.stop()
 
 
+@pytest.mark.asyncio
+async def test_jargon_manual_edit_locks_definition_against_later_learning(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        enable_web_interface=False,
+        db_type="sqlite",
+    )
+    config.messages_db_path = str(tmp_path / "messages.db")
+    manager = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await manager.start() is True
+
+        jargon_id = await manager.save_or_update_jargon(
+            "group-manual",
+            "打爆",
+            {
+                "raw_content": "[\"自动学习上下文\"]",
+                "meaning": "自动释义",
+                "is_jargon": False,
+                "count": 5,
+                "is_complete": False,
+            },
+        )
+        assert await manager.update_jargon(
+            {
+                "id": jargon_id,
+                "meaning": "人工编辑释义",
+                "is_jargon": True,
+                "is_complete": True,
+            }
+        )
+
+        second_id = await manager.save_or_update_jargon(
+            "group-manual",
+            "打爆",
+            {
+                "raw_content": "[\"后续自动学习上下文\"]",
+                "meaning": "后续自动释义",
+                "is_jargon": False,
+                "count": 1,
+                "is_complete": False,
+            },
+        )
+
+        assert second_id == jargon_id
+
+        async with manager.get_session() as session:
+            row = (
+                await session.execute(
+                    select(Jargon).where(
+                        Jargon.chat_id == "group-manual",
+                        Jargon.content == "打爆",
+                    )
+                )
+            ).scalar_one()
+
+        assert row.meaning == "人工编辑释义"
+        assert row.raw_content == "[\"自动学习上下文\"]"
+        assert row.is_jargon is True
+        assert row.is_complete is True
+        assert row.count == 6
+    finally:
+        await manager.stop()
+
+
 def test_database_engine_mysql_uses_aiomysql_without_pool_pre_ping(monkeypatch):
     captured = {}
 

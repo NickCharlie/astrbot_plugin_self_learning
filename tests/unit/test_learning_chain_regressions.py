@@ -629,6 +629,56 @@ def test_fresh_jargon_miner_first_trigger_is_not_blocked_by_cooldown():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_jargon_miner_inference_does_not_overwrite_completed_manual_entry():
+    db = SimpleNamespace(
+        get_jargon=AsyncMock(
+            return_value={
+                "id": 7,
+                "content": "上强度",
+                "meaning": "人工释义",
+                "is_jargon": True,
+                "is_complete": True,
+                "chat_id": "group-a",
+            }
+        ),
+        update_jargon=AsyncMock(),
+    )
+    miner = JargonMiner(
+        chat_id="group-a",
+        llm_adapter=object(),
+        db_manager=db,
+        config=SimpleNamespace(),
+    )
+    miner.inference_engine.infer_meaning = AsyncMock(
+        return_value={
+            "is_jargon": False,
+            "meaning": "自动推断释义",
+            "no_info": False,
+        }
+    )
+    stale_jargon = SimpleNamespace(
+        id=7,
+        content="上强度",
+        raw_content='["旧上下文"]',
+        meaning="旧释义",
+        is_jargon=None,
+        count=3,
+        last_inference_count=0,
+        is_complete=False,
+        is_global=False,
+        chat_id="group-a",
+        created_at=None,
+        updated_at=None,
+    )
+
+    await miner.infer_and_update(stale_jargon)
+
+    miner.inference_engine.infer_meaning.assert_not_awaited()
+    db.update_jargon.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_message_pipeline_skips_expression_learning_without_realtime_mode_by_default():
     config = SimpleNamespace(
         enable_jargon_learning=False,
@@ -2042,3 +2092,145 @@ async def test_learning_service_style_review_exposes_detail_fields():
         }
     ]
     assert review["few_shot_pairs"] == [{"user": "你好", "bot": "我来了"}]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_learning_service_style_review_keyword_filters_detail_fields(monkeypatch):
+    class _FakePersonaReviewService:
+        def __init__(self, container):
+            self.container = container
+
+        async def _style_preview(self, group_id, review):
+            return {}
+
+        async def _load_change_snapshot(self, review_source, review_id):
+            return None
+
+        async def _build_change_preview(self, **kwargs):
+            return {}
+
+    monkeypatch.setattr(
+        "self_learning_EterU.webui.services.learning_service.PersonaReviewService",
+        _FakePersonaReviewService,
+    )
+
+    database_manager = SimpleNamespace(
+        get_pending_style_reviews=AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "group_id": "group-a",
+                    "description": "普通表达",
+                    "timestamp": 1,
+                    "created_at": "2026-05-25T00:00:00",
+                    "status": "pending",
+                    "learned_patterns": "[]",
+                    "few_shots_content": "A: 你好\nB: 你好",
+                },
+                {
+                    "id": 2,
+                    "group_id": "group-b",
+                    "description": "命中关键词",
+                    "timestamp": 2,
+                    "created_at": "2026-05-25T00:00:01",
+                    "status": "pending",
+                    "learned_patterns": json.dumps([{"expression": "拉满"}], ensure_ascii=False),
+                    "few_shots_content": "A: 加速\nB: 直接拉满",
+                },
+            ]
+        )
+    )
+    service = LearningService(SimpleNamespace(database_manager=database_manager))
+
+    result = await service.get_style_learning_reviews(keyword="拉满")
+
+    assert [review["id"] for review in result["reviews"]] == [2]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_jargon_miner_save_uses_facade_upsert_and_preserves_manual_lock():
+    db = SimpleNamespace()
+    db.get_jargon = AsyncMock(
+        side_effect=[
+            {
+                "id": 7,
+                "content": "拉满",
+                "raw_content": '["人工上下文"]',
+                "meaning": "人工释义",
+                "is_jargon": True,
+                "count": 5,
+                "last_inference_count": 5,
+                "is_complete": True,
+                "is_global": True,
+                "chat_id": "group-a",
+                "created_at": 1,
+                "updated_at": 2,
+            },
+            {
+                "id": 7,
+                "content": "拉满",
+                "raw_content": '["人工上下文"]',
+                "meaning": "人工释义",
+                "is_jargon": True,
+                "count": 6,
+                "last_inference_count": 5,
+                "is_complete": True,
+                "is_global": True,
+                "chat_id": "group-a",
+                "created_at": 1,
+                "updated_at": 3,
+            },
+        ]
+    )
+    db.save_or_update_jargon = AsyncMock(return_value=7)
+
+    miner = JargonMiner("group-a", llm_adapter=SimpleNamespace(), db_manager=db, config=SimpleNamespace())
+
+    saved = await miner.save_or_update_jargon("拉满", ["新上下文"])
+
+    assert saved.id == 7
+    assert saved.count == 6
+    db.save_or_update_jargon.assert_awaited_once()
+    _, _, payload = db.save_or_update_jargon.await_args.args
+    assert payload["count"] == 1
+    assert payload["meaning"] == "人工释义"
+    assert payload["is_complete"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_jargon_miner_new_candidate_stays_pending_when_using_facade_upsert():
+    db = SimpleNamespace()
+    db.get_jargon = AsyncMock(
+        side_effect=[
+            None,
+            {
+                "id": 8,
+                "content": "上强度",
+                "raw_content": '["新上下文"]',
+                "meaning": None,
+                "is_jargon": None,
+                "count": 1,
+                "last_inference_count": 0,
+                "is_complete": False,
+                "is_global": False,
+                "chat_id": "group-a",
+                "created_at": 1,
+                "updated_at": 1,
+            },
+        ]
+    )
+    db.save_or_update_jargon = AsyncMock(return_value=8)
+
+    miner = JargonMiner("group-a", llm_adapter=SimpleNamespace(), db_manager=db, config=SimpleNamespace())
+
+    saved = await miner.save_or_update_jargon("上强度", ["新上下文"])
+
+    assert saved.id == 8
+    assert saved.is_jargon is None
+    assert saved.is_complete is False
+    _, _, payload = db.save_or_update_jargon.await_args.args
+    assert payload["is_jargon"] is None
+    assert payload["is_complete"] is False

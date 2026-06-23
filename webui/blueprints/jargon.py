@@ -411,12 +411,14 @@ async def set_jargon_global_status(jargon_id: int):
         data = await request.get_json()
         is_global = data.get('is_global', True)
 
-        # 直接调用数据库方法（set_global 不需要 toggle 逻辑）
+        # 直接设置全局状态，同时清理 LLM 黑话查询缓存
         database_manager = container.database_manager
         if not database_manager:
             return error_response("数据库管理器未初始化", 500)
 
         result = await database_manager.set_jargon_global(jargon_id, is_global)
+        if result:
+            jargon_service._invalidate_query_cache()
 
         if result:
             status_text = "全局共享" if is_global else "取消全局共享"

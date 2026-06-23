@@ -40,6 +40,10 @@ class JargonQueryService:
         """设置缓存 - TTLCache 自动管理 TTL"""
         self._cache[key] = data
 
+    def clear_cache(self) -> None:
+        """清空黑话查询缓存。"""
+        self._cache.clear()
+
     async def query_jargon(
         self,
         keyword: str,
@@ -60,7 +64,8 @@ class JargonQueryService:
             格式化的黑话含义说明文本
         """
         try:
-            results = []
+            group_results: List[Dict[str, Any]] = []
+            global_results: List[Dict[str, Any]] = []
 
             # 1. 首先搜索群组特定黑话
             if chat_id:
@@ -70,22 +75,22 @@ class JargonQueryService:
                     confirmed_only=True,
                     limit=limit
                 )
-                results.extend(group_results)
 
-            # 2. 如果结果不足且需要包含全局黑话
-            if include_global and len(results) < limit:
+            # 2. 同时搜索全局黑话，避免本群结果填满 limit 后完全看不到全局释义
+            if include_global:
                 global_results = await self.db.search_jargon(
                     keyword=keyword,
                     chat_id=None, # 搜索全局黑话
                     confirmed_only=True,
                     global_only=True,
-                    limit=limit - len(results)
+                    limit=limit
                 )
-                # 去重
-                existing_ids = {r['id'] for r in results}
-                for gr in global_results:
-                    if gr['id'] not in existing_ids:
-                        results.append(gr)
+
+            results = self._merge_jargon_by_content(
+                group_results,
+                global_results,
+                limit=limit,
+            )
 
             # 格式化输出
             if not results:
@@ -128,10 +133,9 @@ class JargonQueryService:
             return cached
 
         try:
-            jargon_list = await self.db.get_recent_jargon_list(
+            jargon_list = await self._get_group_and_global_jargon_list(
                 chat_id=chat_id,
                 limit=limit,
-                only_confirmed=True
             )
 
             if not jargon_list:
@@ -139,7 +143,7 @@ class JargonQueryService:
                 self._set_to_cache(cache_key, result)
                 return result
 
-            lines = [f"群组常用黑话 ({len(jargon_list)}个):"]
+            lines = [f"群组/全局常用黑话 ({len(jargon_list)}个):"]
             for j in jargon_list:
                 meaning = j['meaning'] if j['meaning'] else '含义待推断'
                 lines.append(f"- 「{j['content']}」: {meaning}")
@@ -171,16 +175,15 @@ class JargonQueryService:
             如果找到黑话则返回解释文本,否则返回None
         """
         try:
-            # 先从缓存获取该群组的黑话列表
+            # 先从缓存获取该群组 + 全局共享的黑话列表
             cache_key = f"jargon_list_{chat_id}"
             jargon_list = self._get_from_cache(cache_key)
 
             if jargon_list is None:
                 # 缓存未命中，从数据库获取
-                jargon_list = await self.db.get_recent_jargon_list(
+                jargon_list = await self._get_group_and_global_jargon_list(
                     chat_id=chat_id,
                     limit=100,
-                    only_confirmed=True
                 )
                 # 缓存黑话列表
                 self._set_to_cache(cache_key, jargon_list)
@@ -221,6 +224,57 @@ class JargonQueryService:
             logger.error(f"检查黑话失败: {e}")
             return None
 
+    async def _get_group_and_global_jargon_list(
+        self,
+        chat_id: str,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        """Return confirmed jargon from the current group plus global shared terms.
+
+        ``limit`` is applied per source. This keeps confirmed global jargon visible
+        even when a busy group already has many local jargon rows.
+        """
+        if limit <= 0:
+            return []
+
+        group_results: List[Dict[str, Any]] = []
+        if chat_id:
+            group_results = await self.db.get_recent_jargon_list(
+                chat_id=chat_id,
+                limit=limit,
+                only_confirmed=True,
+            )
+
+        global_results = await self.db.get_recent_jargon_list(
+            chat_id=None,
+            limit=limit,
+            only_confirmed=True,
+            global_only=True,
+        )
+
+        return self._merge_jargon_by_content(group_results, global_results)
+
+    @staticmethod
+    def _merge_jargon_by_content(
+        *batches: List[Dict[str, Any]],
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Merge jargon rows by normalized content while preserving source priority."""
+        merged: List[Dict[str, Any]] = []
+        seen_contents = set()
+        for batch in batches:
+            for item in batch or []:
+                content = str(item.get('content') or '').strip()
+                dedupe_key = content.casefold()
+                if not dedupe_key or dedupe_key in seen_contents:
+                    continue
+                seen_contents.add(dedupe_key)
+                merged.append(item)
+                if limit is not None and len(merged) >= limit:
+                    return merged
+
+        return merged
+
     @staticmethod
     def _contains_jargon(text: str, content: str) -> bool:
         """判断文本是否真正命中黑话，减少子串误匹配。"""
@@ -233,13 +287,6 @@ class JargonQueryService:
                 rf'(?<![A-Za-z0-9_+-]){re.escape(content)}(?![A-Za-z0-9_+-])',
                 text,
                 flags=re.IGNORECASE,
-            ) is not None
-
-        # 两字中文词太容易误命中，要求完整出现且不被更长连续中文串包裹。
-        if len(content) <= 2 and re.fullmatch(r'[\u4e00-\u9fff]+', content):
-            return re.search(
-                rf'(?<![\u4e00-\u9fff]){re.escape(content)}(?![\u4e00-\u9fff])',
-                text,
             ) is not None
 
         return content in text

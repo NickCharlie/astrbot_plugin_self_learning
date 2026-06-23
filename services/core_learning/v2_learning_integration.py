@@ -728,7 +728,27 @@ class V2LearningIntegration:
             db = self._db
 
             async def _jargon_batch(group_id: str) -> None:
-                candidates = jf2.get_jargon_candidates(group_id, top_k=20)
+                exclude_terms = set()
+                if db and hasattr(db, "get_recent_jargon_list"):
+                    try:
+                        rows = await db.get_recent_jargon_list(
+                            chat_id=group_id,
+                            limit=1000,
+                        )
+                        exclude_terms = {
+                            str(row.get("content") or "").strip()
+                            for row in (rows or [])
+                            if str(row.get("content") or "").strip()
+                        }
+                    except Exception as exc:
+                        logger.debug(
+                            f"[V2Integration] load jargon exclusions failed: {exc}"
+                        )
+                candidates = jf2.get_jargon_candidates(
+                    group_id,
+                    top_k=20,
+                    exclude_terms=exclude_terms,
+                )
                 if not candidates or not llm:
                     return
                 for candidate in candidates[:10]:

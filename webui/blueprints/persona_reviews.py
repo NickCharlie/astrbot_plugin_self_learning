@@ -19,10 +19,15 @@ async def get_pending_persona_updates():
     try:
         limit = int(request.args.get('limit', 0))  # 0 = 返回全部
         offset = int(request.args.get('offset', 0))
+        keyword = request.args.get('keyword', '').strip()
 
         container = get_container()
         review_service = PersonaReviewService(container)
-        result = await review_service.get_pending_persona_updates(limit=limit, offset=offset)
+        result = await review_service.get_pending_persona_updates(
+            limit=limit,
+            offset=offset,
+            keyword=keyword,
+        )
 
         return jsonify(result), 200
 

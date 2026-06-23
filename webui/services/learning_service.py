@@ -70,12 +70,17 @@ class LearningService:
 
         return results_data
 
-    async def get_style_learning_reviews(self, limit: int = 50) -> Dict[str, Any]:
+    async def get_style_learning_reviews(
+        self,
+        limit: int = 50,
+        keyword: str = "",
+    ) -> Dict[str, Any]:
         """
         获取对话风格学习审查列表
 
         Args:
             limit: 最大返回数量
+            keyword: 关键词过滤，匹配描述、群组、样本、模式等审查内容
 
         Returns:
             Dict: 审查列表和总数
@@ -132,10 +137,27 @@ class LearningService:
                 logger.warning(f"构建风格学习审查预览失败 id={review.get('id')}: {e}", exc_info=True)
             formatted_reviews.append(formatted_review)
 
+        if keyword:
+            formatted_reviews = [
+                review for review in formatted_reviews
+                if self._matches_keyword(review, keyword)
+            ]
+
         return {
             'reviews': formatted_reviews,
             'total': len(formatted_reviews)
         }
+
+    @staticmethod
+    def _matches_keyword(item: Dict[str, Any], keyword: str) -> bool:
+        needle = str(keyword or "").strip().casefold()
+        if not needle:
+            return True
+        try:
+            haystack = json.dumps(item, ensure_ascii=False, default=str).casefold()
+        except TypeError:
+            haystack = str(item).casefold()
+        return needle in haystack
 
     @staticmethod
     def _parse_jsonish(value: Any) -> Any:

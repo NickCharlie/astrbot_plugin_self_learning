@@ -1,6 +1,7 @@
 """
 人格审查服务 - 处理人格更新审查相关业务逻辑
 """
+import json
 import time
 import re
 from typing import Dict, Any, List, Tuple, Optional
@@ -493,13 +494,19 @@ class PersonaReviewService:
         except Exception as e:
             logger.warning(f"保存风格学习审查快照失败 id={review_id}: {e}", exc_info=True)
 
-    async def get_pending_persona_updates(self, limit: int = 0, offset: int = 0) -> Dict[str, Any]:
+    async def get_pending_persona_updates(
+        self,
+        limit: int = 0,
+        offset: int = 0,
+        keyword: str = "",
+    ) -> Dict[str, Any]:
         """
         获取所有待审查的人格更新 (整合三种数据源，支持分页)
 
         Args:
             limit: 每页数量，0 表示返回全部
             offset: 偏移量
+            keyword: 关键词过滤，匹配人格更新内容、原因、群组、元数据等
 
         Returns:
             Dict: 包含待审查更新的字典，含 total 字段
@@ -726,6 +733,12 @@ class PersonaReviewService:
         # 按时间倒序排列
         all_updates.sort(key=lambda x: x.get('timestamp', 0), reverse=True)
 
+        if keyword:
+            all_updates = [
+                update for update in all_updates
+                if self._matches_review_keyword(update, keyword)
+            ]
+
         total = len(all_updates)
 
         logger.info(f"共 {total} 条人格更新记录 (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, "
@@ -744,6 +757,17 @@ class PersonaReviewService:
             "updates": paged_updates,
             "total": total
         }
+
+    @staticmethod
+    def _matches_review_keyword(item: Dict[str, Any], keyword: str) -> bool:
+        needle = str(keyword or "").strip().casefold()
+        if not needle:
+            return True
+        try:
+            haystack = json.dumps(item, ensure_ascii=False, default=str).casefold()
+        except TypeError:
+            haystack = str(item).casefold()
+        return needle in haystack
 
     async def review_persona_update(
         self,

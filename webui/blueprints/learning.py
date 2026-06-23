@@ -86,9 +86,14 @@ async def get_style_learning_results():
 async def get_style_learning_reviews():
     """获取对话风格学习审查列表"""
     try:
+        limit = int(request.args.get('limit', 50))
+        keyword = request.args.get('keyword', '').strip()
         container = get_container()
         learning_service = LearningService(container)
-        reviews_data = await learning_service.get_style_learning_reviews(limit=50)
+        reviews_data = await learning_service.get_style_learning_reviews(
+            limit=limit,
+            keyword=keyword,
+        )
 
         return jsonify(reviews_data), 200
 

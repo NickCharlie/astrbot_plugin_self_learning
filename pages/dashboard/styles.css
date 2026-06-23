@@ -843,6 +843,13 @@ html[data-theme="dark"] .settings-warning {
   margin-bottom: 10px;
 }
 
+.audit-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
 .toolbar-panel {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) 150px 150px auto;
@@ -1248,6 +1255,10 @@ textarea {
 
   .toolbar-panel {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .audit-search-row {
+    grid-template-columns: 1fr;
   }
 
   .table-row,
