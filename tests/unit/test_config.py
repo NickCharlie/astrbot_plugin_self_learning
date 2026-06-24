@@ -205,6 +205,20 @@ class TestPluginConfigFromDict:
         assert config.refine_provider_id == 'provider_2'
         assert config.reinforce_provider_id == 'provider_3'
 
+    def test_create_from_config_accepts_flat_model_provider_settings(self):
+        """AstrBot/runtime payloads may provide role providers without grouping."""
+        raw_config = {
+            'filter_provider_id': 'provider_filter',
+            'refine_provider_id': 'provider_refine',
+            'reinforce_provider_id': 'provider_reinforce',
+        }
+
+        config = PluginConfig.create_from_config(raw_config, data_dir="/tmp/test")
+
+        assert config.filter_provider_id == 'provider_filter'
+        assert config.refine_provider_id == 'provider_refine'
+        assert config.reinforce_provider_id == 'provider_reinforce'
+
     def test_create_from_config_missing_data_dir(self):
         """Test config creation with empty data_dir uses fallback."""
         config = PluginConfig.create_from_config({}, data_dir="")
@@ -743,6 +757,38 @@ class TestPluginConfigSerialization:
         assert config.db_type == "sqlite"
         assert config.postgresql_host == "pg"
         assert config.enable_message_capture is False
+
+    def test_create_from_runtime_sources_keeps_runtime_role_providers_over_stale_empty_persisted_values(self, tmp_path):
+        """Old WebUI snapshots with empty provider IDs must not erase plugin-page choices."""
+        config_file = tmp_path / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "Model_Configuration": {
+                        "filter_provider_id": None,
+                        "refine_provider_id": "",
+                    },
+                    "reinforce_provider_id": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        config = PluginConfig.create_from_runtime_sources(
+            {
+                "Model_Configuration": {
+                    "filter_provider_id": "siliconflow/Qwen/Qwen3-8B",
+                    "refine_provider_id": "deepseek/deepseek-v4-flash",
+                    "reinforce_provider_id": "deepseek/deepseek-v4-pro",
+                }
+            },
+            data_dir=str(tmp_path),
+            config_file=str(config_file),
+        )
+
+        assert config.filter_provider_id == "siliconflow/Qwen/Qwen3-8B"
+        assert config.refine_provider_id == "deepseek/deepseek-v4-flash"
+        assert config.reinforce_provider_id == "deepseek/deepseek-v4-pro"
 
     def test_create_from_runtime_sources_top_level_overrides_grouped_config(self, tmp_path):
         """Top-level persisted fields should win over grouped persisted fields."""

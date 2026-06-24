@@ -22,6 +22,11 @@ POSTGRESQL_DB_TYPE_ALIASES = {"postgres", "pg", "pgsql"}
 HIGH_COST_LIGHTRAG_QUERY_MODES = {"hybrid", "mix"}
 CACHE_FRIENDLY_LLM_HOOK_TARGET = "extra_user_content_parts"
 LEGACY_LLM_HOOK_TARGETS = {"system_prompt", "prompt"}
+ROLE_PROVIDER_ID_FIELDS = (
+    "filter_provider_id",
+    "refine_provider_id",
+    "reinforce_provider_id",
+)
 LLM_HOOK_TARGET_ALIASES = {
     "extra_user_content_parts": CACHE_FRIENDLY_LLM_HOOK_TARGET,
     "extra_user_content": CACHE_FRIENDLY_LLM_HOOK_TARGET,
@@ -57,6 +62,18 @@ def _read_config_value(config_like: Any, key: str, default: Any = None) -> Any:
                 return group.get(key, default)
         return default
     return getattr(config_like, key, default)
+
+
+def _read_grouped_or_flat(
+    config_like: Dict[str, Any],
+    group_key: str,
+    field_key: str,
+    default: Any = None,
+) -> Any:
+    group = config_like.get(group_key, {})
+    if isinstance(group, dict) and field_key in group:
+        return group.get(field_key, default)
+    return config_like.get(field_key, default)
 
 
 def _read_config_bool(config_like: Any, key: str, default: bool = False) -> bool:
@@ -383,12 +400,23 @@ class PluginConfig(BaseModel):
         basic_settings = config.get('Self_Learning_Basic', {})
         target_settings = config.get('Target_Settings', {})
         model_configuration = config.get('Model_Configuration', {})
+        if not isinstance(model_configuration, dict):
+            model_configuration = {}
+        filter_provider_id = _read_grouped_or_flat(
+            config, 'Model_Configuration', 'filter_provider_id', None
+        )
+        refine_provider_id = _read_grouped_or_flat(
+            config, 'Model_Configuration', 'refine_provider_id', None
+        )
+        reinforce_provider_id = _read_grouped_or_flat(
+            config, 'Model_Configuration', 'reinforce_provider_id', None
+        )
 
         # 添加调试日志：显示原始配置数据
         logger.info(f" [配置加载] Model_Configuration原始数据: {model_configuration}")
-        logger.info(f" [配置加载] filter_provider_id: {model_configuration.get('filter_provider_id', 'NOT_FOUND')}")
-        logger.info(f" [配置加载] refine_provider_id: {model_configuration.get('refine_provider_id', 'NOT_FOUND')}")
-        logger.info(f" [配置加载] reinforce_provider_id: {model_configuration.get('reinforce_provider_id', 'NOT_FOUND')}")
+        logger.info(f" [配置加载] filter_provider_id: {filter_provider_id}")
+        logger.info(f" [配置加载] refine_provider_id: {refine_provider_id}")
+        logger.info(f" [配置加载] reinforce_provider_id: {reinforce_provider_id}")
 
         learning_params = config.get('Learning_Parameters', {})
         filter_params = config.get('Filter_Parameters', {})
@@ -440,9 +468,9 @@ class PluginConfig(BaseModel):
             target_blacklist=target_settings.get('target_blacklist', []),
             current_persona_name=target_settings.get('current_persona_name', ''),
 
-            filter_provider_id=model_configuration.get('filter_provider_id', None),
-            refine_provider_id=model_configuration.get('refine_provider_id', None),
-            reinforce_provider_id=model_configuration.get('reinforce_provider_id', None),
+            filter_provider_id=filter_provider_id,
+            refine_provider_id=refine_provider_id,
+            reinforce_provider_id=reinforce_provider_id,
 
             # v2 Architecture
             embedding_provider_id=v2_settings.get('embedding_provider_id', None),
@@ -658,6 +686,13 @@ class PluginConfig(BaseModel):
 
         merged = runtime_config.to_dict()
         persisted_config = cls._flatten_config_payload(persisted_data)
+        for provider_field in ROLE_PROVIDER_ID_FIELDS:
+            if (
+                getattr(runtime_config, provider_field, None)
+                and not persisted_config.get(provider_field)
+            ):
+                persisted_config.pop(provider_field, None)
+
         overridden = sorted(
             key
             for key, value in persisted_config.items()
