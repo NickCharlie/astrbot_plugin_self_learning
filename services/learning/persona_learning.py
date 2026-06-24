@@ -5,6 +5,7 @@ learning. The progressive learning service remains the batch orchestrator.
 """
 
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -18,6 +19,20 @@ from ..monitoring.instrumentation import monitored
 
 class PersonaLearningModule:
     """Generate persona candidates and create review records."""
+
+    _NO_PERSONA_UPDATE_PHRASES = (
+        "无需更新",
+        "不需要更新",
+        "没有需要更新",
+        "无需要更新",
+        "无需修改",
+        "不需要修改",
+        "没有必要更新",
+        "保持不变",
+        "no update",
+        "no changes",
+        "no change",
+    )
 
     def __init__(
         self,
@@ -441,10 +456,20 @@ class PersonaLearningModule:
             original_prompt = current_persona.get("prompt", "")
             new_prompt = updated_persona.get("prompt", "")
 
-            if len(new_prompt) > len(original_prompt):
+            if new_prompt.startswith(original_prompt):
                 incremental_content = new_prompt[len(original_prompt):].strip()
             else:
                 incremental_content = new_prompt
+
+            if self._is_no_update_persona_output(
+                updated_persona,
+                incremental_content,
+            ):
+                logger.info(
+                    "人格学习模型明确判断无需更新，跳过审查记录创建 "
+                    f"(group: {group_id})"
+                )
+                return None
 
             metadata = {
                 "progressive_learning": True,
@@ -510,6 +535,39 @@ class PersonaLearningModule:
         except Exception as exc:
             logger.error(f"创建人格学习审查记录失败: {exc}", exc_info=True)
             return None
+
+    @staticmethod
+    def _normalize_persona_update_text(value: Any) -> str:
+        text = str(value or "").strip().lower()
+        return re.sub(r"[\s，。,.!！?？；;：:\"'“”‘’（）()\[\]【】<>《》]+", "", text)
+
+    @classmethod
+    def _is_no_update_persona_output(
+        cls,
+        updated_persona: Any,
+        incremental_content: str,
+    ) -> bool:
+        if isinstance(updated_persona, dict):
+            should_update = updated_persona.get("should_update")
+            if should_update is False:
+                return True
+            if isinstance(should_update, str) and should_update.strip().lower() in {
+                "false",
+                "no",
+                "0",
+                "否",
+                "不",
+            }:
+                return True
+
+        normalized = cls._normalize_persona_update_text(incremental_content)
+        if not normalized:
+            return True
+
+        return len(normalized) <= 80 and any(
+            cls._normalize_persona_update_text(phrase) in normalized
+            for phrase in cls._NO_PERSONA_UPDATE_PHRASES
+        )
 
     @staticmethod
     def _coerce_persona(

@@ -43,6 +43,7 @@ from self_learning_EterU.services.integration.maibot_enhanced_learning_manager i
 )
 from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
 from self_learning_EterU.services.learning.remember_service import RememberService
+from self_learning_EterU.services.learning.persona_learning import PersonaLearningModule
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
@@ -238,6 +239,62 @@ async def test_manual_learning_batch_generates_persona_review():
     service.db_manager.add_persona_learning_review.assert_awaited_once()
     review_kwargs = service.db_manager.add_persona_learning_review.await_args.kwargs
     assert review_kwargs["proposed_content"] == "手动学习新增人格特征"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persona_learning_skips_review_when_model_decides_no_update():
+    module = PersonaLearningModule(
+        config=SimpleNamespace(),
+        context=SimpleNamespace(),
+        db_manager=SimpleNamespace(add_persona_learning_review=AsyncMock(return_value=1)),
+        persona_manager=SimpleNamespace(),
+        multidimensional_analyzer=SimpleNamespace(),
+        prompts=SimpleNamespace(),
+        resolve_umo=lambda group_id: group_id,
+        json_serializer=str,
+    )
+
+    review_id = await module.create_persona_review(
+        "group-a",
+        AnalysisResult(success=True, confidence=0.8, data={"summary": "稳定"}),
+        [{"message": "最近风格稳定"}],
+        current_persona={"prompt": "原人格", "name": "default"},
+        updated_persona={
+            "prompt": "无需更新人格，当前设定已经足够稳定。",
+            "should_update": False,
+            "reason": "没有新的稳定特征",
+        },
+    )
+
+    assert review_id is None
+    module.db_manager.add_persona_learning_review.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persona_learning_skips_short_no_update_text_review():
+    module = PersonaLearningModule(
+        config=SimpleNamespace(),
+        context=SimpleNamespace(),
+        db_manager=SimpleNamespace(add_persona_learning_review=AsyncMock(return_value=1)),
+        persona_manager=SimpleNamespace(),
+        multidimensional_analyzer=SimpleNamespace(),
+        prompts=SimpleNamespace(),
+        resolve_umo=lambda group_id: group_id,
+        json_serializer=str,
+    )
+
+    review_id = await module.create_persona_review(
+        "group-a",
+        AnalysisResult(success=True, confidence=0.8, data={"summary": "稳定"}),
+        [{"message": "最近没有新风格"}],
+        current_persona={"prompt": "原人格", "name": "default"},
+        updated_persona={"prompt": "不需要更新人格。", "name": "default"},
+    )
+
+    assert review_id is None
+    module.db_manager.add_persona_learning_review.assert_not_awaited()
 
 
 @pytest.mark.unit
