@@ -1,5 +1,6 @@
 from collections import defaultdict
 import asyncio
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -176,6 +177,212 @@ async def test_sqlite_auto_migration_adds_expression_user_id(tmp_path):
         assert "idx_expression_scope_user_active" in indexes
     finally:
         await engine.close()
+
+
+
+@pytest.mark.asyncio
+async def test_sqlite_auto_migration_dedupes_jargon_before_unique_index(tmp_path):
+    db_path = tmp_path / "messages.db"
+    engine = DatabaseEngine(f"sqlite:///{db_path.as_posix()}")
+
+    try:
+        async with engine.engine.begin() as conn:
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE jargon (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content TEXT NOT NULL,
+                        raw_content TEXT,
+                        meaning TEXT,
+                        is_jargon BOOLEAN,
+                        count INTEGER DEFAULT 1,
+                        last_inference_count INTEGER DEFAULT 0,
+                        is_complete BOOLEAN DEFAULT 0,
+                        is_global BOOLEAN DEFAULT 0,
+                        chat_id VARCHAR(255) NOT NULL,
+                        created_at BIGINT NOT NULL,
+                        updated_at BIGINT NOT NULL
+                    )
+                    """
+                )
+            )
+            await conn.execute(text("CREATE INDEX idx_jargon_chat_id ON jargon (chat_id)"))
+            await conn.execute(
+                text(
+                    """
+                    CREATE TABLE jargon_usage_frequency (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        jargon_id INTEGER NOT NULL REFERENCES jargon(id),
+                        group_id VARCHAR(255) NOT NULL,
+                        usage_count INTEGER DEFAULT 0,
+                        last_used_at FLOAT NOT NULL,
+                        success_rate FLOAT,
+                        context_types TEXT,
+                        created_at DATETIME
+                    )
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO jargon (
+                        content, raw_content, meaning, is_jargon, count,
+                        last_inference_count, is_complete, is_global,
+                        chat_id, created_at, updated_at
+                    )
+                    VALUES
+                    ('打爆', '["ctx-a"]', NULL, NULL, 2, 1, 0, 0, 'group-a', 10, 20),
+                    ('打爆', '["ctx-b"]', '人工释义', 1, 5, 4, 1, 1, 'group-a', 8, 30),
+                    ('打爆', '["ctx-c"]', '自动释义', 0, 3, 2, 0, 0, 'group-a', 12, 25),
+                    ('打爆', '["other-group"]', '其他群释义', 1, 1, 1, 1, 0, 'group-b', 15, 35)
+                    """
+                )
+            )
+            await conn.execute(
+                text(
+                    """
+                    INSERT INTO jargon_usage_frequency (
+                        jargon_id, group_id, usage_count, last_used_at
+                    )
+                    VALUES (1, 'group-a', 1, 20.0), (3, 'group-a', 2, 25.0)
+                    """
+                )
+            )
+
+        await engine.create_tables(enable_auto_migration=True)
+
+        async with engine.engine.begin() as conn:
+            rows = (
+                await conn.execute(
+                    text(
+                        """
+                        SELECT id, chat_id, content, raw_content, meaning,
+                               is_jargon, count, last_inference_count,
+                               is_complete, is_global, created_at, updated_at
+                        FROM jargon
+                        WHERE content = '打爆'
+                        ORDER BY chat_id, id
+                        """
+                    )
+                )
+            ).mappings().all()
+            indexes = await conn.run_sync(
+                lambda sync_conn: {
+                    index["name"]
+                    for index in sa_inspect(sync_conn).get_indexes("jargon")
+                }
+            )
+            usage_jargon_ids = [
+                row["jargon_id"]
+                for row in (
+                    await conn.execute(
+                        text(
+                            """
+                            SELECT jargon_id
+                            FROM jargon_usage_frequency
+                            ORDER BY id
+                            """
+                        )
+                    )
+                ).mappings().all()
+            ]
+
+        group_a_rows = [row for row in rows if row["chat_id"] == "group-a"]
+        group_b_rows = [row for row in rows if row["chat_id"] == "group-b"]
+
+        assert "uk_chat_content" in indexes
+        assert len(group_a_rows) == 1
+        assert len(group_b_rows) == 1
+
+        merged = group_a_rows[0]
+        assert merged["meaning"] == "人工释义"
+        assert bool(merged["is_jargon"]) is True
+        assert bool(merged["is_complete"]) is True
+        assert bool(merged["is_global"]) is True
+        assert merged["count"] == 10
+        assert merged["last_inference_count"] == 4
+        assert merged["created_at"] == 8
+        assert merged["updated_at"] == 30
+        assert json.loads(merged["raw_content"]) == ["ctx-b"]
+        assert usage_jargon_ids == [2, 2]
+    finally:
+        await engine.close()
+
+
+@pytest.mark.asyncio
+async def test_jargon_facade_dedupes_cross_group_content_for_global_queries(tmp_path):
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        enable_web_interface=False,
+        db_type="sqlite",
+    )
+    config.messages_db_path = str(tmp_path / "messages.db")
+    manager = SQLAlchemyDatabaseManager(config)
+
+    try:
+        assert await manager.start() is True
+
+        await manager.save_or_update_jargon(
+            "group-a",
+            "猫娘",
+            {
+                "raw_content": '["group-a ctx"]',
+                "meaning": "group-a meaning",
+                "is_jargon": True,
+                "count": 2,
+                "is_complete": True,
+            },
+        )
+        await manager.save_or_update_jargon(
+            "group-b",
+            "猫娘",
+            {
+                "raw_content": '["group-b ctx"]',
+                "meaning": "group-b meaning",
+                "is_jargon": True,
+                "count": 9,
+                "is_complete": True,
+            },
+        )
+        await manager.save_or_update_jargon(
+            "group-c",
+            "上强度",
+            {
+                "raw_content": '["group-c ctx"]',
+                "meaning": "increase intensity",
+                "is_jargon": True,
+                "count": 1,
+                "is_complete": True,
+            },
+        )
+
+        search_results = await manager.search_jargon(
+            "猫",
+            confirmed_only=True,
+            limit=10,
+        )
+        recent_results = await manager.get_recent_jargon_list(
+            limit=10,
+            only_confirmed=True,
+        )
+        total_count = await manager.get_jargon_count(only_confirmed=True)
+        scoped_results = await manager.search_jargon(
+            "猫",
+            chat_id="group-a",
+            confirmed_only=True,
+            limit=10,
+        )
+
+        assert [row["content"] for row in search_results] == ["猫娘"]
+        assert search_results[0]["chat_id"] == "group-b"
+        assert [row["content"] for row in recent_results].count("猫娘") == 1
+        assert total_count == 2
+        assert [row["content"] for row in scoped_results] == ["猫娘"]
+        assert scoped_results[0]["chat_id"] == "group-a"
+    finally:
+        await manager.stop()
 
 
 @pytest.mark.asyncio

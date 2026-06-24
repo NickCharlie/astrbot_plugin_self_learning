@@ -18,6 +18,7 @@ from typing import Optional
 import asyncio
 import threading
 import os
+import json
 from pathlib import Path
 
 try:
@@ -385,6 +386,12 @@ class DatabaseEngine:
                     return result
 
                 existing_indexes = await conn.run_sync(_get_existing_indexes)
+                await self._prepare_unique_index_data(
+                    conn,
+                    existing,
+                    existing_indexes,
+                    dialect,
+                )
                 index_statements = []
                 for table in Base.metadata.sorted_tables:
                     if table.name not in existing:
@@ -414,6 +421,220 @@ class DatabaseEngine:
 
         except Exception as e:
             logger.warning(f"[DatabaseEngine] 自动列迁移检测失败（不影响运行）: {e}")
+
+    async def _prepare_unique_index_data(
+        self,
+        conn,
+        existing_tables: dict,
+        existing_indexes: dict,
+        dialect,
+    ):
+        """Repair legacy duplicate rows before creating new unique indexes."""
+        if "jargon" not in existing_tables:
+            return
+        if "uk_chat_content" in existing_indexes.get("jargon", set()):
+            return
+
+        await self._dedupe_jargon_rows_for_unique_index(conn, dialect, existing_tables)
+
+    async def _dedupe_jargon_rows_for_unique_index(self, conn, dialect, existing_tables):
+        """Merge duplicate jargon rows so ``uk_chat_content`` can be added."""
+        from sqlalchemy import bindparam, text
+
+        quote = dialect.identifier_preparer.quote
+        table_name = quote("jargon")
+        duplicate_stmt = text(
+            f"""
+            SELECT {quote("chat_id")} AS chat_id,
+                   {quote("content")} AS content,
+                   COUNT(*) AS duplicate_count
+            FROM {table_name}
+            GROUP BY {quote("chat_id")}, {quote("content")}
+            HAVING COUNT(*) > 1
+            """
+        )
+        duplicate_groups = (await conn.execute(duplicate_stmt)).mappings().all()
+        if not duplicate_groups:
+            return
+
+        select_stmt = text(
+            f"""
+            SELECT {quote("id")} AS id,
+                   {quote("raw_content")} AS raw_content,
+                   {quote("meaning")} AS meaning,
+                   {quote("is_jargon")} AS is_jargon,
+                   {quote("count")} AS count,
+                   {quote("last_inference_count")} AS last_inference_count,
+                   {quote("is_complete")} AS is_complete,
+                   {quote("is_global")} AS is_global,
+                   {quote("created_at")} AS created_at,
+                   {quote("updated_at")} AS updated_at
+            FROM {table_name}
+            WHERE {quote("chat_id")} = :chat_id
+              AND {quote("content")} = :content
+            ORDER BY {quote("id")} ASC
+            """
+        )
+        update_stmt = text(
+            f"""
+            UPDATE {table_name}
+            SET {quote("raw_content")} = :raw_content,
+                {quote("meaning")} = :meaning,
+                {quote("is_jargon")} = :is_jargon,
+                {quote("count")} = :count,
+                {quote("last_inference_count")} = :last_inference_count,
+                {quote("is_complete")} = :is_complete,
+                {quote("is_global")} = :is_global,
+                {quote("created_at")} = :created_at,
+                {quote("updated_at")} = :updated_at
+            WHERE {quote("id")} = :id
+            """
+        )
+        delete_stmt = text(
+            f"DELETE FROM {table_name} WHERE {quote('id')} IN :ids"
+        ).bindparams(bindparam("ids", expanding=True))
+        usage_stmt = None
+        if "jargon_usage_frequency" in existing_tables:
+            usage_table = quote("jargon_usage_frequency")
+            usage_stmt = text(
+                f"""
+                UPDATE {usage_table}
+                SET {quote("jargon_id")} = :keeper_id
+                WHERE {quote("jargon_id")} IN :ids
+                """
+            ).bindparams(bindparam("ids", expanding=True))
+
+        merged_groups = 0
+        removed_rows = 0
+        for group in duplicate_groups:
+            result = await conn.execute(
+                select_stmt,
+                {
+                    "chat_id": group["chat_id"],
+                    "content": group["content"],
+                },
+            )
+            rows = [dict(row) for row in result.mappings().all()]
+            if len(rows) <= 1:
+                continue
+
+            merged = self._merge_duplicate_jargon_rows(rows)
+            delete_ids = [row["id"] for row in rows if row["id"] != merged["id"]]
+
+            await conn.execute(update_stmt, merged)
+            if delete_ids:
+                if usage_stmt is not None:
+                    await conn.execute(
+                        usage_stmt,
+                        {"keeper_id": merged["id"], "ids": delete_ids},
+                    )
+                await conn.execute(delete_stmt, {"ids": delete_ids})
+
+            merged_groups += 1
+            removed_rows += len(delete_ids)
+
+        if merged_groups:
+            logger.info(
+                "[DatabaseEngine] 自动迁移合并重复黑话记录: "
+                f"groups={merged_groups}, removed_rows={removed_rows}"
+            )
+
+    @staticmethod
+    def _merge_duplicate_jargon_rows(rows: list[dict]) -> dict:
+        """Return one merged jargon row while preserving manual completions."""
+
+        def truthy(value) -> bool:
+            if isinstance(value, str):
+                return value.strip().lower() not in {"", "0", "false", "none", "null"}
+            return bool(value)
+
+        def int_or_none(value):
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                return None
+
+        def int_or_zero(value) -> int:
+            parsed = int_or_none(value)
+            return parsed if parsed is not None else 0
+
+        def row_priority(row: dict):
+            return (
+                not truthy(row.get("is_complete")),
+                not truthy(row.get("is_jargon")),
+                -int_or_zero(row.get("count")),
+                int_or_zero(row.get("id")),
+            )
+
+        rows = sorted(rows, key=row_priority)
+        keeper = rows[0]
+        completed = truthy(keeper.get("is_complete"))
+
+        raw_items = DatabaseEngine._extract_jargon_raw_items(keeper.get("raw_content"))
+        if not completed:
+            for row in rows[1:]:
+                raw_items.extend(
+                    DatabaseEngine._extract_jargon_raw_items(row.get("raw_content"))
+                )
+        raw_items = list(dict.fromkeys(str(item) for item in raw_items if str(item)))
+
+        meaning = keeper.get("meaning")
+        if not meaning:
+            meaning = next(
+                (row.get("meaning") for row in rows if row.get("meaning")),
+                None,
+            )
+
+        if completed:
+            is_jargon = keeper.get("is_jargon")
+        elif any(truthy(row.get("is_jargon")) for row in rows):
+            is_jargon = True
+        elif any(row.get("is_jargon") is not None for row in rows):
+            is_jargon = False
+        else:
+            is_jargon = None
+
+        created_values = [int_or_none(row.get("created_at")) for row in rows]
+        updated_values = [int_or_none(row.get("updated_at")) for row in rows]
+        created_values = [value for value in created_values if value is not None]
+        updated_values = [value for value in updated_values if value is not None]
+
+        return {
+            "id": keeper["id"],
+            "raw_content": json.dumps(raw_items, ensure_ascii=False),
+            "meaning": meaning,
+            "is_jargon": is_jargon,
+            "count": sum(max(int_or_zero(row.get("count")), 0) for row in rows),
+            "last_inference_count": max(
+                int_or_zero(row.get("last_inference_count")) for row in rows
+            ),
+            "is_complete": any(truthy(row.get("is_complete")) for row in rows),
+            "is_global": any(truthy(row.get("is_global")) for row in rows),
+            "created_at": min(created_values) if created_values else keeper.get("created_at"),
+            "updated_at": max(updated_values) if updated_values else keeper.get("updated_at"),
+        }
+
+    @staticmethod
+    def _extract_jargon_raw_items(value) -> list:
+        if value is None:
+            return []
+        if not isinstance(value, str):
+            return [value]
+
+        stripped = value.strip()
+        if not stripped:
+            return []
+
+        try:
+            parsed = json.loads(stripped)
+        except (TypeError, ValueError):
+            return [stripped]
+
+        if isinstance(parsed, list):
+            return parsed
+        if parsed:
+            return [parsed]
+        return []
 
     @staticmethod
     def _compile_add_column(col: Column, dialect) -> str:
