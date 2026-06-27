@@ -1,9 +1,10 @@
 """QQ chat history import bridge.
 
-The importer focuses on QQChatExporter V5 chunked JSONL exports and the
-Alpaca-style training data produced by the local formatting script.  It also
-contains a small best-effort parser for plain QQ TXT/HTML logs so the WebUI can
-accept common lightweight exports without a schema change.
+The importer supports QQChatExporter/qq-chat-exporter V5 JSONL, single JSON,
+and self-contained HTML exports, plus the Alpaca-style training data produced
+by the local formatting script. It also contains a small best-effort parser for
+plain QQ TXT/HTML logs so the WebUI can accept common lightweight exports
+without a schema change.
 """
 
 from __future__ import annotations
@@ -282,7 +283,11 @@ class QQChatHistoryImporter:
         if payload is None and json_text:
             payload = _json_decode(json_text)
         if payload is not None:
-            return QQChatSource(payload=payload, source_format=_payload_format(payload))
+            return QQChatSource(
+                payload=payload,
+                manifest=_payload_manifest(payload),
+                source_format=_payload_format(payload),
+            )
 
         if not source_path:
             raise ValueError("请提供 QQ 聊天记录路径、JSON 内容或 payload")
@@ -321,7 +326,12 @@ class QQChatHistoryImporter:
             return QQChatSource(path=path, qce_files=[path], source_format="qce_jsonl")
         if suffix == ".json":
             payload = _read_json_file(path)
-            return QQChatSource(path=path, payload=payload, source_format=_payload_format(payload))
+            return QQChatSource(
+                path=path,
+                payload=payload,
+                manifest=_payload_manifest(payload),
+                source_format=_payload_format(payload),
+            )
         if suffix in {".txt", ".log"}:
             return QQChatSource(path=path, text_file=path, source_format="qq_text")
         if suffix in {".html", ".htm"}:
@@ -337,7 +347,7 @@ class QQChatHistoryImporter:
         min_text_length: int = 2,
     ) -> Iterator[QQChatMessage]:
         group_id = self._group_id(source, default_group_id)
-        chat_info = _chat_info(source.manifest)
+        chat_info = _source_chat_info(source)
         self_uid = str(chat_info.get("selfUid") or chat_info.get("selfUin") or "")
 
         if source.qce_files:
@@ -356,7 +366,19 @@ class QQChatHistoryImporter:
             return
 
         if source.html_file:
-            text = _html_to_text(source.html_file.read_text(encoding="utf-8-sig", errors="ignore"))
+            html_text = source.html_file.read_text(encoding="utf-8-sig", errors="ignore")
+            qce_messages = list(
+                self._iter_qce_html(
+                    html_text,
+                    group_id=group_id,
+                    source_label=str(source.html_file),
+                    min_text_length=min_text_length,
+                )
+            )
+            if qce_messages:
+                yield from qce_messages
+                return
+            text = _html_to_text(html_text)
             yield from self._iter_text_blocks(text.splitlines(), group_id=group_id, source_label=str(source.html_file), min_text_length=min_text_length)
             return
 
@@ -527,6 +549,29 @@ class QQChatHistoryImporter:
             if message:
                 yield message
 
+    def _iter_qce_html(
+        self,
+        value: str,
+        *,
+        group_id: str,
+        source_label: str,
+        min_text_length: int,
+    ) -> Iterator[QQChatMessage]:
+        parser = _QCEHTMLMessageParser()
+        parser.feed(value or "")
+        parsed_group_id = group_id
+        if parsed_group_id in {"", "global"} and parser.chat_title:
+            parsed_group_id = parser.chat_title
+        for block in parser.messages:
+            message = self._message_from_qce_html_block(
+                block,
+                group_id=parsed_group_id,
+                source_label=source_label,
+                min_text_length=min_text_length,
+            )
+            if message:
+                yield message
+
     def _message_from_text_block(
         self,
         block: Mapping[str, Any],
@@ -553,6 +598,32 @@ class QQChatHistoryImporter:
             metadata={"source_label": source_label},
         )
 
+    def _message_from_qce_html_block(
+        self,
+        block: Mapping[str, Any],
+        *,
+        group_id: str,
+        source_label: str,
+        min_text_length: int,
+    ) -> Optional[QQChatMessage]:
+        text = _clean_text(str(block.get("content") or ""))
+        if len(text) < min_text_length:
+            return None
+        sender = str(block.get("sender") or "unknown").strip()
+        timestamp = int(_to_timestamp(block.get("time"), default=time.time()))
+        source_id = str(block.get("id") or "")
+        return self._build_message(
+            source_id=source_id or f"html:{source_label}:{timestamp}:{sender}:{text[:64]}",
+            sender_id=_sender_id_from_text(sender),
+            sender_name=_sender_name_from_text(sender),
+            message=text,
+            group_id=group_id,
+            timestamp=timestamp,
+            platform="qq",
+            source_type="qce_html",
+            metadata={"source_label": source_label},
+        )
+
     def _message_from_qce(
         self,
         raw: Any,
@@ -566,7 +637,7 @@ class QQChatHistoryImporter:
         if raw.get("system") or raw.get("recalled"):
             return None
         msg_type = str(raw.get("type") or "").lower()
-        if msg_type and msg_type not in {"text", "reply"}:
+        if msg_type and msg_type not in {"text", "reply"} and not re.fullmatch(r"type_\d+", msg_type):
             return None
 
         message = _extract_qce_text(raw.get("content"))
@@ -640,7 +711,7 @@ class QQChatHistoryImporter:
         explicit = str(default_group_id or "").strip()
         if explicit:
             return explicit
-        info = _chat_info(source.manifest)
+        info = _source_chat_info(source)
         return str(info.get("uin") or info.get("id") or info.get("name") or "global")
 
 
@@ -652,7 +723,7 @@ def qq_chat_import_destinations() -> dict[str, str]:
 
 
 def _empty_summary(source: QQChatSource, *, default_group_id: str) -> dict[str, Any]:
-    chat_info = _chat_info(source.manifest)
+    chat_info = _source_chat_info(source)
     return {
         "version": QQ_HISTORY_EXPORT_VERSION,
         "source": QQ_HISTORY_SOURCE,
@@ -676,6 +747,8 @@ def _empty_summary(source: QQChatSource, *, default_group_id: str) -> dict[str, 
 
 
 def _add_summary_message(summary: dict[str, Any], message: QQChatMessage) -> None:
+    if summary.get("group_id") in {"", "global"} and message.group_id:
+        summary["group_id"] = message.group_id
     counts = summary["counts"]
     counts["messages"] += 1
     counts["bot_messages"] += 1 if message.is_bot else 0
@@ -705,6 +778,28 @@ def _add_summary_message(summary: dict[str, Any], message: QQChatMessage) -> Non
 def _chat_info(manifest: Mapping[str, Any]) -> dict[str, Any]:
     info = manifest.get("chatInfo") if isinstance(manifest, Mapping) else {}
     return dict(info) if isinstance(info, Mapping) else {}
+
+
+def _source_chat_info(source: QQChatSource) -> dict[str, Any]:
+    info = _chat_info(source.manifest)
+    if info:
+        return info
+    if isinstance(source.payload, Mapping):
+        payload_info = source.payload.get("chatInfo")
+        if isinstance(payload_info, Mapping):
+            return dict(payload_info)
+    return {}
+
+
+def _payload_manifest(payload: Any) -> dict[str, Any]:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except ValueError:
+            return {}
+    if isinstance(payload, Mapping) and isinstance(payload.get("chatInfo"), Mapping):
+        return {"chatInfo": dict(payload["chatInfo"])}
+    return {}
 
 
 def _extract_qce_text(content: Any) -> str:
@@ -754,7 +849,7 @@ def _extract_qce_reply_to(content: Any) -> Optional[str]:
     return None
 
 
-_PLACEHOLDER_RE = re.compile(r"\[(?:图片|表情|文件|语音|视频|回复消息)[^\]]*\]")
+_PLACEHOLDER_RE = re.compile(r"\[(?:图片|表情|文件|语音|视频|回复消息|回复[^\]]*)[^\]]*\]")
 _URL_RE = re.compile(r"https?://\S+")
 
 
@@ -891,6 +986,111 @@ def _html_to_text(value: str) -> str:
     parser = _TextExtractor()
     parser.feed(value or "")
     return html.unescape("".join(parser.parts))
+
+
+_HTML_VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
+
+
+class _QCEHTMLMessageParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[dict[str, str]] = []
+        self.chat_title = ""
+        self._current: Optional[dict[str, Any]] = None
+        self._message_depth = 0
+        self._active_fields: list[tuple[Optional[str], bool]] = []
+        self._reply_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        tag_name = tag.lower()
+        attr_map = {key.lower(): value or "" for key, value in attrs}
+        class_tokens = _class_tokens(attr_map.get("class", ""))
+        field: Optional[str] = None
+        reply_started = False
+
+        if tag_name == "div" and "message" in class_tokens and self._current is None:
+            self._current = {
+                "id": attr_map.get("data-message-id", ""),
+                "sender": [],
+                "time": [],
+                "content": [],
+                "skip": "system" in class_tokens,
+            }
+            self._message_depth = 1
+        elif self._current is not None and tag_name not in _HTML_VOID_TAGS:
+            self._message_depth += 1
+
+        if "chat-title" in class_tokens:
+            field = "chat_title"
+        elif self._current is not None:
+            if "message-sender" in class_tokens:
+                field = "sender"
+            elif "message-time" in class_tokens:
+                field = "time"
+            elif "message-content" in class_tokens:
+                field = "content"
+            if "reply-content" in class_tokens:
+                self._reply_depth += 1
+                reply_started = True
+
+        if tag_name == "br" and self._current is not None and self._current_field() == "content" and self._reply_depth <= 0:
+            self._current["content"].append("\n")
+
+        if tag_name not in _HTML_VOID_TAGS:
+            self._active_fields.append((field, reply_started))
+
+    def handle_endtag(self, tag: str) -> None:
+        reply_started = False
+        if self._active_fields:
+            _field, reply_started = self._active_fields.pop()
+        if reply_started:
+            self._reply_depth = max(0, self._reply_depth - 1)
+
+        if self._current is None:
+            return
+        if tag.lower() not in _HTML_VOID_TAGS:
+            self._message_depth -= 1
+        if self._message_depth <= 0:
+            current = self._current
+            self._current = None
+            if not current.get("skip"):
+                self.messages.append(
+                    {
+                        "id": str(current.get("id") or "").strip(),
+                        "sender": _collapse_html_text(current.get("sender", [])),
+                        "time": _collapse_html_text(current.get("time", [])),
+                        "content": _collapse_html_text(current.get("content", [])),
+                    }
+                )
+
+    def handle_data(self, data: str) -> None:
+        if not data:
+            return
+        field = self._current_field()
+        if field == "chat_title":
+            self.chat_title = _collapse_html_text([self.chat_title, data])
+            return
+        if self._current is None or field not in {"sender", "time", "content"}:
+            return
+        if field == "content" and self._reply_depth > 0:
+            return
+        self._current[field].append(data)
+
+    def _current_field(self) -> Optional[str]:
+        for field, _reply_started in reversed(self._active_fields):
+            if field:
+                return field
+        return None
+
+
+def _class_tokens(value: str) -> set[str]:
+    return {item for item in str(value or "").split() if item}
+
+
+def _collapse_html_text(parts: Any) -> str:
+    if not isinstance(parts, list):
+        parts = [parts]
+    return re.sub(r"[ \t\r\f\v]+", " ", html.unescape("".join(str(part) for part in parts))).strip()
 
 
 def _preview_text(value: str, *, limit: int = 120) -> str:
