@@ -620,6 +620,7 @@ class QQChatHistoryImporter:
             group_id=group_id,
             timestamp=timestamp,
             platform="qq",
+            reply_to=block.get("reply_to"),
             source_type="qce_html",
             metadata={"source_label": source_label},
         )
@@ -855,10 +856,12 @@ _URL_RE = re.compile(r"https?://\S+")
 
 def _clean_text(value: str) -> str:
     text = html.unescape(str(value or ""))
-    text = _PLACEHOLDER_RE.sub("", text)
-    text = _URL_RE.sub("", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    text_without_urls = _URL_RE.sub("", text)
+    text_without_placeholders = _PLACEHOLDER_RE.sub("", text_without_urls)
+    normalized = re.sub(r"\s+", " ", text_without_placeholders).strip()
+    if normalized:
+        return normalized
+    return re.sub(r"\s+", " ", text_without_urls).strip()
 
 
 def _stable_message_id(message: QQChatMessage) -> str:
@@ -1011,6 +1014,7 @@ class _QCEHTMLMessageParser(HTMLParser):
         if tag_name == "div" and "message" in class_tokens and self._current is None:
             self._current = {
                 "id": attr_map.get("data-message-id", ""),
+                "reply_to": "",
                 "sender": [],
                 "time": [],
                 "content": [],
@@ -1032,6 +1036,9 @@ class _QCEHTMLMessageParser(HTMLParser):
             if "reply-content" in class_tokens:
                 self._reply_depth += 1
                 reply_started = True
+                reply_to = attr_map.get("data-reply-to", "")
+                if reply_to and not self._current.get("reply_to"):
+                    self._current["reply_to"] = reply_to.removeprefix("msg-")
 
         if tag_name == "br" and self._current is not None and self._current_field() == "content" and self._reply_depth <= 0:
             self._current["content"].append("\n")
@@ -1057,6 +1064,7 @@ class _QCEHTMLMessageParser(HTMLParser):
                 self.messages.append(
                     {
                         "id": str(current.get("id") or "").strip(),
+                        "reply_to": str(current.get("reply_to") or "").strip(),
                         "sender": _collapse_html_text(current.get("sender", [])),
                         "time": _collapse_html_text(current.get("time", [])),
                         "content": _collapse_html_text(current.get("content", [])),
