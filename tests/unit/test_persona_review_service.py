@@ -8,6 +8,7 @@ Tests the persona review service including:
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
+from webui.services import persona_review_service as persona_review_module
 from webui.services.persona_review_service import PersonaReviewService
 
 
@@ -51,6 +52,52 @@ class TestPersonaReviewService:
         assert result['total'] == 1
         assert len(result['updates']) == 1
         assert result['updates'][0]['review_source'] == 'traditional'
+
+    @pytest.mark.asyncio
+    async def test_get_pending_persona_updates_polling_logs_are_debug(
+        self, mock_container, monkeypatch
+    ):
+        """Dashboard polling should not emit routine persona-review reads at INFO."""
+        messages = {"info": [], "debug": []}
+
+        class FakeLogger:
+            def info(self, message, *args, **kwargs):
+                messages["info"].append(str(message))
+
+            def debug(self, message, *args, **kwargs):
+                messages["debug"].append(str(message))
+
+            def warning(self, *args, **kwargs):
+                pass
+
+            def error(self, *args, **kwargs):
+                pass
+
+        monkeypatch.setattr(persona_review_module, "logger", FakeLogger())
+        service = PersonaReviewService(mock_container)
+        mock_container.persona_updater.get_pending_persona_updates.return_value = []
+        mock_container.database_manager.get_pending_persona_learning_reviews.return_value = []
+        mock_container.database_manager.get_pending_style_reviews.return_value = []
+
+        result = await service.get_pending_persona_updates(limit=10)
+
+        assert result["success"] is True
+        routine_markers = (
+            "正在获取传统人格更新",
+            "获取到 0 个传统人格更新",
+            "正在获取人格学习审查",
+            "获取到 0 个人格学习审查",
+            "正在获取风格学习审查",
+            "获取到 0 个风格学习审查",
+            "共 0 条人格更新记录",
+            "分页返回",
+        )
+        assert not any(
+            marker in message
+            for marker in routine_markers
+            for message in messages["info"]
+        )
+        assert any("分页返回" in message for message in messages["debug"])
 
     @pytest.mark.asyncio
     async def test_get_pending_persona_updates_three_sources(
