@@ -37,6 +37,7 @@ class TestPluginConfigDefaults:
         assert config.enable_auto_learning is True
         assert config.enable_realtime_learning is False
         assert config.enable_realtime_llm_filter is False
+        assert config.enable_realtime_v2_processing is False
         assert config.enable_realtime_expression_learning is False
         assert config.enable_llm_hooks is False
         assert config.enable_web_interface is True
@@ -276,6 +277,7 @@ class TestPluginConfigFromDict:
                 'embedding_provider_id': 'embed_provider',
                 'rerank_provider_id': 'rerank_provider',
                 'provider_retry_interval_seconds': 2.5,
+                'enable_realtime_v2_processing': True,
                 'knowledge_engine': 'lightrag',
                 'memory_engine': 'mem0',
             }
@@ -286,6 +288,7 @@ class TestPluginConfigFromDict:
         assert config.embedding_provider_id == 'embed_provider'
         assert config.rerank_provider_id == 'rerank_provider'
         assert config.provider_retry_interval_seconds == 2.5
+        assert config.enable_realtime_v2_processing is True
         assert config.knowledge_engine == 'lightrag'
         assert config.memory_engine == 'mem0'
 

@@ -516,9 +516,9 @@ class PersonaReviewService:
         # 1. 获取传统的人格更新审查
         if self.persona_updater:
             try:
-                logger.info("正在获取传统人格更新...")
+                logger.debug("正在获取传统人格更新...")
                 traditional_updates = await self.persona_updater.get_pending_persona_updates()
-                logger.info(f"获取到 {len(traditional_updates)} 个传统人格更新")
+                logger.debug(f"获取到 {len(traditional_updates)} 个传统人格更新")
 
                 # 将PersonaUpdateRecord对象转换为字典格式
                 for record in traditional_updates:
@@ -564,9 +564,9 @@ class PersonaReviewService:
         # 2. 获取人格学习审查（包括渐进式学习、表达学习等）
         if self.database_manager:
             try:
-                logger.info("正在获取人格学习审查...")
+                logger.debug("正在获取人格学习审查...")
                 persona_learning_reviews = await self.database_manager.get_pending_persona_learning_reviews()
-                logger.info(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
+                logger.debug(f"获取到 {len(persona_learning_reviews)} 个人格学习审查")
 
                 for review in persona_learning_reviews:
                     # 使用常量进行类型标准化和分类
@@ -660,9 +660,9 @@ class PersonaReviewService:
         # 3. 获取风格学习审查（Few-shot样本学习）
         if self.database_manager:
             try:
-                logger.info("正在获取风格学习审查...")
+                logger.debug("正在获取风格学习审查...")
                 style_reviews = await self.database_manager.get_pending_style_reviews()
-                logger.info(f"获取到 {len(style_reviews)} 个风格学习审查")
+                logger.debug(f"获取到 {len(style_reviews)} 个风格学习审查")
 
                 for review in style_reviews:
                     group_id = review['group_id']
@@ -741,14 +741,14 @@ class PersonaReviewService:
 
         total = len(all_updates)
 
-        logger.info(f"共 {total} 条人格更新记录 (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, "
-                    f"人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, "
-                    f"风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
+        logger.debug(f"共 {total} 条人格更新记录 (传统: {len([u for u in all_updates if u['review_source'] == 'traditional'])}, "
+                     f"人格学习: {len([u for u in all_updates if u['review_source'] == 'persona_learning'])}, "
+                     f"风格学习: {len([u for u in all_updates if u['review_source'] == 'style_learning'])})")
 
         # 应用分页
         if limit > 0:
             paged_updates = all_updates[offset:offset + limit]
-            logger.info(f"分页返回: offset={offset}, limit={limit}, 本页 {len(paged_updates)} 条")
+            logger.debug(f"分页返回: offset={offset}, limit={limit}, 本页 {len(paged_updates)} 条")
         else:
             paged_updates = all_updates
 

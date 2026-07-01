@@ -179,6 +179,7 @@ class PluginConfig(BaseModel):
     rerank_top_k: int = 5
     rerank_min_candidates: int = 3 # 候选文档数低于此阈值时跳过 rerank 以节省延迟
     provider_retry_interval_seconds: float = 10.0 # Provider 注册表未就绪时的重试间隔
+    enable_realtime_v2_processing: bool = False # 实时学习关闭时是否仍按消息触发V2处理
 
     # v2 Architecture: Knowledge engine
     knowledge_engine: str = "legacy" # "lightrag" | "legacy"
@@ -479,6 +480,9 @@ class PluginConfig(BaseModel):
             rerank_min_candidates=v2_settings.get('rerank_min_candidates', 3),
             provider_retry_interval_seconds=v2_settings.get(
                 'provider_retry_interval_seconds', 10.0
+            ),
+            enable_realtime_v2_processing=v2_settings.get(
+                'enable_realtime_v2_processing', False
             ),
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
             lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),

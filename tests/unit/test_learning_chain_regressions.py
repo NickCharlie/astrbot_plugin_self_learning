@@ -850,6 +850,122 @@ async def test_message_pipeline_can_run_expression_learning_when_explicitly_enab
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_message_pipeline_skips_v2_processing_when_realtime_disabled_by_default():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_realtime_learning=False,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    v2_integration = SimpleNamespace(process_message=AsyncMock())
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=SimpleNamespace(collect_message=AsyncMock(return_value=True)),
+        enhanced_interaction=SimpleNamespace(update_conversation_context=AsyncMock()),
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=v2_integration,
+        realtime_processor=SimpleNamespace(
+            process_expression_learning_background=AsyncMock(),
+            process_realtime_background=AsyncMock(),
+        ),
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    event = SimpleNamespace(
+        get_sender_name=lambda: "User A",
+        get_platform_name=lambda: "test",
+        get_self_id=lambda: "bot-a",
+    )
+
+    await pipeline.process_learning("group-a", "user-a", "实时关闭时的普通消息", event)
+
+    v2_integration.process_message.assert_not_awaited()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_message_pipeline_runs_v2_processing_when_realtime_enabled():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_realtime_learning=True,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    v2_integration = SimpleNamespace(process_message=AsyncMock())
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=SimpleNamespace(collect_message=AsyncMock(return_value=True)),
+        enhanced_interaction=SimpleNamespace(update_conversation_context=AsyncMock()),
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=v2_integration,
+        realtime_processor=SimpleNamespace(
+            process_expression_learning_background=AsyncMock(),
+            process_realtime_background=AsyncMock(),
+        ),
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    event = SimpleNamespace(
+        get_sender_name=lambda: "User A",
+        get_platform_name=lambda: "test",
+        get_self_id=lambda: "bot-a",
+    )
+
+    await pipeline.process_learning("group-a", "user-a", "实时开启时的普通消息", event)
+
+    v2_integration.process_message.assert_awaited_once()
+    message_data, group_id = v2_integration.process_message.await_args.args
+    assert group_id == "group-a"
+    assert isinstance(message_data, MessageData)
+    assert message_data.message == "实时开启时的普通消息"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_message_pipeline_runs_v2_processing_when_explicitly_opted_in():
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_realtime_learning=False,
+        enable_realtime_v2_processing=True,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    v2_integration = SimpleNamespace(process_message=AsyncMock())
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=SimpleNamespace(collect_message=AsyncMock(return_value=True)),
+        enhanced_interaction=SimpleNamespace(update_conversation_context=AsyncMock()),
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=v2_integration,
+        realtime_processor=SimpleNamespace(
+            process_expression_learning_background=AsyncMock(),
+            process_realtime_background=AsyncMock(),
+        ),
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    event = SimpleNamespace(
+        get_sender_name=lambda: "User A",
+        get_platform_name=lambda: "test",
+        get_self_id=lambda: "bot-a",
+    )
+
+    await pipeline.process_learning("group-a", "user-a", "显式开启 V2 实时消息", event)
+
+    v2_integration.process_message.assert_awaited_once()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_message_pipeline_skips_plugin_log_events_before_collection():
     config = SimpleNamespace(
         enable_jargon_learning=False,
