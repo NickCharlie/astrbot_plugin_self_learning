@@ -61,6 +61,13 @@ class MessagePipeline:
         )
         self._groups_seeded = self._jargon_learning.groups_seeded
 
+    def _should_process_v2_realtime(self) -> bool:
+        """Return whether V2 realtime, per-message processing is enabled."""
+        return bool(
+            getattr(self._config, "enable_realtime_learning", False)
+            or getattr(self._config, "enable_realtime_v2_processing", False)
+        )
+
     # 后台学习流水线（6 步）
 
     @monitored
@@ -141,7 +148,7 @@ class MessagePipeline:
                     self._spawn_jargon_task(group_id, raw_message_count)
 
             # 3.5 V2 per-message processing
-            if self._v2_integration:
+            if self._v2_integration and self._should_process_v2_realtime():
                 try:
                     msg_data = MessageData(
                         message=message_text,
