@@ -110,11 +110,190 @@ def test_qq_chat_history_importer_previews_qce_chunked_jsonl(tmp_path):
 
     assert preview["source_format"] == "qce_chunked_jsonl"
     assert preview["group_id"] == "AstrBot 大学"
-    assert preview["counts"]["messages"] == 2
+    assert preview["counts"]["messages"] == 3
     assert preview["counts"]["bot_messages"] == 1
     assert preview["counts"]["unique_senders"] == 2
     assert preview["samples"]["messages"][0]["message"] == "这不160兆吗"
-    assert preview["samples"]["messages"][1]["reply_to"] == "m1"
+    assert preview["samples"]["messages"][1]["message"] == "[图片:demo.jpg]"
+    assert preview["samples"]["messages"][2]["reply_to"] == "m1"
+
+
+def test_qq_chat_history_importer_previews_qce_single_json_type_codes(tmp_path):
+    export_file = tmp_path / "qce.json"
+    export_file.write_text(
+        json.dumps(
+            {
+                "metadata": {"name": "QQChatExporter V5"},
+                "chatInfo": {
+                    "name": "QCE Testing Group",
+                    "type": "group",
+                    "participantCount": 4,
+                },
+                "messages": [
+                    {
+                        "seq": "1001",
+                        "timestamp": 1704067300000,
+                        "time": "2024-01-01 00:01:40",
+                        "sender": {
+                            "uid": "u_alice",
+                            "uin": "11111",
+                            "name": "Alice",
+                            "groupCard": "Alice (PM)",
+                        },
+                        "type": "type_1",
+                        "content": {
+                            "text": "Anyone seen the build break?",
+                            "elements": [
+                                {
+                                    "type": "text",
+                                    "data": {"text": "Anyone seen the build break?"},
+                                }
+                            ],
+                        },
+                        "recalled": False,
+                        "system": False,
+                    },
+                    {
+                        "seq": "1002",
+                        "timestamp": 1704067440000,
+                        "sender": {
+                            "uid": "u_alice",
+                            "uin": "11111",
+                            "name": "Alice",
+                            "groupCard": "Alice (PM)",
+                        },
+                        "type": "type_3",
+                        "content": {
+                            "text": "[回复 Alice: Anyone seen the build break?]\nthanks team, fix incoming",
+                            "elements": [
+                                {
+                                    "type": "text",
+                                    "data": {
+                                        "text": "[回复 Alice: Anyone seen the build break?]\nthanks team, fix incoming"
+                                    },
+                                },
+                                {
+                                    "type": "reply",
+                                    "data": {"referencedMessageId": "m_1001"},
+                                },
+                            ],
+                        },
+                        "recalled": False,
+                        "system": False,
+                    },
+                    {
+                        "seq": "1003",
+                        "timestamp": 1704067500000,
+                        "sender": {"uid": "u_bob", "uin": "22222", "name": "Bob"},
+                        "type": "type_8",
+                        "content": {
+                            "text": "[文件: trace.json]",
+                            "elements": [{"type": "file", "data": {"filename": "trace.json"}}],
+                        },
+                        "recalled": False,
+                        "system": False,
+                    },
+                    {
+                        "seq": "1004",
+                        "timestamp": 1704067560000,
+                        "sender": {"uid": "u_bob", "uin": "22222", "name": "Bob"},
+                        "type": "type_6",
+                        "content": {
+                            "text": "[语音 7秒]",
+                            "elements": [{"type": "audio", "data": {"filename": "voice_msg.silk"}}],
+                        },
+                        "recalled": False,
+                        "system": False,
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    preview = QQChatHistoryImporter().preview(source_path=export_file)
+
+    assert preview["source_format"] == "qce_json"
+    assert preview["chat_info"]["name"] == "QCE Testing Group"
+    assert preview["group_id"] == "QCE Testing Group"
+    assert preview["counts"]["messages"] == 4
+    assert preview["counts"]["unique_senders"] == 2
+    assert preview["samples"]["messages"][0]["sender_id"] == "u_alice"
+    assert preview["samples"]["messages"][0]["sender_name"] == "Alice (PM)"
+    assert preview["samples"]["messages"][1]["message"] == "thanks team, fix incoming"
+    assert preview["samples"]["messages"][1]["reply_to"] == "m_1001"
+    assert preview["samples"]["messages"][2]["message"] == "[文件: trace.json]"
+    assert preview["samples"]["messages"][3]["message"] == "[语音 7秒]"
+
+
+def test_qq_chat_history_importer_previews_qce_self_contained_html(tmp_path):
+    export_file = tmp_path / "qce.html"
+    export_file.write_text(
+        """<!doctype html>
+<html lang="zh-CN">
+<body>
+  <div class="chat-container">
+    <h1 class="chat-title">QCE Testing Group</h1>
+    <div class="messages-container" id="messagesContainer">
+      <div class="message" data-message-id="m_1">
+        <div class="message-header">
+          <span class="message-sender">Alice (PM)</span>
+          <span class="message-time">2024-01-01 00:01:40</span>
+        </div>
+        <div class="message-content">
+          Anyone seen the build break?
+        </div>
+      </div>
+      <div class="message" data-message-id="m_2">
+        <div class="message-header">
+          <span class="message-sender">Bob (Eng)</span>
+          <span class="message-time">2024-01-01 00:02:40</span>
+        </div>
+        <div class="message-content">
+          Looking now [[微笑]]
+        </div>
+      </div>
+      <div class="message" data-message-id="m_3">
+        <div class="message-header">
+          <span class="message-sender">Alice (PM)</span>
+          <span class="message-time">2024-01-01 00:04:00</span>
+        </div>
+        <div class="message-content">
+          <div class="reply-content" data-reply-to="msg-m_1">
+            <strong>Alice (PM):</strong>
+            Anyone seen the build break?
+          </div>
+          [回复 Alice (PM): Anyone seen the build break?]<br>thanks team, fix incoming
+        </div>
+      </div>
+      <div class="message" data-message-id="m_4">
+        <div class="message-header">
+          <span class="message-sender">Charlie</span>
+          <span class="message-time">2024-01-01 00:05:00</span>
+        </div>
+        <div class="message-content">
+          [语音: voice_msg.silk]
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>""",
+        encoding="utf-8",
+    )
+
+    preview = QQChatHistoryImporter().preview(source_path=export_file)
+
+    assert preview["source_format"] == "qq_html_text"
+    assert preview["group_id"] == "QCE Testing Group"
+    assert preview["counts"]["messages"] == 4
+    assert preview["counts"]["unique_senders"] == 3
+    assert preview["samples"]["messages"][0]["message"] == "Anyone seen the build break?"
+    assert preview["samples"]["messages"][1]["sender_name"] == "Bob"
+    assert preview["samples"]["messages"][2]["message"] == "thanks team, fix incoming"
+    assert preview["samples"]["messages"][2]["reply_to"] == "m_1"
+    assert preview["samples"]["messages"][3]["message"] == "[语音: voice_msg.silk]"
 
 
 def test_qq_chat_history_importer_can_include_training_pairs(tmp_path):
@@ -125,7 +304,7 @@ def test_qq_chat_history_importer_can_include_training_pairs(tmp_path):
         include_training_pairs=True,
     )
 
-    assert preview["counts"]["messages"] == 4
+    assert preview["counts"]["messages"] == 5
     assert preview["counts"]["bot_messages"] == 2
     assert any(
         item["message"] == "所以游戏都删了"
@@ -152,11 +331,11 @@ async def test_qq_chat_history_importer_imports_and_deduplicates_raw_messages(tm
         second = await importer.import_from_source(source_path=export_dir)
 
         assert first["success"] is True
-        assert first["messages_seen"] == 2
-        assert first["messages_imported"] == 2
+        assert first["messages_seen"] == 3
+        assert first["messages_imported"] == 3
         assert first["duplicate_messages"] == 0
         assert second["messages_imported"] == 0
-        assert second["duplicate_messages"] == 2
+        assert second["duplicate_messages"] == 3
 
         async with manager.get_session() as session:
             rows = (
@@ -165,12 +344,13 @@ async def test_qq_chat_history_importer_imports_and_deduplicates_raw_messages(tm
                 )
             ).scalars().all()
 
-        assert len(rows) == 2
+        assert len(rows) == 3
         assert rows[0].group_id == "AstrBot 大学"
         assert rows[0].message == "这不160兆吗"
         assert rows[0].message_id.startswith("qq-history:")
-        assert rows[1].reply_to == "m1"
-        assert rows[1].processed is False
+        assert rows[1].message == "[图片:demo.jpg]"
+        assert rows[2].reply_to == "m1"
+        assert rows[2].processed is False
     finally:
         await manager.stop()
 
