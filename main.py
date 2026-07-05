@@ -178,6 +178,7 @@ class SelfLearningPlugin(star.Star):
             self.plugin_config, self.context, self.group_id_to_unified_origin
         )
         self._register_official_page_api_if_available()
+        self._trigger_dashboard_autobuild()
 
         logger.info(StatusMessages.PLUGIN_INITIALIZED)
 
@@ -201,6 +202,35 @@ class SelfLearningPlugin(star.Star):
         except Exception as exc:
             self.page_api = None
             logger.warning(f"官方插件页面 API 注册失败，已跳过: {exc}", exc_info=True)
+
+    def _trigger_dashboard_autobuild(self) -> None:
+        """后台检测并自动构建 Dashboard 前端（仅在产物缺失时触发）。
+
+        - 产物已就绪则直接跳过（生产环境随仓库分发，开箱即用）。
+        - 缺失时以 ``asyncio.create_task`` 后台执行，绝不阻塞插件启动，
+          任何异常仅记录日志，不影响插件加载。
+        """
+        try:
+            plugin_root = os.path.dirname(os.path.abspath(__file__))
+            from .webui.frontend_builder import (
+                dashboard_artifact_exists,
+                ensure_dashboard_built,
+            )
+
+            if dashboard_artifact_exists(plugin_root):
+                return
+
+            loop = asyncio.get_running_loop()
+            _t = loop.create_task(ensure_dashboard_built(plugin_root))
+            bg = getattr(self, "background_tasks", None)
+            if bg is not None:
+                bg.add(_t)
+                _t.add_done_callback(bg.discard)
+        except Exception as exc:
+            logger.warning(
+                f"[WebUI] Dashboard 自动构建触发失败（不影响插件运行）：{exc}",
+                exc_info=True,
+            )
 
     async def initialize(self):
         """AstrBot 在完成 handler 绑定后调用此方法"""

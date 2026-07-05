@@ -1,0 +1,55 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.insight-hero {
+  @include panel;
+  margin-bottom: 16px;
+  padding: 20px;
+  display: flex;
+  gap: 14px;
+  background: linear-gradient(120deg, var(--primary-soft), var(--surface));
+
+  > .material-icons {
+    color: var(--primary);
+    font-size: 34px;
+  }
+
+  p {
+    margin: 3px 0;
+    color: var(--muted);
+  }
+}
+
+.insight-list {
+  display: grid;
+  gap: 12px;
+}
+
+.insight-card {
+  padding: 0;
+
+  button {
+    width: 100%;
+    padding: 20px;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+
+    > div {
+      display: flex;
+      gap: 9px;
+      align-items: center;
+    }
+
+    p {
+      grid-column: 1;
+      margin: 8px 0 0;
+      color: var(--muted);
+    }
+  }
+}

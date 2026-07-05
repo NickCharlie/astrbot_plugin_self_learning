@@ -240,7 +240,6 @@ class FileNames:
 class TemplateNames:
     """HTML 模板名称"""
     LOGIN = "login.html"
-    INDEX = "index.html"
     CHANGE_PASSWORD = "change_password.html"
 
 

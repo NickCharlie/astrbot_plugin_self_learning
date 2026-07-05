@@ -2,7 +2,7 @@
 认证蓝图 - WebUI 免密访问，可选启用登录密码
 """
 import os
-from quart import Blueprint, render_template, jsonify, redirect, request, session, url_for
+from quart import Blueprint, render_template, jsonify, redirect, request, session, url_for, send_file
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -10,9 +10,45 @@ from ..middleware.auth import is_authenticated, require_auth
 from ..services.auth_service import AuthService
 from ..utils.response import add_no_store_headers, error_response
 
-_TEMPLATE_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..', '..', 'web_res', 'static', 'html')
-)
+_PLUGIN_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+_TEMPLATE_DIR = os.path.join(_PLUGIN_ROOT, 'web_res', 'static', 'html')
+
+# 新版 Solid.js Dashboard 的 SPA 入口（由 web_src 构建产物部署到 web_res/static/dashboard）。
+_DASHBOARD_SPA = os.path.join(_PLUGIN_ROOT, 'web_res', 'static', 'dashboard', 'index.html')
+
+
+async def _render_dashboard():
+    """渲染监控板入口（新版 Solid.js SPA）。
+
+    新 SPA 为唯一入口；若构建产物缺失，返回带构建指引的 503 页面，
+    而不是回退已移除的旧版单体 dashboard.html。
+    """
+    try:
+        from ..frontend_builder import dashboard_artifact_exists
+        dashboard_ready = dashboard_artifact_exists(_PLUGIN_ROOT)
+    except Exception:
+        dashboard_ready = os.path.exists(_DASHBOARD_SPA)
+
+    if dashboard_ready:
+        return await send_file(_DASHBOARD_SPA)
+    logger.error(f"[WebUI] Dashboard SPA 入口缺失：{_DASHBOARD_SPA}")
+    return (
+        "<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+        "<meta http-equiv=\"refresh\" content=\"15\">"
+        "<title>监控板构建中</title></head>"
+        "<body style=\"font-family:system-ui,sans-serif;max-width:640px;margin:4rem auto;padding:0 1rem\">"
+        "<h2>监控板前端正在准备中…</h2>"
+        "<p>插件加载时已检测到前端产物缺失并尝试 <strong>后台自动构建</strong>，"
+        "本页每 15 秒自动刷新。</p>"
+        "<p>若较长时间后仍停留在此页，说明当前环境未安装 <code>Node.js</code> 或自动构建失败。"
+        "可在插件根目录的 <code>web_src</code> 下手动执行 "
+        "<code>pnpm install &amp;&amp; pnpm build</code>（或 <code>npm install &amp;&amp; npm run build</code>），"
+        "产物会自动部署到 <code>web_res/static/dashboard</code>。</p>"
+        "</body></html>",
+        503,
+    )
+
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api', template_folder=_TEMPLATE_DIR)
 
@@ -26,7 +62,7 @@ async def _disable_auth_response_cache(response):
 @require_auth
 async def read_root():
     """根目录 - 渲染监控板。"""
-    return await render_template("dashboard.html")
+    return await _render_dashboard()
 
 
 @auth_bp.route("/login", methods=["GET"])
@@ -77,7 +113,7 @@ async def read_root_index():
     auth_service = AuthService(get_container())
     if auth_service.is_password_enabled() and auth_service.check_must_change_password():
         return redirect(url_for('auth.change_password_page'))
-    return await render_template("dashboard.html")
+    return await _render_dashboard()
 
 
 @auth_bp.route("/plugin_change_password", methods=["GET"])

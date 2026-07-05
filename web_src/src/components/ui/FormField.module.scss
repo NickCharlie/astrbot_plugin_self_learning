@@ -1,0 +1,39 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.ui-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+
+  small {
+    color: var(--muted);
+  }
+
+  input,
+  select,
+  textarea {
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 11px;
+    color: var(--text);
+    background: var(--surface-solid);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    resize: vertical;
+
+    &:focus {
+      @include focus-ring;
+    }
+  }
+}
+
+.ui-field-label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 12px;
+}

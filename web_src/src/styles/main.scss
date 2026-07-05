@@ -1,0 +1,206 @@
+@use "tokens";
+@use "mixins" as *;
+
+/* ── Base / Reset ── */
+* {
+  box-sizing: border-box;
+}
+html {
+  min-width: 320px;
+  background: var(--bg);
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 10% 0%, var(--primary-soft), transparent 34rem),
+    radial-gradient(circle at 90% 20%, var(--success-soft), transparent 30rem),
+    var(--bg);
+  font:
+    14px/1.55 Inter,
+    "Microsoft YaHei",
+    "PingFang SC",
+    system-ui,
+    sans-serif;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font:
+    12px/1.6 ui-monospace,
+    Consolas,
+    monospace;
+}
+
+/* ── Shared utility classes (used by 2+ pages or 2+ components) ── */
+details summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.page {
+  animation: page-in 260ms ease both;
+}
+
+.page-kicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  font-weight: 800;
+
+  .material-icons {
+    font-size: 15px;
+  }
+}
+
+.section-label {
+  margin: 26px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.two-column {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  gap: 18px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.data-list {
+  display: grid;
+  gap: 10px;
+}
+
+.review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.check-list {
+  display: grid;
+  gap: 10px;
+}
+
+.check-row {
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--surface-alt);
+  border-radius: 11px;
+
+  div {
+    display: grid;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.chart-lg {
+  height: 360px;
+}
+
+.footer-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.data-row {
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+
+  p {
+    margin: 3px 0;
+    color: var(--muted);
+  }
+
+  .inline-actions {
+    margin-top: 12px;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.data-row-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  > div {
+    display: grid;
+  }
+}
+
+/* ── Keyframes ── */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ── Responsive (shared classes only) ── */
+@include tablet {
+  .metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .two-column {
+    grid-template-columns: 1fr;
+  }
+}
+
+@include mobile {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@include reduced-motion {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

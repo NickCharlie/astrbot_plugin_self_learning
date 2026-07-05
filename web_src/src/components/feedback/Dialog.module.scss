@@ -1,0 +1,37 @@
+@use "../../styles/tokens";
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: rgba(8, 12, 24, 0.52);
+  backdrop-filter: blur(8px);
+}
+
+.dialog {
+  width: min(440px, 100%);
+  padding: 24px;
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+
+  h2 {
+    margin-top: 0;
+  }
+
+  p {
+    color: var(--muted);
+  }
+
+  footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 22px;
+  }
+}

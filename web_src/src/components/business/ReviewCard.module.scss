@@ -1,0 +1,63 @@
+@use "../../styles/tokens";
+
+.review-card {
+  display: grid;
+  gap: 12px;
+
+  p {
+    margin: 0;
+    color: var(--muted);
+  }
+}
+
+.review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  > div {
+    display: grid;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.review-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.review-diff summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.diff-lines {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  padding: 3px 8px;
+  font:
+    12px/1.5 ui-monospace,
+    monospace;
+
+  &.add {
+    color: var(--success);
+    background: var(--success-soft);
+  }
+
+  &.remove {
+    color: var(--danger);
+    background: var(--danger-soft);
+  }
+}

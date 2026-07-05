@@ -1,0 +1,53 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.ui-panel {
+  @include panel;
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+
+.ui-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--border);
+
+  h2 {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 16px;
+
+    .material-icons {
+      color: var(--primary);
+      font-size: 19px;
+    }
+  }
+
+  p {
+    margin: 2px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+
+.ui-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-panel-body {
+  padding: 20px;
+}
+
+@include mobile {
+  .ui-panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

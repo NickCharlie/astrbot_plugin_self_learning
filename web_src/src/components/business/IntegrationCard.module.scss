@@ -1,0 +1,26 @@
+@use "../../styles/tokens";
+
+.integration-card {
+  display: grid;
+  gap: 9px;
+
+  h3,
+  p {
+    margin: 0;
+  }
+
+  p {
+    color: var(--muted);
+  }
+}
+
+.integration-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  > .material-icons {
+    color: var(--primary);
+    font-size: 30px;
+  }
+}

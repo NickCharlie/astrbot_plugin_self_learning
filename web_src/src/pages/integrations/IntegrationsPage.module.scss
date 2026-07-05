@@ -1,0 +1,56 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.integration-imports {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.form-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px;
+    background: var(--surface-alt);
+    border-radius: 10px;
+  }
+}
+
+.check-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px;
+  background: var(--surface-alt);
+  border-radius: 10px;
+}
+
+.result-box {
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface-alt);
+  border-radius: 11px;
+}
+
+@include mobile {
+  .integration-grid,
+  .integration-imports {
+    grid-template-columns: 1fr;
+  }
+}

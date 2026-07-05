@@ -1,0 +1,21 @@
+name: Code Format Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  format-check:
+    name: format-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whitespace formatting
+        run: git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"

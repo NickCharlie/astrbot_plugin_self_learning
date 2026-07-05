@@ -1,0 +1,21 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px 160px auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.edit-grid {
+  display: grid;
+  gap: 10px;
+}
+
+@include mobile {
+  .filter-bar {
+    grid-template-columns: 1fr;
+  }
+}

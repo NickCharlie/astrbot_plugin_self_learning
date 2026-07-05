@@ -1,0 +1,39 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.content-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 16px;
+
+  .ui-field {
+    flex: 1;
+    min-width: 220px;
+  }
+}
+
+.content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.content-item {
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+
+  summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+@include mobile {
+  .content-grid {
+    grid-template-columns: 1fr;
+  }
+}

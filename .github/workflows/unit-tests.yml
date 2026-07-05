@@ -1,0 +1,37 @@
+name: Unit Tests
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: Run pytest suite
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/..
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Expose legacy package import path
+        run: ln -sfn "$GITHUB_WORKSPACE" "$(dirname "$GITHUB_WORKSPACE")/self_learning_EterU"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+          python -m pip install "astrbot>=4.14,<4.15" aiohttp "emoji==2.14.1" "hypercorn==0.17.3" jieba quart "quart_cors==0.8.0" pydantic "sqlalchemy[asyncio]" aiosqlite asyncpg "cachetools>=5.3.0" apscheduler "defusedxml>=0.7.1" psutil aiomysql "prometheus_client>=0.20.0" "prometheus-async>=22.2.0" "networkx>=3.2,<3.5" "numpy>=1.26,<2.3" "pandas>=2.1,<2.4" "scikit_learn>=1.4,<1.8"
+
+      - name: Run pytest suite
+        run: python -m pytest --no-cov
