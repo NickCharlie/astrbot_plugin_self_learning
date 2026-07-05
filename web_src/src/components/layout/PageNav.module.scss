@@ -1,0 +1,31 @@
+@use "../../styles/tokens";
+
+.page-nav {
+  padding: 12px clamp(16px, 4vw, 56px);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--border);
+
+  a {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--muted);
+    padding: 8px 11px;
+    border-radius: 10px;
+    transition: var(--duration);
+
+    &:hover,
+    &.active {
+      color: var(--primary);
+      background: var(--primary-soft);
+    }
+  }
+
+  .material-icons {
+    font-size: 18px;
+  }
+}

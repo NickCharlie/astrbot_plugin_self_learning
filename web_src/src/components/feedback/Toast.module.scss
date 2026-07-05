@@ -1,0 +1,36 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.toast-viewport {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 100;
+  width: min(380px, calc(100vw - 36px));
+  display: grid;
+  gap: 8px;
+}
+
+.toast {
+  @include panel;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  animation: toast-in 240ms ease both;
+}
+
+.tone-success .material-icons {
+  color: var(--success);
+}
+
+.tone-danger .material-icons {
+  color: var(--danger);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}

@@ -1,0 +1,19 @@
+@use "../../styles/tokens";
+
+.summary-copy {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+
+  > .material-icons {
+    font-size: 54px;
+    color: var(--primary);
+  }
+
+  p {
+    color: var(--muted);
+  }
+}

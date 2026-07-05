@@ -1,0 +1,40 @@
+@use "../../styles/tokens";
+
+.stat-card {
+  min-height: 132px;
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: "";
+    position: absolute;
+    right: -20px;
+    bottom: -40px;
+    width: 110px;
+    height: 110px;
+    border-radius: 50%;
+    background: var(--primary-soft);
+  }
+
+  strong {
+    display: block;
+    margin-top: 12px;
+    font-size: 30px;
+    letter-spacing: -0.04em;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.stat-card-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+
+  .material-icons {
+    font-size: 18px;
+  }
+}

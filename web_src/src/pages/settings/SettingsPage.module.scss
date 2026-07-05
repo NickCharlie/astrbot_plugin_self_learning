@@ -1,0 +1,43 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.dependency-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  .ui-field {
+    min-width: 220px;
+  }
+}
+
+.settings-toolbar {
+  margin-bottom: 14px;
+
+  .ui-field {
+    max-width: 460px;
+  }
+}
+
+.settings-groups {
+  display: grid;
+  gap: 10px;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+@include mobile {
+  .dependency-panel {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+}

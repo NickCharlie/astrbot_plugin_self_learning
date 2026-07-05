@@ -1,0 +1,78 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.ui-button {
+  min-height: 38px;
+  padding: 8px 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    transform var(--duration),
+    border-color var(--duration),
+    background var(--duration);
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--primary);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(0) scale(0.98);
+  }
+
+  &:focus-visible {
+    @include focus-ring;
+  }
+
+  &:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
+  }
+
+  .material-icons {
+    font-size: 18px;
+  }
+}
+
+.size-sm {
+  min-height: 32px;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.icon-only {
+  width: 38px;
+  padding: 7px;
+
+  > span:last-child {
+    display: none;
+  }
+}
+
+.tone-primary {
+  color: #fff;
+  border-color: transparent;
+  background: var(--primary);
+}
+
+.tone-success {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.tone-warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.tone-danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}

@@ -1,0 +1,46 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.persona-current {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  text-align: center;
+
+  > .material-icons {
+    font-size: 54px;
+    color: var(--primary);
+  }
+
+  details {
+    width: 100%;
+    text-align: left;
+  }
+}
+
+.backup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.backup-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+
+  > div:first-child {
+    display: grid;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+@include mobile {
+  .backup-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

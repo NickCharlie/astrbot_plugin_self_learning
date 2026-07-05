@@ -1,0 +1,31 @@
+@use "../../styles/tokens";
+
+.progress-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.progress-track {
+  height: 8px;
+  overflow: hidden;
+  background: var(--surface-alt);
+  border-radius: 99px;
+
+  span {
+    display: block;
+    height: 100%;
+    background: var(--primary);
+    border-radius: inherit;
+  }
+
+  .tone-success {
+    background: var(--success);
+  }
+}

@@ -1,0 +1,25 @@
+@mixin focus-ring {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-soft);
+  border-color: var(--primary);
+}
+
+@mixin panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(18px);
+}
+
+@mixin mobile {
+  @media (max-width: 760px) { @content; }
+}
+
+@mixin tablet {
+  @media (max-width: 1100px) { @content; }
+}
+
+@mixin reduced-motion {
+  @media (prefers-reduced-motion: reduce) { @content; }
+}

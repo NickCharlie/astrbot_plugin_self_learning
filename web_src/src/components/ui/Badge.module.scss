@@ -1,0 +1,26 @@
+@use "../../styles/tokens";
+
+.ui-badge {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: 99px;
+  color: var(--muted);
+  background: var(--surface-alt);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tone-success {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.tone-warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.tone-danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}

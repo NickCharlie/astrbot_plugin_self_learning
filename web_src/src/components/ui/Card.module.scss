@@ -1,0 +1,20 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.ui-card {
+  @include panel;
+  padding: 18px;
+
+  &.interactive {
+    transition:
+      transform var(--duration),
+      box-shadow var(--duration),
+      border-color var(--duration);
+
+    &:hover {
+      transform: translateY(-3px);
+      border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
+      box-shadow: var(--shadow-lg);
+    }
+  }
+}

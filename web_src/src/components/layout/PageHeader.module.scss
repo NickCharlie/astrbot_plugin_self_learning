@@ -1,0 +1,58 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+
+  h2 {
+    margin: 3px 0;
+    font-size: 25px;
+    line-height: 1.15;
+    letter-spacing: -0.035em;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 15px;
+  }
+}
+
+.page-header-heading {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.page-back-button {
+  background-color: transparent;
+  gap: 0;
+  padding: 12px 2px 12px 12px;
+
+  &:hover {
+    background-color: var(--surface-alt);
+  }
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@include mobile {
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .page-header-actions {
+    width: 100%;
+  }
+}

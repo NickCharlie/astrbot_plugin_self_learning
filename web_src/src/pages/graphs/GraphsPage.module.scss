@@ -1,0 +1,14 @@
+@use "../../styles/tokens";
+
+.graph-toolbar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+  margin-bottom: 16px;
+
+  .ui-field {
+    flex: 1;
+    min-width: 220px;
+  }
+}

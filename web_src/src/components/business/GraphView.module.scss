@@ -1,0 +1,13 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.graph-chart {
+  height: min(68vh, 720px);
+  min-height: 520px;
+}
+
+@include mobile {
+  .graph-chart {
+    min-height: 420px;
+  }
+}
