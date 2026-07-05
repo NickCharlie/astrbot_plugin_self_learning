@@ -1,0 +1,39 @@
+name: Smoke Test
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-test:
+    name: Smoke test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install smoke test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-test.txt
+          python -m pip install "astrbot>=4.24,<5" aiohttp "emoji==2.14.1" "hypercorn==0.17.3" jieba quart "quart_cors==0.8.0" pydantic "sqlalchemy[asyncio]" aiosqlite asyncpg "cachetools>=5.3.0" apscheduler "defusedxml>=0.7.1"
+
+      - name: Compile Python files
+        run: python -m compileall .
+
+      - name: Run smoke tests
+        run: python -m pytest tests/integration/test_package_imports.py tests/integration/test_webui_static_assets.py --no-cov

@@ -1,0 +1,47 @@
+name: Dashboard CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web_src
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: web_src/pnpm-lock.yaml
+
+      - name: Install dashboard dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check dashboard
+        run: pnpm typecheck
+
+      - name: Test dashboard
+        run: pnpm test
+
+      - name: Build dashboard
+        run: pnpm build
+
+      - name: Verify committed dashboard artifacts
+        working-directory: .
+        run: git diff --exit-code -- web_res/static/dashboard
