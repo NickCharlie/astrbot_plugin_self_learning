@@ -11,6 +11,8 @@ jobs:
   smoke-test:
     name: Smoke test (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    env:
+      PYTHONPATH: ${{ github.workspace }}/..
     strategy:
       fail-fast: false
       matrix:
@@ -19,6 +21,19 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Expose legacy package import path
+        if: runner.os != 'Windows'
+        run: ln -sfn "$GITHUB_WORKSPACE" "$(dirname "$GITHUB_WORKSPACE")/self_learning_EterU"
+
+      - name: Expose legacy package import path on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $aliasPath = Join-Path (Split-Path $env:GITHUB_WORKSPACE -Parent) "self_learning_EterU"
+          if (-not (Test-Path $aliasPath)) {
+            New-Item -ItemType Junction -Path $aliasPath -Target $env:GITHUB_WORKSPACE | Out-Null
+          }
 
       - name: Set up Python
         uses: actions/setup-python@v5

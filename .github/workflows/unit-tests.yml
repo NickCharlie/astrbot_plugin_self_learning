@@ -11,9 +11,14 @@ jobs:
   pytest:
     name: Run pytest suite
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/..
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Expose legacy package import path
+        run: ln -sfn "$GITHUB_WORKSPACE" "$(dirname "$GITHUB_WORKSPACE")/self_learning_EterU"
 
       - name: Set up Python
         uses: actions/setup-python@v5
