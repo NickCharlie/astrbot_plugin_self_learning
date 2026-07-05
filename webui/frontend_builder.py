@@ -65,7 +65,7 @@ def detect_build_tool() -> Optional[str]:
 
 def _tool_name(tool_path: str) -> str:
     """根据可执行文件路径判断工具名（pnpm / npm）。"""
-    base = os.path.basename(tool_path).lower()
+    base = tool_path.replace("\\", "/").rsplit("/", 1)[-1].lower()
     return "pnpm" if base.startswith("pnpm") else "npm"
 
 
