@@ -346,6 +346,9 @@ PROGRESSIVE_LEARNING_GENERATE_UPDATED_PERSONA_PROMPT = """
 风格分析结果：
 {style_analysis_json}
 
+请先判断风格分析结果是否包含稳定、明确、值得写入人格的新增特征。若没有可靠的新特征，必须返回
+`"should_update": false`，并保持当前人格内容不变，不要把“无需更新/不需要修改”之类说明写进 prompt。
+
 请根据风格分析结果对人格进行渐进式更新，确保：
 1. 保持核心人格特征不变
 2. 根据风格分析适当调整表达方式
@@ -354,8 +357,20 @@ PROGRESSIVE_LEARNING_GENERATE_UPDATED_PERSONA_PROMPT = """
 
 请以JSON格式返回更新后的完整人格信息：
 {{
+    "should_update": true,
+    "reason": "简要说明本次是否需要更新以及依据",
     "name": "更新后的人格名称",
     "prompt": "更新后的完整人格描述",
+    "begin_dialogs": [],
+    "mood_imitation_dialogs": []
+}}
+
+若无需更新，请返回：
+{{
+    "should_update": false,
+    "reason": "没有发现稳定的新人格特征",
+    "name": "当前人格名称",
+    "prompt": "当前完整人格描述",
     "begin_dialogs": [],
     "mood_imitation_dialogs": []
 }}

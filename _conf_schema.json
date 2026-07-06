@@ -959,6 +959,12 @@
         "hint": "AstrBot 冷启动时 Provider 注册表可能尚未就绪。插件会按此间隔重试绑定 Embedding/Reranker Provider。",
         "default": 10.0
       },
+      "enable_realtime_v2_processing": {
+        "description": "启用 V2 实时逐消息处理",
+        "type": "bool",
+        "hint": "实时学习关闭时，是否仍按每条消息触发 V2 分层处理。V2 会按短冷却批量触发 LightRAG/Mem0/黑话推理等高成本模型调用；默认关闭以遵守实时学习开关和学习间隔。",
+        "default": false
+      },
       "knowledge_engine": {
         "description": "知识引擎",
         "type": "string",

@@ -23,6 +23,36 @@ except ImportError:
 class JargonFacade(BaseFacade):
     """黑话管理 Facade"""
 
+    @staticmethod
+    def _jargon_to_dict(record: Jargon) -> Dict[str, Any]:
+        return {
+            'id': record.id,
+            'content': record.content,
+            'raw_content': record.raw_content,
+            'meaning': record.meaning,
+            'is_jargon': record.is_jargon,
+            'count': record.count or 0,
+            'last_inference_count': record.last_inference_count or 0,
+            'is_complete': record.is_complete,
+            'is_global': record.is_global or False,
+            'chat_id': record.chat_id,
+            'created_at': record.created_at,
+            'updated_at': record.updated_at,
+        }
+
+    @staticmethod
+    def _dedupe_jargon_dicts_by_content(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Drop duplicate content rows while preserving query order priority."""
+        deduped: List[Dict[str, Any]] = []
+        seen = set()
+        for item in items:
+            content_key = str(item.get('content') or '').strip().casefold()
+            if not content_key or content_key in seen:
+                continue
+            seen.add(content_key)
+            deduped.append(item)
+        return deduped
+
     # 1. get_jargon
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
         """查询指定黑话（按 chat_id + content 唯一定位）
@@ -335,25 +365,12 @@ class JargonFacade(BaseFacade):
                 jargon_list = []
                 for record in jargon_records:
                     try:
-                        jargon_list.append({
-                            'id': record.id,
-                            'content': record.content,
-                            'raw_content': record.raw_content,
-                            'meaning': record.meaning,
-                            'is_jargon': record.is_jargon,
-                            'count': record.count or 0,
-                            'last_inference_count': record.last_inference_count or 0,
-                            'is_complete': record.is_complete,
-                            'chat_id': record.chat_id,
-                            'created_at': record.created_at,
-                            'updated_at': record.updated_at,
-                            'is_global': record.is_global or False
-                        })
+                        jargon_list.append(self._jargon_to_dict(record))
                     except Exception as row_error:
                         self._logger.warning(f"处理黑话记录行时出错，跳过: {row_error}")
                         continue
 
-                return jargon_list
+                return self._dedupe_jargon_dicts_by_content(jargon_list)
 
         except Exception as e:
             self._logger.error(f"[JargonFacade] 获取最近黑话列表失败: {e}", exc_info=True)
@@ -383,7 +400,11 @@ class JargonFacade(BaseFacade):
         try:
             async with self.get_session() as session:
 
-                stmt = select(func.count(Jargon.id))
+                count_expr = Jargon.id
+                if chat_id is None:
+                    count_expr = func.distinct(func.lower(func.trim(Jargon.content)))
+
+                stmt = select(func.count(count_expr))
 
                 if chat_id is not None:
                     stmt = stmt.where(Jargon.chat_id == chat_id)
@@ -467,22 +488,9 @@ class JargonFacade(BaseFacade):
                 result = await session.execute(stmt)
                 records = result.scalars().all()
 
-                return [
-                    {
-                        'id': r.id,
-                        'content': r.content,
-                        'raw_content': r.raw_content,
-                        'meaning': r.meaning,
-                        'is_jargon': r.is_jargon,
-                        'count': r.count or 0,
-                        'is_complete': r.is_complete,
-                        'is_global': r.is_global or False,
-                        'chat_id': r.chat_id,
-                        'created_at': r.created_at,
-                        'updated_at': r.updated_at,
-                    }
-                    for r in records
-                ]
+                return self._dedupe_jargon_dicts_by_content([
+                    self._jargon_to_dict(r) for r in records
+                ])
         except Exception as e:
             self._logger.error(f"[JargonFacade] 搜索黑话失败: {e}", exc_info=True)
             return []

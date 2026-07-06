@@ -8,6 +8,7 @@ Tests the persona review service including:
 """
 import pytest
 from unittest.mock import Mock, AsyncMock
+from webui.services import persona_review_service as persona_review_module
 from webui.services.persona_review_service import PersonaReviewService
 
 
@@ -51,6 +52,38 @@ class TestPersonaReviewService:
         assert result['total'] == 1
         assert len(result['updates']) == 1
         assert result['updates'][0]['review_source'] == 'traditional'
+
+    @pytest.mark.asyncio
+    async def test_get_pending_persona_updates_polling_logs_are_debug(
+        self, mock_container, caplog
+    ):
+        """Dashboard polling should not emit routine persona-review reads at INFO."""
+        service = PersonaReviewService(mock_container)
+        mock_container.persona_updater.get_pending_persona_updates.return_value = []
+        mock_container.database_manager.get_pending_persona_learning_reviews.return_value = []
+        mock_container.database_manager.get_pending_style_reviews.return_value = []
+
+        service_logger = persona_review_module.logger
+        logger_name = service_logger.name
+        service_logger.addHandler(caplog.handler)
+        try:
+            with caplog.at_level("DEBUG", logger=logger_name):
+                result = await service.get_pending_persona_updates(limit=10)
+        finally:
+            service_logger.removeHandler(caplog.handler)
+
+        assert result["success"] is True
+        service_records = [
+            record for record in caplog.records if record.name == logger_name
+        ]
+        assert not any(
+            record.levelname == "INFO" for record in service_records
+        )
+        assert any(
+            record.levelname == "DEBUG"
+            and "offset=0, limit=10" in record.getMessage()
+            for record in service_records
+        )
 
     @pytest.mark.asyncio
     async def test_get_pending_persona_updates_three_sources(
