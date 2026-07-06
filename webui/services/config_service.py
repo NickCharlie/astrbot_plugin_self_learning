@@ -323,9 +323,6 @@ _RESTART_REQUIRED_KEYS = {
     "postgresql_password",
     "postgresql_database",
     "postgresql_schema",
-    "enable_web_interface",
-    "web_interface_host",
-    "web_interface_port",
     "use_sqlalchemy",
 }
 
@@ -469,6 +466,19 @@ class ConfigService:
     def _forget_config_sync_state(self) -> None:
         self._set_container_attr("_config_source_sync_signature", None)
 
+    def _last_config_source_signature(
+        self,
+    ) -> Optional[Tuple[Optional[float], Optional[float], str, str]]:
+        signature = self._get_container_attr("_config_source_sync_signature")
+        if (
+            isinstance(signature, tuple)
+            and len(signature) == 4
+            and isinstance(signature[2], str)
+            and isinstance(signature[3], str)
+        ):
+            return signature
+        return None
+
     def _apply_astrbot_config_to_plugin(
         self,
         astrbot_config: MutableMapping[str, Any],
@@ -537,6 +547,7 @@ class ConfigService:
                 logger.warning(f"AstrBot 插件页 WebUI 初始密码无效: {issues}")
 
         self._sync_runtime_components(changed_keys)
+        self._refresh_llm_provider_bindings()
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):
             logger.warning("AstrBot 插件页配置已同步到内存，但写入 WebUI 配置文件失败")
@@ -555,13 +566,25 @@ class ConfigService:
             return
 
         signature = self._config_source_signature(astrbot_config)
-        if (
-            not force
-            and self._get_container_attr("_config_source_sync_signature") == signature
-        ):
+        last_signature = self._last_config_source_signature()
+        if not force and last_signature == signature:
             return
 
-        if self._astrbot_config_is_newer(astrbot_config):
+        astrbot_payload_changed = (
+            last_signature is not None and signature[2] != last_signature[2]
+        )
+        plugin_payload_changed = (
+            last_signature is not None and signature[3] != last_signature[3]
+        )
+        should_pull_from_astrbot = False
+        if astrbot_payload_changed and not plugin_payload_changed:
+            should_pull_from_astrbot = True
+        elif astrbot_payload_changed and plugin_payload_changed:
+            should_pull_from_astrbot = self._astrbot_config_is_newer(astrbot_config)
+        elif last_signature is None:
+            should_pull_from_astrbot = self._astrbot_config_is_newer(astrbot_config)
+
+        if should_pull_from_astrbot:
             self._apply_astrbot_config_to_plugin(astrbot_config)
             self._remember_config_sync_state(astrbot_config)
             return
@@ -701,6 +724,113 @@ class ConfigService:
             self.container.webui_config = WebUIConfig.from_plugin_config(self.plugin_config)
         except Exception:
             logger.debug("同步 WebUIConfig 失败", exc_info=True)
+
+        self._sync_webui_manager(changed_keys)
+
+    def _sync_webui_manager(self, changed_keys: List[str]) -> None:
+        if not any(
+            key in changed_keys
+            for key in (
+                "enable_web_interface",
+                "web_interface_host",
+                "web_interface_port",
+            )
+        ):
+            return
+
+        plugin = self._get_container_attr("plugin_instance")
+        lifecycle = getattr(plugin, "_lifecycle", None)
+        manager = getattr(lifecycle, "_webui_manager", None)
+        if manager is None:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("当前不在事件循环中，跳过 WebUI 运行时启停同步")
+            return
+
+        task = loop.create_task(self._apply_webui_manager_state(manager))
+        background_tasks = getattr(plugin, "background_tasks", None)
+        if background_tasks is not None:
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+
+    async def _apply_webui_manager_state(self, manager: Any) -> None:
+        try:
+            from ..manager import get_server_instance
+        except ImportError:
+            from webui.manager import get_server_instance
+
+        try:
+            if not getattr(self.plugin_config, "enable_web_interface", False):
+                await manager.stop()
+                return
+
+            server = get_server_instance()
+            if server is not None:
+                current_host = getattr(server, "host", None)
+                current_port = getattr(server, "port", None)
+                next_host = getattr(self.plugin_config, "web_interface_host", None)
+                next_port = getattr(self.plugin_config, "web_interface_port", None)
+                if current_host != next_host or current_port != next_port:
+                    await manager.stop()
+                    server = None
+
+            if server is None:
+                if not manager.create_server():
+                    return
+
+            plugin = self._get_container_attr("plugin_instance")
+            db_manager = (
+                self._get_container_attr("database_manager")
+                or getattr(plugin, "db_manager", None)
+            )
+            await manager.immediate_start(db_manager)
+        except Exception as exc:
+            logger.warning(f"同步 WebUI 运行状态失败: {exc}", exc_info=True)
+
+    def _refresh_llm_provider_bindings(self) -> None:
+        """Rebind cached LLM adapters after runtime provider settings change."""
+        adapters: List[Any] = []
+        seen: set[int] = set()
+
+        def add_adapter(adapter: Any) -> None:
+            if not adapter or not hasattr(adapter, "initialize_providers"):
+                return
+            adapter_id = id(adapter)
+            if adapter_id in seen:
+                return
+            seen.add(adapter_id)
+            adapters.append(adapter)
+
+        add_adapter(self._get_container_attr("llm_adapter"))
+
+        plugin = self._get_container_attr("plugin_instance")
+        if plugin is not None:
+            try:
+                add_adapter(vars(plugin).get("llm_adapter"))
+            except TypeError:
+                add_adapter(getattr(plugin, "llm_adapter", None))
+
+        factory_manager = self._get_container_attr("factory_manager")
+        service_factory = None
+        if factory_manager is not None:
+            try:
+                service_factory = factory_manager.get_service_factory()
+            except Exception:
+                logger.debug("获取 service_factory 失败，跳过 LLM Provider 重绑", exc_info=True)
+        if service_factory is not None:
+            try:
+                add_adapter(vars(service_factory).get("_framework_llm_adapter"))
+            except TypeError:
+                add_adapter(getattr(service_factory, "_framework_llm_adapter", None))
+
+        for adapter in adapters:
+            try:
+                adapter.initialize_providers(self.plugin_config)
+            except Exception as e:
+                logger.warning(f"重新初始化 LLM Provider 失败: {e}", exc_info=True)
 
     def _refresh_learning_runtime(self, progressive_learning: Any) -> None:
         if not progressive_learning:
@@ -1813,12 +1943,7 @@ class ConfigService:
             list(flat_config),
         )
 
-        llm_adapter = getattr(self.container, "llm_adapter", None)
-        if llm_adapter and hasattr(llm_adapter, "initialize_providers"):
-            try:
-                llm_adapter.initialize_providers(self.plugin_config)
-            except Exception as e:
-                logger.warning(f"重新初始化 LLM Provider 失败: {e}", exc_info=True)
+        self._refresh_llm_provider_bindings()
 
         config_file = self._get_config_file_path()
         if not self.plugin_config.save_to_file(config_file):

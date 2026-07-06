@@ -1,6 +1,6 @@
-import logging
 from typing import Dict, Any, Optional, List
 
+from astrbot.api import logger
 from astrbot.api.star import Context
 from ...config import PluginConfig
 
@@ -18,7 +18,7 @@ class PersonaManagerService(IPersonaManager):
                  persona_updater: IPersonaUpdater, persona_backup_manager: IPersonaBackupManager):
         self.config = config
         self.context = context
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logger
         self._persona_updater = persona_updater
         self._persona_backup_manager = persona_backup_manager
         self._status = ServiceLifecycle.CREATED

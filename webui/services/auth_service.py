@@ -6,8 +6,9 @@ import json
 import time
 from typing import Tuple, Dict, Any, Optional
 
+from astrbot.api import logger
+
 try:
-    from ...utils.logging_utils import get_astrbot_logger
     from ...utils.security_utils import (
         PasswordHasher,
         login_attempt_tracker,
@@ -15,7 +16,6 @@ try:
         verify_password_with_migration,
     )
 except ImportError:
-    from utils.logging_utils import get_astrbot_logger
     from utils.security_utils import (
         PasswordHasher,
         login_attempt_tracker,
@@ -24,7 +24,6 @@ except ImportError:
     )
 
 
-logger = get_astrbot_logger("self_learning.webui.auth")
 PASSWORDLESS_PASSWORD_CONFIG = {"must_change": False}
 PASSWORD_SETUP_REQUIRED_CONFIG = {"must_change": False, "setup_required": True}
 INITIAL_WEBUI_PASSWORD_ENV_VAR = "ASTRBOT_WEBUI_INITIAL_PASSWORD"

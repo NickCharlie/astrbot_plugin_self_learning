@@ -7,16 +7,10 @@ import secrets
 from functools import wraps
 from typing import Any, Callable
 
+from astrbot.api import logger
 from quart import jsonify, request
 
-try:
-    from ...utils.logging_utils import get_astrbot_logger
-except ImportError:
-    from utils.logging_utils import get_astrbot_logger
-
 from ..dependencies import get_container
-
-logger = get_astrbot_logger("self_learning.webui.hub")
 
 
 class HubApiError(Exception):

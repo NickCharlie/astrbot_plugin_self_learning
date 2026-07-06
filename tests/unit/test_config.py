@@ -716,6 +716,82 @@ class TestPluginConfigSerialization:
         assert config.postgresql_host == "pg"
         assert config.postgresql_database == "learning_db"
 
+    def test_create_from_runtime_sources_prefers_newer_astrbot_config_file(self, tmp_path):
+        """A newer AstrBot settings file should not be overwritten by stale plugin_data."""
+        config_file = tmp_path / "plugin_data" / "config.json"
+        config_file.parent.mkdir(parents=True)
+        config_file.write_text(
+            json.dumps(
+                {
+                    "db_type": "postgresql",
+                    "postgresql_host": "localhost",
+                    "postgresql_password": "",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        astrbot_config_file = tmp_path / "config" / "astrbot_plugin_self_learning_config.json"
+        astrbot_config_file.parent.mkdir(parents=True)
+        astrbot_config_file.write_text("{}", encoding="utf-8")
+        os.utime(config_file, (1_700_000_000, 1_700_000_000))
+        os.utime(astrbot_config_file, (1_700_000_010, 1_700_000_010))
+
+        config = PluginConfig.create_from_runtime_sources(
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "127.0.0.1",
+                    "postgresql_password": "new-secret",
+                }
+            },
+            data_dir=str(config_file.parent),
+            config_file=str(config_file),
+            astrbot_config_file=str(astrbot_config_file),
+        )
+
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "127.0.0.1"
+        assert config.postgresql_password == "new-secret"
+
+    def test_create_from_runtime_sources_uses_newer_persisted_config_file(self, tmp_path):
+        """A newer WebUI compatibility file remains usable for legacy/full WebUI writes."""
+        config_file = tmp_path / "plugin_data" / "config.json"
+        config_file.parent.mkdir(parents=True)
+        config_file.write_text(
+            json.dumps(
+                {
+                    "db_type": "postgresql",
+                    "postgresql_host": "webui-host",
+                    "postgresql_password": "webui-secret",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        astrbot_config_file = tmp_path / "config" / "astrbot_plugin_self_learning_config.json"
+        astrbot_config_file.parent.mkdir(parents=True)
+        astrbot_config_file.write_text("{}", encoding="utf-8")
+        os.utime(astrbot_config_file, (1_700_000_000, 1_700_000_000))
+        os.utime(config_file, (1_700_000_010, 1_700_000_010))
+
+        config = PluginConfig.create_from_runtime_sources(
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "astrbot-host",
+                    "postgresql_password": "astrbot-secret",
+                }
+            },
+            data_dir=str(config_file.parent),
+            config_file=str(config_file),
+            astrbot_config_file=str(astrbot_config_file),
+        )
+
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "webui-host"
+        assert config.postgresql_password == "webui-secret"
+
     def test_create_from_runtime_sources_loads_persisted_grouped_config(self, tmp_path):
         """Grouped persisted config should use the same fields as AstrBot config."""
         config_file = tmp_path / "config.json"

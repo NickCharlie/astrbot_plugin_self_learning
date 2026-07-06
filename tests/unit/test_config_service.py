@@ -628,6 +628,68 @@ class TestConfigServiceSchema:
         assert saved["learning_interval_hours"] == 3
 
     @pytest.mark.asyncio
+    async def test_config_schema_refresh_imports_plugin_page_payload_change_without_newer_file(self, tmp_path):
+        container = build_container(tmp_path)
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.target_qq_list = ["webui-before"]
+        container.plugin_config.save_to_file(str(config_file))
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config.config_path = str(astrbot_path)
+        container.astrbot_config["Target_Settings"]["target_qq_list"] = ["webui-before"]
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+
+        service = ConfigService(container)
+        await service.get_config_schema()
+
+        container.astrbot_config["Target_Settings"]["target_qq_list"] = [
+            "plugin-page-live",
+        ]
+
+        schema = await service.get_config_schema()
+
+        assert schema["config"]["target_qq_list"] == ["plugin-page-live"]
+        assert container.plugin_config.target_qq_list == ["plugin-page-live"]
+
+    @pytest.mark.asyncio
+    async def test_config_schema_refresh_rebinds_llm_after_plugin_page_provider_change(self, tmp_path):
+        container = build_container(tmp_path)
+        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
+        container.plugin_config.filter_provider_id = "old-chat"
+        container.plugin_config.save_to_file(str(config_file))
+        old_time = config_file.stat().st_mtime - 10
+        config_file.touch()
+        os.utime(config_file, (old_time, old_time))
+
+        plugin_adapter = Mock()
+        plugin_adapter.initialize_providers = Mock()
+        factory_adapter = Mock()
+        factory_adapter.initialize_providers = Mock()
+        container.plugin_instance.llm_adapter = plugin_adapter
+        container.factory_manager.get_service_factory.return_value._framework_llm_adapter = factory_adapter
+
+        astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
+        container.astrbot_config = SaveableConfig(
+            {
+                "Model_Configuration": {
+                    "filter_provider_id": "chat-a",
+                    "refine_provider_id": None,
+                    "reinforce_provider_id": None,
+                },
+            },
+            config_path=astrbot_path,
+        )
+        container.astrbot_config.save_config(dict(container.astrbot_config))
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["filter_provider_id"] == "chat-a"
+        assert container.plugin_config.filter_provider_id == "chat-a"
+        container.llm_adapter.initialize_providers.assert_called_once_with(container.plugin_config)
+        plugin_adapter.initialize_providers.assert_called_once_with(container.plugin_config)
+        factory_adapter.initialize_providers.assert_called_once_with(container.plugin_config)
+
+    @pytest.mark.asyncio
     async def test_config_schema_refresh_prefers_grouped_realtime_plugin_page_values(self, tmp_path):
         container = build_container(tmp_path)
         config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
@@ -928,3 +990,83 @@ class TestConfigServiceUpdate:
         assert container.plugin_instance.progressive_learning.batch_size == 25
         assert container.plugin_instance.progressive_learning.learning_interval == 7200
         assert container.plugin_instance.progressive_learning.quality_threshold == 0.72
+
+    @pytest.mark.asyncio
+    async def test_update_config_stops_webui_manager_when_webui_is_disabled(self, tmp_path):
+        container = build_container(tmp_path)
+        actions = []
+
+        class DummyWebUIManager:
+            async def stop(self):
+                actions.append("stop")
+
+            def create_server(self):
+                actions.append("create")
+                return True
+
+            async def immediate_start(self, db_manager):
+                actions.append(("start", db_manager))
+
+        container.plugin_instance.background_tasks = set()
+        container.plugin_instance._lifecycle = SimpleNamespace(
+            _webui_manager=DummyWebUIManager(),
+        )
+
+        success, message, updated = await ConfigService(container).update_config(
+            {
+                "Self_Learning_Basic": {
+                    "enable_web_interface": False,
+                },
+            }
+        )
+        while container.plugin_instance.background_tasks:
+            await asyncio.gather(*list(container.plugin_instance.background_tasks))
+
+        assert success is True
+        assert "重启后生效" not in message
+        assert updated["enable_web_interface"] is False
+        assert actions == ["stop"]
+
+    @pytest.mark.asyncio
+    async def test_update_config_starts_webui_manager_when_webui_is_enabled(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        container = build_container(tmp_path)
+        container.plugin_config.enable_web_interface = False
+        db_manager = object()
+        container.database_manager = db_manager
+        actions = []
+
+        class DummyWebUIManager:
+            async def stop(self):
+                actions.append("stop")
+
+            def create_server(self):
+                actions.append("create")
+                return True
+
+            async def immediate_start(self, db_manager_arg):
+                actions.append(("start", db_manager_arg))
+
+        monkeypatch.setattr("webui.manager.get_server_instance", lambda: None)
+        container.plugin_instance.background_tasks = set()
+        container.plugin_instance._lifecycle = SimpleNamespace(
+            _webui_manager=DummyWebUIManager(),
+        )
+
+        success, message, updated = await ConfigService(container).update_config(
+            {
+                "Self_Learning_Basic": {
+                    "enable_web_interface": True,
+                },
+            }
+        )
+        while container.plugin_instance.background_tasks:
+            await asyncio.gather(*list(container.plugin_instance.background_tasks))
+
+        assert success is True
+        assert "重启后生效" not in message
+        assert updated["enable_web_interface"] is True
+        assert actions == ["create", ("start", db_manager)]

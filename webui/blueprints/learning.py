@@ -1,12 +1,8 @@
 """
 学习功能蓝图 - 处理风格学习相关路由
 """
+from astrbot.api import logger
 from quart import Blueprint, request, jsonify
-
-try:
-    from ...utils.logging_utils import get_astrbot_logger
-except ImportError:
-    from utils.logging_utils import get_astrbot_logger
 
 from ..dependencies import get_container
 from ..services.learning_service import LearningService
@@ -14,7 +10,6 @@ from ..middleware.auth import require_auth
 from ..utils.response import success_response, error_response
 
 learning_bp = Blueprint('learning', __name__, url_prefix='/api')
-logger = get_astrbot_logger("self_learning.webui.learning")
 
 
 def _clamp_quality_score(value: float) -> float:

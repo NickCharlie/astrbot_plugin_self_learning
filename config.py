@@ -5,14 +5,13 @@ import os
 import json
 from typing import Any, Dict, List, Optional
 
+from astrbot.api import logger
 from pydantic import BaseModel, Field, ConfigDict, ValidationError, field_validator
 
 try:
-    from .utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
+    from .utils.logging_utils import apply_astrbot_log_level, normalize_log_level
 except ImportError:
-    from utils.logging_utils import apply_astrbot_log_level, get_astrbot_logger, normalize_log_level
-
-logger = get_astrbot_logger("self_learning.config")
+    from utils.logging_utils import apply_astrbot_log_level, normalize_log_level
 
 FULL_LEARNING_TARGET_MARKERS = {"*", "all", "all_users", "all_groups", "全部", "全量", "全体", "所有"}
 DEFAULT_DATA_DIR = "./data/plugin_data/astrbot_plugin_self_learning"
@@ -633,16 +632,51 @@ class PluginConfig(BaseModel):
 
         return {**grouped, **direct}
 
+    @staticmethod
+    def _file_mtime(path: Optional[str]) -> Optional[float]:
+        if not path:
+            return None
+        try:
+            return os.path.getmtime(os.fspath(path))
+        except (OSError, TypeError, ValueError):
+            return None
+
+    @classmethod
+    def _should_load_persisted_config(
+        cls,
+        config_file: Optional[str],
+        astrbot_config_file: Optional[str] = None,
+    ) -> bool:
+        """Return whether the WebUI compatibility cache should override AstrBot config."""
+        persisted_mtime = cls._file_mtime(config_file)
+        if persisted_mtime is None:
+            return False
+
+        astrbot_mtime = cls._file_mtime(astrbot_config_file)
+        if astrbot_mtime is None:
+            return True
+
+        return persisted_mtime > astrbot_mtime
+
     @classmethod
     def create_from_runtime_sources(
         cls,
         config: dict,
         data_dir: Optional[str] = None,
         config_file: Optional[str] = None,
+        astrbot_config_file: Optional[str] = None,
     ) -> 'PluginConfig':
         """Create config from AstrBot settings and optional persisted WebUI config."""
         runtime_config = cls.create_from_config(config or {}, data_dir=data_dir)
-        if not config_file or not os.path.exists(config_file):
+        if astrbot_config_file is None:
+            astrbot_config_file = getattr(config, "config_path", None)
+
+        if not cls._should_load_persisted_config(config_file, astrbot_config_file):
+            if cls._file_mtime(config_file) is not None and cls._file_mtime(astrbot_config_file) is not None:
+                logger.info(
+                    "AstrBot 配置不旧于 WebUI 兼容配置，跳过旧副本覆盖: "
+                    f"{config_file}"
+                )
             return runtime_config
 
         try:

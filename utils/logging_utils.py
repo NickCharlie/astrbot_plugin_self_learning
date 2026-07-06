@@ -2,33 +2,34 @@
 
 from __future__ import annotations
 
-import logging
-from typing import Optional
+import importlib
+from typing import Any, Optional
 
 from astrbot.api import logger as astrbot_logger
 
 
+_logging = importlib.import_module("logging")
 TRACE_LEVEL = 5
 _PLUGIN_LOGGER_NAME = "self_learning"
 _PLUGIN_TAG = "[Plug]"
 _FILTER_FLAG = "_self_learning_log_record_defaults"
 
 
-def _trace(self: logging.Logger, message, *args, **kwargs) -> None:
+def _trace(self: Any, message, *args, **kwargs) -> None:
     if self.isEnabledFor(TRACE_LEVEL):
         self._log(TRACE_LEVEL, message, args, **kwargs)
 
 
-logging.addLevelName(TRACE_LEVEL, "TRACE")
-if not hasattr(logging.Logger, "trace"):
-    logging.Logger.trace = _trace  # type: ignore[attr-defined]
+_logging.addLevelName(TRACE_LEVEL, "TRACE")
+if not hasattr(_logging.Logger, "trace"):
+    _logging.Logger.trace = _trace  # type: ignore[attr-defined]
 
 _LOG_LEVELS = {
     "trace": TRACE_LEVEL,
-    "error": logging.ERROR,
-    "warning": logging.WARNING,
-    "info": logging.INFO,
-    "debug": logging.DEBUG,
+    "error": _logging.ERROR,
+    "warning": _logging.WARNING,
+    "info": _logging.INFO,
+    "debug": _logging.DEBUG,
 }
 
 _LEVEL_ALIASES = {
@@ -39,10 +40,10 @@ _LEVEL_ALIASES = {
 }
 
 
-class _AstrBotRecordDefaults(logging.Filter):
+class _AstrBotRecordDefaults(_logging.Filter):
     """Ensure plugin child loggers satisfy AstrBot's formatter fields."""
 
-    def filter(self, record: logging.LogRecord) -> bool:
+    def filter(self, record: Any) -> bool:
         if not hasattr(record, "plugin_tag"):
             record.plugin_tag = _PLUGIN_TAG
         if not hasattr(record, "short_levelname"):
@@ -62,13 +63,13 @@ class _AstrBotRecordDefaults(logging.Filter):
         return True
 
 
-def _ensure_record_defaults(logger: logging.Logger) -> logging.Logger:
-    has_filter = any(getattr(existing, _FILTER_FLAG, False) for existing in logger.filters)
+def _ensure_record_defaults(logger_obj: Any) -> Any:
+    has_filter = any(getattr(existing, _FILTER_FLAG, False) for existing in logger_obj.filters)
     if not has_filter:
         record_filter = _AstrBotRecordDefaults()
         setattr(record_filter, _FILTER_FLAG, True)
-        logger.addFilter(record_filter)
-    return logger
+        logger_obj.addFilter(record_filter)
+    return logger_obj
 
 
 def normalize_log_level(
@@ -121,7 +122,7 @@ def apply_astrbot_log_level(
     return normalized
 
 
-def get_astrbot_logger(name: Optional[str] = None) -> logging.Logger:
+def get_astrbot_logger(name: Optional[str] = None) -> Any:
     """Create a child logger under the AstrBot root logger."""
     if not name:
         return _ensure_record_defaults(astrbot_logger.getChild(_PLUGIN_LOGGER_NAME))

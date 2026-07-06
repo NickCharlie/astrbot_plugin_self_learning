@@ -10,11 +10,7 @@ import asyncio
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 
-try:
-    from astrbot.api import logger
-except ImportError:
-    import logging
-    logger = logging.getLogger(__name__)
+from astrbot.api import logger
 
 
 class PersonaWebManager:

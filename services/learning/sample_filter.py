@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import re
-import logging
 from typing import Any, Dict, Iterable, List, Optional
 
+from astrbot.api import logger
 
-_LOGGER = logging.getLogger(__name__)
+
+_LOGGER = logger
 
 COMMAND_PREFIXES = ("/", "!", "#", ".")
 BARE_COMMANDS = {

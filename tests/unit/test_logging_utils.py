@@ -1,28 +1,30 @@
 import io
-import logging
+import importlib
 
 from utils.logging_utils import TRACE_LEVEL, get_astrbot_logger, normalize_log_level
 
+_logging = importlib.import_module("logging")
+
 
 def test_child_logger_records_include_astrbot_formatter_fields():
-    logger = get_astrbot_logger("self_learning.config")
+    test_logger = get_astrbot_logger("self_learning.config")
     stream = io.StringIO()
-    handler = logging.StreamHandler(stream)
+    handler = _logging.StreamHandler(stream)
     handler.setFormatter(
-        logging.Formatter(
+        _logging.Formatter(
             "%(plugin_tag)s %(short_levelname)s %(astrbot_version_tag)s "
             "%(source_file)s:%(source_line)d %(message)s"
         )
     )
-    logger.addHandler(handler)
-    original_propagate = logger.propagate
+    test_logger.addHandler(handler)
+    original_propagate = test_logger.propagate
 
     try:
-        logger.propagate = False
-        logger.info("config loaded")
+        test_logger.propagate = False
+        test_logger.info("config loaded")
     finally:
-        logger.removeHandler(handler)
-        logger.propagate = original_propagate
+        test_logger.removeHandler(handler)
+        test_logger.propagate = original_propagate
 
     output = stream.getvalue()
     assert "[Plug]" in output
@@ -31,22 +33,22 @@ def test_child_logger_records_include_astrbot_formatter_fields():
 
 
 def test_trace_log_level_is_supported():
-    logger = get_astrbot_logger("self_learning.trace_test")
+    test_logger = get_astrbot_logger("self_learning.trace_test")
     stream = io.StringIO()
-    handler = logging.StreamHandler(stream)
-    handler.setFormatter(logging.Formatter("%(levelname)s %(is_trace)s %(message)s"))
-    logger.addHandler(handler)
-    original_level = logger.level
-    original_propagate = logger.propagate
+    handler = _logging.StreamHandler(stream)
+    handler.setFormatter(_logging.Formatter("%(levelname)s %(is_trace)s %(message)s"))
+    test_logger.addHandler(handler)
+    original_level = test_logger.level
+    original_propagate = test_logger.propagate
 
     try:
-        logger.propagate = False
-        logger.setLevel(TRACE_LEVEL)
-        logger.trace("trace message")
+        test_logger.propagate = False
+        test_logger.setLevel(TRACE_LEVEL)
+        test_logger.trace("trace message")
     finally:
-        logger.removeHandler(handler)
-        logger.setLevel(original_level)
-        logger.propagate = original_propagate
+        test_logger.removeHandler(handler)
+        test_logger.setLevel(original_level)
+        test_logger.propagate = original_propagate
 
     output = stream.getvalue()
     assert normalize_log_level("trace") == "trace"

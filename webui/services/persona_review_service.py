@@ -7,6 +7,7 @@ import re
 from typing import Dict, Any, List, Tuple, Optional
 from datetime import datetime
 
+from astrbot.api import logger
 
 MAX_STYLE_BEGIN_DIALOG_PAIRS = 10
 STYLE_BEGIN_DIALOG_PREFIX = "[风格示范]"
@@ -17,7 +18,6 @@ try:
         resolve_target_persona,
         resolve_target_persona_from_web,
     )
-    from ...utils.logging_utils import get_astrbot_logger
     from ...statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
         normalize_update_type,
@@ -28,15 +28,11 @@ except ImportError:
         resolve_target_persona,
         resolve_target_persona_from_web,
     )
-    from utils.logging_utils import get_astrbot_logger
     from statics.messages import (
         UPDATE_TYPE_STYLE_LEARNING,
         normalize_update_type,
         get_review_source_from_update_type,
     )
-
-
-logger = get_astrbot_logger("self_learning.webui.persona_review")
 
 
 def _optional_container_attr(container, name: str, default=None):

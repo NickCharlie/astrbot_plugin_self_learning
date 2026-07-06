@@ -238,6 +238,81 @@ class FrameworkLLMAdapter:
             logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
     @staticmethod
+    def _looks_like_stale_provider_error(exc: Exception) -> bool:
+        message = str(exc).lower()
+        stale_markers = (
+            "404",
+            "model is not found",
+            "model not found",
+            "model does not exist",
+            "model_not_found",
+            "not found",
+            "模型不存在",
+            "找不到模型",
+        )
+        return any(marker in message for marker in stale_markers)
+
+    def _refresh_provider_bindings_after_error(self, role_label: str, exc: Exception) -> bool:
+        """Rebind providers once when a call likely used stale model/provider state."""
+        if not self._config or not self._looks_like_stale_provider_error(exc):
+            return False
+
+        logger.warning(
+            f"[LLM适配器] {role_label}Provider 调用疑似使用了过期模型配置，"
+            f"将重新绑定 Provider 后重试一次: {exc}"
+        )
+        try:
+            self.initialize_providers(self._config)
+            self._filter_cache.clear()
+            return self.providers_configured > 0
+        except Exception as refresh_error:
+            logger.warning(
+                f"[LLM适配器] {role_label}Provider 重新绑定失败: {refresh_error}",
+                exc_info=True,
+            )
+            return False
+
+    async def _text_chat_with_rebind_retry(
+        self,
+        provider_attr: str,
+        role_label: str,
+        prompt: str,
+        contexts: List[Dict[str, str]],
+        system_prompt: Optional[str],
+        **kwargs,
+    ) -> Optional[LLMResponse]:
+        provider = getattr(self, provider_attr)
+        if not provider:
+            return None
+
+        logger.debug(f"调用{role_label}Provider: {provider.meta().id}")
+        try:
+            return await provider.text_chat(
+                prompt=prompt,
+                contexts=contexts,
+                system_prompt=system_prompt,
+                **kwargs,
+            )
+        except Exception as exc:
+            if not self._refresh_provider_bindings_after_error(role_label, exc):
+                raise
+
+            retry_provider = getattr(self, provider_attr)
+            if not retry_provider or retry_provider is provider:
+                raise
+
+            logger.info(
+                f"[LLM适配器] {role_label}Provider 已重新绑定: "
+                f"{retry_provider.meta().id}"
+            )
+            return await retry_provider.text_chat(
+                prompt=prompt,
+                contexts=contexts,
+                system_prompt=system_prompt,
+                **kwargs,
+            )
+
+    @staticmethod
     def _filter_cache_key(
         prompt: str,
         contexts: Optional[List[Dict[str, str]]],
@@ -286,12 +361,13 @@ class FrameworkLLMAdapter:
         self.call_stats['filter']['total_calls'] += 1
 
         try:
-            logger.debug(f"调用筛选Provider: {self.filter_provider.meta().id}")
-            response = await self.filter_provider.text_chat(
+            response = await self._text_chat_with_rebind_retry(
+                "filter_provider",
+                "筛选",
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
-                **kwargs
+                **kwargs,
             )
             return response.completion_text if response else None
         except Exception as e:
@@ -400,12 +476,13 @@ class FrameworkLLMAdapter:
             start_time = time.time()
             self.call_stats['refine']['total_calls'] += 1
             
-            logger.debug(f"调用提炼Provider: {self.refine_provider.meta().id}")
-            response = await self.refine_provider.text_chat(
+            response = await self._text_chat_with_rebind_retry(
+                "refine_provider",
+                "提炼",
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
-                **kwargs
+                **kwargs,
             )
             
             # 统计调用时间
@@ -462,12 +539,13 @@ class FrameworkLLMAdapter:
             start_time = time.time()
             self.call_stats['reinforce']['total_calls'] += 1
             
-            logger.debug(f"调用强化Provider: {self.reinforce_provider.meta().id}")
-            response = await self.reinforce_provider.text_chat(
+            response = await self._text_chat_with_rebind_retry(
+                "reinforce_provider",
+                "强化",
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
-                **kwargs
+                **kwargs,
             )
             
             # 统计调用时间

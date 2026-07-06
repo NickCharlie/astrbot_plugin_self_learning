@@ -2,11 +2,11 @@
 人格更新服务 - 基于AstrBot框架的人格管理
 """
 import os
-import logging
 import time # 导入 time 模块
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 
+from astrbot.api import logger
 from astrbot.api.star import Context
 from astrbot.core.db.po import Personality
 from ...config import PluginConfig
@@ -36,7 +36,7 @@ class PersonaUpdater(IPersonaUpdater):
         self.backup_manager = backup_manager
         # llm_client参数保持为了兼容性，但不使用
         self.db_manager = db_manager # 添加 db_manager
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logger
         
         # 初始化PersonaManager更新器
         self.persona_manager_updater = PersonaManagerUpdater(config, context)
@@ -912,7 +912,7 @@ class PersonaAnalyzer:
     
     def __init__(self, config: PluginConfig):
         self.config = config
-        self._logger = logging.getLogger(self.__class__.__name__)
+        self._logger = logger
     
     async def analyze_persona_evolution(self, persona_history: List[Dict[str, Any]]) -> Dict[str, Any]:
         """分析人格演化趋势"""

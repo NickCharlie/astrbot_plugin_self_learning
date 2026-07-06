@@ -5,15 +5,15 @@ import os
 import asyncio
 import time
 import shutil
+from pathlib import Path
 from typing import Dict, Optional
 from dataclasses import dataclass
 from sys import maxsize
 
 from astrbot.api.event import AstrMessageEvent
 from astrbot.api.event import filter
-from astrbot.api.event.filter import PermissionType
 import astrbot.api.star as star
-from astrbot.api.star import Context
+from astrbot.api.star import Context, StarTools
 from astrbot.api import logger, AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
@@ -64,6 +64,23 @@ def _migrate_legacy_data_dir(astrbot_data_path: str, plugin_data_dir: str) -> No
             return
         except Exception as exc:
             logger.warning(f"迁移旧版自学习数据目录失败 ({legacy} -> {target}): {exc}")
+
+
+def _default_plugin_data_dir(astrbot_data_path: str) -> str:
+    try:
+        data_dir = StarTools.get_data_dir()
+        if isinstance(data_dir, Path):
+            return os.fspath(data_dir)
+        if data_dir:
+            return os.fspath(data_dir)
+    except Exception as exc:
+        logger.warning(f"StarTools.get_data_dir() 不可用，回退到 AstrBot 数据目录: {exc}")
+
+    return os.path.join(
+        astrbot_data_path,
+        "plugin_data",
+        "astrbot_plugin_self_learning",
+    )
 
 
 @dataclass
@@ -119,9 +136,7 @@ class SelfLearningPlugin(star.Star):
                 if not os.path.isabs(plugin_data_dir):
                     plugin_data_dir = os.path.abspath(plugin_data_dir)
             else:
-                plugin_data_dir = os.path.join(
-                    astrbot_data_path, "plugin_data", "astrbot_plugin_self_learning"
-                )
+                plugin_data_dir = _default_plugin_data_dir(astrbot_data_path)
                 logger.info(f"使用默认数据路径: {plugin_data_dir}")
                 _migrate_legacy_data_dir(astrbot_data_path, plugin_data_dir)
 
@@ -131,6 +146,7 @@ class SelfLearningPlugin(star.Star):
                 self.config,
                 data_dir=plugin_data_dir,
                 config_file=config_file,
+                astrbot_config_file=getattr(self.config, "config_path", None),
             )
 
             logger.info(f"[插件初始化] Provider配置已加载：")
@@ -147,6 +163,7 @@ class SelfLearningPlugin(star.Star):
                 self.config,
                 data_dir=default_data_dir,
                 config_file=config_file,
+                astrbot_config_file=getattr(self.config, "config_path", None),
             )
 
         os.makedirs(self.plugin_config.data_dir, exist_ok=True)
@@ -465,7 +482,7 @@ class SelfLearningPlugin(star.Star):
     # 命令处理器（薄委托）
 
     @filter.command("learning_status")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def learning_status_command(self, event: AstrMessageEvent):
         """查看学习状态"""
         if not self._command_handlers:
@@ -475,7 +492,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("start_learning")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def start_learning_command(self, event: AstrMessageEvent):
         """手动启动学习"""
         if not self._command_handlers:
@@ -485,7 +502,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("stop_learning")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def stop_learning_command(self, event: AstrMessageEvent):
         """停止学习"""
         if not self._command_handlers:
@@ -495,7 +512,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("force_learning")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def force_learning_command(self, event: AstrMessageEvent):
         """强制执行一次学习周期"""
         if not self._command_handlers:
@@ -504,7 +521,7 @@ class SelfLearningPlugin(star.Star):
         async for result in self._command_handlers.force_learning(event):
             yield result
     @filter.command("remember")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def remember_command(self, event: AstrMessageEvent):
         """手动记住引用对话及上下文，并链入表达方式和对话示例"""
         if not self._command_handlers:
@@ -514,7 +531,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("remember")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def remember_command(self, event: AstrMessageEvent):
         """手动记住引用对话及上下文，并链入表达方式和对话示例"""
         if not self._command_handlers:
@@ -524,7 +541,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("affection_status")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def affection_status_command(self, event: AstrMessageEvent):
         """查看好感度状态"""
         if not self._command_handlers:
@@ -534,7 +551,7 @@ class SelfLearningPlugin(star.Star):
             yield result
 
     @filter.command("set_mood")
-    @filter.permission_type(PermissionType.ADMIN)
+    @filter.permission_type(filter.PermissionType.ADMIN)
     async def set_mood_command(self, event: AstrMessageEvent):
         """手动设置bot情绪"""
         if not self._command_handlers:
