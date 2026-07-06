@@ -186,6 +186,60 @@ def test_plugin_page_dependency_install_accepts_legacy_plugin_page_confirmation(
         _cleanup_alias(alias)
 
 
+def test_plugin_page_dependency_install_accepts_webui_confirmation_without_source(monkeypatch):
+    alias = "data.plugins.astrbot_plugin_self_learning_pageapi_deps_pkgtest_no_source"
+    _cleanup_alias(alias)
+
+    class _Process:
+        returncode = 0
+
+        async def communicate(self):
+            return b"installed", b""
+
+    captured: dict[str, object] = {}
+
+    async def _fake_subprocess(*cmd, **kwargs):
+        captured["cmd"] = cmd
+        captured["kwargs"] = kwargs
+        return _Process()
+
+    try:
+        _load_plugin_package(alias)
+        module = importlib.import_module(f"{alias}.core.page_api")
+        imports = SimpleNamespace(
+            DEPENDENCY_TIERS={
+                "basic": {
+                    "label": "基础能力依赖",
+                    "packages": ["quart"],
+                }
+            },
+            MANUAL_DEPENDENCY_INSTALL_SOURCE="system_settings",
+            PIP_MIRROR_SOURCES={
+                "default": {
+                    "label": "PyPI 默认源",
+                    "index_url": None,
+                }
+            },
+        )
+        monkeypatch.setattr(module.PluginPageApi, "_imports", staticmethod(lambda: imports))
+        monkeypatch.setattr(module.asyncio, "create_subprocess_exec", _fake_subprocess)
+
+        result = asyncio.run(
+            module.PluginPageApi(object())._install_dependencies(
+                {
+                    "manual_confirmed": True,
+                    "tier": "basic",
+                }
+            )
+        )
+
+        assert result["success"] is True
+        assert result["tier"] == "basic"
+        assert captured["cmd"][:4] == (sys.executable, "-m", "pip", "install")
+    finally:
+        _cleanup_alias(alias)
+
+
 def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
     """Plugin startup modules should import before settings-triggered pip install."""
     import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard

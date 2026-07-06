@@ -1530,10 +1530,7 @@ class PluginPageApi:
             body.get("manual_confirm") is True and body.get("user_confirmed") is True
         )
         if not manual_confirmed:
-            return {"success": False, "error": "依赖安装只能在设置界面手动确认后触发"}
-        source = body.get("source")
-        if source != imports.MANUAL_DEPENDENCY_INSTALL_SOURCE and body.get("mode") != "plugin_page":
-            return {"success": False, "error": "缺少合法的依赖安装来源"}
+            return {"success": False, "error": "依赖安装只能在 WebUI 手动确认后触发"}
 
         tier = str(body.get("tier") or "full").strip().lower()
         tier_definition = imports.DEPENDENCY_TIERS.get(tier)

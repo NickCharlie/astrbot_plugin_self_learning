@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DASHBOARD_PAGES } from '../lib/routing';
 import { App } from './App';
@@ -83,5 +83,39 @@ describe('dashboard page smoke tests', () => {
     expect(screen.getByText('2,216 条消息 · 筛选率 93%')).toBeInTheDocument();
     expect(screen.getByText('系统健康')).toBeInTheDocument();
     expect(screen.getByText('System Entry Points')).toBeInTheDocument();
+  });
+
+  it('sends explicit webui confirmation when installing dependencies', async () => {
+    vi.restoreAllMocks();
+    const posts: unknown[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (init?.method === 'POST' && url.includes('/api/dependencies/install')) {
+        posts.push(JSON.parse(String(init.body)));
+        return new Response('{"message":"ok"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      const payload = url.includes('/api/config/schema')
+        ? { groups: [{ label: '基础设置', fields: [] }] }
+        : url.endsWith('/api/config')
+          ? {}
+          : {};
+      return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    });
+
+    window.location.hash = '#/settings';
+    render(() => <App />);
+    expect(await screen.findByRole('heading', { name: '设置', level: 2 })).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: '基础能力依赖' }));
+    expect(await screen.findByRole('heading', { name: '安装 Python 依赖', level: 2 })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: '确认' }));
+
+    await waitFor(() => expect(posts).toHaveLength(1));
+    expect(posts[0]).toMatchObject({
+      manual_confirmed: true,
+      source: 'webui_settings',
+      tier: 'basic',
+      pip_mirror: 'default',
+    });
   });
 });
