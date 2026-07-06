@@ -6,8 +6,8 @@ import pytest
 from quart import Quart
 
 from webui.blueprints.config import (
-    MANUAL_DEPENDENCY_INSTALL_SOURCE,
     PIP_MIRROR_SOURCES,
+    WEBUI_DEPENDENCY_INSTALL_SOURCE,
     config_bp,
 )
 
@@ -48,7 +48,7 @@ async def authenticate(client):
 
 class TestDependencyInstallEndpoint:
     @pytest.mark.asyncio
-    async def test_install_requires_settings_confirmation(self, client):
+    async def test_install_requires_webui_confirmation(self, client):
         await authenticate(client)
 
         with patch(
@@ -61,7 +61,7 @@ class TestDependencyInstallEndpoint:
         create_process.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_confirmed_settings_request_runs_noninteractive_pip(self, client):
+    async def test_webui_confirmed_request_runs_without_plugin_settings_source(self, client):
         await authenticate(client)
 
         with patch(
@@ -72,7 +72,28 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "tier": "basic",
+                },
+            )
+
+        assert response.status_code == 200
+        create_process.assert_awaited_once()
+        payload = await response.get_json()
+        assert payload["tier"] == "basic"
+
+    @pytest.mark.asyncio
+    async def test_confirmed_webui_request_runs_noninteractive_pip(self, client):
+        await authenticate(client)
+
+        with patch(
+            "webui.blueprints.config.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=FakeProcess()),
+        ) as create_process:
+            response = await client.post(
+                "/api/dependencies/install",
+                json={
+                    "manual_confirmed": True,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                 },
             )
 
@@ -104,7 +125,7 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                     "tier": "basic",
                 },
             )
@@ -132,7 +153,7 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                     "tier": "basic",
                     "pip_mirror": "tsinghua",
                 },
@@ -161,7 +182,7 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                     "pip_mirror": "unknown",
                 },
             )
@@ -181,7 +202,7 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                     "tier": "unknown",
                 },
             )
@@ -202,7 +223,7 @@ class TestDependencyInstallEndpoint:
                 "/api/dependencies/install",
                 json={
                     "manual_confirmed": True,
-                    "source": MANUAL_DEPENDENCY_INSTALL_SOURCE,
+                    "source": WEBUI_DEPENDENCY_INSTALL_SOURCE,
                 },
             )
 

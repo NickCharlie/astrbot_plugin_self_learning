@@ -55,10 +55,10 @@ GET /api/
 | POST | `/api/config` | 更新配置 |
 | POST | `/api/dependencies/install` | 手动安装插件依赖 |
 
-依赖安装必须由设置页手动确认:
+依赖安装必须由 WebUI Dashboard 手动确认:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings", "tier": "full"}
+{"manual_confirmed": true, "source": "webui_settings", "tier": "full"}
 ```
 
 `tier`:

@@ -30,10 +30,10 @@ git clone https://github.com/EterUltimate/self_learning_EterU.git astrbot_plugin
 | 基础能力依赖 | WebUI、SQLite/PostgreSQL、人格审查、黑话学习、表达方式学习 |
 | 全能力依赖 | 基础能力 + MySQL、监控指标、图谱、LightRAG、mem0 |
 
-依赖安装接口只接受设置页确认请求:
+依赖安装接口只接受 WebUI 明确确认后的请求:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings", "tier": "basic"}
+{"manual_confirmed": true, "source": "webui_settings", "tier": "basic"}
 ```
 
 如果部署环境禁止 WebUI 安装依赖:
@@ -271,7 +271,7 @@ Dashboard 支持:
 
 ### 插件加载失败: 缺少依赖
 
-确认已经通过设置页手动安装依赖。安装阶段不会自动 pip install。
+确认已经通过 WebUI Dashboard 手动安装依赖。安装阶段不会自动 pip install。
 
 ### WebUI 打不开
 

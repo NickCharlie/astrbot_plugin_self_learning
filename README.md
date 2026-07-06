@@ -6,7 +6,7 @@
 
 让 AstrBot 在群聊中持续采集、学习、审查并注入上下文，使 Bot 逐步具备表达风格、群组黑话、社交关系、长期记忆和人格演化能力。
 
-[![Version](https://img.shields.io/badge/version-3.5.1-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-3.5.2-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -190,12 +190,12 @@ git clone https://github.com/EterUltimate/self_learning_EterU.git astrbot_plugin
 
 ### 依赖安装
 
-当前代码不会在插件安装或启动阶段自动安装 pip 依赖。安装完成后，请进入 self-learning 设置页或 WebUI 系统设置，手动点击“安装依赖”。
+当前代码不会在插件安装或启动阶段自动安装 pip 依赖。安装完成后，请进入 self-learning WebUI Dashboard 的全量设置页，手动点击“基础能力依赖”或“全能力依赖”。
 
-依赖安装接口只接受设置页确认请求：
+依赖安装接口只接受 WebUI 明确确认后的请求：
 
 ```json
-{"manual_confirmed": true, "source": "system_settings"}
+{"manual_confirmed": true, "source": "webui_settings"}
 ```
 
 如果部署环境禁止 WebUI 安装依赖：
@@ -287,7 +287,7 @@ WebUI 提供以下入口：
 
 ### 插件加载失败：缺少依赖
 
-确认已经通过设置页手动安装依赖。安装阶段不会自动执行 `pip install`。
+确认已经通过 WebUI Dashboard 手动安装依赖。安装阶段不会自动执行 `pip install`。
 
 ### WebUI 打不开
 

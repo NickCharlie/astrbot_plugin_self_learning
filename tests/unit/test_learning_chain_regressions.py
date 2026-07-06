@@ -4,7 +4,7 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import select
@@ -47,6 +47,7 @@ from self_learning_EterU.services.learning.persona_learning import PersonaLearni
 from self_learning_EterU.webui.services.learning_service import LearningService
 from self_learning_EterU.services.learning.message_pipeline import MessagePipeline
 from self_learning_EterU.services.learning.realtime_processor import RealtimeProcessor
+from self_learning_EterU.services.learning import sample_filter
 from self_learning_EterU.services.learning.sample_filter import (
     extract_learning_event_metadata,
     filter_learning_messages,
@@ -565,7 +566,7 @@ def test_learning_sample_filter_reads_raw_event_metadata_from_objects():
 
 
 @pytest.mark.unit
-def test_learning_event_metadata_logs_unexpected_accessor_failures(caplog):
+def test_learning_event_metadata_logs_unexpected_accessor_failures(monkeypatch):
     class Event:
         def get_message_type(self):
             raise RuntimeError("metadata accessor failed")
@@ -573,14 +574,17 @@ def test_learning_event_metadata_logs_unexpected_accessor_failures(caplog):
         def get_event_type(self):
             return "message"
 
-    with caplog.at_level("DEBUG"):
-        metadata = extract_learning_event_metadata(Event())
+    debug = Mock()
+    monkeypatch.setattr(sample_filter, "_LOGGER", SimpleNamespace(debug=debug))
+
+    metadata = extract_learning_event_metadata(Event())
 
     assert metadata["event_type"] == "message"
-    assert any(
-        "Failed to read learning event metadata via Event.get_message_type"
-        in record.message
-        for record in caplog.records
+    debug.assert_called_once_with(
+        "Failed to read learning event metadata via %s.%s",
+        "Event",
+        "get_message_type",
+        exc_info=True,
     )
 
 

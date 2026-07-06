@@ -190,7 +190,7 @@ logger = get_astrbot_logger("self_learning.domain")
 POST /api/dependencies/install
 ```
 
-并要求设置页手动确认。新增依赖时同步更新:
+并要求 WebUI Dashboard 手动确认。新增依赖时同步更新:
 
 - `webui/blueprints/config.py::BASIC_DEPENDENCY_PACKAGES` 或 `FULL_DEPENDENCY_PACKAGES`
 - 相关导入的 optional fallback

@@ -63,6 +63,7 @@ DEPENDENCY_TIERS = {
 }
 _dependency_install_lock = asyncio.Lock()
 MANUAL_DEPENDENCY_INSTALL_SOURCE = "system_settings"
+WEBUI_DEPENDENCY_INSTALL_SOURCE = "webui_settings"
 PIP_MIRROR_SOURCES = {
     "default": {
         "label": "PyPI 默认源",
@@ -89,6 +90,16 @@ PIP_MIRROR_SOURCES = {
         "index_url": "https://pypi.doubanio.com/simple",
     },
 }
+
+
+def _has_dependency_install_confirmation(payload: object) -> bool:
+    """Return whether the request came after an explicit UI confirmation."""
+    if not isinstance(payload, dict):
+        return False
+    return payload.get("manual_confirmed") is True or (
+        payload.get("manual_confirm") is True
+        and payload.get("user_confirmed") is True
+    )
 
 
 @config_bp.route("/config", methods=["GET"])
@@ -159,16 +170,12 @@ async def install_plugin_dependencies():
     user_id = "authenticated" if session.get("authenticated") else "unknown"
     payload = await request.get_json(silent=True) or {}
 
-    if (
-        not isinstance(payload, dict)
-        or payload.get("manual_confirmed") is not True
-        or payload.get("source") != MANUAL_DEPENDENCY_INSTALL_SOURCE
-    ):
+    if not _has_dependency_install_confirmation(payload):
         logger.warning(
-            f"[WebUI] 拒绝插件依赖安装请求：缺少设置页手动确认，"
+            f"[WebUI] 拒绝插件依赖安装请求：缺少 WebUI 手动确认，"
             f"user={user_id}, remote_addr={client_ip}"
         )
-        return error_response("依赖安装只能在设置界面手动确认后触发", 400)
+        return error_response("依赖安装只能在 WebUI 手动确认后触发", 400)
 
     if not current_app.config.get("ENABLE_WEB_DEP_INSTALL", True):
         logger.warning(

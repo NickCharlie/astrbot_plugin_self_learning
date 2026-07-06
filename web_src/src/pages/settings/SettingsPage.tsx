@@ -30,7 +30,12 @@ export function SettingsPage() {
     if (!await dashboard.confirm({ title: '安装 Python 依赖', message: `即将调用 pip 安装${tier === 'basic' ? '基础' : '全能力'}依赖，确定继续吗？`, tone: 'warning' })) return;
     dashboard.setBusy(true);
     try {
-      await api.post('/api/dependencies/install', { tier, pip_mirror: mirror() });
+      await api.post('/api/dependencies/install', {
+        manual_confirmed: true,
+        source: 'webui_settings',
+        tier,
+        pip_mirror: mirror(),
+      });
       dashboard.toast('依赖安装任务已完成', 'success');
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '依赖安装失败', 'danger'); }
     finally { dashboard.setBusy(false); }

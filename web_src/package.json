@@ -1,6 +1,6 @@
 {
   "name": "astrbot-self-learning-dashboard",
-  "version": "3.5.1",
+  "version": "3.5.2",
   "description": "Solid.js source for the self-learning plugin dashboard",
   "type": "module",
   "scripts": {

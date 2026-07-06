@@ -161,7 +161,7 @@ WebUI 使用 Hypercorn 跑在独立守护线程。数据库层必须支持跨事
 
 ## 依赖策略
 
-当前代码不会在插件安装或加载阶段自动安装依赖。依赖安装只通过 WebUI 设置页的手动确认接口触发:
+当前代码不会在插件安装或加载阶段自动安装依赖。依赖安装只通过 WebUI Dashboard 的手动确认接口触发:
 
 ```http
 POST /api/dependencies/install
@@ -170,7 +170,7 @@ POST /api/dependencies/install
 请求必须包含:
 
 ```json
-{"manual_confirmed": true, "source": "system_settings", "tier": "basic"}
+{"manual_confirmed": true, "source": "webui_settings", "tier": "basic"}
 ```
 
 `tier` 可选:
