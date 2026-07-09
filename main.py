@@ -440,7 +440,7 @@ class SelfLearningPlugin(star.Star):
 
     @filter.after_message_sent()
     @monitored
-    async def on_bot_message_sent(self, event: AstrMessageEvent):
+    async def on_bot_message_sent(self, event: AstrMessageEvent, *_args):
         """捕获 Bot 发送的消息并存入数据库，用于 fewshot 对话对提取。"""
         reset_trace_context()
         try:
