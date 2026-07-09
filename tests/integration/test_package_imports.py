@@ -3,6 +3,7 @@ import asyncio
 import builtins
 import importlib
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,6 +58,24 @@ def test_webui_persona_review_service_imports_under_astrbot_package_path():
 
         assert module.UPDATE_TYPE_STYLE_LEARNING
         assert module.normalize_update_type("style_learning")
+    finally:
+        _cleanup_alias(alias)
+
+
+def test_after_message_sent_hook_accepts_framework_extra_args():
+    """AstrBot v4.26.5 can pass extra hook args after the event object."""
+    alias = "data.plugins.astrbot_plugin_self_learning_hook_signature_pkgtest"
+    _cleanup_alias(alias)
+
+    try:
+        _load_plugin_package(alias)
+        module = importlib.import_module(f"{alias}.main")
+        signature = inspect.signature(module.SelfLearningPlugin.on_bot_message_sent)
+
+        assert any(
+            param.kind is inspect.Parameter.VAR_POSITIONAL
+            for param in signature.parameters.values()
+        )
     finally:
         _cleanup_alias(alias)
 
