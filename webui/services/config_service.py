@@ -355,16 +355,6 @@ class ConfigService:
         except (AttributeError, TypeError):
             logger.debug(f"写入容器属性失败: {name}", exc_info=True)
 
-    def _get_config_file_path(self) -> str:
-        data_dir = getattr(self.plugin_config, "data_dir", None) if self.plugin_config else None
-        if isinstance(data_dir, (str, os.PathLike)) and os.fspath(data_dir):
-            return os.path.join(os.fspath(data_dir), FileNames.CONFIG_FILE)
-        try:
-            from ...config import DEFAULT_DATA_DIR
-        except ImportError:
-            from config import DEFAULT_DATA_DIR
-        return os.path.join(DEFAULT_DATA_DIR, FileNames.CONFIG_FILE)
-
     def _get_astrbot_config(self) -> Optional[MutableMapping[str, Any]]:
         astrbot_config = self._get_container_attr("astrbot_config")
         plugin = self._get_container_attr("plugin_instance")
@@ -403,28 +393,6 @@ class ConfigService:
                 payload[key] = value
         return payload
 
-    def _astrbot_config_is_newer(self, astrbot_config: MutableMapping[str, Any]) -> bool:
-        astrbot_path = getattr(astrbot_config, "config_path", None)
-        if not astrbot_path:
-            return False
-
-        config_file = self._get_config_file_path()
-        if not os.path.exists(os.fspath(astrbot_path)):
-            return False
-        if not os.path.exists(config_file):
-            return True
-
-        return os.path.getmtime(os.fspath(astrbot_path)) > os.path.getmtime(config_file)
-
-    @staticmethod
-    def _file_mtime_signature(path: Any) -> Optional[float]:
-        if not path:
-            return None
-        try:
-            return os.path.getmtime(os.fspath(path))
-        except OSError:
-            return None
-
     @staticmethod
     def _payload_signature(payload: Dict[str, Any]) -> str:
         return json.dumps(
@@ -446,13 +414,8 @@ class ConfigService:
     def _config_source_signature(
         self,
         astrbot_config: MutableMapping[str, Any],
-    ) -> Tuple[Optional[float], Optional[float], str, str]:
-        return (
-            self._file_mtime_signature(getattr(astrbot_config, "config_path", None)),
-            self._file_mtime_signature(self._get_config_file_path()),
-            self._payload_signature(self._plain_mapping(astrbot_config)),
-            self._payload_signature(self.plugin_config.to_dict()),
-        )
+    ) -> str:
+        return self._payload_signature(self._plain_mapping(astrbot_config))
 
     def _remember_config_sync_state(
         self,
@@ -468,14 +431,9 @@ class ConfigService:
 
     def _last_config_source_signature(
         self,
-    ) -> Optional[Tuple[Optional[float], Optional[float], str, str]]:
+    ) -> Optional[str]:
         signature = self._get_container_attr("_config_source_sync_signature")
-        if (
-            isinstance(signature, tuple)
-            and len(signature) == 4
-            and isinstance(signature[2], str)
-            and isinstance(signature[3], str)
-        ):
+        if isinstance(signature, str):
             return signature
         return None
 
@@ -530,6 +488,9 @@ class ConfigService:
                 self.plugin_config.data_dir, FileNames.LEARNING_LOG_FILE
             )
 
+        if "log_level" in changed_keys or "debug_mode" in changed_keys:
+            self._apply_runtime_log_settings()
+
         if (
             initial_webui_password
             and getattr(self.plugin_config, "enable_webui_password", False) is True
@@ -542,27 +503,24 @@ class ConfigService:
                 )
                 if not password_success:
                     logger.warning(f"AstrBot 插件页 WebUI 初始密码保存失败: {password_message}")
+                else:
+                    self._clear_astrbot_initial_password(astrbot_config)
             else:
                 issues = "、".join(strength_result["issues"]) if strength_result["issues"] else "密码强度不足"
                 logger.warning(f"AstrBot 插件页 WebUI 初始密码无效: {issues}")
 
         self._sync_runtime_components(changed_keys)
         self._refresh_llm_provider_bindings()
-        config_file = self._get_config_file_path()
-        if not self.plugin_config.save_to_file(config_file):
-            logger.warning("AstrBot 插件页配置已同步到内存，但写入 WebUI 配置文件失败")
-        self._sync_astrbot_group_config(self.plugin_config, list(known_config))
-
         logger.info(
-            "AstrBot 插件页配置已同步到 WebUI: "
+            "AstrBot 插件页配置已应用到运行时: "
             f"{', '.join(sorted(changed_keys))}"
         )
         return True
 
     def _sync_config_sources(self, *, force: bool = False) -> None:
-        """Keep AstrBot plugin-page config and WebUI config on the same values."""
+        """Refresh runtime config from the single AstrBot plugin-page source."""
         astrbot_config = self._get_astrbot_config()
-        if not astrbot_config or not self.plugin_config:
+        if astrbot_config is None or not self.plugin_config:
             return
 
         signature = self._config_source_signature(astrbot_config)
@@ -570,30 +528,59 @@ class ConfigService:
         if not force and last_signature == signature:
             return
 
-        astrbot_payload_changed = (
-            last_signature is not None and signature[2] != last_signature[2]
-        )
-        plugin_payload_changed = (
-            last_signature is not None and signature[3] != last_signature[3]
-        )
-        should_pull_from_astrbot = False
-        if astrbot_payload_changed and not plugin_payload_changed:
-            should_pull_from_astrbot = True
-        elif astrbot_payload_changed and plugin_payload_changed:
-            should_pull_from_astrbot = self._astrbot_config_is_newer(astrbot_config)
-        elif last_signature is None:
-            should_pull_from_astrbot = self._astrbot_config_is_newer(astrbot_config)
+        self._apply_astrbot_config_to_plugin(astrbot_config)
+        self._remember_config_sync_state(astrbot_config)
 
-        if should_pull_from_astrbot:
-            self._apply_astrbot_config_to_plugin(astrbot_config)
-            self._remember_config_sync_state(astrbot_config)
+    def _clear_astrbot_initial_password(
+        self,
+        astrbot_config: MutableMapping[str, Any],
+    ) -> None:
+        changed = False
+        group = astrbot_config.get("Self_Learning_Basic")
+        if isinstance(group, MutableMapping) and group.get("webui_initial_password"):
+            group["webui_initial_password"] = ""
+            changed = True
+        if astrbot_config.get("webui_initial_password"):
+            astrbot_config["webui_initial_password"] = ""
+            changed = True
+        if not changed:
             return
 
-        self._sync_astrbot_group_config(
-            self.plugin_config,
-            list(self.plugin_config.to_dict()),
+        save_config = getattr(astrbot_config, "save_config", None)
+        if callable(save_config):
+            try:
+                save_config()
+            except Exception as e:
+                logger.warning(f"清空 AstrBot 插件页 WebUI 初始密码失败: {e}", exc_info=True)
+
+    def _apply_runtime_log_settings(self) -> None:
+        applied_level = apply_astrbot_log_level(
+            getattr(self.plugin_config, "log_level", "info"),
+            debug_mode=getattr(self.plugin_config, "debug_mode", False),
+            fallback="info",
         )
-        self._remember_config_sync_state(astrbot_config)
+        self.plugin_config.log_level = applied_level
+        set_debug_mode = None
+        set_trace_enabled = None
+        for module_name in (
+            "self_learning_EterU.services.monitoring.instrumentation",
+            f"{__package__.split('.')[0]}.services.monitoring.instrumentation"
+            if __package__
+            else "",
+        ):
+            if not module_name:
+                continue
+            try:
+                instrumentation = importlib.import_module(module_name)
+                set_debug_mode = getattr(instrumentation, "set_debug_mode")
+                set_trace_enabled = getattr(instrumentation, "set_trace_enabled")
+                break
+            except Exception as exc:
+                logger.debug(f"同步函数级监控配置失败 ({module_name}): {exc}")
+        if set_debug_mode and set_trace_enabled:
+            set_debug_mode(getattr(self.plugin_config, "debug_mode", False))
+            set_trace_enabled(applied_level == "trace")
+        logger.info(f"AstrBot 日志等级已更新为: {applied_level}")
 
     @staticmethod
     def _field_group_index(schema_definition: Dict[str, Any]) -> Dict[str, str]:
@@ -615,7 +602,7 @@ class ConfigService:
     ) -> bool:
         """Pass the full WebUI config through to AstrBot's grouped plugin-page config."""
         astrbot_config = self._get_astrbot_config()
-        if not astrbot_config:
+        if astrbot_config is None:
             return False
 
         schema_definition = self._merged_schema_definition()
@@ -1866,6 +1853,9 @@ class ConfigService:
         if provider_error in "；".join(blocking_errors):
             warnings.append("至少需要配置一个模型提供商ID，系统将继续依赖 AstrBot 的自动兜底 Provider 选择")
 
+        if self._get_astrbot_config() is None:
+            return False, "AstrBot 插件配置不可用，无法持久化到统一配置", safe_original_config
+
         auth_service = AuthService(self.container)
         password_enabled = getattr(validated_config, "enable_webui_password", False) is True
         if initial_webui_password and not password_enabled:
@@ -1893,33 +1883,7 @@ class ConfigService:
                 setattr(self.plugin_config, field_name, value)
 
         if "log_level" in changed_keys or "debug_mode" in changed_keys:
-            applied_level = apply_astrbot_log_level(
-                getattr(self.plugin_config, "log_level", "info"),
-                debug_mode=getattr(self.plugin_config, "debug_mode", False),
-                fallback="info",
-            )
-            self.plugin_config.log_level = applied_level
-            set_debug_mode = None
-            set_trace_enabled = None
-            for module_name in (
-                "self_learning_EterU.services.monitoring.instrumentation",
-                f"{__package__.split('.')[0]}.services.monitoring.instrumentation"
-                if __package__
-                else "",
-            ):
-                if not module_name:
-                    continue
-                try:
-                    instrumentation = importlib.import_module(module_name)
-                    set_debug_mode = getattr(instrumentation, "set_debug_mode")
-                    set_trace_enabled = getattr(instrumentation, "set_trace_enabled")
-                    break
-                except Exception as exc:
-                    logger.debug(f"同步函数级监控配置失败 ({module_name}): {exc}")
-            if set_debug_mode and set_trace_enabled:
-                set_debug_mode(getattr(self.plugin_config, "debug_mode", False))
-                set_trace_enabled(applied_level == "trace")
-            logger.info(f"AstrBot 日志等级已更新为: {applied_level}")
+            self._apply_runtime_log_settings()
 
         if getattr(self.plugin_config, "data_dir", None):
             self.plugin_config.messages_db_path = os.path.join(
@@ -1945,13 +1909,6 @@ class ConfigService:
 
         self._refresh_llm_provider_bindings()
 
-        config_file = self._get_config_file_path()
-        if not self.plugin_config.save_to_file(config_file):
-            return (
-                False,
-                "配置已更新到内存，但持久化到文件失败",
-                self._redact_config_for_response(self.plugin_config.to_dict()),
-            )
         astrbot_config = self._get_astrbot_config()
         if astrbot_config:
             self._remember_config_sync_state(astrbot_config)

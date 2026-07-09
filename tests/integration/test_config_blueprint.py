@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import UserDict
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -18,6 +20,29 @@ def assert_no_store_headers(response):
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     assert response.headers["Expires"] == "0"
+
+
+class SaveableConfig(UserDict):
+    def __init__(self, *args, **kwargs):
+        self.config_path = kwargs.pop("config_path", None)
+        super().__init__(*args, **kwargs)
+        self.save_calls = 0
+        self.saved_payloads = []
+
+    def save_config(self, replace_config=None):
+        self.save_calls += 1
+        if replace_config is not None:
+            self.data.clear()
+            self.data.update(replace_config)
+            self.saved_payloads.append(replace_config)
+        else:
+            self.saved_payloads.append(dict(self.data))
+        if self.config_path:
+            Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(self.config_path).write_text(
+                json.dumps(self.data),
+                encoding="utf-8",
+            )
 
 
 def build_container(tmp_path: Path):
@@ -70,6 +95,25 @@ def build_container(tmp_path: Path):
     container.plugin_config = plugin_config
     container.factory_manager = factory_manager
     container.llm_adapter = Mock()
+    container.astrbot_config = SaveableConfig(
+        {
+            "Target_Settings": {
+                "target_qq_list": [],
+                "target_blacklist": [],
+            },
+            "Learning_Parameters": {
+                "learning_interval_hours": plugin_config.learning_interval_hours,
+                "max_messages_per_batch": plugin_config.max_messages_per_batch,
+            },
+            "Style_Analysis": {
+                "style_update_threshold": plugin_config.style_update_threshold,
+            },
+            "Filter_Parameters": {
+                "relevance_threshold": plugin_config.relevance_threshold,
+            },
+        },
+        config_path=tmp_path / "astrbot_plugin_self_learning_config.json",
+    )
     return container
 
 

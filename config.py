@@ -638,59 +638,6 @@ class PluginConfig(BaseModel):
         )
 
     @classmethod
-    def _flatten_config_payload(cls, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Flatten grouped config with direct fields taking precedence."""
-        grouped: Dict[str, Any] = {}
-        direct: Dict[str, Any] = {}
-        for key, value in payload.items():
-            if isinstance(value, dict) and key not in cls.model_fields:
-                nested = cls._flatten_config_payload(value)
-                duplicated = sorted(set(grouped) & set(nested))
-                if duplicated:
-                    logger.info(
-                        "持久化配置分组字段覆盖较早分组字段: "
-                        f"{', '.join(duplicated)}"
-                    )
-                grouped.update(nested)
-            else:
-                direct[key] = value
-
-        duplicated = sorted(set(grouped) & set(direct))
-        if duplicated:
-            logger.info(
-                "持久化配置顶层字段覆盖分组字段: "
-                f"{', '.join(duplicated)}"
-            )
-
-        return {**grouped, **direct}
-
-    @staticmethod
-    def _file_mtime(path: Optional[str]) -> Optional[float]:
-        if not path:
-            return None
-        try:
-            return os.path.getmtime(os.fspath(path))
-        except (OSError, TypeError, ValueError):
-            return None
-
-    @classmethod
-    def _should_load_persisted_config(
-        cls,
-        config_file: Optional[str],
-        astrbot_config_file: Optional[str] = None,
-    ) -> bool:
-        """Return whether the WebUI compatibility cache should override AstrBot config."""
-        persisted_mtime = cls._file_mtime(config_file)
-        if persisted_mtime is None:
-            return False
-
-        astrbot_mtime = cls._file_mtime(astrbot_config_file)
-        if astrbot_mtime is None:
-            return True
-
-        return persisted_mtime > astrbot_mtime
-
-    @classmethod
     def create_from_runtime_sources(
         cls,
         config: dict,
@@ -698,59 +645,13 @@ class PluginConfig(BaseModel):
         config_file: Optional[str] = None,
         astrbot_config_file: Optional[str] = None,
     ) -> 'PluginConfig':
-        """Create config from AstrBot settings and optional persisted WebUI config."""
-        runtime_config = cls.create_from_config(config or {}, data_dir=data_dir)
-        if astrbot_config_file is None:
-            astrbot_config_file = getattr(config, "config_path", None)
-
-        if not cls._should_load_persisted_config(config_file, astrbot_config_file):
-            if cls._file_mtime(config_file) is not None and cls._file_mtime(astrbot_config_file) is not None:
-                logger.info(
-                    "AstrBot 配置不旧于 WebUI 兼容配置，跳过旧副本覆盖: "
-                    f"{config_file}"
-                )
-            return runtime_config
-
-        try:
-            with open(config_file, 'r', encoding='utf-8') as f:
-                persisted_data = json.load(f)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
-            logger.warning(f"读取持久化配置失败，继续使用AstrBot配置: {e}")
-            return runtime_config
-
-        if not isinstance(persisted_data, dict):
-            logger.warning("持久化配置格式无效，继续使用AstrBot配置")
-            return runtime_config
-
-        merged = runtime_config.to_dict()
-        persisted_config = cls._flatten_config_payload(persisted_data)
-        for provider_field in ROLE_PROVIDER_ID_FIELDS:
-            if (
-                getattr(runtime_config, provider_field, None)
-                and not persisted_config.get(provider_field)
-            ):
-                persisted_config.pop(provider_field, None)
-
-        overridden = sorted(
-            key
-            for key, value in persisted_config.items()
-            if key in merged and merged[key] != value
-        )
-        if overridden:
+        """Create config from the single AstrBot plugin settings source."""
+        if config_file and os.path.exists(os.fspath(config_file)):
             logger.info(
-                "持久化配置覆盖AstrBot运行时字段: "
-                f"{', '.join(overridden)}"
+                "检测到旧版 WebUI 配置副本，运行时已忽略该文件，"
+                f"统一使用 AstrBot 插件配置: {config_file}"
             )
-        merged.update(persisted_config)
-
-        try:
-            loaded_config = cls.model_validate(merged)
-        except ValidationError as e:
-            logger.warning(f"持久化配置校验失败，继续使用AstrBot配置: {e}")
-            return runtime_config
-
-        logger.info(f"已加载持久化插件配置: {config_file}")
-        return loaded_config
+        return cls.create_from_config(config or {}, data_dir=data_dir)
 
     @classmethod
     def create_default(cls) -> 'PluginConfig':

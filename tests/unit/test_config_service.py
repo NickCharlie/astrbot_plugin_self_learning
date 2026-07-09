@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from collections import UserDict
 import json
-import os
 from pathlib import Path
 import time
 from types import SimpleNamespace
@@ -585,13 +584,8 @@ class TestConfigServiceSchema:
         assert set(PluginConfig.model_fields) <= covered_fields
 
     @pytest.mark.asyncio
-    async def test_config_schema_refresh_imports_newer_plugin_page_config(self, tmp_path):
+    async def test_config_schema_refresh_imports_plugin_page_config(self, tmp_path):
         container = build_container(tmp_path)
-        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
-        container.plugin_config.save_to_file(str(config_file))
-        old_time = config_file.stat().st_mtime - 10
-        config_file.touch()
-        os.utime(config_file, (old_time, old_time))
 
         astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
         container.astrbot_config = SaveableConfig(
@@ -623,16 +617,10 @@ class TestConfigServiceSchema:
         assert fields["target_qq_list"]["value"] == ["plugin-page"]
         assert fields["learning_interval_hours"]["value"] == 3
 
-        saved = json.loads(config_file.read_text(encoding="utf-8"))
-        assert saved["target_qq_list"] == ["plugin-page"]
-        assert saved["learning_interval_hours"] == 3
-
     @pytest.mark.asyncio
-    async def test_config_schema_refresh_imports_plugin_page_payload_change_without_newer_file(self, tmp_path):
+    async def test_config_schema_refresh_imports_live_plugin_page_payload_change(self, tmp_path):
         container = build_container(tmp_path)
-        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
         container.plugin_config.target_qq_list = ["webui-before"]
-        container.plugin_config.save_to_file(str(config_file))
 
         astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
         container.astrbot_config.config_path = str(astrbot_path)
@@ -652,14 +640,33 @@ class TestConfigServiceSchema:
         assert container.plugin_config.target_qq_list == ["plugin-page-live"]
 
     @pytest.mark.asyncio
+    async def test_config_schema_refresh_applies_plugin_page_log_level(self, tmp_path, monkeypatch):
+        container = build_container(tmp_path)
+        calls = []
+
+        def fake_apply_log_level(level, *, debug_mode=False, fallback="info"):
+            calls.append((level, debug_mode, fallback))
+            return level
+
+        monkeypatch.setattr(
+            "webui.services.config_service.apply_astrbot_log_level",
+            fake_apply_log_level,
+        )
+        container.astrbot_config["Advanced_Settings"] = {
+            "log_level": "debug",
+            "debug_mode": False,
+        }
+
+        schema = await ConfigService(container).get_config_schema()
+
+        assert schema["config"]["log_level"] == "debug"
+        assert container.plugin_config.log_level == "debug"
+        assert calls[-1] == ("debug", False, "info")
+
+    @pytest.mark.asyncio
     async def test_config_schema_refresh_rebinds_llm_after_plugin_page_provider_change(self, tmp_path):
         container = build_container(tmp_path)
-        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
         container.plugin_config.filter_provider_id = "old-chat"
-        container.plugin_config.save_to_file(str(config_file))
-        old_time = config_file.stat().st_mtime - 10
-        config_file.touch()
-        os.utime(config_file, (old_time, old_time))
 
         plugin_adapter = Mock()
         plugin_adapter.initialize_providers = Mock()
@@ -692,11 +699,6 @@ class TestConfigServiceSchema:
     @pytest.mark.asyncio
     async def test_config_schema_refresh_prefers_grouped_realtime_plugin_page_values(self, tmp_path):
         container = build_container(tmp_path)
-        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
-        container.plugin_config.save_to_file(str(config_file))
-        old_time = config_file.stat().st_mtime - 10
-        config_file.touch()
-        os.utime(config_file, (old_time, old_time))
 
         astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
         container.astrbot_config = SaveableConfig(
@@ -729,10 +731,6 @@ class TestConfigServiceSchema:
         assert fields["enable_realtime_llm_filter"]["value"] is True
         assert fields["webui_initial_password"]["value"] == ""
 
-        saved = json.loads(config_file.read_text(encoding="utf-8"))
-        assert saved["enable_realtime_learning"] is True
-        assert saved["enable_realtime_llm_filter"] is True
-        assert saved["webui_initial_password"] == ""
         assert container.astrbot_config["Self_Learning_Basic"]["webui_initial_password"] == ""
 
         password_config = json.loads(
@@ -744,36 +742,30 @@ class TestConfigServiceSchema:
         assert "password" not in password_config
 
     @pytest.mark.asyncio
-    async def test_config_schema_refresh_pushes_newer_webui_config_to_plugin_page(self, tmp_path):
+    async def test_config_schema_refresh_does_not_push_runtime_cache_to_plugin_page(self, tmp_path):
         container = build_container(tmp_path)
         container.plugin_config.target_qq_list = ["webui-saved"]
         container.plugin_config.learning_interval_hours = 4
 
-        config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
-        container.plugin_config.save_to_file(str(config_file))
-
         astrbot_path = tmp_path / "astrbot_plugin_self_learning_config.json"
         container.astrbot_config.config_path = str(astrbot_path)
         container.astrbot_config.save_config(dict(container.astrbot_config))
-        old_time = config_file.stat().st_mtime - 10
-        os.utime(astrbot_path, (old_time, old_time))
 
         schema = await ConfigService(container).get_config_schema()
 
-        assert schema["config"]["target_qq_list"] == ["webui-saved"]
-        assert schema["config"]["learning_interval_hours"] == 4
-        assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
-            "webui-saved",
-        ]
-        assert container.astrbot_config["Learning_Parameters"]["learning_interval_hours"] == 4
-        assert container.astrbot_config.save_calls == 2
-        assert container.astrbot_config.saved_payloads[-1]["Target_Settings"]["target_qq_list"] == [
-            "webui-saved",
-        ]
+        assert schema["config"]["target_qq_list"] == []
+        assert schema["config"]["learning_interval_hours"] == container.astrbot_config[
+            "Learning_Parameters"
+        ]["learning_interval_hours"]
+        assert container.plugin_config.target_qq_list == []
+        assert container.plugin_config.learning_interval_hours == container.astrbot_config[
+            "Learning_Parameters"
+        ]["learning_interval_hours"]
+        assert container.astrbot_config.save_calls == 1
 
         await ConfigService(container).get_config_schema()
 
-        assert container.astrbot_config.save_calls == 2
+        assert container.astrbot_config.save_calls == 1
 
 
 @pytest.mark.unit
@@ -798,7 +790,7 @@ class TestConfigServiceUpdate:
         assert not (Path(container.plugin_config.data_dir) / "password.json").exists()
 
     @pytest.mark.asyncio
-    async def test_update_config_persists_and_syncs_paths(self, tmp_path):
+    async def test_update_config_persists_to_astrbot_config_and_syncs_paths(self, tmp_path):
         container = build_container(tmp_path)
         service = ConfigService(container)
 
@@ -832,13 +824,33 @@ class TestConfigServiceUpdate:
         container.llm_adapter.initialize_providers.assert_called_once_with(container.plugin_config)
 
         config_file = Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE
-        assert config_file.exists()
+        assert not config_file.exists()
+        assert container.astrbot_config["Storage_Settings"]["data_dir"] == str(new_data_dir)
+        assert container.astrbot_config["Database_Settings"]["db_type"] == "postgresql"
+        assert container.astrbot_config["Database_Settings"]["postgresql_schema"] == "bot_space"
+        assert container.astrbot_config["Filter_Parameters"]["relevance_threshold"] == 0.75
+        assert container.astrbot_config["Advanced_Settings"]["log_level"] == "debug"
 
-        saved = json.loads(config_file.read_text(encoding="utf-8"))
-        assert saved["db_type"] == "postgresql"
-        assert saved["postgresql_schema"] == "bot_space"
-        assert saved["relevance_threshold"] == 0.75
-        assert saved["log_level"] == "debug"
+    @pytest.mark.asyncio
+    async def test_update_config_accepts_empty_astrbot_config_source(self, tmp_path):
+        container = build_container(tmp_path)
+        container.astrbot_config = SaveableConfig({})
+
+        success, message, updated = await ConfigService(container).update_config(
+            {
+                "Target_Settings": {
+                    "target_qq_list": ["group_20002"],
+                },
+            }
+        )
+
+        assert success is True
+        assert "已同步到插件设置页" in message
+        assert updated["target_qq_list"] == ["group_20002"]
+        assert container.astrbot_config["Target_Settings"]["target_qq_list"] == [
+            "group_20002",
+        ]
+        assert not (Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE).exists()
 
     @pytest.mark.asyncio
     async def test_update_config_returns_cost_warning_for_high_cost_combo(self, tmp_path):
@@ -899,14 +911,10 @@ class TestConfigServiceUpdate:
         assert schema["config"]["mysql_password"] == ""
         assert schema["config"]["postgresql_password"] == ""
 
-        saved = json.loads(
-            (Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE).read_text(
-                encoding="utf-8",
-            )
-        )
-        assert saved["api_key"] == "hub-secret"
-        assert saved["mysql_password"] == "mysql-secret"
-        assert saved["postgresql_password"] == "postgres-secret"
+        assert not (Path(container.plugin_config.data_dir) / FileNames.CONFIG_FILE).exists()
+        assert container.astrbot_config["API_Settings"]["api_key"] == "hub-secret"
+        assert container.astrbot_config["Database_Settings"]["mysql_password"] == "mysql-secret"
+        assert container.astrbot_config["Database_Settings"]["postgresql_password"] == "postgres-secret"
 
     @pytest.mark.asyncio
     async def test_update_config_syncs_webui_changes_to_plugin_page_config_and_runtime(self, tmp_path):

@@ -66,6 +66,22 @@ def _migrate_legacy_data_dir(astrbot_data_path: str, plugin_data_dir: str) -> No
             logger.warning(f"迁移旧版自学习数据目录失败 ({legacy} -> {target}): {exc}")
 
 
+def _archive_legacy_config_copy(config_file: str) -> None:
+    """Move the old WebUI config copy aside so it cannot be mistaken as active."""
+    if not os.path.isfile(config_file):
+        return
+
+    archive_path = f"{config_file}.legacy"
+    if os.path.exists(archive_path):
+        archive_path = f"{config_file}.{int(time.time())}.legacy"
+
+    try:
+        os.replace(config_file, archive_path)
+        logger.info(f"已归档旧版 WebUI 配置副本: {archive_path}")
+    except OSError as exc:
+        logger.warning(f"归档旧版 WebUI 配置副本失败，将继续忽略该文件: {exc}")
+
+
 def _default_plugin_data_dir(astrbot_data_path: str) -> str:
     try:
         data_dir = StarTools.get_data_dir()
@@ -148,6 +164,7 @@ class SelfLearningPlugin(star.Star):
                 config_file=config_file,
                 astrbot_config_file=getattr(self.config, "config_path", None),
             )
+            _archive_legacy_config_copy(config_file)
 
             logger.info(f"[插件初始化] Provider配置已加载：")
             logger.info(f" - filter_provider_id: {self.plugin_config.filter_provider_id}")
@@ -165,6 +182,7 @@ class SelfLearningPlugin(star.Star):
                 config_file=config_file,
                 astrbot_config_file=getattr(self.config, "config_path", None),
             )
+            _archive_legacy_config_copy(config_file)
 
         os.makedirs(self.plugin_config.data_dir, exist_ok=True)
 
