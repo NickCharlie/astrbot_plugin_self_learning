@@ -708,71 +708,39 @@ class TestPluginConfigSerialization:
         finally:
             os.unlink(filepath)
 
-    def test_create_from_runtime_sources_loads_persisted_flat_config(self, tmp_path):
-        """Persisted WebUI config should override AstrBot startup defaults."""
+    def test_create_from_runtime_sources_ignores_legacy_webui_config_copy(self, tmp_path):
+        """Legacy plugin_data/config.json must not override AstrBot plugin settings."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
                 {
                     "db_type": "postgresql",
-                    "postgresql_host": "pg",
-                    "postgresql_database": "learning_db",
+                    "postgresql_host": "stale-webui-host",
+                    "postgresql_password": "stale-secret",
                 }
             ),
             encoding="utf-8",
         )
 
         config = PluginConfig.create_from_runtime_sources(
-            {},
+            {
+                "Database_Settings": {
+                    "db_type": "sqlite",
+                    "postgresql_host": "plugin-page-host",
+                    "postgresql_password": "plugin-page-secret",
+                }
+            },
             data_dir=str(tmp_path),
             config_file=str(config_file),
         )
 
         assert config.data_dir == str(tmp_path)
-        assert config.db_type == "postgresql"
-        assert config.postgresql_host == "pg"
-        assert config.postgresql_database == "learning_db"
+        assert config.db_type == "sqlite"
+        assert config.postgresql_host == "plugin-page-host"
+        assert config.postgresql_password == "plugin-page-secret"
 
-    def test_create_from_runtime_sources_prefers_newer_astrbot_config_file(self, tmp_path):
-        """A newer AstrBot settings file should not be overwritten by stale plugin_data."""
-        config_file = tmp_path / "plugin_data" / "config.json"
-        config_file.parent.mkdir(parents=True)
-        config_file.write_text(
-            json.dumps(
-                {
-                    "db_type": "postgresql",
-                    "postgresql_host": "localhost",
-                    "postgresql_password": "",
-                }
-            ),
-            encoding="utf-8",
-        )
-
-        astrbot_config_file = tmp_path / "config" / "astrbot_plugin_self_learning_config.json"
-        astrbot_config_file.parent.mkdir(parents=True)
-        astrbot_config_file.write_text("{}", encoding="utf-8")
-        os.utime(config_file, (1_700_000_000, 1_700_000_000))
-        os.utime(astrbot_config_file, (1_700_000_010, 1_700_000_010))
-
-        config = PluginConfig.create_from_runtime_sources(
-            {
-                "Database_Settings": {
-                    "db_type": "postgresql",
-                    "postgresql_host": "127.0.0.1",
-                    "postgresql_password": "new-secret",
-                }
-            },
-            data_dir=str(config_file.parent),
-            config_file=str(config_file),
-            astrbot_config_file=str(astrbot_config_file),
-        )
-
-        assert config.db_type == "postgresql"
-        assert config.postgresql_host == "127.0.0.1"
-        assert config.postgresql_password == "new-secret"
-
-    def test_create_from_runtime_sources_uses_newer_persisted_config_file(self, tmp_path):
-        """A newer WebUI compatibility file remains usable for legacy/full WebUI writes."""
+    def test_create_from_runtime_sources_ignores_newer_legacy_config_file(self, tmp_path):
+        """File mtimes must not make the legacy WebUI copy authoritative again."""
         config_file = tmp_path / "plugin_data" / "config.json"
         config_file.parent.mkdir(parents=True)
         config_file.write_text(
@@ -806,11 +774,11 @@ class TestPluginConfigSerialization:
         )
 
         assert config.db_type == "postgresql"
-        assert config.postgresql_host == "webui-host"
-        assert config.postgresql_password == "webui-secret"
+        assert config.postgresql_host == "astrbot-host"
+        assert config.postgresql_password == "astrbot-secret"
 
-    def test_create_from_runtime_sources_loads_persisted_grouped_config(self, tmp_path):
-        """Grouped persisted config should use the same fields as AstrBot config."""
+    def test_create_from_runtime_sources_reads_grouped_astrbot_config(self, tmp_path):
+        """Grouped AstrBot config remains the single runtime source."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -828,16 +796,24 @@ class TestPluginConfigSerialization:
         )
 
         config = PluginConfig.create_from_runtime_sources(
-            {"Database_Settings": {"db_type": "postgresql"}},
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "astrbot-pg",
+                },
+                "Self_Learning_Basic": {
+                    "enable_message_capture": False,
+                },
+            },
             data_dir=str(tmp_path),
             config_file=str(config_file),
         )
 
-        assert config.db_type == "sqlite"
-        assert config.postgresql_host == "pg"
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "astrbot-pg"
         assert config.enable_message_capture is False
 
-    def test_create_from_runtime_sources_keeps_runtime_role_providers_over_stale_empty_persisted_values(self, tmp_path):
+    def test_create_from_runtime_sources_keeps_astrbot_role_providers_over_legacy_empty_values(self, tmp_path):
         """Old WebUI snapshots with empty provider IDs must not erase plugin-page choices."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
@@ -869,8 +845,8 @@ class TestPluginConfigSerialization:
         assert config.refine_provider_id == "deepseek/deepseek-v4-flash"
         assert config.reinforce_provider_id == "deepseek/deepseek-v4-pro"
 
-    def test_create_from_runtime_sources_top_level_overrides_grouped_config(self, tmp_path):
-        """Top-level persisted fields should win over grouped persisted fields."""
+    def test_create_from_runtime_sources_uses_astrbot_grouped_fields_over_legacy_top_level(self, tmp_path):
+        """Legacy top-level fields must not override grouped AstrBot settings."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -887,16 +863,21 @@ class TestPluginConfigSerialization:
         )
 
         config = PluginConfig.create_from_runtime_sources(
-            {},
+            {
+                "Database_Settings": {
+                    "db_type": "postgresql",
+                    "postgresql_host": "astrbot-grouped-host",
+                }
+            },
             data_dir=str(tmp_path),
             config_file=str(config_file),
         )
 
-        assert config.db_type == "sqlite"
-        assert config.postgresql_host == "top-level-host"
+        assert config.db_type == "postgresql"
+        assert config.postgresql_host == "astrbot-grouped-host"
 
     def test_create_from_runtime_sources_invalid_json_keeps_runtime_config(self, tmp_path):
-        """Malformed persisted JSON should fall back to AstrBot runtime config."""
+        """Malformed legacy JSON should be ignored."""
         config_file = tmp_path / "config.json"
         config_file.write_text("{not valid json", encoding="utf-8")
 

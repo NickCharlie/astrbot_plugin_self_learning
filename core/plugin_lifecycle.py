@@ -1,6 +1,4 @@
 """插件全生命周期编排 — 服务初始化 → 异步启动 → 有序关停"""
-import os
-import json
 import asyncio
 from typing import Any, Dict, TYPE_CHECKING
 
@@ -569,15 +567,6 @@ class PluginLifecycle:
                     "停止 WebUI",
                     self._webui_manager.stop(),
                 )
-
-            # 9. 保存配置
-            try:
-                config_path = os.path.join(p.plugin_config.data_dir, "config.json")
-                with open(config_path, "w", encoding="utf-8") as f:
-                    json.dump(p.plugin_config.to_dict(), f, ensure_ascii=False, indent=2)
-                logger.info(LogMessages.PLUGIN_CONFIG_SAVED)
-            except Exception as e:
-                logger.error(f"保存配置失败: {e}")
 
             logger.info(LogMessages.PLUGIN_UNLOAD_SUCCESS)
 
