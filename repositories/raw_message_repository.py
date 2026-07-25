@@ -37,6 +37,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             return await self.create(
                 sender_id=message_data.get('sender_id', ''),
                 sender_name=message_data.get('sender_name', ''),
+                sender_qq=message_data.get('sender_qq') or None,
                 message=truncate_for_db(message_data.get('message', '')),
                 group_id=message_data.get('group_id', ''),
                 timestamp=message_data.get('timestamp', now),

@@ -4,6 +4,7 @@ Repository 层 - 数据访问对象
 """
 
 from .base_repository import BaseRepository
+from .shadow_profile_repository import ShadowProfileRepository
 
 # 好感度相关
 from .affection_repository import (
@@ -172,4 +173,5 @@ __all__ = [
     'KnowledgeEntityRepository',
     'KnowledgeRelationRepository',
     'KnowledgeParagraphHashRepository',
+    'ShadowProfileRepository',
 ]

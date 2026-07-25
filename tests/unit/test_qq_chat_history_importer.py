@@ -220,6 +220,7 @@ def test_qq_chat_history_importer_previews_qce_single_json_type_codes(tmp_path):
     assert preview["counts"]["messages"] == 4
     assert preview["counts"]["unique_senders"] == 2
     assert preview["samples"]["messages"][0]["sender_id"] == "u_alice"
+    assert preview["samples"]["messages"][0]["sender_qq"] == "11111"
     assert preview["samples"]["messages"][0]["sender_name"] == "Alice (PM)"
     assert preview["samples"]["messages"][1]["message"] == "thanks team, fix incoming"
     assert preview["samples"]["messages"][1]["reply_to"] == "m_1001"
@@ -348,6 +349,7 @@ async def test_qq_chat_history_importer_imports_and_deduplicates_raw_messages(tm
         assert rows[0].group_id == "AstrBot 大学"
         assert rows[0].message == "这不160兆吗"
         assert rows[0].message_id.startswith("qq-history:")
+        assert rows[0].sender_qq == "1001"
         assert rows[1].message == "[图片:demo.jpg]"
         assert rows[2].reply_to == "m1"
         assert rows[2].processed is False

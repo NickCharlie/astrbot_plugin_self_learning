@@ -1,7 +1,7 @@
 export type PageId =
   | 'home' | 'overview' | 'insights' | 'monitoring' | 'reviews'
   | 'jargon-learning' | 'expression-learning' | 'persona-learning'
-  | 'content' | 'reply-strategy' | 'graphs' | 'integrations' | 'settings';
+  | 'shadow-mode' | 'content' | 'reply-strategy' | 'graphs' | 'integrations' | 'settings';
 
 export type Theme = 'light' | 'dark';
 export type Tone = 'default' | 'primary' | 'success' | 'warning' | 'danger';

@@ -20,6 +20,7 @@ from .data_management import data_management_bp
 from .graphs import graphs_bp
 from .integrations import integrations_bp
 from .hub import hub_bp
+from .shadow_mode import shadow_mode_bp
 
 # monitoring blueprint requires prometheus_client; degrade gracefully
 try:
@@ -53,6 +54,7 @@ def get_blueprints() -> List[Blueprint]:
         graphs_bp,
         integrations_bp,
         hub_bp,
+        shadow_mode_bp,
     ]
     if _has_monitoring:
         bps.append(monitoring_bp)
@@ -89,6 +91,7 @@ __all__ = [
     'graphs_bp',
     'integrations_bp',
     'hub_bp',
+    'shadow_mode_bp',
     'get_blueprints',
     'register_blueprints'
 ]

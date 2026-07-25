@@ -1,0 +1,159 @@
+@use "../../styles/mixins" as *;
+
+.source-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) minmax(220px, 1fr);
+  align-items: end;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.candidate-list,
+.profile-list {
+  display: grid;
+  gap: 8px;
+}
+
+.candidate {
+  width: 100%;
+  min-height: 70px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 76px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-alt);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  &:hover:not(:disabled),
+  &.selected {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  &:disabled {
+    opacity: 0.58;
+    cursor: not-allowed;
+  }
+}
+
+.avatar,
+.profile-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border-radius: 50%;
+}
+
+.candidate-copy,
+.candidate-meta,
+.profile-row > div,
+.profile-scope {
+  min-width: 0;
+  display: grid;
+
+  strong,
+  b,
+  small {
+    overflow-wrap: anywhere;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.candidate-meta {
+  text-align: right;
+
+  b {
+    font-size: 17px;
+  }
+}
+
+.learn-bar {
+  min-height: 58px;
+  margin-top: 16px;
+  padding-top: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+
+  span {
+    color: var(--muted);
+  }
+}
+
+.profile-row {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: 42px minmax(160px, 1fr) minmax(180px, 0.8fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--border);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.profile-scope {
+  text-align: right;
+
+  span {
+    color: var(--muted);
+    font-size: 11px;
+  }
+}
+
+@include tablet {
+  .source-toolbar {
+    grid-template-columns: 1fr 1fr;
+
+    > :first-child {
+      grid-column: 1 / -1;
+    }
+  }
+}
+
+@include mobile {
+  .source-toolbar {
+    grid-template-columns: 1fr;
+
+    > :first-child {
+      grid-column: auto;
+    }
+  }
+
+  .candidate {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .candidate-meta {
+    display: none;
+  }
+
+  .learn-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .profile-scope {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+}

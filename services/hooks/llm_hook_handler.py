@@ -67,6 +67,7 @@ class LLMHookHandler:
         group_id_to_unified_origin: Dict[str, str],
         db_manager: Any = None,
         feature_delegation: Any = None,
+        shadow_mode_service: Any = None,
     ) -> None:
         self._config = plugin_config
         self._diversity_manager = diversity_manager
@@ -78,6 +79,14 @@ class LLMHookHandler:
         self._group_id_to_unified_origin = group_id_to_unified_origin
         self._db_manager = db_manager
         self._feature_delegation = feature_delegation
+        self._shadow_mode_service = shadow_mode_service
+        if self._shadow_mode_service is None and db_manager is not None:
+            try:
+                from ..shadow_mode import ShadowModeService
+
+                self._shadow_mode_service = ShadowModeService(db_manager)
+            except Exception as exc:
+                logger.debug(f"[LLM Hook] 影子模式服务初始化失败: {exc}")
 
     # Public API
 
@@ -85,7 +94,7 @@ class LLMHookHandler:
     async def handle(self, event: AstrMessageEvent, req: Any) -> None:
         """Process an LLM request hook — inject context into *req*."""
         hook_start = time.time()
-        social_ms = v2_ms = diversity_ms = jargon_ms = few_shots_ms = 0.0
+        social_ms = v2_ms = diversity_ms = jargon_ms = few_shots_ms = shadow_ms = 0.0
 
         try:
             if req is None:
@@ -128,6 +137,7 @@ class LLMHookHandler:
             diversity_result: Optional[str] = None
             jargon_result: Optional[str] = None
             few_shots_result: Optional[str] = None
+            shadow_result: Optional[str] = None
 
             _ctx_timeout = getattr(self._config, "llm_hook_context_timeout", 3.0)
 
@@ -187,12 +197,24 @@ class LLMHookHandler:
                     logger.warning(f"[LLM Hook] few-shots timed out ({_ctx_timeout}s)")
                 few_shots_ms = (time.time() - t0) * 1000
 
+            async def _timed_shadow() -> None:
+                nonlocal shadow_result, shadow_ms
+                t0 = time.time()
+                try:
+                    shadow_result = await asyncio.wait_for(
+                        self._fetch_shadow(group_id), timeout=_ctx_timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[LLM Hook] shadow mode timed out ({_ctx_timeout}s)")
+                shadow_ms = (time.time() - t0) * 1000
+
             await asyncio.gather(
                 _timed_social(),
                 _timed_v2(),
                 _timed_diversity(),
                 _timed_jargon(),
                 _timed_few_shots(),
+                _timed_shadow(),
             )
 
             # Merge results in priority order
@@ -201,6 +223,7 @@ class LLMHookHandler:
             self._collect_diversity(diversity_result, prompt_injections)
             self._collect_jargon(jargon_result, prompt_injections)
             self._collect_few_shots(few_shots_result, prompt_injections)
+            self._collect_shadow(shadow_result, prompt_injections)
             self._collect_session_updates(group_id, prompt_injections)
 
             # Inject into request
@@ -220,6 +243,7 @@ class LLMHookHandler:
                     "diversity_ms": round(diversity_ms, 1),
                     "jargon_ms": round(jargon_ms, 1),
                     "few_shots_ms": round(few_shots_ms, 1),
+                    "shadow_ms": round(shadow_ms, 1),
                     "group_id": group_id,
                 }
             )
@@ -339,6 +363,16 @@ class LLMHookHandler:
         except Exception as e:
             logger.warning(f"[LLM Hook] Failed to fetch approved few-shots: {e}")
         return None
+
+    @monitored
+    async def _fetch_shadow(self, group_id: str) -> Optional[str]:
+        if not self._shadow_mode_service:
+            return None
+        try:
+            return await self._shadow_mode_service.build_prompt(group_id)
+        except Exception as exc:
+            logger.warning(f"[LLM Hook] 获取影子模式档案失败: {exc}")
+            return None
 
     # Result collectors
 
@@ -483,6 +517,12 @@ class LLMHookHandler:
             logger.debug(f"[LLM Hook] Few-shot dialogue injected (len={len(result)})")
         else:
             logger.debug("[LLM Hook] No approved few-shot dialogues available")
+
+    @staticmethod
+    def _collect_shadow(result: Optional[str], out: List[str]) -> None:
+        if result:
+            out.append(result)
+            logger.debug(f"[LLM Hook] 已准备影子模式档案 (长度: {len(result)})")
 
     def _collect_session_updates(
         self, group_id: str, out: List[str]

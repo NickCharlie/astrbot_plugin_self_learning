@@ -49,6 +49,7 @@ class QQChatMessage:
     message: str
     group_id: str
     timestamp: int
+    sender_qq: str = ""
     platform: str = "qq"
     message_id: str = ""
     reply_to: Optional[str] = None
@@ -60,6 +61,7 @@ class QQChatMessage:
         return {
             "sender_id": self.sender_id,
             "sender_name": self.sender_name,
+            "sender_qq": self.sender_qq,
             "message": self.message,
             "group_id": self.group_id,
             "timestamp": self.timestamp,
@@ -143,8 +145,7 @@ class QQChatHistoryImporter:
                 break
             _add_summary_message(summary, message)
 
-        summary.pop("_sender_counts", None)
-        return summary
+        return _finalize_summary(summary)
 
     async def import_from_source(self, **kwargs: Any) -> dict[str, Any]:
         source = self.resolve_source(
@@ -188,10 +189,12 @@ class QQChatHistoryImporter:
             "truncated": False,
             "destinations": qq_chat_import_destinations(),
             "queued_for_learning": True,
+            "senders": [],
             "errors": [],
         }
 
         seen_ids: set[str] = set()
+        sender_counts: dict[str, dict[str, Any]] = {}
         batch: list[QQChatMessage] = []
         safe_batch = max(1, min(int(batch_size or DEFAULT_BATCH_SIZE), 500))
         safe_limit = max(1, int(max_messages or DEFAULT_IMPORT_LIMIT))
@@ -208,6 +211,12 @@ class QQChatHistoryImporter:
                         result["truncated"] = True
                         break
                     result["messages_seen"] += 1
+                    _add_sender_count(
+                        sender_counts,
+                        sender_id=message.sender_id,
+                        sender_name=message.sender_name,
+                        sender_qq=message.sender_qq,
+                    )
 
                     if message.message_id in seen_ids:
                         result["duplicate_messages"] += 1
@@ -232,6 +241,7 @@ class QQChatHistoryImporter:
 
         result["success"] = not result["errors"]
         result["skipped"] = result["duplicate_messages"]
+        result["senders"] = _sender_summary(sender_counts)
         return result
 
     async def _flush_batch(self, session: Any, batch: list[QQChatMessage]) -> tuple[int, int]:
@@ -259,6 +269,7 @@ class QQChatHistoryImporter:
                 RawMessage(
                     sender_id=str(raw.get("sender_id") or ""),
                     sender_name=str(raw.get("sender_name") or ""),
+                    sender_qq=str(raw.get("sender_qq") or "") or None,
                     message=truncate_for_db(str(raw.get("message") or "")),
                     group_id=str(raw.get("group_id") or ""),
                     timestamp=int(raw.get("timestamp") or now),
@@ -590,6 +601,7 @@ class QQChatHistoryImporter:
             source_id=f"txt:{source_label}:{timestamp}:{sender}:{text[:64]}",
             sender_id=sender_id,
             sender_name=_sender_name_from_text(sender),
+            sender_qq=sender_id if sender_id.isdigit() else "",
             message=text,
             group_id=group_id,
             timestamp=timestamp,
@@ -616,6 +628,11 @@ class QQChatHistoryImporter:
             source_id=source_id or f"html:{source_label}:{timestamp}:{sender}:{text[:64]}",
             sender_id=_sender_id_from_text(sender),
             sender_name=_sender_name_from_text(sender),
+            sender_qq=(
+                _sender_id_from_text(sender)
+                if _sender_id_from_text(sender).isdigit()
+                else ""
+            ),
             message=text,
             group_id=group_id,
             timestamp=timestamp,
@@ -650,6 +667,7 @@ class QQChatHistoryImporter:
 
         sender = raw.get("sender") if isinstance(raw.get("sender"), Mapping) else {}
         sender_id = str(sender.get("uid") or sender.get("uin") or "unknown")
+        sender_qq = str(sender.get("uin") or "")
         sender_name = str(
             sender.get("groupCard")
             or sender.get("name")
@@ -663,6 +681,7 @@ class QQChatHistoryImporter:
             source_id=source_id or f"{sender_id}:{timestamp}:{message[:64]}",
             sender_id=sender_id,
             sender_name=sender_name,
+            sender_qq=sender_qq,
             message=message,
             group_id=group_id,
             timestamp=int(timestamp),
@@ -682,6 +701,7 @@ class QQChatHistoryImporter:
         source_id: str,
         sender_id: str,
         sender_name: str,
+        sender_qq: str = "",
         message: str,
         group_id: str,
         timestamp: int,
@@ -695,6 +715,7 @@ class QQChatHistoryImporter:
             source_id=str(source_id or ""),
             sender_id=str(sender_id or ""),
             sender_name=str(sender_name or sender_id or "unknown"),
+            sender_qq=str(sender_qq or ""),
             message=str(message or ""),
             group_id=str(group_id or "global"),
             timestamp=int(timestamp or time.time()),
@@ -764,16 +785,65 @@ def _add_summary_message(summary: dict[str, Any], message: QQChatMessage) -> Non
     summary["time_range"]["end"] = message.timestamp if end is None else max(end, message.timestamp)
 
     sender_counts = summary.setdefault("_sender_counts", {})
-    sender_key = (message.sender_id, message.sender_name)
-    sender_counts[sender_key] = sender_counts.get(sender_key, 0) + 1
-    top = sorted(sender_counts.items(), key=lambda item: item[1], reverse=True)[:10]
-    summary["senders"] = [
-        {"sender_id": sender_id, "sender_name": sender_name, "message_count": count}
-        for (sender_id, sender_name), count in top
-    ]
+    _add_sender_count(
+        sender_counts,
+        sender_id=message.sender_id,
+        sender_name=message.sender_name,
+        sender_qq=message.sender_qq,
+    )
     counts["unique_senders"] = len(sender_counts)
-    summary.pop("_sender_counts", None)
-    summary["_sender_counts"] = sender_counts
+
+
+def _finalize_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    sender_counts = summary.pop("_sender_counts", {})
+    summary["senders"] = _sender_summary(sender_counts)
+    return summary
+
+
+def _sender_summary(
+    sender_counts: Mapping[str, Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    top = sorted(
+        sender_counts.values(),
+        key=lambda item: (
+            -int(item.get("message_count") or 0),
+            str(item.get("sender_name") or ""),
+            str(item.get("sender_id") or ""),
+        ),
+    )
+    return [
+        {
+            "sender_id": str(item.get("sender_id") or ""),
+            "sender_name": str(item.get("sender_name") or item.get("sender_id") or ""),
+            "sender_qq": str(item.get("sender_qq") or item.get("sender_id") or ""),
+            "message_count": int(item.get("message_count") or 0),
+        }
+        for item in top
+    ]
+
+
+def _add_sender_count(
+    sender_counts: dict[str, dict[str, Any]],
+    *,
+    sender_id: str,
+    sender_name: str,
+    sender_qq: str,
+) -> None:
+    key = str(sender_id or "unknown")
+    current = sender_counts.setdefault(
+        key,
+        {
+            "sender_id": key,
+            "sender_name": str(sender_name or key),
+            "sender_qq": str(sender_qq or ""),
+            "message_count": 0,
+        },
+    )
+    current["message_count"] += 1
+    if sender_name:
+        current["sender_name"] = str(sender_name)
+    if sender_qq:
+        current["sender_qq"] = str(sender_qq)
 
 
 def _chat_info(manifest: Mapping[str, Any]) -> dict[str, Any]:

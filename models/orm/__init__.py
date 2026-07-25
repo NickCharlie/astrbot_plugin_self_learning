@@ -88,6 +88,7 @@ from .knowledge_graph import (
 from .exemplar import (
     Exemplar
 )
+from .shadow import ShadowProfile
 
 __all__ = [
     'Base',
@@ -163,4 +164,6 @@ __all__ = [
     'KGParagraphHash',
     # Exemplar
     'Exemplar',
+    # Shadow mode
+    'ShadowProfile',
 ]

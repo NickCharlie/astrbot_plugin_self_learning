@@ -19,6 +19,7 @@ const headings: Record<string, string> = {
   'jargon-learning': '黑话学习',
   'expression-learning': '表达方式学习',
   'persona-learning': '人格学习',
+  'shadow-mode': '影子模式',
   content: '学习内容',
   graphs: '记忆 / 知识图谱',
   'reply-strategy': '回复策略',

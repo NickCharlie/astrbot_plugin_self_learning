@@ -13,6 +13,7 @@ class RawMessage(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     sender_id = Column(String(255), nullable=False, index=True)
     sender_name = Column(String(255))
+    sender_qq = Column(String(32), nullable=True, index=True)
     message = Column(Text, nullable=False)
     group_id = Column(String(255), index=True)
     timestamp = Column(BigInteger, nullable=False)

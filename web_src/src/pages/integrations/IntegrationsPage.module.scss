@@ -48,9 +48,92 @@
   border-radius: 11px;
 }
 
+.sender-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.sender-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+
+  span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+
+.sender-list {
+  max-height: 320px;
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+}
+
+.sender-row {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto 64px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  color: var(--text);
+  text-align: left;
+  background: var(--surface-alt);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+
+  > span:first-child {
+    color: var(--primary);
+  }
+
+  > span:nth-child(2) {
+    min-width: 0;
+    display: grid;
+
+    strong,
+    small {
+      overflow-wrap: anywhere;
+    }
+  }
+
+  small {
+    color: var(--muted);
+  }
+
+  &:hover:not(:disabled),
+  &.selected {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
 @include mobile {
   .integration-grid,
   .integration-imports {
     grid-template-columns: 1fr;
+  }
+
+  .sender-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sender-row {
+    grid-template-columns: 30px minmax(0, 1fr) auto;
+
+    > small:last-child {
+      display: none;
+    }
   }
 }

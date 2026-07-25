@@ -12,6 +12,7 @@ const items: Array<{ id: PageId; label: string; icon: string }> = [
   { id: 'jargon-learning', label: '黑话学习', icon: 'forum' },
   { id: 'expression-learning', label: '表达学习', icon: 'record_voice_over' },
   { id: 'persona-learning', label: '人格学习', icon: 'person_search' },
+  { id: 'shadow-mode', label: '影子模式', icon: 'theater_comedy' },
   { id: 'content', label: '学习内容', icon: 'library_books' },
   { id: 'graphs', label: '图谱', icon: 'hub' },
   { id: 'reply-strategy', label: '回复策略', icon: 'quickreply' },

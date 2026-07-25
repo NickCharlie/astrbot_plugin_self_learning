@@ -8,6 +8,7 @@ if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
 from self_learning_EterU.webui.services.integration_service import IntegrationService
+from self_learning_EterU.webui.blueprints.integrations import _render_embed_shell
 
 
 def _star(name, plugin, *, root_dir_name=None):
@@ -128,3 +129,21 @@ def test_integration_service_reports_high_cost_v2_warning():
     assert payload["warnings"]
     assert "LivingMemory" in payload["warnings"][0]
     assert "token" in payload["warnings"][0]
+
+
+def test_embed_shell_resolves_loopback_target_from_browser_host():
+    html = _render_embed_shell({
+        "title": "Group Chat Plus",
+        "role": "回复决策与生成",
+        "available": True,
+        "target_url": "http://127.0.0.1:1451/panel?embed=1",
+        "active": True,
+        "delegated": True,
+        "kind": "embedded_external",
+    })
+
+    assert 'src="http://127.0.0.1:1451' not in html
+    assert 'href="http://127.0.0.1:1451' not in html
+    assert 'data-target-url="http://127.0.0.1:1451/panel?embed=1"' in html
+    assert "window.location.hostname" in html
+    assert "target.host = target.port" in html

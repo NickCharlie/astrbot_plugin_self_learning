@@ -22,12 +22,14 @@ const modules: Array<{ page: PageId; title: string; description: string; icon: s
   { page: 'jargon-learning', title: '黑话学习', description: '群聊词汇、语义和确认队列', icon: 'forum', tone: 'violet' },
   { page: 'expression-learning', title: '表达方式学习', description: '对话样本、风格特征与学习记录', icon: 'record_voice_over', tone: 'cyan' },
   { page: 'persona-learning', title: '人格学习', description: '当前人格、演化建议与备份', icon: 'person_search', tone: 'amber' },
+  { page: 'shadow-mode', title: '影子模式', description: '选择群友并学习其表达习惯', icon: 'theater_comedy', tone: 'cyan' },
 ];
 
 const quickLinks: Array<{ page: PageId; label: string; icon: string }> = [
   { page: 'jargon-learning', label: '黑话', icon: 'translate' },
   { page: 'expression-learning', label: '表达', icon: 'record_voice_over' },
   { page: 'persona-learning', label: '人格', icon: 'psychology' },
+  { page: 'shadow-mode', label: '影子', icon: 'theater_comedy' },
   { page: 'reviews', label: '审查', icon: 'rule' },
   { page: 'content', label: '内容', icon: 'article' },
   { page: 'monitoring', label: '监控', icon: 'monitor_heart' },
@@ -178,7 +180,9 @@ export function HomePage() {
                     ? `候选 ${formatCount(snapshot().jargonCandidates)} · 已确认 ${formatCount(snapshot().jargonConfirmed)}`
                     : module.page === 'expression-learning'
                       ? `内容 ${formatCount(snapshot().contentCount)} · 待审 ${formatCount(snapshot().styleTotal)}`
-                      : `待审 ${formatCount(snapshot().personaPending)} · 备份 ${formatCount(snapshot().backups)}`}
+                      : module.page === 'persona-learning'
+                        ? `待审 ${formatCount(snapshot().personaPending)} · 备份 ${formatCount(snapshot().backups)}`
+                        : '现有群聊与导入记录均可学习'}
                 </small>
               </div>
               <span class="material-icons">arrow_forward</span>

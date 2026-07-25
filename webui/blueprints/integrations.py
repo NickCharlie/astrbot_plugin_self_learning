@@ -281,12 +281,14 @@ def _render_embed_shell(target: dict) -> str:
         if label
     )
     iframe = (
-        f'<iframe title="{title}" src="{escaped_url}" loading="eager" referrerpolicy="no-referrer"></iframe>'
+        f'<iframe id="companion-frame" title="{title}" data-target-url="{escaped_url}" '
+        'loading="eager" referrerpolicy="no-referrer"></iframe>'
         if target.get("available") and target_url
         else f'<div class="empty"><strong>面板不可用</strong><p>{message}</p></div>'
     )
     open_action = (
-        f'<a class="button primary" href="{escaped_url}" target="_blank" rel="noopener noreferrer">新窗口打开</a>'
+        f'<a id="open-companion" class="button primary" href="#" data-target-url="{escaped_url}" '
+        'target="_blank" rel="noopener noreferrer">新窗口打开</a>'
         if target_url
         else ""
     )
@@ -410,5 +412,41 @@ def _render_embed_shell(target: dict) -> str:
     </div>
   </header>
   <main>{iframe}</main>
+  <script>
+    (() => {{
+      const isLocalHost = (hostname) => {{
+        const host = String(hostname || "").trim().replace(/^\\[(.*)\\]$/, "$1").toLowerCase();
+        return !host || host === "localhost" || host === "0.0.0.0"
+          || host === "::" || host === "::1"
+          || host === "0:0:0:0:0:0:0:0" || host === "0:0:0:0:0:0:0:1"
+          || /^127(?:\\.\\d{{1,3}}){{3}}$/.test(host);
+      }};
+      const hostForUrl = (hostname) => {{
+        const host = String(hostname || "").trim().replace(/^\\[(.*)\\]$/, "$1");
+        return host.includes(":") ? `[${{host}}]` : host;
+      }};
+      const resolveTarget = (raw) => {{
+        if (!raw) return "";
+        try {{
+          const target = new URL(raw, window.location.href);
+          if (/^https?:$/.test(target.protocol) && isLocalHost(target.hostname)) {{
+            const browserHost = hostForUrl(window.location.hostname);
+            if (browserHost) {{
+              target.host = target.port ? `${{browserHost}}:${{target.port}}` : browserHost;
+            }}
+          }}
+          return target.href;
+        }} catch (_) {{
+          return raw;
+        }}
+      }};
+      document.querySelectorAll("[data-target-url]").forEach((element) => {{
+        const resolved = resolveTarget(element.dataset.targetUrl);
+        if (!resolved) return;
+        if (element.tagName === "IFRAME") element.src = resolved;
+        if (element.tagName === "A") element.href = resolved;
+      }});
+    }})();
+  </script>
 </body>
 </html>"""

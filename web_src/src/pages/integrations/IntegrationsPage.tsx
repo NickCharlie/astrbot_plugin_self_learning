@@ -4,6 +4,7 @@ import { useDashboard } from '../../stores/dashboard';
 import { list, object } from '../shared';
 import type { IntegrationItem } from '../../types/dashboard';
 import { summarize } from '../../lib/format';
+import { resolveHostUrl } from '../../lib/routing';
 import { IntegrationCard } from '../../components/business/IntegrationCard';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Input, Panel, Select, Textarea } from '../../components/ui';
@@ -24,7 +25,13 @@ export function IntegrationsPage() {
   const [qchatMax, setQchatMax] = createSignal('100000');
   const [trainingPairs, setTrainingPairs] = createSignal(true);
   const [qchatResult, setQchatResult] = createSignal<unknown>(null);
+  const [qchatShadowSender, setQchatShadowSender] = createSignal('');
   const [busy, setBusy] = createSignal('');
+  const qchatData = () => {
+    const result = object(qchatResult());
+    return object(result.data ?? result);
+  };
+  const qchatSenders = () => list<Record<string, unknown>>(qchatData().senders);
   const integrations = () => list<IntegrationItem>(
     dashboard.integrations()?.dashboards
     ?? dashboard.integrations()?.integrations
@@ -71,13 +78,33 @@ export function IntegrationsPage() {
         max_messages: Math.max(1, Number(qchatMax()) || 100000),
         include_training_pairs: trainingPairs(),
       });
-      setQchatResult(result); dashboard.toast(action === 'preview' ? '预览完成' : '导入完成', 'success');
+      setQchatResult(result);
+      const resultData = object(object(result).data ?? result);
+      if (action === 'preview') {
+        setQchatShadowSender('');
+        if (!qchatGroup().trim() && resultData.group_id) setQchatGroup(String(resultData.group_id));
+        dashboard.toast('预览完成，请从用户列表中选择影子对象', 'success');
+      } else if (qchatShadowSender()) {
+        const candidate = qchatSenders().find((item) => String(item.sender_id ?? '') === qchatShadowSender());
+        try {
+          await api.post('/api/shadow-mode/profiles', {
+            source_type: 'imported',
+            source_group_id: String(resultData.group_id ?? qchatGroup().trim()),
+            target_group_id: qchatGroup().trim() || String(resultData.group_id ?? ''),
+            sender_id: qchatShadowSender(),
+            activate: true,
+          });
+          dashboard.toast(`导入完成，已启用 ${String(candidate?.sender_name ?? '所选用户')} 的影子模式`, 'success');
+        } catch (caught) {
+          dashboard.toast(`聊天记录已导入，但影子学习失败：${caught instanceof Error ? caught.message : '未知错误'}`, 'warning');
+        }
+      } else dashboard.toast('导入完成', 'success');
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : 'QQ 聊天记录操作失败', 'danger'); }
     finally { setBusy(''); }
   };
   const openIntegration = (item: IntegrationItem) => {
     const dash = object(item.dashboard);
-    const url = String(dash.external_url ?? dash.official_page_url ?? dash.url ?? '');
+    const url = resolveHostUrl(String(dash.external_url ?? dash.official_page_url ?? dash.url ?? ''));
     const route = String(dash.route ?? '');
     if (route.startsWith('#/')) {
       window.location.hash = route;
@@ -121,13 +148,30 @@ export function IntegrationsPage() {
         </Panel>
         <Panel title="QQ 聊天记录导入" hint="路径由插件运行环境读取">
           <div class={styles['form-stack']}>
-            <Input label="源路径" placeholder="聊天记录文件或目录" value={qchatPath()} onInput={(event) => setQchatPath(event.currentTarget.value)} />
+            <Input label="源路径" placeholder="聊天记录文件或目录" value={qchatPath()} onInput={(event) => { setQchatPath(event.currentTarget.value); setQchatResult(null); setQchatShadowSender(''); }} />
             <Input label="群组 ID（可选）" value={qchatGroup()} onInput={(event) => setQchatGroup(event.currentTarget.value)} />
             <Select label="最大消息数" value={qchatMax()} onChange={(event) => setQchatMax(event.currentTarget.value)}>
               <option value="10000">10,000</option><option value="50000">50,000</option><option value="100000">100,000</option><option value="500000">500,000</option>
             </Select>
             <label class={styles['check-option']}><input type="checkbox" checked={trainingPairs()} onChange={(event) => setTrainingPairs(event.currentTarget.checked)} /> 同时生成训练对</label>
-            <div class="inline-actions"><Button loading={busy() === 'qchat-preview'} onClick={() => qchat('preview')}>预览</Button><Button tone="primary" loading={busy() === 'qchat-import'} onClick={() => qchat('import')}>导入</Button></div>
+            <div class="inline-actions"><Button icon="manage_search" loading={busy() === 'qchat-preview'} onClick={() => qchat('preview')}>解析并列出群友</Button><Button tone="primary" icon={qchatShadowSender() ? 'theater_comedy' : 'upload'} disabled={!qchatResult()} loading={busy() === 'qchat-import'} onClick={() => qchat('import')}>{qchatShadowSender() ? '导入并启用影子' : '导入记录'}</Button></div>
+            <Show when={qchatSenders().length}>
+              <div class={styles['sender-section']}>
+                <div class={styles['sender-heading']}><strong>导入记录中的用户</strong><span>{qchatSenders().length} 人 · 选择一人可在导入后立即启用影子模式</span></div>
+                <div class={styles['sender-list']}>
+                  <For each={qchatSenders()}>{(sender) => {
+                    const senderId = String(sender.sender_id ?? '');
+                    const count = Number(sender.message_count) || 0;
+                    return <button type="button" disabled={count < 3} classList={{ [styles['sender-row']]: true, [styles['selected']]: qchatShadowSender() === senderId }} onClick={() => setQchatShadowSender(qchatShadowSender() === senderId ? '' : senderId)}>
+                      <span class="material-icons">person</span>
+                      <span><strong>{String(sender.sender_name ?? senderId)}</strong><small>QQ {String(sender.sender_qq ?? senderId)}</small></span>
+                      <b>{count} 条</b>
+                      <small>{count >= 3 ? '可学习' : '样本不足'}</small>
+                    </button>;
+                  }}</For>
+                </div>
+              </div>
+            </Show>
             <Show when={qchatResult()}><pre class={styles['result-box']}>{summarize(qchatResult())}</pre></Show>
           </div>
         </Panel>

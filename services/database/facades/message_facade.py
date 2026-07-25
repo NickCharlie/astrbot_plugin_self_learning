@@ -49,6 +49,7 @@ class MessageFacade(BaseFacade):
                 raw_msg = RawMessage(
                     sender_id=str(data.get('sender_id', '')),
                     sender_name=data.get('sender_name', ''),
+                    sender_qq=data.get('sender_qq') or None,
                     message=data.get('message', ''),
                     group_id=data.get('group_id', ''),
                     timestamp=int(data.get('timestamp', time.time())),
@@ -107,7 +108,8 @@ class MessageFacade(BaseFacade):
                 return [
                     {
                         'id': msg.id, 'sender_id': msg.sender_id,
-                        'sender_name': msg.sender_name, 'message': msg.message,
+                        'sender_name': msg.sender_name, 'sender_qq': msg.sender_qq,
+                        'message': msg.message,
                         'group_id': msg.group_id, 'timestamp': msg.timestamp,
                         'platform': msg.platform, 'message_id': msg.message_id,
                         'reply_to': msg.reply_to, 'created_at': msg.created_at,
@@ -133,7 +135,8 @@ class MessageFacade(BaseFacade):
                 return [
                     {
                         'id': msg.id, 'sender_id': msg.sender_id,
-                        'sender_name': msg.sender_name, 'message': msg.message,
+                        'sender_name': msg.sender_name, 'sender_qq': msg.sender_qq,
+                        'message': msg.message,
                         'group_id': msg.group_id, 'platform': msg.platform,
                         'timestamp': msg.timestamp,
                     }
