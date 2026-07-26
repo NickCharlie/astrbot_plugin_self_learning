@@ -2,7 +2,7 @@ name: "astrbot_plugin_self_learning"
 author: "NickMo, EterUltimate"
 display_name: "self-learning"
 description: "SELF LEARNING 自主学习插件 — 让 AI 聊天机器人自主学习对话风格、理解群组黑话、管理社交关系与好感度、自适应人格演化，像真人一样自然对话。(使用前必须手动备份人格数据)"
-version: "3.6.0"
+version: "3.6.1"
 repo: "https://github.com/NickCharlie/astrbot_plugin_self_learning"
 tags:
   - "自学习"
@@ -12,11 +12,9 @@ tags:
   - "智能分析"
 homepage: ""
 license: "AGPL-3.0"
-compatibility:
-  min_astrbot_version: "4.11.4"
-platforms:
-  - "aiocqhttp" 
-  - "qq"
+astrbot_version: ">=4.11.4"
+support_platforms:
+  - "aiocqhttp"
   - "qq_official"
   - "telegram"
 features:
