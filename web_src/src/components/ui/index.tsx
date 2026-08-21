@@ -1,4 +1,4 @@
-import { For, Show, splitProps, type JSX, type ParentProps } from 'solid-js';
+import { For, Show, splitProps, onMount, type JSX, type ParentProps } from 'solid-js';
 import type { Tone } from '../../types/dashboard';
 import buttonStyles from './Button.module.scss';
 import spinnerStyles from './Spinner.module.scss';
@@ -116,7 +116,13 @@ export function Input(props: JSX.InputHTMLAttributes<HTMLInputElement> & FieldPr
 
 export function Select(props: ParentProps<JSX.SelectHTMLAttributes<HTMLSelectElement> & FieldProps>) {
   const [local, select] = splitProps(props, ['label', 'hint', 'error', 'class', 'children']);
-  return <Field {...local}><select {...select}>{local.children}</select></Field>;
+  let element: HTMLSelectElement | undefined;
+  // Solid 会先应用 value 属性、后插入 <For> 渲染的 option，真实浏览器对无选项的
+  // select 设置 value 不生效，导致回退选中第一项（issue #243）。挂载后再同步一次。
+  onMount(() => {
+    if (element && select.value !== undefined) element.value = String(select.value ?? '');
+  });
+  return <Field {...local}><select ref={element} {...select}>{local.children}</select></Field>;
 }
 
 export function Textarea(props: JSX.TextareaHTMLAttributes<HTMLTextAreaElement> & FieldProps) {
