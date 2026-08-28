@@ -142,9 +142,15 @@ async def app(monkeypatch):
         "webui.services.hub_service.PersonaReviewService",
         lambda _container: review_service,
     )
+    def _integration_factory(_container):
+        async def _get_status():
+            return {"integration": "ok"}
+
+        return SimpleNamespace(get_status=_get_status)
+
     monkeypatch.setattr(
         "webui.services.hub_service.IntegrationService",
-        lambda _container: SimpleNamespace(get_status=lambda: {"integration": "ok"}),
+        _integration_factory,
     )
 
     app = Quart(__name__)

@@ -184,7 +184,7 @@ class HubService:
         }
 
     async def status(self) -> Dict[str, Any]:
-        integration = IntegrationService(self.container).get_status()
+        integration = await IntegrationService(self.container).get_status()
         db_ready = bool(self.database_manager)
         if self.database_manager and hasattr(self.database_manager, "is_ready"):
             try:

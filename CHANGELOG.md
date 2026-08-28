@@ -2,6 +2,25 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.6.3] - 2026-08-28
+
+### 集成兼容性
+
+- 适配 Group Chat Plus 最新面板安全策略：其 Web 面板（v1.2.x 起）固定返回 `X-Frame-Options: DENY` 与 CSP `frame-ancestors 'none'`，且未支持 `?embed=1` 参数，导致「回复策略」页的内嵌 iframe 被浏览器静默拦截、只显示空白框。现由集成服务探测面板真实响应头（结果缓存 60 秒），被阻止时自动降级为 external 模式：嵌入壳展示明确提示与「新窗口打开」入口，面板可达性同时作为可用性依据。
+- 复核 LivingMemory 2.6.0-beta.3 契约：插件注册名、`initializer.memory_engine`、`memory_engine.graph_store`、`get_graph_snapshot(...)` 签名与 `get_statistics()` 在 mixin 重构后全部保持不变，graph_store 直读适配器无需改动；其独立 WebUI 配置（`webui_settings`）已被官方插件页面机制取代，现有代码已按「本地图谱」模式优雅降级。
+
+### 构建
+
+- 修复 Dashboard `build` 工作流的产物一致性检查：`web_res/static/dashboard/index.html` 自 3.6.x 起（Windows 直接提交）为 CRLF，而 CI 在 Linux 上构建产出 LF，导致 `git diff --exit-code` 整文件报差异。现统一为 LF 并新增 `.gitattributes` 将 `web_src/index.html` 与该产物固定为 `text eol=lf`，避免双平台行尾漂移复发。
+
+### 代码审查修正
+
+- 按 Sourcery 审查意见修正嵌入探测实现：阻塞的 HTTP 探测移入 executor 执行并通过 in-flight future 合并同一面板的并发探测，避免卡住 Quart 事件循环；`frame-ancestors` 白名单改为按父页面（WebUI Dashboard）真实 origin 逐项匹配（含 `*.` 通配、端口与协议校验），修复 `'self'` 与显式放行源共存时被误判为禁止嵌入的问题；`IntegrationService.get_status/get_embed_target` 随之改为 async，同步更新 hub 服务、page_api 与相关测试桩。
+
+### 版本
+
+- 将插件元数据、运行时包、Dashboard 和文档版本统一提升至 `3.6.3`。
+
 ## [3.6.2] - 2026-08-21
 
 ### WebUI

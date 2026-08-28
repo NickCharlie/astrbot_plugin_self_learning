@@ -153,7 +153,7 @@ GET /api/hub/v1/status
 | `active` | 是否检测到插件 |
 | `delegated` | 当前能力是否已委托 |
 | `plugin` | AstrBot star 元信息 |
-| `dashboard` | 面板 URL、本地图谱路由、入口类型 |
+| `dashboard` | 面板 URL、本地图谱路由、入口类型；`embeddable` 为 `false` 表示面板响应头禁止 iframe 嵌入（如 Group Chat Plus 的 `X-Frame-Options: DENY`），此时嵌入壳会提示改用新窗口打开 |
 | `dev_api` | 该插件公开 API 列表 |
 | `settings_group` | 相关配置组 |
 
@@ -263,6 +263,7 @@ ECharts 图谱 payload。记忆图和知识图谱都会优先读取 LivingMemory
 | LivingMemory 已安装但仍写入本地记忆 | `delegate_memory_to_livingmemory` 和 `disable_local_memory_when_delegated` 是否为 `true` |
 | Group Chat Plus 已安装但仍创建本地回复器 | `delegate_reply_to_group_chat_plus` 和 `disable_local_reply_when_delegated` 是否为 `true` |
 | 面板入口为空 | 目标插件 Web 面板是否开启；图谱模块仍可通过本插件 `/api/graphs/*` 查看 |
+| Group Chat Plus 嵌入壳显示"面板禁止内嵌" | 该面板自 v1.2.x 起返回 `X-Frame-Options: DENY`，无法被 iframe 嵌入，属预期行为；集成服务会探测响应头并自动改用新窗口入口 |
 | API 列表不匹配 | 以目标插件当前开发 API 为准，更新 `webui/services/integration_service.py` |
 
 ## 测试

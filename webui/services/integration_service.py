@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import asyncio
+import time
+import urllib.request
+from typing import Any, Dict, Optional, Tuple
+from urllib.parse import urlsplit
 
 try:
     from ...config import get_config_cost_warnings
@@ -11,6 +15,11 @@ except ImportError:
 
 LIVINGMEMORY_EMBED_URL = "/api/integrations/embed/livingmemory"
 GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
+
+_EMBED_PROBE_TIMEOUT = 2.0
+_EMBED_PROBE_TTL = 60.0
+_EMBED_PROBE_CACHE: Dict[str, Tuple[float, Optional[bool]]] = {}
+_EMBED_PROBE_INFLIGHT: Dict[str, "asyncio.Future"] = {}
 
 SELF_LEARNING_API_ENDPOINTS = [
     "GET /api/integrations/status",
@@ -94,13 +103,117 @@ def _join_url(base_url: Optional[str], path: str) -> Optional[str]:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
+def _frame_headers_block(headers: Any, parent_origin: Optional[str] = None) -> bool:
+    """判断响应头是否禁止父页面（self_learning WebUI）以 iframe 嵌入。"""
+    xfo = str(headers.get("X-Frame-Options", "") or "").strip().strip("'\"").lower()
+    if xfo in {"deny", "sameorigin"}:
+        return True
+    csp = str(headers.get("Content-Security-Policy", "") or "").lower()
+    for directive in csp.split(";"):
+        parts = directive.split()
+        if parts and parts[0] == "frame-ancestors":
+            sources = [value.strip("'\"") for value in parts[1:]]
+            if not sources or "none" in sources:
+                return True
+            if "*" in sources:
+                return False
+            if parent_origin:
+                return not any(
+                    _source_allows_origin(source, parent_origin) for source in sources
+                )
+            # 拿不到父页面 origin 时保守处理：'self' 只放行面板自身源（与嵌入页
+            # 必然不同源），视为拒绝；列表含显式主机时无从比对，视为可能允许。
+            return all(source in {"self", "none"} for source in sources)
+    return False
+
+
+def _source_allows_origin(source: str, origin: str) -> bool:
+    """判断单个 frame-ancestors source 表达式是否放行给定父页面 origin。"""
+    source = source.strip("'\"").lower()
+    if not source or source in {"self", "none"}:
+        return False
+    if source == "*":
+        return True
+    try:
+        origin_parts = urlsplit(origin)
+        expr = urlsplit(source if "//" in source else f"//{source}")
+        expr_host = (expr.hostname or "").lower()
+        origin_host = (origin_parts.hostname or "").lower()
+        if not expr_host or not origin_host:
+            return False
+        if expr_host.startswith("*."):
+            if not (
+                origin_host == expr_host[2:] or origin_host.endswith(expr_host[1:])
+            ):
+                return False
+        elif expr_host != origin_host:
+            return False
+        if expr.port is not None and expr.port != origin_parts.port:
+            return False
+        if expr.scheme and expr.scheme != origin_parts.scheme:
+            return False
+        return True
+    except ValueError:
+        return False
+
+
+async def _probe_embeddable(
+    url: str, parent_origin: Optional[str] = None
+) -> Optional[bool]:
+    """探测伴随面板是否允许 iframe 嵌入。
+
+    返回 True=允许、False=被响应头阻止、None=不可达。结果缓存 60 秒；阻塞的
+    HTTP 请求放进 executor 执行，避免卡住 Quart 事件循环；同一 URL 的并发
+    未命中探测通过 in-flight future 合并为一次请求。
+    """
+    key = f"{parent_origin or ''}|{url}"
+    now = time.time()
+    cached = _EMBED_PROBE_CACHE.get(key)
+    if cached and now - cached[0] < _EMBED_PROBE_TTL:
+        return cached[1]
+    inflight = _EMBED_PROBE_INFLIGHT.get(key)
+    if inflight is not None:
+        return await asyncio.shield(inflight)
+
+    loop = asyncio.get_running_loop()
+    future: asyncio.Future = loop.create_future()
+    _EMBED_PROBE_INFLIGHT[key] = future
+    try:
+        result = await loop.run_in_executor(
+            None, _probe_embeddable_sync, url, parent_origin
+        )
+        _EMBED_PROBE_CACHE[key] = (time.time(), result)
+        if not future.done():
+            future.set_result(result)
+        return result
+    except Exception:
+        if not future.done():
+            future.set_result(None)
+        raise
+    finally:
+        _EMBED_PROBE_INFLIGHT.pop(key, None)
+
+
+def _probe_embeddable_sync(
+    url: str, parent_origin: Optional[str]
+) -> Optional[bool]:
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "self-learning-embed-probe"}
+        )
+        with urllib.request.urlopen(request, timeout=_EMBED_PROBE_TIMEOUT) as response:
+            return not _frame_headers_block(response.headers, parent_origin)
+    except Exception:
+        return None
+
+
 class IntegrationService:
     """Build a small runtime map of delegated capabilities and dashboards."""
 
     def __init__(self, container: Any) -> None:
         self.container = container
 
-    def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> Dict[str, Any]:
         config = getattr(self.container, "plugin_config", None)
         delegation = self._delegation()
         status = delegation.status() if delegation else {
@@ -120,12 +233,12 @@ class IntegrationService:
             "dashboards": [
                 self._self_learning_dashboard(),
                 self._livingmemory_dashboard(memory_star, status),
-                self._group_chat_plus_dashboard(reply_star, status),
+                await self._group_chat_plus_dashboard(reply_star, status),
             ],
             "hub": self._hub_contract(config),
         }
 
-    def get_embed_target(self, plugin_id: str) -> Dict[str, Any]:
+    async def get_embed_target(self, plugin_id: str) -> Dict[str, Any]:
         """Return the concrete iframe target for a companion dashboard shell."""
         canonical_id = {
             "astrbot_plugin_livingmemory": "livingmemory",
@@ -137,7 +250,7 @@ class IntegrationService:
             "astrbot_plugin_group_chat_plus": "group_chat_plus",
         }.get(plugin_id, plugin_id)
 
-        payload = self.get_status()
+        payload = await self.get_status()
         dashboards = {
             item.get("id"): item
             for item in payload.get("dashboards", [])
@@ -160,11 +273,20 @@ class IntegrationService:
         external_url = dashboard.get("external_url")
         official_page_url = dashboard.get("official_page_url")
         target_url = external_url or official_page_url
+        embeddable = dashboard.get("embeddable")
+        blocked = embeddable is False
+        if blocked:
+            message = "该面板设置了 X-Frame-Options/frame-ancestors，禁止 iframe 嵌入，请使用新窗口打开。"
+        elif not target_url:
+            message = "该插件面板未开启或尚未检测到可用入口。"
+        else:
+            message = None
         return {
             "id": item.get("id"),
             "title": item.get("title"),
             "role": item.get("role"),
             "available": bool(dashboard.get("available") and target_url),
+            "embeddable": embeddable,
             "target_url": target_url,
             "external_url": external_url,
             "official_page_url": official_page_url,
@@ -173,7 +295,7 @@ class IntegrationService:
             "active": bool(item.get("active")),
             "delegated": item.get("delegated"),
             "plugin": item.get("plugin") or {},
-            "message": None if target_url else "该插件面板未开启或尚未检测到可用入口。",
+            "message": message,
         }
 
     def _delegation(self) -> Optional[Any]:
@@ -283,13 +405,31 @@ class IntegrationService:
             "settings_group": "Integration_Settings",
         }
 
-    def _group_chat_plus_dashboard(self, star: Any, status: Dict[str, Any]) -> Dict[str, Any]:
+    def _dashboard_origin(self) -> Optional[str]:
+        """父页面（self_learning WebUI / AstrBot Dashboard）的 origin。"""
+        webui_config = getattr(self.container, "webui_config", None)
+        return _http_url(
+            getattr(webui_config, "host", "127.0.0.1"),
+            getattr(webui_config, "port", None),
+        )
+
+    async def _group_chat_plus_dashboard(self, star: Any, status: Dict[str, Any]) -> Dict[str, Any]:
         plugin = getattr(star, "star_cls", None)
         host = getattr(plugin, "web_panel_host", None)
         port = getattr(plugin, "web_panel_port", None)
         enabled = bool(getattr(plugin, "enable_web_panel", False))
         dashboard_url = _http_url(host, port) if enabled else None
         panel_url = _join_url(dashboard_url, "/panel?embed=1")
+
+        # 自 v1.2.x 起 Group Chat Plus 面板固定返回 X-Frame-Options: DENY 与
+        # frame-ancestors 'none'，iframe 嵌入会被浏览器静默拦截。此处探测真实
+        # 响应头：被阻止时降级为 external，由嵌入壳提示改用新窗口打开。
+        embeddable = (
+            await _probe_embeddable(panel_url, self._dashboard_origin())
+            if panel_url
+            else None
+        )
+        blocked = embeddable is False
 
         return {
             "id": "group_chat_plus",
@@ -300,11 +440,15 @@ class IntegrationService:
             "plugin": self._star_info(star),
             "dashboard": {
                 "available": bool(panel_url),
+                "embeddable": embeddable,
                 "url": GROUP_CHAT_PLUS_EMBED_URL,
                 "external_url": panel_url,
                 "route": "#/reply-strategy",
                 "label": "Group Chat Plus 面板",
-                "kind": "embedded_external",
+                "kind": "external" if blocked else "embedded_external",
+                "message": (
+                    "面板禁止 iframe 嵌入，请在新窗口打开独立面板。" if blocked else None
+                ),
             },
             "dev_api": {
                 "base": f"{dashboard_url}/api" if dashboard_url else "/api",
