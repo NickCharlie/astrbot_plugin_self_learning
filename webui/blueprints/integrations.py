@@ -268,6 +268,8 @@ def _render_embed_shell(target: dict) -> str:
     target_url = target.get("target_url") or ""
     escaped_url = escape(str(target_url), quote=True)
     message = escape(str(target.get("message") or ""))
+    embeddable = target.get("embeddable")
+    blocked = embeddable is False
     active_label = "已加载" if target.get("active") else "未加载"
     delegated = target.get("delegated")
     delegated_label = (
@@ -280,12 +282,24 @@ def _render_embed_shell(target: dict) -> str:
         for label in [active_label, delegated_label, str(target.get("kind") or "panel")]
         if label
     )
+    embed_ok = bool(target.get("available") and target_url and not blocked)
     iframe = (
         f'<iframe id="companion-frame" title="{title}" data-target-url="{escaped_url}" '
         'loading="eager" referrerpolicy="no-referrer"></iframe>'
-        if target.get("available") and target_url
-        else f'<div class="empty"><strong>面板不可用</strong><p>{message}</p></div>'
+        if embed_ok
+        else ""
     )
+    if blocked:
+        placeholder = (
+            f'<div class="empty"><strong>面板禁止内嵌</strong>'
+            f"<p>{message or '该面板不允许被 iframe 嵌入。'}</p></div>"
+        )
+    elif embed_ok:
+        placeholder = ""
+    else:
+        placeholder = (
+            f'<div class="empty"><strong>面板不可用</strong><p>{message}</p></div>'
+        )
     open_action = (
         f'<a id="open-companion" class="button primary" href="#" data-target-url="{escaped_url}" '
         'target="_blank" rel="noopener noreferrer">新窗口打开</a>'
@@ -411,7 +425,7 @@ def _render_embed_shell(target: dict) -> str:
       <a class="button" href="">刷新</a>
     </div>
   </header>
-  <main>{iframe}</main>
+  <main>{placeholder}{iframe}</main>
   <script>
     (() => {{
       const isLocalHost = (hostname) => {{

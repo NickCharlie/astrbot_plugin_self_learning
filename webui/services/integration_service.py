@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import time
+import urllib.request
+from typing import Any, Dict, Optional, Tuple
 
 try:
     from ...config import get_config_cost_warnings
@@ -11,6 +13,10 @@ except ImportError:
 
 LIVINGMEMORY_EMBED_URL = "/api/integrations/embed/livingmemory"
 GROUP_CHAT_PLUS_EMBED_URL = "/api/integrations/embed/group_chat_plus"
+
+_EMBED_PROBE_TIMEOUT = 2.0
+_EMBED_PROBE_TTL = 60.0
+_EMBED_PROBE_CACHE: Dict[str, Tuple[float, Optional[bool]]] = {}
 
 SELF_LEARNING_API_ENDPOINTS = [
     "GET /api/integrations/status",
@@ -94,6 +100,43 @@ def _join_url(base_url: Optional[str], path: str) -> Optional[str]:
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
+def _frame_headers_block(headers: Any) -> bool:
+    """判断响应头是否禁止被 self_learning WebUI 以 iframe 嵌入。"""
+    xfo = str(headers.get("X-Frame-Options", "") or "").strip().strip("'\"").lower()
+    if xfo in {"deny", "sameorigin"}:
+        return True
+    csp = str(headers.get("Content-Security-Policy", "") or "").lower()
+    for directive in csp.split(";"):
+        parts = directive.split()
+        if parts and parts[0] == "frame-ancestors":
+            values = [value.strip("'\"") for value in parts[1:]]
+            # 嵌入页与伴随面板必然是不同源（不同端口），'self' 与 'none' 均视为拒绝。
+            return not values or "none" in values or "self" in values
+    return False
+
+
+def _probe_embeddable(url: str) -> Optional[bool]:
+    """探测伴随面板是否允许 iframe 嵌入。
+
+    返回 True=允许、False=被响应头阻止、None=不可达。结果缓存 60 秒。
+    """
+    now = time.time()
+    cached = _EMBED_PROBE_CACHE.get(url)
+    if cached and now - cached[0] < _EMBED_PROBE_TTL:
+        return cached[1]
+    result: Optional[bool] = None
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": "self-learning-embed-probe"}
+        )
+        with urllib.request.urlopen(request, timeout=_EMBED_PROBE_TIMEOUT) as response:
+            result = not _frame_headers_block(response.headers)
+    except Exception:
+        result = None
+    _EMBED_PROBE_CACHE[url] = (now, result)
+    return result
+
+
 class IntegrationService:
     """Build a small runtime map of delegated capabilities and dashboards."""
 
@@ -160,11 +203,20 @@ class IntegrationService:
         external_url = dashboard.get("external_url")
         official_page_url = dashboard.get("official_page_url")
         target_url = external_url or official_page_url
+        embeddable = dashboard.get("embeddable")
+        blocked = embeddable is False
+        if blocked:
+            message = "该面板设置了 X-Frame-Options/frame-ancestors，禁止 iframe 嵌入，请使用新窗口打开。"
+        elif not target_url:
+            message = "该插件面板未开启或尚未检测到可用入口。"
+        else:
+            message = None
         return {
             "id": item.get("id"),
             "title": item.get("title"),
             "role": item.get("role"),
             "available": bool(dashboard.get("available") and target_url),
+            "embeddable": embeddable,
             "target_url": target_url,
             "external_url": external_url,
             "official_page_url": official_page_url,
@@ -173,7 +225,7 @@ class IntegrationService:
             "active": bool(item.get("active")),
             "delegated": item.get("delegated"),
             "plugin": item.get("plugin") or {},
-            "message": None if target_url else "该插件面板未开启或尚未检测到可用入口。",
+            "message": message,
         }
 
     def _delegation(self) -> Optional[Any]:
@@ -291,6 +343,12 @@ class IntegrationService:
         dashboard_url = _http_url(host, port) if enabled else None
         panel_url = _join_url(dashboard_url, "/panel?embed=1")
 
+        # 自 v1.2.x 起 Group Chat Plus 面板固定返回 X-Frame-Options: DENY 与
+        # frame-ancestors 'none'，iframe 嵌入会被浏览器静默拦截。此处探测真实
+        # 响应头：被阻止时降级为 external，由嵌入壳提示改用新窗口打开。
+        embeddable = _probe_embeddable(panel_url) if panel_url else None
+        blocked = embeddable is False
+
         return {
             "id": "group_chat_plus",
             "title": "Group Chat Plus",
@@ -300,11 +358,15 @@ class IntegrationService:
             "plugin": self._star_info(star),
             "dashboard": {
                 "available": bool(panel_url),
+                "embeddable": embeddable,
                 "url": GROUP_CHAT_PLUS_EMBED_URL,
                 "external_url": panel_url,
                 "route": "#/reply-strategy",
                 "label": "Group Chat Plus 面板",
-                "kind": "embedded_external",
+                "kind": "external" if blocked else "embedded_external",
+                "message": (
+                    "面板禁止 iframe 嵌入，请在新窗口打开独立面板。" if blocked else None
+                ),
             },
             "dev_api": {
                 "base": f"{dashboard_url}/api" if dashboard_url else "/api",

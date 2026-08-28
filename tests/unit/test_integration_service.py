@@ -1,14 +1,24 @@
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 PARENT = PACKAGE_ROOT.parent
 if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
-from self_learning_EterU.webui.services.integration_service import IntegrationService
+from self_learning_EterU.webui.services import integration_service as integration_service_module
+from self_learning_EterU.webui.services.integration_service import (
+    IntegrationService,
+    _frame_headers_block,
+    _probe_embeddable,
+)
 from self_learning_EterU.webui.blueprints.integrations import _render_embed_shell
+
+
+def _clear_probe_cache():
+    integration_service_module._EMBED_PROBE_CACHE.clear()
 
 
 def _star(name, plugin, *, root_dir_name=None):
@@ -147,3 +157,138 @@ def test_embed_shell_resolves_loopback_target_from_browser_host():
     assert 'data-target-url="http://127.0.0.1:1451/panel?embed=1"' in html
     assert "window.location.hostname" in html
     assert "target.host = target.port" in html
+
+
+class _FakeResponse:
+    def __init__(self, headers):
+        self.headers = headers
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def test_frame_headers_block_rules():
+    assert _frame_headers_block({"X-Frame-Options": "DENY"})
+    assert _frame_headers_block({"X-Frame-Options": "SAMEORIGIN"})
+    assert _frame_headers_block({"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'"})
+    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors 'self'"})
+    assert not _frame_headers_block({"Content-Security-Policy": "frame-ancestors *"})
+    assert not _frame_headers_block({"Content-Security-Policy": "default-src 'self'"})
+    assert not _frame_headers_block({})
+
+
+def test_probe_embeddable_caches_result():
+    _clear_probe_cache()
+    calls = []
+
+    def fake_urlopen(request, timeout=None):
+        calls.append(str(request))
+        return _FakeResponse({"X-Frame-Options": "DENY"})
+
+    with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
+        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
+        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
+    assert len(calls) == 1
+    _clear_probe_cache()
+
+
+def test_probe_embeddable_returns_none_when_unreachable():
+    _clear_probe_cache()
+
+    def fake_urlopen(request, timeout=None):
+        raise OSError("connection refused")
+
+    with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
+        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is None
+    _clear_probe_cache()
+
+
+def _gcp_container():
+    group_chat_plus = SimpleNamespace(
+        enable_web_panel=True,
+        web_panel_host="0.0.0.0",
+        web_panel_port=8787,
+    )
+    group_chat_plus_star = _star("astrbot_plugin_group_chat_plus", group_chat_plus)
+    delegation = SimpleNamespace(
+        status=lambda: {
+            "memory_delegated": False,
+            "memory_plugin": None,
+            "reply_delegated": True,
+            "reply_plugin": "astrbot_plugin_group_chat_plus",
+        },
+        memory_plugin=lambda: None,
+        reply_plugin=lambda: group_chat_plus_star,
+    )
+    return SimpleNamespace(
+        plugin_config=SimpleNamespace(
+            delegate_memory_to_livingmemory=False,
+            delegate_reply_to_group_chat_plus=True,
+            group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
+            disable_local_reply_when_delegated=True,
+        ),
+        webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
+        feature_delegation=delegation,
+    )
+
+
+def test_group_chat_plus_blocked_panel_degrades_to_external():
+    _clear_probe_cache()
+    container = _gcp_container()
+
+    with patch.object(
+        integration_service_module.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse({"X-Frame-Options": "DENY"}),
+    ):
+        payload = IntegrationService(container).get_status()
+        embed = IntegrationService(container).get_embed_target("reply-strategy")
+
+    dashboards = {item["id"]: item for item in payload["dashboards"]}
+    dashboard = dashboards["group_chat_plus"]["dashboard"]
+    assert dashboard["embeddable"] is False
+    assert dashboard["kind"] == "external"
+    assert dashboard["available"] is True
+    assert embed["embeddable"] is False
+    assert embed["available"] is True
+    assert "新窗口" in embed["message"]
+    _clear_probe_cache()
+
+
+def test_embed_shell_renders_notice_when_panel_blocks_embedding():
+    html = _render_embed_shell({
+        "title": "Group Chat Plus",
+        "role": "回复决策与生成",
+        "available": True,
+        "embeddable": False,
+        "target_url": "http://127.0.0.1:1451/panel?embed=1",
+        "active": True,
+        "delegated": True,
+        "kind": "external",
+        "message": "面板禁止 iframe 嵌入，请在新窗口打开独立面板。",
+    })
+
+    assert "<iframe" not in html
+    assert "面板禁止内嵌" in html
+    assert "面板禁止 iframe 嵌入" in html
+    assert 'data-target-url="http://127.0.0.1:1451/panel?embed=1"' in html
+    assert "新窗口打开" in html
+
+
+def test_embed_shell_keeps_iframe_when_embedding_allowed():
+    html = _render_embed_shell({
+        "title": "Group Chat Plus",
+        "role": "回复决策与生成",
+        "available": True,
+        "embeddable": True,
+        "target_url": "http://127.0.0.1:1451/panel?embed=1",
+        "active": True,
+        "delegated": True,
+        "kind": "embedded_external",
+    })
+
+    assert '<iframe id="companion-frame"' in html
+    assert "面板禁止内嵌" not in html

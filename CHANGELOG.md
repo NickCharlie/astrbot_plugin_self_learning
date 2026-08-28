@@ -2,6 +2,17 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.6.3] - 2026-08-28
+
+### 集成兼容性
+
+- 适配 Group Chat Plus 最新面板安全策略：其 Web 面板（v1.2.x 起）固定返回 `X-Frame-Options: DENY` 与 CSP `frame-ancestors 'none'`，且未支持 `?embed=1` 参数，导致「回复策略」页的内嵌 iframe 被浏览器静默拦截、只显示空白框。现由集成服务探测面板真实响应头（结果缓存 60 秒），被阻止时自动降级为 external 模式：嵌入壳展示明确提示与「新窗口打开」入口，面板可达性同时作为可用性依据。
+- 复核 LivingMemory 2.6.0-beta.3 契约：插件注册名、`initializer.memory_engine`、`memory_engine.graph_store`、`get_graph_snapshot(...)` 签名与 `get_statistics()` 在 mixin 重构后全部保持不变，graph_store 直读适配器无需改动；其独立 WebUI 配置（`webui_settings`）已被官方插件页面机制取代，现有代码已按「本地图谱」模式优雅降级。
+
+### 版本
+
+- 将插件元数据、运行时包、Dashboard 和文档版本统一提升至 `3.6.3`。
+
 ## [3.6.2] - 2026-08-21
 
 ### WebUI
