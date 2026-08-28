@@ -1,4 +1,6 @@
+import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -31,7 +33,7 @@ def _star(name, plugin, *, root_dir_name=None):
     )
 
 
-def test_integration_service_reports_companion_dashboards_and_dev_apis():
+async def test_integration_service_reports_companion_dashboards_and_dev_apis():
     livingmemory = SimpleNamespace(
         config_manager=SimpleNamespace(
             webui_settings={
@@ -80,7 +82,7 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
         feature_delegation=delegation,
     )
 
-    payload = IntegrationService(container).get_status()
+    payload = await IntegrationService(container).get_status()
 
     dashboards = {item["id"]: item for item in payload["dashboards"]}
     assert payload["delegation"]["memory_delegated"] is True
@@ -103,13 +105,13 @@ def test_integration_service_reports_companion_dashboards_and_dev_apis():
     assert dashboards["group_chat_plus"]["dashboard"]["route"] == "#/reply-strategy"
     assert "GET /api/data/overview" in dashboards["group_chat_plus"]["dev_api"]["endpoints"]
 
-    livingmemory_embed = IntegrationService(container).get_embed_target("livingmemory")
-    group_chat_plus_embed = IntegrationService(container).get_embed_target("reply-strategy")
+    livingmemory_embed = await IntegrationService(container).get_embed_target("livingmemory")
+    group_chat_plus_embed = await IntegrationService(container).get_embed_target("reply-strategy")
     assert livingmemory_embed["target_url"] == "http://127.0.0.1:8888"
     assert group_chat_plus_embed["target_url"] == "http://127.0.0.1:8787/panel?embed=1"
 
 
-def test_integration_service_reports_high_cost_v2_warning():
+async def test_integration_service_reports_high_cost_v2_warning():
     container = SimpleNamespace(
         plugin_config=SimpleNamespace(
             delegate_memory_to_livingmemory=True,
@@ -134,7 +136,7 @@ def test_integration_service_reports_high_cost_v2_warning():
         ),
     )
 
-    payload = IntegrationService(container).get_status()
+    payload = await IntegrationService(container).get_status()
 
     assert payload["warnings"]
     assert "LivingMemory" in payload["warnings"][0]
@@ -170,17 +172,43 @@ class _FakeResponse:
         return False
 
 
+DASHBOARD_ORIGIN = "http://127.0.0.1:8989"
+
+
 def test_frame_headers_block_rules():
     assert _frame_headers_block({"X-Frame-Options": "DENY"})
     assert _frame_headers_block({"X-Frame-Options": "SAMEORIGIN"})
     assert _frame_headers_block({"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'"})
-    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors 'self'"})
-    assert not _frame_headers_block({"Content-Security-Policy": "frame-ancestors *"})
-    assert not _frame_headers_block({"Content-Security-Policy": "default-src 'self'"})
-    assert not _frame_headers_block({})
+    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors 'self'"}, DASHBOARD_ORIGIN)
+    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors *"}, None) is False
+    assert not _frame_headers_block({"Content-Security-Policy": "default-src 'self'"}, DASHBOARD_ORIGIN)
+    assert not _frame_headers_block({}, DASHBOARD_ORIGIN)
 
 
-def test_probe_embeddable_caches_result():
+def test_frame_headers_allowlist_matches_parent_origin():
+    blocked = {"Content-Security-Policy": "frame-ancestors 'self'"}
+    allowed = {"Content-Security-Policy": "frame-ancestors 'self' http://127.0.0.1:8989"}
+    assert _frame_headers_block(allowed, DASHBOARD_ORIGIN) is False
+    assert _frame_headers_block(allowed, "http://192.168.1.5:8989") is True
+    assert _frame_headers_block(blocked, DASHBOARD_ORIGIN) is True
+    assert _frame_headers_block(
+        {"Content-Security-Policy": "frame-ancestors http://*.example.com"},
+        "http://a.example.com",
+    ) is False
+    assert _frame_headers_block(
+        {"Content-Security-Policy": "frame-ancestors http://*.example.com:8989"},
+        "http://a.example.com:9999",
+    ) is True
+    assert _frame_headers_block(
+        {"Content-Security-Policy": "frame-ancestors https://127.0.0.1:8989"},
+        DASHBOARD_ORIGIN,
+    ) is True
+    # 拿不到父页面 origin 时保守处理：仅 'self' 视为拒绝，含显式主机视为可能允许
+    assert _frame_headers_block(blocked, None) is True
+    assert _frame_headers_block(allowed, None) is False
+
+
+async def test_probe_embeddable_caches_result():
     _clear_probe_cache()
     calls = []
 
@@ -189,20 +217,39 @@ def test_probe_embeddable_caches_result():
         return _FakeResponse({"X-Frame-Options": "DENY"})
 
     with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
-        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
-        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
+        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
+        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
     assert len(calls) == 1
     _clear_probe_cache()
 
 
-def test_probe_embeddable_returns_none_when_unreachable():
+async def test_probe_embeddable_returns_none_when_unreachable():
     _clear_probe_cache()
 
     def fake_urlopen(request, timeout=None):
         raise OSError("connection refused")
 
     with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
-        assert _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is None
+        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is None
+    _clear_probe_cache()
+
+
+async def test_probe_embeddable_coalesces_concurrent_probes():
+    _clear_probe_cache()
+    calls = []
+
+    def slow_urlopen(request, timeout=None):
+        time.sleep(0.05)
+        calls.append(str(request))
+        return _FakeResponse({"X-Frame-Options": "DENY"})
+
+    with patch.object(integration_service_module.urllib.request, "urlopen", slow_urlopen):
+        results = await asyncio.gather(*[
+            _probe_embeddable("http://127.0.0.1:1451/panel?embed=1")
+            for _ in range(5)
+        ])
+    assert results == [False] * 5
+    assert len(calls) == 1
     _clear_probe_cache()
 
 
@@ -235,7 +282,7 @@ def _gcp_container():
     )
 
 
-def test_group_chat_plus_blocked_panel_degrades_to_external():
+async def test_group_chat_plus_blocked_panel_degrades_to_external():
     _clear_probe_cache()
     container = _gcp_container()
 
@@ -244,8 +291,8 @@ def test_group_chat_plus_blocked_panel_degrades_to_external():
         "urlopen",
         lambda request, timeout=None: _FakeResponse({"X-Frame-Options": "DENY"}),
     ):
-        payload = IntegrationService(container).get_status()
-        embed = IntegrationService(container).get_embed_target("reply-strategy")
+        payload = await IntegrationService(container).get_status()
+        embed = await IntegrationService(container).get_embed_target("reply-strategy")
 
     dashboards = {item["id"]: item for item in payload["dashboards"]}
     dashboard = dashboards["group_chat_plus"]["dashboard"]

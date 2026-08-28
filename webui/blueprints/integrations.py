@@ -27,7 +27,7 @@ async def get_integrations_status():
     """Return runtime delegation and companion dashboard links."""
     try:
         service = IntegrationService(get_container())
-        return jsonify(service.get_status()), 200
+        return jsonify(await service.get_status()), 200
     except Exception as e:
         logger.error(f"获取功能融合状态失败: {e}", exc_info=True)
         return error_response(f"获取功能融合状态失败: {str(e)}", 500)
@@ -39,7 +39,7 @@ async def embed_integration_dashboard(plugin_id: str):
     """Render a same-origin shell for a companion plugin WebUI."""
     try:
         service = IntegrationService(get_container())
-        target = service.get_embed_target(plugin_id)
+        target = await service.get_embed_target(plugin_id)
         html = _render_embed_shell(target)
         return Response(
             html,
