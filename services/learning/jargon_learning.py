@@ -164,13 +164,14 @@ class JargonLearningModule:
             )
 
     async def _get_existing_jargon_terms(self, group_id: str) -> Set[str]:
-        """Return existing DB jargon/candidate terms for statistical pre-filter exclusion."""
+        """Return confirmed DB jargon terms for statistical pre-filter exclusion."""
         if not self._db_manager or not hasattr(self._db_manager, "get_recent_jargon_list"):
             return set()
         try:
             rows = await self._db_manager.get_recent_jargon_list(
                 chat_id=group_id,
                 limit=1000,
+                only_confirmed=True,
             )
         except Exception as exc:
             logger.debug(
