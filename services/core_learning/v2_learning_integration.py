@@ -734,6 +734,7 @@ class V2LearningIntegration:
                         rows = await db.get_recent_jargon_list(
                             chat_id=group_id,
                             limit=1000,
+                            only_confirmed=True,
                         )
                         exclude_terms = {
                             str(row.get("content") or "").strip()
