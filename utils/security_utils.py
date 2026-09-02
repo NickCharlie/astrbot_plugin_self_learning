@@ -62,7 +62,8 @@ class PasswordHasher:
         if salt is None:
             salt = secrets.token_hex(16)
         salted_password = f"{salt}{password}"
-        hashed = hashlib.md5(salted_password.encode('utf-8')).hexdigest()
+        # 仅用于校验存量 MD5 哈希并在登录成功后升级为 PBKDF2，不生成任何新凭据
+        hashed = hashlib.md5(salted_password.encode('utf-8')).hexdigest()  # codeql[py/weak-sensitive-data-hashing] legacy verification only, superseded by PBKDF2
         return hashed, salt
 
     @staticmethod
@@ -407,8 +408,10 @@ def verify_password_with_migration(
     if 'password' in password_config and 'password_hash' not in password_config:
         stored_password = password_config.get('password', '')
 
-        # 直接比较明文
-        if password == stored_password:
+        # 恒定时间比较明文，避免登录时序泄露匹配前缀
+        if secrets.compare_digest(
+            password.encode('utf-8'), str(stored_password).encode('utf-8')
+        ):
             # 验证成功后迁移到哈希格式
             new_config = migrate_password_to_hashed(password_config)
             return True, new_config

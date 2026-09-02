@@ -22,4 +22,7 @@ async def get_using_provider_compat(context: Any):
     async_getter = getattr(context, "get_using_provider_async", None)
     if inspect.iscoroutinefunction(async_getter):
         return await async_getter()
-    return context.get_using_provider()
+    sync_getter = getattr(context, "get_using_provider", None)
+    if sync_getter is None:
+        return None
+    return sync_getter()

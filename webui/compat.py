@@ -284,9 +284,12 @@ class RequestProxy:
         except (ValueError, UnicodeDecodeError):
             if silent:
                 return None
+            # from None 切断异常链，避免原始解析错误堆栈流向客户端
             from starlette.exceptions import HTTPException
 
-            raise HTTPException(status_code=400, detail="Failed to decode JSON body")
+            raise HTTPException(
+                status_code=400, detail="Failed to decode JSON body"
+            ) from None
 
 
 class _CurrentAppProxy:
