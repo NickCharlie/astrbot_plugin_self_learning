@@ -147,15 +147,16 @@ class Server:
             logger.error(f"[WebUI] 停止服务器失败: {e}", exc_info=True)
 
     def _is_port_available(self, port: int) -> bool:
-        """检查端口是否可用"""
+        """检查端口是否已有监听者（connect 探测，避免绑定通配地址）"""
+        check_host = "127.0.0.1" if self.host in ("0.0.0.0", "::", "") else self.host
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(0.2)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((self.host, port))
-                return True
-        except Exception:
-            return False
+                # connect 失败 = 无人监听 = 可用；成功 = 已被占用
+                return s.connect_ex((check_host, port)) != 0
+        except OSError:
+            # 无法探测时视为可用，真正绑定时如有冲突会由 uvicorn 报错
+            return True
 
     async def _kill_port_holder(self, port: int):
         """清理占用端口的进程"""

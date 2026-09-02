@@ -279,17 +279,17 @@ class RequestProxy:
         body = await request.body()
         if not body:
             return None
+        parse_failed = False
         try:
             return json.loads(body)
         except (ValueError, UnicodeDecodeError):
-            if silent:
-                return None
-            # from None 切断异常链，避免原始解析错误堆栈流向客户端
-            from starlette.exceptions import HTTPException
+            # 在 except 块外抛出，避免异常链把原始解析堆栈暴露给客户端
+            parse_failed = True
+        if silent:
+            return None
+        from starlette.exceptions import HTTPException
 
-            raise HTTPException(
-                status_code=400, detail="Failed to decode JSON body"
-            ) from None
+        raise HTTPException(status_code=400, detail="Failed to decode JSON body")
 
 
 class _CurrentAppProxy:

@@ -306,23 +306,24 @@ class TestPasswordMigration:
         is_valid, _ = verify_password_with_migration('any_pwd', config)
         assert is_valid is False
 
-    def test_legacy_md5_config_upgrades_on_successful_login(self):
-        """Test a legacy MD5 config verifies and upgrades to PBKDF2."""
-        md5_hash, salt = PasswordHasher.hash_password_md5('legacy_pwd')
-        legacy_config = {'password_hash': md5_hash, 'salt': salt, 'must_change': False}
+    def test_legacy_md5_config_is_rejected(self):
+        """Test a legacy MD5 config no longer verifies (weak hash unsupported)."""
+        legacy_config = {
+            'password_hash': '5f4dcc3b5aa765d61d8327deb882cf99',  # 32-char md5-shaped
+            'salt': 'legacy_salt',
+        }
 
-        is_valid, new_config = verify_password_with_migration('legacy_pwd', legacy_config)
+        is_valid, config = verify_password_with_migration('legacy_pwd', legacy_config)
 
-        assert is_valid is True
-        assert new_config is not legacy_config
-        assert len(new_config['password_hash']) == 64
-        assert new_config['algorithm'] == 'pbkdf2_sha256'
-        assert new_config['migrated_from_md5'] is True
+        assert is_valid is False
+        assert config is legacy_config
 
     def test_legacy_md5_config_wrong_password_no_upgrade(self):
         """Test a wrong password against MD5 config neither verifies nor upgrades."""
-        md5_hash, salt = PasswordHasher.hash_password_md5('legacy_pwd')
-        legacy_config = {'password_hash': md5_hash, 'salt': salt}
+        legacy_config = {
+            'password_hash': '5f4dcc3b5aa765d61d8327deb882cf99',
+            'salt': 'legacy_salt',
+        }
 
         is_valid, config = verify_password_with_migration('wrong_pwd', legacy_config)
 

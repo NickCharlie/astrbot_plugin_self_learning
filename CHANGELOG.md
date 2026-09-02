@@ -19,10 +19,11 @@
 
 ### 安全加强
 
-- WebUI 密码哈希由 MD5+盐值升级为 PBKDF2-HMAC-SHA256（390,000 次迭代），历史 MD5 与明文口令在登录成功后自动透明升级，无需用户干预；比较过程使用恒定时间比较。
+- WebUI 密码哈希由 MD5+盐值升级为 PBKDF2-HMAC-SHA256（390,000 次迭代）；历史**明文**口令在登录成功后自动透明迁移，无需用户干预。**旧版 MD5 哈希配置不再参与验证**（弱哈希直接拒绝登录并要求一次性重置；经查现有部署无 MD5 配置实例，实际无影响）；所有口令比较均使用恒定时间比较。
 - WebUI 免密模式保持不变（防止用户把自己锁在面板外），新增 `/api/password_status` 状态端点，前端在免密时展示一次「建议启用 WebUI 密码」提醒，可一键关闭不再打扰。
 - CORS 不再返回 `Access-Control-Allow-Credentials: true`（原 Quart 回退路径会对任意 Origin 反射凭据授权），避免免密会话数据被跨站读取。
 - 所有 WebUI 响应新增 `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy` 安全响应头。
+- 端口占用探测由 `bind` 改为 `connect` 探测，消除对通配地址的绑定。
 
 ### 版本
 
