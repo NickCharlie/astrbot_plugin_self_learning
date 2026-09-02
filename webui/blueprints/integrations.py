@@ -2,7 +2,7 @@
 
 from html import escape
 
-from quart import Blueprint, Response, jsonify, request
+from ..compat import Blueprint, Response, jsonify, request
 from astrbot.api import logger
 
 from ..dependencies import get_container

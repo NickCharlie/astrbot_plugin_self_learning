@@ -2,6 +2,32 @@
 
 所有重要更改都将记录在此文件中。
 
+## [3.7.0] - 2026-09-02
+
+### WebUI 框架重构（Quart → FastAPI）
+
+- 独立 WebUI 底层由 Quart + Hypercorn 迁移至 FastAPI + uvicorn，与 AstrBot core v4.26+ 的 ASGI 技术栈对齐；新增 `webui/compat.py` 兼容层承载既有蓝图的 Quart 风格处理器（模块级 `request`/`session` 代理、`jsonify(...) , status` 元组返回），19 个蓝图文件仅需更换导入行，行为保持不变。
+- 会话机制迁移到 starlette `SessionMiddleware`（itsdangerous 签名 cookie），保留 HttpOnly + SameSite=Lax 与 7 天有效期配置；旧 Quart 会话 cookie 将自然失效，需重新登录。
+- 服务线程改用 `uvicorn.Server`（`install_signal_handlers=False` 非主线程安全模式），端口清理与启动校验逻辑保持不变。
+- `requirements.txt` 由 `quart`/`quart-cors` 改为 `fastapi>=0.124.0`/`uvicorn>=0.30.0`/`itsdangerous>=2.2.0`（AstrBot core 自带，声明用于最小化安装）；WebUI「依赖安装」基础清单同步替换。
+- 集成测试通过 `webui.compat` 的 Quart 兼容 test_client 原样运行（含重定向不跟随、`session_transaction` 语义）；`test_webui_manager_imports_without_manual_web_dependencies` 更新为新契约：禁用 quart/hypercorn 导入时服务器创建必须成功。
+
+### 兼容性（AstrBot v4.26.0 → v4.27.5）
+
+- 逐项核查 v4.26.0 至 v4.27.5 的 14 个版本对插件可见的变更：FastAPI 迁移与 `register_web_api` 桥接、插件页扫描路由、`PersonaManager.update_persona`/`get_default_persona_v3` 签名、`StarTools.get_data_dir`、消息媒体处理统一、`astrbot.api.logger` 插件级日志路由、KV 存储清理与插件/工具启用状态拆分等，确认全部兼容。
+- 将 3 处已废弃的 `Context.get_using_provider()` 同步调用迁移至异步接口：新增 `utils/framework_compat.py` 兼容层，v4.27+ 优先使用 `get_using_provider_async()`（消除运行时 DeprecationWarning），旧版本自动回退同步接口。
+
+### 安全加强
+
+- WebUI 密码哈希由 MD5+盐值升级为 PBKDF2-HMAC-SHA256（390,000 次迭代），历史 MD5 与明文口令在登录成功后自动透明升级，无需用户干预；比较过程使用恒定时间比较。
+- WebUI 免密模式保持不变（防止用户把自己锁在面板外），新增 `/api/password_status` 状态端点，前端在免密时展示一次「建议启用 WebUI 密码」提醒，可一键关闭不再打扰。
+- CORS 不再返回 `Access-Control-Allow-Credentials: true`（原 Quart 回退路径会对任意 Origin 反射凭据授权），避免免密会话数据被跨站读取。
+- 所有 WebUI 响应新增 `X-Content-Type-Options`/`X-Frame-Options`/`Referrer-Policy`/`Permissions-Policy` 安全响应头。
+
+### 版本
+
+- 将插件元数据、运行时包、Dashboard 和文档版本统一提升至 `3.7.0`。
+
 ## [3.6.4] - 2026-08-29
 
 ### 黑话学习

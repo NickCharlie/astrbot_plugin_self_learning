@@ -41,7 +41,7 @@ def hash_password_with_salt(password: str) -> Dict[str, Any]:
     return {
         "password_hash": password_hash,
         "salt": salt,
-        "algorithm": "md5",
+        "algorithm": PasswordHasher.ALGORITHM,
     }
 
 
@@ -182,8 +182,10 @@ class AuthService:
         new_config = {
             "password_hash": password_hash,
             "salt": salt,
+            "algorithm": PasswordHasher.ALGORITHM,
+            "iterations": PasswordHasher.ITERATIONS,
             "must_change": must_change,
-            "version": 2,
+            "version": 3,
             "last_changed": time.time(),
         }
         if self.save_password_config(new_config):

@@ -3,7 +3,7 @@
 """
 from typing import Any, Dict
 
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container

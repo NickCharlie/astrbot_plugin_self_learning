@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 from config import PluginConfig
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager

@@ -4,7 +4,7 @@
 import asyncio
 import os
 import sys
-from quart import Blueprint, current_app, request, jsonify, session
+from ..compat import Blueprint, current_app, request, jsonify, session
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -23,10 +23,10 @@ async def _disable_config_response_cache(response):
 BASIC_DEPENDENCY_PACKAGES = [
     "aiohttp",
     "emoji==2.14.1",
-    "hypercorn==0.17.3",
+    "fastapi>=0.124.0",
+    "uvicorn>=0.30.0",
+    "itsdangerous>=2.2.0",
     "jieba",
-    "quart",
-    "quart_cors==0.8.0",
     "pydantic",
     "sqlalchemy[asyncio]",
     "aiosqlite",

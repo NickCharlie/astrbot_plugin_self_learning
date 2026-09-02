@@ -1,7 +1,7 @@
 """Shadow-mode management API."""
 
 from astrbot.api import logger
-from quart import Blueprint, jsonify, request
+from ..compat import Blueprint, jsonify, request
 
 try:
     from ...services.shadow_mode import ShadowModeService

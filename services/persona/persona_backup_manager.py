@@ -11,6 +11,7 @@ from astrbot.api.star import Context
 
 from ...config import PluginConfig
 from ...exceptions import BackupError
+from ...utils.framework_compat import get_using_provider_compat
 from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
 from ..database import DatabaseManager
 
@@ -113,7 +114,7 @@ class PersonaBackupManager:
         try:
             # 这里需要根据AstrBot框架的具体API来获取
             # 目前使用简化实现
-            provider = self.context.get_using_provider()
+            provider = await get_using_provider_compat(self.context)
             if provider and hasattr(provider, 'mood_imitation_dialogs'):
                 return list(provider.mood_imitation_dialogs)
             else:
@@ -189,7 +190,7 @@ class PersonaBackupManager:
         try:
             # 这里需要调用AstrBot框架的API来设置模仿对话
             # 目前使用简化实现
-            provider = self.context.get_using_provider()
+            provider = await get_using_provider_compat(self.context)
             if provider and hasattr(provider, 'mood_imitation_dialogs'):
                 provider.mood_imitation_dialogs = dialogues
                 logger.info(f"恢复了 {len(dialogues)} 条模仿对话")

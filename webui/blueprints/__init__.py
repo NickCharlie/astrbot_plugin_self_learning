@@ -2,7 +2,7 @@
 WebUI 蓝图模块 - Blueprint 注册
 """
 from typing import List
-from quart import Blueprint
+from ..compat import Blueprint
 
 from .auth import auth_bp
 from .config import config_bp

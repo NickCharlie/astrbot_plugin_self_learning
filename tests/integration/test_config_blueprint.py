@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 import webui.blueprints.config as config_module
 from config import PluginConfig

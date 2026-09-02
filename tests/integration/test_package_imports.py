@@ -308,7 +308,10 @@ def test_startup_imports_without_manual_optional_dependencies(monkeypatch):
 
 
 def test_webui_manager_imports_without_manual_web_dependencies(monkeypatch):
-    """WebUI package imports must not require quart/hypercorn before manual install."""
+    """WebUI 依赖 fastapi/uvicorn（AstrBot core 自带），不再需要 quart/hypercorn。
+
+    导入守卫同时保证：WebUI 的任何模块都不得回退到 quart/hypercorn 导入。
+    """
     import astrbot.api  # noqa: F401 - ensure framework logger is loaded before import guard
 
     alias = "data.plugins.astrbot_plugin_self_learning_webdeps_pkgtest"
@@ -343,14 +346,10 @@ def test_webui_manager_imports_without_manual_web_dependencies(monkeypatch):
             group_id_to_unified_origin={},
         )
 
-        assert manager.create_server() is False
+        assert manager.create_server() is True
 
-        try:
-            getattr(webui_pkg, "Server")
-        except ModuleNotFoundError as exc:
-            assert "hypercorn" in str(exc)
-        else:
-            raise AssertionError("Server should remain unavailable until WebUI deps exist")
+        # Server 应当可以正常导出（底层已切换为 FastAPI/uvicorn）
+        assert getattr(webui_pkg, "Server") is not None
     finally:
         _cleanup_alias(alias)
 

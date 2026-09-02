@@ -3,7 +3,7 @@ import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 from webui.blueprints.config import (
     PIP_MIRROR_SOURCES,
@@ -26,7 +26,7 @@ async def app():
     app.config["TESTING"] = True
     app.config["ENABLE_WEB_DEP_INSTALL"] = True
     app.config["ALLOWED_DEPENDENCY_PACKAGES"] = [
-        "quart",
+        "fastapi>=0.124.0",
         "jieba",
         "asyncpg",
         "networkx>=3.2,<3.5",
@@ -103,7 +103,7 @@ class TestDependencyInstallEndpoint:
         assert cmd[:4] == (sys.executable, "-m", "pip", "install")
         assert "--disable-pip-version-check" in cmd
         assert "--no-input" in cmd
-        assert "quart" in cmd
+        assert "fastapi>=0.124.0" in cmd
         assert "jieba" in cmd
         assert "asyncpg" in cmd
         assert "networkx>=3.2,<3.5" in cmd
@@ -133,7 +133,7 @@ class TestDependencyInstallEndpoint:
         assert response.status_code == 200
         create_process.assert_awaited_once()
         cmd = create_process.await_args.args
-        assert "quart" in cmd
+        assert "fastapi>=0.124.0" in cmd
         assert "jieba" in cmd
         assert "asyncpg" in cmd
         assert "networkx>=3.2,<3.5" not in cmd
@@ -164,7 +164,7 @@ class TestDependencyInstallEndpoint:
         cmd = create_process.await_args.args
         assert "--index-url" in cmd
         assert PIP_MIRROR_SOURCES["tsinghua"]["index_url"] in cmd
-        assert cmd.index("--index-url") < cmd.index("quart")
+        assert cmd.index("--index-url") < cmd.index("fastapi>=0.124.0")
         payload = await response.get_json()
         assert payload["pip_mirror"] == "tsinghua"
         assert payload["pip_mirror_label"] == PIP_MIRROR_SOURCES["tsinghua"]["label"]

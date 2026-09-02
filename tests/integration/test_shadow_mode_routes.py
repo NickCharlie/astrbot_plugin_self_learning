@@ -2,7 +2,7 @@ import time
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 from config import PluginConfig
 from models.orm.message import RawMessage

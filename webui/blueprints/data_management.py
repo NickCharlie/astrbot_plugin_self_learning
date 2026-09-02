@@ -1,7 +1,7 @@
 """
 数据管理蓝图 — 各功能模块数据统计与一键清空
 """
-from quart import Blueprint, jsonify
+from ..compat import Blueprint, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container

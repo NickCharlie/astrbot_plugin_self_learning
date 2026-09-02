@@ -2,6 +2,7 @@ import { Show, type ParentProps } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
 import { Button, IconButton } from '../ui';
 import { formatTime } from '../../lib/format';
+import { PasswordReminderBanner } from '../feedback/PasswordReminder';
 import { PageNav } from './PageNav';
 import styles from './AppShell.module.scss';
 
@@ -35,6 +36,7 @@ export function AppShell(props: ParentProps) {
         </div>
       </header>
       <PageNav />
+      <PasswordReminderBanner />
       <main class={styles['page-container']}>{props.children}</main>
     </div>
   );

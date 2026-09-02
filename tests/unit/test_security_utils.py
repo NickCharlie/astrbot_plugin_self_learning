@@ -2,10 +2,10 @@
 Unit tests for security utilities module
 
 Tests the security infrastructure:
-- PasswordHasher: hash generation, salt handling, verification
+- PasswordHasher: hash generation (PBKDF2), legacy MD5 handling, verification
 - LoginAttemptTracker: attempt recording, lockout, rate limiting
 - SecurityValidator: password strength, input sanitization, token validation
-- Password migration: plaintext to hashed format
+- Password migration: plaintext/MD5 to PBKDF2 format
 """
 import time
 import pytest
@@ -31,7 +31,7 @@ class TestPasswordHasher:
 
         assert isinstance(hashed, str)
         assert isinstance(salt, str)
-        assert len(hashed) == 32  # MD5 hex digest length
+        assert len(hashed) == 64  # PBKDF2-SHA256 hex digest length
         assert len(salt) == 32  # 16 bytes = 32 hex chars
 
     def test_hash_password_with_custom_salt(self):
@@ -39,7 +39,7 @@ class TestPasswordHasher:
         hashed, salt = PasswordHasher.hash_password("test_password", salt="fixed_salt")
 
         assert salt == "fixed_salt"
-        assert len(hashed) == 32
+        assert len(hashed) == 64
 
     def test_same_password_same_salt_same_hash(self):
         """Test deterministic hashing with same password and salt."""
@@ -248,7 +248,8 @@ class TestPasswordMigration:
 
         assert 'password_hash' in new_config
         assert 'salt' in new_config
-        assert new_config['version'] == 2
+        assert new_config['version'] == 3
+        assert new_config['algorithm'] == 'pbkdf2_sha256'
         assert new_config['migrated_from_plaintext'] is True
 
     def test_already_hashed_not_migrated(self):
@@ -304,3 +305,41 @@ class TestPasswordMigration:
 
         is_valid, _ = verify_password_with_migration('any_pwd', config)
         assert is_valid is False
+
+    def test_legacy_md5_config_upgrades_on_successful_login(self):
+        """Test a legacy MD5 config verifies and upgrades to PBKDF2."""
+        md5_hash, salt = PasswordHasher.hash_password_md5('legacy_pwd')
+        legacy_config = {'password_hash': md5_hash, 'salt': salt, 'must_change': False}
+
+        is_valid, new_config = verify_password_with_migration('legacy_pwd', legacy_config)
+
+        assert is_valid is True
+        assert new_config is not legacy_config
+        assert len(new_config['password_hash']) == 64
+        assert new_config['algorithm'] == 'pbkdf2_sha256'
+        assert new_config['migrated_from_md5'] is True
+
+    def test_legacy_md5_config_wrong_password_no_upgrade(self):
+        """Test a wrong password against MD5 config neither verifies nor upgrades."""
+        md5_hash, salt = PasswordHasher.hash_password_md5('legacy_pwd')
+        legacy_config = {'password_hash': md5_hash, 'salt': salt}
+
+        is_valid, config = verify_password_with_migration('wrong_pwd', legacy_config)
+
+        assert is_valid is False
+        assert config is legacy_config
+
+    def test_pbkdf2_config_not_rehashed_on_login(self):
+        """Test an up-to-date PBKDF2 config verifies without mutation."""
+        hashed, salt = PasswordHasher.hash_password('modern_pwd')
+        modern_config = {
+            'password_hash': hashed,
+            'salt': salt,
+            'algorithm': 'pbkdf2_sha256',
+            'version': 3,
+        }
+
+        is_valid, config = verify_password_with_migration('modern_pwd', modern_config)
+
+        assert is_valid is True
+        assert config is modern_config

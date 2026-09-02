@@ -11,12 +11,46 @@ from astrbot.api import logger
 
 
 class PasswordHasher:
-    """密码哈希工具类 - 使用MD5+盐值"""
+    """密码哈希工具类 - PBKDF2-HMAC-SHA256（历史 MD5+盐值仅在登录时透明升级）"""
+
+    ALGORITHM = "pbkdf2_sha256"
+    ITERATIONS = 390_000
+    _MD5_HASH_LENGTH = 32  # MD5 hexdigest 固定 32 字符，用于识别历史格式
 
     @staticmethod
-    def hash_password(password: str, salt: Optional[str] = None) -> Tuple[str, str]:
+    def hash_password(
+        password: str,
+        salt: Optional[str] = None,
+        iterations: Optional[int] = None,
+    ) -> Tuple[str, str]:
         """
-        使用MD5+盐值对密码进行哈希
+        使用 PBKDF2-HMAC-SHA256 派生密码哈希
+
+        Args:
+            password: 原始密码
+            salt: 可选的盐值，如果不提供则自动生成
+            iterations: 迭代次数，默认取 PasswordHasher.ITERATIONS
+
+        Returns:
+            Tuple[str, str]: (哈希后的密码, 盐值)
+        """
+        if salt is None:
+            salt = secrets.token_hex(16)
+        if iterations is None:
+            iterations = PasswordHasher.ITERATIONS
+
+        derived = hashlib.pbkdf2_hmac(
+            'sha256',
+            password.encode('utf-8'),
+            salt.encode('utf-8'),
+            iterations,
+        )
+        return derived.hex(), salt
+
+    @staticmethod
+    def hash_password_md5(password: str, salt: Optional[str] = None) -> Tuple[str, str]:
+        """
+        历史格式：MD5+盐值。仅供校验旧口令并在登录成功后升级，不得用于新密码。
 
         Args:
             password: 原始密码
@@ -27,17 +61,17 @@ class PasswordHasher:
         """
         if salt is None:
             salt = secrets.token_hex(16)
-
-        # 使用MD5+盐值进行哈希
         salted_password = f"{salt}{password}"
         hashed = hashlib.md5(salted_password.encode('utf-8')).hexdigest()
-
         return hashed, salt
 
     @staticmethod
     def verify_password(password: str, hashed_password: str, salt: str) -> bool:
         """
         验证密码是否正确
+
+        存储哈希为 32 字符时按历史 MD5 格式校验，否则按 PBKDF2 校验，
+        使旧口令在升级后仍可登录。
 
         Args:
             password: 用户输入的明文密码
@@ -47,8 +81,11 @@ class PasswordHasher:
         Returns:
             bool: 密码是否匹配
         """
-        computed_hash, _ = PasswordHasher.hash_password(password, salt)
-        return computed_hash == hashed_password
+        if len(hashed_password) == PasswordHasher._MD5_HASH_LENGTH:
+            computed_hash, _ = PasswordHasher.hash_password_md5(password, salt)
+        else:
+            computed_hash, _ = PasswordHasher.hash_password(password, salt)
+        return secrets.compare_digest(computed_hash, hashed_password)
 
 
 class LoginAttemptTracker:
@@ -307,9 +344,23 @@ login_attempt_tracker = LoginAttemptTracker(
 )
 
 
+def _build_pbkdf2_config(password: str, must_change: bool) -> Dict[str, Any]:
+    """基于 PBKDF2 生成新的密码配置。"""
+    password_hash, salt = PasswordHasher.hash_password(password)
+    return {
+        'password_hash': password_hash,
+        'salt': salt,
+        'algorithm': PasswordHasher.ALGORITHM,
+        'iterations': PasswordHasher.ITERATIONS,
+        'must_change': must_change,
+        'last_changed': time.time(),
+        'version': 3,
+    }
+
+
 def migrate_password_to_hashed(password_config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    将旧的明文密码迁移到MD5哈希格式
+    将旧的明文密码迁移到 PBKDF2 哈希格式
 
     Args:
         password_config: 原始密码配置
@@ -317,7 +368,7 @@ def migrate_password_to_hashed(password_config: Dict[str, Any]) -> Dict[str, Any
     Returns:
         Dict: 更新后的密码配置
     """
-    # 检查是否已经是新格式
+    # 检查是否已经是哈希格式
     if 'password_hash' in password_config and 'salt' in password_config:
         logger.debug("密码已是哈希格式，无需迁移")
         return password_config
@@ -325,20 +376,15 @@ def migrate_password_to_hashed(password_config: Dict[str, Any]) -> Dict[str, Any
     # 获取旧密码
     old_password = password_config.get('password', '')
 
-    # 生成MD5哈希（带盐值）
-    password_hash, salt = PasswordHasher.hash_password(old_password)
+    # 生成 PBKDF2 哈希（带盐值）
+    new_config = _build_pbkdf2_config(
+        old_password,
+        password_config.get('must_change', True),
+    )
+    new_config['migrated_from_plaintext'] = True
+    new_config['migration_time'] = time.time()
 
-    # 创建新格式配置
-    new_config = {
-        'password_hash': password_hash,
-        'salt': salt,
-        'must_change': password_config.get('must_change', True),
-        'migrated_from_plaintext': True,
-        'migration_time': time.time(),
-        'version': 2  # 密码配置版本
-    }
-
-    logger.info("密码配置已从明文迁移到MD5哈希格式")
+    logger.info("密码配置已从明文迁移到 PBKDF2 哈希格式")
 
     return new_config
 
@@ -348,7 +394,7 @@ def verify_password_with_migration(
     password_config: Dict[str, Any]
 ) -> Tuple[bool, Dict[str, Any]]:
     """
-    验证密码，同时处理从明文到哈希的迁移
+    验证密码，同时处理历史格式（明文、MD5）向 PBKDF2 的透明迁移
 
     Args:
         password: 用户输入的明文密码
@@ -363,13 +409,13 @@ def verify_password_with_migration(
 
         # 直接比较明文
         if password == stored_password:
-            # 验证成功后迁移到新格式
+            # 验证成功后迁移到哈希格式
             new_config = migrate_password_to_hashed(password_config)
             return True, new_config
 
         return False, password_config
 
-    # 新格式验证：将用户输入的明文密码进行MD5+盐值哈希后对比
+    # 哈希格式验证：按存储哈希长度自动识别 MD5/PBKDF2
     password_hash = password_config.get('password_hash', '')
     salt = password_config.get('salt', '')
 
@@ -377,8 +423,21 @@ def verify_password_with_migration(
         logger.error("密码配置格式错误：缺少password_hash或salt")
         return False, password_config
 
-    # 对用户输入的明文密码进行哈希验证
-    return PasswordHasher.verify_password(password, password_hash, salt), password_config
+    if not PasswordHasher.verify_password(password, password_hash, salt):
+        return False, password_config
+
+    # 历史 MD5 哈希在登录成功后透明升级为 PBKDF2
+    if len(password_hash) == PasswordHasher._MD5_HASH_LENGTH:
+        upgraded_config = _build_pbkdf2_config(
+            password,
+            password_config.get('must_change', False),
+        )
+        upgraded_config['migrated_from_md5'] = True
+        upgraded_config['migration_time'] = time.time()
+        logger.info("WebUI 密码已从 MD5 哈希自动升级为 PBKDF2")
+        return True, upgraded_config
+
+    return True, password_config
 
 
 __all__ = [

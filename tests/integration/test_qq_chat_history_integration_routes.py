@@ -2,7 +2,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 from sqlalchemy import select
 
 from config import PluginConfig

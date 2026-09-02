@@ -1,7 +1,7 @@
 """
 人格审查蓝图 - 处理人格更新审查相关路由
 """
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container

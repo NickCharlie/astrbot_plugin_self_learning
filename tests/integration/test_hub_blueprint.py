@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 import webui.blueprints.hub as hub_module
 import webui.middleware.hub_aspects as hub_aspects_module

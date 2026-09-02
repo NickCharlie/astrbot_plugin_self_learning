@@ -2,7 +2,7 @@
 学习功能蓝图 - 处理风格学习相关路由
 """
 from astrbot.api import logger
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 
 from ..dependencies import get_container
 from ..services.learning_service import LearningService

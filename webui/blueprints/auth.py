@@ -2,7 +2,7 @@
 认证蓝图 - WebUI 免密访问，可选启用登录密码
 """
 import os
-from quart import Blueprint, render_template, jsonify, redirect, request, session, url_for, send_file
+from ..compat import Blueprint, render_template, jsonify, redirect, request, session, url_for, send_file
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -179,3 +179,17 @@ async def logout():
     except Exception as e:
         logger.error(f"登出失败: {e}", exc_info=True)
         return error_response(f"登出失败: {str(e)}", 500)
+
+
+@auth_bp.route("/password_status", methods=["GET"])
+@require_auth
+async def password_status():
+    """返回 WebUI 密码启用状态，供前端展示设置密码提醒。"""
+    try:
+        auth_service = AuthService(get_container())
+        return jsonify({
+            "password_enabled": auth_service.is_password_enabled(),
+        }), 200
+    except Exception as e:
+        logger.error(f"查询密码状态失败: {e}", exc_info=True)
+        return error_response(f"查询密码状态失败: {str(e)}", 500)

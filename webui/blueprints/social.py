@@ -1,7 +1,7 @@
 """
 社交关系蓝图 - 处理社交关系分析相关路由
 """
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
