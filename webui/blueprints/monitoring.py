@@ -42,7 +42,7 @@ async def prometheus_metrics():
         return data, 200, {"Content-Type": _CONTENT_TYPE_LATEST}
     except Exception as e:
         logger.error(f"[Monitoring] Failed to generate metrics: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/metrics/json", methods=["GET"])
@@ -68,7 +68,7 @@ async def metrics_json():
         }), 200
     except Exception as e:
         logger.error(f"[Monitoring] Failed to serialize metrics: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/health", methods=["GET"])
@@ -89,7 +89,7 @@ async def health_check():
         return jsonify(summary), 200
     except Exception as e:
         logger.error(f"[Monitoring] Health check failed: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/functions", methods=["GET"])
@@ -166,7 +166,7 @@ async def function_metrics():
         }), 200
     except Exception as e:
         logger.error(f"[Monitoring] Failed to get function metrics: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/profile/backends", methods=["GET"])
@@ -177,7 +177,7 @@ async def profile_backends():
         backends = _profiler.get_available_backends()
         return jsonify({"backends": backends}), 200
     except Exception as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/profile/start", methods=["POST"])
@@ -214,7 +214,7 @@ async def start_profile():
         }), 200
     except Exception as e:
         logger.error(f"[Monitoring] Failed to start profile: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/profile/<session_id>", methods=["GET"])
@@ -240,7 +240,7 @@ async def get_profile(session_id: str):
         return jsonify(result), 200
     except Exception as e:
         logger.error(f"[Monitoring] Failed to get profile: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @monitoring_bp.route("/profile/<session_id>", methods=["DELETE"])
@@ -260,7 +260,7 @@ async def stop_profile(session_id: str):
         return jsonify(result), 200
     except Exception as e:
         logger.error(f"[Monitoring] Failed to stop profile: {e}")
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 def _get_service_registry(container):

@@ -103,7 +103,7 @@ async def login():
         return jsonify(response_data), status_code
     except Exception as e:
         logger.error(f"登录处理失败: {e}", exc_info=True)
-        return error_response(f"登录失败: {str(e)}", 500)
+        return error_response("登录处理失败", 500)
 
 
 @auth_bp.route("/index")
@@ -157,7 +157,7 @@ async def change_password():
         }), 400
     except Exception as e:
         logger.error(f"修改密码失败: {e}", exc_info=True)
-        return error_response(f"修改密码失败: {str(e)}", 500)
+        return error_response("修改密码失败", 500)
 
 
 @auth_bp.route("/logout", methods=["POST"])
@@ -178,7 +178,7 @@ async def logout():
         }), 200
     except Exception as e:
         logger.error(f"登出失败: {e}", exc_info=True)
-        return error_response(f"登出失败: {str(e)}", 500)
+        return error_response("登出失败", 500)
 
 
 @auth_bp.route("/password_status", methods=["GET"])
@@ -192,4 +192,4 @@ async def password_status():
         }), 200
     except Exception as e:
         logger.error(f"查询密码状态失败: {e}", exc_info=True)
-        return error_response(f"查询密码状态失败: {str(e)}", 500)
+        return error_response("查询密码状态失败", 500)

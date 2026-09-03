@@ -30,7 +30,7 @@ async def get_integrations_status():
         return jsonify(await service.get_status()), 200
     except Exception as e:
         logger.error(f"获取功能融合状态失败: {e}", exc_info=True)
-        return error_response(f"获取功能融合状态失败: {str(e)}", 500)
+        return error_response("获取功能融合状态失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/embed/<plugin_id>", methods=["GET"])
@@ -48,7 +48,7 @@ async def embed_integration_dashboard(plugin_id: str):
         )
     except Exception as e:
         logger.error(f"获取伴随插件嵌入页失败: {e}", exc_info=True)
-        return error_response(f"获取伴随插件嵌入页失败: {str(e)}", 500)
+        return error_response("获取伴随插件嵌入页失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/maibot-learning/preview", methods=["POST"])
@@ -64,7 +64,7 @@ async def preview_maibot_learning():
         }), 200
     except Exception as e:
         logger.error(f"预览 MaiBot 学习数据失败: {e}", exc_info=True)
-        return error_response(f"预览 MaiBot 学习数据失败: {str(e)}", 500)
+        return error_response("预览 MaiBot 学习数据失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/maibot-learning/import", methods=["POST"])
@@ -87,7 +87,7 @@ async def import_maibot_learning():
         return jsonify({"success": bool(result.get("success")), "data": result}), 200
     except Exception as e:
         logger.error(f"导入 MaiBot 学习数据失败: {e}", exc_info=True)
-        return error_response(f"导入 MaiBot 学习数据失败: {str(e)}", 500)
+        return error_response("导入 MaiBot 学习数据失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/maibot-learning/export", methods=["POST"])
@@ -103,7 +103,7 @@ async def export_maibot_learning():
         }), 200
     except Exception as e:
         logger.error(f"导出 MaiBot 学习数据失败: {e}", exc_info=True)
-        return error_response(f"导出 MaiBot 学习数据失败: {str(e)}", 500)
+        return error_response("导出 MaiBot 学习数据失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/worldbook/preview", methods=["POST"])
@@ -119,7 +119,7 @@ async def preview_worldbook():
         }), 200
     except Exception as e:
         logger.error(f"预览 SillyTavern 世界书失败: {e}", exc_info=True)
-        return error_response(f"预览 SillyTavern 世界书失败: {str(e)}", 500)
+        return error_response("预览 SillyTavern 世界书失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/worldbook/import", methods=["POST"])
@@ -142,7 +142,7 @@ async def import_worldbook():
         return jsonify({"success": bool(result.get("success")), "data": result}), 200
     except Exception as e:
         logger.error(f"导入 SillyTavern 世界书失败: {e}", exc_info=True)
-        return error_response(f"导入 SillyTavern 世界书失败: {str(e)}", 500)
+        return error_response("导入 SillyTavern 世界书失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/worldbook/imports", methods=["GET"])
@@ -160,7 +160,7 @@ async def list_worldbook_imports():
         return jsonify({"success": True, "data": data}), 200
     except Exception as e:
         logger.error(f"读取 SillyTavern 世界书导入历史失败: {e}", exc_info=True)
-        return error_response(f"读取 SillyTavern 世界书导入历史失败: {str(e)}", 500)
+        return error_response("读取 SillyTavern 世界书导入历史失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/qq-chat-history/preview", methods=["POST"])
@@ -180,7 +180,7 @@ async def preview_qq_chat_history():
         return jsonify({"success": True, "data": data}), 200
     except Exception as e:
         logger.error(f"预览 QQ 聊天记录失败: {e}", exc_info=True)
-        return error_response(f"预览 QQ 聊天记录失败: {str(e)}", 500)
+        return error_response("预览 QQ 聊天记录失败: 请稍后重试", 500)
 
 
 @integrations_bp.route("/integrations/qq-chat-history/import", methods=["POST"])
@@ -202,7 +202,7 @@ async def import_qq_chat_history():
         return jsonify({"success": bool(result.get("success")), "data": result}), 200
     except Exception as e:
         logger.error(f"导入 QQ 聊天记录失败: {e}", exc_info=True)
-        return error_response(f"导入 QQ 聊天记录失败: {str(e)}", 500)
+        return error_response("导入 QQ 聊天记录失败: 请稍后重试", 500)
 
 
 def _maibot_source_args(body: dict) -> dict:

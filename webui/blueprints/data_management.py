@@ -22,10 +22,10 @@ async def get_data_statistics():
         stats = await service.get_data_statistics()
         return jsonify({'success': True, 'data': stats}), 200
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"获取数据统计失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/messages", methods=["DELETE"])
@@ -40,10 +40,10 @@ async def clear_messages():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空消息数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/persona_reviews", methods=["DELETE"])
@@ -58,10 +58,10 @@ async def clear_persona_reviews():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空人格审查数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/style_learning", methods=["DELETE"])
@@ -76,10 +76,10 @@ async def clear_style_learning():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空风格学习数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/jargon", methods=["DELETE"])
@@ -94,10 +94,10 @@ async def clear_jargon():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空黑话数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/learning_history", methods=["DELETE"])
@@ -112,10 +112,10 @@ async def clear_learning_history():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空学习历史数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @data_management_bp.route("/clear/all", methods=["DELETE"])
@@ -130,7 +130,7 @@ async def clear_all_data():
             return jsonify({'success': True, 'message': message, 'deleted': deleted}), 200
         return error_response(message, 500)
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"清空全部数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

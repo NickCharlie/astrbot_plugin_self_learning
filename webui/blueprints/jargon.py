@@ -35,7 +35,7 @@ async def get_jargon_stats():
 
     except Exception as e:
         logger.error(f"获取黑话统计失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/list", methods=["GET"])
@@ -104,10 +104,10 @@ async def get_jargon_list():
         return _hybrid_success(result, data=result.get('jargon_list', []))
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取黑话列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/search", methods=["GET"])
@@ -145,10 +145,10 @@ async def search_jargon():
         return _hybrid_success(payload, data=results)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"搜索黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/<int:jargon_id>", methods=["DELETE"])
@@ -166,10 +166,10 @@ async def delete_jargon(jargon_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"删除黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/<int:jargon_id>", methods=["PUT"])
@@ -201,10 +201,10 @@ async def update_jargon(jargon_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"编辑黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/<int:jargon_id>/review", methods=["POST"])
@@ -232,10 +232,10 @@ async def review_jargon(jargon_id: int):
         return error_response(message, 400 if 'action' in message else 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"审查黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/batch_review", methods=["POST"])
@@ -266,10 +266,10 @@ async def batch_review_jargon():
         return error_response(result.get("error") or "批量审查失败", 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"批量审查黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/batch_delete", methods=["POST"])
@@ -292,10 +292,10 @@ async def batch_delete_jargon():
         return error_response(result.get("error") or "批量删除失败", 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"批量删除黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/<int:jargon_id>/toggle_global", methods=["POST"])
@@ -317,10 +317,10 @@ async def toggle_jargon_global(jargon_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"切换黑话全局状态失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/groups", methods=["GET"])
@@ -339,10 +339,10 @@ async def get_jargon_groups():
         return _hybrid_success(payload, data=groups)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取黑话群组列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/sync_to_group", methods=["POST"])
@@ -370,10 +370,10 @@ async def sync_global_jargon_to_group():
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"同步全局黑话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/global", methods=["GET"])
@@ -394,10 +394,10 @@ async def get_global_jargon_list():
         return _hybrid_success(payload, data=jargon_list)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取全局黑话列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @jargon_bp.route("/jargon/<int:jargon_id>/set_global", methods=["POST"])
@@ -431,4 +431,4 @@ async def set_jargon_global_status(jargon_id: int):
             return error_response("操作失败", 500)
     except Exception as e:
         logger.error(f"设置黑话全局状态失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

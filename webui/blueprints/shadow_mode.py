@@ -40,7 +40,7 @@ async def get_shadow_mode_candidates():
         )
         return jsonify({"success": True, "data": data}), 200
     except ValueError as exc:
-        return error_response(str(exc), 400)
+        return error_response("请求处理失败，请稍后重试", 400)
     except Exception as exc:
         logger.error(f"读取影子模式候选用户失败: {exc}", exc_info=True)
         return error_response(f"读取影子模式候选用户失败: {exc}", 500)
@@ -60,7 +60,7 @@ async def learn_shadow_profile():
         )
         return jsonify({"success": True, "data": profile}), 201
     except ValueError as exc:
-        return error_response(str(exc), 400)
+        return error_response("请求处理失败，请稍后重试", 400)
     except Exception as exc:
         logger.error(f"学习影子档案失败: {exc}", exc_info=True)
         return error_response(f"学习影子档案失败: {exc}", 500)
@@ -77,7 +77,7 @@ async def update_shadow_profile(profile_id: int):
         )
         return jsonify({"success": True, "data": profile}), 200
     except ValueError as exc:
-        return error_response(str(exc), 404)
+        return error_response("请求处理失败，请稍后重试", 404)
     except Exception as exc:
         logger.error(f"更新影子档案失败: {exc}", exc_info=True)
         return error_response(f"更新影子档案失败: {exc}", 500)

@@ -33,7 +33,7 @@ async def get_pending_persona_updates():
 
     except Exception as e:
         logger.error(f"获取待审查人格更新失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/<update_id>/review", methods=["POST"])
@@ -60,10 +60,10 @@ async def review_persona_update(update_id: str):
             return jsonify({"error": message}), 500
 
     except ValueError as e:
-        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+        return jsonify({"error": "请求处理失败，请稍后重试"}), 400
     except Exception as e:
         logger.error(f"审查人格更新失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/reviewed", methods=["GET"])
@@ -83,7 +83,7 @@ async def get_reviewed_persona_updates():
 
     except Exception as e:
         logger.error(f"获取已审查人格更新失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/<update_id>/revert", methods=["POST"])
@@ -104,10 +104,10 @@ async def revert_persona_update(update_id: str):
             return jsonify({"error": message}), 500
 
     except ValueError as e:
-        return jsonify({"error": f"Invalid update_id format: {str(e)}"}), 400
+        return jsonify({"error": "请求处理失败，请稍后重试"}), 400
     except Exception as e:
         logger.error(f"撤回人格更新审查失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/<update_id>/delete", methods=["POST"])
@@ -126,7 +126,7 @@ async def delete_persona_update(update_id: str):
 
     except Exception as e:
         logger.error(f"删除人格更新审查记录失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/batch_delete", methods=["POST"])
@@ -153,7 +153,7 @@ async def batch_delete_persona_updates():
 
     except Exception as e:
         logger.error(f"批量删除人格更新审查记录失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @persona_reviews_bp.route("/persona_updates/batch_review", methods=["POST"])
@@ -185,4 +185,4 @@ async def batch_review_persona_updates():
 
     except Exception as e:
         logger.error(f"批量审查人格更新记录失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

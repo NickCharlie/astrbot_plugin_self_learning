@@ -40,7 +40,7 @@ async def chat_with_goal():
 
     except Exception as e:
         logger.error(f"智能对话失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @intelligent_chat_bp.route("/goal/status", methods=["GET"])
@@ -64,7 +64,7 @@ async def get_goal_status():
 
     except Exception as e:
         logger.error(f"获取目标状态失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @intelligent_chat_bp.route("/goal/clear", methods=["DELETE"])
@@ -89,7 +89,7 @@ async def clear_goal():
 
     except Exception as e:
         logger.error(f"清除目标失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @intelligent_chat_bp.route("/goal/statistics", methods=["GET"])
@@ -107,7 +107,7 @@ async def get_goal_statistics():
 
     except Exception as e:
         logger.error(f"获取目标统计失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @intelligent_chat_bp.route("/goal/templates", methods=["GET"])
@@ -133,4 +133,4 @@ async def get_goal_templates():
 
     except Exception as e:
         logger.error(f"获取目标模板失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

@@ -33,7 +33,7 @@ async def get_memory_graph():
         return jsonify(payload), 200
     except Exception as e:
         logger.error(f"获取记忆图失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @graphs_bp.route("/graphs/knowledge", methods=["GET"])
@@ -50,4 +50,4 @@ async def get_knowledge_graph():
         return jsonify(payload), 200
     except Exception as e:
         logger.error(f"获取知识图谱失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

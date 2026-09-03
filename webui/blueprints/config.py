@@ -112,10 +112,10 @@ async def get_plugin_config():
         config = await config_service.get_config()
         return jsonify(config), 200
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取配置失败: {e}", exc_info=True)
-        return error_response(f"获取配置失败: {str(e)}", 500)
+        return error_response("获取配置失败: 请稍后重试", 500)
 
 
 @config_bp.route("/config/schema", methods=["GET"])
@@ -128,10 +128,10 @@ async def get_plugin_config_schema():
         schema = await config_service.get_config_schema()
         return jsonify(schema), 200
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取配置 schema 失败: {e}", exc_info=True)
-        return error_response(f"获取配置 schema 失败: {str(e)}", 500)
+        return error_response("获取配置 schema 失败: 请稍后重试", 500)
 
 
 @config_bp.route("/config", methods=["POST"])
@@ -156,10 +156,10 @@ async def update_plugin_config():
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"更新配置失败: {e}", exc_info=True)
-        return error_response(f"更新配置失败: {str(e)}", 500)
+        return error_response("更新配置失败: 请稍后重试", 500)
 
 
 @config_bp.route("/dependencies/install", methods=["POST"])
@@ -297,4 +297,4 @@ async def install_plugin_dependencies():
             }), 500
         except Exception as e:
             logger.error(f"[WebUI] 插件依赖安装异常: {e}", exc_info=True)
-            return error_response(f"依赖安装异常: {str(e)}", 500)
+            return error_response("依赖安装异常: 请稍后重试", 500)

@@ -73,7 +73,7 @@ async def get_style_learning_results():
 
     except Exception as e:
         logger.error(f"获取风格学习结果失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews", methods=["GET"])
@@ -93,10 +93,10 @@ async def get_style_learning_reviews():
         return jsonify(reviews_data), 200
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取风格学习审查列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews/<int:review_id>/approve", methods=["POST"])
@@ -119,10 +119,10 @@ async def approve_style_learning_review(review_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"批准风格学习审查失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews/<int:review_id>/reject", methods=["POST"])
@@ -143,10 +143,10 @@ async def reject_style_learning_review(review_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"拒绝风格学习审查失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews/<int:review_id>", methods=["DELETE"])
@@ -166,10 +166,10 @@ async def delete_style_learning_review(review_id: int):
         return error_response(message, 404 if '不存在' in message or '未找到' in message else 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"删除风格学习审查失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews/batch_review", methods=["POST"])
@@ -200,10 +200,10 @@ async def batch_review_style_learning_reviews():
         return error_response(result.get("error") or "批量审查失败", 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"批量审查风格学习失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/reviews/batch_delete", methods=["POST"])
@@ -226,10 +226,10 @@ async def batch_delete_style_learning_reviews():
         return error_response(result.get("error") or "批量删除失败", 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"批量删除风格学习失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/patterns", methods=["GET"])
@@ -245,7 +245,7 @@ async def get_style_learning_patterns():
 
     except Exception as e:
         logger.error(f"获取学习模式失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/content_text", methods=["GET"])
@@ -431,7 +431,7 @@ async def get_style_learning_content_text():
         return jsonify(content_data), 200
     except Exception as e:
         logger.error(f"获取学习内容文本失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/style_learning/content_text/<bucket>/<int:item_id>", methods=["DELETE"])
@@ -482,10 +482,10 @@ async def delete_style_learning_content_text(bucket: str, item_id: int):
             return error_response(f'{label} {item_id} 不存在', 404)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"删除学习内容失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/batches", methods=["GET"])
@@ -558,10 +558,10 @@ async def get_learning_batches():
         }), 200
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取学习批次列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/batches/<int:batch_id>", methods=["DELETE"])
@@ -596,10 +596,10 @@ async def delete_learning_batch(batch_id: int):
                 return error_response(f'批次 {batch_id} 不存在', 404)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"删除学习批次失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @learning_bp.route("/relearn", methods=["POST"])
@@ -683,9 +683,9 @@ async def relearn_all():
                 }), 200
             except Exception as e:
                 logger.error(f"触发重新学习失败: {e}", exc_info=True)
-                return jsonify({"success": False, "error": f"启动失败: {str(e)}"}), 500
+                return jsonify({"success": False, "error": "请求处理失败，请稍后重试"}), 500
         else:
             return jsonify({"success": False, "error": "学习服务未初始化"}), 500
     except Exception as e:
         logger.error(f"重新学习失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

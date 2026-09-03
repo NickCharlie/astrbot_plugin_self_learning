@@ -30,7 +30,7 @@ async def get_social_relations(group_id: str):
             "group_id": group_id,
             "relations": [],
             "members": [],
-            "error": str(e)
+            "error": "请求处理失败，请稍后重试"
         }), 500
 
 
@@ -51,7 +51,7 @@ async def get_available_groups_for_social_analysis():
 
     except Exception as e:
         logger.error(f"获取可用群组列表失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @social_bp.route("/social_relations/<group_id>/analyze", methods=["POST"])
@@ -79,7 +79,7 @@ async def trigger_social_relation_analysis(group_id: str):
         logger.error(f"触发社交关系分析失败: {e}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": "请求处理失败，请稍后重试"
         }), 500
 
 
@@ -107,7 +107,7 @@ async def clear_group_social_relations(group_id: str):
         logger.error(f"清空社交关系数据失败: {e}", exc_info=True)
         return jsonify({
             "success": False,
-            "error": str(e)
+            "error": "请求处理失败，请稍后重试"
         }), 500
 
 
@@ -127,7 +127,7 @@ async def get_user_social_relations(group_id: str, user_id: str):
         return jsonify({
             "user_id": user_id,
             "relations": [],
-            "error": str(e)
+            "error": "请求处理失败，请稍后重试"
         }), 500
 
 
@@ -177,4 +177,4 @@ async def create_group_social_graph_share(group_id: str):
 
     except Exception as e:
         logger.error(f"创建社交图谱分享链接失败: {e}", exc_info=True)
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": "请求处理失败，请稍后重试"}), 500
