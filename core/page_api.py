@@ -1765,9 +1765,10 @@ class PluginPageApi:
     @staticmethod
     async def _body() -> dict[str, Any]:
         try:
-            from quart import request
+            # AstrBot v4.26+ 桥接已迁至 FastAPI，官方请求代理见 astrbot.api.web
+            from astrbot.api.web import request as plugin_request
 
-            data = await request.get_json(silent=True)
+            data = await plugin_request.json(default=None)
             return data if isinstance(data, dict) else {}
         except Exception:
             return {}
@@ -1775,9 +1776,9 @@ class PluginPageApi:
     @staticmethod
     def _query() -> Any:
         try:
-            from quart import request
+            from astrbot.api.web import request as plugin_request
 
-            return request.args
+            return plugin_request.query
         except Exception:
             return {}
 

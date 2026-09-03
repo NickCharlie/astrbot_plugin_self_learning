@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from quart import Blueprint, request
+from ..compat import Blueprint, request
 
 from ..dependencies import get_container
 from ..middleware.hub_aspects import HubApiError, hub_route, hub_success

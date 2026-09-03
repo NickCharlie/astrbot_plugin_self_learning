@@ -8,7 +8,7 @@ from functools import wraps
 from typing import Any, Callable
 
 from astrbot.api import logger
-from quart import jsonify, request
+from ..compat import jsonify, request
 
 from ..dependencies import get_container
 

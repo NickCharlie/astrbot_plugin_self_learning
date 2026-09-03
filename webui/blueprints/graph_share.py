@@ -1,7 +1,7 @@
 """
 社交图谱公开分享蓝图（只读）
 """
-from quart import Blueprint, jsonify, render_template
+from ..compat import Blueprint, jsonify, render_template
 from astrbot.api import logger
 
 from ..dependencies import get_container

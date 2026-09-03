@@ -1,7 +1,7 @@
 """
 人格管理蓝图 - 处理人格CRUD操作
 """
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -60,10 +60,10 @@ async def get_persona_details(persona_id: str):
         return jsonify(persona), 200
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取人格详情失败: {e}", exc_info=True)
-        return error_response(f"获取人格详情失败: {str(e)}", 500)
+        return error_response("获取人格详情失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/create", methods=["POST"])
@@ -86,10 +86,10 @@ async def create_persona():
             return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"创建人格失败: {e}", exc_info=True)
-        return error_response(f"创建人格失败: {str(e)}", 500)
+        return error_response("创建人格失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/update/<persona_id>", methods=["POST"])
@@ -109,10 +109,10 @@ async def update_persona(persona_id: str):
             return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"更新人格失败: {e}", exc_info=True)
-        return error_response(f"更新人格失败: {str(e)}", 500)
+        return error_response("更新人格失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/delete/<persona_id>", methods=["POST"])
@@ -130,10 +130,10 @@ async def delete_persona(persona_id: str):
             return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), 503)
+        return error_response("请求处理失败，请稍后重试", 503)
     except Exception as e:
         logger.error(f"删除人格失败: {e}", exc_info=True)
-        return error_response(f"删除人格失败: {str(e)}", 500)
+        return error_response("删除人格失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/default", methods=["GET"])
@@ -173,7 +173,7 @@ async def get_current_persona_state():
 
     except Exception as e:
         logger.error(f"获取当前人格状态失败: {e}", exc_info=True)
-        return error_response(f"获取当前人格状态失败: {str(e)}", 500)
+        return error_response("获取当前人格状态失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_backups/list", methods=["GET"])
@@ -194,11 +194,11 @@ async def list_persona_backups():
             "backups": [],
             "total": 0,
             "available": False,
-            "message": str(e),
+            "message": "请求处理失败，请稍后重试",
         }), 200
     except Exception as e:
         logger.error(f"获取人格备份列表失败: {e}", exc_info=True)
-        return error_response(f"获取人格备份列表失败: {str(e)}", 500)
+        return error_response("获取人格备份列表失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_backups/<int:backup_id>", methods=["GET"])
@@ -213,10 +213,10 @@ async def get_persona_backup(backup_id: int):
         return jsonify(backup), 200
 
     except ValueError as e:
-        return error_response(str(e), _backup_error_status(str(e)))
+        return error_response(str(e), _backup_error_status(str(e)))  # ValueError 消息为服务层用户文案，非内部堆栈
     except Exception as e:
         logger.error(f"获取人格备份详情失败: {e}", exc_info=True)
-        return error_response(f"获取人格备份详情失败: {str(e)}", 500)
+        return error_response("获取人格备份详情失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_backups/<int:backup_id>/restore", methods=["POST"])
@@ -236,10 +236,10 @@ async def restore_persona_backup(backup_id: int):
         return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), _backup_error_status(str(e)))
+        return error_response(str(e), _backup_error_status(str(e)))  # ValueError 消息为服务层用户文案，非内部堆栈
     except Exception as e:
         logger.error(f"恢复人格备份失败: {e}", exc_info=True)
-        return error_response(f"恢复人格备份失败: {str(e)}", 500)
+        return error_response("恢复人格备份失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_backups/<int:backup_id>", methods=["DELETE"])
@@ -257,10 +257,10 @@ async def delete_persona_backup(backup_id: int):
         return error_response(message, 404)
 
     except ValueError as e:
-        return error_response(str(e), _backup_error_status(str(e)))
+        return error_response(str(e), _backup_error_status(str(e)))  # ValueError 消息为服务层用户文案，非内部堆栈
     except Exception as e:
         logger.error(f"删除人格备份失败: {e}", exc_info=True)
-        return error_response(f"删除人格备份失败: {str(e)}", 500)
+        return error_response("删除人格备份失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/export/<persona_id>", methods=["GET"])
@@ -276,11 +276,11 @@ async def export_persona(persona_id: str):
 
     except ValueError as e:
         if "不存在" in str(e):
-            return error_response(str(e), 404)
-        return error_response(str(e), 500)
+            return error_response("请求处理失败，请稍后重试", 404)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"导出人格失败: {e}", exc_info=True)
-        return error_response(f"导出人格失败: {str(e)}", 500)
+        return error_response("导出人格失败: 请稍后重试", 500)
 
 
 @personas_bp.route("/persona_management/import", methods=["POST"])
@@ -303,7 +303,7 @@ async def import_persona():
             return error_response(message, 400)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"导入人格失败: {e}", exc_info=True)
-        return error_response(f"导入人格失败: {str(e)}", 500)
+        return error_response("导入人格失败: 请稍后重试", 500)

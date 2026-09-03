@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 import webui.blueprints.jargon as jargon_module
 from webui.blueprints.jargon import jargon_bp

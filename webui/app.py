@@ -1,20 +1,18 @@
 """
-Quart 应用工厂
+WebUI 应用工厂 — 基于 FastAPI 构建（与 AstrBot core v4.26+ 的 ASGI 栈对齐）。
+
+``Quart``/``Blueprint`` 等符号来自 ``webui.compat`` 兼容层：既有蓝图的
+处理器保持 Quart 风格不改写，运行时由 FastAPI/uvicorn 承载。
 """
 import os
 import secrets
 from datetime import timedelta
-from quart import Quart, redirect, request
+
 from astrbot.api import logger
 
-try:
-    from quart_cors import cors as _quart_cors
-except ImportError:
-    _quart_cors = None
-
-from .config import WebUIConfig
+from .compat import CORSMiddleware, Quart, redirect
+from .compat import _ResponseHeadersMiddleware as _HeaderMiddleware
 from .middleware.error_handler import register_error_handlers
-from .utils.response import add_no_store_headers
 
 
 def _get_or_create_secret_key(data_dir: str) -> str:
@@ -43,55 +41,50 @@ def _get_or_create_secret_key(data_dir: str) -> str:
 
 
 def _enable_cors(app: Quart) -> None:
-    """启用 CORS；优先使用 quart_cors，缺失时使用内置回退。"""
-    if _quart_cors is not None:
-        _quart_cors(app)
-        return
-
-    @app.after_request
-    async def _add_cors_headers(response):
-        origin = request.headers.get("Origin")
-        if origin:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Vary"] = "Origin"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-        response.headers.setdefault(
-            "Access-Control-Allow-Headers",
-            "Content-Type, Authorization, X-Requested-With, X-Self-Learning-Key",
-        )
-        response.headers.setdefault(
-            "Access-Control-Allow-Methods",
-            "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        )
-        return response
+    """启用 CORS（与原 quart_cors 行为对齐，不携带凭据）。"""
+    app.fastapi_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "X-Self-Learning-Key",
+        ],
+    )
 
 
 def _disable_dynamic_response_cache(app: Quart) -> None:
-    """Avoid CDN/browser caching for WebUI API and auth responses."""
-
-    @app.after_request
-    async def _add_no_store_headers(response):
-        if not request.path.startswith("/static/"):
-            return add_no_store_headers(response)
-        return response
+    """动态 WebUI/API 响应禁用缓存（静态资源除外）。"""
+    app.fastapi_app.add_middleware(
+        _HeaderMiddleware, skip_static=True, security_headers=False
+    )
 
 
-def create_app(webui_config: WebUIConfig = None) -> Quart:
+def _add_security_headers(app: Quart) -> None:
+    """补充基础安全响应头（CSP 需 nonce 配合 SPA 内联样式，暂不启用）。"""
+    app.fastapi_app.add_middleware(
+        _HeaderMiddleware, skip_static=True, cache_headers=False
+    )
+
+
+def create_app(webui_config=None) -> Quart:
     """
-    创建 Quart 应用
+    创建 WebUI 应用（FastAPI，经兼容层包装）
 
     Args:
         webui_config: WebUI 配置
 
     Returns:
-        Quart 应用实例
+        兼容层的应用实例
     """
-    # 创建应用
     app = Quart(
         __name__,
         static_folder=webui_config.static_dir if webui_config else None,
         static_url_path="/static",
-        template_folder=webui_config.template_dir if webui_config else None
+        template_folder=webui_config.template_dir if webui_config else None,
     )
 
     # 配置持久化密钥（跨重启保持 session 有效）
@@ -108,6 +101,7 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
     # 启用 CORS
     _enable_cors(app)
     _disable_dynamic_response_cache(app)
+    _add_security_headers(app)
 
     # 存储配置到应用上下文
     if webui_config:
@@ -123,7 +117,7 @@ def create_app(webui_config: WebUIConfig = None) -> Quart:
     async def root_redirect():
         return redirect("/api/")
 
-    logger.info(" [WebUI] Quart 应用创建成功")
+    logger.info(" [WebUI] FastAPI 应用创建成功")
 
     return app
 
@@ -133,7 +127,7 @@ def register_blueprints(app: Quart):
     注册所有蓝图
 
     Args:
-        app: Quart 应用实例
+        app: 兼容层应用实例
     """
     from .blueprints import get_blueprints
 

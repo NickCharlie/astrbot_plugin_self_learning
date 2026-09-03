@@ -2,7 +2,7 @@
 认证中间件
 """
 from functools import wraps
-from quart import jsonify, redirect, request, session, url_for
+from ..compat import jsonify, redirect, request, session, url_for
 
 from ..dependencies import get_container
 from ..services.auth_service import is_webui_password_enabled

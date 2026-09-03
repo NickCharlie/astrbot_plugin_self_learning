@@ -1,7 +1,7 @@
 """
 聊天历史蓝图 - 处理聊天历史相关路由
 """
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -38,7 +38,7 @@ async def get_chat_history():
 
     except Exception as e:
         logger.error(f"获取聊天历史失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @chat_bp.route("/chat/history/<int:message_id>", methods=["GET"])
@@ -56,10 +56,10 @@ async def get_chat_message_detail(message_id: int):
         return jsonify(message), 200
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取消息详情失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @chat_bp.route("/chat/history/<int:message_id>", methods=["DELETE"])
@@ -77,10 +77,10 @@ async def delete_chat_message(message_id: int):
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"删除消息失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @chat_bp.route("/chat/statistics", methods=["GET"])
@@ -98,4 +98,4 @@ async def get_chat_statistics():
 
     except Exception as e:
         logger.error(f"获取聊天统计失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

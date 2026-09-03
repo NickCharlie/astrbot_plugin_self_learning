@@ -6,7 +6,7 @@ Tests the auth blueprint routes with mock dependencies
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 from webui.blueprints.auth import auth_bp
 from webui.dependencies import get_container
 from webui.services.auth_service import INITIAL_WEBUI_PASSWORD_ENV_VAR

@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 import webui.blueprints.learning as learning_module

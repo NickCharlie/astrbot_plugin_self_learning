@@ -1,1 +1,6 @@
-# Runtime dependencies are provided by AstrBot or installed on demand.
+# AstrBot core provides fastapi and uvicorn (v4.26+ runs on FastAPI itself);
+# they are declared here so the standalone WebUI also works on minimal installs.
+fastapi>=0.124.0
+uvicorn>=0.30.0
+itsdangerous>=2.2.0
+jinja2>=3.1.0

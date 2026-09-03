@@ -3,7 +3,7 @@
 """
 from typing import Any, Dict
 
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -67,7 +67,7 @@ def _get_cache_hit_payload(cache_manager=None) -> Dict[str, Any]:
                 "total_misses": 0,
                 "total_queries": 0,
                 "hit_rate": 0.0,
-                "message": str(e),
+                "message": "请求处理失败，请稍后重试",
             },
         }
 
@@ -119,7 +119,7 @@ async def get_intelligence_metrics():
 
     except Exception as e:
         logger.error(f"获取智能指标失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @metrics_bp.route("/diversity_metrics", methods=["GET"])
@@ -137,7 +137,7 @@ async def get_diversity_metrics():
 
     except Exception as e:
         logger.error(f"获取多样性指标失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @metrics_bp.route("/affection_metrics", methods=["GET"])
@@ -155,7 +155,7 @@ async def get_affection_metrics():
 
     except Exception as e:
         logger.error(f"获取好感度指标失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @metrics_bp.route("/metrics", methods=["GET"])
@@ -435,7 +435,7 @@ async def get_metrics():
         return jsonify(metrics), 200
     except Exception as e:
         logger.error(f"获取指标失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @metrics_bp.route("/metrics/trends", methods=["GET"])
@@ -463,7 +463,7 @@ async def get_metrics_trends():
         return jsonify(trends_data), 200
     except Exception as e:
         logger.error(f"获取趋势数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @metrics_bp.route("/analytics/trends", methods=["GET"])
@@ -523,4 +523,4 @@ async def get_analytics_trends():
         }), 200
     except Exception as e:
         logger.error(f"获取趋势数据失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

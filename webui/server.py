@@ -1,6 +1,7 @@
 """
 WebUI 服务器
-采用独立守护线程运行 Hypercorn，确保跨平台（Windows/macOS/CentOS/Ubuntu）端口可靠释放
+采用独立守护线程运行 uvicorn（FastAPI/ASGI，与 AstrBot core 一致），
+确保跨平台（Windows/macOS/CentOS/Ubuntu）端口可靠释放
 """
 import os
 import sys
@@ -8,60 +9,13 @@ import asyncio
 import socket
 import threading
 from typing import Optional
-import hypercorn.asyncio
-from hypercorn.config import Config as HypercornConfig
-try:
-    from hypercorn.config import Sockets
-except ImportError:
-    class Sockets:
-        def __init__(self, secure_sockets, insecure_sockets, quic_sockets):
-            self.secure_sockets = secure_sockets
-            self.insecure_sockets = insecure_sockets
-            self.quic_sockets = quic_sockets
+
+import uvicorn
 
 from astrbot.api import logger
 
 from .app import create_app, register_blueprints
 from .dependencies import get_container
-
-
-class SecureConfig(HypercornConfig):
-    """安全的 Hypercorn 配置，创建带 SO_REUSEADDR 的 socket"""
-
-    def create_sockets(self):
-        insecure_sockets = []
-        secure_sockets = []
-        quic_sockets = []
-
-        for bind in self.bind:
-            if ":" in bind:
-                host, port = bind.rsplit(":", 1)
-                port = int(port)
-            else:
-                host = bind
-                port = 80
-
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                if sys.platform != 'win32' and hasattr(socket, 'SO_REUSEPORT'):
-                    try:
-                        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                    except (AttributeError, OSError):
-                        pass
-                sock.set_inheritable(False)
-                sock.bind((host, port))
-                sock.listen(128)
-                insecure_sockets.append(sock)
-            except Exception as e:
-                logger.error(f"[WebUI] Socket 创建失败 {bind}: {e}")
-                try:
-                    sock.close()
-                except Exception:
-                    pass
-                raise
-
-        return Sockets(secure_sockets, insecure_sockets, quic_sockets)
 
 
 class Server:
@@ -83,34 +37,31 @@ class Server:
         self.port = port
         self.server_thread: Optional[threading.Thread] = None
         self._thread_loop = None
-        self._shutdown_event = None
+        self._uvicorn_server: Optional[uvicorn.Server] = None
+        self._asgi_app = None
         self.app = None
 
         logger.info(f"[WebUI] 初始化Web服务器 (固定端口: {port})...")
 
     def _run_thread(self):
-        """在独立线程中运行 Hypercorn 服务器"""
+        """在独立线程中运行 uvicorn 服务器"""
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             self._thread_loop = loop
-            self._shutdown_event = asyncio.Event()
 
-            config = SecureConfig()
-            config.bind = [f"{self.host}:{self.port}"]
-            config.accesslog = None
-            config.errorlog = None
-            config.loglevel = "WARNING"
-            config.workers = 1
-            config.worker_class = "asyncio"
-
-            loop.run_until_complete(
-                hypercorn.asyncio.serve(
-                    self.app,
-                    config,
-                    shutdown_trigger=self._shutdown_event.wait
-                )
+            config = uvicorn.Config(
+                self._asgi_app,
+                host=self.host,
+                port=self.port,
+                log_level="warning",
+                access_log=False,
+                workers=1,
+                lifespan="off",
             )
+            server = uvicorn.Server(config)
+            self._uvicorn_server = server
+            server.run()
             loop.close()
             logger.debug("[WebUI] 服务器线程已退出")
         except Exception as e:
@@ -133,6 +84,7 @@ class Server:
             webui_config = container.webui_config
             self.app = create_app(webui_config)
             register_blueprints(self.app)
+            self._asgi_app = self.app.get_asgi_app()
 
             # 在守护线程中启动服务器
             logger.info(f"[WebUI] 启动服务器: http://{self.host}:{self.port}")
@@ -163,12 +115,9 @@ class Server:
         try:
             logger.info("[WebUI] 停止服务器...")
 
-            # 通过线程事件循环触发关闭
-            if self._thread_loop and self._shutdown_event:
-                try:
-                    self._thread_loop.call_soon_threadsafe(self._shutdown_event.set)
-                except Exception:
-                    pass
+            # uvicorn 线程安全退出：置位 should_exit 后由事件循环自行收尾
+            if self._uvicorn_server is not None:
+                self._uvicorn_server.should_exit = True
 
             # 在线程池中等待线程退出，避免阻塞事件循环
             if self.server_thread:
@@ -185,7 +134,8 @@ class Server:
                 self.server_thread = None
 
             self._thread_loop = None
-            self._shutdown_event = None
+            self._uvicorn_server = None
+            self._asgi_app = None
 
             # 重置单例状态，确保下次重启可以重新初始化
             Server._instance = None
@@ -197,15 +147,16 @@ class Server:
             logger.error(f"[WebUI] 停止服务器失败: {e}", exc_info=True)
 
     def _is_port_available(self, port: int) -> bool:
-        """检查端口是否可用"""
+        """检查端口是否已有监听者（connect 探测，避免绑定通配地址）"""
+        check_host = "127.0.0.1" if self.host in ("0.0.0.0", "::", "") else self.host
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(0.2)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind((self.host, port))
-                return True
-        except Exception:
-            return False
+                # connect 失败 = 无人监听 = 可用；成功 = 已被占用
+                return s.connect_ex((check_host, port)) != 0
+        except OSError:
+            # 无法探测时视为可用，真正绑定时如有冲突会由 uvicorn 报错
+            return True
 
     async def _kill_port_holder(self, port: int):
         """清理占用端口的进程"""

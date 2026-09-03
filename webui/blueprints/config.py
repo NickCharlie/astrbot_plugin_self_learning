@@ -4,7 +4,7 @@
 import asyncio
 import os
 import sys
-from quart import Blueprint, current_app, request, jsonify, session
+from ..compat import Blueprint, current_app, request, jsonify, session
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -23,10 +23,10 @@ async def _disable_config_response_cache(response):
 BASIC_DEPENDENCY_PACKAGES = [
     "aiohttp",
     "emoji==2.14.1",
-    "hypercorn==0.17.3",
+    "fastapi>=0.124.0",
+    "uvicorn>=0.30.0",
+    "itsdangerous>=2.2.0",
     "jieba",
-    "quart",
-    "quart_cors==0.8.0",
     "pydantic",
     "sqlalchemy[asyncio]",
     "aiosqlite",
@@ -112,10 +112,10 @@ async def get_plugin_config():
         config = await config_service.get_config()
         return jsonify(config), 200
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取配置失败: {e}", exc_info=True)
-        return error_response(f"获取配置失败: {str(e)}", 500)
+        return error_response("获取配置失败: 请稍后重试", 500)
 
 
 @config_bp.route("/config/schema", methods=["GET"])
@@ -128,10 +128,10 @@ async def get_plugin_config_schema():
         schema = await config_service.get_config_schema()
         return jsonify(schema), 200
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"获取配置 schema 失败: {e}", exc_info=True)
-        return error_response(f"获取配置 schema 失败: {str(e)}", 500)
+        return error_response("获取配置 schema 失败: 请稍后重试", 500)
 
 
 @config_bp.route("/config", methods=["POST"])
@@ -156,10 +156,10 @@ async def update_plugin_config():
             return error_response(message, 500)
 
     except ValueError as e:
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
     except Exception as e:
         logger.error(f"更新配置失败: {e}", exc_info=True)
-        return error_response(f"更新配置失败: {str(e)}", 500)
+        return error_response("更新配置失败: 请稍后重试", 500)
 
 
 @config_bp.route("/dependencies/install", methods=["POST"])
@@ -297,4 +297,4 @@ async def install_plugin_dependencies():
             }), 500
         except Exception as e:
             logger.error(f"[WebUI] 插件依赖安装异常: {e}", exc_info=True)
-            return error_response(f"依赖安装异常: {str(e)}", 500)
+            return error_response("依赖安装异常: 请稍后重试", 500)

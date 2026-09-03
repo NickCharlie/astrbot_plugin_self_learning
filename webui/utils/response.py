@@ -1,7 +1,7 @@
 """
 统一响应格式
 """
-from quart import jsonify
+from ..compat import jsonify
 from typing import Any, Optional
 
 

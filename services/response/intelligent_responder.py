@@ -19,6 +19,7 @@ from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适�
 from ...config import PluginConfig
 
 from ...exceptions import ResponseError
+from ...utils.framework_compat import get_using_provider_compat
 
 
 class IntelligentResponder:
@@ -163,7 +164,7 @@ class IntelligentResponder:
                 temperature = 0.7 # 默认值
 
             # 调用框架的默认LLM
-            provider = self.context.get_using_provider()
+            provider = await get_using_provider_compat(self.context)
             if not provider:
                 logger.warning("未找到可用的LLM提供商")
                 return None

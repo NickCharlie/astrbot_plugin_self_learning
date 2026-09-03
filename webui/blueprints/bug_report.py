@@ -1,7 +1,7 @@
 """
 Bug报告蓝图 - 处理Bug报告相关路由
 """
-from quart import Blueprint, request, jsonify
+from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
@@ -25,7 +25,7 @@ async def get_bug_report_config():
 
     except Exception as e:
         logger.error(f"获取Bug报告配置失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @bug_report_bp.route("/bug_report", methods=["POST"])
@@ -50,7 +50,7 @@ async def submit_bug_report():
 
     except Exception as e:
         logger.error(f"提交Bug报告失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)
 
 
 @bug_report_bp.route("/bug_report/history", methods=["GET"])
@@ -71,4 +71,4 @@ async def get_bug_history():
 
     except Exception as e:
         logger.error(f"获取Bug历史失败: {e}", exc_info=True)
-        return error_response(str(e), 500)
+        return error_response("请求处理失败，请稍后重试", 500)

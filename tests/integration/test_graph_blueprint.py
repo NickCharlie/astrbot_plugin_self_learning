@@ -5,7 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 import webui.blueprints.graphs as graphs_module
 from webui.blueprints.graphs import graphs_bp

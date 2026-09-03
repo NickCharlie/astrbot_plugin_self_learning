@@ -3,7 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
-from quart import Quart
+from webui.compat import Quart
 
 import webui.blueprints.metrics as metrics_module
 from webui.blueprints.metrics import metrics_bp
