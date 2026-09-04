@@ -1,15 +1,14 @@
 @mixin focus-ring {
   outline: none;
-  box-shadow: 0 0 0 3px var(--primary-soft);
-  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--accent-soft, var(--primary-soft));
+  border-color: var(--accent, var(--primary));
 }
 
 @mixin panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  backdrop-filter: blur(18px);
 }
 
 @mixin mobile {

@@ -2,29 +2,31 @@
 @use "../../styles/mixins" as *;
 
 .ui-button {
-  min-height: 38px;
-  padding: 8px 13px;
+  min-height: 36px;
+  padding: 7px 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 6px;
   color: var(--text);
-  background: var(--surface-alt);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
   transition:
-    transform var(--duration),
-    border-color var(--duration),
-    background var(--duration);
+    border-color var(--duration) ease-out,
+    background var(--duration) ease-out,
+    color var(--duration) ease-out;
 
   &:hover:not(:disabled) {
-    transform: translateY(-1px);
-    border-color: var(--primary);
+    background: var(--surface-hover);
+    border-color: var(--border-strong);
   }
 
   &:active:not(:disabled) {
-    transform: translateY(0) scale(0.98);
+    background: var(--surface-alt);
   }
 
   &:focus-visible {
@@ -32,23 +34,23 @@
   }
 
   &:disabled {
-    opacity: 0.48;
+    opacity: 0.45;
     cursor: not-allowed;
   }
 
   .material-icons {
-    font-size: 18px;
+    font-size: 17px;
   }
 }
 
 .size-sm {
-  min-height: 32px;
-  padding: 5px 9px;
+  min-height: 30px;
+  padding: 4px 8px;
   font-size: 12px;
 }
 
 .icon-only {
-  width: 38px;
+  width: 36px;
   padding: 7px;
 
   > span:last-child {
@@ -60,19 +62,43 @@
   color: #fff;
   border-color: transparent;
   background: var(--primary);
+
+  &:hover:not(:disabled) {
+    background: var(--primary-strong);
+    border-color: transparent;
+  }
+
+  &:active:not(:disabled) {
+    background: var(--primary-strong);
+  }
 }
 
 .tone-success {
   color: var(--success);
   background: var(--success-soft);
+
+  &:hover:not(:disabled) {
+    background: var(--success-soft);
+    border-color: var(--success);
+  }
 }
 
 .tone-warning {
   color: var(--warning);
   background: var(--warning-soft);
+
+  &:hover:not(:disabled) {
+    background: var(--warning-soft);
+    border-color: var(--warning);
+  }
 }
 
 .tone-danger {
   color: var(--danger);
   background: var(--danger-soft);
+
+  &:hover:not(:disabled) {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+  }
 }

@@ -3,18 +3,13 @@
 
 .ui-card {
   @include panel;
-  padding: 18px;
+  padding: 16px;
 
   &.interactive {
-    transition:
-      transform var(--duration),
-      box-shadow var(--duration),
-      border-color var(--duration);
+    transition: border-color var(--duration) ease-out;
 
     &:hover {
-      transform: translateY(-3px);
-      border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
-      box-shadow: var(--shadow-lg);
+      border-color: color-mix(in srgb, var(--accent, var(--primary)) 45%, var(--border));
     }
   }
 }

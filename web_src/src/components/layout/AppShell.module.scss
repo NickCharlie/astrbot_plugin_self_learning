@@ -9,25 +9,26 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  min-height: 74px;
-  padding: 12px clamp(16px, 4vw, 56px);
+  min-height: 60px;
+  padding: 10px clamp(16px, 4vw, 56px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: color-mix(in srgb, var(--surface-solid) 78%, transparent);
+  background: var(--surface-solid);
   border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(20px);
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  border-radius: 14px;
-  transition:
-    background var(--duration),
-    transform var(--duration);
+  gap: 10px;
+  border-radius: var(--radius);
+  transition: opacity var(--duration) ease-out;
+
+  &:hover {
+    opacity: 0.82;
+  }
 
   > div {
     display: flex;
@@ -36,34 +37,34 @@
 
   h1 {
     margin: 0;
-    font-size: 19px;
+    font-size: 17px;
+    letter-spacing: -0.02em;
     line-height: 1.1;
   }
 }
 
 .brand-mark {
-  width: 42px;
-  height: 42px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   color: #fff;
-  background: linear-gradient(135deg, var(--primary), #885df5);
-  border-radius: 14px;
-  box-shadow: 0 10px 24px var(--primary-soft);
+  background: var(--primary);
+  border-radius: var(--radius);
 }
 
 .eyebrow {
-  color: var(--primary);
+  color: var(--muted);
   font-size: 10px;
-  letter-spacing: 0.16em;
-  font-weight: 800;
+  letter-spacing: 0.14em;
+  font-weight: 700;
   margin-bottom: 2px;
 }
 
 .page-container {
   width: min(1500px, 100%);
   margin: 0 auto;
-  padding: 20px clamp(20px, 3vw, 42px);
+  padding: 20px clamp(20px, 3vw, 42px) 48px;
 }
 
 .toolbar {
@@ -78,9 +79,10 @@
   gap: 8px;
   color: var(--muted);
   font-size: 12px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: var(--surface-alt);
-  border-radius: 99px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 
   > span {
     width: 7px;
@@ -90,14 +92,13 @@
   }
 
   > span.pulse {
-    animation: pulse 1s infinite;
+    animation: pulse 1.2s ease-in-out infinite;
   }
 }
 
 @keyframes pulse {
   50% {
-    opacity: 0.25;
-    transform: scale(0.72);
+    opacity: 0.3;
   }
 }
 

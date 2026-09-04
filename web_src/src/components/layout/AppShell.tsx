@@ -37,7 +37,7 @@ export function AppShell(props: ParentProps) {
       </header>
       <PageNav />
       <PasswordReminderBanner />
-      <main class={styles['page-container']}>{props.children}</main>
+      <main class={styles['page-container']} data-page={dashboard.page()}>{props.children}</main>
     </div>
   );
 }

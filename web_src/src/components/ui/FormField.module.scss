@@ -19,7 +19,7 @@
     color: var(--text);
     background: var(--surface-solid);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius);
     resize: vertical;
 
     &:focus {

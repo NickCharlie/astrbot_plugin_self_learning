@@ -7,13 +7,12 @@
   padding: 20px;
   display: grid;
   place-items: center;
-  background: rgba(8, 12, 24, 0.52);
-  backdrop-filter: blur(8px);
+  background: rgba(10, 12, 16, 0.55);
 }
 
 .dialog {
   width: min(440px, 100%);
-  padding: 24px;
+  padding: 20px;
   color: var(--text);
   background: var(--surface-solid);
   border: 1px solid var(--border);

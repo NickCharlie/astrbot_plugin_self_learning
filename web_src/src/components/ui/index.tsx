@@ -41,8 +41,16 @@ export function IconButton(props: Omit<ButtonProps, 'children'> & { icon: string
   return <Button {...props} class={`${buttonStyles['icon-only']} ${props.class || ''}`} title={props.label} aria-label={props.label} />;
 }
 
-export function Card(props: ParentProps<{ class?: string; interactive?: boolean }>) {
-  return <div class={`${cardStyles['ui-card']} ${props.interactive ? cardStyles['interactive'] : ''} ${props.class || ''}`}>{props.children}</div>;
+export function Card(props: ParentProps<{ class?: string; interactive?: boolean } & JSX.HTMLAttributes<HTMLDivElement>>) {
+  const [local, rest] = splitProps(props, ['children', 'class', 'interactive']);
+  return (
+    <div
+      {...rest}
+      class={`${cardStyles['ui-card']} ${local.interactive ? cardStyles['interactive'] : ''} ${local.class || ''}`}
+    >
+      {local.children}
+    </div>
+  );
 }
 
 export function Panel(props: ParentProps<{

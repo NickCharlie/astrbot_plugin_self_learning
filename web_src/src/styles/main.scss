@@ -8,21 +8,18 @@
 html {
   min-width: 320px;
   background: var(--bg);
-  scroll-behavior: smooth;
 }
 body {
   margin: 0;
   color: var(--text);
-  background:
-    radial-gradient(circle at 10% 0%, var(--primary-soft), transparent 34rem),
-    radial-gradient(circle at 90% 20%, var(--success-soft), transparent 30rem),
-    var(--bg);
+  background: var(--bg);
   font:
     14px/1.55 Inter,
     "Microsoft YaHei",
     "PingFang SC",
     system-ui,
     sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 button,
 input,
@@ -46,25 +43,30 @@ pre {
     Consolas,
     monospace;
 }
+h1,
+h2,
+h3 {
+  text-wrap: pretty;
+}
 
 /* ── Shared utility classes (used by 2+ pages or 2+ components) ── */
 details summary {
   cursor: pointer;
-  color: var(--primary);
+  color: var(--accent, var(--primary));
 }
 
 .page {
-  animation: page-in 260ms ease both;
+  animation: page-in var(--duration-slow) var(--ease-out) both;
 }
 
 .page-kicker {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--primary);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  font-weight: 800;
+  color: var(--accent, var(--primary));
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  font-weight: 700;
 
   .material-icons {
     font-size: 15px;
@@ -73,7 +75,8 @@ details summary {
 
 .section-label {
   margin: 26px 0 12px;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -89,29 +92,29 @@ details summary {
 .two-column {
   display: grid;
   grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
-  gap: 18px;
+  gap: 16px;
 }
 
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .data-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .review-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .check-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .check-row {
@@ -120,7 +123,7 @@ details summary {
   justify-content: space-between;
   gap: 12px;
   background: var(--surface-alt);
-  border-radius: 11px;
+  border-radius: var(--radius);
 
   div {
     display: grid;
@@ -141,9 +144,14 @@ details summary {
 }
 
 .data-row {
-  padding: 15px;
+  padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 13px;
+  border-radius: var(--radius);
+  transition: border-color var(--duration) ease-out;
+
+  &:hover {
+    border-color: var(--border-strong);
+  }
 
   p {
     margin: 3px 0;
@@ -170,11 +178,11 @@ details summary {
   }
 }
 
-/* ── Keyframes ── */
+/* ── Keyframes：只动 opacity + 4px 位移，GPU 合成，干净不卡 ── */
 @keyframes page-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
 }
 

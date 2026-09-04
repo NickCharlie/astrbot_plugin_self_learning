@@ -170,7 +170,7 @@ export function HomePage() {
       <h3 class="section-label">Independent Learning Modules</h3>
       <div class={styles['learning-module-grid']}>
         <For each={modules}>{(module) =>
-          <Card interactive class={`${styles['learning-module-card']} ${styles[module.tone] || ''}`}>
+          <Card interactive class={styles['learning-module-card']} data-accent={module.page}>
             <a href={`#/${module.page}`} onClick={(event) => { event.preventDefault(); dashboard.navigate(module.page); }}>
               <span class={`${styles['module-icon']} material-icons`}>{module.icon}</span>
               <div>
@@ -193,7 +193,7 @@ export function HomePage() {
       <h3 class="section-label">System Entry Points</h3>
       <div class={`${styles['module-grid']} ${styles['system-entry-grid']}`}>
         <For each={entries()}>{(entry) =>
-          <Card interactive class={`${styles['route-card']} ${styles['system-entry-card']}`}>
+          <Card interactive class={`${styles['route-card']} ${styles['system-entry-card']}`} data-accent={entry.page}>
             <a href={`#/${entry.page}`} onClick={(event) => { event.preventDefault(); dashboard.navigate(entry.page); }}>
               <div class={styles['entry-card-head']}>
                 <span class="material-icons">{entry.icon}</span>

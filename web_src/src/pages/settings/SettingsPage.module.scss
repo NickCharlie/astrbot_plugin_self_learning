@@ -1,28 +1,177 @@
 @use "../../styles/tokens";
 @use "../../styles/mixins" as *;
 
-.dependency-panel {
+/* ── master-detail 两栏层次：左分组目录，右当前分组详情 ── */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.group-nav {
+  position: sticky;
+  top: 76px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.group-list {
+  display: grid;
+  gap: 2px;
+  max-height: 46vh;
+  overflow: auto;
+}
+
+.group-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--duration) ease-out,
+    color var(--duration) ease-out;
 
-  .ui-field {
-    min-width: 220px;
+  &:hover {
+    background: var(--surface-alt);
+    color: var(--text);
+  }
+
+  &.active {
+    background: var(--accent-soft, var(--primary-soft));
+    color: var(--accent, var(--primary));
+    font-weight: 600;
   }
 }
 
-.settings-toolbar {
-  margin-bottom: 14px;
-
-  .ui-field {
-    max-width: 460px;
-  }
+.group-item-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.settings-groups {
+.group-item-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+.no-match {
+  margin: 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 依赖安装：次要操作，收进侧栏底部 */
+.dep-block {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.dep-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.dep-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dep-block :global(.inline-actions) {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.dep-block :global(.inline-actions) > * {
+  width: 100%;
+}
+
+/* 右侧详情面板 */
+.group-detail {
+  min-width: 0;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+
+  h3 {
+    margin: 0;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+  }
+
+  p {
+    max-width: 720px;
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
+}
+
+.field-count {
+  flex: none;
+  padding: 2px 8px;
+  color: var(--muted);
+  background: var(--surface-alt);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 搜索模式：跨分组平铺匹配结果 */
+.result-group {
+  margin: 18px 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, var(--primary));
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+
+  &:first-child {
+    margin-top: 0;
+  }
 }
 
 .config-grid {
@@ -32,11 +181,25 @@
   align-items: start;
 }
 
-@include mobile {
-  .dependency-panel {
-    align-items: flex-start;
-    flex-direction: column;
+@include tablet {
+  .settings-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
   }
+}
+
+@include mobile {
+  .settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .group-nav {
+    position: static;
+  }
+
+  .group-list {
+    max-height: 32vh;
+  }
+
   .config-grid {
     grid-template-columns: 1fr;
   }

@@ -3,7 +3,7 @@
 
 .ui-panel {
   @include panel;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
   overflow: hidden;
 }
 
@@ -12,19 +12,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 18px 20px;
+  padding: 14px 18px;
   border-bottom: 1px solid var(--border);
 
   h2 {
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 16px;
+    gap: 7px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
 
     .material-icons {
-      color: var(--primary);
-      font-size: 19px;
+      color: var(--accent, var(--primary));
+      font-size: 18px;
     }
   }
 
@@ -42,7 +44,7 @@
 }
 
 .ui-panel-body {
-  padding: 20px;
+  padding: 18px;
 }
 
 @include mobile {
