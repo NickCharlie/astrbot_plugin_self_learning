@@ -92,7 +92,7 @@ export function SettingsPage() {
                   <span class={styles['group-item-label']}>{groupLabel(group)}</span>
                   <span class={styles['group-item-meta']}>
                     <Show when={groupDirty(group)}><span class={styles['dirty-dot']} title="有未保存修改" /></Show>
-                    <span>{fieldsFor(group).length}</span>
+                    <span>{(group.fields || []).length}</span>
                   </span>
                 </button>
               }</For>
@@ -118,12 +118,16 @@ export function SettingsPage() {
             <Show
               when={!query()}
               fallback={
-                <div class={styles['search-results']}>
-                  <For each={matchedGroups()}>{(group) => <>
-                    <h3 class={styles['result-group']}>{groupLabel(group)}</h3>
-                    <div class={styles['config-grid']}><For each={fieldsFor(group)}>{(field) => <ConfigField field={field} />}</For></div>
-                  </>}</For>
-                </div>
+                <Show when={matchedGroups().length} fallback={
+                  <EmptyState icon="search_off" title="没有匹配的配置项" detail={`没有找到与「${query()}」相关的配置，换个关键词试试。`} />
+                }>
+                  <div class={styles['search-results']}>
+                    <For each={matchedGroups()}>{(group) => <>
+                      <h3 class={styles['result-group']}>{groupLabel(group)}</h3>
+                      <div class={styles['config-grid']}><For each={fieldsFor(group)}>{(field) => <ConfigField field={field} />}</For></div>
+                    </>}</For>
+                  </div>
+                </Show>
               }
             >
               <Show when={activeGroup()} fallback={<EmptyState title="没有匹配的配置项" detail="调整搜索关键词后重试。" />}>
