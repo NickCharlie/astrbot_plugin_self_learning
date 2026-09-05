@@ -435,7 +435,8 @@ class PluginPageApi:
                 result = await jargon_service.import_jargons({
                     "text": str(body.get("text") or ""),
                     "group_id": str(body.get("group_id") or ""),
-                    "is_global": bool(body.get("is_global", False)),
+                    # is_global 原样透传，由 service 严格解析
+                    "is_global": body.get("is_global", False),
                 })
                 return self._operation(
                     bool(result.get("success")),

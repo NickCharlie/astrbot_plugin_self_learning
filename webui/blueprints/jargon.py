@@ -309,12 +309,18 @@ async def import_jargons():
         result = await jargon_service.import_jargons({
             'text': data.get('text', ''),
             'group_id': data.get('group_id', ''),
-            'is_global': bool(data.get('is_global', False)),
+            # is_global 原样透传，由 service 严格解析（bool("false") === True 的坑）
+            'is_global': data.get('is_global', False),
         })
 
         if result.get('success'):
             return jsonify(result), 200
-        return error_response(result.get('error') or '导入失败', 400)
+        return jsonify({
+            'success': False,
+            'message': result.get('error') or '导入失败',
+            'error': result.get('error') or '导入失败',
+            'details': result.get('details') or {},
+        }), 400
 
     except ValueError as e:
         return error_response("请求处理失败，请稍后重试", 500)

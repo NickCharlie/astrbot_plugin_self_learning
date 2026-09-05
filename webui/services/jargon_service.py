@@ -479,6 +479,15 @@ class JargonService:
             rows.append({'line': line_no, 'term': term, 'meaning': meaning, 'error': ''})
         return rows
 
+    @staticmethod
+    def _coerce_is_global(value: Any) -> bool:
+        """严格解析 is_global：宽松字符串调用方传 "false" 时不得被 bool() 变成 True。"""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'on')
+        return bool(value)
+
     async def import_jargons(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """批量导入黑话：关键词 + 解释直接落库为已确认词条。
 
@@ -494,18 +503,31 @@ class JargonService:
 
         text = str(payload.get('text') or '')
         group_id = str(payload.get('group_id') or '').strip()
-        is_global = bool(payload.get('is_global', False))
+        is_global = self._coerce_is_global(payload.get('is_global', False))
 
         rows = self.parse_import_text(text)
+        # 解析失败的行保留在 failed 明细中，导入报告如实反映每一行的结果
+        failed: List[Dict[str, Any]] = [
+            {'line': row['line'], 'term': row['term'], 'reason': row['error']}
+            for row in rows
+            if row['error']
+        ]
         importable = [row for row in rows if not row['error']]
         if not importable:
             return {
                 'success': False,
-                'error': '没有可导入的条目：每行一条，支持「关键词 = 解释」「关键词：解释」等格式，# 开头为注释',
+                'error': f'没有可导入的条目：{len(failed)} 行解析失败（每行一条，支持「关键词 = 解释」「关键词：解释」等格式，# 开头为注释）',
+                'details': {
+                    'imported': 0,
+                    'updated': 0,
+                    'skipped': 0,
+                    'no_meaning': 0,
+                    'failed': failed,
+                    'total': len(rows),
+                },
             }
 
         imported = updated = skipped = no_meaning = 0
-        failed: List[Dict[str, Any]] = []
         for row in importable:
             term, meaning = row['term'], row['meaning']
             try:
@@ -562,7 +584,7 @@ class JargonService:
                 'skipped': skipped,
                 'no_meaning': no_meaning,
                 'failed': failed,
-                'total': len(importable),
+                'total': len(rows),
             },
         }
 

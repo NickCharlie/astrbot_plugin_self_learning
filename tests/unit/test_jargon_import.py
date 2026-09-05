@@ -166,3 +166,70 @@ class TestImportJargons:
         await service.import_jargons({"text": "词 = 义", "group_id": "g"})
 
         assert invalidated
+
+
+class TestCoerceIsGlobal:
+    def test_bool_passthrough(self):
+        assert JargonService._coerce_is_global(True) is True
+        assert JargonService._coerce_is_global(False) is False
+
+    def test_string_forms(self):
+        assert JargonService._coerce_is_global("true") is True
+        assert JargonService._coerce_is_global(" TRUE ") is True
+        assert JargonService._coerce_is_global("1") is True
+        assert JargonService._coerce_is_global("false") is False
+        assert JargonService._coerce_is_global("no") is False
+
+
+class TestImportFailureReporting:
+    @pytest.mark.asyncio
+    async def test_parser_error_rows_reported_alongside_valid_rows(self):
+        inserted = []
+
+        async def get_jargon(chat_id, content):
+            return None
+
+        async def insert_jargon(payload):
+            inserted.append(payload)
+            return 1
+
+        service = make_service(type("DB", (), {"get_jargon": staticmethod(get_jargon), "insert_jargon": staticmethod(insert_jargon)})())
+
+        result = await service.import_jargons({
+            "text": "好词 = 好义\n" + "x" * 100 + " = 超长\n= 没有关键词",
+            "group_id": "g",
+        })
+
+        assert result["success"] is True
+        details = result["details"]
+        assert details["imported"] == 1
+        assert details["failed"] and len(details["failed"]) == 2
+        assert details["total"] == 3
+
+    @pytest.mark.asyncio
+    async def test_all_invalid_rows_return_details(self):
+        service = make_service()
+
+        result = await service.import_jargons({"text": "x" * 100 + " = 超长\n= 没有关键词", "group_id": "g"})
+
+        assert result["success"] is False
+        details = result["details"]
+        assert len(details["failed"]) == 2
+        assert details["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_is_global_string_false_is_not_truthy(self):
+        captured = {}
+
+        async def get_jargon(chat_id, content):
+            return None
+
+        async def insert_jargon(payload):
+            captured.update(payload)
+            return 1
+
+        service = make_service(type("DB", (), {"get_jargon": staticmethod(get_jargon), "insert_jargon": staticmethod(insert_jargon)})())
+
+        # 字符串 "false" 不得被 bool() 误判为全局
+        await service.import_jargons({"text": "词 = 义", "group_id": "g", "is_global": "false"})
+        assert captured["is_global"] is False
