@@ -180,6 +180,11 @@ class TestCoerceIsGlobal:
         assert JargonService._coerce_is_global("false") is False
         assert JargonService._coerce_is_global("no") is False
 
+    def test_unknown_types_are_strictly_false(self):
+        assert JargonService._coerce_is_global(1) is False
+        assert JargonService._coerce_is_global(None) is False
+        assert JargonService._coerce_is_global({"val": True}) is False
+
 
 class TestImportFailureReporting:
     @pytest.mark.asyncio

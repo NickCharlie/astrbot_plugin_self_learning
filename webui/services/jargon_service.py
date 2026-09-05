@@ -481,12 +481,15 @@ class JargonService:
 
     @staticmethod
     def _coerce_is_global(value: Any) -> bool:
-        """严格解析 is_global：宽松字符串调用方传 "false" 时不得被 bool() 变成 True。"""
+        """严格解析 is_global：宽松字符串调用方传 "false" 时不得被误判为 True。
+
+        仅接受布尔与常见字符串形式；其余类型一律视为 False（接口契约就是布尔）。
+        """
         if isinstance(value, bool):
             return value
         if isinstance(value, str):
             return value.strip().lower() in ('1', 'true', 'yes', 'on')
-        return bool(value)
+        return False
 
     async def import_jargons(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """批量导入黑话：关键词 + 解释直接落库为已确认词条。
