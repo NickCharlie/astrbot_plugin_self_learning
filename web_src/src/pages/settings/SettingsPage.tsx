@@ -15,6 +15,7 @@ export function SettingsPage() {
   const [query, setQuery] = createSignal('');
   const [selectedKey, setSelectedKey] = createSignal(localStorage.getItem('sl-settings-group') || '');
   const [mirror, setMirror] = createSignal(localStorage.getItem('sl-pip-mirror') || 'default');
+  const [installing, setInstalling] = createSignal(false);
   const groups = createMemo<ConfigGroup[]>(() => {
     const schema = dashboard.schema();
     if (!schema) return [];
@@ -56,7 +57,8 @@ export function SettingsPage() {
   };
   const install = async (tier: 'basic' | 'full') => {
     if (!await dashboard.confirm({ title: '安装 Python 依赖', message: `即将调用 pip 安装${tier === 'basic' ? '基础' : '全能力'}依赖，确定继续吗？`, tone: 'warning' })) return;
-    dashboard.setBusy(true);
+    // 使用独立 installing 状态：依赖安装不应让无关的「手动保存设置」进入 loading/禁用
+    setInstalling(true);
     try {
       await api.post('/api/dependencies/install', {
         manual_confirmed: true,
@@ -66,7 +68,7 @@ export function SettingsPage() {
       });
       dashboard.toast('依赖安装任务已完成', 'success');
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '依赖安装失败', 'danger'); }
-    finally { dashboard.setBusy(false); }
+    finally { setInstalling(false); }
   };
   return (
     <div class="page">
@@ -112,8 +114,8 @@ export function SettingsPage() {
             </Select>
             <p class={styles['dep-hint']}>不会在插件安装或启动时自动执行。</p>
             <div class="inline-actions">
-              <Button size="sm" icon="bolt" onClick={() => install('basic')}>基础能力依赖</Button>
-              <Button size="sm" tone="primary" icon="deployed_code" onClick={() => install('full')}>全能力依赖</Button>
+              <Button size="sm" icon="bolt" loading={installing()} disabled={installing()} onClick={() => install('basic')}>基础能力依赖</Button>
+              <Button size="sm" tone="primary" icon="deployed_code" loading={installing()} disabled={installing()} onClick={() => install('full')}>全能力依赖</Button>
             </div>
           </div>
         </aside>
