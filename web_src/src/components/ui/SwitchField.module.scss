@@ -8,7 +8,7 @@
   gap: 8px;
   padding: 12px;
   background: var(--surface-alt);
-  border-radius: 12px;
+  border-radius: var(--radius);
 
   span {
     display: grid;
@@ -47,7 +47,7 @@
   }
 
   input:checked + i {
-    background: var(--primary);
+    background: var(--accent, var(--primary));
 
     &::after {
       transform: translateX(18px);

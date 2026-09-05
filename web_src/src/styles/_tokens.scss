@@ -1,26 +1,37 @@
 :root {
   color-scheme: light;
-  --bg: #f3f6fb;
-  --surface: rgba(255, 255, 255, .88);
-  --surface-solid: #fff;
-  --surface-alt: #eef2f8;
-  --text: #172033;
-  --muted: #69758b;
-  --border: rgba(43, 57, 84, .12);
-  --primary: #596cff;
-  --primary-strong: #4355e8;
-  --primary-soft: rgba(89, 108, 255, .12);
-  --success: #0a9f85;
-  --success-soft: rgba(10, 159, 133, .12);
-  --warning: #d68914;
-  --warning-soft: rgba(214, 137, 20, .13);
-  --danger: #df5064;
-  --danger-soft: rgba(223, 80, 100, .12);
-  --shadow-sm: 0 8px 24px rgba(36, 49, 78, .07);
-  --shadow-lg: 0 22px 60px rgba(36, 49, 78, .12);
-  --radius-sm: 10px;
-  --radius: 16px;
-  --radius-lg: 24px;
+
+  /* ── 中性面板骨架：固态表面 + 发丝线，无毛玻璃无光晕 ── */
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --surface-alt: #f0f1f4;
+  --surface-hover: #e9ebef;
+  --text: #191c21;
+  --muted: #667085;
+  --border: rgba(25, 28, 33, 0.13);
+  --border-strong: rgba(25, 28, 33, 0.24);
+
+  /* ── 品牌与语义色 ── */
+  --primary: #4f5bd5;
+  --primary-strong: #3f4ac2;
+  --primary-soft: rgba(79, 91, 213, 0.1);
+  --success: #0f7a5c;
+  --success-soft: rgba(15, 122, 92, 0.1);
+  --warning: #b45309;
+  --warning-soft: rgba(180, 83, 9, 0.1);
+  --danger: #c62f45;
+  --danger-soft: rgba(198, 47, 69, 0.09);
+
+  /* ── 阴影：近平，只做层级提示 ── */
+  --shadow-sm: 0 1px 2px rgba(16, 20, 28, 0.06);
+  --shadow-lg: 0 4px 16px rgba(16, 20, 28, 0.1);
+
+  /* ── 圆角：硬朗收紧，绝不超过 10 ── */
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
+
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -28,27 +39,181 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
-  --duration: 180ms;
+
+  /* ── 动效：干脆利落。hover 120ms；布局/切换用 quint-out ── */
+  --duration: 120ms;
+  --duration-slow: 220ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── 默认强调色（未匹配页面时）── */
+  --accent: var(--primary);
+  --accent-soft: var(--primary-soft);
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg: #101522;
-  --surface: rgba(25, 32, 48, .9);
-  --surface-solid: #191f2e;
-  --surface-alt: #20283a;
-  --text: #eef2ff;
-  --muted: #98a5bc;
-  --border: rgba(212, 221, 255, .12);
-  --primary: #8290ff;
-  --primary-strong: #9ca7ff;
-  --primary-soft: rgba(130, 144, 255, .15);
-  --success: #45c9ac;
-  --success-soft: rgba(69, 201, 172, .14);
-  --warning: #efb65d;
-  --warning-soft: rgba(239, 182, 93, .14);
-  --danger: #ff7d8e;
-  --danger-soft: rgba(255, 125, 142, .15);
-  --shadow-sm: 0 10px 28px rgba(0, 0, 0, .18);
-  --shadow-lg: 0 24px 70px rgba(0, 0, 0, .28);
+  --bg: #0d0e11;
+  --surface: #16171b;
+  --surface-solid: #16171b;
+  --surface-alt: #1d1f24;
+  --surface-hover: #24262c;
+  --text: #ededf0;
+  --muted: #8d93a0;
+  --border: rgba(237, 237, 240, 0.1);
+  --border-strong: rgba(237, 237, 240, 0.22);
+  --primary: #7d89ff;
+  --primary-strong: #97a1ff;
+  --primary-soft: rgba(125, 137, 255, 0.14);
+  --success: #3ecfa0;
+  --success-soft: rgba(62, 207, 160, 0.12);
+  --warning: #e5a03c;
+  --warning-soft: rgba(229, 160, 60, 0.12);
+  --danger: #ff7085;
+  --danger-soft: rgba(255, 112, 133, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* ── 每页强调色：同一变量在导航（data-accent）与页面容器（data-page）生效 ──
+   用色纪律：accent 只出现在导航激活态、kicker、面板图标、StatCard 等小面积。 */
+[data-page='home'],
+[data-accent='home'] {
+  --accent: #4f5bd5;
+  --accent-soft: rgba(79, 91, 213, 0.1);
+}
+[data-page='overview'],
+[data-accent='overview'] {
+  --accent: #2160c4;
+  --accent-soft: rgba(33, 96, 196, 0.1);
+}
+[data-page='insights'],
+[data-accent='insights'] {
+  --accent: #7251e0;
+  --accent-soft: rgba(114, 81, 224, 0.1);
+}
+[data-page='monitoring'],
+[data-accent='monitoring'] {
+  --accent: #0d8a72;
+  --accent-soft: rgba(13, 138, 114, 0.1);
+}
+[data-page='reviews'],
+[data-accent='reviews'] {
+  --accent: #b05e0a;
+  --accent-soft: rgba(176, 94, 10, 0.11);
+}
+[data-page='jargon-learning'],
+[data-accent='jargon-learning'] {
+  --accent: #0c74a8;
+  --accent-soft: rgba(12, 116, 168, 0.1);
+}
+[data-page='expression-learning'],
+[data-accent='expression-learning'] {
+  --accent: #b03d74;
+  --accent-soft: rgba(176, 61, 116, 0.1);
+}
+[data-page='persona-learning'],
+[data-accent='persona-learning'] {
+  --accent: #7a4fdd;
+  --accent-soft: rgba(122, 79, 221, 0.1);
+}
+[data-page='shadow-mode'],
+[data-accent='shadow-mode'] {
+  --accent: #5d6b7e;
+  --accent-soft: rgba(93, 107, 126, 0.12);
+}
+[data-page='content'],
+[data-accent='content'] {
+  --accent: #35753d;
+  --accent-soft: rgba(53, 117, 61, 0.11);
+}
+[data-page='graphs'],
+[data-accent='graphs'] {
+  --accent: #b85a17;
+  --accent-soft: rgba(184, 90, 23, 0.11);
+}
+[data-page='reply-strategy'],
+[data-accent='reply-strategy'] {
+  --accent: #bd3a49;
+  --accent-soft: rgba(189, 58, 73, 0.1);
+}
+[data-page='integrations'],
+[data-accent='integrations'] {
+  --accent: #5e6ad2;
+  --accent-soft: rgba(94, 106, 210, 0.11);
+}
+[data-page='settings'],
+[data-accent='settings'] {
+  --accent: #526178;
+  --accent-soft: rgba(82, 97, 120, 0.12);
+}
+
+[data-theme='dark'] [data-page='overview'],
+[data-theme='dark'] [data-accent='overview'] {
+  --accent: #6da2f5;
+  --accent-soft: rgba(109, 162, 245, 0.14);
+}
+[data-theme='dark'] [data-page='monitoring'],
+[data-theme='dark'] [data-accent='monitoring'] {
+  --accent: #3fc9a8;
+  --accent-soft: rgba(63, 201, 168, 0.14);
+}
+[data-theme='dark'] [data-page='reviews'],
+[data-theme='dark'] [data-accent='reviews'] {
+  --accent: #e5984a;
+  --accent-soft: rgba(229, 152, 74, 0.14);
+}
+[data-theme='dark'] [data-page='jargon-learning'],
+[data-theme='dark'] [data-accent='jargon-learning'] {
+  --accent: #55b1e8;
+  --accent-soft: rgba(85, 177, 232, 0.14);
+}
+[data-theme='dark'] [data-page='expression-learning'],
+[data-theme='dark'] [data-accent='expression-learning'] {
+  --accent: #ef7cb2;
+  --accent-soft: rgba(239, 124, 178, 0.14);
+}
+[data-theme='dark'] [data-page='content'],
+[data-theme='dark'] [data-accent='content'] {
+  --accent: #67bd72;
+  --accent-soft: rgba(103, 189, 114, 0.14);
+}
+[data-theme='dark'] [data-page='graphs'],
+[data-theme='dark'] [data-accent='graphs'] {
+  --accent: #ef9455;
+  --accent-soft: rgba(239, 148, 85, 0.14);
+}
+[data-theme='dark'] [data-page='reply-strategy'],
+[data-theme='dark'] [data-accent='reply-strategy'] {
+  --accent: #f07280;
+  --accent-soft: rgba(240, 114, 128, 0.14);
+}
+[data-theme='dark'] [data-page='settings'],
+[data-theme='dark'] [data-accent='settings'] {
+  --accent: #9aa8bf;
+  --accent-soft: rgba(154, 168, 191, 0.14);
+}
+[data-theme='dark'] [data-page='shadow-mode'],
+[data-theme='dark'] [data-accent='shadow-mode'] {
+  --accent: #93a1b5;
+  --accent-soft: rgba(147, 161, 181, 0.14);
+}
+[data-theme='dark'] [data-page='home'],
+[data-theme='dark'] [data-accent='home'] {
+  --accent: #8f99ff;
+  --accent-soft: rgba(143, 153, 255, 0.14);
+}
+[data-theme='dark'] [data-page='insights'],
+[data-theme='dark'] [data-accent='insights'] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+}
+[data-theme='dark'] [data-page='persona-learning'],
+[data-theme='dark'] [data-accent='persona-learning'] {
+  --accent: #b394ff;
+  --accent-soft: rgba(179, 148, 255, 0.14);
+}
+[data-theme='dark'] [data-page='integrations'],
+[data-theme='dark'] [data-accent='integrations'] {
+  --accent: #9aa5ff;
+  --accent-soft: rgba(154, 165, 255, 0.14);
 }

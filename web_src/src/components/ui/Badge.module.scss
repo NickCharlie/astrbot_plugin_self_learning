@@ -2,25 +2,31 @@
 
 .ui-badge {
   display: inline-flex;
-  padding: 3px 8px;
-  border-radius: 99px;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
   background: var(--surface-alt);
+  border: 1px solid var(--border);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .tone-success {
   color: var(--success);
   background: var(--success-soft);
+  border-color: transparent;
 }
 
 .tone-warning {
   color: var(--warning);
   background: var(--warning-soft);
+  border-color: transparent;
 }
 
 .tone-danger {
   color: var(--danger);
   background: var(--danger-soft);
+  border-color: transparent;
 }

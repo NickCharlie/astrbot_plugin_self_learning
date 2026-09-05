@@ -198,6 +198,43 @@ class AuthService:
             return True, "密码配置成功"
         return False, "保存密码配置失败"
 
+    def enable_with_password(self, password: str) -> Tuple[bool, str]:
+        """免密模式下设置自定义密码并启用 WebUI 密码保护。
+
+        Args:
+            password: 用户自定义的明文密码
+
+        Returns:
+            Tuple[bool, str]: (是否成功, 消息)
+        """
+        if self.is_password_enabled():
+            return False, "密码保护已启用，请使用修改密码功能"
+
+        password = SecurityValidator.sanitize_input(password, max_length=128)
+        if not password:
+            return False, "密码不能为空"
+
+        success, message = self.configure_password(password, must_change=False)
+        if not success:
+            return False, message
+
+        # enable_webui_password 需要持久化：AstrBotConfig.__setattr__ 只写内存，
+        # 必须显式调用 save_config() 落盘，否则重启后回退为免密。
+        if self.plugin_config is not None:
+            try:
+                self.plugin_config.enable_webui_password = True
+            except Exception:
+                logger.debug("无法写入 enable_webui_password", exc_info=True)
+            save_config = getattr(self.plugin_config, "save_config", None)
+            if callable(save_config):
+                try:
+                    save_config()
+                except Exception as e:
+                    logger.warning(f"启用 WebUI 密码保护后保存插件配置失败: {e}", exc_info=True)
+
+        logger.info("WebUI 密码保护已启用（自定义密码）")
+        return True, "密码保护已启用，请使用新密码重新登录"
+
     def save_password_config(self, config: Dict[str, Any]) -> bool:
         """
         保存密码配置

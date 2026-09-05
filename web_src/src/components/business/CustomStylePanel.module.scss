@@ -1,0 +1,97 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.style-panel {
+  margin-bottom: 16px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.style-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.style-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+
+  .material-icons {
+    color: var(--accent, var(--primary));
+    font-size: 18px;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+}
+
+.style-body {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.style-editor {
+  width: 100%;
+  min-height: 150px;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  resize: vertical;
+  font:
+    12px/1.6 ui-monospace,
+    Consolas,
+    monospace;
+
+  &:focus {
+    @include focus-ring;
+  }
+}
+
+.style-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.style-docs {
+  color: var(--muted);
+  font-size: 12px;
+
+  summary {
+    cursor: pointer;
+    color: var(--accent, var(--primary));
+  }
+
+  ul {
+    margin: 8px 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+  }
+
+  code {
+    padding: 1px 5px;
+    background: var(--surface-alt);
+    border-radius: var(--radius-sm);
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  p {
+    margin: 8px 0 0;
+  }
+}

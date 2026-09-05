@@ -10,16 +10,16 @@
   grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
   align-items: center;
   gap: clamp(20px, 4vw, 48px);
-  background: linear-gradient(135deg, var(--surface), var(--primary-soft));
   overflow: hidden;
+  border-inline-start: 3px solid var(--accent, var(--primary));
 }
 
 .hero-command-copy {
   > span {
-    color: var(--primary);
+    color: var(--accent, var(--primary));
     font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.16em;
+    font-weight: 700;
+    letter-spacing: 0.12em;
   }
 
   h3 {
@@ -49,9 +49,9 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: color-mix(in srgb, var(--surface-solid) 72%, transparent);
+  background: var(--surface-alt);
   border: 1px solid var(--border);
-  border-radius: 15px;
+  border-radius: var(--radius);
 
   span {
     color: var(--muted);
@@ -79,7 +79,7 @@
     color: var(--muted);
     background: var(--surface-alt);
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius);
     font-size: 12px;
 
     &:hover {
@@ -132,21 +132,13 @@
   }
 
   .module-icon {
-    width: 52px;
-    height: 52px;
+    width: 44px;
+    height: 44px;
     display: grid;
     place-items: center;
-    color: #fff;
-    border-radius: 16px;
-    background: var(--primary);
-  }
-
-  &.cyan .module-icon {
-    background: var(--success);
-  }
-
-  &.amber .module-icon {
-    background: var(--warning);
+    color: var(--accent, var(--primary));
+    border-radius: var(--radius);
+    background: var(--accent-soft, var(--primary-soft));
   }
 
   strong {
@@ -194,10 +186,10 @@
   }
 
   > a > .material-icons {
-    color: var(--primary);
-    padding: 9px;
-    background: var(--primary-soft);
-    border-radius: 12px;
+    color: var(--accent, var(--primary));
+    padding: 8px;
+    background: var(--accent-soft, var(--primary-soft));
+    border-radius: var(--radius);
   }
 
   p {
@@ -213,10 +205,10 @@
   gap: 8px;
 
   > .material-icons {
-    color: var(--primary);
-    padding: 9px;
-    background: var(--primary-soft);
-    border-radius: 12px;
+    color: var(--accent, var(--primary));
+    padding: 8px;
+    background: var(--accent-soft, var(--primary-soft));
+    border-radius: var(--radius);
   }
 }
 

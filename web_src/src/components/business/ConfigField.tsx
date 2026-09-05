@@ -3,6 +3,7 @@ import { useDashboard } from '../../stores/dashboard';
 import type { ConfigField as ConfigFieldType } from '../../types/dashboard';
 import { normalizeFieldValue } from '../../lib/config';
 import { Input, Select, Textarea } from '../ui';
+import switchStyles from '../ui/SwitchField.module.scss';
 
 const optionValue = (option: unknown) =>
   option && typeof option === 'object' && 'value' in option ? (option as { value: unknown }).value : option;
@@ -33,7 +34,7 @@ export function ConfigField(props: { field: ConfigFieldType }) {
     <Show
       when={!['boolean', 'bool'].includes(props.field.type || '') && !['switch', 'toggle'].includes(props.field.widget || '')}
       fallback={
-        <label class="switch-field">
+        <label class={`${switchStyles['switch-field']} slx-switch`}>
           <span><strong>{label()}</strong><Show when={hint()}><small>{hint()}</small></Show></span>
           <input type="checkbox" disabled={readonly()} checked={Boolean(value())} onChange={(event) => update(event.currentTarget.checked)} />
           <i />

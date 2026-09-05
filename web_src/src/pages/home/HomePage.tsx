@@ -147,7 +147,7 @@ export function HomePage() {
   return (
     <div class="page">
       <PageHeader home title="学习模块控制台" description="把自主学习链路拆成可观察、可审查、可干预的模块。" icon="psychology" />
-      <section class={styles['hero-command']}>
+      <section class={`slx-hero ${styles['hero-command']}`}>
         <div class={styles['hero-command-copy']}>
           <span>LEARNING PULSE</span>
           <h3>学习系统正在持续整理对话经验</h3>
@@ -170,7 +170,7 @@ export function HomePage() {
       <h3 class="section-label">Independent Learning Modules</h3>
       <div class={styles['learning-module-grid']}>
         <For each={modules}>{(module) =>
-          <Card interactive class={`${styles['learning-module-card']} ${styles[module.tone] || ''}`}>
+          <Card interactive class={`slx-module-card ${styles['learning-module-card']}`} data-accent={module.page}>
             <a href={`#/${module.page}`} onClick={(event) => { event.preventDefault(); dashboard.navigate(module.page); }}>
               <span class={`${styles['module-icon']} material-icons`}>{module.icon}</span>
               <div>
@@ -193,7 +193,7 @@ export function HomePage() {
       <h3 class="section-label">System Entry Points</h3>
       <div class={`${styles['module-grid']} ${styles['system-entry-grid']}`}>
         <For each={entries()}>{(entry) =>
-          <Card interactive class={`${styles['route-card']} ${styles['system-entry-card']}`}>
+          <Card interactive class={`slx-entry-card ${styles['route-card']} ${styles['system-entry-card']}`} data-accent={entry.page}>
             <a href={`#/${entry.page}`} onClick={(event) => { event.preventDefault(); dashboard.navigate(entry.page); }}>
               <div class={styles['entry-card-head']}>
                 <span class="material-icons">{entry.icon}</span>

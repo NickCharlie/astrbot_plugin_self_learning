@@ -252,4 +252,44 @@ class TestPasswordEnabledAuthBlueprint:
         assert 'salt' not in body
         data = await response.get_json()
         assert data["success"] is True
-        assert data["redirect"] == "/api/index"
+        # 改密后要求用新密码重新登录
+        assert data["redirect"] == "/api/login"
+
+        # 会话已失效：未带新登录态的请求返回 401
+        status_response = await client.get('/api/password_status')
+        assert status_response.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_webui_password_setup_requires_confirmation(self, client, mock_container):
+        response = await client.post('/api/webui_password/setup', json={
+            'password': 'CustomPass123!',
+        })
+
+        assert response.status_code == 400
+        data = await response.get_json()
+        assert data["success"] is False
+        assert "manual_confirmed" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_webui_password_setup_enables_protection_and_clears_session(self, client, mock_container):
+        response = await client.post('/api/webui_password/setup', json={
+            'password': 'CustomPass123!',
+            'manual_confirmed': True,
+        })
+
+        assert response.status_code == 200
+        assert_no_store_headers(response)
+        body = await response.get_data(as_text=True)
+        assert 'CustomPass123!' not in body
+        assert 'password_hash' not in body
+        assert 'salt' not in body
+        data = await response.get_json()
+        assert data["success"] is True
+        assert data["redirect"] == "/api/login"
+
+        assert mock_container.plugin_config.enable_webui_password is True
+        mock_container.plugin_config.save_config.assert_called_once()
+
+        # 启用即生效：旧免密会话被清除，后续请求需要登录
+        status_response = await client.get('/api/password_status')
+        assert status_response.status_code == 401

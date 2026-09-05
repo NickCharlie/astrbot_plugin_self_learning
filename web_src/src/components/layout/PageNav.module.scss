@@ -1,31 +1,59 @@
 @use "../../styles/tokens";
 
 .page-nav {
-  padding: 12px clamp(16px, 4vw, 56px);
+  padding: 0 clamp(16px, 4vw, 56px);
   display: flex;
-  gap: 6px;
+  gap: 2px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  /* 不显示滚动条：滚轮/触控板直接横向滑动 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
   border-bottom: 1px solid var(--border);
+  background: var(--surface-solid);
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   a {
+    position: relative;
     flex: none;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 6px;
     color: var(--muted);
-    padding: 8px 11px;
-    border-radius: 10px;
-    transition: var(--duration);
+    padding: 11px 10px;
+    font-size: 13px;
+    border-radius: 0;
+    transition: color var(--duration) ease-out;
 
-    &:hover,
+    /* 底部 2px 强调色指示条，激活时干脆地亮出 */
+    &::after {
+      content: "";
+      position: absolute;
+      left: 8px;
+      right: 8px;
+      bottom: -1px;
+      height: 2px;
+      background: transparent;
+      transition: background var(--duration) ease-out;
+    }
+
+    &:hover {
+      color: var(--text);
+    }
+
     &.active {
-      color: var(--primary);
-      background: var(--primary-soft);
+      color: var(--accent);
+
+      &::after {
+        background: var(--accent);
+      }
     }
   }
 
   .material-icons {
-    font-size: 18px;
+    font-size: 17px;
   }
 }

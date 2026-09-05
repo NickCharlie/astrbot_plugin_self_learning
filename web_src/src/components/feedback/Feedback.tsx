@@ -9,9 +9,10 @@ export function ToastViewport() {
   const dashboard = useDashboard();
   return (
     <Portal>
-      <div class={toastStyles['toast-viewport']} aria-live="polite">
+      <div class={`slx-toast-region ${toastStyles['toast-viewport']}`} aria-live="polite">
         <For each={dashboard.toasts()}>{(toast) =>
-          <div class={`${toastStyles['toast']} ${toastStyles[`tone-${toast.tone}`] || ''}`}>
+          <div class={`slx-toast slx-toast-${toast.tone} ${toastStyles['toast']} ${toastStyles[`tone-${toast.tone}`] || ''}`}>
+
             <span class="material-icons">{toast.tone === 'danger' ? 'error' : toast.tone === 'success' ? 'check_circle' : 'info'}</span>
             <span>{toast.message}</span>
           </div>
@@ -26,8 +27,8 @@ export function ConfirmDialog() {
   return (
     <Show when={dashboard.confirmRequest()} keyed>{(request) =>
       <Portal>
-        <div class={dialogStyles['dialog-overlay']} role="presentation" onClick={(event) => event.target === event.currentTarget && dashboard.resolveConfirm(false)}>
-          <section class={dialogStyles['dialog']} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div class={`slx-dialog-overlay ${dialogStyles['dialog-overlay']}`} role="presentation" onClick={(event) => event.target === event.currentTarget && dashboard.resolveConfirm(false)}>
+          <section class={`slx-dialog ${dialogStyles['dialog']}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
             <h2 id="confirm-title">{request.title}</h2>
             <p>{request.message}</p>
             <footer>
