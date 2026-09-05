@@ -2,8 +2,14 @@
 黑话管理服务 - 处理黑话学习相关业务逻辑
 """
 import json
+import re
 from typing import Dict, Any, List, Tuple, Optional
 from astrbot.api import logger
+
+# 批量导入：每行一条，支持 = ＝ : ： | → Tab 作为关键词与释义的分隔符
+IMPORT_SEPARATOR_RE = re.compile(r"[=＝:：|→\t]")
+MAX_IMPORT_TERM_LENGTH = 64
+MAX_IMPORT_MEANING_LENGTH = 2000
 
 
 class JargonService:
@@ -439,6 +445,124 @@ class JargonService:
                 "failed_count": failed_count,
                 "total_count": len(jargon_ids),
                 "errors": errors,
+            },
+        }
+
+    @staticmethod
+    def parse_import_text(text: str) -> List[Dict[str, Any]]:
+        """解析批量导入文本：每行一条，支持 = ＝ : ： | → Tab 分隔。
+
+        `#` 或 `//` 开头的行视为注释跳过。返回
+        ``[{line, term, meaning, error}]``；error 非空表示该行无法导入。
+        """
+        rows: List[Dict[str, Any]] = []
+        for line_no, raw_line in enumerate(str(text or '').splitlines(), start=1):
+            line = raw_line.strip()
+            if not line or line.startswith('#') or line.startswith('//'):
+                continue
+            parts = IMPORT_SEPARATOR_RE.split(line, maxsplit=1)
+            term = parts[0].strip()
+            meaning = parts[1].strip() if len(parts) > 1 else ''
+            if not term:
+                rows.append({'line': line_no, 'term': '', 'meaning': '', 'error': '关键词为空'})
+                continue
+            if len(term) > MAX_IMPORT_TERM_LENGTH:
+                rows.append({
+                    'line': line_no,
+                    'term': term[:MAX_IMPORT_TERM_LENGTH],
+                    'meaning': meaning,
+                    'error': f'关键词超过 {MAX_IMPORT_TERM_LENGTH} 个字符',
+                })
+                continue
+            if len(meaning) > MAX_IMPORT_MEANING_LENGTH:
+                meaning = meaning[:MAX_IMPORT_MEANING_LENGTH]
+            rows.append({'line': line_no, 'term': term, 'meaning': meaning, 'error': ''})
+        return rows
+
+    async def import_jargons(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """批量导入黑话：关键词 + 解释直接落库为已确认词条。
+
+        payload 字段：
+            text: 导入文本，每行一条
+            group_id: 归属群组（chat_id）；留空表示仅全局作用域
+            is_global: 是否设为全局共享（对所有群生效）
+
+        已存在的已确认词条跳过；已存在的未确认候选升级为已确认并写入释义。
+        """
+        if not self.database_manager:
+            return {'success': False, 'error': '数据库管理器未初始化'}
+
+        text = str(payload.get('text') or '')
+        group_id = str(payload.get('group_id') or '').strip()
+        is_global = bool(payload.get('is_global', False))
+
+        rows = self.parse_import_text(text)
+        importable = [row for row in rows if not row['error']]
+        if not importable:
+            return {
+                'success': False,
+                'error': '没有可导入的条目：每行一条，支持「关键词 = 解释」「关键词：解释」等格式，# 开头为注释',
+            }
+
+        imported = updated = skipped = no_meaning = 0
+        failed: List[Dict[str, Any]] = []
+        for row in importable:
+            term, meaning = row['term'], row['meaning']
+            try:
+                if not meaning:
+                    no_meaning += 1
+                existing = await self.database_manager.get_jargon(group_id, term)
+                if existing:
+                    if existing.get('is_jargon'):
+                        skipped += 1
+                        continue
+                    update_payload: Dict[str, Any] = {
+                        'id': existing.get('id'),
+                        'is_jargon': True,
+                        'is_complete': True,
+                    }
+                    if meaning:
+                        update_payload['meaning'] = meaning
+                    if await self.database_manager.update_jargon(update_payload):
+                        updated += 1
+                    else:
+                        failed.append({'line': row['line'], 'term': term, 'reason': '更新候选失败'})
+                    continue
+                new_id = await self.database_manager.insert_jargon({
+                    'content': term,
+                    'meaning': meaning or None,
+                    'is_jargon': True,
+                    'is_complete': True,
+                    'count': 1,
+                    'last_inference_count': 0,
+                    'is_global': is_global,
+                    'chat_id': group_id,
+                    'raw_content': '[]',
+                })
+                if new_id:
+                    imported += 1
+                else:
+                    failed.append({'line': row['line'], 'term': term, 'reason': '写入失败'})
+            except Exception as e:
+                logger.error(f"导入黑话「{term}」失败: {e}", exc_info=True)
+                failed.append({'line': row['line'], 'term': term, 'reason': '写入异常'})
+
+        if imported or updated:
+            self._invalidate_query_cache()
+
+        return {
+            'success': True,
+            'message': (
+                f"导入完成：新增 {imported} 条，候选升级 {updated} 条，"
+                f"跳过重复 {skipped} 条，失败 {len(failed)} 条"
+            ),
+            'details': {
+                'imported': imported,
+                'updated': updated,
+                'skipped': skipped,
+                'no_meaning': no_meaning,
+                'failed': failed,
+                'total': len(importable),
             },
         }
 

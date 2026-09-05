@@ -1728,6 +1728,39 @@
     });
 
     document.addEventListener("click", async (event) => {
+      if (event.target.closest("#jargon-import-toggle")) {
+        const panel = $("jargon-import-panel");
+        if (panel) panel.hidden = !panel.hidden;
+        return;
+      }
+      const importSubmit = event.target.closest("#jargon-import-submit");
+      if (!importSubmit) return;
+      const importText = $("jargon-import-text")?.value || "";
+      if (!importText.trim()) {
+        showToast(t("jargon.import.empty", "请先填写要导入的词条"), "error");
+        return;
+      }
+      const groupId = ($("jargon-import-group")?.value || "").trim();
+      importSubmit.disabled = true;
+      try {
+        const result = await apiPost("jargon/action", {
+          action: "import_jargons",
+          text: importText,
+          group_id: groupId,
+          is_global: !groupId,
+        });
+        showToast(result.message || t("jargon.import.done", "导入完成"), "ok");
+        $("jargon-import-text").value = "";
+        state.pageData = {};
+        await loadPageData("jargon-learning", { force: true });
+      } catch (error) {
+        showToast(error.message || t("jargon.import.failed", "导入失败"), "error");
+      } finally {
+        importSubmit.disabled = false;
+      }
+    });
+
+    document.addEventListener("click", async (event) => {
       const save = event.target.closest("#modal-jargon-save");
       if (!save) return;
       const result = await apiPost("jargon/action", {

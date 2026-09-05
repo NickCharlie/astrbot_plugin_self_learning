@@ -700,6 +700,11 @@
           "candidates": "候选词",
           "confirmed": "已确认",
           "inferred": "推断完成"
+        },
+        "import": {
+          "done": "导入完成",
+          "empty": "请先填写要导入的词条",
+          "failed": "导入失败"
         }
       },
       "style": {

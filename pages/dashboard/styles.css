@@ -1323,3 +1323,28 @@ textarea {
     transform: none !important;
   }
 }
+
+/* ── 黑话导入面板 ── */
+#jargon-import-panel {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+#jargon-import-panel .import-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted, #667085);
+}
+
+#jargon-import-panel textarea {
+  width: 100%;
+}
+
+#jargon-import-panel .inline-actions {
+  align-items: center;
+}
+
+#jargon-import-panel input[type="text"] {
+  min-width: 220px;
+}

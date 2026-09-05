@@ -298,6 +298,31 @@ async def batch_delete_jargon():
         return error_response("请求处理失败，请稍后重试", 500)
 
 
+@jargon_bp.route("/jargon/import", methods=["POST"])
+@require_auth
+async def import_jargons():
+    """批量导入黑话（关键词 + 解释），导入即为已确认词条"""
+    try:
+        data = await request.get_json(silent=True) or {}
+        container = get_container()
+        jargon_service = JargonService(container)
+        result = await jargon_service.import_jargons({
+            'text': data.get('text', ''),
+            'group_id': data.get('group_id', ''),
+            'is_global': bool(data.get('is_global', False)),
+        })
+
+        if result.get('success'):
+            return jsonify(result), 200
+        return error_response(result.get('error') or '导入失败', 400)
+
+    except ValueError as e:
+        return error_response("请求处理失败，请稍后重试", 500)
+    except Exception as e:
+        logger.error(f"导入黑话失败: {e}", exc_info=True)
+        return error_response("请求处理失败，请稍后重试", 500)
+
+
 @jargon_bp.route("/jargon/<int:jargon_id>/toggle_global", methods=["POST"])
 @require_auth
 async def toggle_jargon_global(jargon_id: int):

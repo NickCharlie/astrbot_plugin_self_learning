@@ -215,7 +215,16 @@
               <h3 data-i18n="jargon.title">黑话学习</h3>
               <p data-i18n="jargon.desc">管理群内黑话候选、全局共享和语义释义。</p>
             </div>
+            <button class="ghost-button" type="button" id="jargon-import-toggle">导入黑话</button>
             <button class="ghost-button" type="button" data-refresh-page="jargon-learning" data-i18n="actions.refresh">刷新</button>
+          </div>
+          <div class="panel" id="jargon-import-panel" hidden>
+            <p class="import-hint">每行一条，支持「关键词 = 解释」「关键词：解释」「关键词|解释」等分隔；# 或 // 开头为注释行。导入的词条即为已确认黑话。</p>
+            <textarea id="jargon-import-text" rows="6" spellcheck="false" placeholder="摸鱼 = 上班时间偷懒&#10;yyds：永远的神&#10;绝绝子&#10;# 注释行会被忽略"></textarea>
+            <div class="inline-actions compact-actions">
+              <input id="jargon-import-group" type="text" placeholder="群组ID（留空 = 全局共享）">
+              <button class="solid-button" type="button" id="jargon-import-submit">导入</button>
+            </div>
           </div>
           <section class="stat-grid compact" id="jargon-stat-grid"></section>
           <div class="panel toolbar-panel">

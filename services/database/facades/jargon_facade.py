@@ -1036,6 +1036,9 @@ class JargonFacade(BaseFacade):
                 for row in rows:
                     try:
                         chat_id = row.chat_id or ''
+                        if not chat_id:
+                            # 空群组来自仅全局作用域的导入行，不作为可选分组展示
+                            continue
                         groups.append({
                             'group_id': chat_id,
                             'group_name': chat_id,
