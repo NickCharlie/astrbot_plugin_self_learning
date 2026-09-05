@@ -19,3 +19,28 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+.import-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.import-report {
+  padding: 10px 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+
+  strong {
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  ul {
+    margin: 4px 0 0;
+    padding-left: 18px;
+    color: var(--danger);
+  }
+}

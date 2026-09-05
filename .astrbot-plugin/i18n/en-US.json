@@ -700,6 +700,11 @@
           "candidates": "Candidates",
           "confirmed": "Confirmed",
           "inferred": "Inference complete"
+        },
+        "import": {
+          "done": "Import completed",
+          "empty": "Enter the entries to import first",
+          "failed": "Import failed"
         }
       },
       "style": {

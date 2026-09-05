@@ -157,3 +157,42 @@ async def test_jargon_batch_delete_route_calls_service(client, monkeypatch):
     data = await response.get_json()
     assert data["success"] is True
     assert calls == [[7, 8]]
+
+
+@pytest.mark.asyncio
+async def test_jargon_import_route_calls_service(client, monkeypatch):
+    calls = []
+
+    class _FakeJargonService:
+        def __init__(self, container):
+            self.container = container
+
+        async def import_jargons(self, payload):
+            calls.append(payload)
+            return {
+                "success": True,
+                "message": "导入完成：新增 1 条，候选升级 0 条，跳过重复 0 条，失败 0 条",
+                "details": {"imported": 1, "updated": 0, "skipped": 0, "failed": [], "total": 1, "no_meaning": 0},
+            }
+
+    monkeypatch.setattr(jargon_module, "JargonService", _FakeJargonService)
+
+    response = await client.post("/api/jargon/import", json={
+        "text": "词 = 义",
+        "group_id": "group-a",
+        "is_global": False,
+    })
+
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["success"] is True
+    assert calls == [{"text": "词 = 义", "group_id": "group-a", "is_global": False}]
+
+
+@pytest.mark.asyncio
+async def test_jargon_import_route_rejects_empty_payload(client):
+    response = await client.post("/api/jargon/import", json={"text": "# 只有注释"})
+
+    assert response.status_code == 400
+    data = await response.get_json()
+    assert "没有可导入的条目" in data["message"]

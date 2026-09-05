@@ -430,6 +430,19 @@ class PluginPageApi:
                 else:
                     return self._operation(False, f"未知风格审查操作: {action}")
                 return self._operation(success, message)
+            if action == "import_jargons":
+                jargon_service = imports.JargonService(container)
+                result = await jargon_service.import_jargons({
+                    "text": str(body.get("text") or ""),
+                    "group_id": str(body.get("group_id") or ""),
+                    # is_global 原样透传，由 service 严格解析
+                    "is_global": body.get("is_global", False),
+                })
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "黑话导入完成",
+                    result=result,
+                )
             if action.startswith("jargon_"):
                 jargon_service = imports.JargonService(container)
                 jargon_id = self._body_int(body, "id")
