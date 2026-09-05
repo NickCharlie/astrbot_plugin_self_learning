@@ -63,6 +63,45 @@ class TestAuthService:
         assert service._password_config == new_config
         assert mock_container.plugin_config.password_config == new_config
 
+    def test_enable_with_password_sets_custom_password_and_persists_flag(self, mock_container):
+        service = AuthService(mock_container)
+
+        success, message = service.enable_with_password("CustomPass123!")
+
+        assert success is True
+        assert "重新登录" in message
+        assert mock_container.plugin_config.enable_webui_password is True
+        mock_container.plugin_config.save_config.assert_called_once()
+        config = service._password_config
+        assert config["algorithm"] == "pbkdf2_sha256"
+        assert config["must_change"] is False
+
+    def test_enable_with_password_refuses_when_already_enabled(self, mock_container):
+        mock_container.plugin_config.enable_webui_password = True
+        service = AuthService(mock_container)
+
+        success, message = service.enable_with_password("CustomPass123!")
+
+        assert success is False
+        assert "修改密码" in message
+        mock_container.plugin_config.save_config.assert_not_called()
+
+    def test_enable_with_password_refuses_blank_password(self, mock_container):
+        service = AuthService(mock_container)
+
+        success, message = service.enable_with_password("   ")
+
+        assert success is False
+        assert "密码不能为空" in message
+
+    def test_enable_with_password_refuses_weak_password(self, mock_container):
+        service = AuthService(mock_container)
+
+        success, message = service.enable_with_password("short")
+
+        assert success is False
+        assert "密码" in message
+
     @pytest.mark.asyncio
     async def test_login_requires_initial_password_when_enabled(self, tmp_path, monkeypatch):
         monkeypatch.delenv(INITIAL_WEBUI_PASSWORD_ENV_VAR, raising=False)

@@ -126,6 +126,39 @@ async def change_password_page():
     return await render_template("change_password.html")
 
 
+@auth_bp.route("/webui_password/setup", methods=["POST"])
+@require_auth
+async def setup_webui_password():
+    """免密模式下设置自定义密码并启用密码保护。"""
+    try:
+        data = await request.get_json(silent=True) or {}
+        if not data.get("manual_confirmed"):
+            return jsonify({
+                "success": False,
+                "error": "缺少 manual_confirmed 确认标记",
+            }), 400
+
+        auth_service = AuthService(get_container())
+        success, message = auth_service.enable_with_password(
+            str(data.get("password", "")),
+        )
+        if success:
+            # 启用即生效：清掉当前免密会话，前端整页跳转登录页，用新密码进入
+            session.clear()
+            return jsonify({
+                "success": True,
+                "message": message,
+                "redirect": "/api/login",
+            }), 200
+        return jsonify({
+            "success": False,
+            "error": message,
+        }), 400
+    except Exception as e:
+        logger.error(f"设置 WebUI 密码失败: {e}", exc_info=True)
+        return error_response("设置 WebUI 密码失败", 500)
+
+
 @auth_bp.route("/plugin_change_password", methods=["POST"])
 @require_auth
 async def change_password():
@@ -145,11 +178,12 @@ async def change_password():
             data.get("new_password", ""),
         )
         if success:
-            session["must_change"] = False
+            # 密码已变更：失效当前会话，要求用新密码重新登录
+            session.clear()
             return jsonify({
                 "success": True,
                 "message": message,
-                "redirect": "/api/index",
+                "redirect": "/api/login",
             }), 200
         return jsonify({
             "success": False,

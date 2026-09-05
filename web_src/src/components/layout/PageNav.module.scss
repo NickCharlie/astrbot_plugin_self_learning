@@ -5,9 +5,16 @@
   display: flex;
   gap: 2px;
   overflow-x: auto;
-  scrollbar-width: thin;
+  /* 不显示滚动条：滚轮/触控板直接横向滑动 */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overscroll-behavior-x: contain;
   border-bottom: 1px solid var(--border);
   background: var(--surface-solid);
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
 
   a {
     position: relative;

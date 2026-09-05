@@ -22,8 +22,19 @@ const items: Array<{ id: PageId; label: string; icon: string; accent: string }> 
 
 export function PageNav() {
   const dashboard = useDashboard();
+  // 垂直滚轮转为横向滑动；到两端时放行页面滚动
+  const handleWheel = (event: WheelEvent) => {
+    const el = event.currentTarget as HTMLElement;
+    if (el.scrollWidth <= el.clientWidth) return;
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    const atStart = el.scrollLeft <= 0 && delta < 0;
+    const atEnd = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 && delta > 0;
+    if (atStart || atEnd) return;
+    event.preventDefault();
+    el.scrollLeft += delta;
+  };
   return (
-    <nav class={styles['page-nav']} aria-label="Dashboard 页面">
+    <nav class={styles['page-nav']} aria-label="Dashboard 页面" onWheel={handleWheel}>
       <For each={items}>{(item) =>
         <a
           href={`#/${item.id}`}

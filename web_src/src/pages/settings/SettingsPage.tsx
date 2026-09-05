@@ -4,6 +4,7 @@ import { useDashboard } from '../../stores/dashboard';
 import type { ConfigField as ConfigFieldType, ConfigGroup } from '../../types/dashboard';
 import { object } from '../shared';
 import { ConfigField } from '../../components/business/ConfigField';
+import { WebuiPasswordPanel } from '../../components/business/WebuiPasswordPanel';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Badge, Button, EmptyState, Input, Select } from '../../components/ui';
 import styles from './SettingsPage.module.scss';
@@ -78,6 +79,7 @@ export function SettingsPage() {
           <Button tone="primary" icon="save" loading={dashboard.busy()} disabled={!dashboard.schema() || !dirtyKeys().size} onClick={dashboard.saveConfig}>手动保存设置</Button>
         </div>
       } />
+      <WebuiPasswordPanel />
       <div class={styles['settings-layout']}>
         <aside class={styles['group-nav']}>
           <Show when={dashboard.schema()} fallback={<p class={styles['no-match']}>配置面板尚未加载。</p>}>
