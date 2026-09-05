@@ -27,7 +27,7 @@ export function Button(props: ButtonProps) {
   return (
     <button
       {...button}
-      class={`${buttonStyles['ui-button']} ${toneCls()} ${sizeCls()} ${local.class || ''}`}
+      class={`slx-btn slx-btn-${local.tone || 'default'} ${local.size === 'sm' ? 'slx-btn-sm' : ''} ${buttonStyles['ui-button']} ${toneCls()} ${sizeCls()} ${local.class || ''}`}
       disabled={local.loading || button.disabled}
     >
       <Show when={local.loading}><span class={spinnerStyles['ui-spinner']} aria-hidden="true" /></Show>
@@ -38,7 +38,7 @@ export function Button(props: ButtonProps) {
 }
 
 export function IconButton(props: Omit<ButtonProps, 'children'> & { icon: string; label: string }) {
-  return <Button {...props} class={`${buttonStyles['icon-only']} ${props.class || ''}`} title={props.label} aria-label={props.label} />;
+  return <Button {...props} class={`slx-btn-icon ${buttonStyles['icon-only']} ${props.class || ''}`} title={props.label} aria-label={props.label} />;
 }
 
 export function Card(props: ParentProps<{ class?: string; interactive?: boolean } & JSX.HTMLAttributes<HTMLDivElement>>) {
@@ -46,7 +46,7 @@ export function Card(props: ParentProps<{ class?: string; interactive?: boolean 
   return (
     <div
       {...rest}
-      class={`${cardStyles['ui-card']} ${local.interactive ? cardStyles['interactive'] : ''} ${local.class || ''}`}
+      class={`slx-card ${local.interactive ? 'slx-card-interactive' : ''} ${cardStyles['ui-card']} ${local.interactive ? cardStyles['interactive'] : ''} ${local.class || ''}`}
     >
       {local.children}
     </div>
@@ -61,28 +61,28 @@ export function Panel(props: ParentProps<{
   class?: string;
 }>) {
   return (
-    <section class={`${panelStyles['ui-panel']} ${props.class || ''}`}>
+    <section class={`slx-panel ${panelStyles['ui-panel']} ${props.class || ''}`}>
       <Show when={props.title || props.actions}>
-        <header class={panelStyles['ui-panel-head']}>
+        <header class={`slx-panel-head ${panelStyles['ui-panel-head']}`}>
           <div>
-            <Show when={props.title}><h2><Show when={props.icon}><span class="material-icons">{props.icon}</span></Show>{props.title}</h2></Show>
+            <Show when={props.title}><h2 class="slx-panel-title"><Show when={props.icon}><span class="material-icons">{props.icon}</span></Show>{props.title}</h2></Show>
             <Show when={props.hint}><p>{props.hint}</p></Show>
           </div>
           <div class={panelStyles['ui-panel-actions']}>{props.actions}</div>
         </header>
       </Show>
-      <div class={panelStyles['ui-panel-body']}>{props.children}</div>
+      <div class={`slx-panel-body ${panelStyles['ui-panel-body']}`}>{props.children}</div>
     </section>
   );
 }
 
 export function StatCard(props: { label: string; value: string | number; note?: string; tone?: Tone; icon?: string }) {
   return (
-    <Card class={statCardStyles['stat-card']}>
-      <div class={statCardStyles['stat-card-label']}>
+    <Card class={`slx-stat ${statCardStyles['stat-card']}`}>
+      <div class={`slx-stat-label ${statCardStyles['stat-card-label']}`}>
         <Show when={props.icon}><span class="material-icons">{props.icon}</span></Show>{props.label}
       </div>
-      <strong>{props.value}</strong>
+      <strong class="slx-stat-value">{props.value}</strong>
       <Show when={props.note}><small>{props.note}</small></Show>
     </Card>
   );
@@ -90,16 +90,16 @@ export function StatCard(props: { label: string; value: string | number; note?: 
 
 export function Badge(props: ParentProps<{ tone?: Tone }>) {
   const toneCls = () => badgeStyles[`tone-${props.tone || 'default'}`] || '';
-  return <span class={`${badgeStyles['ui-badge']} ${toneCls()}`}>{props.children}</span>;
+  return <span class={`slx-badge slx-badge-${props.tone || 'default'} ${badgeStyles['ui-badge']} ${toneCls()}`}>{props.children}</span>;
 }
 
 export function ProgressBar(props: { value: number; label?: string; tone?: Tone }) {
   const value = () => Math.max(0, Math.min(100, props.value));
   const toneCls = () => progressStyles[`tone-${props.tone || 'primary'}`] || '';
   return (
-    <div class={progressStyles['progress-wrap']}>
+    <div class={`slx-progress ${progressStyles['progress-wrap']}`}>
       <Show when={props.label}><div class={progressStyles['progress-label']}><span>{props.label}</span><b>{value().toFixed(0)}%</b></div></Show>
-      <div class={progressStyles['progress-track']}><span class={toneCls()} style={{ width: `${value()}%` }} /></div>
+      <div class={`slx-progress-track ${progressStyles['progress-track']}`}><span class={`slx-progress-fill ${toneCls()}`} style={{ width: `${value()}%` }} /></div>
     </div>
   );
 }
@@ -108,8 +108,8 @@ type FieldProps = { label?: string; hint?: string; error?: string; class?: strin
 
 function Field(props: ParentProps<FieldProps>) {
   return (
-    <label class={`${fieldStyles['ui-field']} ${props.class || ''}`}>
-      <Show when={props.label}><span class={fieldStyles['ui-field-label']}>{props.label}</span></Show>
+    <label class={`slx-field ${fieldStyles['ui-field']} ${props.class || ''}`}>
+      <Show when={props.label}><span class={`slx-field-label ${fieldStyles['ui-field-label']}`}>{props.label}</span></Show>
       {props.children}
       <Show when={props.hint}><small>{props.hint}</small></Show>
       <Show when={props.error}><small class={fieldStyles['field-error']}>{props.error}</small></Show>
@@ -119,7 +119,7 @@ function Field(props: ParentProps<FieldProps>) {
 
 export function Input(props: JSX.InputHTMLAttributes<HTMLInputElement> & FieldProps) {
   const [local, input] = splitProps(props, ['label', 'hint', 'error', 'class']);
-  return <Field {...local}><input {...input} /></Field>;
+  return <Field {...local}><input {...input} class="slx-input" /></Field>;
 }
 
 export function Select(props: ParentProps<JSX.SelectHTMLAttributes<HTMLSelectElement> & FieldProps>) {
@@ -130,12 +130,12 @@ export function Select(props: ParentProps<JSX.SelectHTMLAttributes<HTMLSelectEle
   onMount(() => {
     if (element && select.value !== undefined) element.value = String(select.value ?? '');
   });
-  return <Field {...local}><select ref={element} {...select}>{local.children}</select></Field>;
+  return <Field {...local}><select ref={element} {...select} class="slx-input">{local.children}</select></Field>;
 }
 
 export function Textarea(props: JSX.TextareaHTMLAttributes<HTMLTextAreaElement> & FieldProps) {
   const [local, textarea] = splitProps(props, ['label', 'hint', 'error', 'class']);
-  return <Field {...local}><textarea {...textarea} /></Field>;
+  return <Field {...local}><textarea {...textarea} class="slx-input"></textarea></Field>;
 }
 
 export function SegmentedControl<T extends string>(props: {
@@ -145,7 +145,7 @@ export function SegmentedControl<T extends string>(props: {
   label?: string;
 }) {
   return (
-    <div class={segmentedStyles['segmented']} role="group" aria-label={props.label}>
+    <div class={`slx-segmented ${segmentedStyles['segmented']}`} role="group" aria-label={props.label}>
       <For each={props.options}>{(option) =>
         <button classList={{ [segmentedStyles['active']]: option.value === props.value }} onClick={() => props.onChange(option.value)}>
           <Show when={option.icon}><span class="material-icons">{option.icon}</span></Show>{option.label}
@@ -171,12 +171,12 @@ export function Pagination(props: {
 }
 
 export function LoadingState(props: { label?: string }) {
-  return <div class={stateStyles['state-view']}><span class={spinnerStyles['ui-spinner']} /><p>{props.label || '正在加载…'}</p></div>;
+  return <div class={`slx-state ${stateStyles['state-view']}`}><span class={spinnerStyles['ui-spinner']} /><p>{props.label || '正在加载…'}</p></div>;
 }
 
 export function EmptyState(props: { title?: string; detail?: string; icon?: string; action?: JSX.Element }) {
   return (
-    <div class={`${stateStyles['state-view']} ${stateStyles['empty'] || ''}`}>
+    <div class={`slx-state ${stateStyles['state-view']} ${stateStyles['empty'] || ''}`}>
       <span class="material-icons">{props.icon || 'inbox'}</span>
       <strong>{props.title || '暂无数据'}</strong>
       <Show when={props.detail}><p>{props.detail}</p></Show>

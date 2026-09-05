@@ -28,7 +28,7 @@ export function PasswordReminderBanner() {
 
   return (
     <Show when={visible()}>
-      <div class={styles['reminder']} role="status">
+      <div class={`slx-reminder ${styles['reminder']}`} role="status">
         <span class="material-icons" aria-hidden="true">lock_open</span>
         <p>当前 WebUI 处于免密模式，建议在插件配置中启用 WebUI 密码以保护管理面板。</p>
         <button type="button" class={styles['dismiss']} onClick={dismiss}>知道了</button>

@@ -9,10 +9,10 @@ import styles from './AppShell.module.scss';
 export function AppShell(props: ParentProps) {
   const dashboard = useDashboard();
   return (
-    <div class={styles['app-shell']}>
-      <header class={styles['topbar']}>
+    <div id="slx-app" class={`slx-app ${styles['app-shell']}`}>
+      <header class={`slx-topbar ${styles['topbar']}`}>
         <a
-          class={styles['brand']}
+          class={`slx-brand ${styles['brand']}`}
           href="#/home"
           aria-label="返回模块入口"
           onClick={(event) => { event.preventDefault(); dashboard.navigate('home'); }}
@@ -23,8 +23,8 @@ export function AppShell(props: ParentProps) {
             <div>监控板</div>
           </h1>
         </a>
-        <div class={styles['toolbar']}>
-          <span class={styles['update-pill']}>
+        <div class={`slx-toolbar ${styles['toolbar']}`}>
+          <span class={`slx-update-pill ${styles['update-pill']}`}>
             <span classList={{ [styles['pulse']]: dashboard.loading() }} />
             <Show when={dashboard.lastUpdated()} fallback="等待首次刷新">
               更新于 {formatTime(dashboard.lastUpdated())}
@@ -37,7 +37,7 @@ export function AppShell(props: ParentProps) {
       </header>
       <PageNav />
       <PasswordReminderBanner />
-      <main class={styles['page-container']} data-page={dashboard.page()}>{props.children}</main>
+      <main class={`slx-page-container ${styles['page-container']}`} data-page={dashboard.page()}>{props.children}</main>
     </div>
   );
 }

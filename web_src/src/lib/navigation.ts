@@ -2,3 +2,7 @@
 export function replaceLocation(url: string): void {
   window.location.replace(url);
 }
+
+export function reloadPage(): void {
+  window.location.reload();
+}

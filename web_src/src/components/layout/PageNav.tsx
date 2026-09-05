@@ -34,12 +34,13 @@ export function PageNav() {
     el.scrollLeft += delta;
   };
   return (
-    <nav class={styles['page-nav']} aria-label="Dashboard 页面" onWheel={handleWheel}>
+    <nav class={`slx-nav ${styles['page-nav']}`} aria-label="Dashboard 页面" onWheel={handleWheel}>
       <For each={items}>{(item) =>
         <a
           href={`#/${item.id}`}
           data-accent={item.accent}
-          classList={{ [styles['active']]: dashboard.page() === item.id }}
+          class="slx-nav-item"
+          classList={{ 'slx-nav-item-active': dashboard.page() === item.id, [styles['active']]: dashboard.page() === item.id }}
           onClick={(event) => { event.preventDefault(); dashboard.navigate(item.id); }}
         >
           <span class="material-icons">{item.icon}</span><span>{item.label}</span>

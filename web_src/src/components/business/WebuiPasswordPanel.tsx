@@ -100,7 +100,7 @@ export function WebuiPasswordPanel() {
 
   return (
     <Show when={enabled() !== null}>
-      <section class={styles['password-panel']}>
+      <section class={`slx-password-panel ${styles['password-panel']}`}>
         <header class={styles['password-head']}>
           <div class={styles['password-title']}>
             <span class="material-icons" aria-hidden="true">lock</span>
