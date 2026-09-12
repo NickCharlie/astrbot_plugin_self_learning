@@ -2,6 +2,19 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.3.0] - 2026-09-12
+
+### LivingMemory 2.7 适配
+
+- 功能融合页新增 LivingMemory **官方面板**入口：LivingMemory 2.6.0 起移除独立 WebUI、改为自带 AstrBot 官方插件页（`pages/dashboard/index.html`）。集成服务现在会自动探测插件 `pages/` 目录与 AstrBot 主配置 `dashboard.host/port`，生成 `dashboard.official_page_url`（AstrBot Dashboard 前端 hash 路由 `/#/plugin-page/<插件名>/<页名>`）。
+- 功能融合页 LivingMemory 卡片新增「官方面板」按钮（新窗口打开，复用浏览器内 AstrBot 会话 JWT）；LivingMemory 嵌入壳由「面板不可用」改为「面板禁止内嵌 + 新窗口打开」（官方插件页固定返回 `X-Frame-Options: SAMEORIGIN` 且资产需 JWT 换取，iframe 无法携带凭据，属预期行为，`embeddable` 相应置为 `false`）。
+- 伴随插件契约核对（对照 livingmemory 2.7.0-beta.1、group_chat_plus V1.2.3.hotfix.2）：注册名、`initializer.memory_engine`、`memory_engine.graph_store`、`graph_store.get_graph_snapshot` 签名与返回键、`memory_engine.get_statistics` 全部保持，本地记忆图谱直读链路无需改动；LivingMemory 2.6.x 引入的全量快照防御上限只作用于本插件未调用的 `get_full_graph_snapshot`。
+- AstrBot 兼容性核对至 v4.28（commit e606a3037）：本插件使用的全部 API 面（`astrbot.api.*`、`astrbot.api.event.filter`、`astrbot.api.web.request`、provider/star/config 工具）在 v4.28 中无变更。
+
+### 版本
+
+- 版本号由 4.2.0 提升至 **4.3.0**。
+
 ## [4.2.0] - 2026-09-05
 
 ### 黑话导入
