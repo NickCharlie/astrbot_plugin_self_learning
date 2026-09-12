@@ -77,7 +77,7 @@ Dashboard -> 功能融合
 页面内容:
 
 - Self Learning 当前面板。
-- LivingMemory 状态、外部面板入口和本地图谱适配 API 列表。
+- LivingMemory 状态、官方插件页/外部面板入口和本地图谱适配 API 列表。
 - Group Chat Plus 状态、面板入口和开发 API 列表。
 - `Integration_Settings` 快速编辑。
 - Self Learning Hub 稳定 HTTP 契约和可对接能力。
@@ -154,6 +154,7 @@ GET /api/hub/v1/status
 | `delegated` | 当前能力是否已委托 |
 | `plugin` | AstrBot star 元信息 |
 | `dashboard` | 面板 URL、本地图谱路由、入口类型；`embeddable` 为 `false` 表示面板响应头禁止 iframe 嵌入（如 Group Chat Plus 的 `X-Frame-Options: DENY`），此时嵌入壳会提示改用新窗口打开 |
+| `dashboard.official_page_url` | 伴随插件自带 AstrBot 官方插件页时的入口（LivingMemory 2.6.0+）。指向 AstrBot Dashboard 前端 hash 路由 `/#/plugin-page/<插件名>/<页名>`，由集成服务探测插件 `pages/<页名>/index.html` 与主配置 `dashboard.host/port` 自动生成；该页面需 AstrBot 会话 JWT，iframe 内不可用，只能新窗口打开（功能融合页的「官方面板」按钮） |
 | `dev_api` | 该插件公开 API 列表 |
 | `settings_group` | 相关配置组 |
 
@@ -262,8 +263,9 @@ ECharts 图谱 payload。记忆图和知识图谱都会优先读取 LivingMemory
 | Dashboard 显示未委托 | 目标插件是否已加载、启用、名称是否匹配 |
 | LivingMemory 已安装但仍写入本地记忆 | `delegate_memory_to_livingmemory` 和 `disable_local_memory_when_delegated` 是否为 `true` |
 | Group Chat Plus 已安装但仍创建本地回复器 | `delegate_reply_to_group_chat_plus` 和 `disable_local_reply_when_delegated` 是否为 `true` |
-| 面板入口为空 | 目标插件 Web 面板是否开启；图谱模块仍可通过本插件 `/api/graphs/*` 查看 |
+| 面板入口为空 | 目标插件 Web 面板是否开启；LivingMemory 2.6.0+ 由集成服务自动探测其官方插件页（`pages/` 目录 + AstrBot 主配置 `dashboard` 段），图谱模块仍可通过本插件 `/api/graphs/*` 查看 |
 | Group Chat Plus 嵌入壳显示"面板禁止内嵌" | 该面板自 v1.2.x 起返回 `X-Frame-Options: DENY`，无法被 iframe 嵌入，属预期行为；集成服务会探测响应头并自动改用新窗口入口 |
+| LivingMemory 嵌入壳显示"面板禁止内嵌" | AstrBot 官方插件页固定返回 `X-Frame-Options: SAMEORIGIN` 且资产需 JWT 换取，iframe 内无法携带凭据，属预期行为；请用嵌入壳或功能融合页的「官方面板」新窗口打开 |
 | API 列表不匹配 | 以目标插件当前开发 API 为准，更新 `webui/services/integration_service.py` |
 
 ## 测试

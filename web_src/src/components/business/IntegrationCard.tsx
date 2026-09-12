@@ -5,7 +5,11 @@ import { textOrDash } from '../../lib/format';
 import { object } from '../../pages/shared';
 import styles from './IntegrationCard.module.scss';
 
-export function IntegrationCard(props: { item: IntegrationItem; onOpen?: () => void }) {
+export function IntegrationCard(props: {
+  item: IntegrationItem;
+  onOpen?: () => void;
+  onOpenOfficial?: () => void;
+}) {
   const available = () => props.item.active === true || object(props.item.dashboard).available === true;
   return (
     <Card class={styles['integration-card']}>
@@ -15,7 +19,10 @@ export function IntegrationCard(props: { item: IntegrationItem; onOpen?: () => v
       </div>
       <h3>{textOrDash(props.item.title ?? props.item.name ?? props.item.id)}</h3>
       <p>{textOrDash(props.item.description ?? props.item.role)}</p>
-      <Show when={props.onOpen}><Button icon="open_in_new" disabled={!available()} onClick={props.onOpen}>打开面板</Button></Show>
+      <div class={styles['integration-card-actions']}>
+        <Show when={props.onOpen}><Button icon="open_in_new" disabled={!available()} onClick={props.onOpen}>打开面板</Button></Show>
+        <Show when={props.onOpenOfficial}><Button icon="dashboard" disabled={!available()} onClick={props.onOpenOfficial}>官方面板</Button></Show>
+      </div>
     </Card>
   );
 }
