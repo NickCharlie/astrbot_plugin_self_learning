@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -115,16 +116,32 @@ def _astrbot_dashboard_origin(astrbot_config: Any) -> Optional[str]:
 def _discover_plugin_pages(module_path: Any) -> List[str]:
     """列出插件 ``pages/`` 下带 index.html 的页面名（AstrBot 官方插件页约定）。
 
-    module_path 在生产环境是插件入口文件路径（见 AstrBot star_manager），
-    页面目录位于其自身或上级目录的 ``pages/`` 下；无法定位时返回空列表。
+    AstrBot 的 ``StarMetadata.module_path`` 可能是插件入口文件路径，也可能是
+    点分导入路径（``star/base.py`` 会用 ``cls.__module__`` 覆写，如
+    ``data.plugins.<插件名>.main``）。后者通过 ``sys.modules`` 里已加载模块的
+    ``__file__`` 还原插件目录；页面目录位于入口文件自身或上级目录的
+    ``pages/`` 下，无法定位时返回空列表。
     """
     if not module_path:
         return []
-    base = Path(str(module_path))
-    for pages_root in (base / "pages", base.parent / "pages"):
-        if not pages_root.is_dir():
-            continue
+    raw = str(module_path).strip()
+    if not raw:
+        return []
+
+    bases: List[Path] = []
+    base = Path(raw)
+    bases.extend((base, base.parent))
+    module = sys.modules.get(raw)
+    module_file = getattr(module, "__file__", None)
+    if module_file:
+        module_base = Path(module_file)
+        bases.extend((module_base, module_base.parent))
+
+    for candidate in bases:
+        pages_root = candidate / "pages"
         try:
+            if not pages_root.is_dir():
+                continue
             names = sorted(
                 item.name
                 for item in pages_root.iterdir()

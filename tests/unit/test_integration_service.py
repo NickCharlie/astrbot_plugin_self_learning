@@ -406,6 +406,44 @@ async def test_livingmemory_official_page_detected_from_plugin_pages(tmp_path):
     assert "新窗口" in embed["message"]
 
 
+async def test_livingmemory_official_page_resolves_dotted_module_path(tmp_path):
+    # 生产环境 star/base.py 会把 StarMetadata.module_path 覆写为 cls.__module__
+    # （点分导入路径），需通过 sys.modules 中已加载模块的 __file__ 还原插件目录。
+    import types
+
+    (tmp_path / "pages" / "dashboard").mkdir(parents=True)
+    (tmp_path / "pages" / "dashboard" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    fake_module = types.ModuleType("data.plugins.astrbot_plugin_livingmemory.main")
+    fake_module.__file__ = str(tmp_path / "main.py")
+    memory_star = SimpleNamespace(
+        name="astrbot_plugin_livingmemory",
+        display_name="astrbot_plugin_livingmemory",
+        root_dir_name="astrbot_plugin_livingmemory",
+        module_path="data.plugins.astrbot_plugin_livingmemory.main",
+        star_cls=SimpleNamespace(),
+    )
+    container = _lm_official_page_container(
+        memory_star,
+        astrbot_config={"dashboard": {"host": "0.0.0.0", "port": 6185}},
+    )
+
+    with patch.dict(
+        sys.modules,
+        {"data.plugins.astrbot_plugin_livingmemory.main": fake_module},
+    ):
+        payload = await IntegrationService(container).get_status()
+
+    dashboard = {
+        item["id"]: item for item in payload["dashboards"]
+    }["livingmemory"]["dashboard"]
+    assert dashboard["official_page_url"] == (
+        "http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_livingmemory/dashboard"
+    )
+    assert dashboard["embeddable"] is False
+
+
 async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_path):
     memory_star = SimpleNamespace(
         name="astrbot_plugin_livingmemory",
