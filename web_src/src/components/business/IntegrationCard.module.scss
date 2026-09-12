@@ -24,3 +24,9 @@
     font-size: 30px;
   }
 }
+
+.integration-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

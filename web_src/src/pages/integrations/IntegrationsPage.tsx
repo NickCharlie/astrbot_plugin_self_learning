@@ -112,11 +112,26 @@ export function IntegrationsPage() {
     }
     if (url) window.open(url, '_blank', 'noopener,noreferrer');
   };
+  const openOfficialPage = (item: IntegrationItem) => {
+    const url = resolveHostUrl(String(object(item.dashboard).official_page_url ?? ''));
+    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+  };
   return (
     <div class="page">
       <PageHeader title="功能融合" description="查看配套插件状态，并导入世界书与 QQ 聊天记录。" icon="extension" actions={<Button icon="refresh" onClick={dashboard.loadIntegrations}>刷新状态</Button>} />
       <Panel title="插件面板">
-        <div class={styles['integration-grid']}><For each={integrations()}>{(item) => <IntegrationCard item={item} onOpen={() => openIntegration(item)} />}</For></div>
+        <div class={styles['integration-grid']}>
+          <For each={integrations()}>{(item) => {
+            const officialUrl = String(object(item.dashboard).official_page_url ?? '');
+            return (
+              <IntegrationCard
+                item={item}
+                onOpen={() => openIntegration(item)}
+                onOpenOfficial={officialUrl ? () => openOfficialPage(item) : undefined}
+              />
+            );
+          }}</For>
+        </div>
       </Panel>
       <div class={`two-column ${styles['integration-imports']}`}>
         <Panel title="世界书导入" hint="先预览统计，再执行导入">

@@ -339,3 +339,140 @@ def test_embed_shell_keeps_iframe_when_embedding_allowed():
 
     assert '<iframe id="companion-frame"' in html
     assert "面板禁止内嵌" not in html
+
+
+def _lm_official_page_container(memory_star, *, astrbot_config=None):
+    delegation = SimpleNamespace(
+        status=lambda: {
+            "memory_delegated": True,
+            "memory_plugin": "astrbot_plugin_livingmemory",
+            "reply_delegated": False,
+            "reply_plugin": None,
+        },
+        memory_plugin=lambda: memory_star,
+        reply_plugin=lambda: None,
+    )
+    return SimpleNamespace(
+        plugin_config=SimpleNamespace(
+            delegate_memory_to_livingmemory=True,
+            livingmemory_plugin_name="astrbot_plugin_livingmemory",
+            disable_local_memory_when_delegated=True,
+            delegate_reply_to_group_chat_plus=False,
+            group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
+            disable_local_reply_when_delegated=True,
+            knowledge_engine="legacy",
+            lightrag_query_mode="local",
+        ),
+        astrbot_config=astrbot_config,
+        webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
+        feature_delegation=delegation,
+    )
+
+
+async def test_livingmemory_official_page_detected_from_plugin_pages(tmp_path):
+    # LM 2.6.0+ 移除独立 WebUI，改为自带 AstrBot 官方插件页 pages/dashboard/index.html
+    (tmp_path / "pages" / "dashboard").mkdir(parents=True)
+    (tmp_path / "pages" / "dashboard" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    memory_star = SimpleNamespace(
+        name="astrbot_plugin_livingmemory",
+        display_name="astrbot_plugin_livingmemory",
+        root_dir_name="astrbot_plugin_livingmemory",
+        module_path=str(tmp_path / "main.py"),
+        star_cls=SimpleNamespace(),
+    )
+    container = _lm_official_page_container(
+        memory_star,
+        astrbot_config={"dashboard": {"host": "0.0.0.0", "port": 6185}},
+    )
+
+    payload = await IntegrationService(container).get_status()
+    dashboards = {item["id"]: item for item in payload["dashboards"]}
+    dashboard = dashboards["livingmemory"]["dashboard"]
+    expected = (
+        "http://127.0.0.1:6185/#/plugin-page/"
+        "astrbot_plugin_livingmemory/dashboard"
+    )
+    assert dashboard["official_page_url"] == expected
+    assert dashboard["embeddable"] is False
+    assert dashboard["external_url"] is None
+    assert dashboard["available"] is True
+
+    embed = await IntegrationService(container).get_embed_target("livingmemory")
+    assert embed["target_url"] == expected
+    assert embed["embeddable"] is False
+    assert embed["available"] is True
+    assert "新窗口" in embed["message"]
+
+
+async def test_livingmemory_official_page_resolves_dotted_module_path(tmp_path):
+    # 生产环境 star/base.py 会把 StarMetadata.module_path 覆写为 cls.__module__
+    # （点分导入路径），需通过 sys.modules 中已加载模块的 __file__ 还原插件目录。
+    import types
+
+    (tmp_path / "pages" / "dashboard").mkdir(parents=True)
+    (tmp_path / "pages" / "dashboard" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    fake_module = types.ModuleType("data.plugins.astrbot_plugin_livingmemory.main")
+    fake_module.__file__ = str(tmp_path / "main.py")
+    memory_star = SimpleNamespace(
+        name="astrbot_plugin_livingmemory",
+        display_name="astrbot_plugin_livingmemory",
+        root_dir_name="astrbot_plugin_livingmemory",
+        module_path="data.plugins.astrbot_plugin_livingmemory.main",
+        star_cls=SimpleNamespace(),
+    )
+    container = _lm_official_page_container(
+        memory_star,
+        astrbot_config={"dashboard": {"host": "0.0.0.0", "port": 6185}},
+    )
+
+    with patch.dict(
+        sys.modules,
+        {"data.plugins.astrbot_plugin_livingmemory.main": fake_module},
+    ):
+        payload = await IntegrationService(container).get_status()
+
+    dashboard = {
+        item["id"]: item for item in payload["dashboards"]
+    }["livingmemory"]["dashboard"]
+    assert dashboard["official_page_url"] == (
+        "http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_livingmemory/dashboard"
+    )
+    assert dashboard["embeddable"] is False
+
+
+async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_path):
+    memory_star = SimpleNamespace(
+        name="astrbot_plugin_livingmemory",
+        display_name="astrbot_plugin_livingmemory",
+        root_dir_name="astrbot_plugin_livingmemory",
+        module_path=str(tmp_path / "main.py"),
+        star_cls=SimpleNamespace(),
+    )
+
+    # 插件没有 pages/ 目录：无从推断官方页入口
+    container = _lm_official_page_container(memory_star)
+    payload = await IntegrationService(container).get_status()
+    dashboard = {
+        item["id"]: item for item in payload["dashboards"]
+    }["livingmemory"]["dashboard"]
+    assert dashboard["official_page_url"] is None
+    assert dashboard["embeddable"] is None
+
+    # 有 pages/ 但容器没有 astrbot_config：拿不到 AstrBot Dashboard origin
+    (tmp_path / "pages" / "dashboard").mkdir(parents=True)
+    (tmp_path / "pages" / "dashboard" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    payload = await IntegrationService(container).get_status()
+    dashboard = {
+        item["id"]: item for item in payload["dashboards"]
+    }["livingmemory"]["dashboard"]
+    assert dashboard["official_page_url"] is None
+
+    embed = await IntegrationService(container).get_embed_target("livingmemory")
+    assert embed["target_url"] is None
+    assert embed["available"] is False
