@@ -323,6 +323,31 @@ Hub 会优先复用插件运行态的 `message_collector`，否则回退到数�
 | GET | `/api/jargon/global` | 全局黑话列表 |
 | POST | `/api/jargon/<jargon_id>/set_global` | 设置全局状态 |
 
+## 影子模式
+
+蓝图: `webui/blueprints/shadow_mode.py`
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/shadow-mode` | 全部影子档案、启用中的档案和可用来源群组 |
+| GET | `/api/shadow-mode/candidates` | 按 `source`（`live`/`imported`）和 `group_id` 查询可学习群友及样本量 |
+| POST | `/api/shadow-mode/profiles` | 学习并创建影子档案，`activate=false` 时只学习不启用 |
+| PUT | `/api/shadow-mode/profiles/<profile_id>` | 启用或停用档案，同一生效群组同时只启用一份 |
+
+学习请求体:
+
+```json
+{
+  "source_type": "live",
+  "source_group_id": "123456",
+  "target_group_id": "123456",
+  "sender_id": "10001",
+  "activate": true
+}
+```
+
+`target_group_id` 省略时默认与 `source_group_id` 相同。参数缺失或有效样本少于 3 条时返回 400。注入行为见 [使用指南](usage.md) 的影子模式章节；该注入受 `enable_llm_hooks` 总开关控制。
+
 ## 图谱
 
 蓝图: `webui/blueprints/graphs.py`

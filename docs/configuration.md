@@ -177,6 +177,20 @@ LLM 调用和 token 消耗。优先建议使用 `local`/`naive`，或只保留�
 
 完整运行边界见 [功能融合](integrations.md)。
 
+## 运行与内部
+
+配置组: `Runtime_Internal_Settings`
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `llm_hook_injection_target` | `extra_user_content_parts` | LLM Hook 注入目标。推荐保持默认: 动态上下文追加到用户消息尾部并标记为临时内容，不改动 system_prompt，避免影响 provider 前缀缓存。`system_prompt`/`prompt` 仅作为旧版 AstrBot 回退 |
+| `enable_llm_hooks` | `false` | LLM Hook 上下文注入总开关。开启后每次回复前并行拉取社交上下文、记忆、黑话、few-shot 和影子模式档案并注入请求 |
+| `llm_hook_context_timeout` | `3.0` | LLM Hook 读取单个上下文源的超时秒数，超时的上下文源会被跳过并记录警告 |
+
+`enable_llm_hooks` 是所有 LLM 注入能力（含影子模式）的前置开关，默认关闭以避免高频模型调用。在 WebUI 设置页修改后立即生效，无需重启。
+
+该组其余字段（消息库路径、学习日志路径、内存清理、关停超时等）通常保持默认即可；`use_sqlalchemy` 当前固定为 `true` 且只读。
+
 ## WebUI 全量设置
 
 接口:
