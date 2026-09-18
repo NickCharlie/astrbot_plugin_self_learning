@@ -181,6 +181,12 @@ _EXTRA_SCHEMA_DEFINITION: Dict[str, Dict[str, Any]] = {
                 "hint": "开启后每次回复前会并行拉取社交、记忆、黑话、few-shot 等上下文；默认关闭以避免高频模型调用",
                 "default": False,
             },
+            "enable_command_pass_through": {
+                "description": "命令消息直接放行",
+                "type": "bool",
+                "hint": "开启后，以系统级命令前缀（/ ! # . 等）开头的命令消息会跳过 LLM Hook 上下文注入直接处理，避免功能命令响应被拉长",
+                "default": True,
+            },
             "use_sqlalchemy": {
                 "description": "强制使用 SQLAlchemy ORM",
                 "type": "bool",
