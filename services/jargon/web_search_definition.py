@@ -60,25 +60,18 @@ class WebSearchClient:
 
     Reads the same ``provider_settings`` keys as AstrBot's built-in web
     search, so users who already configured a search provider get jargon
-    web definitions with zero extra setup. ``available()`` re-reads the
-    settings on every call so keys added at runtime are picked up.
+    web definitions with zero extra setup. ``websearch_provider`` and the
+    key lists are re-read on every resolution, so runtime config changes
+    take effect immediately.
     """
 
-    def __init__(self, provider_settings_getter, preferred_provider: str = "") -> None:
+    def __init__(self, provider_settings_getter) -> None:
         self._get_settings = provider_settings_getter
-        self._preferred = (preferred_provider or "").strip().lower()
 
     @classmethod
     def from_astrbot_config(cls, astrbot_config: Any) -> Optional["WebSearchClient"]:
         """Build a client from the AstrBot main config; None if unavailable."""
         if astrbot_config is None:
-            return None
-        try:
-            provider_settings = astrbot_config.get("provider_settings", {}) or {}
-            preferred = str(
-                provider_settings.get("websearch_provider", "") or ""
-            )
-        except Exception:
             return None
 
         def _get_settings() -> Dict[str, Any]:
@@ -87,14 +80,16 @@ class WebSearchClient:
             except Exception:
                 return {}
 
-        return cls(_get_settings, preferred_provider=preferred)
+        return cls(_get_settings)
 
     def _resolve_provider(self) -> Optional[str]:
         settings = self._get_settings()
-        if self._preferred in _PROVIDER_KEY_SETTINGS and _provider_keys(
-            settings, self._preferred
+        preferred = str(settings.get("websearch_provider", "") or "")
+        preferred = preferred.strip().lower()
+        if preferred in _PROVIDER_KEY_SETTINGS and _provider_keys(
+            settings, preferred
         ):
-            return self._preferred
+            return preferred
         for provider in _PROVIDER_FALLBACK_ORDER:
             if _provider_keys(settings, provider):
                 return provider

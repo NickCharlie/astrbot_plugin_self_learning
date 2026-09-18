@@ -122,6 +122,8 @@ class PluginLifecycle:
                 db_manager=p.db_manager,
                 config=plugin_config,
                 web_definition_service=p.jargon_web_definition_service,
+                # 惰性取 background_tasks：此时 _setup_internal_components 尚未执行
+                task_tracker=lambda: getattr(p, "background_tasks", None),
             )
             logger.info("黑话挖掘管理器已初始化")
 

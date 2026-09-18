@@ -198,6 +198,7 @@ class JargonMiner(AsyncServiceBase):
         db_manager,
         config,
         web_definition_service: Optional[JargonWebDefinitionService] = None,
+        task_tracker: Optional[Any] = None,
     ):
         super().__init__(f"jargon_miner_{chat_id}")
         self.chat_id = chat_id
@@ -205,6 +206,8 @@ class JargonMiner(AsyncServiceBase):
         self.db = db_manager
         self.config = config
         self.web_definition_service = web_definition_service
+        # 惰性 getter：返回插件的后台任务集合（关停时统一取消），可为 None
+        self._task_tracker = task_tracker
 
         # 推断引擎
         self.inference_engine = JargonInferenceEngine(llm_adapter)
@@ -694,7 +697,8 @@ class JargonMiner(AsyncServiceBase):
         if not meaning:
             return False
 
-        # 补充前重读数据库，避免覆盖并发的推断/人工编辑结果。
+        # 补充前重读数据库，写回时只覆盖释义相关字段，
+        # 避免用本地的旧快照覆盖并发的计数/上下文更新。
         current = await self.db.get_jargon(jargon.chat_id, jargon.content)
         if current and (
             current.get('is_complete')
@@ -702,10 +706,11 @@ class JargonMiner(AsyncServiceBase):
         ):
             return False
 
-        jargon.is_jargon = True
-        jargon.meaning = meaning
-        jargon.updated_at = datetime.now()
-        await self.db.update_jargon(self._jargon_to_dict(jargon))
+        payload = dict(current) if current else self._jargon_to_dict(jargon)
+        payload['is_jargon'] = True
+        payload['meaning'] = meaning
+        payload['updated_at'] = datetime.now()
+        await self.db.update_jargon(payload)
         return True
 
     def _raw_content_list(self, jargon: Jargon) -> List[str]:
@@ -740,6 +745,28 @@ class JargonMiner(AsyncServiceBase):
                 logger.debug(
                     f"[{self.chat_id}] 低提及词条 {term.content} 联网补充失败: {exc}"
                 )
+
+    def _should_web_supplement_rare(self, jargon: Jargon) -> bool:
+        """低提及词条判定：本轮不触发推断且仍未达首个推断阈值。
+
+        已处于推断周期中的词条（count ≥ 首阈值，等待下一个阈值）
+        不算低提及，交给正常三步推断处理。
+        """
+        if self._should_infer_meaning(jargon):
+            return False
+        return (jargon.count or 0) < self.INFERENCE_THRESHOLDS[0]
+
+    def _spawn_supplement_task(self, coro):
+        """创建补充任务并挂到插件后台任务集合（关停时统一取消）。"""
+        task = asyncio.create_task(coro)
+        try:
+            tracker = self._task_tracker() if callable(self._task_tracker) else None
+        except Exception:
+            tracker = None
+        if isinstance(tracker, set):
+            tracker.add(task)
+            task.add_done_callback(tracker.discard)
+        return task
 
     async def run_once(
         self,
@@ -816,12 +843,14 @@ class JargonMiner(AsyncServiceBase):
                 if self._should_infer_meaning(jargon):
                     # 异步执行推断，不阻塞主流程
                     asyncio.create_task(self.infer_and_update(jargon))
-                elif self.web_definition_service is not None:
+                elif self._should_web_supplement_rare(jargon):
                     # 低提及词条达不到首个推断阈值，交给联网补充以免释义空缺
                     rare_terms.append(jargon)
 
             if rare_terms:
-                asyncio.create_task(self._sweep_rare_terms_via_web(rare_terms))
+                self._spawn_supplement_task(
+                    self._sweep_rare_terms_via_web(rare_terms)
+                )
 
             if saved_count or updated_count:
                 logger.info(
@@ -846,11 +875,13 @@ class JargonMinerManager:
         db_manager,
         config,
         web_definition_service: Optional[JargonWebDefinitionService] = None,
+        task_tracker: Optional[Any] = None,
     ):
         self.llm = llm_adapter
         self.db = db_manager
         self.config = config
         self.web_definition_service = web_definition_service
+        self.task_tracker = task_tracker
         self._miners: Dict[str, JargonMiner] = {}
 
     def get_miner(self, chat_id: str) -> JargonMiner:
@@ -862,6 +893,7 @@ class JargonMinerManager:
                 self.db,
                 self.config,
                 web_definition_service=self.web_definition_service,
+                task_tracker=self.task_tracker,
             )
         return self._miners[chat_id]
 

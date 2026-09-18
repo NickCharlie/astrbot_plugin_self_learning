@@ -1,5 +1,6 @@
 """黑话联网释义补充（jargon_websearch_enabled）回归测试"""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -33,25 +34,35 @@ def _settings(**overrides):
 
 def test_client_resolves_preferred_provider():
     client = WebSearchClient(
-        lambda: _settings(
-            websearch_provider="bocha", websearch_bocha_key=["k1"]
-        ),
-        preferred_provider="bocha",
+        lambda: _settings(websearch_provider="bocha", websearch_bocha_key=["k1"])
     )
     assert client.available() is True
+    assert client._resolve_provider() == "bocha"
 
 
 def test_client_falls_back_to_first_configured_provider():
-    client = WebSearchClient(
-        lambda: _settings(websearch_exa_key=["k1"]),
-        preferred_provider="",
-    )
+    client = WebSearchClient(lambda: _settings(websearch_exa_key=["k1"]))
     assert client.available() is True
     assert client._resolve_provider() == "exa"
 
 
+def test_client_reloads_provider_changes_at_runtime():
+    settings = _settings(websearch_provider="tavily", websearch_tavily_key=["k1"])
+    client = WebSearchClient(lambda: settings)
+    assert client._resolve_provider() == "tavily"
+
+    # 管理员运行时切换首选 provider：惰性读取立即生效
+    settings["websearch_provider"] = "bocha"
+    settings["websearch_bocha_key"] = ["k2"]
+    assert client._resolve_provider() == "bocha"
+
+    # 首选 provider 无密钥时回退到其他已配置项
+    settings["websearch_bocha_key"] = []
+    assert client._resolve_provider() == "tavily"
+
+
 def test_client_unavailable_without_keys():
-    client = WebSearchClient(lambda: _settings(), preferred_provider="")
+    client = WebSearchClient(lambda: _settings())
     assert client.available() is False
     assert client._resolve_provider() is None
 
@@ -62,10 +73,7 @@ def test_from_astrbot_config_handles_none():
 
 @pytest.mark.asyncio
 async def test_search_routes_to_bocha_and_parses_results():
-    client = WebSearchClient(
-        lambda: _settings(websearch_bocha_key=["k1"]),
-        preferred_provider="",
-    )
+    client = WebSearchClient(lambda: _settings(websearch_bocha_key=["k1"]))
     captured = {}
 
     async def fake_fetch(method, url, headers, payload=None, params=None):
@@ -89,7 +97,7 @@ async def test_search_routes_to_bocha_and_parses_results():
 
     results = await client.search("xx 网络用语 意思", max_results=5)
 
-    assert "bochaai.com" in captured["url"]
+    assert captured["url"].startswith("https://api.bochaai.com/")
     assert captured["payload"]["query"] == "xx 网络用语 意思"
     assert results == [
         {
@@ -102,10 +110,7 @@ async def test_search_routes_to_bocha_and_parses_results():
 
 @pytest.mark.asyncio
 async def test_search_returns_empty_on_provider_error():
-    client = WebSearchClient(
-        lambda: _settings(websearch_tavily_key=["k1"]),
-        preferred_provider="",
-    )
+    client = WebSearchClient(lambda: _settings(websearch_tavily_key=["k1"]))
 
     async def failing_fetch(*args, **kwargs):
         raise RuntimeError("boom")
@@ -122,8 +127,7 @@ async def test_search_returns_empty_on_provider_error():
 
 def _make_service(search_results, llm_response, **kwargs):
     web_client = WebSearchClient(
-        lambda: _settings(websearch_tavily_key=["k1"]),
-        preferred_provider="",
+        lambda: _settings(websearch_tavily_key=["k1"])
     )
     web_client.search = AsyncMock(return_value=search_results)
     llm = SimpleNamespace(
@@ -173,7 +177,7 @@ async def test_supplement_returns_none_without_search_results():
 
 @pytest.mark.asyncio
 async def test_supplement_noop_when_provider_unavailable():
-    web_client = WebSearchClient(lambda: _settings(), preferred_provider="")
+    web_client = WebSearchClient(lambda: _settings())
     service = JargonWebDefinitionService(
         SimpleNamespace(generate_response=AsyncMock()), web_client
     )
@@ -210,7 +214,7 @@ def test_build_service_none_without_astrbot_config():
 # ---------------------------------------------------------------------------
 
 
-def _make_miner(service):
+def _make_miner(service, task_tracker=None):
     db = SimpleNamespace(
         get_jargon=AsyncMock(return_value=None),
         update_jargon=AsyncMock(return_value=True),
@@ -221,6 +225,7 @@ def _make_miner(service):
         db_manager=db,
         config=SimpleNamespace(),
         web_definition_service=service,
+        task_tracker=task_tracker,
     )
     return miner, db
 
@@ -297,6 +302,68 @@ async def test_supplement_does_not_override_concurrent_update():
 
     assert await miner._supplement_via_web(jargon) is False
     db.update_jargon.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_supplement_writes_on_top_of_fresh_record():
+    """写回只覆盖释义字段，保留并发更新的计数/上下文。"""
+    service = _service_returning("联网释义")
+    miner, db = _make_miner(service)
+    db.get_jargon = AsyncMock(
+        return_value={
+            "id": 7,
+            "meaning": None,
+            "is_complete": False,
+            "count": 9,
+            "raw_content": '["并发新增的上下文"]',
+            "last_inference_count": 6,
+        }
+    )
+    jargon = _jargon(count=3)  # 本地快照已过期
+
+    assert await miner._supplement_via_web(jargon) is True
+    payload = db.update_jargon.await_args.args[0]
+    assert payload["id"] == 7
+    assert payload["count"] == 9  # 并发计数被保留
+    assert payload["last_inference_count"] == 6
+    assert payload["meaning"] == "联网释义"
+    assert payload["is_jargon"] is True
+
+
+def test_rare_term_gate_requires_below_first_threshold():
+    service = None
+    miner, _ = _make_miner(service)
+
+    stalled_between_thresholds = _jargon(count=4)
+    stalled_between_thresholds.last_inference_count = 3
+    below_threshold = _jargon(count=2)
+    fresh = _jargon(count=1)
+
+    # count=4 已进入推断周期（等下一个阈值 6），不算低提及
+    assert miner._should_web_supplement_rare(stalled_between_thresholds) is False
+    assert miner._should_web_supplement_rare(below_threshold) is True
+    assert miner._should_web_supplement_rare(fresh) is True
+
+
+@pytest.mark.asyncio
+async def test_sweep_task_registered_with_tracker():
+    tracker = set()
+    service = _service_returning("联网释义")
+    miner, _ = _make_miner(service, task_tracker=lambda: tracker)
+    release = asyncio.Event()
+
+    async def pending_work():
+        await release.wait()
+
+    task = miner._spawn_supplement_task(pending_work())
+    try:
+        assert task in tracker
+    finally:
+        release.set()
+        await task
+        await asyncio.sleep(0)
+
+    assert task not in tracker  # 完成后自动从集合移除
 
 
 @pytest.mark.asyncio
