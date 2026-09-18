@@ -22,6 +22,7 @@ Design notes:
 
 import asyncio
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -46,6 +47,10 @@ except ImportError:
 
 # Filename of the LightRAG LLM response cache KV store (JsonKVStorage).
 LLM_RESPONSE_CACHE_FILENAME = "kv_store_llm_response_cache.json"
+
+# Group ids are numeric platform ids (optionally with provider prefixes);
+# anything else must never reach filesystem paths.
+SAFE_GROUP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-:]{1,64}$")
 
 
 class LightRAGKnowledgeManager:
@@ -362,7 +367,20 @@ class LightRAGKnowledgeManager:
         instance would re-persist its in-memory copy on finalize). Returns
         the size in bytes of the removed file, or 0 when nothing was removed.
         """
-        cache_file = os.path.join(working_dir, LLM_RESPONSE_CACHE_FILENAME)
+        # Defense in depth: refuse to operate outside the LightRAG base dir,
+        # even if a caller smuggles in ``..`` or absolute path components.
+        base_real = os.path.realpath(self._base_dir)
+        dir_real = os.path.realpath(working_dir)
+        if dir_real != base_real and not dir_real.startswith(
+            base_real + os.sep
+        ):
+            logger.warning(
+                f"[LightRAG] Refusing cache cleanup outside base dir: "
+                f"{working_dir}"
+            )
+            return 0
+
+        cache_file = os.path.join(dir_real, LLM_RESPONSE_CACHE_FILENAME)
         try:
             if not os.path.isfile(cache_file):
                 return 0
@@ -397,9 +415,9 @@ class LightRAGKnowledgeManager:
 
         Warm instances go through ``LightRAG.aclear_cache`` so the in-memory
         KV store stays consistent; cold groups have the cache file removed
-        directly (JsonKVStorage loads a missing file as empty). Groups with
-        the cache enabled keep their file untouched unless cleared explicitly
-        through the LightRAG API.
+        directly (JsonKVStorage loads a missing file as empty). Each group is
+        serialised through the same per-group init lock used by ``_get_rag``
+        so a concurrent initialisation can never resurrect a cleared cache.
 
         Returns:
             Dict with ``cleared`` group ids, ``freed_bytes`` and ``errors``.
@@ -413,42 +431,57 @@ class LightRAGKnowledgeManager:
         except OSError:
             group_names = []
 
+        errors: List[str] = []
         if group_ids:
-            wanted = set(group_ids)
-            group_names = [name for name in group_names if name in wanted]
+            wanted: List[str] = []
             for group_id in group_ids:
+                if not SAFE_GROUP_ID_PATTERN.match(str(group_id)):
+                    errors.append(f"{group_id}: 非法群号，已跳过")
+                    continue
+                if str(group_id) not in wanted:
+                    wanted.append(str(group_id))
+            group_names = [name for name in group_names if name in wanted]
+            for group_id in wanted:
                 if group_id not in group_names:
                     group_names.append(group_id)
 
         cleared: List[str] = []
-        errors: List[str] = []
         freed_total = 0
 
         for group_id in group_names:
-            working_dir = os.path.join(self._base_dir, group_id)
-            cache_file = os.path.join(working_dir, LLM_RESPONSE_CACHE_FILENAME)
-            try:
-                size_before = (
-                    os.path.getsize(cache_file)
-                    if os.path.isfile(cache_file)
-                    else 0
+            if group_id not in self._init_locks:
+                self._init_locks[group_id] = asyncio.Lock()
+
+            # Serialise with _get_rag: after acquiring the lock the warm/cold
+            # decision is re-checked, so an instance created concurrently is
+            # cleared via its API instead of racing a file delete.
+            async with self._init_locks[group_id]:
+                working_dir = os.path.join(self._base_dir, group_id)
+                cache_file = os.path.join(
+                    working_dir, LLM_RESPONSE_CACHE_FILENAME
                 )
-                rag = self._instances.get(group_id)
-                if rag is not None:
-                    await rag.aclear_cache()
-                else:
-                    self._remove_stale_cache_file(working_dir)
-                size_after = (
-                    os.path.getsize(cache_file)
-                    if os.path.isfile(cache_file)
-                    else 0
-                )
-                freed = max(size_before - size_after, 0)
-                if size_before or size_after:
-                    cleared.append(group_id)
-                    freed_total += freed
-            except Exception as exc:
-                errors.append(f"{group_id}: {exc}")
+                try:
+                    size_before = (
+                        os.path.getsize(cache_file)
+                        if os.path.isfile(cache_file)
+                        else 0
+                    )
+                    rag = self._instances.get(group_id)
+                    if rag is not None:
+                        await rag.aclear_cache()
+                    else:
+                        self._remove_stale_cache_file(working_dir)
+                    size_after = (
+                        os.path.getsize(cache_file)
+                        if os.path.isfile(cache_file)
+                        else 0
+                    )
+                    freed = max(size_before - size_after, 0)
+                    if size_before or size_after:
+                        cleared.append(group_id)
+                        freed_total += freed
+                except Exception as exc:
+                    errors.append(f"{group_id}: {exc}")
 
         return {
             "cleared": cleared,

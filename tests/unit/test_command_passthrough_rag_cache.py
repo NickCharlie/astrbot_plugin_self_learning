@@ -1,5 +1,6 @@
 """Issue #254 / #253 回归测试：命令直接放行与 LightRAG LLM 响应缓存治理"""
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -202,6 +203,67 @@ async def test_clear_llm_response_cache_uses_api_for_warm_instances(
     assert result["cleared"] == ["111"]
     assert result["errors"] == []
     assert cache_file.exists()  # 模拟实例不落盘，文件保持原样
+
+
+@pytest.mark.asyncio
+async def test_clear_llm_response_cache_rejects_path_traversal_ids(rag_env):
+    manager, tmp_path = rag_env
+    outside_dir = tmp_path / "evil"
+    outside_dir.mkdir()
+    outside_cache = outside_dir / lkm.LLM_RESPONSE_CACHE_FILENAME
+    outside_cache.write_bytes(b"x" * 512)
+
+    result = await manager.clear_llm_response_cache(
+        group_ids=["../evil", "../../etc", "ok123"]
+    )
+
+    assert all("非法群号" in err for err in result["errors"])
+    assert any("../evil" in err for err in result["errors"])
+    assert outside_cache.exists()  # 越界路径绝不能被删除
+    assert result["cleared"] == []
+
+
+def test_remove_stale_cache_file_refuses_outside_base_dir(rag_env):
+    manager, tmp_path = rag_env
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_cache = outside_dir / lkm.LLM_RESPONSE_CACHE_FILENAME
+    outside_cache.write_bytes(b"x" * 256)
+
+    freed = manager._remove_stale_cache_file(str(outside_dir))
+
+    assert freed == 0
+    assert outside_cache.exists()
+
+
+@pytest.mark.asyncio
+async def test_clear_waits_for_concurrent_init_and_uses_api(rag_env):
+    """清理与并发初始化同一把锁：初始化完成后按热实例走 API 清理。"""
+    manager, tmp_path = rag_env
+    _write_cache_file(tmp_path, "111")
+    warm_rag = SimpleNamespace(aclear_cache=AsyncMock())
+    init_started = asyncio.Event()
+
+    async def _slow_get_rag(group_id):
+        if group_id not in manager._init_locks:
+            manager._init_locks[group_id] = asyncio.Lock()
+        async with manager._init_locks[group_id]:
+            init_started.set()
+            await asyncio.sleep(0.05)
+            manager._instances[group_id] = warm_rag
+            return warm_rag
+
+    init_task = asyncio.create_task(_slow_get_rag("111"))
+    await init_started.wait()
+    clear_task = asyncio.create_task(
+        manager.clear_llm_response_cache(group_ids=["111"])
+    )
+    await init_task
+    result = await clear_task
+
+    warm_rag.aclear_cache.assert_awaited_once()
+    assert result["cleared"] == ["111"]
+    assert result["errors"] == []
 
 
 @pytest.mark.asyncio
