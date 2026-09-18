@@ -44,6 +44,12 @@
         "hint": "是否启用黑话统计预筛、黑话挖掘和黑话上下文能力",
         "default": true
       },
+      "jargon_websearch_enabled": {
+        "description": "黑话联网释义补充",
+        "type": "bool",
+        "hint": "低提及词条无法从群聊上下文推断含义时，复用 AstrBot 联网搜索配置（provider_settings 中的搜索密钥）检索公开释义，交由筛选模型归纳后写回词条，防止释义空缺；未配置任何搜索密钥时自动不生效",
+        "default": true
+      },
       "enable_style_learning": {
         "description": "启用对话风格学习",
         "type": "bool",

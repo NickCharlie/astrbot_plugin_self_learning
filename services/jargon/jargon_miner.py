@@ -15,6 +15,7 @@ from ...models.jargon import Jargon
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 from ...core.patterns import AsyncServiceBase
 from ...utils.json_utils import safe_parse_llm_json
+from .web_search_definition import JargonWebDefinitionService
 
 
 class JargonInferenceEngine:
@@ -187,18 +188,23 @@ class JargonMiner(AsyncServiceBase):
     # 推断阈值
     INFERENCE_THRESHOLDS = [3, 6, 10, 20, 40, 60, 100]
 
+    # 每轮学习最多为多少个低提及词条做联网释义补充（限制外部 API 消耗）
+    WEB_SUPPLEMENT_BATCH_LIMIT = 2
+
     def __init__(
         self,
         chat_id: str,
         llm_adapter: FrameworkLLMAdapter,
         db_manager,
-        config
+        config,
+        web_definition_service: Optional[JargonWebDefinitionService] = None,
     ):
         super().__init__(f"jargon_miner_{chat_id}")
         self.chat_id = chat_id
         self.llm = llm_adapter
         self.db = db_manager
         self.config = config
+        self.web_definition_service = web_definition_service
 
         # 推断引擎
         self.inference_engine = JargonInferenceEngine(llm_adapter)
@@ -636,6 +642,10 @@ class JargonMiner(AsyncServiceBase):
                 # 信息不足，更新推断计数但不改变状态
                 jargon.last_inference_count = jargon.count
                 await self.db.update_jargon(self._jargon_to_dict(jargon))
+
+                # 上下文推断失败是"释义空缺"的主要来源：尝试联网补充释义，
+                # 避免低提及词条永远停留在无含义状态。
+                await self._supplement_via_web(jargon)
                 return
 
             # 更新推断结果
@@ -658,6 +668,78 @@ class JargonMiner(AsyncServiceBase):
 
         except Exception as e:
             logger.error(f"推断黑话失败: {e}")
+
+    async def _supplement_via_web(self, jargon: Jargon) -> bool:
+        """为无释义词条联网检索补充释义；成功时写入并置 is_jargon=True。
+
+        is_complete 保持 False：后续按阈值触发的三步推断仍可用群内
+        上下文修正这条联网释义。
+        """
+        service = self.web_definition_service
+        if service is None:
+            return False
+        if jargon.is_complete or (jargon.meaning or '').strip():
+            return False
+
+        try:
+            meaning = await service.supplement(
+                jargon.content, self._raw_content_list(jargon)
+            )
+        except Exception as exc:
+            logger.debug(
+                f"[{self.chat_id}] 黑话 {jargon.content} 联网释义失败: {exc}"
+            )
+            return False
+
+        if not meaning:
+            return False
+
+        # 补充前重读数据库，避免覆盖并发的推断/人工编辑结果。
+        current = await self.db.get_jargon(jargon.chat_id, jargon.content)
+        if current and (
+            current.get('is_complete')
+            or str(current.get('meaning') or '').strip()
+        ):
+            return False
+
+        jargon.is_jargon = True
+        jargon.meaning = meaning
+        jargon.updated_at = datetime.now()
+        await self.db.update_jargon(self._jargon_to_dict(jargon))
+        return True
+
+    def _raw_content_list(self, jargon: Jargon) -> List[str]:
+        raw_content_list = safe_parse_llm_json(jargon.raw_content) or []
+        if not isinstance(raw_content_list, list):
+            return [raw_content_list] if raw_content_list else []
+        return [str(item) for item in raw_content_list if str(item).strip()]
+
+    async def _sweep_rare_terms_via_web(
+        self, rare_terms: List[Jargon]
+    ) -> None:
+        """对本轮仍低于首推断阈值的低提及词条做联网释义补充（限量）。"""
+        service = self.web_definition_service
+        if service is None:
+            return
+        # 出现次数多的优先（更可能是真实黑话），限量控制 API 消耗。
+        ordered = sorted(
+            (
+                term
+                for term in rare_terms
+                if not term.is_complete
+                and not (term.meaning or '').strip()
+                and term.is_jargon is None
+            ),
+            key=lambda term: term.count or 0,
+            reverse=True,
+        )
+        for term in ordered[: self.WEB_SUPPLEMENT_BATCH_LIMIT]:
+            try:
+                await self._supplement_via_web(term)
+            except Exception as exc:
+                logger.debug(
+                    f"[{self.chat_id}] 低提及词条 {term.content} 联网补充失败: {exc}"
+                )
 
     async def run_once(
         self,
@@ -714,6 +796,7 @@ class JargonMiner(AsyncServiceBase):
             # 2. 保存或更新数据库
             saved_count = 0
             updated_count = 0
+            rare_terms: List[Jargon] = []
 
             for candidate in candidates:
                 content = candidate['content']
@@ -733,6 +816,12 @@ class JargonMiner(AsyncServiceBase):
                 if self._should_infer_meaning(jargon):
                     # 异步执行推断，不阻塞主流程
                     asyncio.create_task(self.infer_and_update(jargon))
+                elif self.web_definition_service is not None:
+                    # 低提及词条达不到首个推断阈值，交给联网补充以免释义空缺
+                    rare_terms.append(jargon)
+
+            if rare_terms:
+                asyncio.create_task(self._sweep_rare_terms_via_web(rare_terms))
 
             if saved_count or updated_count:
                 logger.info(
@@ -751,10 +840,17 @@ class JargonMiner(AsyncServiceBase):
 class JargonMinerManager:
     """黑话挖掘器管理器"""
 
-    def __init__(self, llm_adapter: FrameworkLLMAdapter, db_manager, config):
+    def __init__(
+        self,
+        llm_adapter: FrameworkLLMAdapter,
+        db_manager,
+        config,
+        web_definition_service: Optional[JargonWebDefinitionService] = None,
+    ):
         self.llm = llm_adapter
         self.db = db_manager
         self.config = config
+        self.web_definition_service = web_definition_service
         self._miners: Dict[str, JargonMiner] = {}
 
     def get_miner(self, chat_id: str) -> JargonMiner:
@@ -764,7 +860,8 @@ class JargonMinerManager:
                 chat_id,
                 self.llm,
                 self.db,
-                self.config
+                self.config,
+                web_definition_service=self.web_definition_service,
             )
         return self._miners[chat_id]
 

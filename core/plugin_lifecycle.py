@@ -100,6 +100,7 @@ class PluginLifecycle:
                 JargonQueryService,
                 JargonMinerManager,
                 JargonStatisticalFilter,
+                build_web_definition_service,
             )
 
             p.jargon_query_service = JargonQueryService(
@@ -107,10 +108,20 @@ class PluginLifecycle:
             )
             logger.info("黑话查询服务已初始化（带60秒缓存）")
 
+            llm_adapter = p.service_factory.create_framework_llm_adapter()
+            p.jargon_web_definition_service = build_web_definition_service(
+                llm_adapter=llm_adapter,
+                astrbot_config=getattr(p, "config", None),
+                plugin_config=plugin_config,
+            )
+            if p.jargon_web_definition_service is not None:
+                logger.info("黑话联网释义补充已启用（跟随 AstrBot 联网搜索配置）")
+
             p.jargon_miner_manager = JargonMinerManager(
-                llm_adapter=p.service_factory.create_framework_llm_adapter(),
+                llm_adapter=llm_adapter,
                 db_manager=p.db_manager,
                 config=plugin_config,
+                web_definition_service=p.jargon_web_definition_service,
             )
             logger.info("黑话挖掘管理器已初始化")
 
