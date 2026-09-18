@@ -163,6 +163,18 @@ await database_manager.save_raw_message(message_obj)
 
 LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 
+联网释义补充（低提及防空缺）:
+
+- 缺口：提及次数不足 3 次的词条永远不会触发三步推断；推断时上下文不足
+  （`no_info`）的含义也会留空——低提及词条的释义因此长期空缺。
+- 补充：`jargon_websearch_enabled=True`（默认开）时，`JargonMiner` 会在
+  上述两个缺口处调用 `JargonWebDefinitionService`（`services/jargon/web_search_definition.py`）：
+  复用 AstrBot 联网搜索配置（`provider_settings` 中与内置 web search 同名的密钥）检索公开释义，
+  交由筛选模型归纳为简明释义后写回词条。
+- 约束：`is_complete` 保持 False（后续推断可用群内上下文修正）；每轮学习最多补充
+  2 个低提及词条，服务内部全局限速（默认 10 秒间隔）；未配置任何搜索密钥时自动不生效；
+  写回前重读数据库，不覆盖人工编辑或已完成的词条。
+
 ## 6. 群组批量学习
 
 入口:

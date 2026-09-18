@@ -145,6 +145,7 @@ class PluginConfig(BaseModel):
     enable_realtime_learning: bool = False
     enable_realtime_llm_filter: bool = False # 新增：控制实时LLM筛选
     enable_jargon_learning: bool = True # 启用黑话学习
+    jargon_websearch_enabled: bool = True # 低提及黑话联网补充释义（复用 AstrBot 联网搜索配置；未配置搜索密钥时自动不生效）
     enable_style_learning: bool = True # 启用对话风格学习
     enable_web_interface: bool = True
     enable_webui_password: bool = False # 启用 WebUI 登录密码，默认免密
@@ -451,6 +452,9 @@ class PluginConfig(BaseModel):
             enable_realtime_learning=basic_settings.get('enable_realtime_learning', False),
             enable_realtime_llm_filter=basic_settings.get('enable_realtime_llm_filter', False),
             enable_jargon_learning=basic_settings.get('enable_jargon_learning', True),
+            jargon_websearch_enabled=basic_settings.get(
+                'jargon_websearch_enabled', True
+            ),
             enable_style_learning=basic_settings.get('enable_style_learning', True),
             enable_web_interface=basic_settings.get('enable_web_interface', True),
             enable_webui_password=basic_settings.get('enable_webui_password', False),
