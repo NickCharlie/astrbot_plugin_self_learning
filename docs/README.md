@@ -30,7 +30,7 @@ AstrBot 自主学习插件的实现文档和使用文档。
 
 1. `event_message_type(ALL)`: 后台采集用户消息，更新学习数据。
 2. `after_message_sent`: 记录 Bot 出站文本，用于提取用户到 Bot 的 few-shot 对话对。
-3. `on_llm_request`: 在 LLM 请求前注入社交上下文、黑话解释、记忆/知识、few-shot 和临时人格增量。
+3. `on_llm_request`: 在 LLM 请求前注入社交上下文、黑话解释、记忆/知识、few-shot、影子模式档案和临时人格增量。
 
 学习结果默认先进入审查链路。人格更新和风格学习不会无条件覆盖当前人格，除非配置允许自动应用。
 
