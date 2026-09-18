@@ -558,6 +558,16 @@ class SelfLearningPlugin(star.Star):
         async for result in self._command_handlers.remember(event):
             yield result
 
+    @filter.command("clean_rag_cache")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def clean_rag_cache_command(self, event: AstrMessageEvent):
+        """清理 LightRAG LLM 响应缓存"""
+        if not self._command_handlers:
+            yield event.plain_result("插件服务未就绪，请检查启动日志")
+            return
+        async for result in self._command_handlers.clean_rag_cache(event):
+            yield result
+
     @filter.command("affection_status")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def affection_status_command(self, event: AstrMessageEvent):

@@ -23,6 +23,7 @@ class PluginCommandHandlers:
         db_manager: Any,
         llm_adapter: Any,
         remember_service: Any = None,
+        v2_integration: Any = None,
     ):
         self._config = plugin_config
         self._service_factory = service_factory
@@ -34,6 +35,7 @@ class PluginCommandHandlers:
         self._db_manager = db_manager
         self._llm_adapter = llm_adapter
         self._remember_service = remember_service
+        self._v2_integration = v2_integration
         self._force_learning_in_progress: set = set()
 
     # learning_status
@@ -289,6 +291,56 @@ class PluginCommandHandlers:
         except Exception as e:
             logger.error(f"remember 命令处理失败: {e}", exc_info=True)
             yield event.plain_result(f"remember 失败：{str(e)}")
+
+    # clean_rag_cache
+
+    async def clean_rag_cache(self, event: Any) -> AsyncGenerator:
+        """清理 LightRAG LLM 响应缓存（issue #253 维护入口）
+
+        用法：``/clean_rag_cache`` 清理全部群；``/clean_rag_cache 12345`` 或
+        空格/逗号分隔的多个群号只清理指定群。
+        """
+        try:
+            knowledge_manager = getattr(
+                self._v2_integration, "_knowledge_manager", None
+            )
+            if not hasattr(knowledge_manager, "clear_llm_response_cache"):
+                yield event.plain_result(
+                    "当前知识引擎不是 lightrag，无需清理 LightRAG 缓存"
+                )
+                return
+
+            payload = self._extract_command_payload(event, "clean_rag_cache")
+            group_ids = [
+                group_id
+                for group_id in payload.replace(",", " ").split()
+                if group_id
+            ]
+
+            yield event.plain_result("正在清理 LightRAG LLM 响应缓存...")
+            result = await knowledge_manager.clear_llm_response_cache(
+                group_ids=group_ids or None
+            )
+
+            freed_mb = result.get("freed_bytes", 0) / 1024 / 1024
+            cleared = result.get("cleared", []) or []
+            errors = result.get("errors", []) or []
+            if group_ids:
+                lines = [
+                    f"清理完成：指定 {len(group_ids)} 个群，"
+                    f"涉及 {len(cleared)} 个群，释放 {freed_mb:.1f} MB"
+                ]
+            else:
+                lines = [f"清理完成：{len(cleared)} 个群，释放 {freed_mb:.1f} MB"]
+            if cleared:
+                lines.append("涉及群组: " + ", ".join(str(g) for g in cleared))
+            for error in errors:
+                lines.append(f"失败: {error}")
+            yield event.plain_result("\n".join(lines))
+
+        except Exception as e:
+            logger.error(f"clean_rag_cache 命令处理失败: {e}", exc_info=True)
+            yield event.plain_result(f"清理 LightRAG 缓存失败：{str(e)}")
 
     # affection_status
 

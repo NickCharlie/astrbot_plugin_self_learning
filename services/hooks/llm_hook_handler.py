@@ -28,6 +28,10 @@ try:
     from ...utils.persona_selection import get_event_persona_scope
 except ImportError:
     from utils.persona_selection import get_event_persona_scope
+try:
+    from ...services.commands.command_filter import CommandFilter
+except ImportError:
+    from services.commands.command_filter import CommandFilter
 
 try:
     from astrbot.core.agent.message import TextPart
@@ -80,6 +84,7 @@ class LLMHookHandler:
         self._db_manager = db_manager
         self._feature_delegation = feature_delegation
         self._shadow_mode_service = shadow_mode_service
+        self._command_filter = CommandFilter()
         if self._shadow_mode_service is None and db_manager is not None:
             try:
                 from ..shadow_mode import ShadowModeService
@@ -104,6 +109,19 @@ class LLMHookHandler:
             if not getattr(self._config, "enable_llm_hooks", False):
                 logger.debug("[LLM Hook] 总开关未启用，跳过上下文注入")
                 return
+
+            # 命令/系统级唤醒词消息直接放行：命令回复追求即时响应，
+            # 上下文注入对命令处理没有价值，反而会占用最长 3s 的预算。
+            if getattr(self._config, "enable_command_pass_through", True):
+                message_text = (
+                    getattr(event, "message_str", None) or event.get_message_str()
+                )
+                if self._command_filter.is_command_text(message_text):
+                    logger.debug(
+                        f"[LLM Hook] 命令消息直接放行，跳过上下文注入: "
+                        f"{str(message_text)[:80]}"
+                    )
+                    return
 
             if not self._diversity_manager:
                 logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")

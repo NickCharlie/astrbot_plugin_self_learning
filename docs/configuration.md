@@ -149,12 +149,19 @@ PostgreSQL 支持 `postgresql_schema`，非 `public` 时会自动创建 schema �
 | `rerank_min_candidates` | `3` | 候选数低于该值跳过 rerank |
 | `knowledge_engine` | `legacy` | `legacy` 或 `lightrag` |
 | `lightrag_query_mode` | `local` | LightRAG 查询模式 |
+| `lightrag_enable_llm_cache` | `false` | LightRAG 缓存 LLM 响应（实体抽取与查询）。缓存文件无上限且拖慢冷加载，聊天场景重复率低，默认关闭；开启后可用 `/clean_rag_cache` 清理 |
 | `memory_engine` | `legacy` | `legacy` 或 `mem0` |
 
 成本提示: 当 `knowledge_engine="lightrag"` 且 `lightrag_query_mode` 为
 `hybrid` 或 `mix` 时，如果同时允许 `delegate_memory_to_livingmemory`，
 LivingMemory 已加载后会叠加 LightRAG 全局/混合检索与记忆检索，可能明显增加
 LLM 调用和 token 消耗。优先建议使用 `local`/`naive`，或只保留一种记忆/检索策略。
+
+`lightrag_enable_llm_cache` 关闭时（默认），插件会在启动与各群实例创建时自动
+删除残留的 `kv_store_llm_response_cache.json`（纯缓存数据，不影响图谱/向量）；
+也可随时用管理员命令 `/clean_rag_cache` 手动清理。若开启缓存导致该文件增长过
+大引发冷加载变慢与 LLM Hook 超时，可关闭该开关后重启，或适当调大
+`llm_hook_context_timeout` 作为缓解。
 
 只有 `knowledge_engine != "legacy"` 或 `memory_engine != "legacy"` 时才创建 `V2LearningIntegration`。
 

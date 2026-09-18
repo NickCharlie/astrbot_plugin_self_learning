@@ -14,6 +14,7 @@ class CommandFilter:
         "affection_status",
         "set_mood",
         "remember",
+        "clean_rag_cache",
     ]
 
     def is_astrbot_command(self, event: Any) -> bool:
@@ -29,8 +30,16 @@ class CommandFilter:
         if self.is_plugin_command(message_text):
             return True
 
+        return self.is_command_text(message_text)
+
+    @staticmethod
+    def is_command_text(message_text: Any) -> bool:
+        """判断纯文本是否为命令格式（系统级命令前缀 + 命令词）"""
+        if not message_text:
+            return False
+
         command_prefixes = ["/", "!", "#", "."]
-        stripped_text = message_text.strip()
+        stripped_text = str(message_text).strip()
         if stripped_text and stripped_text[0] in command_prefixes:
             if len(stripped_text) > 1 and stripped_text[1].isalpha():
                 return True

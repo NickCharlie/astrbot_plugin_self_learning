@@ -22,6 +22,7 @@ Design notes:
 
 import asyncio
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -43,6 +44,13 @@ except ImportError:
     LightRAG = None # type: ignore[assignment,misc]
     QueryParam = None # type: ignore[assignment,misc]
     EmbeddingFunc = None # type: ignore[assignment,misc]
+
+# Filename of the LightRAG LLM response cache KV store (JsonKVStorage).
+LLM_RESPONSE_CACHE_FILENAME = "kv_store_llm_response_cache.json"
+
+# Group ids are numeric platform ids (optionally with provider prefixes);
+# anything else must never reach filesystem paths.
+SAFE_GROUP_ID_PATTERN = re.compile(r"^[A-Za-z0-9_\-:]{1,64}$")
 
 
 class LightRAGKnowledgeManager:
@@ -105,6 +113,18 @@ class LightRAGKnowledgeManager:
     async def start(self) -> bool:
         """Start the knowledge manager service."""
         self._status = ServiceLifecycle.RUNNING
+
+        # With the LLM response cache disabled, drop stale cache files left
+        # over from previous runs: JsonKVStorage always loads the file on
+        # initialization, so a multi-hundred-MB leftover would slow down every
+        # cold start even when nothing reads from it.
+        freed = self._sweep_stale_cache_files()
+        if freed:
+            logger.info(
+                f"[LightRAG] LLM response cache disabled; removed stale cache "
+                f"file(s) totalling {freed / 1024 / 1024:.1f} MB"
+            )
+
         logger.info("[LightRAG] Knowledge manager started")
         return True
 
@@ -331,6 +351,144 @@ class LightRAGKnowledgeManager:
 
     # Internal helpers
 
+    def _llm_cache_enabled(self) -> bool:
+        """Whether LightRAG should cache LLM responses (default: off).
+
+        Natural-language chat queries rarely repeat, so the unbounded
+        ``llm_response_cache`` grew to hundreds of MB per group and slowed
+        every cold start; the cache therefore stays opt-in.
+        """
+        return bool(getattr(self._config, "lightrag_enable_llm_cache", False))
+
+    def _remove_stale_cache_file(self, working_dir: str) -> int:
+        """Delete a leftover ``kv_store_llm_response_cache.json`` if present.
+
+        Safe only while no live LightRAG instance owns *working_dir* (a warm
+        instance would re-persist its in-memory copy on finalize). Returns
+        the size in bytes of the removed file, or 0 when nothing was removed.
+        """
+        # Defense in depth: refuse to operate outside the LightRAG base dir,
+        # even if a caller smuggles in ``..`` or absolute path components.
+        base_real = os.path.realpath(self._base_dir)
+        dir_real = os.path.realpath(working_dir)
+        if dir_real != base_real and not dir_real.startswith(
+            base_real + os.sep
+        ):
+            logger.warning(
+                f"[LightRAG] Refusing cache cleanup outside base dir: "
+                f"{working_dir}"
+            )
+            return 0
+
+        cache_file = os.path.join(dir_real, LLM_RESPONSE_CACHE_FILENAME)
+        try:
+            if not os.path.isfile(cache_file):
+                return 0
+            size = os.path.getsize(cache_file)
+            os.remove(cache_file)
+            return size
+        except OSError as exc:
+            logger.warning(f"[LightRAG] Could not remove LLM cache file: {exc}")
+            return 0
+
+    def _sweep_stale_cache_files(self) -> int:
+        """Remove stale LLM cache files across all groups (cache disabled)."""
+        if self._llm_cache_enabled():
+            return 0
+        freed_total = 0
+        try:
+            group_dirs = [
+                os.path.join(self._base_dir, name)
+                for name in os.listdir(self._base_dir)
+                if os.path.isdir(os.path.join(self._base_dir, name))
+            ]
+        except OSError:
+            return 0
+        for working_dir in group_dirs:
+            freed_total += self._remove_stale_cache_file(working_dir)
+        return freed_total
+
+    async def clear_llm_response_cache(
+        self, group_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Clear the LLM response cache, optionally for specific groups.
+
+        Warm instances go through ``LightRAG.aclear_cache`` so the in-memory
+        KV store stays consistent; cold groups have the cache file removed
+        directly (JsonKVStorage loads a missing file as empty). Each group is
+        serialised through the same per-group init lock used by ``_get_rag``
+        so a concurrent initialisation can never resurrect a cleared cache.
+
+        Returns:
+            Dict with ``cleared`` group ids, ``freed_bytes`` and ``errors``.
+        """
+        try:
+            group_names = [
+                name
+                for name in os.listdir(self._base_dir)
+                if os.path.isdir(os.path.join(self._base_dir, name))
+            ]
+        except OSError:
+            group_names = []
+
+        errors: List[str] = []
+        if group_ids:
+            wanted: List[str] = []
+            for group_id in group_ids:
+                if not SAFE_GROUP_ID_PATTERN.match(str(group_id)):
+                    errors.append(f"{group_id}: 非法群号，已跳过")
+                    continue
+                if str(group_id) not in wanted:
+                    wanted.append(str(group_id))
+            group_names = [name for name in group_names if name in wanted]
+            for group_id in wanted:
+                if group_id not in group_names:
+                    group_names.append(group_id)
+
+        cleared: List[str] = []
+        freed_total = 0
+
+        for group_id in group_names:
+            if group_id not in self._init_locks:
+                self._init_locks[group_id] = asyncio.Lock()
+
+            # Serialise with _get_rag: after acquiring the lock the warm/cold
+            # decision is re-checked, so an instance created concurrently is
+            # cleared via its API instead of racing a file delete.
+            async with self._init_locks[group_id]:
+                working_dir = os.path.join(self._base_dir, group_id)
+                cache_file = os.path.join(
+                    working_dir, LLM_RESPONSE_CACHE_FILENAME
+                )
+                try:
+                    size_before = (
+                        os.path.getsize(cache_file)
+                        if os.path.isfile(cache_file)
+                        else 0
+                    )
+                    rag = self._instances.get(group_id)
+                    if rag is not None:
+                        await rag.aclear_cache()
+                    else:
+                        self._remove_stale_cache_file(working_dir)
+                    size_after = (
+                        os.path.getsize(cache_file)
+                        if os.path.isfile(cache_file)
+                        else 0
+                    )
+                    freed = max(size_before - size_after, 0)
+                    if size_before or size_after:
+                        cleared.append(group_id)
+                        freed_total += freed
+                except Exception as exc:
+                    errors.append(f"{group_id}: {exc}")
+
+        return {
+            "cleared": cleared,
+            "freed_bytes": freed_total,
+            "errors": errors,
+        }
+
     async def _get_rag(self, group_id: str) -> LightRAG:
         """Return the LightRAG instance for *group_id*, creating if needed.
 
@@ -360,6 +518,18 @@ class LightRAGKnowledgeManager:
                 "chunk_overlap_token_size": 100,
                 "entity_extract_max_gleaning": 1,
             }
+
+            # LLM response cache opt-in (default off): without it, lightrag's
+            # kv_store_llm_response_cache.json grows without bound and slows
+            # every cold load (issue #253).
+            enable_cache = self._llm_cache_enabled()
+            rag_kwargs["enable_llm_cache"] = enable_cache
+            rag_kwargs["enable_llm_cache_for_entity_extract"] = enable_cache
+            if not enable_cache:
+                # No live instance owns this dir here (guarded by the init
+                # lock), so removing a leftover cache file is safe and keeps
+                # cold starts fast.
+                self._remove_stale_cache_file(working_dir)
 
             # Attach embedding function -- required for vector storage.
             if not self._embedding:

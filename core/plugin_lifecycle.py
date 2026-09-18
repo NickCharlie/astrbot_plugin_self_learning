@@ -267,6 +267,7 @@ class PluginLifecycle:
                 db_manager=p.db_manager,
                 llm_adapter=p.llm_adapter,
                 remember_service=p.remember_service,
+                v2_integration=getattr(p, "v2_integration", None),
             )
             p._command_filter = CommandFilter()
 

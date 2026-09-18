@@ -183,6 +183,7 @@ class PluginConfig(BaseModel):
     # v2 Architecture: Knowledge engine
     knowledge_engine: str = "legacy" # "lightrag" | "legacy"
     lightrag_query_mode: str = "local" # "naive" | "local" | "global" | "hybrid" | "mix"
+    lightrag_enable_llm_cache: bool = False # LightRAG 缓存 LLM 响应；默认关闭避免 kv_store_llm_response_cache.json 无上限增长
 
     # v2 Architecture: Memory engine
     memory_engine: str = "legacy" # "mem0" | "legacy"
@@ -242,6 +243,7 @@ class PluginConfig(BaseModel):
     service_stop_timeout: int = 5        # 单个服务停止超时
     enable_llm_hooks: bool = False       # 启用 LLM Hook 上下文注入，默认关闭以避免高频调用
     llm_hook_context_timeout: float = 3.0  # LLM Hook 单个上下文源超时（秒）
+    enable_command_pass_through: bool = True # 命令消息直接放行：跳过 LLM Hook 上下文注入，保证命令响应速度
 
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
@@ -485,6 +487,9 @@ class PluginConfig(BaseModel):
             ),
             knowledge_engine=v2_settings.get('knowledge_engine', 'legacy'),
             lightrag_query_mode=v2_settings.get('lightrag_query_mode', 'local'),
+            lightrag_enable_llm_cache=v2_settings.get(
+                'lightrag_enable_llm_cache', False
+            ),
             memory_engine=v2_settings.get('memory_engine', 'legacy'),
 
             # 功能融合设置
@@ -602,6 +607,9 @@ class PluginConfig(BaseModel):
             service_stop_timeout=runtime_internal_settings.get('service_stop_timeout', 5),
             enable_llm_hooks=runtime_internal_settings.get('enable_llm_hooks', False),
             llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
+            enable_command_pass_through=runtime_internal_settings.get(
+                'enable_command_pass_through', True
+            ),
             llm_hook_injection_target=runtime_internal_settings.get(
                 'llm_hook_injection_target',
                 CACHE_FRIENDLY_LLM_HOOK_TARGET,

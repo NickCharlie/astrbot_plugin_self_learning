@@ -2,6 +2,28 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.2.2] - 2026-09-18
+
+### 命令消息直接放行（issue #254）
+
+- 新增 `enable_command_pass_through` 开关（默认开启）：以系统级命令前缀（`/` `!` `#` `.` 等）开头的命令消息会跳过 LLM Hook 上下文注入直接处理，避免功能命令（如其他插件的管理/工具命令）的响应被上下文拉取拉长。
+- 命令识别逻辑抽为 `CommandFilter.is_command_text`，与消息收集路径的命令过滤保持同一前缀约定。
+
+### LightRAG LLM 响应缓存治理（issue #253）
+
+- 修复 `kv_store_llm_response_cache.json` 无上限增长（长期运行单群可达 500MB+，冷加载 5~7 秒并触发 LLM Hook 批量超时）：插件构造 LightRAG 时显式关闭 `enable_llm_cache` 与 `enable_llm_cache_for_entity_extract`，可通过新增配置 `lightrag_enable_llm_cache`（默认关闭）开启。
+- 缓存关闭时自动清理历史残留：知识管理器启动时与每个群实例创建前会删除旧的 `kv_store_llm_response_cache.json`（该文件为纯缓存，删除后 JsonKVStorage 以空缓存加载，不影响图谱与向量数据）。
+- 新增管理员命令 `/clean_rag_cache`：手动清理全部（或指定）群的 LLM 响应缓存，热实例走 LightRAG `aclear_cache` API，冷群直接移除缓存文件，并报告释放空间。
+
+### 审查修复
+
+- `/clean_rag_cache` 的群号参数按安全格式校验（仅接受字母/数字/下划线/连字符/冒号，拒绝路径穿越）；缓存文件删除前校验目标路径始终位于 LightRAG 数据目录内。
+- 缓存清理与群实例初始化共用同一把 per-group 锁并在锁内重新判定冷/热，消除并发初始化时"刚清理的缓存被新实例复活"的竞态。
+
+### 版本
+
+- 版本号由 4.2.1 提升至 **4.2.2**。
+
 ## [4.2.1] - 2026-09-12
 
 ### LivingMemory 2.7 适配
