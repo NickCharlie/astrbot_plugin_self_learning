@@ -295,7 +295,11 @@ class PluginCommandHandlers:
     # clean_rag_cache
 
     async def clean_rag_cache(self, event: Any) -> AsyncGenerator:
-        """清理 LightRAG LLM 响应缓存（issue #253 维护入口）"""
+        """清理 LightRAG LLM 响应缓存（issue #253 维护入口）
+
+        用法：``/clean_rag_cache`` 清理全部群；``/clean_rag_cache 12345`` 或
+        空格/逗号分隔的多个群号只清理指定群。
+        """
         try:
             knowledge_manager = getattr(
                 self._v2_integration, "_knowledge_manager", None
@@ -306,13 +310,28 @@ class PluginCommandHandlers:
                 )
                 return
 
+            payload = self._extract_command_payload(event, "clean_rag_cache")
+            group_ids = [
+                group_id
+                for group_id in payload.replace(",", " ").split()
+                if group_id
+            ]
+
             yield event.plain_result("正在清理 LightRAG LLM 响应缓存...")
-            result = await knowledge_manager.clear_llm_response_cache()
+            result = await knowledge_manager.clear_llm_response_cache(
+                group_ids=group_ids or None
+            )
 
             freed_mb = result.get("freed_bytes", 0) / 1024 / 1024
             cleared = result.get("cleared", []) or []
             errors = result.get("errors", []) or []
-            lines = [f"清理完成：{len(cleared)} 个群，释放 {freed_mb:.1f} MB"]
+            if group_ids:
+                lines = [
+                    f"清理完成：指定 {len(group_ids)} 个群，"
+                    f"涉及 {len(cleared)} 个群，释放 {freed_mb:.1f} MB"
+                ]
+            else:
+                lines = [f"清理完成：{len(cleared)} 个群，释放 {freed_mb:.1f} MB"]
             if cleared:
                 lines.append("涉及群组: " + ", ".join(str(g) for g in cleared))
             for error in errors:

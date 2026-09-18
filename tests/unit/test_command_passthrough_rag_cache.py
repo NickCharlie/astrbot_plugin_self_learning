@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from self_learning_EterU.services.commands.command_filter import CommandFilter
+from self_learning_EterU.services.commands.handlers import PluginCommandHandlers
 from self_learning_EterU.services.hooks.llm_hook_handler import LLMHookHandler
 from self_learning_EterU.services.integration import lightrag_knowledge_manager as lkm
 
@@ -237,3 +238,89 @@ async def test_get_rag_disables_llm_cache_by_default(tmp_path, monkeypatch):
     assert captured_kwargs["enable_llm_cache"] is False
     assert captured_kwargs["enable_llm_cache_for_entity_extract"] is False
     assert not stale.exists()
+
+
+# ---------------------------------------------------------------------------
+# /clean_rag_cache 命令
+# ---------------------------------------------------------------------------
+
+
+def _make_command_handler(v2_integration):
+    return PluginCommandHandlers(
+        plugin_config=SimpleNamespace(),
+        service_factory=None,
+        message_collector=None,
+        persona_manager=None,
+        progressive_learning=None,
+        affection_manager=None,
+        temporary_persona_updater=None,
+        db_manager=None,
+        llm_adapter=None,
+        v2_integration=v2_integration,
+    )
+
+
+def _command_event(message_text):
+    return SimpleNamespace(
+        get_message_str=lambda: message_text,
+        plain_result=lambda text: text,
+    )
+
+
+async def _collect(async_gen):
+    return [item async for item in async_gen]
+
+
+@pytest.mark.asyncio
+async def test_clean_rag_cache_parses_group_argument():
+    clear_mock = AsyncMock(
+        return_value={"cleared": ["111"], "freed_bytes": 1024, "errors": []}
+    )
+    handler = _make_command_handler(
+        SimpleNamespace(
+            _knowledge_manager=SimpleNamespace(
+                clear_llm_response_cache=clear_mock
+            )
+        )
+    )
+
+    replies = await _collect(
+        handler.clean_rag_cache(_command_event("/clean_rag_cache 111"))
+    )
+
+    clear_mock.assert_awaited_once_with(group_ids=["111"])
+    assert any("清理完成" in reply for reply in replies)
+
+
+@pytest.mark.asyncio
+async def test_clean_rag_cache_without_argument_clears_all_groups():
+    clear_mock = AsyncMock(
+        return_value={"cleared": ["111", "222"], "freed_bytes": 2048, "errors": []}
+    )
+    handler = _make_command_handler(
+        SimpleNamespace(
+            _knowledge_manager=SimpleNamespace(
+                clear_llm_response_cache=clear_mock
+            )
+        )
+    )
+
+    replies = await _collect(
+        handler.clean_rag_cache(_command_event("/clean_rag_cache"))
+    )
+
+    clear_mock.assert_awaited_once_with(group_ids=None)
+    assert any("111" in reply and "222" in reply for reply in replies)
+
+
+@pytest.mark.asyncio
+async def test_clean_rag_cache_reports_non_lightrag_engine():
+    handler = _make_command_handler(
+        SimpleNamespace(_knowledge_manager=None)
+    )
+
+    replies = await _collect(
+        handler.clean_rag_cache(_command_event("/clean_rag_cache"))
+    )
+
+    assert any("不是 lightrag" in reply for reply in replies)
