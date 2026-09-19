@@ -112,7 +112,77 @@ class ExpressionPatternLearner:
         user_id: Optional[str] = None,
     ) -> str:
         return f"{group_id}:{persona_id}:{user_id or 'group-level'}"
-    
+
+    @staticmethod
+    def _msg_sender_id(msg: Any) -> str:
+        if hasattr(msg, "sender_id"):
+            return str(getattr(msg, "sender_id", "") or "")
+        if isinstance(msg, dict):
+            return str(msg.get("sender_id", "") or "")
+        return ""
+
+    @staticmethod
+    def _msg_timestamp(msg: Any) -> float:
+        value = (
+            getattr(msg, "timestamp", 0)
+            if hasattr(msg, "timestamp")
+            else msg.get("timestamp", 0) if isinstance(msg, dict) else 0
+        )
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    async def _merge_bot_messages_for_group(
+        self, group_id: str, messages: List[Any]
+    ) -> List[Any]:
+        """将数据库中的 Bot 回复按时间线合并进用户消息，供 few-shot 对话对提取。
+
+        实时学习链路已在调用前合并过 bot 消息（消息中已含 sender_id=='bot'），
+        此时直接返回避免重复查询；批量/审批链路传入的原始消息只有用户发言，
+        必须合并 bot 回复才能提取到 用户→bot 对话对（否则学习结果恒为空，
+        即 issue #257 日志中的“未获得有效结果”）。
+        """
+        if not messages or not self.db_manager:
+            return messages
+        if any(self._msg_sender_id(m) == "bot" for m in messages):
+            return messages
+        try:
+            from sqlalchemy import desc, select
+
+            from ...models.orm.message import BotMessage
+            from ..learning.sample_filter import should_ignore_learning_sample
+
+            async with self.db_manager.get_session() as session:
+                stmt = (
+                    select(BotMessage)
+                    .where(BotMessage.group_id == group_id)
+                    .order_by(desc(BotMessage.timestamp))
+                    .limit(max(len(messages), 25))
+                )
+                result = await session.execute(stmt)
+                bot_msgs: List[Dict[str, Any]] = []
+                for row in result.scalars().all():
+                    if should_ignore_learning_sample(
+                        row.message, sender_id="bot", is_bot=True
+                    ):
+                        continue
+                    bot_msgs.append(
+                        {
+                            "sender_id": "bot",
+                            "message": row.message,
+                            "timestamp": float(row.timestamp),
+                        }
+                    )
+            if not bot_msgs:
+                return messages
+            merged = list(messages) + bot_msgs
+            merged.sort(key=self._msg_timestamp)
+            return merged
+        except Exception as exc:
+            logger.debug(f"合并 Bot 回复失败，使用原始消息继续: {exc}")
+            return messages
+
     @classmethod
     def get_instance(cls, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None) -> 'ExpressionPatternLearner':
         """获取单例实例，支持延迟初始化"""
@@ -184,6 +254,12 @@ class ExpressionPatternLearner:
             return False
         
         try:
+            # 先合并数据库中已存储的 Bot 回复，才能提取到 用户→bot 对话对（修复批量链路恒为空）
+            recent_messages = await self._merge_bot_messages_for_group(
+                group_id, recent_messages
+            )
+            if len(recent_messages) < 3:
+                return False
             persona_id = normalize_persona_scope(persona_id)
             user_scope = self._normalize_user_scope(user_id)
             learning_scope = self._expression_scope_key(group_id, persona_id, user_scope)
