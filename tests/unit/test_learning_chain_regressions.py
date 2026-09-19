@@ -2558,3 +2558,65 @@ async def test_expression_learning_merge_skipped_when_bot_present_or_no_db():
         await learner._merge_bot_messages_for_group("g", already_merged)
         is already_merged
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_merge_bot_replies_bounds_to_message_time_window(tmp_path):
+    """回归审查意见：合并只取与这批用户消息时间窗口重叠的 Bot 回复，避免跨窗口误配对。"""
+    from self_learning_EterU.models.orm.message import BotMessage
+
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+    try:
+        assert await db.start() is True
+        now = time.time()
+        base = int(now)
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    BotMessage(
+                        group_id="group-a",
+                        message="窗口内的有效机器人回复",
+                        timestamp=base + 2,
+                        created_at=base,
+                    ),
+                    BotMessage(
+                        group_id="group-a",
+                        message="窗口外很晚的无关机器人回复",
+                        timestamp=base + 99999,
+                        created_at=base,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+        learner.config = config
+
+        user_messages = [
+            {
+                "sender_id": f"user-{idx}",
+                "sender_name": f"User {idx}",
+                "message": f"这是用户第{idx}条足够长的学习消息",
+                "timestamp": now + idx,
+                "group_id": "group-a",
+            }
+            for idx in range(1, 6)
+        ]
+
+        merged = await learner._merge_bot_messages_for_group("group-a", user_messages)
+        bot_texts = [
+            m.get("message")
+            for m in merged
+            if isinstance(m, dict) and m.get("sender_id") == "bot"
+        ]
+        assert "窗口内的有效机器人回复" in bot_texts
+        assert "窗口外很晚的无关机器人回复" not in bot_texts
+    finally:
+        await db.stop()

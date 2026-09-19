@@ -133,6 +133,14 @@ class ExpressionPatternLearner:
         except (TypeError, ValueError):
             return 0.0
 
+    @staticmethod
+    def _msg_content(msg: Any) -> str:
+        if hasattr(msg, "message"):
+            return str(getattr(msg, "message", "") or "")
+        if isinstance(msg, dict):
+            return str(msg.get("message", "") or "")
+        return ""
+
     async def _merge_bot_messages_for_group(
         self, group_id: str, messages: List[Any]
     ) -> List[Any]:
@@ -142,23 +150,46 @@ class ExpressionPatternLearner:
         此时直接返回避免重复查询；批量/审批链路传入的原始消息只有用户发言，
         必须合并 bot 回复才能提取到 用户→bot 对话对（否则学习结果恒为空，
         即 issue #257 日志中的“未获得有效结果”）。
+
+        为避免跨窗口误配对：只取与这批用户消息时间窗口（末条向后一个宽容窗口）
+        重叠的 Bot 回复；为避免“先 limit 后过滤”将有效回复滤空：先多取候选再在
+        内存过滤并截断到与用户消息相当的数量。
         """
         if not messages or not self.db_manager:
             return messages
         if any(self._msg_sender_id(m) == "bot" for m in messages):
             return messages
         try:
-            from sqlalchemy import desc, select
+            from sqlalchemy import select
 
             from ...models.orm.message import BotMessage
             from ..learning.sample_filter import should_ignore_learning_sample
 
+            user_ts = [
+                self._msg_timestamp(m)
+                for m in messages
+                if self._msg_content(m)
+            ]
+            user_ts = [t for t in user_ts if t > 0]
+            if not user_ts:
+                return messages
+
+            forward_window_seconds = 3600.0
+            t_lo = min(user_ts)
+            t_hi = max(user_ts) + forward_window_seconds
+            # 先多取候选，再过滤/截断，避免被 ignore 样本占满 limit 导致有效回复被漏掉
+            fetch_limit = max(len(messages) * 3, 60)
+
             async with self.db_manager.get_session() as session:
                 stmt = (
                     select(BotMessage)
-                    .where(BotMessage.group_id == group_id)
-                    .order_by(desc(BotMessage.timestamp))
-                    .limit(max(len(messages), 25))
+                    .where(
+                        BotMessage.group_id == group_id,
+                        BotMessage.timestamp >= t_lo,
+                        BotMessage.timestamp <= t_hi,
+                    )
+                    .order_by(BotMessage.timestamp.asc())
+                    .limit(fetch_limit)
                 )
                 result = await session.execute(stmt)
                 bot_msgs: List[Dict[str, Any]] = []
@@ -174,6 +205,8 @@ class ExpressionPatternLearner:
                             "timestamp": float(row.timestamp),
                         }
                     )
+                    if len(bot_msgs) >= len(messages):
+                        break
             if not bot_msgs:
                 return messages
             merged = list(messages) + bot_msgs
