@@ -2,6 +2,19 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.2.4] - 2026-09-19
+
+### 修复：表达模式学习按群组/人格隔离降级为 default（issue #257）
+
+- 修复 `services/persona/persona_updater.py` 的 `_update_style_based_features_with_maibot`：该方法从 `current_persona` 上 `.get('group_id', 'default')` 取群组 ID，但 `current_persona` 是框架规范化后的人格对象，本身不含 `group_id` 字段，导致表达模式学习始终降级到 `group="default" / persona="default"`，真实群组学不到任何新模式、「按群组/按人格隔离学习」实际失效。
+- 调用方 `update_persona_with_style(group_id, ...)` 现显式向该方法透传真实 `group_id` 与 `persona_id`（人格标识），`trigger_learning_for_group` 同步带上 `persona_id`；记忆图谱与知识图谱节点改用解析后的真实 `group_id`。
+- 仅在调用方未传参时才回退到旧行为，保证向后兼容。
+- 新增回归测试 `tests/unit/test_learning_chain_regressions.py`：覆盖调用方透传与方法内不再降级为 default 两个环节。
+
+### 版本
+
+- 版本号由 4.2.3 提升至 **4.2.4**。
+
 ## [4.2.3] - 2026-09-18
 
 ### 黑话联网释义补充（低提及防空缺）
