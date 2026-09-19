@@ -2,13 +2,18 @@
 
 所有重要更改都将记录在此文件中。
 
-## [Unreleased]
+## [4.2.5] - 2026-09-19
 
 ### 修复（表达模式学习链路隐患，延续 issue #257）
 
 - 批量/审批链路的表达模式学习以前只拿到用户原始消息（`filtered_messages` 来自 `get_unprocessed_messages`，不含 bot 回复），而 `_extract_few_shot_pairs` 需要「用户→bot」相邻对话对，导致恒学习不到任何模式（issue #257 日志中的“未获得有效结果”）。现将合并数据库中 `BotMessage` 回复的逻辑下沉到 `ExpressionPatternLearner.trigger_learning_for_group`：仅在传入消息不含 bot 时按时间线自动合并，实时链路（已预合并）行为不变。
 - 修正 `PersonaUpdater.analyze_persona_compatibility` 调用 `get_current_persona()` 未传必填 `group_id` 导致的潜在 `TypeError`（改为接受并透传 `group_id`）。
 - 新增回归测试：以真实 sqlite 验证批量链路合并 bot 回复后能学到模式，并验证已含 bot / 无 db 时不重复查询。
+- 响应评审加固：合并查询限定在这批用户消息的时间窗口（末条向后 1 小时宽容窗口）内，避免与无关/更晚的 bot 回复误配对；改为先多取候选（≥ 60）再在内存过滤并截断，避免被 ignore 样本占满 limit 导致有效回复被漏。
+
+### 版本
+
+- 版本号由 4.2.4 提升至 **4.2.5**。
 
 ## [4.2.4] - 2026-09-19
 
