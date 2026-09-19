@@ -16,7 +16,11 @@ from .persona_manager_updater import PersonaManagerUpdater
 
 from ...exceptions import PersonaUpdateError, SelfLearningError # 导入 PersonaUpdateError
 from ..database import DatabaseManager # 导入 DatabaseManager
-from ...utils.persona_selection import get_persona_identifier, resolve_target_persona
+from ...utils.persona_selection import (
+    get_persona_identifier,
+    normalize_persona_scope,
+    resolve_target_persona,
+)
 
 # MaiBot功能模块导入 - 结合MaiBot的学习功能
 from ..analysis import ExpressionPatternLearner
@@ -147,7 +151,15 @@ class PersonaUpdater(IPersonaUpdater):
 
             # 3. 更新对话风格特征（使用MaiBot的表达模式学习而不是直接保存对话）
             if filtered_messages:
-                await self._update_style_based_features_with_maibot(current_persona, style_analysis, filtered_messages)
+                # 显式传递真实的 group_id 与 persona_id，避免在表达模式学习环节
+                # 因 current_persona 不含 group_id 字段而降级为 "default"（修复 issue #257）
+                await self._update_style_based_features_with_maibot(
+                    current_persona,
+                    style_analysis,
+                    filtered_messages,
+                    group_id=group_id,
+                    persona_id=persona_name,
+                )
             
             # 更新其他风格属性
             if 'style_attributes' in style_analysis: # 从 style_analysis 中获取 style_attributes
@@ -598,36 +610,59 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             self._logger.error(f"应用风格属性失败: {e}")
     
-    async def _update_style_based_features_with_maibot(self, current_persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]):
-        """使用MaiBot功能更新风格相关特征"""
+    async def _update_style_based_features_with_maibot(self, current_persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData], group_id: Optional[str] = None, persona_id: Optional[str] = None):
+        """使用MaiBot功能更新风格相关特征
+
+        Args:
+            current_persona: 框架人格对象（Personality/字典），本身不含 group_id 字段
+            style_analysis: 风格分析结果
+            filtered_messages: 过滤后的消息列表
+            group_id: 调用方传入的真实群组ID，用于按群组隔离学习
+            persona_id: 调用方传入的真实人格/ Bot 隔离标识，用于按人格隔离学习
+        """
         try:
             self._logger.info("开始使用MaiBot功能更新风格特征")
 
+            # 解析真实的 group_id / persona_id：current_persona 是框架人格对象，
+            # 不含 group_id，必须优先使用调用方传入的值，否则学习会全部降级到
+            # group "default" / persona "default"，导致按群组/人格隔离学习失效。
+            resolved_group_id = (
+                group_id
+                or (current_persona.get('group_id') if isinstance(current_persona, dict) else None)
+                or 'default'
+            )
+            resolved_persona_id = normalize_persona_scope(
+                persona_id
+                or (current_persona.get('persona_id') if isinstance(current_persona, dict) else None)
+                or get_persona_identifier(current_persona, 'default')
+            )
+
             # 1. 使用表达模式学习器分析消息并保存
             if hasattr(self, 'expression_learner') and self.expression_learner:
-                group_id = current_persona.get('group_id', 'default')
-
                 # 使用trigger_learning_for_group以确保保存到数据库
-                learning_success = await self.expression_learner.trigger_learning_for_group(group_id, filtered_messages)
+                learning_success = await self.expression_learner.trigger_learning_for_group(
+                    resolved_group_id,
+                    filtered_messages,
+                    persona_id=resolved_persona_id,
+                )
 
                 if learning_success:
-                    self._logger.info(f"表达模式学习成功并已保存到数据库 for group {group_id}")
+                    self._logger.info(f"表达模式学习成功并已保存到数据库 for group {resolved_group_id} / persona {resolved_persona_id}")
                 else:
-                    self._logger.info(f"表达模式学习未触发或没有学到新模式 for group {group_id}")
+                    self._logger.info(f"表达模式学习未触发或没有学到新模式 for group {resolved_group_id} / persona {resolved_persona_id}")
 
             # 2. 更新记忆图谱
             if self._memory_delegated_to_external_plugin():
                 self._logger.debug("记忆已委托给 LivingMemory，跳过本地记忆图谱更新")
             elif hasattr(self, 'memory_graph_manager') and self.memory_graph_manager:
-                group_id = current_persona.get('group_id', 'default') if isinstance(current_persona, dict) else 'default'
                 for msg in filtered_messages:
-                    await self.memory_graph_manager.add_memory_from_message(msg, group_id)
+                    await self.memory_graph_manager.add_memory_from_message(msg, resolved_group_id)
                 self._logger.info(f"向记忆图谱添加了 {len(filtered_messages)} 个风格记忆节点")
 
             # 3. 更新知识图谱
             if hasattr(self, 'knowledge_graph_manager') and self.knowledge_graph_manager:
                 style_entity = {
-                    'entity_id': f"style_{current_persona.get('group_id', 'default')}_{int(time.time())}",
+                    'entity_id': f"style_{resolved_group_id}_{int(time.time())}",
                     'entity_type': 'communication_style',
                     'properties': style_analysis.get('style_attributes', {}),
                     'context': '用户交流风格特征'

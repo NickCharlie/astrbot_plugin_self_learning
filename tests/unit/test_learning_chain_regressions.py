@@ -2411,3 +2411,69 @@ async def test_jargon_miner_new_candidate_stays_pending_when_using_facade_upsert
     _, _, payload = db.save_or_update_jargon.await_args.args
     assert payload["is_jargon"] is None
     assert payload["is_complete"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_persona_style_learning_forwards_real_group_and_persona():
+    """回归 issue #257：表达模式学习不得降级为 group/persona 'default'。"""
+    from self_learning_EterU.services.persona.persona_updater import PersonaUpdater
+
+    captured = {}
+
+    async def fake_trigger(group_id, messages, persona_id="default", user_id=None):
+        captured["group_id"] = group_id
+        captured["persona_id"] = persona_id
+        return True
+
+    learner = SimpleNamespace(trigger_learning_for_group=AsyncMock(side_effect=fake_trigger))
+
+    updater = PersonaUpdater.__new__(PersonaUpdater)
+    updater._logger = Mock()
+    updater.expression_learner = learner
+    updater.memory_graph_manager = None
+    updater.knowledge_graph_manager = None
+    # current_persona 是框架人格字典，不含 group_id 字段（复现 issue 描述的对象）
+    current_persona = {"persona_id": "鲸娘", "name": "鲸娘", "prompt": "x" * 10}
+
+    await updater._update_style_based_features_with_maibot(
+        current_persona,
+        {},
+        [{"sender_id": "user-a", "message": "hi"}],
+        group_id="123456789",
+        persona_id="鲸娘",
+    )
+
+    assert captured["group_id"] == "123456789"
+    assert captured["persona_id"] == "鲸娘"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_update_persona_with_style_forwards_group_and_persona(monkeypatch):
+    """回归 issue #257：调用方必须把真实 group_id/persona 传递给表达学习环节。"""
+    from self_learning_EterU.services.persona import persona_updater as pu_mod
+    from self_learning_EterU.services.persona.persona_updater import PersonaUpdater
+
+    # 桩掉人格解析，返回不含 group_id 的框架人格字典
+    resolved = {"persona_id": "鲸娘", "name": "鲸娘", "prompt": "原始人格"}
+    monkeypatch.setattr(pu_mod, "resolve_target_persona", AsyncMock(return_value=resolved))
+
+    updater = PersonaUpdater.__new__(PersonaUpdater)
+    updater._logger = Mock()
+    updater.config = SimpleNamespace(auto_backup_enabled=False)
+    updater.context = SimpleNamespace(persona_manager=object())
+    updater.backup_manager = SimpleNamespace(create_backup_before_update=AsyncMock())
+    updater.format_persona_update_report = AsyncMock(return_value="report")
+    updater._update_style_based_features_with_maibot = AsyncMock(return_value=True)
+
+    ok = await updater.update_persona_with_style(
+        "123456789",
+        {},
+        [{"sender_id": "user-a", "message": "hi"}],
+    )
+
+    assert ok is True
+    kwargs = updater._update_style_based_features_with_maibot.await_args.kwargs
+    assert kwargs["group_id"] == "123456789"
+    assert kwargs["persona_id"] == "鲸娘"
