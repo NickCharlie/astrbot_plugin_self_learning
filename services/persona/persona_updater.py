@@ -710,10 +710,15 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             return f"提取失败: {str(e)}"
     
-    async def analyze_persona_compatibility(self, target_style: Dict[str, Any]) -> AnalysisResult:
-        """分析目标风格与当前人格的兼容性"""
+    async def analyze_persona_compatibility(self, target_style: Dict[str, Any], group_id: str = "default") -> AnalysisResult:
+        """分析目标风格与当前人格的兼容性
+
+        Args:
+            target_style: 目标风格
+            group_id: 目标群组ID，用于解析该群组当前人格（缺失会误将 group_id 当作位置参数遗漏）
+        """
         try:
-            current_persona = await self.get_current_persona()
+            current_persona = await self.get_current_persona(group_id)
             if not current_persona:
                 return AnalysisResult(
                     success=False,

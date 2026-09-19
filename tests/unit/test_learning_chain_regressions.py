@@ -2477,3 +2477,146 @@ async def test_update_persona_with_style_forwards_group_and_persona(monkeypatch)
     kwargs = updater._update_style_based_features_with_maibot.await_args.kwargs
     assert kwargs["group_id"] == "123456789"
     assert kwargs["persona_id"] == "鲸娘"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_learning_merges_stored_bot_replies_for_batch(tmp_path):
+    """回归 issue #257：批量/审批链路只传用户消息时，应合并数据库 Bot 回复后才能学到模式。"""
+    from self_learning_EterU.models.orm.message import BotMessage
+
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+    try:
+        assert await db.start() is True
+        now = time.time()
+        base = int(now)
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    BotMessage(
+                        group_id="group-a",
+                        message=f"机器人回复内容第{idx}条确实很离谱",
+                        timestamp=base + idx * 2,
+                        created_at=base,
+                    )
+                    for idx in range(1, 6)
+                ]
+            )
+            await session.commit()
+
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+        learner.config = config
+        learner.last_learning_times = {}
+
+        # 只有用户发言（无 bot），模拟批量/审批链路的 filtered_messages
+        user_messages = [
+            {
+                "sender_id": f"user-{idx}",
+                "sender_name": f"User {idx}",
+                "message": f"这是用户第{idx}条足够长的学习消息内容",
+                "timestamp": now + idx * 2 - 1,
+                "group_id": "group-a",
+            }
+            for idx in range(1, 6)
+        ]
+
+        ok = await learner.trigger_learning_for_group(
+            "group-a", user_messages, persona_id="bot-a"
+        )
+        assert ok is True
+        patterns = await learner.get_expression_patterns("group-a", persona_id="bot-a")
+        assert len(patterns) >= 2
+    finally:
+        await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_expression_learning_merge_skipped_when_bot_present_or_no_db():
+    """实时链路已预先合并 bot 消息，不应重复查询；无 db 时直接返回。"""
+    learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+
+    learner.db_manager = None
+    user_only = [{"sender_id": "user-a", "message": "hi", "timestamp": 1}]
+    assert await learner._merge_bot_messages_for_group("g", user_only) is user_only
+
+    def _boom():
+        raise AssertionError("不应在已含 bot 消息时查询数据库")
+
+    learner.db_manager = SimpleNamespace(get_session=_boom)
+    already_merged = [
+        {"sender_id": "user-a", "message": "hi", "timestamp": 1},
+        {"sender_id": "bot", "message": "yo", "timestamp": 2},
+    ]
+    assert (
+        await learner._merge_bot_messages_for_group("g", already_merged)
+        is already_merged
+    )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_merge_bot_replies_bounds_to_message_time_window(tmp_path):
+    """回归审查意见：合并只取与这批用户消息时间窗口重叠的 Bot 回复，避免跨窗口误配对。"""
+    from self_learning_EterU.models.orm.message import BotMessage
+
+    config = PluginConfig(
+        data_dir=str(tmp_path),
+        db_type="sqlite",
+        enable_web_interface=False,
+    )
+    db = SQLAlchemyDatabaseManager(config)
+    try:
+        assert await db.start() is True
+        now = time.time()
+        base = int(now)
+        async with db.get_session() as session:
+            session.add_all(
+                [
+                    BotMessage(
+                        group_id="group-a",
+                        message="窗口内的有效机器人回复",
+                        timestamp=base + 2,
+                        created_at=base,
+                    ),
+                    BotMessage(
+                        group_id="group-a",
+                        message="窗口外很晚的无关机器人回复",
+                        timestamp=base + 99999,
+                        created_at=base,
+                    ),
+                ]
+            )
+            await session.commit()
+
+        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
+        learner.db_manager = db
+        learner.config = config
+
+        user_messages = [
+            {
+                "sender_id": f"user-{idx}",
+                "sender_name": f"User {idx}",
+                "message": f"这是用户第{idx}条足够长的学习消息",
+                "timestamp": now + idx,
+                "group_id": "group-a",
+            }
+            for idx in range(1, 6)
+        ]
+
+        merged = await learner._merge_bot_messages_for_group("group-a", user_messages)
+        bot_texts = [
+            m.get("message")
+            for m in merged
+            if isinstance(m, dict) and m.get("sender_id") == "bot"
+        ]
+        assert "窗口内的有效机器人回复" in bot_texts
+        assert "窗口外很晚的无关机器人回复" not in bot_texts
+    finally:
+        await db.stop()
