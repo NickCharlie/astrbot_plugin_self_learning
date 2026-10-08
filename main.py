@@ -538,15 +538,6 @@ class SelfLearningPlugin(star.Star):
             return
         async for result in self._command_handlers.force_learning(event):
             yield result
-    @filter.command("remember")
-    @filter.permission_type(filter.PermissionType.ADMIN)
-    async def remember_command(self, event: AstrMessageEvent):
-        """手动记住引用对话及上下文，并链入表达方式和对话示例"""
-        if not self._command_handlers:
-            yield event.plain_result("插件服务未就绪，请检查启动日志")
-            return
-        async for result in self._command_handlers.remember(event):
-            yield result
 
     @filter.command("remember")
     @filter.permission_type(filter.PermissionType.ADMIN)
