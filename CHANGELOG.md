@@ -2,6 +2,36 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.2.9] - 2026-10-16
+
+### 修复：内嵌插件页黑话导入报"未知黑话操作：import_jargons"（issue #269）
+
+- `core/page_api.py` 的 `post_jargon_action` 此前缺少 `import_jargons` 分支：`pages/dashboard` 导入按钮把 `action: "import_jargons"` 发往 `jargon/action`，落入"未知黑话操作"兜底；可用的实现只存在于 `post_reviews_action`（`reviews/action`）。现补齐该分支，`text`/`group_id`/`is_global` 透传 `JargonService.import_jargons`，与审查页行为一致。
+- 存在失败行时按失败应答（`data.success=false`，含部分行失败）：内嵌页导入按钮据 `result.success` 区分成败并保留输入框内容供修正重试（服务对已入库行幂等，原样重提只计入 skipped），不再出现"报错却弹成功提示并清空输入"。
+- 全局导入跨群查重：全局词条可能落在任意 `chat_id` 下（先在某群学习后标记全局），原先仅按 `(chat_id='', content)` 精确查询会漏掉它们造成同一词条重复入库。新增 `JargonFacade.get_global_jargon_by_content`（database_manager 同名委托，含未确认候选），`import_jargons` 在精确查询未命中且 `is_global` 时兜底查询——已确认词条计入 skipped、未确认候选走升级路径；旧版 DB 管理器无此方法时自动跳过兜底。已知限制：查重与插入非原子，与「把既有词条标记全局」的并发写之间仍有 TOCTOU 重复窗口（与黑话挖掘链路一致），彻底消除需跨行 partial unique index 迁移。
+- 新增回归测试 `tests/unit/test_page_api_jargon_import.py`（成功导入 / 失败消息透传 / 部分行失败按失败应答 / 未知 action 仍被拒绝）与服务层跨群查重测试（`tests/unit/test_jargon_import.py`）。
+
+### 兼容：AstrBot v4.29 插件 Pages→Views 改名
+
+- AstrBot v4.29 将插件页面（Pages）更名为视图（Views），Dashboard hash 路由由 `/#/plugin-page/...` 变为 `/#/plugin-view/...`（旧路由保留为 legacy 别名，提交 4b049d1e5、8831d9502）。`utils/framework_compat.py` 新增 `plugin_page_hash_url`：运行时按 AstrBot 版本（≥4.29.0）生成新路由，旧版本回退 legacy 路由；`core/page_api.py` 快捷链接、`main.py` 注册日志与 LivingMemory 官方插件页入口统一走该 helper。
+- 官方插件页目录约定跟随 AstrBot `PLUGIN_PAGE_ROOT_DIR_NAMES`：`_discover_plugin_pages` 经 `utils/framework_compat.plugin_view_dir_names()` 版本门控发现目录（v4.29+ 为 `views/`+`pages/` 合并去重、views 在前；旧版仅 `pages/`，避免向不发现 views 的旧页面服务暴露死链接），多页面时官方页链接优先指向 dashboard；LivingMemory 2.7.0-beta.2 仍用 `pages/`，不受影响。
+- 新增 `tests/unit/test_framework_compat.py` 与集成服务路由门控测试，断言不随本机 AstrBot 版本漂移。
+
+### 适配：伴随插件最新版集成面复核
+
+- **LivingMemory 2.7.0-beta.2** 移除独立 WebUI（`webui_settings` 与端口服务已删，`/lmem webui` 仅输出指引），官方插件页成为唯一面板入口。集成服务保留对旧版本（2.6.x）独立面板的探测（向后兼容），注释同步更新；图谱直读链路（`MemoryEngine.graph_store` / `get_graph_snapshot(session_id, persona_id, limit_*)` 签名与 nodes/edges/entries/memories 快照结构）经逐项核对与 2.7.0-beta.2 完全兼容，无需改动。
+- **Group Chat Plus V1.2.3.hotfix.2** 复核：`enable_web_panel`/`web_panel_host`/`web_panel_port` 属性被上游注释明确冻结（main.py「严禁重命名或删除」），`/panel` 与 dev_api 列出的全部端点仍在；新增的引用消息图片识别（#44、#48）属消息处理内部改动，不触及 self_learning 集成面，无需改动。
+
+### CI：测试环境升级到 AstrBot 最新稳定版
+
+- unit-tests 与 smoke-test 的 astrbot 钉版由 `>=4.14,<4.15`（smoke-test 的 3.14 分支为 `>=4.24,<5`）统一提升到 **`>=4.29,<5`**（PyPI 最新稳定版 4.29.0，与本地开发 venv 一致）。
+- AstrBot ≥4.29 要求 Python ≥3.12：unit-tests 由 3.11 升到 3.12，ci/commit-lint/issue-triage 的 setup-python 同步升到 3.12；smoke-test 矩阵由 3.10–3.14 收敛为 **3.12–3.14**，原先「3.14 需单独装新版 astrbot」的双安装分支随之合并。
+- 全部 workflow 的 `actions/checkout` v4→v7、`actions/setup-python` v5→v7、dashboard-ci 的 `actions/setup-node` v4→v7；`pnpm/action-setup@v4`、Node 22 与 `github/codeql-action@v4` 保持不变（仪表盘产物需与本地 pnpm 构建保持一致，Node/pnpm 工具链不动）。
+
+### 修复：web_src/package.json 版本号漏更
+
+- 4.2.8 的 bump 漏改 `web_src/package.json`（停在 4.2.7），`test_release_versions_are_synchronized` 在 main 上持续失败，但 unit-tests 工作流只在 PR 触发、直接推 main 的 bump 未被 CI 覆盖而未被发现；本 PR 补齐到 4.2.8。该字段不参与 Vite 构建产物，仪表盘产物无需重建。
+
 ## [4.2.8] - 2026-10-08
 
 ### 修复：`main.py` 中 `remember` 命令重复注册（PR #268）

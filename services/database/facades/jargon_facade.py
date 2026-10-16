@@ -83,6 +83,43 @@ class JargonFacade(BaseFacade):
             self._logger.error(f"[JargonFacade] 查询黑话失败: {e}", exc_info=True)
             return None
 
+    # 1b. get_global_jargon_by_content
+    async def get_global_jargon_by_content(self, content: str) -> Optional[Dict[str, Any]]:
+        """跨 chat_id 查询同内容的全局黑话（含未确认候选）
+
+        全局导入查重用：全局词条可能落在任意 chat_id 下（例如先在某群学习后
+        标记为全局），仅按 (chat_id='', content) 精确查询会漏掉它们，造成同
+        一词条重复入库。不过滤 is_jargon——未确认候选交给调用方走升级路径。
+
+        Args:
+            content: 黑话内容
+
+        Returns:
+            首条匹配（按 id 序）的黑话字典或 None
+        """
+        try:
+            async with self.get_session() as session:
+                stmt = (
+                    select(Jargon)
+                    .where(
+                        and_(
+                            Jargon.content == content,
+                            Jargon.is_global.is_(True),
+                        )
+                    )
+                    # 同内容存在多行时优先返回已确认行：导入查重命中已确认行
+                    # 会计入 skipped，而不是把更早的未确认候选升级成第二份
+                    # 已确认词条
+                    .order_by(case((Jargon.is_jargon.is_(True), 0), else_=1), Jargon.id)
+                    .limit(1)
+                )
+                result = await session.execute(stmt)
+                record = result.scalars().first()
+                return record.to_dict() if record else None
+        except Exception as e:
+            self._logger.error(f"[JargonFacade] 查询全局黑话失败: {e}", exc_info=True)
+            return None
+
     # 2. insert_jargon
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
         """插入新的黑话记录

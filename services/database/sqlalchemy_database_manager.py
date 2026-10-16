@@ -968,6 +968,9 @@ class SQLAlchemyDatabaseManager:
     async def get_jargon(self, chat_id: str, content: str) -> Optional[Dict[str, Any]]:
         return await self._call_jargon("get_jargon", None, chat_id, content)
 
+    async def get_global_jargon_by_content(self, content: str) -> Optional[Dict[str, Any]]:
+        return await self._call_jargon("get_global_jargon_by_content", None, content)
+
     async def insert_jargon(self, jargon_data: Dict[str, Any]) -> Optional[int]:
         return await self._call_jargon("insert_jargon", None, jargon_data)
 

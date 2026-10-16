@@ -537,6 +537,19 @@ class JargonService:
                 if not meaning:
                     no_meaning += 1
                 existing = await self.database_manager.get_jargon(group_id, term)
+                if not existing and is_global:
+                    # 全局导入的跨 chat_id 查重：全局词条可能存在于任意群组下
+                    # （先在某群学习后标记全局），精确 (chat_id, content) 查询
+                    # 会漏掉它们导致重复入库。查重含未确认候选，命中后由下方
+                    # 分支决定跳过或升级。旧版 DB 管理器无此方法时跳过兜底。
+                    # 已知限制：查重与插入非原子，与「把既有词条标记全局」的
+                    # 并发写之间仍存在 TOCTOU 重复窗口（与黑话挖掘链路的并发
+                    # 特性一致）；彻底消除需引入跨行 partial unique index 迁移。
+                    global_lookup = getattr(
+                        self.database_manager, "get_global_jargon_by_content", None
+                    )
+                    if callable(global_lookup):
+                        existing = await global_lookup(term)
                 if existing:
                     if existing.get('is_jargon'):
                         skipped += 1

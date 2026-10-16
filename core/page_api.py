@@ -180,6 +180,24 @@ class PluginPageApi:
                     result.get("message") or result.get("error") or "批量删除黑话完成",
                     result=result,
                 )
+            if action == "import_jargons":
+                result = await service.import_jargons({
+                    "text": str(body.get("text") or ""),
+                    "group_id": str(body.get("group_id") or ""),
+                    # is_global 原样透传，由 service 严格解析
+                    "is_global": body.get("is_global", False),
+                })
+                details = result.get("details") or {}
+                # 存在失败行时同样按失败应答：内嵌页据此保留输入框内容供修正
+                # 重试（服务对已入库行幂等，原样重提只会计入 skipped）。
+                succeeded = bool(result.get("success")) and not (details.get("failed") or [])
+                return self._operation(
+                    succeeded,
+                    result.get("message")
+                    or result.get("error")
+                    or ("黑话导入完成" if succeeded else "黑话导入失败"),
+                    result=result,
+                )
             if action == "sync_global":
                 target_group_id = str(body.get("group_id") or "").strip()
                 if not target_group_id:
@@ -1989,12 +2007,14 @@ class PluginPageApi:
 
     @staticmethod
     def _build_quick_links(plugin_config: Any, webui_config: Any) -> list[dict[str, str]]:
+        from ..utils.framework_compat import plugin_page_hash_url
+
         webui = PluginPageApi._build_webui_snapshot(plugin_config, webui_config)
         return [
             {
                 "id": "embedded_dashboard",
                 "label": "内嵌 WebUI",
-                "url": "#/plugin-page/astrbot_plugin_self_learning/dashboard",
+                "url": plugin_page_hash_url(PLUGIN_NAME, "dashboard"),
                 "description": "AstrBot 官方插件页",
             },
             {
