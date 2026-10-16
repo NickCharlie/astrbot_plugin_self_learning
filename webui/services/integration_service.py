@@ -117,8 +117,11 @@ def _discover_plugin_pages(module_path: Any) -> List[str]:
     """列出插件 ``views/``（或旧约定 ``pages/``）下带 index.html 的页面名。
 
     AstrBot 官方插件页约定：v4.29 起 View 目录优先 ``views/``，同时兼容
-    ``pages/``（``plugin_page_service.PLUGIN_PAGE_ROOT_DIR_NAMES``）。此处按
-    同样的优先级发现页面。
+    ``pages/``（``plugin_page_service.PLUGIN_PAGE_ROOT_DIR_NAMES``）。目录
+    优先级经 :func:`plugin_view_dir_names` 随 AstrBot 版本门控——旧版页面
+    服务不发现 ``views/``，向其暴露 views 页名会生成死链接。两个根目录的
+    页名合并返回（views 在前），避免 views 下存在无关页面时漏报 pages 下
+    的 dashboard。
 
     AstrBot 的 ``StarMetadata.module_path`` 可能是插件入口文件路径，也可能是
     点分导入路径（``star/base.py`` 会用 ``cls.__module__`` 覆写，如
@@ -132,6 +135,8 @@ def _discover_plugin_pages(module_path: Any) -> List[str]:
     if not raw:
         return []
 
+    from ...utils.framework_compat import plugin_view_dir_names
+
     bases: List[Path] = []
     base = Path(raw)
     bases.extend((base, base.parent))
@@ -142,20 +147,22 @@ def _discover_plugin_pages(module_path: Any) -> List[str]:
         bases.extend((module_base, module_base.parent))
 
     for candidate in bases:
-        for dir_name in ("views", "pages"):
+        names: List[str] = []
+        for dir_name in plugin_view_dir_names():
             pages_root = candidate / dir_name
             try:
                 if not pages_root.is_dir():
                     continue
-                names = sorted(
+                names.extend(
                     item.name
                     for item in pages_root.iterdir()
                     if item.is_dir() and (item / "index.html").is_file()
                 )
             except OSError:
                 continue
-            if names:
-                return names
+        deduped = list(dict.fromkeys(names))
+        if deduped:
+            return deduped
     return []
 
 
@@ -487,7 +494,9 @@ class IntegrationService:
             return None
         from ...utils.framework_compat import plugin_page_hash_url
 
-        return f"{origin}/{plugin_page_hash_url(plugin_name, pages[0])}"
+        # 多页面时优先指向 dashboard（监控面板），避免链接到次要页面
+        page = "dashboard" if "dashboard" in pages else pages[0]
+        return f"{origin}/{plugin_page_hash_url(plugin_name, page)}"
 
     def _dashboard_origin(self) -> Optional[str]:
         """父页面（self_learning WebUI / AstrBot Dashboard）的 origin。"""

@@ -53,3 +53,12 @@ def test_url_quotes_special_characters():
     ):
         url = framework_compat.plugin_page_hash_url("plugin with space", "page/1")
         assert url == "#/plugin-view/plugin%20with%20space/page%2F1"
+
+
+def test_view_dir_names_follow_astrbot_version():
+    with _with_astrbot_version("4.29.0"):
+        assert framework_compat.plugin_view_dir_names() == ("views", "pages")
+    with _with_astrbot_version("4.28.5"):
+        assert framework_compat.plugin_view_dir_names() == ("pages",)
+    with _with_astrbot_version("not-a-version"):
+        assert framework_compat.plugin_view_dir_names() == ("pages",)

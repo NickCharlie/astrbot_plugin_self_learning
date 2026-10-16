@@ -74,3 +74,21 @@ def plugin_page_hash_url(plugin_name: str, page_name: str) -> str:
         f"{plugin_page_hash_prefix()}"
         f"/{quote(str(plugin_name), safe='')}/{quote(str(page_name), safe='')}"
     )
+
+
+def plugin_view_dir_names() -> tuple[str, ...]:
+    """Plugin view directory conventions supported by the running AstrBot.
+
+    AstrBot v4.29's plugin page service discovers ``views/`` first and keeps
+    ``pages/`` for compatibility (``PLUGIN_PAGE_ROOT_DIR_NAMES``); older
+    versions only discover ``pages/``, so advertising view-directory pages
+    there would produce dead official-page links.
+    """
+    try:
+        from astrbot import __version__
+    except Exception:
+        return ("pages",)
+    parsed = _parse_version_tuple(__version__)
+    if parsed and parsed >= _PLUGIN_VIEW_MIN_VERSION:
+        return ("views", "pages")
+    return ("pages",)

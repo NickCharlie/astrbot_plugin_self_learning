@@ -490,11 +490,17 @@ async def test_livingmemory_official_page_uses_plugin_view_route_on_4_29(tmp_pat
     )
 
 
-def test_discover_plugin_pages_prefers_views_dir(tmp_path):
+def test_discover_plugin_pages_merges_roots_and_gates_by_version(tmp_path):
     # AstrBot v4.29 plugin_page_service.PLUGIN_PAGE_ROOT_DIR_NAMES = ("views", "pages")
     from self_learning_EterU.webui.services.integration_service import (
         _discover_plugin_pages,
     )
+
+    def _patch_dir_names(names):
+        return patch(
+            "self_learning_EterU.utils.framework_compat.plugin_view_dir_names",
+            return_value=names,
+        )
 
     entry = str(tmp_path / "main.py")
     (tmp_path / "views" / "console").mkdir(parents=True)
@@ -505,13 +511,58 @@ def test_discover_plugin_pages_prefers_views_dir(tmp_path):
     (tmp_path / "pages" / "legacy" / "index.html").write_text(
         "<html></html>", encoding="utf-8"
     )
-    assert _discover_plugin_pages(entry) == ["console"]
 
-    # 只有旧约定 pages/ 时依旧能发现（LM 2.7.0-beta.2 仍用 pages/）
+    # v4.29：两个根目录页名合并返回（views 在前，去重保序）
+    with _patch_dir_names(("views", "pages")):
+        assert _discover_plugin_pages(entry) == ["console", "legacy"]
+
+    # 旧版 AstrBot 只发现 pages/：向其暴露 views 页名会生成死链接
+    with _patch_dir_names(("pages",)):
+        assert _discover_plugin_pages(entry) == ["legacy"]
+
+    # views 下存在无关页面时，pages 下的 dashboard 不得漏报
     import shutil
 
     shutil.rmtree(tmp_path / "views")
-    assert _discover_plugin_pages(entry) == ["legacy"]
+    (tmp_path / "views" / "unrelated").mkdir(parents=True)
+    (tmp_path / "views" / "unrelated" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    with _patch_dir_names(("views", "pages")):
+        assert _discover_plugin_pages(entry) == ["unrelated", "legacy"]
+
+
+async def test_livingmemory_official_page_prefers_dashboard(tmp_path):
+    # 多页面时官方页链接应优先指向 dashboard，而非排序首位的次要页面
+    (tmp_path / "views" / "console").mkdir(parents=True)
+    (tmp_path / "views" / "console" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    (tmp_path / "pages" / "dashboard").mkdir(parents=True)
+    (tmp_path / "pages" / "dashboard" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    memory_star = SimpleNamespace(
+        name="astrbot_plugin_livingmemory",
+        display_name="astrbot_plugin_livingmemory",
+        root_dir_name="astrbot_plugin_livingmemory",
+        module_path=str(tmp_path / "main.py"),
+        star_cls=SimpleNamespace(),
+    )
+    container = _lm_official_page_container(
+        memory_star,
+        astrbot_config={"dashboard": {"host": "0.0.0.0", "port": 6185}},
+    )
+
+    with _force_legacy_hash_url():
+        payload = await IntegrationService(container).get_status()
+
+    dashboard = {
+        item["id"]: item for item in payload["dashboards"]
+    }["livingmemory"]["dashboard"]
+    assert dashboard["official_page_url"] == (
+        "http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_livingmemory/dashboard"
+    )
 
 
 async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_path):

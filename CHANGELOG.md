@@ -8,13 +8,13 @@
 
 - `core/page_api.py` 的 `post_jargon_action` 此前缺少 `import_jargons` 分支：`pages/dashboard` 导入按钮把 `action: "import_jargons"` 发往 `jargon/action`，落入"未知黑话操作"兜底；可用的实现只存在于 `post_reviews_action`（`reviews/action`）。现补齐该分支，`text`/`group_id`/`is_global` 透传 `JargonService.import_jargons`，与审查页行为一致。
 - 存在失败行时按失败应答（`data.success=false`，含部分行失败）：内嵌页导入按钮据 `result.success` 区分成败并保留输入框内容供修正重试（服务对已入库行幂等，原样重提只计入 skipped），不再出现"报错却弹成功提示并清空输入"。
-- 全局导入跨群查重：全局词条可能落在任意 `chat_id` 下（先在某群学习后标记全局），原先仅按 `(chat_id='', content)` 精确查询会漏掉它们造成同一词条重复入库。新增 `JargonFacade.get_global_jargon_by_content`（database_manager 同名委托），`import_jargons` 在精确查询未命中且 `is_global` 时兜底查询——已确认词条计入 skipped、未确认候选走升级路径；旧版 DB 管理器无此方法时自动跳过兜底。
+- 全局导入跨群查重：全局词条可能落在任意 `chat_id` 下（先在某群学习后标记全局），原先仅按 `(chat_id='', content)` 精确查询会漏掉它们造成同一词条重复入库。新增 `JargonFacade.get_global_jargon_by_content`（database_manager 同名委托，含未确认候选），`import_jargons` 在精确查询未命中且 `is_global` 时兜底查询——已确认词条计入 skipped、未确认候选走升级路径；旧版 DB 管理器无此方法时自动跳过兜底。已知限制：查重与插入非原子，与「把既有词条标记全局」的并发写之间仍有 TOCTOU 重复窗口（与黑话挖掘链路一致），彻底消除需跨行 partial unique index 迁移。
 - 新增回归测试 `tests/unit/test_page_api_jargon_import.py`（成功导入 / 失败消息透传 / 部分行失败按失败应答 / 未知 action 仍被拒绝）与服务层跨群查重测试（`tests/unit/test_jargon_import.py`）。
 
 ### 兼容：AstrBot v4.29 插件 Pages→Views 改名
 
 - AstrBot v4.29 将插件页面（Pages）更名为视图（Views），Dashboard hash 路由由 `/#/plugin-page/...` 变为 `/#/plugin-view/...`（旧路由保留为 legacy 别名，提交 4b049d1e5、8831d9502）。`utils/framework_compat.py` 新增 `plugin_page_hash_url`：运行时按 AstrBot 版本（≥4.29.0）生成新路由，旧版本回退 legacy 路由；`core/page_api.py` 快捷链接、`main.py` 注册日志与 LivingMemory 官方插件页入口统一走该 helper。
-- 官方插件页目录约定跟随 AstrBot `PLUGIN_PAGE_ROOT_DIR_NAMES`：`_discover_plugin_pages` 现优先发现 `views/`，兼容 `pages/`（LivingMemory 2.7.0-beta.2 仍用 `pages/`，不受影响）。
+- 官方插件页目录约定跟随 AstrBot `PLUGIN_PAGE_ROOT_DIR_NAMES`：`_discover_plugin_pages` 经 `utils/framework_compat.plugin_view_dir_names()` 版本门控发现目录（v4.29+ 为 `views/`+`pages/` 合并去重、views 在前；旧版仅 `pages/`，避免向不发现 views 的旧页面服务暴露死链接），多页面时官方页链接优先指向 dashboard；LivingMemory 2.7.0-beta.2 仍用 `pages/`，不受影响。
 - 新增 `tests/unit/test_framework_compat.py` 与集成服务路由门控测试，断言不随本机 AstrBot 版本漂移。
 
 ### 适配：伴随插件最新版集成面复核

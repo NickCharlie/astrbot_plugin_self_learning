@@ -85,17 +85,17 @@ class JargonFacade(BaseFacade):
 
     # 1b. get_global_jargon_by_content
     async def get_global_jargon_by_content(self, content: str) -> Optional[Dict[str, Any]]:
-        """跨 chat_id 查询同内容的已确认全局黑话
+        """跨 chat_id 查询同内容的全局黑话（含未确认候选）
 
         全局导入查重用：全局词条可能落在任意 chat_id 下（例如先在某群学习后
         标记为全局），仅按 (chat_id='', content) 精确查询会漏掉它们，造成同
-        一词条重复入库。
+        一词条重复入库。不过滤 is_jargon——未确认候选交给调用方走升级路径。
 
         Args:
             content: 黑话内容
 
         Returns:
-            首条匹配的黑话字典或 None
+            首条匹配（按 id 序）的黑话字典或 None
         """
         try:
             async with self.get_session() as session:
@@ -105,7 +105,6 @@ class JargonFacade(BaseFacade):
                         and_(
                             Jargon.content == content,
                             Jargon.is_global.is_(True),
-                            Jargon.is_jargon.is_(True),
                         )
                     )
                     .order_by(Jargon.id)
