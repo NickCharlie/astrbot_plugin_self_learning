@@ -17,10 +17,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Expose legacy package import path
         if: runner.os != 'Windows'
@@ -36,25 +36,17 @@ jobs:
           }
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
           cache-dependency-path: requirements-test.txt
 
       - name: Install smoke test dependencies
-        if: matrix.python-version != '3.14'
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-test.txt
-          python -m pip install "astrbot>=4.14,<4.15" aiohttp "emoji==2.14.1" "hypercorn==0.17.3" jieba quart "quart_cors==0.8.0" pydantic "sqlalchemy[asyncio]" aiosqlite asyncpg "cachetools>=5.3.0" apscheduler "defusedxml>=0.7.1"
-
-      - name: Install smoke test dependencies for Python 3.14
-        if: matrix.python-version == '3.14'
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements-test.txt
-          python -m pip install "astrbot>=4.24,<5" aiohttp "emoji==2.14.1" "hypercorn==0.17.3" jieba quart "quart_cors==0.8.0" pydantic "sqlalchemy[asyncio]" aiosqlite asyncpg "cachetools>=5.3.0" apscheduler "defusedxml>=0.7.1"
+          python -m pip install "astrbot>=4.29,<5" aiohttp "emoji==2.14.1" "hypercorn==0.17.3" jieba quart "quart_cors==0.8.0" pydantic "sqlalchemy[asyncio]" aiosqlite asyncpg "cachetools>=5.3.0" apscheduler "defusedxml>=0.7.1"
 
       - name: Compile Python files
         run: python -m compileall .
