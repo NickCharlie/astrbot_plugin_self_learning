@@ -104,6 +104,64 @@ class TestImportJargons:
         assert inserted[0]["chat_id"] == ""
 
     @pytest.mark.asyncio
+    async def test_global_import_skips_confirmed_row_under_other_chat(self):
+        inserted = []
+
+        async def get_jargon(chat_id, content):
+            return None
+
+        async def get_global_jargon_by_content(content):
+            # 全局词条落在其他群组下（先在某群学习后标记全局）
+            return {"id": 7, "content": content, "is_jargon": True, "chat_id": "group-x", "is_global": True}
+
+        async def insert_jargon(payload):
+            inserted.append(payload)
+            return 1
+
+        service = make_service(type("DB", (), {
+            "get_jargon": staticmethod(get_jargon),
+            "get_global_jargon_by_content": staticmethod(get_global_jargon_by_content),
+            "insert_jargon": staticmethod(insert_jargon),
+        })())
+
+        result = await service.import_jargons({"text": "旧全局词 = 新义", "group_id": "", "is_global": True})
+
+        assert result["success"] is True
+        assert result["details"]["skipped"] == 1
+        assert result["details"]["imported"] == 0
+        assert inserted == []
+
+    @pytest.mark.asyncio
+    async def test_global_import_upgrades_candidate_under_other_chat(self):
+        updates = []
+
+        async def get_jargon(chat_id, content):
+            return None
+
+        async def get_global_jargon_by_content(content):
+            return {"id": 11, "content": content, "is_jargon": False, "chat_id": "group-y", "is_global": True}
+
+        async def update_jargon(payload):
+            updates.append(payload)
+            return True
+
+        async def insert_jargon(payload):
+            raise AssertionError("candidate rows must be upgraded, not duplicated")
+
+        service = make_service(type("DB", (), {
+            "get_jargon": staticmethod(get_jargon),
+            "get_global_jargon_by_content": staticmethod(get_global_jargon_by_content),
+            "update_jargon": staticmethod(update_jargon),
+            "insert_jargon": staticmethod(insert_jargon),
+        })())
+
+        result = await service.import_jargons({"text": "候选全局词 = 新义", "group_id": "", "is_global": True})
+
+        assert result["details"]["updated"] == 1
+        assert updates[0]["id"] == 11
+        assert updates[0]["is_jargon"] is True
+
+    @pytest.mark.asyncio
     async def test_existing_confirmed_term_is_skipped(self):
         async def get_jargon(chat_id, content):
             return {"id": 9, "content": content, "is_jargon": True, "meaning": "旧释义"}

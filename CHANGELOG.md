@@ -7,7 +7,9 @@
 ### 修复：内嵌插件页黑话导入报"未知黑话操作：import_jargons"（issue #269）
 
 - `core/page_api.py` 的 `post_jargon_action` 此前缺少 `import_jargons` 分支：`pages/dashboard` 导入按钮把 `action: "import_jargons"` 发往 `jargon/action`，落入"未知黑话操作"兜底；可用的实现只存在于 `post_reviews_action`（`reviews/action`）。现补齐该分支，`text`/`group_id`/`is_global` 透传 `JargonService.import_jargons`，与审查页行为一致。
-- 新增回归测试 `tests/unit/test_page_api_jargon_import.py`：成功导入、失败消息透传、未知 action 仍被拒绝。
+- 存在失败行时按失败应答（`data.success=false`，含部分行失败）：内嵌页导入按钮据 `result.success` 区分成败并保留输入框内容供修正重试（服务对已入库行幂等，原样重提只计入 skipped），不再出现"报错却弹成功提示并清空输入"。
+- 全局导入跨群查重：全局词条可能落在任意 `chat_id` 下（先在某群学习后标记全局），原先仅按 `(chat_id='', content)` 精确查询会漏掉它们造成同一词条重复入库。新增 `JargonFacade.get_global_jargon_by_content`（database_manager 同名委托），`import_jargons` 在精确查询未命中且 `is_global` 时兜底查询——已确认词条计入 skipped、未确认候选走升级路径；旧版 DB 管理器无此方法时自动跳过兜底。
+- 新增回归测试 `tests/unit/test_page_api_jargon_import.py`（成功导入 / 失败消息透传 / 部分行失败按失败应答 / 未知 action 仍被拒绝）与服务层跨群查重测试（`tests/unit/test_jargon_import.py`）。
 
 ### 兼容：AstrBot v4.29 插件 Pages→Views 改名
 

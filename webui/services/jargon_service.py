@@ -537,6 +537,15 @@ class JargonService:
                 if not meaning:
                     no_meaning += 1
                 existing = await self.database_manager.get_jargon(group_id, term)
+                if not existing and is_global:
+                    # 全局导入的跨 chat_id 查重：全局词条可能存在于任意群组下
+                    # （先在某群学习后标记全局），精确 (chat_id, content) 查询
+                    # 会漏掉它们导致重复入库。旧版 DB 管理器无此方法时跳过兜底。
+                    global_lookup = getattr(
+                        self.database_manager, "get_global_jargon_by_content", None
+                    )
+                    if callable(global_lookup):
+                        existing = await global_lookup(term)
                 if existing:
                     if existing.get('is_jargon'):
                         skipped += 1

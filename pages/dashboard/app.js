@@ -1749,8 +1749,14 @@
           group_id: groupId,
           is_global: !groupId,
         });
-        showToast(result.message || t("jargon.import.done", "导入完成"), "ok");
-        $("jargon-import-text").value = "";
+        // 失败（含部分行失败，后端按 success=false 应答）时保留输入框内容，
+        // 修正后可原样重提；列表仍刷新以显示已入库的行。
+        const ok = result.success !== false;
+        showToast(
+          result.message || t(ok ? "jargon.import.done" : "jargon.import.failed", ok ? "导入完成" : "导入失败"),
+          ok ? "ok" : "error"
+        );
+        if (ok) $("jargon-import-text").value = "";
         state.pageData = {};
         await loadPageData("jargon-learning", { force: true });
       } catch (error) {

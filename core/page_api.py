@@ -187,9 +187,15 @@ class PluginPageApi:
                     # is_global 原样透传，由 service 严格解析
                     "is_global": body.get("is_global", False),
                 })
+                details = result.get("details") or {}
+                # 存在失败行时同样按失败应答：内嵌页据此保留输入框内容供修正
+                # 重试（服务对已入库行幂等，原样重提只会计入 skipped）。
+                succeeded = bool(result.get("success")) and not (details.get("failed") or [])
                 return self._operation(
-                    bool(result.get("success")),
-                    result.get("message") or result.get("error") or "黑话导入完成",
+                    succeeded,
+                    result.get("message")
+                    or result.get("error")
+                    or ("黑话导入完成" if succeeded else "黑话导入失败"),
                     result=result,
                 )
             if action == "sync_global":

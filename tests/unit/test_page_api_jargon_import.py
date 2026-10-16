@@ -82,6 +82,32 @@ def test_post_jargon_action_import_failure_propagates_message():
     assert result["data"]["message"] == "群组ID包含非法字符"
 
 
+def test_post_jargon_action_partial_failure_reports_as_failed():
+    # Sourcery 意见：部分行失败时前端必须按失败处理（保留输入框供重试），
+    # 不能因 success:true 而清空用户已输入的文本。
+    api, service = _make_api()
+
+    async def partial_import(payload: dict) -> dict:
+        return {
+            "success": True,
+            "message": "导入完成：新增 1 条，候选升级 0 条，跳过重复 0 条，失败 1 条",
+            "details": {
+                "imported": 1,
+                "updated": 0,
+                "skipped": 0,
+                "failed": [{"line": 2, "term": "x" * 64, "reason": "写入失败"}],
+                "total": 2,
+            },
+        }
+
+    service.import_jargons = partial_import
+    result = asyncio.run(api.post_jargon_action())
+
+    assert result["data"]["success"] is False
+    assert "失败 1 条" in result["data"]["message"]
+    assert result["data"]["result"]["details"]["imported"] == 1
+
+
 def test_post_jargon_action_unknown_action_still_rejected():
     api, service = _make_api()
 
