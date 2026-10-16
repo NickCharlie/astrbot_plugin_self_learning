@@ -38,6 +38,16 @@ def test_prefix_falls_back_when_version_unparsable():
         assert framework_compat.plugin_page_hash_prefix() == "#/plugin-page"
 
 
+def test_prefix_handles_prerelease_suffixes():
+    # 预发布后缀不影响路由/目录是否存在：4.29.0rc1 已带 plugin-view 路由
+    with _with_astrbot_version("4.29.0rc1"):
+        assert framework_compat.plugin_page_hash_prefix() == "#/plugin-view"
+        assert framework_compat.plugin_view_dir_names() == ("views", "pages")
+    with _with_astrbot_version("4.28.9rc1"):
+        assert framework_compat.plugin_page_hash_prefix() == "#/plugin-page"
+        assert framework_compat.plugin_view_dir_names() == ("pages",)
+
+
 def test_url_encodes_segments_and_uses_prefix():
     with _with_astrbot_version("4.29.0"):
         url = framework_compat.plugin_page_hash_url("astrbot_plugin_livingmemory", "dashboard")

@@ -35,13 +35,16 @@ _PLUGIN_VIEW_MIN_VERSION = (4, 29, 0)
 def _parse_version_tuple(version: Any) -> Optional[tuple[int, ...]]:
     """Parse a leading dotted version string into an int tuple.
 
-    Returns ``None`` when nothing numeric can be parsed, so callers can
-    fall back to the most conservative behaviour.
+    Each chunk contributes its leading digits, so prerelease suffixes attach
+    to their own segment (``4.29.0rc1`` → ``(4, 29, 0)``). Returns ``None``
+    when nothing numeric can be parsed, so callers can fall back to the most
+    conservative behaviour.
     """
     parts: list[int] = []
     for chunk in re.split(r"[.\-+ _]", str(version or "")):
-        if chunk.isdigit():
-            parts.append(int(chunk))
+        match = re.match(r"\d+", chunk)
+        if match:
+            parts.append(int(match.group()))
         elif parts:
             break
     return tuple(parts) or None

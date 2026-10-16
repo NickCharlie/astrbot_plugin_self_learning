@@ -531,6 +531,14 @@ def test_discover_plugin_pages_merges_roots_and_gates_by_version(tmp_path):
     with _patch_dir_names(("views", "pages")):
         assert _discover_plugin_pages(entry) == ["unrelated", "legacy"]
 
+    # 同一目录内多个页面按字母序返回，不随文件系统迭代顺序漂移
+    (tmp_path / "views" / "alpha").mkdir(parents=True)
+    (tmp_path / "views" / "alpha" / "index.html").write_text(
+        "<html></html>", encoding="utf-8"
+    )
+    with _patch_dir_names(("views", "pages")):
+        assert _discover_plugin_pages(entry) == ["alpha", "unrelated", "legacy"]
+
 
 async def test_livingmemory_official_page_prefers_dashboard(tmp_path):
     # 多页面时官方页链接应优先指向 dashboard，而非排序首位的次要页面

@@ -154,9 +154,11 @@ def _discover_plugin_pages(module_path: Any) -> List[str]:
                 if not pages_root.is_dir():
                     continue
                 names.extend(
-                    item.name
-                    for item in pages_root.iterdir()
-                    if item.is_dir() and (item / "index.html").is_file()
+                    sorted(
+                        item.name
+                        for item in pages_root.iterdir()
+                        if item.is_dir() and (item / "index.html").is_file()
+                    )
                 )
             except OSError:
                 continue
