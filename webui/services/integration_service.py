@@ -8,7 +8,7 @@ import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 try:
     from ...config import get_config_cost_warnings
@@ -114,13 +114,17 @@ def _astrbot_dashboard_origin(astrbot_config: Any) -> Optional[str]:
 
 
 def _discover_plugin_pages(module_path: Any) -> List[str]:
-    """列出插件 ``pages/`` 下带 index.html 的页面名（AstrBot 官方插件页约定）。
+    """列出插件 ``views/``（或旧约定 ``pages/``）下带 index.html 的页面名。
+
+    AstrBot 官方插件页约定：v4.29 起 View 目录优先 ``views/``，同时兼容
+    ``pages/``（``plugin_page_service.PLUGIN_PAGE_ROOT_DIR_NAMES``）。此处按
+    同样的优先级发现页面。
 
     AstrBot 的 ``StarMetadata.module_path`` 可能是插件入口文件路径，也可能是
     点分导入路径（``star/base.py`` 会用 ``cls.__module__`` 覆写，如
     ``data.plugins.<插件名>.main``）。后者通过 ``sys.modules`` 里已加载模块的
-    ``__file__`` 还原插件目录；页面目录位于入口文件自身或上级目录的
-    ``pages/`` 下，无法定位时返回空列表。
+    ``__file__`` 还原插件目录；页面目录位于入口文件自身或上级目录下，无法
+    定位时返回空列表。
     """
     if not module_path:
         return []
@@ -138,19 +142,20 @@ def _discover_plugin_pages(module_path: Any) -> List[str]:
         bases.extend((module_base, module_base.parent))
 
     for candidate in bases:
-        pages_root = candidate / "pages"
-        try:
-            if not pages_root.is_dir():
+        for dir_name in ("views", "pages"):
+            pages_root = candidate / dir_name
+            try:
+                if not pages_root.is_dir():
+                    continue
+                names = sorted(
+                    item.name
+                    for item in pages_root.iterdir()
+                    if item.is_dir() and (item / "index.html").is_file()
+                )
+            except OSError:
                 continue
-            names = sorted(
-                item.name
-                for item in pages_root.iterdir()
-                if item.is_dir() and (item / "index.html").is_file()
-            )
-        except OSError:
-            continue
-        if names:
-            return names
+            if names:
+                return names
     return []
 
 
@@ -424,6 +429,8 @@ class IntegrationService:
         if config_manager:
             webui_settings = getattr(config_manager, "webui_settings", None) or {}
 
+        # LivingMemory 2.7.0 移除了独立 WebUI（webui_settings 与随附端口服务），
+        # 官方插件页成为唯一面板入口；旧版本仍可能带独立面板，保留探测以兼容。
         dashboard_url = None
         if _safe_get(webui_settings, "enabled", False):
             dashboard_url = _http_url(
@@ -445,8 +452,9 @@ class IntegrationService:
                 "url": LIVINGMEMORY_EMBED_URL,
                 "external_url": dashboard_url,
                 "official_page_url": official_page_url,
-                # AstrBot 官方插件页固定返回 X-Frame-Options: SAMEORIGIN，且页面
-                # 资产需 JWT（Authorization 头）换取，iframe 带不了凭据，只能新窗口打开。
+                # AstrBot 官方插件页固定返回 X-Frame-Options: SAMEORIGIN（v4.29
+                # 起资产改用 scoped path token 鉴权，但响应头限制未变），iframe
+                # 嵌入仍会被浏览器拦截，只能新窗口打开。
                 "embeddable": False if (official_page_url and not dashboard_url) else None,
                 "route": "#/graphs",
                 "label": "本地图谱",
@@ -462,10 +470,11 @@ class IntegrationService:
         }
 
     def _livingmemory_official_page_url(self, star: Any) -> Optional[str]:
-        """LivingMemory 2.6.0+ 自带 AstrBot 官方插件页（pages/<页名>/index.html）。
+        """LivingMemory 2.6.0+ 自带 AstrBot 官方插件页（views|pages/<页名>/index.html）。
 
-        用户入口是 AstrBot Dashboard 前端 hash 路由 ``/#/plugin-page/<插件名>/<页名>``，
-        打开时复用浏览器内 AstrBot 会话的 JWT，因此只作为新窗口链接暴露，
+        用户入口是 AstrBot Dashboard 前端 hash 路由（v4.29 起
+        ``/#/plugin-view/<插件名>/<页名>``，旧版本 ``/#/plugin-page/...``），
+        打开时复用浏览器内 AstrBot 会话，因此只作为新窗口链接暴露，
         不作为 iframe 目标。
         """
         astrbot_config = getattr(self.container, "astrbot_config", None)
@@ -476,7 +485,9 @@ class IntegrationService:
         pages = _discover_plugin_pages(getattr(star, "module_path", None))
         if not plugin_name or not pages:
             return None
-        return f"{origin}/#/plugin-page/{quote(plugin_name, safe='')}/{quote(pages[0], safe='')}"
+        from ...utils.framework_compat import plugin_page_hash_url
+
+        return f"{origin}/{plugin_page_hash_url(plugin_name, pages[0])}"
 
     def _dashboard_origin(self) -> Optional[str]:
         """父页面（self_learning WebUI / AstrBot Dashboard）的 origin。"""

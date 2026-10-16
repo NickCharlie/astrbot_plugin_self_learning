@@ -233,7 +233,12 @@ class SelfLearningPlugin(star.Star):
         try:
             self.page_api = PluginPageApi(self)
             self.page_api.register_routes()
-            logger.info("官方插件页面 API 已注册: /plugin-page/astrbot_plugin_self_learning/dashboard")
+            from .utils.framework_compat import plugin_page_hash_url
+
+            logger.info(
+                "官方插件页面 API 已注册: "
+                f"{plugin_page_hash_url('astrbot_plugin_self_learning', 'dashboard')}"
+            )
         except Exception as exc:
             self.page_api = None
             logger.warning(f"官方插件页面 API 注册失败，已跳过: {exc}", exc_info=True)

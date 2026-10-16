@@ -1,7 +1,8 @@
 """Framework API compatibility helpers."""
 
 import inspect
-from typing import Any
+import re
+from typing import Any, Optional
 
 
 async def get_using_provider_compat(context: Any):
@@ -26,3 +27,50 @@ async def get_using_provider_compat(context: Any):
     if sync_getter is None:
         return None
     return sync_getter()
+
+
+_PLUGIN_VIEW_MIN_VERSION = (4, 29, 0)
+
+
+def _parse_version_tuple(version: Any) -> Optional[tuple[int, ...]]:
+    """Parse a leading dotted version string into an int tuple.
+
+    Returns ``None`` when nothing numeric can be parsed, so callers can
+    fall back to the most conservative behaviour.
+    """
+    parts: list[int] = []
+    for chunk in re.split(r"[.\-+ _]", str(version or "")):
+        if chunk.isdigit():
+            parts.append(int(chunk))
+        elif parts:
+            break
+    return tuple(parts) or None
+
+
+def plugin_page_hash_prefix() -> str:
+    """Hash-router prefix of the AstrBot plugin view (formerly page) entry.
+
+    AstrBot v4.29 renamed plugin Pages to Views and moved the dashboard
+    route to ``/plugin-view/<plugin>/<page>``, keeping ``/plugin-page/...``
+    only as a legacy alias (AstrBot commits 4b049d1e5, 8831d9502). Emit the
+    new prefix on v4.29+ and keep the legacy one elsewhere — it resolves on
+    every version this plugin supports.
+    """
+    try:
+        from astrbot import __version__
+    except Exception:
+        return "#/plugin-page"
+    parsed = _parse_version_tuple(__version__)
+    if parsed and parsed >= _PLUGIN_VIEW_MIN_VERSION:
+        return "#/plugin-view"
+    return "#/plugin-page"
+
+
+def plugin_page_hash_url(plugin_name: str, page_name: str) -> str:
+    """Full in-dashboard hash URL for a plugin view page."""
+    from urllib.parse import quote
+
+    return (
+        f"{plugin_page_hash_prefix()}"
+        f"/{quote(str(plugin_name), safe='')}/{quote(str(page_name), safe='')}"
+    )
