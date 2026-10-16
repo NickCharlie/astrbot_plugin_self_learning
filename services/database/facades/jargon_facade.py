@@ -107,7 +107,10 @@ class JargonFacade(BaseFacade):
                             Jargon.is_global.is_(True),
                         )
                     )
-                    .order_by(Jargon.id)
+                    # 同内容存在多行时优先返回已确认行：导入查重命中已确认行
+                    # 会计入 skipped，而不是把更早的未确认候选升级成第二份
+                    # 已确认词条
+                    .order_by(case((Jargon.is_jargon.is_(True), 0), else_=1), Jargon.id)
                     .limit(1)
                 )
                 result = await session.execute(stmt)
