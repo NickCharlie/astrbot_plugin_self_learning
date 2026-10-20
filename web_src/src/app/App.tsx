@@ -12,7 +12,6 @@ import { ExpressionLearningPage } from '../pages/expression-learning/ExpressionL
 import { PersonaLearningPage } from '../pages/persona-learning/PersonaLearningPage';
 import { ContentPage } from '../pages/content/ContentPage';
 import { GraphsPage } from '../pages/graphs/GraphsPage';
-import { ReplyStrategyPage } from '../pages/reply-strategy/ReplyStrategyPage';
 import { IntegrationsPage } from '../pages/integrations/IntegrationsPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 import { ShadowModePage } from '../pages/shadow-mode/ShadowModePage';
@@ -33,7 +32,6 @@ function DashboardRoutes() {
         <Match when={dashboard.page() === 'shadow-mode'}><ShadowModePage /></Match>
         <Match when={dashboard.page() === 'content'}><ContentPage /></Match>
         <Match when={dashboard.page() === 'graphs'}><GraphsPage /></Match>
-        <Match when={dashboard.page() === 'reply-strategy'}><ReplyStrategyPage /></Match>
         <Match when={dashboard.page() === 'integrations'}><IntegrationsPage /></Match>
         <Match when={dashboard.page() === 'settings'}><SettingsPage /></Match>
       </Switch>

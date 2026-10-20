@@ -15,7 +15,16 @@ build/
 # ========================================
 .env
 .env.*
-config/password.json
+**/password.json
+.secret_key
+
+# ========================================
+# Runtime Data (plugin data dir, SQLite, session keys)
+# ========================================
+/data/
+*.db
+*.sqlite
+*.sqlite3
 
 # ========================================
 # IDE & Editor
@@ -39,6 +48,7 @@ Thumbs.db
 # ========================================
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 .mypy_cache/

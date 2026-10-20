@@ -1082,13 +1082,18 @@
 
   function integrationCardHtml(item) {
     const dash = item.dashboard || {};
-    const url = resolveHostUrl(dash.external_url || dash.official_page_url || dash.url || "#");
+    const status = item.status || {};
+    const url = resolveHostUrl(dash.external_url || dash.official_page_url || "#");
     const disabled = !dash.available || !url || url === "#";
+    const stateText = status.healthy === true ? t("state.healthy", "正常")
+      : status.healthy === false ? t("state.unhealthy", "异常")
+      : item.active ? t("state.available", "可用") : t("state.disabled", "未启用");
     return `<article class="integration-card ${item.active ? "active" : ""}">
       <div>
         <span>${escapeHtml(item.role || "")}</span>
         <h3>${escapeHtml(item.title || item.id)}</h3>
-        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : item.active ? t("state.available", "可用") : t("state.disabled", "未启用"))}</p>
+        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : stateText)}</p>
+        ${status.message ? `<small>${escapeHtml(String(status.message))}</small>` : ""}
       </div>
       <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || t("actions.open", "打开"))}</a>
       <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>

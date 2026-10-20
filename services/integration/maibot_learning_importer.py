@@ -13,7 +13,7 @@ import time
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Any, Iterable, Mapping, Optional
 
 from astrbot.api import logger
@@ -116,7 +116,8 @@ class MaiBotLearningPackage:
             "version": self.version,
             "source": self.source,
             "exported_at": self.exported_at,
-            "source_paths": self.source_paths,
+            # 对外只暴露文件名，不回显服务器目录结构
+            "source_paths": _public_source_paths(self.source_paths),
             "sessions": [asdict(item) for item in self.sessions],
             "expressions": [asdict(item) for item in self.expressions],
             "jargons": [asdict(item) for item in self.jargons],
@@ -292,7 +293,7 @@ class MaiBotLearningImporter:
         return {
             "version": package.version,
             "source": package.source,
-            "source_paths": package.source_paths,
+            "source_paths": _public_source_paths(package.source_paths),
             "counts": {
                 "sessions": len(package.sessions),
                 "expressions": len(package.expressions),
@@ -779,6 +780,14 @@ class MaiBotLearningImporter:
         examples = "\n".join(f"- {text}" for text in item.content_list[:5])
         base = f"场景: {item.situation}\n表达方式: {item.style}"
         return f"{base}\n原始片段:\n{examples}" if examples else base
+
+
+def _public_source_paths(source_paths: Mapping[str, str]) -> dict[str, str]:
+    """序列化到 WebUI/导出结果时只保留文件名，不回显服务器目录结构。"""
+    return {
+        str(key): PurePath(str(value)).name
+        for key, value in (source_paths or {}).items()
+    }
 
 
 @contextmanager

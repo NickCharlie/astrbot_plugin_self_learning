@@ -159,12 +159,11 @@ class Server:
             return True
 
     async def _kill_port_holder(self, port: int):
-        """清理占用端口的进程"""
+        """清理占用端口的进程（exec + 参数列表，避免 shell 拼接）"""
         try:
             if sys.platform == 'win32':
-                cmd_find = f'netstat -ano | findstr :{port}'
-                process = await asyncio.create_subprocess_shell(
-                    cmd_find,
+                process = await asyncio.create_subprocess_exec(
+                    'netstat', '-ano',
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -173,21 +172,20 @@ class Server:
                     lines = stdout.decode('gbk', errors='ignore').strip().split('\n')
                     for line in lines:
                         parts = line.strip().split()
-                        if len(parts) > 4 and 'LISTENING' in line:
+                        if len(parts) > 4 and 'LISTENING' in line and f':{port}' in parts[1]:
                             pid = parts[-1]
-                            if pid and pid != str(os.getpid()):
+                            if pid.isdigit() and pid != str(os.getpid()):
                                 logger.warning(f"[WebUI] 清理占用进程 PID={pid}")
-                                await asyncio.create_subprocess_shell(
-                                    f'taskkill /F /PID {pid}',
+                                await asyncio.create_subprocess_exec(
+                                    'taskkill', '/F', '/PID', pid,
                                     stdout=asyncio.subprocess.DEVNULL,
                                     stderr=asyncio.subprocess.DEVNULL
                                 )
                                 await asyncio.sleep(1.0)
             else:
                 # macOS / Linux (CentOS, Ubuntu, etc.)
-                cmd_find = f'lsof -ti tcp:{port}'
-                process = await asyncio.create_subprocess_shell(
-                    cmd_find,
+                process = await asyncio.create_subprocess_exec(
+                    'lsof', '-ti', f'tcp:{port}',
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -197,10 +195,10 @@ class Server:
                     current_pid = str(os.getpid())
                     for pid in pids:
                         pid = pid.strip()
-                        if pid and pid != current_pid:
+                        if pid.isdigit() and pid != current_pid:
                             logger.warning(f"[WebUI] 清理占用进程 PID={pid}")
-                            await asyncio.create_subprocess_shell(
-                                f'kill -9 {pid}',
+                            await asyncio.create_subprocess_exec(
+                                'kill', '-9', pid,
                                 stdout=asyncio.subprocess.DEVNULL,
                                 stderr=asyncio.subprocess.DEVNULL
                             )

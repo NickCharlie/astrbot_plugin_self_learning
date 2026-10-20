@@ -13,6 +13,7 @@ from astrbot.api import logger
 from .compat import CORSMiddleware, Quart, redirect
 from .compat import _ResponseHeadersMiddleware as _HeaderMiddleware
 from .middleware.error_handler import register_error_handlers
+from .middleware.local_guard import LocalAccessGuardMiddleware
 
 
 def _get_or_create_secret_key(data_dir: str) -> str:
@@ -102,6 +103,8 @@ def create_app(webui_config=None) -> Quart:
     _enable_cors(app)
     _disable_dynamic_response_cache(app)
     _add_security_headers(app)
+    # 网络层访问守卫最后添加 = 最外层，先于 CORS/路由执行（免密限本机 + 同源校验）
+    app.fastapi_app.add_middleware(LocalAccessGuardMiddleware)
 
     # 存储配置到应用上下文
     if webui_config:

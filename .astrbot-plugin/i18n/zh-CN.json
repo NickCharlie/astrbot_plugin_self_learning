@@ -618,10 +618,12 @@
         "delegated": "已委托",
         "disabled": "未启用",
         "enabled": "启用",
+        "healthy": "正常",
         "no": "否",
         "none": "无",
         "off": "关闭",
         "on": "开启",
+        "unhealthy": "异常",
         "unset": "未设置",
         "yes": "是"
       },

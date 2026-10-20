@@ -149,7 +149,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "browserHost = window.location.hostname" in script
     assert 'resolveHostUrl(webui.dashboard_url || "")' in script
     assert "resolveHostUrl(link.url || \"#\")" in script
-    assert "resolveHostUrl(dash.external_url || dash.official_page_url || dash.url || \"#\")" in script
+    assert "resolveHostUrl(dash.external_url || dash.official_page_url || \"#\")" in script
     assert 'id="physics-canvas"' in index
     assert 'id="graph-canvas"' in index
     assert 'id="graph-canvas" width=' not in index

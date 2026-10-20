@@ -153,8 +153,9 @@ GET /api/hub/v1/status
 | `active` | 是否检测到插件 |
 | `delegated` | 当前能力是否已委托 |
 | `plugin` | AstrBot star 元信息 |
-| `dashboard` | 面板 URL、本地图谱路由、入口类型；`embeddable` 为 `false` 表示面板响应头禁止 iframe 嵌入（如 Group Chat Plus 的 `X-Frame-Options: DENY`），此时嵌入壳会提示改用新窗口打开 |
-| `dashboard.official_page_url` | 伴随插件自带 AstrBot 官方插件页时的入口（LivingMemory 2.6.0+）。指向 AstrBot Dashboard 前端 hash 路由 `/#/plugin-page/<插件名>/<页名>`，由集成服务探测插件 `pages/<页名>/index.html` 与主配置 `dashboard.host/port` 自动生成；该页面需 AstrBot 会话 JWT，iframe 内不可用，只能新窗口打开（功能融合页的「官方面板」按钮） |
+| `status` | 运行状态标识：`healthy`（`true`/`false`/`null`=未知）、`state`（`ok`/`degraded`/`offline`/`not_installed`/`unknown`）、`message`（人读原因）。Group Chat Plus 会对面板端口做可达性探测（结果缓存 60 秒）；LivingMemory 以插件是否加载为准 |
+| `dashboard` | 面板入口：`external_url`（新窗口打开的独立面板/官方面板链接）、`route`（本监控板内路由，如 LivingMemory 的 `#/graphs`）、`label`。插件面板不再以 iframe 内嵌（issue #271：GCP v1.2.x 固定 `X-Frame-Options: DENY`、AstrBot 官方插件页固定 `SAMEORIGIN`，内嵌必被浏览器拦截），一律新窗口打开 |
+| `dashboard.official_page_url` | 伴随插件自带 AstrBot 官方插件页时的入口（LivingMemory 2.6.0+）。指向 AstrBot Dashboard 前端 hash 路由 `/#/plugin-page/<插件名>/<页名>`（v4.29 起 `/#/plugin-view/...`），由集成服务探测插件 `views|pages/<页名>/index.html` 与主配置 `dashboard.host/port` 自动生成；该页面需 AstrBot 会话 JWT，只能新窗口打开 |
 | `dev_api` | 该插件公开 API 列表 |
 | `settings_group` | 相关配置组 |
 

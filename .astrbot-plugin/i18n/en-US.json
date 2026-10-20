@@ -618,10 +618,12 @@
         "delegated": "Delegated",
         "disabled": "Disabled",
         "enabled": "Enabled",
+        "healthy": "Healthy",
         "no": "No",
         "none": "No",
         "off": "Off",
         "on": "On",
+        "unhealthy": "Unhealthy",
         "unset": "Unset",
         "yes": "Yes"
       },

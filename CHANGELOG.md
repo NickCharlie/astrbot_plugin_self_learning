@@ -2,6 +2,33 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.3.1] - 2026-10-20
+
+### 安全：网络层访问守卫与默认配置收紧（重要行为变更）
+
+- **WebUI 默认监听地址由 `0.0.0.0` 收紧为 `127.0.0.1`**（`web_interface_host`，schema 默认值同步）。历史配置里已存量的 `0.0.0.0` 不受影响，但配合下一条守卫规则，免密 + 局域网的组合会被显式拒绝。
+- **新增 `webui/middleware/local_guard.py` 网络层访问守卫（最外层中间件）**：免密模式（`enable_webui_password=false`，默认）下仅允许 loopback 客户端访问，且 `Host` 头必须指向本机（防 DNS 重绑定）；携带 `Origin` 头的请求必须与面板同源（浏览器跨站请求必带 Origin、服务器间调用不带），修复免密模式下 `CORS allow_origins=["*"]` 允许任意网页经受害者浏览器读取本机 API 响应的问题。局域网访问请开启 `enable_webui_password` 并设置登录密码。
+- **Hub API（`/api/hub/v1/*`，11 个端点）在 `enable_api_auth=false` 时降级为仅本机可调用**：Hub 可写记忆、审批人格更新与注入消息，此前对局域网完全无门槛；伴随插件与本插件同机部署不受影响，跨机调用需配置 `api_key` 并启用 `enable_api_auth`。
+- 兜底异常处理器不再把 `str(exc)` 回显给客户端（可能含内部路径/SQL 片段），详情只进日志。
+- MySQL `CREATE DATABASE` 标识符改经反引号双写转义（对齐 PostgreSQL 侧既有实现），防配置可写的 `mysql_database` 注入。
+- `_kill_port_holder` 由 shell 拼接命令（`netstat | findstr`、`taskkill /F /PID`）改为 `create_subprocess_exec` + 参数列表 + PID 数字校验（防御纵深）。
+- 配置响应脱敏改为递归按键名匹配（此前仅顶层，配置分组化后会静默失效）。
+- `LoginAttemptTracker` 增加不活跃 IP 记录清理，防长期运行内存缓慢增长。
+- MaiBot 导入的 preview/export 响应不再回显服务器绝对路径（只保留文件名），与 worldbook 导入"WebUI 请求不收服务端路径"的策略对齐。
+- `.gitignore` 补运行时敏感项：`/data/`（`.secret_key`、`password.json`、SQLite 库所在目录）、`*.db`/`*.sqlite*`、`coverage.xml`、任意层级的 `password.json`。
+
+### 移除：伴随插件内嵌面板，只保留运行状态标识（issue #271）
+
+- iframe 内嵌链路整体移除：删除 `/api/integrations/embed/<plugin_id>` 嵌入壳端点与 `_render_embed_shell`、`IntegrationService.get_embed_target`、X-Frame-Options/frame-ancestors 探测逻辑，以及 WebUI 的「回复策略」页（该页以 iframe 加载 GCP 面板）。GCP v1.2.x 固定返回 `X-Frame-Options: DENY`、AstrBot 官方插件页固定 `SAMEORIGIN`，内嵌必被浏览器拦截，屡次产生"空白面板"体验。
+- 「功能融合」页的「插件面板」改为「伴随插件状态」：每张卡片只展示运行状态标识（`status.healthy`/`state`/`message`）+ 新窗口打开入口。Group Chat Plus 做面板端口可达性探测（结果缓存 60 秒，4xx 视为可达、5xx/拒连为异常），LivingMemory 以插件是否加载为准，未安装/面板未开启/端口不可达分别给出明确文案。
+- `GET /api/integrations/status` 的 `dashboards[]` 新增 `status` 块（`healthy`/`state`/`message`）；`dashboard.url`（内嵌路由）与 `embeddable` 字段移除，`external_url` 保留为新窗口链接（GCP 不再带 `?embed=1`）。AstrBot 官方插件页（`pages/dashboard`）的集成卡片同步展示健康标识。
+- 导航与首页入口同步收敛：侧边导航、首页快捷卡移除「回复策略」，GCP 状态在「功能融合」页查看。
+- 测试：重写 `tests/unit/test_integration_service.py`（状态块/可达性分级/嵌入端点移除断言），新增 `tests/unit/test_local_guard.py`（守卫规则与 Hub loopback 限制 11 项）。
+
+### 版本
+
+- 版本号由 4.2.9 提升至 **4.3.1**。
+
 ## [4.2.9] - 2026-10-16
 
 ### 修复：内嵌插件页黑话导入报"未知黑话操作：import_jargons"（issue #269）

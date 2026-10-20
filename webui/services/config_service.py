@@ -411,11 +411,19 @@ class ConfigService:
     @staticmethod
     def _redact_config_for_response(config: Dict[str, Any]) -> Dict[str, Any]:
         """Return a copy safe for WebUI/API read responses."""
-        sanitized = dict(config)
-        for key in _SENSITIVE_RESPONSE_KEYS:
-            if key in sanitized:
-                sanitized[key] = ""
-        return sanitized
+        # 递归按键名脱敏：当前 to_dict() 为平铺结构，但配置分组化后
+        # secret 会嵌套在组内，浅层实现会静默失效。
+        def _redact(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {
+                    key: "" if key in _SENSITIVE_RESPONSE_KEYS else _redact(item)
+                    for key, item in value.items()
+                }
+            if isinstance(value, list):
+                return [_redact(item) for item in value]
+            return value
+
+        return _redact(config)
 
     def _config_source_signature(
         self,

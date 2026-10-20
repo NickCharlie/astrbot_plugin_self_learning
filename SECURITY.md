@@ -4,8 +4,8 @@
 
 | Version       | Supported          |
 |---------------|--------------------|
-| Next-1.1.x    | :white_check_mark: |
-| < 1.1.0       | :x:                |
+| 4.3.x         | :white_check_mark: |
+| < 4.3.0       | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -50,8 +50,15 @@ The following are considered in scope:
 
 When deploying this plugin:
 
-1. **Change the default WebUI password** immediately after installation
+1. **Enable the WebUI login password** (`enable_webui_password`) for any non-localhost
+   access. Since 4.3.1, passwordless mode only accepts loopback connections, and the
+   WebUI binds to `127.0.0.1` by default; set `web_interface_host` to `0.0.0.0` only
+   together with a password.
 2. **Do not expose the WebUI port** (default: 7833) to the public internet
-3. **Use a reverse proxy** with HTTPS if remote access is needed
-4. **Keep dependencies updated** by running `pip install -r requirements.txt --upgrade` regularly
-5. **Back up your data** regularly, including persona files and the database
+3. **Use a reverse proxy** with HTTPS if remote access is needed (session cookies are
+   not marked `Secure`; TLS termination at the proxy is expected)
+4. **Set an API key for the Hub API** (`enable_api_auth` + `api_key`) when companion
+   plugins call it from other machines; without it, Hub endpoints only accept
+   loopback callers
+5. **Keep dependencies updated** by running `pip install -r requirements.txt --upgrade` regularly
+6. **Back up your data** regularly, including persona files and the database

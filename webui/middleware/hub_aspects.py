@@ -56,6 +56,32 @@ def hub_error(
     return jsonify(payload), status_code
 
 
+def _request_client_is_loopback() -> bool:
+    """Hub 调用方（伴随插件）应与本插件同机；跨机调用必须启用 API key。"""
+    client = None
+    try:
+        # 兼容层的 request 代理暴露 starlette 的 .client（Address 对象）
+        client = getattr(request, "client", None)
+    except RuntimeError:
+        return False
+    if client is None:
+        scope = getattr(request, "scope", None) or {}
+        client = scope.get("client")
+    if hasattr(client, "host"):
+        host = client.host
+    elif isinstance(client, (tuple, list)) and client:
+        host = client[0]
+    else:
+        return False
+    normalized = str(host or "").strip().strip("[]").lower()
+    if normalized.startswith("::ffff:"):
+        normalized = normalized[len("::ffff:"):]
+    return (
+        normalized in {"localhost", "::1", "0.0.0.0"}
+        or normalized.startswith("127.")
+    )
+
+
 def require_hub_api_key(handler: Callable):
     """Require API key auth when API_Settings.enable_api_auth is enabled."""
 
@@ -65,6 +91,15 @@ def require_hub_api_key(handler: Callable):
         enabled = bool(getattr(config, "enable_api_auth", False))
         expected = str(getattr(config, "api_key", "") or "")
         if not enabled:
+            # 未启用 API key 时降级为"仅本机可调用"：Hub API 可写记忆、审批
+            # 人格与注入消息，不能对局域网无门槛开放。
+            if not _request_client_is_loopback():
+                return hub_error(
+                    "Hub API 鉴权未启用（enable_api_auth=false），仅允许本机调用；"
+                    "跨机调用请配置 api_key 并启用 enable_api_auth",
+                    403,
+                    code="loopback_only",
+                )
             return await handler(*args, **kwargs)
         if not expected:
             return hub_error(

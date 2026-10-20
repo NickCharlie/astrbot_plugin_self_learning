@@ -2,7 +2,7 @@ import type { PageId } from '../types/dashboard';
 
 export const DASHBOARD_PAGES: PageId[] = [
   'home', 'overview', 'insights', 'monitoring', 'reviews', 'jargon-learning',
-  'expression-learning', 'persona-learning', 'content', 'reply-strategy',
+  'expression-learning', 'persona-learning', 'content',
   'shadow-mode', 'graphs', 'integrations', 'settings',
 ];
 

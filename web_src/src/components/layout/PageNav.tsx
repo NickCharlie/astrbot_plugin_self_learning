@@ -15,7 +15,6 @@ const items: Array<{ id: PageId; label: string; icon: string; accent: string }> 
   { id: 'shadow-mode', label: '影子模式', icon: 'theater_comedy', accent: 'shadow-mode' },
   { id: 'content', label: '学习内容', icon: 'library_books', accent: 'content' },
   { id: 'graphs', label: '图谱', icon: 'hub', accent: 'graphs' },
-  { id: 'reply-strategy', label: '回复策略', icon: 'quickreply', accent: 'reply-strategy' },
   { id: 'integrations', label: '功能融合', icon: 'extension', accent: 'integrations' },
   { id: 'settings', label: '设置', icon: 'tune', accent: 'settings' },
 ];
