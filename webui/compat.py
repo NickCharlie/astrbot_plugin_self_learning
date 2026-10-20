@@ -637,15 +637,16 @@ class Quart:
     def test_client(self, client: "tuple[str, int] | None" = None) -> "CompatTestClient":
         """兼容 Quart 的测试客户端。
 
-        默认模拟 loopback 客户端（127.0.0.1）：真实部署中 WebUI/Hub 的调用方
-        与服务同机；访问守卫（local_guard/hub loopback 限制）按客户端地址
-        放行，测试需要模拟局域网来源时显式传入其他地址。
+        默认模拟本机回环调用方（127.0.0.1 地址 + Host）：真实部署中 WebUI/Hub
+        的直接调用方与服务同机；访问守卫（local_guard/hub loopback 限制）按
+        客户端地址与 Host 头放行，测试需要模拟局域网/反代来源时显式传入。
         """
         self._finalize()
         return CompatTestClient(
             TestClient(
                 self.fastapi_app,
                 raise_server_exceptions=False,
+                base_url="http://127.0.0.1",
                 client=client or ("127.0.0.1", 50000),
             ),
             secret_key=self._effective_secret,

@@ -190,7 +190,9 @@ async def _probe_panel_reachable(url: str) -> Optional[bool]:
         if not future.done():
             future.set_result(result)
         return result
-    except Exception:
+    except BaseException:
+        # 发起方被取消时（CancelledError 不走 except Exception）也要放行
+        # 同 URL 的等待者，否则它们会在 shield(inflight) 上永久挂起
         if not future.done():
             future.set_result(None)
         raise
@@ -284,9 +286,6 @@ class IntegrationService:
     def _self_learning_dashboard(self) -> Dict[str, Any]:
         from .hub_service import HubService
 
-        webui_config = getattr(self.container, "webui_config", None)
-        host = getattr(webui_config, "host", "127.0.0.1")
-        port = getattr(webui_config, "port", None)
         return {
             "id": "self_learning",
             "title": "Self Learning",
@@ -304,7 +303,7 @@ class IntegrationService:
             },
             "dashboard": {
                 "available": True,
-                "external_url": _http_url(host, port),
+                # 无 external_url：本卡片的入口就是当前监控板内部路由
                 "route": "#/home",
                 "label": "本插件监控板",
             },
@@ -400,7 +399,8 @@ class IntegrationService:
         host = getattr(plugin, "web_panel_host", None)
         port = getattr(plugin, "web_panel_port", None)
         enabled = bool(getattr(plugin, "enable_web_panel", False))
-        panel_url = _join_url(_http_url(host, port) if enabled else None, "/panel")
+        origin_url = _http_url(host, port) if enabled else None
+        panel_url = _join_url(origin_url, "/panel")
 
         if star is None:
             status_block = {
@@ -451,7 +451,8 @@ class IntegrationService:
                 "label": "Group Chat Plus 面板",
             },
             "dev_api": {
-                "base": f"{panel_url}/api" if panel_url else "/api",
+                # base 必须是面板 origin（不带 /panel 路径），端点列表均为 /api/... 
+                "base": f"{origin_url}/api" if origin_url else "/api",
                 "mode": "aiohttp_web_panel",
                 "endpoints": GROUP_CHAT_PLUS_API_ENDPOINTS,
             },

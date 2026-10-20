@@ -11,7 +11,6 @@
     "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
     content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
     graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
-    "reply-strategy": ["page.reply.kicker", "page.reply.title", "Reply", "回复策略"],
     integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
     settings: ["page.settings.kicker", "page.settings.title", "Settings", "设置"],
   };
@@ -518,7 +517,6 @@
       if (page === "persona-learning") return renderPersona(await cached("persona", () => apiGet("persona", { group_id: "default", limit: 30 }), force));
       if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
       if (page === "graphs") return loadGraphs(force);
-      if (page === "reply-strategy") return renderReplyStrategy(await cached("integrations", () => apiGet("integrations"), force));
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
       if (page === "settings") return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
     } catch (error) {
@@ -1060,11 +1058,6 @@
       source: graphValueKey(link.source ?? link.from),
       target: graphValueKey(link.target ?? link.to),
     })).filter((link) => link.source && link.target);
-  }
-
-  function renderReplyStrategy(data) {
-    const cards = (data.dashboards || []).filter((item) => item.id === "group_chat_plus");
-    setHtml("reply-strategy-cards", cards.map(integrationCardHtml).join("") || empty(t("empty.groupChatPlus", "未检测到 Group Chat Plus")));
   }
 
   function renderIntegrations(data) {
@@ -1869,10 +1862,8 @@
       else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
       else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
       else if (state.page === "graphs" && data) renderGraphs(data);
-      else if ((state.page === "reply-strategy" || state.page === "integrations") && state.pageData.integrations) {
-        if (state.page === "reply-strategy") renderReplyStrategy(state.pageData.integrations);
-        else renderIntegrations(state.pageData.integrations);
-      } else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
+      else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
+      else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
     };
     try {
       const bridge = window.AstrBotPluginPage;

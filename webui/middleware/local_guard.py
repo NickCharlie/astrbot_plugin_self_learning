@@ -18,22 +18,26 @@
 
 from __future__ import annotations
 
+import ipaddress
 from urllib.parse import urlsplit
 
 from fastapi.responses import JSONResponse
-
-_LOOPBACK_HOSTNAMES = {"localhost", "::1", "[::1]", "0.0.0.0"}
 
 
 def _is_loopback_ip(host: str) -> bool:
     normalized = str(host or "").strip().strip("[]").lower()
     if not normalized:
         return False
-    if normalized in _LOOPBACK_HOSTNAMES:
+    if normalized == "localhost":
         return True
-    if normalized.startswith("::ffff:"):
-        normalized = normalized[len("::ffff:"):]
-    return normalized.startswith("127.")
+    # 只接受 IP 字面量：形如 127.evil.com 的攻击者域名不能靠字符串前缀混过校验
+    try:
+        addr = ipaddress.ip_address(normalized)
+    except ValueError:
+        return False
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        addr = addr.ipv4_mapped
+    return addr.is_loopback or addr.is_unspecified
 
 
 def _header_value(headers: list, name: bytes) -> str:
@@ -44,7 +48,7 @@ def _header_value(headers: list, name: bytes) -> str:
 
 
 def _origin_matches_host(origin: str, host_header: str) -> bool:
-    """Origin 与 Host 头是否同源（host 不分大小写，端口缺省按同源处理）。"""
+    """Origin 与 Host 头是否同源（host 不分大小写，端口按显式值/协议默认值比较）。"""
     try:
         origin_parts = urlsplit(origin)
         host_parts = urlsplit(f"//{host_header}" if "//" not in host_header else host_header)
@@ -54,15 +58,22 @@ def _origin_matches_host(origin: str, host_header: str) -> bool:
     request_host = (host_parts.hostname or "").lower()
     if not origin_host or not request_host:
         return False
-    if origin_host != request_host:
-        # 本机面板经 127.0.0.1 与 localhost 两种写法访问视为同源
-        if not (_is_loopback_ip(origin_host) and _is_loopback_ip(request_host)):
-            return False
+    if origin_host != request_host and not (
+        _is_loopback_ip(origin_host) and _is_loopback_ip(request_host)
+    ):
+        # 仅 127.0.0.1 ↔ localhost 这类本机别名视为同源
+        return False
     origin_port = origin_parts.port
     request_port = host_parts.port
     if origin_port is not None and request_port is not None:
         return origin_port == request_port
-    return True
+    if origin_port is None and request_port is None:
+        return True
+    # 一方省缺端口时按协议默认端口补齐（Host 无 scheme，随 Origin 推导）
+    default_port = 443 if origin_parts.scheme == "https" else 80
+    return (origin_port if origin_port is not None else default_port) == (
+        request_port if request_port is not None else default_port
+    )
 
 
 def _password_enabled() -> bool:

@@ -6,6 +6,7 @@ import time
 import secrets
 from functools import wraps
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from astrbot.api import logger
 from ..compat import jsonify, request
@@ -82,6 +83,24 @@ def _request_client_is_loopback() -> bool:
     )
 
 
+def _request_host_is_loopback() -> bool:
+    """Host 头是否指向本机：同机反代转发远程请求时 socket 是 loopback，
+    但 Host 是外部域名，据此识别并拒绝（远程调用请启用 API key）。"""
+    try:
+        host = request.headers.get("Host", "") or ""
+    except RuntimeError:
+        return False
+    if not host:
+        return True
+    from ..middleware.local_guard import _is_loopback_ip
+
+    try:
+        hostname = urlsplit(f"//{host}").hostname or ""
+    except ValueError:
+        return False
+    return _is_loopback_ip(hostname)
+
+
 def require_hub_api_key(handler: Callable):
     """Require API key auth when API_Settings.enable_api_auth is enabled."""
 
@@ -92,8 +111,8 @@ def require_hub_api_key(handler: Callable):
         expected = str(getattr(config, "api_key", "") or "")
         if not enabled:
             # 未启用 API key 时降级为"仅本机可调用"：Hub API 可写记忆、审批
-            # 人格与注入消息，不能对局域网无门槛开放。
-            if not _request_client_is_loopback():
+            # 人格与注入消息，不能对局域网/反代转发无门槛开放。
+            if not _request_client_is_loopback() or not _request_host_is_loopback():
                 return hub_error(
                     "Hub API 鉴权未启用（enable_api_auth=false），仅允许本机调用；"
                     "跨机调用请配置 api_key 并启用 enable_api_auth",

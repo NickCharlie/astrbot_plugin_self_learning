@@ -10,7 +10,11 @@ export function IntegrationCard(props: {
   onOpen?: () => void;
 }) {
   const status = () => object(props.item.status);
-  const active = () => props.item.active === true || object(props.item.dashboard).available === true;
+  const dash = () => object(props.item.dashboard);
+  const active = () => props.item.active === true || dash().available === true;
+  // 有可用面板入口（外部链接或内部路由）才允许点击，避免"可点但无动作"
+  const actionable = () =>
+    dash().available === true || String(dash().route ?? '').startsWith('#/');
   const healthy = (): boolean | null => {
     const value = status().healthy;
     return typeof value === 'boolean' ? value : null;
@@ -29,7 +33,7 @@ export function IntegrationCard(props: {
         <p class={styles['integration-card-status']}>{String(status().message)}</p>
       </Show>
       <div class={styles['integration-card-actions']}>
-        <Show when={props.onOpen}><Button icon="open_in_new" disabled={!active()} onClick={props.onOpen}>打开面板</Button></Show>
+        <Show when={props.onOpen}><Button icon="open_in_new" disabled={!actionable()} onClick={props.onOpen}>打开面板</Button></Show>
       </div>
     </Card>
   );

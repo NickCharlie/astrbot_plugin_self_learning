@@ -50,11 +50,15 @@ def test_is_loopback_ip_variants():
     assert _is_loopback_ip("::1")
     assert _is_loopback_ip("[::1]")
     assert _is_loopback_ip("::ffff:127.0.0.1")
+    assert _is_loopback_ip("0:0:0:0:0:0:0:1")
     assert _is_loopback_ip("localhost")
     assert not _is_loopback_ip("192.168.1.5")
     assert not _is_loopback_ip("203.0.113.9")
     assert not _is_loopback_ip("")
     assert not _is_loopback_ip("example.com")
+    # 以 127. 开头的攻击者域名不是 IP 字面量，不得放行（DNS 重绑定变体）
+    assert not _is_loopback_ip("127.evil.com")
+    assert not _is_loopback_ip("localhost.evil.com")
 
 
 def test_origin_matches_host():
@@ -66,6 +70,16 @@ def test_origin_matches_host():
     # 无端口（默认端口）双方均视为同源
     assert _origin_matches_host("https://panel.example.com", "panel.example.com")
     assert not _origin_matches_host("https://other.example.com", "panel.example.com")
+    # 一方显式端口、另一方协议默认端口：不等即跨源
+    assert not _origin_matches_host("https://panel.example.com", "panel.example.com:8443")
+    assert _origin_matches_host("https://panel.example.com:443", "panel.example.com")
+
+
+def test_rebinding_hostname_with_127_prefix_rejected():
+    # Host 为 127.evil.com：socket 来自本机，但主机名不是本机 → 拦截
+    with _password(disabled=True):
+        message = _reject_message(_scope(host="127.evil.com:7833"))
+    assert message and "DNS 重绑定" in message
 
 
 def test_passwordless_rejects_lan_client():
@@ -151,8 +165,8 @@ async def test_guard_middleware_passes_non_http_and_clean_requests():
     assert forwarded == ["lifespan", "http"]
 
 
-def test_hub_api_rejects_lan_caller_without_api_auth():
-    """enable_api_auth=False 时 Hub API 仅允许本机调用。"""
+def test_hub_api_rejects_remote_caller_without_api_auth():
+    """enable_api_auth=False 时 Hub API 仅允许本机直连（socket 与 Host 均本机）。"""
     from types import SimpleNamespace
     from unittest.mock import patch as mock_patch
 
@@ -167,22 +181,24 @@ def test_hub_api_rejects_lan_caller_without_api_auth():
         plugin_config=SimpleNamespace(enable_api_auth=False, api_key="")
     )
 
-    async def lan_call():
+    async def call():
         return await handler()
 
-    fake_request = SimpleNamespace(scope={"client": ("203.0.113.5", 5000)})
-    with mock_patch.object(hub_aspects, "get_container", lambda: container), \
-            mock_patch.object(hub_aspects, "request", fake_request):
-        import asyncio
+    import asyncio
 
-        result = asyncio.run(lan_call())
-    # hub_error 返回 (jsonify, status) 元组
-    assert isinstance(result, tuple) and result[1] == 403
-
-    fake_request = SimpleNamespace(scope={"client": ("127.0.0.1", 5000)})
-    with mock_patch.object(hub_aspects, "get_container", lambda: container), \
-            mock_patch.object(hub_aspects, "request", fake_request):
-        import asyncio
-
-        result = asyncio.run(lan_call())
-    assert result == "ok"
+    cases = [
+        # 局域网直连
+        (SimpleNamespace(scope={"client": ("203.0.113.5", 5000)}, headers={"Host": "203.0.113.5:7833"}), 403),
+        # 同机反代转发远程请求：socket 是 loopback，但 Host 是外部域名
+        (SimpleNamespace(scope={"client": ("127.0.0.1", 5000)}, headers={"Host": "panel.example.com"}), 403),
+        # 本机直连
+        (SimpleNamespace(scope={"client": ("127.0.0.1", 5000)}, headers={"Host": "127.0.0.1:7833"}), 200),
+    ]
+    for fake_request, expected in cases:
+        with mock_patch.object(hub_aspects, "get_container", lambda: container), \
+                mock_patch.object(hub_aspects, "request", fake_request):
+            result = asyncio.run(call())
+        if expected == 403:
+            assert isinstance(result, tuple) and result[1] == 403
+        else:
+            assert result == "ok"

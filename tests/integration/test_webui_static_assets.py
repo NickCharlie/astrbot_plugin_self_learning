@@ -84,7 +84,6 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
         "人格学习",
         "学习内容",
         "图谱",
-        "回复策略",
         "功能融合",
         "设置",
     ]:
@@ -99,7 +98,6 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
         "persona-learning",
         "content",
         "graphs",
-        "reply-strategy",
         "integrations",
         "settings",
     ]:

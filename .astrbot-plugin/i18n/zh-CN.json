@@ -502,7 +502,6 @@
         "personaLearning": "人格学习",
         "content": "学习内容",
         "graphs": "图谱",
-        "replyStrategy": "回复策略",
         "integrations": "功能融合",
         "settings": "设置"
       },
@@ -542,10 +541,6 @@
         "graphs": {
           "kicker": "Graphs",
           "title": "图谱"
-        },
-        "reply": {
-          "kicker": "Reply",
-          "title": "回复策略"
         },
         "integrations": {
           "kicker": "Integrations",
@@ -782,10 +777,6 @@
           "source": "来源"
         }
       },
-      "reply": {
-        "desc": "查看 Group Chat Plus 委托状态和面板入口。",
-        "title": "回复策略"
-      },
       "integrations": {
         "desc": "Self Learning、LivingMemory 与 Group Chat Plus 的协作状态。",
         "settings": "融合设置",
@@ -872,7 +863,6 @@
         "definition": "暂无释义",
         "functionStats": "暂无函数性能数据",
         "graphNodes": "暂无图谱节点",
-        "groupChatPlus": "未检测到 Group Chat Plus",
         "healthChecks": "暂无健康检查数据",
         "integrationSettings": "暂无融合设置",
         "integrations": "暂无融合状态",

@@ -104,14 +104,20 @@ export function IntegrationsPage() {
   };
   const openIntegration = (item: IntegrationItem) => {
     const dash = object(item.dashboard);
+    // 有独立面板/官方面板链接时优先新窗口打开（issue #271）；无外部入口的
+    // 卡片（如本插件自身）退回内部路由
+    const url = resolveHostUrl(String(dash.external_url ?? ''));
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const route = String(dash.route ?? '');
     if (route.startsWith('#/')) {
       window.location.hash = route;
       return;
     }
-    // 伴随插件面板一律在新窗口打开（issue #271：iframe 内嵌屡被浏览器拦截）
-    const url = resolveHostUrl(String(dash.external_url ?? dash.official_page_url ?? ''));
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    const official = resolveHostUrl(String(dash.official_page_url ?? ''));
+    if (official) window.open(official, '_blank', 'noopener,noreferrer');
   };
   return (
     <div class="page">
