@@ -451,7 +451,7 @@ class IntegrationService:
                 "label": "Group Chat Plus 面板",
             },
             "dev_api": {
-                # base 必须是面板 origin（不带 /panel 路径），端点列表均为 /api/... 
+                # base 必须是面板 origin（不带 /panel 路径），端点列表均为 /api/...
                 "base": f"{origin_url}/api" if origin_url else "/api",
                 "mode": "aiohttp_web_panel",
                 "endpoints": GROUP_CHAT_PLUS_API_ENDPOINTS,
