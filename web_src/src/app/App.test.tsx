@@ -22,7 +22,6 @@ const headings: Record<string, string> = {
   'shadow-mode': '影子模式',
   content: '学习内容',
   graphs: '记忆 / 知识图谱',
-  'reply-strategy': '回复策略',
   integrations: '功能融合',
   settings: '设置',
 };

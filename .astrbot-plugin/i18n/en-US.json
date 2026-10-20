@@ -502,7 +502,6 @@
         "personaLearning": "Persona Learning",
         "content": "Learning Content",
         "graphs": "Graphs",
-        "replyStrategy": "Reply Strategy",
         "integrations": "Integrations",
         "settings": "Settings"
       },
@@ -542,10 +541,6 @@
         "graphs": {
           "kicker": "Graphs",
           "title": "Graphs"
-        },
-        "reply": {
-          "kicker": "Reply",
-          "title": "Reply Strategy"
         },
         "integrations": {
           "kicker": "Integrations",
@@ -618,10 +613,12 @@
         "delegated": "Delegated",
         "disabled": "Disabled",
         "enabled": "Enabled",
+        "healthy": "Healthy",
         "no": "No",
         "none": "No",
         "off": "Off",
         "on": "On",
+        "unhealthy": "Unhealthy",
         "unset": "Unset",
         "yes": "Yes"
       },
@@ -780,10 +777,6 @@
           "source": "Source"
         }
       },
-      "reply": {
-        "desc": "View Group Chat Plus delegation status and panel entry.",
-        "title": "Reply Strategy"
-      },
       "integrations": {
         "desc": "Collaboration status for Self Learning, LivingMemory, and Group Chat Plus.",
         "settings": "Integration Settings",
@@ -870,7 +863,6 @@
         "definition": "No definition",
         "functionStats": "No function performance data",
         "graphNodes": "No graph nodes",
-        "groupChatPlus": "Group Chat Plus was not detected",
         "healthChecks": "No health check data",
         "integrationSettings": "No integration settings",
         "integrations": "No integration status",

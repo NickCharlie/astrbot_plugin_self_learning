@@ -29,7 +29,8 @@ def register_error_handlers(app):
     @fastapi_app.exception_handler(Exception)
     async def handle_exception(request, exc: Exception):
         logger.error(f"未捕获的异常: {exc}", exc_info=True)
+        # 兜底响应不回显异常文本（可能含内部路径/SQL 片段），详情只进日志
         return JSONResponse(
-            {"success": False, "message": f"服务器错误: {str(exc)}"},
+            {"success": False, "message": "服务器内部错误，请稍后重试"},
             status_code=500,
         )

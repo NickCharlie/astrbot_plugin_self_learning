@@ -10,9 +10,9 @@ describe('hash routing', () => {
 
 describe('companion dashboard URL resolution', () => {
   it('uses the current browser host for loopback and wildcard server addresses', () => {
-    const browser = 'http://203.0.113.20:7833/#/reply-strategy';
-    expect(resolveHostUrl('http://127.0.0.1:1451/panel?embed=1', browser))
-      .toBe('http://203.0.113.20:1451/panel?embed=1');
+    const browser = 'http://203.0.113.20:7833/#/integrations';
+    expect(resolveHostUrl('http://127.0.0.1:1451/panel', browser))
+      .toBe('http://203.0.113.20:1451/panel');
     expect(resolveHostUrl('http://0.0.0.0:1451/panel', browser))
       .toBe('http://203.0.113.20:1451/panel');
     expect(resolveHostUrl('http://[::1]:1451/panel', browser))
@@ -21,9 +21,9 @@ describe('companion dashboard URL resolution', () => {
 
   it('supports a remote IPv6 browser host', () => {
     expect(resolveHostUrl(
-      'http://localhost:1451/panel?embed=1',
-      'http://[2001:db8::42]:7833/#/reply-strategy',
-    )).toBe('http://[2001:db8::42]:1451/panel?embed=1');
+      'http://localhost:1451/panel',
+      'http://[2001:db8::42]:7833/#/integrations',
+    )).toBe('http://[2001:db8::42]:1451/panel');
   });
 
   it('preserves explicit remote hosts and non-http links', () => {

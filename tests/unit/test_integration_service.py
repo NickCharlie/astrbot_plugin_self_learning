@@ -1,6 +1,7 @@
 import asyncio
 import sys
 import time
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -13,14 +14,12 @@ if str(PARENT) not in sys.path:
 from self_learning_EterU.webui.services import integration_service as integration_service_module
 from self_learning_EterU.webui.services.integration_service import (
     IntegrationService,
-    _frame_headers_block,
-    _probe_embeddable,
+    _probe_panel_reachable,
 )
-from self_learning_EterU.webui.blueprints.integrations import _render_embed_shell
 
 
 def _clear_probe_cache():
-    integration_service_module._EMBED_PROBE_CACHE.clear()
+    integration_service_module._PANEL_PROBE_CACHE.clear()
 
 
 def _star(name, plugin, *, root_dir_name=None):
@@ -31,6 +30,28 @@ def _star(name, plugin, *, root_dir_name=None):
         module_path=f"data.plugins.{root_dir_name or name}.main",
         star_cls=plugin,
     )
+
+
+class _FakeResponse:
+    def __init__(self, status=200):
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def getcode(self):
+        return self.status
+
+
+def _http_error(code):
+    return urllib.error.HTTPError("http://127.0.0.1:1451/panel", code, "x", None, None)
+
+
+def _dashboards_by_id(payload):
+    return {item["id"]: item for item in payload["dashboards"]}
 
 
 async def test_integration_service_reports_companion_dashboards_and_dev_apis():
@@ -82,9 +103,16 @@ async def test_integration_service_reports_companion_dashboards_and_dev_apis():
         feature_delegation=delegation,
     )
 
-    payload = await IntegrationService(container).get_status()
+    _clear_probe_cache()
+    with patch.object(
+        integration_service_module.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse(200),
+    ):
+        payload = await IntegrationService(container).get_status()
+    _clear_probe_cache()
 
-    dashboards = {item["id"]: item for item in payload["dashboards"]}
+    dashboards = _dashboards_by_id(payload)
     assert payload["delegation"]["memory_delegated"] is True
     assert payload["hub"]["base_path"] == "/api/hub/v1"
     assert payload["hub"]["manifest_url"] == "/api/hub/v1/manifest"
@@ -93,22 +121,25 @@ async def test_integration_service_reports_companion_dashboards_and_dev_apis():
     assert dashboards["self_learning"]["dev_api"]["base"] == "/api"
     assert dashboards["self_learning"]["dev_api"]["hub_base"] == "/api/hub/v1"
     assert "POST /api/hub/v1/messages/ingest" in dashboards["self_learning"]["dev_api"]["endpoints"]
-    assert dashboards["livingmemory"]["dashboard"]["url"] == "/api/integrations/embed/livingmemory"
+    assert dashboards["livingmemory"]["status"]["healthy"] is True
     assert dashboards["livingmemory"]["dashboard"]["external_url"] == "http://127.0.0.1:8888"
     assert dashboards["livingmemory"]["dashboard"]["route"] == "#/graphs"
     assert dashboards["livingmemory"]["dev_api"]["base"] == "/api/graphs"
     assert dashboards["livingmemory"]["dev_api"]["mode"] == "self_learning_graph_store_adapter"
     assert "GET /api/graphs/memory" in dashboards["livingmemory"]["dev_api"]["endpoints"]
     assert "POST /astrbot_plugin_livingmemory/page/graph/query" not in dashboards["livingmemory"]["dev_api"]["endpoints"]
-    assert dashboards["group_chat_plus"]["dashboard"]["url"] == "/api/integrations/embed/group_chat_plus"
-    assert dashboards["group_chat_plus"]["dashboard"]["external_url"] == "http://127.0.0.1:8787/panel?embed=1"
-    assert dashboards["group_chat_plus"]["dashboard"]["route"] == "#/reply-strategy"
+    assert dashboards["group_chat_plus"]["status"] == {
+        "healthy": True,
+        "state": "ok",
+        "message": "插件已加载，面板端口可达",
+    }
+    # issue #271：面板只保留状态标识与新窗口链接，不再有内嵌路由/回复策略页
+    assert dashboards["group_chat_plus"]["dashboard"]["external_url"] == "http://127.0.0.1:8787/panel"
+    assert "route" not in dashboards["group_chat_plus"]["dashboard"]
+    assert "embeddable" not in dashboards["group_chat_plus"]["dashboard"]
+    assert "embeddable" not in dashboards["livingmemory"]["dashboard"]
     assert "GET /api/data/overview" in dashboards["group_chat_plus"]["dev_api"]["endpoints"]
-
-    livingmemory_embed = await IntegrationService(container).get_embed_target("livingmemory")
-    group_chat_plus_embed = await IntegrationService(container).get_embed_target("reply-strategy")
-    assert livingmemory_embed["target_url"] == "http://127.0.0.1:8888"
-    assert group_chat_plus_embed["target_url"] == "http://127.0.0.1:8787/panel?embed=1"
+    assert not hasattr(IntegrationService, "get_embed_target")
 
 
 async def test_integration_service_reports_high_cost_v2_warning():
@@ -143,122 +174,74 @@ async def test_integration_service_reports_high_cost_v2_warning():
     assert "token" in payload["warnings"][0]
 
 
-def test_embed_shell_resolves_loopback_target_from_browser_host():
-    html = _render_embed_shell({
-        "title": "Group Chat Plus",
-        "role": "回复决策与生成",
-        "available": True,
-        "target_url": "http://127.0.0.1:1451/panel?embed=1",
-        "active": True,
-        "delegated": True,
-        "kind": "embedded_external",
-    })
-
-    assert 'src="http://127.0.0.1:1451' not in html
-    assert 'href="http://127.0.0.1:1451' not in html
-    assert 'data-target-url="http://127.0.0.1:1451/panel?embed=1"' in html
-    assert "window.location.hostname" in html
-    assert "target.host = target.port" in html
-
-
-class _FakeResponse:
-    def __init__(self, headers):
-        self.headers = headers
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        return False
-
-
-DASHBOARD_ORIGIN = "http://127.0.0.1:8989"
-
-
-def test_frame_headers_block_rules():
-    assert _frame_headers_block({"X-Frame-Options": "DENY"})
-    assert _frame_headers_block({"X-Frame-Options": "SAMEORIGIN"})
-    assert _frame_headers_block({"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'"})
-    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors 'self'"}, DASHBOARD_ORIGIN)
-    assert _frame_headers_block({"Content-Security-Policy": "frame-ancestors *"}, None) is False
-    assert not _frame_headers_block({"Content-Security-Policy": "default-src 'self'"}, DASHBOARD_ORIGIN)
-    assert not _frame_headers_block({}, DASHBOARD_ORIGIN)
-
-
-def test_frame_headers_allowlist_matches_parent_origin():
-    blocked = {"Content-Security-Policy": "frame-ancestors 'self'"}
-    allowed = {"Content-Security-Policy": "frame-ancestors 'self' http://127.0.0.1:8989"}
-    assert _frame_headers_block(allowed, DASHBOARD_ORIGIN) is False
-    assert _frame_headers_block(allowed, "http://192.168.1.5:8989") is True
-    assert _frame_headers_block(blocked, DASHBOARD_ORIGIN) is True
-    assert _frame_headers_block(
-        {"Content-Security-Policy": "frame-ancestors http://*.example.com"},
-        "http://a.example.com",
-    ) is False
-    assert _frame_headers_block(
-        {"Content-Security-Policy": "frame-ancestors http://*.example.com:8989"},
-        "http://a.example.com:9999",
-    ) is True
-    assert _frame_headers_block(
-        {"Content-Security-Policy": "frame-ancestors https://127.0.0.1:8989"},
-        DASHBOARD_ORIGIN,
-    ) is True
-    # 拿不到父页面 origin 时保守处理：仅 'self' 视为拒绝，含显式主机视为可能允许
-    assert _frame_headers_block(blocked, None) is True
-    assert _frame_headers_block(allowed, None) is False
-
-
-async def test_probe_embeddable_caches_result():
+async def test_probe_panel_reachable_caches_result():
     _clear_probe_cache()
     calls = []
 
     def fake_urlopen(request, timeout=None):
         calls.append(str(request))
-        return _FakeResponse({"X-Frame-Options": "DENY"})
+        return _FakeResponse(200)
 
     with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
-        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
-        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is False
+        assert await _probe_panel_reachable("http://127.0.0.1:1451/panel") is True
+        assert await _probe_panel_reachable("http://127.0.0.1:1451/panel") is True
     assert len(calls) == 1
     _clear_probe_cache()
 
 
-async def test_probe_embeddable_returns_none_when_unreachable():
+async def test_probe_panel_reachable_returns_false_when_unreachable():
     _clear_probe_cache()
 
     def fake_urlopen(request, timeout=None):
         raise OSError("connection refused")
 
     with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
-        assert await _probe_embeddable("http://127.0.0.1:1451/panel?embed=1") is None
+        assert await _probe_panel_reachable("http://127.0.0.1:1451/panel") is False
     _clear_probe_cache()
 
 
-async def test_probe_embeddable_coalesces_concurrent_probes():
+async def test_probe_panel_reachable_treats_auth_required_as_reachable():
+    _clear_probe_cache()
+
+    def fake_urlopen(request, timeout=None):
+        raise _http_error(401)
+
+    with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
+        assert await _probe_panel_reachable("http://127.0.0.1:1451/panel") is True
+    _clear_probe_cache()
+
+
+async def test_probe_panel_reachable_treats_5xx_as_down():
+    _clear_probe_cache()
+    with patch.object(
+        integration_service_module.urllib.request,
+        "urlopen",
+        lambda request, timeout=None: _FakeResponse(503),
+    ):
+        assert await _probe_panel_reachable("http://127.0.0.1:1451/panel") is False
+    _clear_probe_cache()
+
+
+async def test_probe_panel_reachable_coalesces_concurrent_probes():
     _clear_probe_cache()
     calls = []
 
     def slow_urlopen(request, timeout=None):
         time.sleep(0.05)
         calls.append(str(request))
-        return _FakeResponse({"X-Frame-Options": "DENY"})
+        return _FakeResponse(200)
 
     with patch.object(integration_service_module.urllib.request, "urlopen", slow_urlopen):
         results = await asyncio.gather(*[
-            _probe_embeddable("http://127.0.0.1:1451/panel?embed=1")
+            _probe_panel_reachable("http://127.0.0.1:1451/panel")
             for _ in range(5)
         ])
-    assert results == [False] * 5
+    assert results == [True] * 5
     assert len(calls) == 1
     _clear_probe_cache()
 
 
-def _gcp_container():
-    group_chat_plus = SimpleNamespace(
-        enable_web_panel=True,
-        web_panel_host="0.0.0.0",
-        web_panel_port=8787,
-    )
+def _gcp_container(group_chat_plus):
     group_chat_plus_star = _star("astrbot_plugin_group_chat_plus", group_chat_plus)
     delegation = SimpleNamespace(
         status=lambda: {
@@ -282,63 +265,96 @@ def _gcp_container():
     )
 
 
-async def test_group_chat_plus_blocked_panel_degrades_to_external():
+async def test_group_chat_plus_reports_ok_when_panel_reachable():
     _clear_probe_cache()
-    container = _gcp_container()
+    container = _gcp_container(SimpleNamespace(
+        enable_web_panel=True,
+        web_panel_host="0.0.0.0",
+        web_panel_port=8787,
+    ))
 
     with patch.object(
         integration_service_module.urllib.request,
         "urlopen",
-        lambda request, timeout=None: _FakeResponse({"X-Frame-Options": "DENY"}),
+        lambda request, timeout=None: _FakeResponse(200),
     ):
         payload = await IntegrationService(container).get_status()
-        embed = await IntegrationService(container).get_embed_target("reply-strategy")
-
-    dashboards = {item["id"]: item for item in payload["dashboards"]}
-    dashboard = dashboards["group_chat_plus"]["dashboard"]
-    assert dashboard["embeddable"] is False
-    assert dashboard["kind"] == "external"
-    assert dashboard["available"] is True
-    assert embed["embeddable"] is False
-    assert embed["available"] is True
-    assert "新窗口" in embed["message"]
     _clear_probe_cache()
 
-
-def test_embed_shell_renders_notice_when_panel_blocks_embedding():
-    html = _render_embed_shell({
-        "title": "Group Chat Plus",
-        "role": "回复决策与生成",
-        "available": True,
-        "embeddable": False,
-        "target_url": "http://127.0.0.1:1451/panel?embed=1",
-        "active": True,
-        "delegated": True,
-        "kind": "external",
-        "message": "面板禁止 iframe 嵌入，请在新窗口打开独立面板。",
-    })
-
-    assert "<iframe" not in html
-    assert "面板禁止内嵌" in html
-    assert "面板禁止 iframe 嵌入" in html
-    assert 'data-target-url="http://127.0.0.1:1451/panel?embed=1"' in html
-    assert "新窗口打开" in html
+    dashboard = _dashboards_by_id(payload)["group_chat_plus"]
+    assert dashboard["active"] is True
+    assert dashboard["status"]["healthy"] is True
+    assert dashboard["status"]["state"] == "ok"
+    assert dashboard["dashboard"]["available"] is True
+    assert dashboard["dashboard"]["external_url"] == "http://127.0.0.1:8787/panel"
 
 
-def test_embed_shell_keeps_iframe_when_embedding_allowed():
-    html = _render_embed_shell({
-        "title": "Group Chat Plus",
-        "role": "回复决策与生成",
-        "available": True,
-        "embeddable": True,
-        "target_url": "http://127.0.0.1:1451/panel?embed=1",
-        "active": True,
-        "delegated": True,
-        "kind": "embedded_external",
-    })
+async def test_group_chat_plus_reports_offline_when_panel_unreachable():
+    _clear_probe_cache()
+    container = _gcp_container(SimpleNamespace(
+        enable_web_panel=True,
+        web_panel_host="0.0.0.0",
+        web_panel_port=8787,
+    ))
 
-    assert '<iframe id="companion-frame"' in html
-    assert "面板禁止内嵌" not in html
+    def fake_urlopen(request, timeout=None):
+        raise OSError("connection refused")
+
+    with patch.object(integration_service_module.urllib.request, "urlopen", fake_urlopen):
+        payload = await IntegrationService(container).get_status()
+    _clear_probe_cache()
+
+    dashboard = _dashboards_by_id(payload)["group_chat_plus"]
+    assert dashboard["status"]["healthy"] is False
+    assert dashboard["status"]["state"] == "offline"
+    assert "不可达" in dashboard["status"]["message"]
+    assert dashboard["dashboard"]["available"] is True
+
+
+async def test_group_chat_plus_reports_degraded_when_panel_disabled():
+    container = _gcp_container(SimpleNamespace(
+        enable_web_panel=False,
+        web_panel_host="0.0.0.0",
+        web_panel_port=8787,
+    ))
+
+    payload = await IntegrationService(container).get_status()
+
+    dashboard = _dashboards_by_id(payload)["group_chat_plus"]
+    assert dashboard["active"] is True
+    assert dashboard["status"]["healthy"] is False
+    assert dashboard["status"]["state"] == "degraded"
+    assert "未开启" in dashboard["status"]["message"]
+    assert dashboard["dashboard"]["available"] is False
+    assert dashboard["dashboard"]["external_url"] is None
+
+
+async def test_group_chat_plus_reports_not_installed_without_plugin():
+    container = SimpleNamespace(
+        plugin_config=SimpleNamespace(
+            delegate_reply_to_group_chat_plus=True,
+            group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
+        ),
+        webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
+        feature_delegation=SimpleNamespace(
+            status=lambda: {
+                "memory_delegated": False,
+                "memory_plugin": None,
+                "reply_delegated": False,
+                "reply_plugin": None,
+            },
+            memory_plugin=lambda: None,
+            reply_plugin=lambda: None,
+        ),
+    )
+
+    payload = await IntegrationService(container).get_status()
+
+    dashboard = _dashboards_by_id(payload)["group_chat_plus"]
+    assert dashboard["active"] is False
+    assert dashboard["status"]["healthy"] is None
+    assert dashboard["status"]["state"] == "not_installed"
+    assert dashboard["dashboard"]["available"] is False
 
 
 def _lm_official_page_container(memory_star, *, astrbot_config=None):
@@ -402,22 +418,18 @@ async def test_livingmemory_official_page_detected_from_plugin_pages(tmp_path):
 
     with _force_legacy_hash_url():
         payload = await IntegrationService(container).get_status()
-        embed = await IntegrationService(container).get_embed_target("livingmemory")
-    dashboards = {item["id"]: item for item in payload["dashboards"]}
+    dashboards = _dashboards_by_id(payload)
     dashboard = dashboards["livingmemory"]["dashboard"]
     expected = (
         "http://127.0.0.1:6185/#/plugin-page/"
         "astrbot_plugin_livingmemory/dashboard"
     )
     assert dashboard["official_page_url"] == expected
-    assert dashboard["embeddable"] is False
-    assert dashboard["external_url"] is None
+    # 官方插件页只作为新窗口链接暴露（issue #271），不再作为 iframe 目标
+    assert dashboard["external_url"] == expected
     assert dashboard["available"] is True
-
-    assert embed["target_url"] == expected
-    assert embed["embeddable"] is False
-    assert embed["available"] is True
-    assert "新窗口" in embed["message"]
+    assert dashboards["livingmemory"]["status"]["healthy"] is True
+    assert dashboards["livingmemory"]["status"]["state"] == "ok"
 
 
 async def test_livingmemory_official_page_resolves_dotted_module_path(tmp_path):
@@ -449,13 +461,10 @@ async def test_livingmemory_official_page_resolves_dotted_module_path(tmp_path):
     ):
         payload = await IntegrationService(container).get_status()
 
-    dashboard = {
-        item["id"]: item for item in payload["dashboards"]
-    }["livingmemory"]["dashboard"]
+    dashboard = _dashboards_by_id(payload)["livingmemory"]["dashboard"]
     assert dashboard["official_page_url"] == (
         "http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_livingmemory/dashboard"
     )
-    assert dashboard["embeddable"] is False
 
 
 async def test_livingmemory_official_page_uses_plugin_view_route_on_4_29(tmp_path):
@@ -482,9 +491,7 @@ async def test_livingmemory_official_page_uses_plugin_view_route_on_4_29(tmp_pat
     ):
         payload = await IntegrationService(container).get_status()
 
-    dashboard = {
-        item["id"]: item for item in payload["dashboards"]
-    }["livingmemory"]["dashboard"]
+    dashboard = _dashboards_by_id(payload)["livingmemory"]["dashboard"]
     assert dashboard["official_page_url"] == (
         "http://127.0.0.1:6185/#/plugin-view/astrbot_plugin_livingmemory/dashboard"
     )
@@ -565,9 +572,7 @@ async def test_livingmemory_official_page_prefers_dashboard(tmp_path):
     with _force_legacy_hash_url():
         payload = await IntegrationService(container).get_status()
 
-    dashboard = {
-        item["id"]: item for item in payload["dashboards"]
-    }["livingmemory"]["dashboard"]
+    dashboard = _dashboards_by_id(payload)["livingmemory"]["dashboard"]
     assert dashboard["official_page_url"] == (
         "http://127.0.0.1:6185/#/plugin-page/astrbot_plugin_livingmemory/dashboard"
     )
@@ -585,11 +590,9 @@ async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_pat
     # 插件没有 pages/ 目录：无从推断官方页入口
     container = _lm_official_page_container(memory_star)
     payload = await IntegrationService(container).get_status()
-    dashboard = {
-        item["id"]: item for item in payload["dashboards"]
-    }["livingmemory"]["dashboard"]
+    dashboard = _dashboards_by_id(payload)["livingmemory"]["dashboard"]
     assert dashboard["official_page_url"] is None
-    assert dashboard["embeddable"] is None
+    assert dashboard["external_url"] is None
 
     # 有 pages/ 但容器没有 astrbot_config：拿不到 AstrBot Dashboard origin
     (tmp_path / "pages" / "dashboard").mkdir(parents=True)
@@ -597,11 +600,14 @@ async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_pat
         "<html></html>", encoding="utf-8"
     )
     payload = await IntegrationService(container).get_status()
-    dashboard = {
-        item["id"]: item for item in payload["dashboards"]
-    }["livingmemory"]["dashboard"]
+    dashboard = _dashboards_by_id(payload)["livingmemory"]["dashboard"]
     assert dashboard["official_page_url"] is None
 
-    embed = await IntegrationService(container).get_embed_target("livingmemory")
-    assert embed["target_url"] is None
-    assert embed["available"] is False
+
+def test_embed_route_removed_from_integrations_blueprint():
+    """issue #271：iframe 嵌入壳端点必须整体移除，只保留状态标识。"""
+    from self_learning_EterU.webui.blueprints.integrations import integrations_bp
+
+    rules = [rule for rule, *_ in integrations_bp.registry._routes]
+    assert all("embed" not in rule for rule in rules)
+    assert "/integrations/status" in rules

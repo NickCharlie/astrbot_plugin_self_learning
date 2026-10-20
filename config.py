@@ -151,7 +151,7 @@ class PluginConfig(BaseModel):
     enable_webui_password: bool = False # 启用 WebUI 登录密码，默认免密
     webui_initial_password: str = "" # WebUI 密码首次启用时的一次性初始密码
     web_interface_port: int = 7833 # 新增 Web 界面端口配置
-    web_interface_host: str = "0.0.0.0" # Web 界面监听地址
+    web_interface_host: str = "127.0.0.1" # Web 界面监听地址（默认仅本机；局域网访问需改 0.0.0.0 并开启登录密码）
 
     # MaiBot增强功能（默认启用）
     enable_maibot_features: bool = True # 启用MaiBot增强功能
@@ -461,7 +461,7 @@ class PluginConfig(BaseModel):
             enable_webui_password=basic_settings.get('enable_webui_password', False),
             webui_initial_password=basic_settings.get('webui_initial_password', ''),
             web_interface_port=basic_settings.get('web_interface_port', 7833),
-            web_interface_host=basic_settings.get('web_interface_host', '0.0.0.0'),
+            web_interface_host=basic_settings.get('web_interface_host', '127.0.0.1'),
 
             enable_maibot_features=maibot_enhancement.get('enable_maibot_features', True),
             enable_expression_patterns=maibot_enhancement.get('enable_expression_patterns', True),

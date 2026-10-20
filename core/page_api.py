@@ -1163,14 +1163,7 @@ class PluginPageApi:
 
     async def _load_integrations(self) -> dict[str, Any]:
         service = self._imports().IntegrationService(self._container())
-        status = await service.get_status()
-        return {
-            **status,
-            "embed_targets": {
-                "livingmemory": await service.get_embed_target("livingmemory"),
-                "group_chat_plus": await service.get_embed_target("group_chat_plus"),
-            },
-        }
+        return await service.get_status()
 
     async def _load_settings(self, *, include_schema: bool) -> dict[str, Any]:
         imports = self._imports()

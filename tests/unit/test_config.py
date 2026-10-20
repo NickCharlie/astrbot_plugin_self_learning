@@ -44,7 +44,7 @@ class TestPluginConfigDefaults:
         assert config.enable_webui_password is False
         assert config.webui_initial_password == ""
         assert config.web_interface_port == 7833
-        assert config.web_interface_host == "0.0.0.0"
+        assert config.web_interface_host == "127.0.0.1"
         assert config.log_level == "info"
         assert config.llm_hook_injection_target == "extra_user_content_parts"
         assert config.context_injection_position == "end"

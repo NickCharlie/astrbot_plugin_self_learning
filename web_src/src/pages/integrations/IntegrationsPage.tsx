@@ -104,33 +104,27 @@ export function IntegrationsPage() {
   };
   const openIntegration = (item: IntegrationItem) => {
     const dash = object(item.dashboard);
-    const url = resolveHostUrl(String(dash.external_url ?? dash.official_page_url ?? dash.url ?? ''));
+    // 有独立面板/官方面板链接时优先新窗口打开（issue #271）；无外部入口的
+    // 卡片（如本插件自身）退回内部路由
+    const url = resolveHostUrl(String(dash.external_url ?? ''));
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
     const route = String(dash.route ?? '');
     if (route.startsWith('#/')) {
       window.location.hash = route;
       return;
     }
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
-  };
-  const openOfficialPage = (item: IntegrationItem) => {
-    const url = resolveHostUrl(String(object(item.dashboard).official_page_url ?? ''));
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    const official = resolveHostUrl(String(dash.official_page_url ?? ''));
+    if (official) window.open(official, '_blank', 'noopener,noreferrer');
   };
   return (
     <div class="page">
-      <PageHeader title="功能融合" description="查看配套插件状态，并导入世界书与 QQ 聊天记录。" icon="extension" actions={<Button icon="refresh" onClick={dashboard.loadIntegrations}>刷新状态</Button>} />
-      <Panel title="插件面板">
+      <PageHeader title="功能融合" description="查看配套插件运行状态，并导入世界书与 QQ 聊天记录。" icon="extension" actions={<Button icon="refresh" onClick={dashboard.loadIntegrations}>刷新状态</Button>} />
+      <Panel title="伴随插件状态" hint="仅展示运行状态标识，面板在新窗口打开">
         <div class={styles['integration-grid']}>
-          <For each={integrations()}>{(item) => {
-            const officialUrl = String(object(item.dashboard).official_page_url ?? '');
-            return (
-              <IntegrationCard
-                item={item}
-                onOpen={() => openIntegration(item)}
-                onOpenOfficial={officialUrl ? () => openOfficialPage(item) : undefined}
-              />
-            );
-          }}</For>
+          <For each={integrations()}>{(item) => <IntegrationCard item={item} onOpen={() => openIntegration(item)} />}</For>
         </div>
       </Panel>
       <div class={`two-column ${styles['integration-imports']}`}>

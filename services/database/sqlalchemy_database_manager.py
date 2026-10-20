@@ -450,7 +450,8 @@ class SQLAlchemyDatabaseManager:
                 if not await cursor.fetchone():
                     logger.info(f"[DomainRouter] 数据库 {database} 不存在，正在创建...")
                     await cursor.execute(
-                        f"CREATE DATABASE `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+                        f"CREATE DATABASE {self._quote_mysql_identifier(database)}"
+                        " CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
                     )
                     await conn.commit()
                     logger.info(f"[DomainRouter] 数据库 {database} 创建成功")
@@ -546,6 +547,13 @@ class SQLAlchemyDatabaseManager:
         except Exception as e:
             logger.error(f"[DomainRouter] 连接 PostgreSQL 失败: {e}")
             raise
+
+    @staticmethod
+    def _quote_mysql_identifier(identifier: str) -> str:
+        """安全引用 MySQL 标识符（反引号双写防注入）。"""
+        if not identifier or '\x00' in identifier:
+            raise ValueError("MySQL 标识符不能为空或包含 NUL 字符")
+        return '`' + identifier.replace('`', '``') + '`'
 
     @staticmethod
     def _quote_postgresql_identifier(identifier: str) -> str:

@@ -106,6 +106,20 @@ class LoginAttemptTracker:
         """
         current_time = time.time()
 
+        # 清理不活跃的 IP 记录，避免长期运行下字典无限增长；
+        # 先清窗口外的尝试时间戳再判死，否则只失败过一次的 IP 永远清不掉
+        if len(self._attempts) > 1024:
+            stale = []
+            for ip, rec in self._attempts.items():
+                rec['attempts'] = [
+                    t for t in rec['attempts']
+                    if current_time - t < self.attempt_window
+                ]
+                if not rec['attempts'] and rec.get('locked_until', 0) < current_time:
+                    stale.append(ip)
+            for ip in stale:
+                del self._attempts[ip]
+
         if ip_address not in self._attempts:
             self._attempts[ip_address] = {
                 'attempts': [],

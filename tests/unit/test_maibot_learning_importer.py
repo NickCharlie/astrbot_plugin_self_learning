@@ -348,3 +348,9 @@ def test_maibot_learning_importer_preview_reports_destinations(tmp_path):
         "jargon_candidates": 1,
         "persona_memory_reviews": 2,
     }
+    # 对外摘要只回显文件名，不暴露服务器目录结构
+    assert summary["source_paths"] == {
+        "maibot_db": "maibot.db",
+        "memorix_db": "metadata.db",
+    }
+    assert str(tmp_path) not in str(summary)

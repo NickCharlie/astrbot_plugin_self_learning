@@ -1,7 +1,7 @@
 export type PageId =
   | 'home' | 'overview' | 'insights' | 'monitoring' | 'reviews'
   | 'jargon-learning' | 'expression-learning' | 'persona-learning'
-  | 'shadow-mode' | 'content' | 'reply-strategy' | 'graphs' | 'integrations' | 'settings';
+  | 'shadow-mode' | 'content' | 'graphs' | 'integrations' | 'settings';
 
 export type Theme = 'light' | 'dark';
 export type Tone = 'default' | 'primary' | 'success' | 'warning' | 'danger';
@@ -104,7 +104,12 @@ export interface IntegrationItem extends UnknownRecord {
   description?: string;
   available?: boolean;
   enabled?: boolean;
+  active?: boolean;
+  delegated?: boolean;
+  role?: string;
+  status?: UnknownRecord;
   dashboard?: UnknownRecord;
+  dev_api?: UnknownRecord;
 }
 
 export interface IntegrationPayload extends UnknownRecord {

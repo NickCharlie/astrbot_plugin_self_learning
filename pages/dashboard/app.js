@@ -11,7 +11,6 @@
     "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
     content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
     graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
-    "reply-strategy": ["page.reply.kicker", "page.reply.title", "Reply", "回复策略"],
     integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
     settings: ["page.settings.kicker", "page.settings.title", "Settings", "设置"],
   };
@@ -518,7 +517,6 @@
       if (page === "persona-learning") return renderPersona(await cached("persona", () => apiGet("persona", { group_id: "default", limit: 30 }), force));
       if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
       if (page === "graphs") return loadGraphs(force);
-      if (page === "reply-strategy") return renderReplyStrategy(await cached("integrations", () => apiGet("integrations"), force));
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
       if (page === "settings") return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
     } catch (error) {
@@ -1062,11 +1060,6 @@
     })).filter((link) => link.source && link.target);
   }
 
-  function renderReplyStrategy(data) {
-    const cards = (data.dashboards || []).filter((item) => item.id === "group_chat_plus");
-    setHtml("reply-strategy-cards", cards.map(integrationCardHtml).join("") || empty(t("empty.groupChatPlus", "未检测到 Group Chat Plus")));
-  }
-
   function renderIntegrations(data) {
     setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
     setHtml("integration-warnings", warningListHtml(data.warnings || []));
@@ -1082,13 +1075,18 @@
 
   function integrationCardHtml(item) {
     const dash = item.dashboard || {};
-    const url = resolveHostUrl(dash.external_url || dash.official_page_url || dash.url || "#");
+    const status = item.status || {};
+    const url = resolveHostUrl(dash.external_url || dash.official_page_url || "#");
     const disabled = !dash.available || !url || url === "#";
+    const stateText = status.healthy === true ? t("state.healthy", "正常")
+      : status.healthy === false ? t("state.unhealthy", "异常")
+      : item.active ? t("state.available", "可用") : t("state.disabled", "未启用");
     return `<article class="integration-card ${item.active ? "active" : ""}">
       <div>
         <span>${escapeHtml(item.role || "")}</span>
         <h3>${escapeHtml(item.title || item.id)}</h3>
-        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : item.active ? t("state.available", "可用") : t("state.disabled", "未启用"))}</p>
+        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : stateText)}</p>
+        ${status.message ? `<small>${escapeHtml(String(status.message))}</small>` : ""}
       </div>
       <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || t("actions.open", "打开"))}</a>
       <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>
@@ -1864,10 +1862,8 @@
       else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
       else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
       else if (state.page === "graphs" && data) renderGraphs(data);
-      else if ((state.page === "reply-strategy" || state.page === "integrations") && state.pageData.integrations) {
-        if (state.page === "reply-strategy") renderReplyStrategy(state.pageData.integrations);
-        else renderIntegrations(state.pageData.integrations);
-      } else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
+      else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
+      else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
     };
     try {
       const bridge = window.AstrBotPluginPage;

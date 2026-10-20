@@ -60,7 +60,6 @@ export function HomePage() {
     );
     const activeIntegrations = integrations.filter((item) => item.active).length;
     const delegatedIntegrations = integrations.filter((item) => item.delegated).length;
-    const reply = integrations.find((item) => item.id === 'group_chat_plus');
     const memory = integrations.find((item) => item.id === 'livingmemory');
     const totalMessages = safeNumber(metrics.total_messages_collected);
     const filtered = safeNumber(metrics.filtered_messages);
@@ -83,7 +82,7 @@ export function HomePage() {
       health, totalMessages, filterRate, learningEfficiency, backlog, batches,
       personaPending, styleTotal, jargonCandidates, jargonConfirmed, jargonPending,
       contentCount, graphNodes, integrations, activeIntegrations, delegatedIntegrations,
-      reply, memory, llmCalls, llmAbnormal, editableSettings, insightTone,
+      memory, llmCalls, llmAbnormal, editableSettings, insightTone,
       backups: list(object(dashboard.data.persona_backups).backups).length,
     };
   });
@@ -119,19 +118,13 @@ export function HomePage() {
         status: state.contentCount ? '内容可浏览' : '暂无内容', tone: state.contentCount ? 'success' : 'default',
       },
       {
-        page: 'reply-strategy', title: '回复策略', description: 'Group Chat Plus 面板', icon: 'forum',
-        value: state.reply?.delegated ? 'ON' : state.reply?.active ? '本地' : '--',
-        note: state.reply?.delegated ? '回复已委托' : state.reply?.active ? '插件已加载' : '插件未加载',
-        status: state.reply?.active ? '可用' : '不可用', tone: state.reply?.active ? 'success' : 'warning',
-      },
-      {
         page: 'graphs', title: '记忆 / 知识图谱', description: '本地图谱与记忆后端', icon: 'hub',
         value: state.graphNodes ? formatCount(state.graphNodes) : state.memory?.active ? '后端' : '--',
         note: state.graphNodes ? '个当前记忆图谱节点' : state.memory?.delegated ? '读取 LivingMemory 后端' : '本地图谱',
         status: state.graphNodes || state.memory?.active ? '可用' : '暂无节点', tone: state.graphNodes || state.memory?.active ? 'success' : 'default',
       },
       {
-        page: 'integrations', title: '功能融合', description: '插件分工、面板和开发 API', icon: 'extension',
+        page: 'integrations', title: '功能融合', description: '插件分工与伴随插件运行状态', icon: 'extension',
         value: state.integrations.length ? `${state.activeIntegrations}/${state.integrations.length}` : '--',
         note: state.delegatedIntegrations ? `${state.delegatedIntegrations} 项已委托` : '插件 API 入口',
         status: state.activeIntegrations ? '已连接' : '仅本插件在线', tone: state.activeIntegrations ? 'success' : 'warning',
