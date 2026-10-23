@@ -15,6 +15,7 @@ try:
     from ....models.orm.memory import Memory
     from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
     from ....models.orm.social_relation import SocialRelation
+    from ....utils.text_utils import clean_db_text
 except ImportError:
     from models.orm.memory import Memory
     from repositories.raw_message_repository import RawMessageRepository
@@ -22,6 +23,7 @@ except ImportError:
     from repositories.bot_message_repository import BotMessageRepository
     from models.orm.message import BotMessage, FilteredMessage, RawMessage
     from models.orm.social_relation import SocialRelation
+    from utils.text_utils import clean_db_text
 
 
 class MessageFacade(BaseFacade):
@@ -47,15 +49,15 @@ class MessageFacade(BaseFacade):
                     data = message_data
 
                 raw_msg = RawMessage(
-                    sender_id=str(data.get('sender_id', '')),
-                    sender_name=data.get('sender_name', ''),
-                    sender_qq=data.get('sender_qq') or None,
-                    message=data.get('message', ''),
-                    group_id=data.get('group_id', ''),
+                    sender_id=clean_db_text(str(data.get('sender_id', ''))),
+                    sender_name=clean_db_text(data.get('sender_name', '')),
+                    sender_qq=clean_db_text(data.get('sender_qq')) or None,
+                    message=clean_db_text(data.get('message', '')),
+                    group_id=clean_db_text(str(data.get('group_id', ''))),
                     timestamp=int(data.get('timestamp', time.time())),
-                    platform=data.get('platform', ''),
-                    message_id=data.get('message_id'),
-                    reply_to=data.get('reply_to'),
+                    platform=clean_db_text(data.get('platform', '')),
+                    message_id=clean_db_text(data.get('message_id')),
+                    reply_to=clean_db_text(data.get('reply_to')),
                     created_at=int(time.time()),
                     processed=False,
                 )

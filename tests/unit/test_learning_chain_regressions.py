@@ -2789,3 +2789,56 @@ async def test_merge_bot_replies_bounds_to_message_time_window(tmp_path):
         assert "窗口外很晚的无关机器人回复" not in bot_texts
     finally:
         await db.stop()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_message_pipeline_sanitizes_sender_name_before_collection():
+    """issue #273: 平台昵称里的 NUL 字节不能流入消息收集与 V2 处理。"""
+    config = SimpleNamespace(
+        enable_jargon_learning=False,
+        enable_expression_patterns=True,
+        enable_realtime_learning=False,
+        enable_style_learning=False,
+        enable_goal_driven_chat=False,
+    )
+    collector = SimpleNamespace(collect_message=AsyncMock(return_value=True))
+    enhanced_interaction = SimpleNamespace(
+        update_conversation_context=AsyncMock(),
+    )
+    realtime_processor = SimpleNamespace(
+        process_expression_learning_background=AsyncMock(),
+        process_realtime_background=AsyncMock(),
+    )
+
+    v2_integration = SimpleNamespace(process_message=AsyncMock())
+    pipeline = MessagePipeline(
+        plugin_config=config,
+        message_collector=collector,
+        enhanced_interaction=enhanced_interaction,
+        jargon_miner_manager=None,
+        jargon_statistical_filter=None,
+        v2_integration=v2_integration,
+        realtime_processor=realtime_processor,
+        group_orchestrator=SimpleNamespace(),
+        conversation_goal_manager=None,
+        affection_manager=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+    )
+    pipeline._should_process_v2_realtime = lambda: True
+
+    event = SimpleNamespace(
+        get_sender_name=lambda: "\n\x1a\x12\x18群名片\x92\x10\x00",
+        get_platform_name=lambda: "aiocqhttp",
+        get_self_id=lambda: "bot-a",
+    )
+
+    assert await pipeline.process_learning(
+        "group-a", "user-a", "@bot 回答这个问题", event
+    ) is True
+
+    collected = collector.collect_message.call_args[0][0]
+    assert collected["sender_name"] == "\n\x1a\x12\x18群名片\x92\x10"
+
+    v2_msg = v2_integration.process_message.call_args[0][0]
+    assert v2_msg.sender_name == "\n\x1a\x12\x18群名片\x92\x10"

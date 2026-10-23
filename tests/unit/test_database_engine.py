@@ -15,6 +15,7 @@ from core.database.engine import DatabaseEngine
 from models.orm import Base
 from models.orm.jargon import Jargon
 from models.orm.learning import StyleLearningReview
+from repositories.raw_message_repository import RawMessageRepository
 from services.database.facades.jargon_facade import JargonFacade
 from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseManager
 
@@ -1051,5 +1052,84 @@ async def test_jargon_queries_recover_missing_facade_after_start(tmp_path):
         assert await manager.get_jargon_count() == 0
         assert await manager.get_recent_jargon_list() == []
         assert manager._jargon is not None
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_save_raw_message_strips_nul_bytes_from_platform_payload(tmp_path):
+    """issue #273: aiocqhttp sender.card 混入带 NUL 的 protobuf 片段时消息仍须入库。"""
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path),
+            enable_web_interface=False,
+            db_type="sqlite",
+        )
+    )
+
+    try:
+        assert await manager.start() is True
+
+        bad_sender_name = "\n\x1a\x12\x18群名片\x92\x10\x00"
+        message_id = await manager.save_raw_message(
+            {
+                "sender_id": "user-nul",
+                "sender_name": bad_sender_name,
+                "message": "@bot 回答这个问题\x00",
+                "group_id": "group-nul",
+                "timestamp": 1792571497,
+                "platform": "aiocqhttp",
+            }
+        )
+        assert message_id > 0
+
+        pending = await manager.get_unprocessed_messages(
+            limit=10,
+            group_id="group-nul",
+        )
+        saved = next(m for m in pending if m["id"] == message_id)
+
+        assert "\x00" not in saved["sender_name"]
+        assert "\x00" not in saved["message"]
+        assert saved["sender_name"] == bad_sender_name.replace("\x00", "")
+        assert saved["message"] == "@bot 回答这个问题"
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_raw_message_repository_save_strips_nul_bytes(tmp_path):
+    """issue #273: RawMessageRepository 直写路径同样须清理文本字段。"""
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path),
+            enable_web_interface=False,
+            db_type="sqlite",
+        )
+    )
+
+    try:
+        assert await manager.start() is True
+
+        async with manager.get_session() as session:
+            repo = RawMessageRepository(session)
+            created = await repo.save(
+                {
+                    "sender_id": "user-repo",
+                    "sender_name": "\n\x1a\x12\x18群名片\x92\x10\x00",
+                    "message": "@bot 回答这个问题\x00",
+                    "group_id": "group-repo",
+                    "timestamp": 1792571497,
+                    "platform": "aiocqhttp",
+                }
+            )
+            assert created is not None
+            stored_name = created.sender_name
+            stored_message = created.message
+            stored_id = created.id
+
+        assert stored_id > 0
+        assert stored_name == "\n\x1a\x12\x18群名片\x92\x10"
+        assert stored_message == "@bot 回答这个问题"
     finally:
         await manager.stop()
