@@ -1,7 +1,7 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
-import type { JargonItem, Paginated } from '../../types/dashboard';
+import type { JargonItem, Paginated, Tone } from '../../types/dashboard';
 import { list } from '../shared';
 import { formatTime, textOrDash } from '../../lib/format';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -27,6 +27,17 @@ export function buildJargonListParams(input: {
   else if (input.filter === 'unconfirmed') params.set('confirmed', 'false');
   return params;
 }
+
+// is_complete 只表示审查/推断已结束；is_jargon 明确为 false 才是人工驳回
+// （推理判定为非黑话时也会写 false）。导入等只标记完成的情况用中性文案，
+// 避免把“推断完成但未定论”误标为已驳回（issue #274）。
+const jargonBadge = (item: JargonItem): { tone: Tone; label: string } => {
+  if (item.is_confirmed) return { tone: 'success', label: '已确认' };
+  if (!item.is_complete) return { tone: 'warning', label: textOrDash(item.status ?? '待审') };
+  return item.is_jargon === false
+    ? { tone: 'danger', label: '已驳回' }
+    : { tone: 'default', label: '已完成' };
+};
 
 export function JargonLearningPage() {
   const dashboard = useDashboard();
@@ -168,9 +179,7 @@ export function JargonLearningPage() {
               }>
                 <div class="data-row-main">
                   <div><strong>{textOrDash(item.content ?? item.jargon)}</strong><p>{textOrDash(item.meaning ?? item.definition)}</p><small>{formatTime(item.created_at)}</small></div>
-                  <Badge tone={item.is_confirmed ? 'success' : item.is_complete ? 'danger' : 'warning'}>
-                    {item.is_confirmed ? '已确认' : item.is_complete ? '已驳回' : textOrDash(item.status ?? '待审')}
-                  </Badge>
+                  <Badge tone={jargonBadge(item).tone}>{jargonBadge(item).label}</Badge>
                 </div>
                 <div class="inline-actions">
                   <Show when={!item.is_confirmed}><Button size="sm" tone="success" onClick={() => action(item, 'approve')}>确认</Button><Button size="sm" tone="warning" onClick={() => action(item, 'reject')}>驳回</Button></Show>

@@ -65,6 +65,8 @@ export function DashboardProvider(props: { children: JSX.Element }) {
     createSignal<(ConfirmRequest & { resolve: (value: boolean) => void }) | null>(null);
   const [editing, setEditing] = createSignal(false);
   let toastId = 0;
+  // 并发刷新令牌：定时静默刷新可能晚于审查后的刷新返回，只允许最新一次提交结果
+  let refreshToken = 0;
 
   const toast = (message: string, tone: Tone = 'default') => {
     const id = ++toastId;
@@ -82,7 +84,7 @@ export function DashboardProvider(props: { children: JSX.Element }) {
   };
 
   const refresh = async (quiet = false) => {
-    if (loading()) return;
+    const token = ++refreshToken;
     if (!quiet) setLoading(true);
     setError('');
     try {
@@ -101,6 +103,7 @@ export function DashboardProvider(props: { children: JSX.Element }) {
         api.get<UnknownRecord>('/api/data/statistics'),
         api.get<UnknownRecord>('/api/hub/v1/status'),
       ]);
+      if (token !== refreshToken) return;
       const value = (index: number) => responses[index].status === 'fulfilled'
         ? unwrapPayload((responses[index] as PromiseFulfilledResult<UnknownRecord>).value)
         : {};
@@ -119,11 +122,12 @@ export function DashboardProvider(props: { children: JSX.Element }) {
       setLastUpdated(new Date());
       if (responses.every((item) => item.status === 'rejected')) throw new Error('所有 Dashboard 接口均请求失败');
     } catch (caught) {
+      if (token !== refreshToken) return;
       const message = caught instanceof Error ? caught.message : 'Dashboard 加载失败';
       setError(message);
       if (!quiet) toast(message, 'danger');
     } finally {
-      setLoading(false);
+      if (token === refreshToken) setLoading(false);
     }
   };
 

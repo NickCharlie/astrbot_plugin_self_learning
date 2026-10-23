@@ -9,9 +9,16 @@ const pendingItem = (isComplete: boolean) => ({
   content: '摸鱼',
   meaning: '上班时间偷懒',
   is_confirmed: false,
+  // 驳回写 is_jargon=false；从未定论的候选保持 null
+  is_jargon: isComplete ? false : null,
   is_complete: isComplete,
   created_at: 1792500000,
 });
+
+const json = (payload: Record<string, unknown>) => new Response(
+  JSON.stringify({ success: true, ...payload }),
+  { status: 200, headers: { 'Content-Type': 'application/json' } },
+);
 
 describe('jargon rejected state and pending counts', () => {
   const state = {
@@ -20,12 +27,19 @@ describe('jargon rejected state and pending counts', () => {
     pendingGets: 0,
     reviewPosted: false,
     lastPendingGetAfterPost: false,
+    holdMetrics: false,
   };
+  let metricsGate = Promise.resolve();
+  let releaseMetrics = () => {};
 
   const installFetch = () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
+      // 持住一个无关接口，模拟仪表盘首轮刷新尚未结束
+      if (state.holdMetrics && url.includes('/api/metrics') && !url.includes('/trends')) {
+        await metricsGate;
+      }
       if (url.includes('/api/jargon/list')) {
         const isPendingQueue = url.includes('pending=true');
         if (isPendingQueue) {
@@ -71,6 +85,9 @@ describe('jargon rejected state and pending counts', () => {
     state.pendingGets = 0;
     state.reviewPosted = false;
     state.lastPendingGetAfterPost = false;
+    state.holdMetrics = false;
+    metricsGate = Promise.resolve();
+    releaseMetrics = () => {};
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
@@ -124,6 +141,39 @@ describe('jargon rejected state and pending counts', () => {
     render(() => <App />);
 
     expect(await screen.findByText('当前约 7 条记录等待处理。')).toBeInTheDocument();
+  });
+
+  it('labels inference-completed candidates as finished rather than rejected', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('/api/jargon/list') && url.includes('page_size=10')) {
+        // 推断/导入已结束但 is_jargon 未定论：不是人工驳回
+        const row = { id: 9, content: '绝绝子', is_confirmed: false, is_jargon: null, is_complete: true };
+        return json({ jargon_list: [row], total: 1, data: [row] });
+      }
+      return json({});
+    });
+    window.location.hash = '#/jargon-learning';
+    render(() => <App />);
+
+    expect(await screen.findByText('绝绝子')).toBeInTheDocument();
+    expect(document.querySelector('article .slx-badge')?.textContent).toBe('已完成');
+  });
+
+  it('refreshes the shared snapshot even while an earlier dashboard load is in flight', async () => {
+    state.holdMetrics = true;
+    metricsGate = new Promise<void>((resolve) => { releaseMetrics = resolve; });
+    installFetch();
+    window.location.hash = '#/jargon-learning';
+    render(() => <App />);
+
+    expect(await screen.findByText('摸鱼')).toBeInTheDocument();
+    const pendingGetsBefore = state.pendingGets;
+    fireEvent.click(screen.getByRole('button', { name: '驳回' }));
+
+    // 首轮刷新还卡着时，审查后的 refresh 仍必须重新拉取待审队列
+    await waitFor(() => expect(state.pendingGets).toBeGreaterThan(pendingGetsBefore));
+    releaseMetrics();
   });
 
   it('shows the rejected badge and refreshes the global snapshot after rejecting', async () => {

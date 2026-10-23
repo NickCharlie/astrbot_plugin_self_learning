@@ -6,11 +6,12 @@
 
 ### 修复：黑话驳回后仍显示待审、待办数量偏高（issue #274）
 
-- 黑话页状态徽标改为三态：`is_confirmed` 为真显示「已确认」，否则 `is_complete` 为真显示「已驳回」（danger），两者皆否才是「待审」。此前徽标只看 `is_confirmed`，驳回（`is_jargon=false` + `is_complete=true`）的词条会永远停留在「待审」。
+- 黑话页状态徽标改为三态：`is_confirmed` 为真显示「已确认」，否则 `is_jargon` 明确为 `false` 且 `is_complete` 为真显示「已驳回」（danger），两者皆否才是「待审」。此前徽标只看 `is_confirmed`，驳回（`is_jargon=false` + `is_complete=true`）的词条会永远停留在「待审」。推断/导入只标记完成、`is_jargon` 仍为空的词条显示中性「已完成」，不会被误标为已驳回。
 - 首页待办与「AI 巡检」的待审数量不再用 `total_candidates - confirmed_jargon` 倒推（该方法把已驳回候选算作待审），改为统一读取 `/api/jargon/list?pending=true` 分页信封的 `total`，与审查队列同源；新增共享助手 `jargonPendingTotal`（`web_src/src/pages/shared.ts`），旧版纯数组快照回退为列表长度。
 - Dashboard 快照不再对 `/api/jargon/list` 的响应做 `data` 解包：该请求 `page_size=5`，解包后只剩数组，分页 `total` 丢失，待审超过 5 条时前端会少算；现在保留完整信封（`rawValue`），由使用方按需读取列表或总数。
 - 黑话页的确认/驳回/删除/切换全局/编辑保存/批量导入完成后追加 `dashboard.refresh(true)`，审查动作即时反映到首页与 AI 巡检的全局快照，无需等待定时刷新（对齐审查队列页的既有行为）。
-- 新增回归测试：`web_src/src/pages/shared.test.ts`（信封 `total`、空队列、旧数组回退、缺失 `total`、无快照），`JargonRejectedReview.test.tsx`（驳回不计入首页待办、`total` 大于 `page_size` 时正确、驳回后徽标变「已驳回」且刷新全局快照、AI 巡检同源）。
+- Dashboard 刷新改为「最新一次提交」语义（递增令牌）：取消“加载中就直接返回”的提前退出，审查后的刷新不会被首轮刷新吞掉；定时静默刷新与审查后刷新并发时，先发后至的旧响应会被丢弃，不再覆盖新快照。待审队列请求自身失败（快照为空对象）时，待办数回退到 `jargon_stats` 估算，不再误报「队列已清空」。
+- 新增回归测试：`web_src/src/pages/shared.test.ts`（信封 `total`、空队列、旧数组回退、缺失 `total`、无快照、请求失败回退 stats），`JargonRejectedReview.test.tsx`（驳回不计入首页待办、`total` 大于 `page_size` 时正确、驳回后徽标变「已驳回」且刷新全局快照、AI 巡检同源、推断完成不被误标为已驳回、首轮刷新未结束时仍会重新拉取待审队列）。
 
 ## [4.3.2] - 2026-10-23
 

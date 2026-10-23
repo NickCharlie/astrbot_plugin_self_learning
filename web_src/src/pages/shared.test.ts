@@ -37,4 +37,13 @@ describe('jargonPendingTotal', () => {
   it('returns 0 when the pending snapshot is missing', () => {
     expect(jargonPendingTotal({} as DashboardSnapshot)).toBe(0);
   });
+
+  it('falls back to stats when the pending queue request failed', () => {
+    // 待审请求失败时快照是空对象，不能当成“队列已清空”
+    const data = {
+      jargon_reviews: {},
+      jargon_stats: { total_candidates: 4, confirmed_jargon: 1 },
+    } as DashboardSnapshot;
+    expect(jargonPendingTotal(data)).toBe(3);
+  });
 });
