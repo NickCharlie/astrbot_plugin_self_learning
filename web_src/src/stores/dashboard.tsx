@@ -65,6 +65,8 @@ export function DashboardProvider(props: { children: JSX.Element }) {
     createSignal<(ConfirmRequest & { resolve: (value: boolean) => void }) | null>(null);
   const [editing, setEditing] = createSignal(false);
   let toastId = 0;
+  // 并发刷新令牌：定时静默刷新可能晚于审查后的刷新返回，只允许最新一次提交结果
+  let refreshToken = 0;
 
   const toast = (message: string, tone: Tone = 'default') => {
     const id = ++toastId;
@@ -82,7 +84,7 @@ export function DashboardProvider(props: { children: JSX.Element }) {
   };
 
   const refresh = async (quiet = false) => {
-    if (loading()) return;
+    const token = ++refreshToken;
     if (!quiet) setLoading(true);
     setError('');
     try {
@@ -101,25 +103,31 @@ export function DashboardProvider(props: { children: JSX.Element }) {
         api.get<UnknownRecord>('/api/data/statistics'),
         api.get<UnknownRecord>('/api/hub/v1/status'),
       ]);
+      if (token !== refreshToken) return;
       const value = (index: number) => responses[index].status === 'fulfilled'
         ? unwrapPayload((responses[index] as PromiseFulfilledResult<UnknownRecord>).value)
+        : {};
+      // 黑话待审队列保留分页信封（total 才是真实待审总数，列表被 page_size 截断）
+      const rawValue = (index: number) => responses[index].status === 'fulfilled'
+        ? ((responses[index] as PromiseFulfilledResult<UnknownRecord>).value ?? {})
         : {};
       setData(reconcile({
         metrics: value(0), trends: value(1), health: value(2), functions: value(3),
         persona_updates: value(4),
         style_learning_reviews: value(5),
-        jargon_reviews: value(6),
+        jargon_reviews: rawValue(6),
         jargon_stats: value(7), persona_current: value(8), persona_backups: value(9),
         persona_reviewed: value(10), data_statistics: value(11), hub_status: value(12),
       }));
       setLastUpdated(new Date());
       if (responses.every((item) => item.status === 'rejected')) throw new Error('所有 Dashboard 接口均请求失败');
     } catch (caught) {
+      if (token !== refreshToken) return;
       const message = caught instanceof Error ? caught.message : 'Dashboard 加载失败';
       setError(message);
       if (!quiet) toast(message, 'danger');
     } finally {
-      setLoading(false);
+      if (token === refreshToken) setLoading(false);
     }
   };
 

@@ -2,7 +2,7 @@ import { createMemo, For, Show } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
 import type { IntegrationItem, PageId, Tone } from '../../types/dashboard';
 import { formatCount, formatPercent, safeNumber } from '../../lib/format';
-import { list, object, reviews } from '../shared';
+import { list, jargonPendingTotal, object, reviews } from '../shared';
 import { Badge, Card } from '../../components/ui';
 import { PageHeader } from '../../components/layout/PageHeader';
 import styles from './HomePage.module.scss';
@@ -52,7 +52,8 @@ export function HomePage() {
     const personaPending = personaIncludesStyle ? Math.max(0, personaTotal - styleTotal) : personaTotal;
     const jargonCandidates = safeNumber(jargon.total_candidates ?? object(jargon.data).total_candidates);
     const jargonConfirmed = safeNumber(jargon.confirmed_jargon ?? object(jargon.data).confirmed_jargon);
-    const jargonPending = Math.max(0, jargonCandidates - jargonConfirmed);
+    // 待审数与审查队列同源：读待审接口的分页 total，已驳回（is_complete）不再计入
+    const jargonPending = jargonPendingTotal(dashboard.data);
     const contentCount = safeNumber(statistics.style_learning);
     const graphNodes = safeNumber(statistics.memory) + safeNumber(statistics.knowledge_graph);
     const integrations = list<IntegrationItem>(

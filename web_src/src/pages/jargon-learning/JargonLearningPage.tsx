@@ -1,7 +1,7 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
-import type { JargonItem, Paginated } from '../../types/dashboard';
+import type { JargonItem, Paginated, Tone } from '../../types/dashboard';
 import { list } from '../shared';
 import { formatTime, textOrDash } from '../../lib/format';
 import { PageHeader } from '../../components/layout/PageHeader';
@@ -27,6 +27,17 @@ export function buildJargonListParams(input: {
   else if (input.filter === 'unconfirmed') params.set('confirmed', 'false');
   return params;
 }
+
+// is_complete 只表示审查/推断已结束；is_jargon 明确为 false 才是人工驳回
+// （推理判定为非黑话时也会写 false）。导入等只标记完成的情况用中性文案，
+// 避免把“推断完成但未定论”误标为已驳回（issue #274）。
+const jargonBadge = (item: JargonItem): { tone: Tone; label: string } => {
+  if (item.is_confirmed) return { tone: 'success', label: '已确认' };
+  if (!item.is_complete) return { tone: 'warning', label: textOrDash(item.status ?? '待审') };
+  return item.is_jargon === false
+    ? { tone: 'danger', label: '已驳回' }
+    : { tone: 'default', label: '已完成' };
+};
 
 export function JargonLearningPage() {
   const dashboard = useDashboard();
@@ -78,6 +89,7 @@ export function JargonLearningPage() {
     try {
       await api.put(`/api/jargon/${encodeURIComponent(id)}`, draft());
       dashboard.toast('词条已保存', 'success'); cancel(); await load();
+      dashboard.refresh(true);
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '保存失败', 'danger'); }
   };
   const action = async (item: JargonItem, name: 'approve' | 'reject' | 'delete' | 'toggle_global') => {
@@ -88,6 +100,8 @@ export function JargonLearningPage() {
       else if (name === 'toggle_global') await api.post(`/api/jargon/${encodeURIComponent(id)}/toggle_global`, {});
       else await api.post(`/api/jargon/${encodeURIComponent(id)}/review`, { action: name });
       dashboard.toast('操作已完成', 'success'); await load();
+      // 审查动作改变待审队列，同步刷新首页/AI 巡检共享的全局快照
+      dashboard.refresh(true);
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '操作失败', 'danger'); }
   };
   const runImport = async () => {
@@ -105,6 +119,7 @@ export function JargonLearningPage() {
       dashboard.toast(payload.message || '导入完成', 'success');
       setPage(1);
       await load();
+      dashboard.refresh(true);
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '导入失败', 'danger'); }
     finally { setImporting(false); }
   };
@@ -164,7 +179,7 @@ export function JargonLearningPage() {
               }>
                 <div class="data-row-main">
                   <div><strong>{textOrDash(item.content ?? item.jargon)}</strong><p>{textOrDash(item.meaning ?? item.definition)}</p><small>{formatTime(item.created_at)}</small></div>
-                  <Badge tone={item.is_confirmed ? 'success' : 'warning'}>{item.is_confirmed ? '已确认' : textOrDash(item.status ?? '待审')}</Badge>
+                  <Badge tone={jargonBadge(item).tone}>{jargonBadge(item).label}</Badge>
                 </div>
                 <div class="inline-actions">
                   <Show when={!item.is_confirmed}><Button size="sm" tone="success" onClick={() => action(item, 'approve')}>确认</Button><Button size="sm" tone="warning" onClick={() => action(item, 'reject')}>驳回</Button></Show>
