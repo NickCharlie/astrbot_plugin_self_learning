@@ -14,6 +14,10 @@
 - 新增回归测试：`tests/unit/test_text_utils.py`（NUL、合法/未配对代理、None/非字符串、截断与清理计长），`test_database_engine.py` 的 `save_raw_message` 与 `RawMessageRepository.save` 坏昵称入库回读（用 issue 里的真实坏昵称，断言不含 `\x00`；SQLite 原样保存 NUL，修复前必失败），`test_qq_chat_history_importer.py` 含 NUL 昵称记录的整批导入，`test_message_pipeline_sanitizes_sender_name_before_collection`（断言进入消息收集器与 V2 处理的 `sender_name` 已清理）。
 - 已知同类风险（本期不处理）：`event.get_sender_name()` 还会进入用户画像（`user_profiles.qq_name`）等表，后续可考虑在 ORM 写入层统一兜底（如 `before_flush` 清理字符串属性）。
 
+### 版本
+
+- 版本号由 4.3.1 提升至 **4.3.2**。
+
 ## [4.3.1] - 2026-10-20
 
 ### 安全：网络层访问守卫与默认配置收紧（重要行为变更）
