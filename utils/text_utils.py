@@ -11,10 +11,19 @@ _NUL = "\x00"
 
 
 def clean_db_text(text: str) -> str:
-    """Drop characters that PostgreSQL / asyncpg cannot store in text columns."""
+    """Drop characters that PostgreSQL / asyncpg cannot store in text columns.
+
+    A UTF-16 roundtrip first combines surrogate pairs back into their real
+    code points (double-escaped emoji), then unpaired surrogates — which no
+    encoding can store — are dropped.
+    """
     if not isinstance(text, str) or not text:
         return text
-    return text.replace(_NUL, "").encode("utf-8", "ignore").decode("utf-8")
+    return (
+        text.replace(_NUL, "")
+        .encode("utf-16", "surrogatepass")
+        .decode("utf-16", "ignore")
+    )
 
 
 def truncate_for_db(text: str, max_bytes: int = _MAX_TEXT_BYTES) -> str:

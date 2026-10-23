@@ -102,7 +102,12 @@ class MessagePipeline:
             # 1. 消息收集
             # 平台昵称可能混入 NUL 等数据库无法存储的字节，先清理一次，
             # 保证原始消息与下游学习链路拿到的都是干净文本。
-            sender_name = clean_db_text(event.get_sender_name())
+            # 访问器异常不能中断整条学习流水线，回退为 sender_id。
+            try:
+                sender_name = clean_db_text(event.get_sender_name())
+            except Exception as name_error:
+                logger.debug(f"获取发送者昵称失败，回退为 sender_id: {name_error}")
+                sender_name = sender_id
             try:
                 message_collected = bool(await self._message_collector.collect_message(
                     {

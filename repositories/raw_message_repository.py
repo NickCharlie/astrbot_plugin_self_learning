@@ -10,10 +10,10 @@ from astrbot.api import logger
 from .base_repository import BaseRepository
 try:
     from ..models.orm.message import RawMessage
-    from ..utils.text_utils import truncate_for_db
+    from ..utils.text_utils import clean_db_text, truncate_for_db
 except ImportError:
     from models.orm.message import RawMessage
-    from utils.text_utils import truncate_for_db
+    from utils.text_utils import clean_db_text, truncate_for_db
 
 
 class RawMessageRepository(BaseRepository[RawMessage]):
@@ -35,15 +35,15 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         try:
             now = int(time.time())
             return await self.create(
-                sender_id=message_data.get('sender_id', ''),
-                sender_name=message_data.get('sender_name', ''),
-                sender_qq=message_data.get('sender_qq') or None,
+                sender_id=clean_db_text(message_data.get('sender_id', '')),
+                sender_name=clean_db_text(message_data.get('sender_name', '')),
+                sender_qq=clean_db_text(message_data.get('sender_qq')) or None,
                 message=truncate_for_db(message_data.get('message', '')),
-                group_id=message_data.get('group_id', ''),
+                group_id=clean_db_text(message_data.get('group_id', '')),
                 timestamp=message_data.get('timestamp', now),
-                platform=message_data.get('platform', ''),
-                message_id=message_data.get('message_id'),
-                reply_to=message_data.get('reply_to'),
+                platform=clean_db_text(message_data.get('platform', '')),
+                message_id=clean_db_text(message_data.get('message_id')),
+                reply_to=clean_db_text(message_data.get('reply_to')),
                 created_at=now,
                 processed=False,
             )

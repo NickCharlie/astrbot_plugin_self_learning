@@ -11,6 +11,12 @@ def test_clean_db_text_drops_lone_surrogates():
     assert clean_db_text("abc\ud83ddef") == "abcdef"
 
 
+def test_clean_db_text_combines_surrogate_pairs_back_to_real_characters():
+    # 双重转义产生的两个孤立代理码点应合并回真实字符，而不是一起丢弃
+    assert clean_db_text("ab\ud83d\ude04cd") == "ab\U0001f604cd"
+    assert clean_db_text("hello 😄 世界") == "hello 😄 世界"
+
+
 def test_clean_db_text_keeps_normal_text():
     text = "普通昵称 with spaces\nand newlines\tand 中文"
     assert clean_db_text(text) == text

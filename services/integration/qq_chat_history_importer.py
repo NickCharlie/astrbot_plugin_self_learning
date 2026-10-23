@@ -25,10 +25,10 @@ from sqlalchemy import select
 
 try:
     from ...models.orm.message import RawMessage
-    from ...utils.text_utils import truncate_for_db
+    from ...utils.text_utils import clean_db_text, truncate_for_db
 except ImportError:
     from models.orm.message import RawMessage
-    from utils.text_utils import truncate_for_db
+    from utils.text_utils import clean_db_text, truncate_for_db
 
 
 QQ_HISTORY_EXPORT_VERSION = 1
@@ -267,15 +267,15 @@ class QQChatHistoryImporter:
             raw = item.to_raw_message()
             session.add(
                 RawMessage(
-                    sender_id=str(raw.get("sender_id") or ""),
-                    sender_name=str(raw.get("sender_name") or ""),
-                    sender_qq=str(raw.get("sender_qq") or "") or None,
+                    sender_id=clean_db_text(str(raw.get("sender_id") or "")),
+                    sender_name=clean_db_text(str(raw.get("sender_name") or "")),
+                    sender_qq=clean_db_text(str(raw.get("sender_qq") or "")) or None,
                     message=truncate_for_db(str(raw.get("message") or "")),
-                    group_id=str(raw.get("group_id") or ""),
+                    group_id=clean_db_text(str(raw.get("group_id") or "")),
                     timestamp=int(raw.get("timestamp") or now),
-                    platform=str(raw.get("platform") or "qq"),
-                    message_id=raw.get("message_id"),
-                    reply_to=raw.get("reply_to"),
+                    platform=clean_db_text(str(raw.get("platform") or "qq")),
+                    message_id=clean_db_text(raw.get("message_id")),
+                    reply_to=clean_db_text(raw.get("reply_to")),
                     created_at=now,
                     processed=False,
                 )

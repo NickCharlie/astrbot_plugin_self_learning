@@ -9,7 +9,7 @@ from services.database.sqlalchemy_database_manager import SQLAlchemyDatabaseMana
 from services.integration.qq_chat_history_importer import QQChatHistoryImporter
 
 
-def _write_qce_export(root):
+def _write_qce_export(root, extra_messages=()):
     chunks = root / "chunks"
     chunks.mkdir(parents=True)
     (root / "manifest.json").write_text(
@@ -83,6 +83,7 @@ def _write_qce_export(root):
             "recalled": False,
             "system": False,
         },
+        *extra_messages,
     ]
     (chunks / "chunk_0001.jsonl").write_text(
         "\n".join(json.dumps(item, ensure_ascii=False) for item in messages),
@@ -353,6 +354,54 @@ async def test_qq_chat_history_importer_imports_and_deduplicates_raw_messages(tm
         assert rows[1].message == "[图片:demo.jpg]"
         assert rows[2].reply_to == "m1"
         assert rows[2].processed is False
+    finally:
+        await manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_qq_chat_history_importer_strips_nul_bytes_from_text_fields(tmp_path):
+    """issue #273: 导入记录的昵称等文本字段含 NUL 时批次不能整批回滚。"""
+    export_dir = tmp_path / "qce"
+    _write_qce_export(
+        export_dir,
+        extra_messages=[
+            {
+                "id": "m-bad",
+                "timestamp": 1776771302000,
+                "sender": {"uid": "user-bad", "uin": "1002", "name": "\n\x1a\x12\x18群名片\x92\x10\x00"},
+                "type": "text",
+                "content": {"text": "含坏昵称的消息\x00"},
+                "recalled": False,
+                "system": False,
+            },
+        ],
+    )
+    manager = SQLAlchemyDatabaseManager(
+        PluginConfig(
+            data_dir=str(tmp_path / "plugin"),
+            db_type="sqlite",
+            enable_web_interface=False,
+        )
+    )
+    try:
+        assert await manager.start() is True
+        importer = QQChatHistoryImporter(manager)
+
+        result = await importer.import_from_source(source_path=export_dir)
+
+        assert result["success"] is True
+        assert result["messages_imported"] == 4
+
+        async with manager.get_session() as session:
+            row = (
+                await session.execute(
+                    select(RawMessage).where(RawMessage.sender_id == "user-bad")
+                )
+            ).scalars().one()
+
+        assert row.sender_name == "\n\x1a\x12\x18群名片\x92\x10"
+        assert row.message == "含坏昵称的消息"
+        assert "\x00" not in row.group_id
     finally:
         await manager.stop()
 
