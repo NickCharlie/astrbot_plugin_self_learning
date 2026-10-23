@@ -2,6 +2,16 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.3.3] - 2026-10-23
+
+### 修复：黑话驳回后仍显示待审、待办数量偏高（issue #274）
+
+- 黑话页状态徽标改为三态：`is_confirmed` 为真显示「已确认」，否则 `is_complete` 为真显示「已驳回」（danger），两者皆否才是「待审」。此前徽标只看 `is_confirmed`，驳回（`is_jargon=false` + `is_complete=true`）的词条会永远停留在「待审」。
+- 首页待办与「AI 巡检」的待审数量不再用 `total_candidates - confirmed_jargon` 倒推（该方法把已驳回候选算作待审），改为统一读取 `/api/jargon/list?pending=true` 分页信封的 `total`，与审查队列同源；新增共享助手 `jargonPendingTotal`（`web_src/src/pages/shared.ts`），旧版纯数组快照回退为列表长度。
+- Dashboard 快照不再对 `/api/jargon/list` 的响应做 `data` 解包：该请求 `page_size=5`，解包后只剩数组，分页 `total` 丢失，待审超过 5 条时前端会少算；现在保留完整信封（`rawValue`），由使用方按需读取列表或总数。
+- 黑话页的确认/驳回/删除/切换全局/编辑保存/批量导入完成后追加 `dashboard.refresh(true)`，审查动作即时反映到首页与 AI 巡检的全局快照，无需等待定时刷新（对齐审查队列页的既有行为）。
+- 新增回归测试：`web_src/src/pages/shared.test.ts`（信封 `total`、空队列、旧数组回退、缺失 `total`、无快照），`JargonRejectedReview.test.tsx`（驳回不计入首页待办、`total` 大于 `page_size` 时正确、驳回后徽标变「已驳回」且刷新全局快照、AI 巡检同源）。
+
 ## [4.3.2] - 2026-10-23
 
 ### 修复：PostgreSQL 写入原始消息失败——平台昵称含 NUL 字节（issue #273）

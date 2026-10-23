@@ -35,6 +35,7 @@ export interface JargonItem extends UnknownRecord {
   meaning?: string;
   definition?: string;
   is_confirmed?: boolean;
+  is_complete?: boolean;
   status?: string;
   created_at?: string | number;
 }

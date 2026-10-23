@@ -2,7 +2,7 @@ import { createMemo, For } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
 import type { PageId, Tone } from '../../types/dashboard';
 import { formatCount } from '../../lib/format';
-import { metric, object } from '../shared';
+import { metric, jargonPendingTotal, object } from '../shared';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
 import { PageHeader } from '../../components/layout/PageHeader';
 import styles from './InsightsPage.module.scss';
@@ -14,9 +14,9 @@ export function InsightsPage() {
   const insights = createMemo<Insight[]>(() => {
     const persona = object(dashboard.data.persona_updates);
     const style = object(dashboard.data.style_learning_reviews);
-    const jargon = object(dashboard.data.jargon_stats);
+    // 与首页待办同源：读待审接口分页 total，已驳回不再计入
     const backlog = Number(persona.total || 0) + Number(style.total || 0)
-      + Math.max(0, Number(jargon.total_candidates || 0) - Number(jargon.confirmed_jargon || 0));
+      + jargonPendingTotal(dashboard.data);
     const filtered = metric(dashboard.data, ['metrics.filtered_messages', 'metrics.messages.filtered']);
     const failures = Object.values(object(object(dashboard.data.health).checks))
       .filter((item) => object(item).status && object(item).status !== 'healthy').length;

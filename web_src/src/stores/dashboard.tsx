@@ -104,11 +104,15 @@ export function DashboardProvider(props: { children: JSX.Element }) {
       const value = (index: number) => responses[index].status === 'fulfilled'
         ? unwrapPayload((responses[index] as PromiseFulfilledResult<UnknownRecord>).value)
         : {};
+      // 黑话待审队列保留分页信封（total 才是真实待审总数，列表被 page_size 截断）
+      const rawValue = (index: number) => responses[index].status === 'fulfilled'
+        ? ((responses[index] as PromiseFulfilledResult<UnknownRecord>).value ?? {})
+        : {};
       setData(reconcile({
         metrics: value(0), trends: value(1), health: value(2), functions: value(3),
         persona_updates: value(4),
         style_learning_reviews: value(5),
-        jargon_reviews: value(6),
+        jargon_reviews: rawValue(6),
         jargon_stats: value(7), persona_current: value(8), persona_backups: value(9),
         persona_reviewed: value(10), data_statistics: value(11), hub_status: value(12),
       }));
