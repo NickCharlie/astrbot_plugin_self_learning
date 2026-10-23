@@ -2,6 +2,18 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.3.2] - 2026-10-23
+
+### 修复：PostgreSQL 写入原始消息失败——平台昵称含 NUL 字节（issue #273）
+
+- aiocqhttp 网关可能把 protobuf 片段塞进 `sender.card`，`event.get_sender_name()` 随之返回带 `0x00` 的二进制串；PostgreSQL 的 text/varchar 拒绝 NUL 字节，asyncpg 绑参阶段即抛 `CharacterNotInRepertoireError`，该成员的每条消息都写入 `raw_messages` 失败、后续学习流水线拿不到数据。SQLite/MySQL 允许 NUL，因此默认配置下不易暴露。
+- `utils/text_utils.py` 新增统一清理函数 `clean_db_text`：删除 PostgreSQL 硬性拒绝的 NUL 字节，并经 `encode("utf-8", "ignore")` 顺带去掉驱动同样无法编码的孤立代理字符，其余文本原样保留；`truncate_for_db` 改为先清理再计长（其调用方——`raw/bot_message_repository`、黑话 `raw_content`、QQ 记录导入器——自动获得同等保护）。
+- `MessageFacade.save_raw_message`（`raw_messages` 唯一写入入口，消息收集器、数据库管理器、WebUI Hub 均经它落库）对所有文本字段（`sender_id`/`sender_name`/`sender_qq`/`message`/`group_id`/`platform`/`message_id`/`reply_to`）在构造 ORM 对象前逐字段清理；非字符串值原样透传，行为不变。
+- `MessagePipeline.process_learning` 在事件进入学习流水线时把 `event.get_sender_name()` 清理一次，消息收集与 V2 实时处理等下游消费者拿到的都是干净文本。
+- issue 模板 Database Type 下拉补充 PostgreSQL 选项。
+- 新增回归测试：`tests/unit/test_text_utils.py`（NUL、孤立代理、None/非字符串、截断与清理计长），`test_database_engine.py::test_save_raw_message_strips_nul_bytes_from_platform_payload`（用 issue 里的真实坏昵称走 `save_raw_message` 再读回，断言不含 `\x00`；SQLite 原样保存 NUL，修复前必失败），`test_message_pipeline_sanitizes_sender_name_before_collection`（断言进入消息收集器与 V2 处理的 `sender_name` 已清理）。
+- 已知同类风险（本期不处理）：`event.get_sender_name()` 还会进入用户画像（`user_profiles.qq_name`）等表，后续可考虑在 ORM 写入层统一兜底（如 `before_flush` 清理字符串属性）。
+
 ## [4.3.1] - 2026-10-20
 
 ### 安全：网络层访问守卫与默认配置收紧（重要行为变更）

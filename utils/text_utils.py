@@ -5,6 +5,17 @@
 _MAX_TEXT_BYTES = 60000
 _TRUNCATION_MARKER = "...[truncated]"
 
+# PostgreSQL rejects a NUL byte in text values and asyncpg cannot encode
+# lone surrogate code points, so both are removed before the driver sees them.
+_NUL = "\x00"
+
+
+def clean_db_text(text: str) -> str:
+    """Drop characters that PostgreSQL / asyncpg cannot store in text columns."""
+    if not isinstance(text, str) or not text:
+        return text
+    return text.replace(_NUL, "").encode("utf-8", "ignore").decode("utf-8")
+
 
 def truncate_for_db(text: str, max_bytes: int = _MAX_TEXT_BYTES) -> str:
     """Truncate text to fit within MySQL TEXT column byte limit.
@@ -24,7 +35,10 @@ def truncate_for_db(text: str, max_bytes: int = _MAX_TEXT_BYTES) -> str:
     """
     if not text:
         return text
-    encoded = text.encode("utf-8")
+    cleaned = clean_db_text(text)
+    encoded = cleaned.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return cleaned
     if len(encoded) <= max_bytes:
         return text
     marker = _TRUNCATION_MARKER.encode("utf-8")

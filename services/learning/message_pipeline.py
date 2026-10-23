@@ -7,6 +7,7 @@ from astrbot.api import logger
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
+from ...utils.text_utils import clean_db_text
 from ..monitoring.instrumentation import monitored
 from .jargon_learning import JargonLearningModule
 from .sample_filter import (
@@ -99,11 +100,14 @@ class MessagePipeline:
                 return False
 
             # 1. 消息收集
+            # 平台昵称可能混入 NUL 等数据库无法存储的字节，先清理一次，
+            # 保证原始消息与下游学习链路拿到的都是干净文本。
+            sender_name = clean_db_text(event.get_sender_name())
             try:
                 message_collected = bool(await self._message_collector.collect_message(
                     {
                         "sender_id": sender_id,
-                        "sender_name": event.get_sender_name(),
+                        "sender_name": sender_name,
                         "message": message_text,
                         "group_id": group_id,
                         "timestamp": time.time(),
@@ -153,7 +157,7 @@ class MessagePipeline:
                     msg_data = MessageData(
                         message=message_text,
                         sender_id=sender_id,
-                        sender_name=event.get_sender_name() or sender_id,
+                        sender_name=sender_name or sender_id,
                         group_id=group_id,
                         timestamp=time.time(),
                         platform=event.get_platform_name() or "unknown",
