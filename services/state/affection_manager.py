@@ -1029,7 +1029,10 @@ class AffectionManager(AsyncServiceBase):
             all_affections = await self.db_manager.get_all_user_affections(group_id)
             total_affection = sum(a['affection_level'] for a in all_affections)
             current_mood = await self.get_current_mood(group_id)
-            
+
+            # 数据库返回无序，按好感度降序排完才能取"前5名"
+            all_affections.sort(key=lambda x: x['affection_level'], reverse=True)
+
             return {
                 'total_affection': total_affection,
                 'max_total_affection': self.config.max_total_affection,
