@@ -348,6 +348,18 @@ Hub 会优先复用插件运行态的 `message_collector`，否则回退到数�
 
 `target_group_id` 省略时默认与 `source_group_id` 相同。参数缺失或有效样本少于 3 条时返回 400。注入行为见 [使用指南](usage.md) 的影子模式章节；该注入受 `enable_llm_hooks` 总开关控制。
 
+## 情绪中枢
+
+蓝图: `webui/blueprints/emotion.py`（服务: `webui/services/emotion_board_service.py`）
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/emotion/board` | 面板聚合：各群活跃心情与历史、好感度分组统计与 TOP/BOTTOM 榜、用户主导情绪分布、闸门日统计与内存遥测、三阶段遗忘状态（阶段分布 + 候选） |
+| GET | `/api/emotion/trends?days=14` | 走向分析：逐日好感度净变化、心情切换次数、闸门放行率与平均加权分（1~90 天） |
+| POST | `/api/emotion/action` | 治理操作：`set_mood`（手动设置群心情）、`run_forgetting_cycle`（立即执行遗忘周期）、`mark_dislike` / `reset_stage` / `delete_item`（候选治理，`kind` 为 `expression`/`jargon`） |
+
+情绪学习闸门与三阶段遗忘由 `Emotion_Learning_Settings` 配置组控制（`enable_emotion_learning_gate`、`emotion_gate_threshold`、`enable_expression_forgetting`、`forgetting_cycle_days`、`forgetting_grace_days`、`forgetting_protect_global_jargon`、`forgetting_negative_fast_track`），修改后重启插件生效。闸门加权分 = 好感度×0.35 + 消息情感×0.25 + Bot心情×0.20 + 情绪稳定性×0.20，情感判定走规则引擎不消耗 LLM；闸门只拦截学习步骤，原始消息采集不受影响。
+
 ## 图谱
 
 蓝图: `webui/blueprints/graphs.py`

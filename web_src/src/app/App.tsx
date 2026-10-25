@@ -15,6 +15,7 @@ import { GraphsPage } from '../pages/graphs/GraphsPage';
 import { IntegrationsPage } from '../pages/integrations/IntegrationsPage';
 import { SettingsPage } from '../pages/settings/SettingsPage';
 import { ShadowModePage } from '../pages/shadow-mode/ShadowModePage';
+import { EmotionBoardPage } from '../pages/emotion/EmotionBoardPage';
 
 function DashboardRoutes() {
   const dashboard = useDashboard();
@@ -30,6 +31,7 @@ function DashboardRoutes() {
         <Match when={dashboard.page() === 'expression-learning'}><ExpressionLearningPage /></Match>
         <Match when={dashboard.page() === 'persona-learning'}><PersonaLearningPage /></Match>
         <Match when={dashboard.page() === 'shadow-mode'}><ShadowModePage /></Match>
+        <Match when={dashboard.page() === 'emotion'}><EmotionBoardPage /></Match>
         <Match when={dashboard.page() === 'content'}><ContentPage /></Match>
         <Match when={dashboard.page() === 'graphs'}><GraphsPage /></Match>
         <Match when={dashboard.page() === 'integrations'}><IntegrationsPage /></Match>

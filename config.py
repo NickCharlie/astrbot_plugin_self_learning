@@ -268,9 +268,18 @@ class PluginConfig(BaseModel):
 
     # 情绪系统配置
     enable_daily_mood: bool = True # 启用每日情绪
-    enable_startup_random_mood: bool = True # 启用启动时随机情绪初始化
+    enable_startup_random_mood: bool = True # 启动时随机情绪初始化
     mood_change_hour: int = 6 # 情绪更新时间（24小时制）
     mood_persistence_hours: int = 24 # 情绪持续时间
+
+    # 情绪与学习联动配置
+    enable_emotion_learning_gate: bool = True # 启用情绪学习闸门（情绪/好感度加权决定单条消息是否学习）
+    emotion_gate_threshold: float = 0.3 # 学习放行阈值（0.05~0.95，加权分低于该值跳过本次表达/黑话学习）
+    enable_expression_forgetting: bool = True # 启用表达/黑话三阶段遗忘
+    forgetting_cycle_days: int = 7 # 遗忘周期（天），每个周期推进一次遗忘阶段
+    forgetting_grace_days: int = 14 # 新条目宽限期（天），期内不参与遗忘
+    forgetting_protect_global_jargon: bool = True # 全局黑话不参与遗忘
+    forgetting_negative_fast_track: bool = True # 负反馈/手动标记反感直接进入遗忘二期
 
     # 存储路径（内部配置，用户通常不需要修改）
     messages_db_path: Optional[str] = None
@@ -431,6 +440,7 @@ class PluginConfig(BaseModel):
         persona_backup_settings = config.get('Persona_Backup_Settings', {})
         affection_settings = config.get('Affection_System_Settings', {})
         mood_settings = config.get('Mood_System_Settings', {})
+        emotion_gate_settings = config.get('Emotion_Learning_Settings', {})
         storage_settings = config.get('Storage_Settings', {})
         api_settings = config.get('API_Settings', {})
         database_settings = config.get('Database_Settings', {}) # 新增：数据库设置
@@ -545,6 +555,15 @@ class PluginConfig(BaseModel):
             affection_decay_rate=affection_settings.get('affection_decay_rate', 0.95),
             daily_mood_change=affection_settings.get('daily_mood_change', True),
             mood_affect_affection=affection_settings.get('mood_affect_affection', True),
+
+            # 情绪与学习联动配置
+            enable_emotion_learning_gate=emotion_gate_settings.get('enable_emotion_learning_gate', True),
+            emotion_gate_threshold=emotion_gate_settings.get('emotion_gate_threshold', 0.3),
+            enable_expression_forgetting=emotion_gate_settings.get('enable_expression_forgetting', True),
+            forgetting_cycle_days=emotion_gate_settings.get('forgetting_cycle_days', 7),
+            forgetting_grace_days=emotion_gate_settings.get('forgetting_grace_days', 14),
+            forgetting_protect_global_jargon=emotion_gate_settings.get('forgetting_protect_global_jargon', True),
+            forgetting_negative_fast_track=emotion_gate_settings.get('forgetting_negative_fast_track', True),
 
             # 情绪系统配置
             enable_daily_mood=mood_settings.get('enable_daily_mood', True),

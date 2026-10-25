@@ -5,6 +5,7 @@ from .enhanced_interaction import EnhancedInteractionService
 from .enhanced_memory_graph_manager import EnhancedMemoryGraphManager
 from .time_decay_manager import TimeDecayManager
 from .affection_manager import AffectionManager, MoodType, BotMood
+from .emotion_learning_gate import EmotionLearningGate
 
 __all__ = [
     "EnhancedPsychologicalStateManager",
@@ -14,4 +15,5 @@ __all__ = [
     "AffectionManager",
     "MoodType",
     "BotMood",
+    "EmotionLearningGate",
 ]

@@ -20,6 +20,9 @@ class ExpressionPattern(Base):
     weight = Column(Float, default=1.0, nullable=False)  # 权重
     last_active_time = Column(Float, nullable=False)  # 最后活跃时间
     create_time = Column(Float, nullable=False)  # 创建时间
+    # 三阶段遗忘：0=新鲜，1/2=遗忘观察中，3=待删除（由遗忘周期推进，使用/正向反馈重置为 0）
+    forget_stage = Column(Integer, default=0, server_default='0', nullable=False)
+    forget_updated_at = Column(Float, nullable=True)  # 上次遗忘阶段变更时间
 
     # 关系
     generation_results = relationship("ExpressionGenerationResult", back_populates="pattern", lazy="selectin")

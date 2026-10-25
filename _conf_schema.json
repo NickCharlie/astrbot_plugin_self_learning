@@ -446,6 +446,55 @@
       }
     }
   },
+  "Emotion_Learning_Settings": {
+    "description": "情绪与学习联动设置",
+    "type": "object",
+    "hint": "情绪/好感度加权闸门与三阶段遗忘，保持表达的新鲜性和得体性",
+    "items": {
+      "enable_emotion_learning_gate": {
+        "description": "启用情绪学习闸门",
+        "type": "bool",
+        "hint": "按好感度(35%)、消息情感(25%)、Bot心情(20%)、用户情绪稳定性(20%)加权打分，低于阈值时跳过该条消息的表达/黑话学习（原始消息采集不受影响）",
+        "default": true
+      },
+      "emotion_gate_threshold": {
+        "description": "学习放行阈值",
+        "type": "float",
+        "hint": "0.05~0.95，加权分低于该值跳过本次学习。调低更宽松、调高更严格，默认 0.3 只拦截明显负面的组合",
+        "default": 0.3
+      },
+      "enable_expression_forgetting": {
+        "description": "启用三阶段遗忘",
+        "type": "bool",
+        "hint": "按周期清理长期未使用/被反感的表达与黑话：连续三个周期无使用或正向反馈即删除；使用或正向反馈会立即重置",
+        "default": true
+      },
+      "forgetting_cycle_days": {
+        "description": "遗忘周期",
+        "type": "int",
+        "hint": "每多少天执行一次遗忘检查并推进阶段（1-90）",
+        "default": 7
+      },
+      "forgetting_grace_days": {
+        "description": "新条目宽限期",
+        "type": "int",
+        "hint": "新建的表达/黑话在多少天内不参与遗忘（1-365）",
+        "default": 14
+      },
+      "forgetting_protect_global_jargon": {
+        "description": "全局黑话不遗忘",
+        "type": "bool",
+        "hint": "全局共享黑话视为公共资产，不参与三阶段遗忘",
+        "default": true
+      },
+      "forgetting_negative_fast_track": {
+        "description": "反感快速遗忘",
+        "type": "bool",
+        "hint": "生成结果收到负反馈或手动标记反感时，直接进入遗忘二期，再有一个空周期即删除",
+        "default": true
+      }
+    }
+  },
   "Social_Context_Settings": {
     "description": "社交上下文注入设置",
     "type": "object",

@@ -24,6 +24,9 @@ class Jargon(Base):
     # 使用 BigInteger 存储 Unix 时间戳（自动迁移会将 DATETIME 转换为 BIGINT）
     created_at = Column(BigInteger, nullable=False)
     updated_at = Column(BigInteger, nullable=False)
+    # 三阶段遗忘：0=新鲜，1/2=遗忘观察中，3=待删除（由遗忘周期推进，重新出现/正向反馈重置为 0）
+    forget_stage = Column(Integer, default=0, server_default='0', nullable=False)
+    forget_updated_at = Column(BigInteger, nullable=True)  # 上次遗忘阶段变更时间
 
     # 关系
     usage_frequencies = relationship("JargonUsageFrequency", back_populates="jargon", lazy="selectin")

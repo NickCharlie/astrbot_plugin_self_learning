@@ -241,6 +241,20 @@ class PluginLifecycle:
 
             # ------ 消息处理流水线 ------
             from ..services.learning.message_pipeline import MessagePipeline
+            from ..services.state import EmotionLearningGate
+            from ..services.learning import ForgettingManager
+
+            # 情绪学习闸门：好感/情绪加权决定单条消息是否进入学习
+            p.emotion_gate = EmotionLearningGate(
+                config=plugin_config,
+                database_manager=p.db_manager,
+                affection_manager=p.affection_manager,
+            )
+            # 三阶段遗忘：周期清理长期未用/被反感的表达与黑话
+            p.forgetting_manager = ForgettingManager(
+                config=plugin_config,
+                database_manager=p.db_manager,
+            )
 
             p._pipeline = MessagePipeline(
                 plugin_config=plugin_config,
@@ -254,6 +268,7 @@ class PluginLifecycle:
                 conversation_goal_manager=getattr(p, "conversation_goal_manager", None),
                 affection_manager=p.affection_manager,
                 db_manager=p.db_manager,
+                emotion_gate=p.emotion_gate,
             )
 
             # ------ 命令处理器 ------
@@ -411,6 +426,13 @@ class PluginLifecycle:
             except Exception as e:
                 logger.error(f"好感度管理服务启动失败: {e}", exc_info=True)
 
+        # ------ 三阶段遗忘周期任务 ------
+        if getattr(p, "forgetting_manager", None):
+            try:
+                await p.forgetting_manager.start()
+            except Exception as e:
+                logger.error(f"三阶段遗忘任务启动失败: {e}", exc_info=True)
+
         # ------ V2 学习集成 ------
         v2_started = False
         if getattr(p, "v2_integration", None):
@@ -509,6 +531,13 @@ class PluginLifecycle:
                 await self._safe_step(
                     "取消流水线子任务",
                     pipeline.cancel_subtasks(),
+                )
+
+            # 2.7 停止三阶段遗忘周期任务
+            if getattr(p, "forgetting_manager", None):
+                await self._safe_step(
+                    "停止三阶段遗忘任务",
+                    p.forgetting_manager.stop(),
                 )
 
             # 3. 取消后台任务（每个任务单独超时）

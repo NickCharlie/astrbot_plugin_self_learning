@@ -34,6 +34,7 @@ class MessagePipeline:
         conversation_goal_manager: Optional[Any],
         affection_manager: Any,
         db_manager: Any,
+        emotion_gate: Optional[Any] = None,
     ):
         self._config = plugin_config
         self._message_collector = message_collector
@@ -46,6 +47,7 @@ class MessagePipeline:
         self._conversation_goal_manager = conversation_goal_manager
         self._affection_manager = affection_manager
         self._db_manager = db_manager
+        self._emotion_gate = emotion_gate
         self._subtasks: Set[asyncio.Task] = set()
         self._jargon_learning = JargonLearningModule(
             config=plugin_config,
@@ -68,6 +70,27 @@ class MessagePipeline:
             getattr(self._config, "enable_realtime_learning", False)
             or getattr(self._config, "enable_realtime_v2_processing", False)
         )
+
+    async def _evaluate_emotion_gate(
+        self, group_id: str, sender_id: str, message_text: str
+    ) -> bool:
+        """情绪学习闸门：返回本次消息是否放行学习（fail-open）。"""
+        if self._emotion_gate is None:
+            return True
+        try:
+            result = await self._emotion_gate.evaluate_and_record(
+                group_id, sender_id, message_text
+            )
+            if result.get("enabled") and not result.get("decision", True):
+                logger.debug(
+                    "[EmotionGate] 跳过本次学习: "
+                    f"group={group_id} user={sender_id[:8]}... "
+                    f"score={result.get('score')} threshold={result.get('threshold')}"
+                )
+                return False
+        except Exception as exc:
+            logger.warning(f"[EmotionGate] 闸门执行异常，按放行处理: {exc}")
+        return True
 
     # 后台学习流水线（6 步）
 
@@ -148,8 +171,14 @@ class MessagePipeline:
                 message_text, group_id, sender_id
             )
 
+            # 2.7 情绪学习闸门：好感/情绪加权分低于阈值时跳过本次学习。
+            # 原始消息采集（第 1 步）不受影响；闸门异常按放行处理（fail-open）。
+            learn_allowed = await self._evaluate_emotion_gate(
+                group_id, sender_id, message_text
+            )
+
             # 3. 黑话挖掘 — 每收集 10 条消息触发一次
-            if self._config.enable_jargon_learning:
+            if learn_allowed and self._config.enable_jargon_learning:
                 raw_message_count = await self._get_raw_message_count(group_id)
                 if self._should_schedule_jargon_mining(
                     group_id, raw_message_count
@@ -157,7 +186,7 @@ class MessagePipeline:
                     self._spawn_jargon_task(group_id, raw_message_count)
 
             # 3.5 V2 per-message processing
-            if self._v2_integration and self._should_process_v2_realtime():
+            if learn_allowed and self._v2_integration and self._should_process_v2_realtime():
                 try:
                     msg_data = MessageData(
                         message=message_text,
@@ -172,13 +201,13 @@ class MessagePipeline:
                     logger.debug(f"V2 message processing failed: {e}")
 
             # 4. 实时学习
-            if self._config.enable_realtime_learning:
+            if learn_allowed and self._config.enable_realtime_learning:
                 self._spawn(
                     self._realtime_processor.process_realtime_background(
                         group_id, message_text, sender_id, persona_id=persona_id
                     )
                 )
-            elif getattr(self._config, "enable_realtime_expression_learning", False):
+            elif learn_allowed and getattr(self._config, "enable_realtime_expression_learning", False):
                 self._spawn(
                     self._realtime_processor.process_expression_learning_background(
                         group_id, message_text, sender_id, persona_id=persona_id
@@ -186,7 +215,7 @@ class MessagePipeline:
                 )
 
             # 5. 智能启动学习任务
-            if self._config.enable_style_learning:
+            if learn_allowed and self._config.enable_style_learning:
                 await self._group_orchestrator.smart_start_learning_for_group(group_id)
 
             # 6. 对话目标管理

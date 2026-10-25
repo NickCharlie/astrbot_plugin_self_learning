@@ -88,6 +88,7 @@ from .knowledge_graph import (
 from .exemplar import (
     Exemplar
 )
+from .emotion import LearningGateDailyStat
 from .shadow import ShadowProfile
 
 __all__ = [
@@ -164,6 +165,8 @@ __all__ = [
     'KGParagraphHash',
     # Exemplar
     'Exemplar',
+    # Emotion learning gate
+    'LearningGateDailyStat',
     # Shadow mode
     'ShadowProfile',
 ]

@@ -3,7 +3,7 @@ import type { PageId } from '../types/dashboard';
 export const DASHBOARD_PAGES: PageId[] = [
   'home', 'overview', 'insights', 'monitoring', 'reviews', 'jargon-learning',
   'expression-learning', 'persona-learning', 'content',
-  'shadow-mode', 'graphs', 'integrations', 'settings',
+  'shadow-mode', 'emotion', 'graphs', 'integrations', 'settings',
 ];
 
 export function parseHash(hash = window.location.hash): PageId {

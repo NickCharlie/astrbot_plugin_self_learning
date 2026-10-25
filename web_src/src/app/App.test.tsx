@@ -20,6 +20,7 @@ const headings: Record<string, string> = {
   'expression-learning': '表达方式学习',
   'persona-learning': '人格学习',
   'shadow-mode': '影子模式',
+  emotion: '情绪中枢',
   content: '学习内容',
   graphs: '记忆 / 知识图谱',
   integrations: '功能融合',

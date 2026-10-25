@@ -21,6 +21,7 @@ from .graphs import graphs_bp
 from .integrations import integrations_bp
 from .hub import hub_bp
 from .shadow_mode import shadow_mode_bp
+from .emotion import emotion_bp
 
 # monitoring blueprint requires prometheus_client; degrade gracefully
 try:
@@ -55,6 +56,7 @@ def get_blueprints() -> List[Blueprint]:
         integrations_bp,
         hub_bp,
         shadow_mode_bp,
+        emotion_bp,
     ]
     if _has_monitoring:
         bps.append(monitoring_bp)
