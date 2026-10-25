@@ -2,6 +2,34 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.0] - 2026-10-25
+
+### 功能：情绪中枢板块 + 情绪学习闸门 + 三阶段遗忘（参考 EmotionAI Pro 思路）
+
+- **情绪学习闸门**（`services/state/emotion_learning_gate.py`）：每条进入学习流水线的消息按好感度(35%)/消息情感(25%)/Bot 心情(20%)/用户情绪稳定性(20%)计算 0~1 加权分，低于 `emotion_gate_threshold`（默认 0.3）时跳过本次表达/黑话/V2/风格学习（原始消息采集不受影响）。情感因子复用 AffectionManager 规则引擎（零 LLM 成本），闸门异常一律放行（fail-open）；接入点在 `MessagePipeline.process_learning` 第 2.7 步，拦截范围覆盖黑话挖掘、V2 实时处理、实时学习与风格学习编排。
+- **三阶段遗忘**（`services/learning/forgetting_manager.py`）：按周期（默认 7 天，`forgetting_cycle_days`）推进表达与已确认黑话的遗忘阶段——周期内有使用（表达 `last_active_time` / 黑话 `updated_at` 落在窗口内）或正向反馈（表达生成结果 `user_feedback=positive`）重置为 0；否则 +1；连续三个周期无信号（阶段 3）删除（连带 `ExpressionGenerationResult`/`JargonUsageFrequency` 子记录）。负反馈或手动“标记反感”在 `forgetting_negative_fast_track` 下直接进入阶段 2，再有一个空周期即删。保护规则：新建条目 14 天宽限（`forgetting_grace_days`）、高权重表达（weight≥3）永不遗忘、全局黑话可配置保护、未过审黑话仍归审查流程。周期任务随插件启停（`plugin_lifecycle`），启动后先等一个完整周期再首次执行，避免重启即清理。
+- **情绪中枢板块**（独立 WebUI 新页面 `#/emotion`，alpha 试验区）：Bot 心情状态（各群活跃心情 + 手动设置心情）、好感度概览（分组统计 + TOP/BOTTOM 榜）、走向分析（近 14 天好感度净变化/心情切换次数/闸门放行率与平均加权分 ECharts、用户主导情绪分布）、学习联动面板（闸门累计放行/拦截、近期因子均值、最近 20 条判定明细）、三阶段遗忘治理（阶段分布、候选列表、重置/标记反感/删除/立即执行周期）。新蓝图 `/api/emotion/board|trends|action`（`webui/blueprints/emotion.py` + `emotion_board_service.py`）。
+- 数据层：`ExpressionPattern`/`Jargon` 新增 `forget_stage`、`forget_updated_at` 列（复用既有自动迁移补列）；新表 `learning_gate_daily_stats` 按天/群聚合闸门判定（含因子分值总和，用于走向分析）。配置组 `Emotion_Learning_Settings` 新增 7 项开关/阈值。
+- 新增回归测试：`test_emotion_learning_gate.py`（正/负/中性组合的因子值与判定、缺数据回退中性、fail-open、阈值钳制、复用规则引擎）、`test_forgetting_manager.py`（推进/重置/删除/负反馈直达二期/正向重置/宽限/高权重与全局保护/治理操作/禁用不启动）、`EmotionBoardPage.test.tsx`（面板渲染、治理动作调用、候选汇总）与 App 冒烟测试 emotion 路由。
+- 前端产物已同步重建（`web_res/static/dashboard`）。
+
+### 功能：内嵌插件页补齐独立 WebUI 能力 + 远程容器部署连接文档
+
+- 内嵌插件页（`pages/dashboard`）新增「影子模式」模块：来源切换（现有群聊/导入记录）、来源群组选择、可学习候选用户列表（样本不足置灰）、「学习并启用」、影子档案启用/停用；新增 `page/shadow-mode`、`page/shadow-mode/candidates`、`page/shadow-mode/action` 三个官方插件页端点，复用 `ShadowModeService`。
+- 功能融合页新增「世界书导入」面板：JSON 粘贴、目标群组、记忆/黑话/图谱与禁用条目开关、预览统计（条目/关键词/Tokens/去向）、确认导入与最近导入记录；对应 `integrations/action` 新增 `worldbook_preview` / `worldbook_import` / `worldbook_history` 动作，与独立 WebUI 一致拒绝请求传入的服务器端路径（`json_path` 恒为 `None`）。
+- QQ 聊天记录导入支持影子对象：预览返回的群友列表可点选，「导入并启用影子」在导入成功后链式创建并启用 imported 影子档案；样本不足（<3 条）的用户不可选。
+- 黑话模块对齐独立 WebUI 的审查状态语义（issue #274 同款）：徽标三态（已确认/待审/已驳回，`is_complete` 且 `is_jargon` 未定为 false 时显示中性「已完成」），筛选新增「待审」档（透传 `pending=true`）；导入范围改为群组下拉（含全局共享，读 `/jargon/groups`），部分行失败时在导入面板内展示逐行失败明细，输入内容保留供修正重试。
+- 监控页新增「模型调用」面板：按 Provider 汇总调用量、平均响应时间与失败数（`page/monitoring` 响应新增 `llm` 段，读取 `llm_adapter.get_call_statistics()` / `get_provider_info()`）。
+- 图谱页支持按群组 ID 过滤；首页新增「消息与学习趋势」面板（近 14 天每日采集柱状图 + 学习批次摘要，读 `metrics.trends`）；首页快捷入口新增影子模式。
+- 新增文档 `docs/webui-remote-deployment.md`：远程服务器 Docker 容器部署后的 WebUI 连接教程（AstrBot 面板 6185 与独立 WebUI 7833 双入口、docker run/compose 端口映射、云安全组与 ufw/firewalld/iptables 放行、Docker 绕过 ufw 的坑、SSH 隧道/Nginx 反代/Caddy、WebUI 密码与免密回环限制、三段式连通排查与常见问题 FAQ）；`docs/README.md`、`docs/usage.md`、`README.md` 增加对应入口与说明。
+- 内嵌页 i18n 资源补齐 73 个新键（zh-CN / en-US 同步），保持 `test_embedded_plugin_page_i18n_resources_are_complete` 全绿。
+- 内嵌页迁移本身未改动独立 WebUI 运行逻辑；本版本新增的「情绪中枢」则按既定分工首先落在独立 WebUI（alpha 试验区），验证后再同步内嵌页。
+- 新增回归测试：`tests/unit/test_page_api_shadow_worldbook.py`（影子模式状态/候选/学习/启停参数透传与 ValueError 软失败、世界书预览/导入/历史的参数与 `json_path` 安全断言、limit 边界、未知动作拒绝）。
+
+### 版本
+
+- 版本号由 4.3.3 提升至 **4.4.0**（功能性大版本：情绪中枢 + 学习联动与遗忘机制、内嵌页功能对齐）。
+
 ## [4.3.3] - 2026-10-23
 
 ### 修复：黑话驳回后仍显示待审、待办数量偏高（issue #274）
