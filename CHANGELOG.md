@@ -2,6 +2,17 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.2] - 2026-10-25
+
+### 修复：/affection_status「前5名」未按好感度排序，实为数据库任意前几行
+
+- `services/state/affection_manager.py` 的 `get_affection_status` 此前直接对 `get_all_user_affections` 的结果切片 `[:5]`；而底层 `find_many` 未传 `order_by`，SQL 无 ORDER BY，返回顺序由数据库决定（通常为插入顺序）。因此命令展示的「好感度前3名」实际是该群最早入库的几个用户，并非好感度最高者。现已在切片前按 `affection_level` 降序排序（与同文件 `_redistribute_affection` 的既有做法一致）。聚合字段（total_affection/user_count/情绪状态）不受影响，WebUI 好感度指标自算聚合亦不受影响。
+- 新增回归测试 `tests/unit/test_affection_status_ranking.py`：数据库按无序（模拟）返回 7 名用户，断言 top_users 为好感度最高的 5 人且降序；不足 5 人时全量返回。
+
+### 版本
+
+- 版本号由 4.4.1 提升至 **4.4.2**。
+
 ## [4.4.1] - 2026-10-25
 
 ### 修复：4.4.0 在真实 AstrBot 环境加载崩溃——models 相对导入层级错误
