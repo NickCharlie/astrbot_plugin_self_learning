@@ -25,6 +25,7 @@
           <a class="nav-item" href="#/jargon-learning" data-page="jargon-learning" data-i18n="nav.jargonLearning">黑话学习</a>
           <a class="nav-item" href="#/expression-learning" data-page="expression-learning" data-i18n="nav.expressionLearning">表达方式学习</a>
           <a class="nav-item" href="#/persona-learning" data-page="persona-learning" data-i18n="nav.personaLearning">人格学习</a>
+          <a class="nav-item" href="#/shadow-mode" data-page="shadow-mode" data-i18n="nav.shadowMode">影子模式</a>
           <a class="nav-item" href="#/content" data-page="content" data-i18n="nav.content">学习内容</a>
           <a class="nav-item" href="#/graphs" data-page="graphs" data-i18n="nav.graphs">图谱</a>
           <a class="nav-item" href="#/integrations" data-page="integrations" data-i18n="nav.integrations">功能融合</a>
@@ -107,6 +108,14 @@
                 <p id="metrics-summary">等待智能指标服务返回数据。</p>
               </div>
             </div>
+            <div class="panel trend-panel">
+              <div class="panel-heading">
+                <h3 data-i18n="home.trendsTitle">消息与学习趋势</h3>
+                <span class="mini-badge" id="trend-window">14d</span>
+              </div>
+              <div class="bar-chart" id="home-trend-chart"></div>
+              <p class="trend-note" id="home-trend-note"></p>
+            </div>
           </section>
         </section>
 
@@ -138,6 +147,13 @@
               <h3 data-i18n="monitoring.functions">函数性能</h3>
               <div class="function-list" id="function-list"></div>
             </div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="monitoring.llmCalls">模型调用</h3>
+              <span class="mini-badge" id="llm-total-calls">0</span>
+            </div>
+            <div class="compact-table" id="llm-call-list"></div>
           </div>
         </section>
 
@@ -221,15 +237,17 @@
             <p class="import-hint">每行一条，支持「关键词 = 解释」「关键词：解释」「关键词|解释」等分隔；# 或 // 开头为注释行。导入的词条即为已确认黑话。</p>
             <textarea id="jargon-import-text" rows="6" spellcheck="false" placeholder="摸鱼 = 上班时间偷懒&#10;yyds：永远的神&#10;绝绝子&#10;# 注释行会被忽略"></textarea>
             <div class="inline-actions compact-actions">
-              <input id="jargon-import-group" type="text" placeholder="群组ID（留空 = 全局共享）">
+              <select id="jargon-import-group" aria-label="导入范围"></select>
               <button class="solid-button" type="button" id="jargon-import-submit">导入</button>
             </div>
+            <pre class="code-preview" id="jargon-import-output" hidden></pre>
           </div>
           <section class="stat-grid compact" id="jargon-stat-grid"></section>
           <div class="panel toolbar-panel">
             <input id="jargon-keyword" type="search" placeholder="搜索词条或释义" data-i18n-placeholder="jargon.searchPlaceholder">
             <select id="jargon-confirmed">
               <option value="" data-i18n="jargon.allStatuses">全部状态</option>
+              <option value="pending" data-i18n="jargon.pendingOnly">待审</option>
               <option value="true" data-i18n="jargon.confirmed">已确认</option>
               <option value="false" data-i18n="jargon.unconfirmed">未确认</option>
             </select>
@@ -322,6 +340,42 @@
           </div>
         </section>
 
+        <section class="page" id="page-shadow-mode" data-page="shadow-mode">
+          <div class="page-titlebar">
+            <div>
+              <h3 data-i18n="shadow.title">影子模式</h3>
+              <p data-i18n="shadow.desc">从已学习的群聊中选择一位群友，复现其语言节奏与表达习惯。</p>
+            </div>
+            <button class="ghost-button" type="button" data-refresh-page="shadow-mode" data-i18n="actions.refresh">刷新</button>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="shadow.selectTarget">选择学习对象</h3>
+              <span class="mini-badge" id="shadow-min-samples">--</span>
+            </div>
+            <div class="shadow-toolbar">
+              <div class="segment-control" id="shadow-source">
+                <button class="active" type="button" data-shadow-source="live" data-i18n="shadow.liveSource">现有群聊</button>
+                <button type="button" data-shadow-source="imported" data-i18n="shadow.importedSource">导入记录</button>
+              </div>
+              <select id="shadow-group" aria-label="来源群组"></select>
+              <input id="shadow-target-group" type="text" placeholder="生效群组" data-i18n-placeholder="shadow.targetGroup">
+            </div>
+            <div class="candidate-list" id="shadow-candidate-list"></div>
+            <div class="learn-bar">
+              <span id="shadow-learn-hint" data-i18n="shadow.pickFirst">选择用户后即可开始学习。</span>
+              <button class="solid-button" type="button" id="shadow-learn-button" data-i18n="shadow.learnAndEnable">学习并启用</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="shadow.profiles">影子档案</h3>
+              <span class="mini-badge" id="shadow-profile-count">0</span>
+            </div>
+            <div class="compact-table" id="shadow-profile-list"></div>
+          </div>
+        </section>
+
         <section class="page" id="page-content" data-page="content">
           <div class="page-titlebar">
             <div>
@@ -359,6 +413,7 @@
                 <option value="memory" data-i18n="graphs.memoryGraph">记忆图谱</option>
                 <option value="knowledge" data-i18n="graphs.knowledgeGraph">知识图谱</option>
               </select>
+              <input id="graph-group" type="text" placeholder="群组 ID（可选）" data-i18n-placeholder="graphs.groupFilter">
               <button class="ghost-button" type="button" data-refresh-page="graphs" data-i18n="actions.refresh">刷新</button>
             </div>
           </div>
@@ -432,6 +487,42 @@
             </div>
             <pre class="code-preview" id="maibot-import-output" data-i18n="maibot.waitingPreview">等待预览。</pre>
           </div>
+          <div class="panel worldbook-import-panel">
+            <div class="panel-heading">
+              <div>
+                <h3 data-i18n="worldbook.title">世界书导入</h3>
+                <p data-i18n="worldbook.desc">粘贴 SillyTavern 世界书 JSON，先预览统计，再写入人格审查、黑话候选或知识图谱。</p>
+              </div>
+              <div class="inline-actions">
+                <button class="ghost-button" type="button" id="worldbook-preview-button" data-i18n="actions.preview">预览</button>
+                <button class="solid-button" type="button" id="worldbook-import-button" data-i18n="actions.import">导入</button>
+              </div>
+            </div>
+            <div class="worldbook-import-grid">
+              <label class="config-field">
+                <span>
+                  <strong data-i18n="worldbook.group">目标群组</strong>
+                  <small data-i18n="worldbook.groupHint">留空使用 global。</small>
+                </span>
+                <input id="worldbook-group-input" type="text" placeholder="global">
+              </label>
+              <label class="config-field">
+                <span>
+                  <strong data-i18n="worldbook.json">世界书 JSON</strong>
+                  <small data-i18n="worldbook.jsonHint">支持 SillyTavern 世界书导出的 JSON 对象或数组。</small>
+                </span>
+                <textarea id="worldbook-json-input" rows="8" spellcheck="false" placeholder='{"entries": {...}}'></textarea>
+              </label>
+            </div>
+            <div class="toggle-row">
+              <label><input id="worldbook-import-memories" type="checkbox" checked> <span data-i18n="worldbook.memories">导入记忆/人格候选</span></label>
+              <label><input id="worldbook-import-jargons" type="checkbox" checked> <span data-i18n="worldbook.jargons">导入黑话</span></label>
+              <label><input id="worldbook-import-knowledge" type="checkbox" checked> <span data-i18n="worldbook.knowledge">导入知识图谱</span></label>
+              <label><input id="worldbook-include-disabled" type="checkbox"> <span data-i18n="worldbook.includeDisabled">包含禁用条目</span></label>
+            </div>
+            <pre class="code-preview" id="worldbook-import-output" data-i18n="worldbook.waitingPreview">等待预览。</pre>
+            <div class="compact-table" id="worldbook-history-list"></div>
+          </div>
           <div class="panel qchat-import-panel">
             <div class="panel-heading">
               <div>
@@ -469,6 +560,7 @@
             <div class="toggle-row">
               <label><input id="qchat-include-training" type="checkbox"> <span data-i18n="qchat.includeTraining">同时导入 train_data.json 问答对</span></label>
             </div>
+            <div class="sender-list" id="qchat-sender-list"></div>
             <pre class="code-preview" id="qchat-import-output" data-i18n="qchat.waitingPreview">等待预览。</pre>
           </div>
           <div class="panel">

@@ -9,6 +9,7 @@
     "jargon-learning": ["page.jargon.kicker", "page.jargon.title", "Jargon", "黑话学习"],
     "expression-learning": ["page.style.kicker", "page.style.title", "Expression", "表达方式学习"],
     "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
+    "shadow-mode": ["page.shadow.kicker", "page.shadow.title", "Shadow", "影子模式"],
     content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
     graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
     integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
@@ -35,6 +36,17 @@
     contentType: "dialogues",
     settingsGroup: null,
     dirtySettings: new Map(),
+    shadow: {
+      source: "live",
+      groupId: "",
+      targetGroupId: "",
+      selectedId: "",
+      minimumSamples: 3,
+      profiles: [],
+      statusData: null,
+    },
+    qchatPreviewData: null,
+    qchatShadowSender: "",
     graph: {
       nodes: [],
       links: [],
@@ -515,6 +527,7 @@
         return renderStyle(await cached(`style:${JSON.stringify(params)}`, () => apiGet("style", params), force));
       }
       if (page === "persona-learning") return renderPersona(await cached("persona", () => apiGet("persona", { group_id: "default", limit: 30 }), force));
+      if (page === "shadow-mode") return loadShadowMode(force);
       if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
       if (page === "graphs") return loadGraphs(force);
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
@@ -570,8 +583,28 @@
     renderModuleCards(overview.modules || []);
     renderModuleChart(overview.modules || []);
     renderIntelligence(overview.metrics || {});
+    renderHomeTrends((data.metrics || {}).trends || {});
     renderInsights(data);
     showErrors(errors);
+  }
+
+  function renderHomeTrends(trends) {
+    const daily = trends.daily_messages || {};
+    const labels = Object.keys(daily).sort().slice(-14);
+    const items = labels.map((label) => ({
+      title: String(label).slice(5),
+      metric: Number(daily[label] || 0),
+      accent: "#0ea5e9",
+    }));
+    renderGenericBarChart("home-trend-chart", items);
+    const total = items.reduce((sum, item) => sum + item.metric, 0);
+    const batches = Array.isArray(trends.recent_batches) ? trends.recent_batches.length : 0;
+    setText("home-trend-note", items.length
+      ? t("home.trendsNote", "近 {days} 天采集 {count} 条消息 · 最近 {batches} 个学习批次。")
+        .replace("{days}", fmt(items.length, 0))
+        .replace("{count}", fmt(total, 0))
+        .replace("{batches}", fmt(batches, 0))
+      : t("home.noTrends", "暂无趋势数据，积累消息后这里会出现每日采集曲线。"));
   }
 
   function renderQuickActions(links) {
@@ -704,7 +737,29 @@
       </div>
     `).join("");
     setHtml("function-list", fnHtml || empty((data.functions || {}).debug_mode ? t("empty.functionStats", "暂无函数性能数据") : t("empty.debugDisabled", "debug_mode 未启用")));
+    renderLlmCalls(data.llm || {});
     showErrors(data.errors || {});
+  }
+
+  function renderLlmCalls(llm) {
+    const stats = llm.call_statistics || {};
+    const providers = llm.provider_info || {};
+    const entries = Object.entries(stats).filter(([key]) => key !== "overall");
+    const overall = stats.overall || {};
+    setText("llm-total-calls", fmt(overall.total_calls, 0));
+    const rows = entries.map(([key, item]) => {
+      const calls = Number(item.total_calls || item.calls || 0);
+      const errors = Number(item.error_count || item.errors || 0);
+      const avg = Number(item.avg_response_time_ms || 0);
+      const label = providers[key] || key;
+      return `<div class="table-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(fmt(calls, 0))} ${escapeHtml(t("units.calls", "次调用"))}</strong>
+        <small>${escapeHtml(t("monitoring.llmMeta", "平均 {avg}ms · 失败 {errors}").replace("{avg}", fmt(avg, 0)).replace("{errors}", fmt(errors, 0)))}</small>
+        ${pill(errors > 0 ? t("state.abnormal", "异常") : t("state.normal", "正常"), errors > 0 ? "warn" : "ok")}
+      </div>`;
+    });
+    setHtml("llm-call-list", rows.join("") || empty(t("empty.llmCalls", "暂无模型调用统计")));
   }
 
   async function loadJargon(force) {
@@ -712,11 +767,55 @@
     const filter = $("jargon-filter")?.value || "";
     const keyword = $("jargon-keyword")?.value || "";
     const params = { page: 1, page_size: 30 };
-    if (confirmed) params.confirmed = confirmed;
+    if (confirmed === "pending") params.pending = "true";
+    else if (confirmed) params.confirmed = confirmed;
     if (filter) params.filter = filter;
     if (keyword) params.keyword = keyword;
     const data = await cached(`jargon:${JSON.stringify(params)}`, () => apiGet("jargon", params), force);
     renderJargon(data);
+  }
+
+  // 与独立 WebUI 保持一致：is_complete 只表示审查/推断结束；is_jargon === false
+  // 才是明确驳回，导入等中性完成不应误标为已驳回（issue #274）。
+  function jargonStatusBadge(item) {
+    if (item.is_confirmed) return pill(t("jargon.confirmed", "已确认"), "ok");
+    if (!item.is_complete) return pill(String(item.status || t("jargon.pendingReview", "待审")), "warn");
+    return item.is_jargon === false
+      ? pill(t("jargon.rejected", "已驳回"), "")
+      : pill(t("jargon.completed", "已完成"), "ok");
+  }
+
+  function renderJargonImportGroups(groups) {
+    const select = $("jargon-import-group");
+    if (!select) return;
+    const current = select.value;
+    const options = [`<option value="__global__">${escapeHtml(t("jargon.import.globalScope", "全局共享（所有群生效）"))}</option>`]
+      .concat((groups || []).map((group) => {
+        const id = group.group_id || group.id || "";
+        if (!id) return "";
+        const name = group.group_name || group.group_id || id;
+        const count = group.count ?? group.confirmed_jargon;
+        return `<option value="${escapeAttr(id)}">${escapeHtml(name)}${Number.isFinite(Number(count)) ? `（${escapeHtml(fmt(count, 0))} ${escapeHtml(t("units.entries", "条"))}）` : ""}</option>`;
+      }));
+    select.innerHTML = options.join("");
+    if (current && qsa("option", select).some((option) => option.value === current)) select.value = current;
+  }
+
+  function renderJargonImportReport(result) {
+    const output = $("jargon-import-output");
+    if (!output) return;
+    const detail = result?.result || {};
+    const failed = ((detail.details || {}).failed) || [];
+    if (!failed.length) {
+      output.hidden = true;
+      return;
+    }
+    const lines = failed.map((failure) => t("jargon.import.failedLine", "第 {line} 行「{term}」：{reason}")
+      .replace("{line}", fmt(failure.line, 0))
+      .replace("{term}", failure.term || "")
+      .replace("{reason}", failure.reason || ""));
+    output.hidden = false;
+    output.textContent = `${detail.message || t("jargon.import.partialFailed", "部分词条导入失败")}\n${lines.join("\n")}`;
   }
 
   function renderJargon(data) {
@@ -737,7 +836,7 @@
           <small>${escapeHtml(item.meaning || item.definition || t("empty.definition", "暂无释义"))}</small>
         </div>
         <span>${escapeHtml(item.group_id || "global")}</span>
-        ${pill(item.is_confirmed ? t("jargon.confirmed", "已确认") : t("jargon.pending", "待确认"), item.is_confirmed ? "ok" : "warn")}
+        ${jargonStatusBadge(item)}
         ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
         <div class="row-actions">
           ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
@@ -751,6 +850,7 @@
     setHtml("jargon-list", html || empty(t("empty.jargon", "暂无黑话数据")));
     state.pageData.lastJargonItems = items;
     state.pageData.currentJargonData = data;
+    renderJargonImportGroups(data.groups || []);
     refreshSelectionLabels();
     showErrors(data.errors || {});
   }
@@ -909,6 +1009,144 @@
     showErrors(data.errors || {});
   }
 
+  async function loadShadowMode(force) {
+    const data = await cached("shadow-mode", () => apiGet("shadow-mode"), force);
+    renderShadowMode(data);
+    await loadShadowCandidates(force);
+  }
+
+  function renderShadowMode(data) {
+    state.shadow.statusData = data || {};
+    state.shadow.profiles = data.profiles || [];
+    state.shadow.minimumSamples = Number(data.minimum_samples) || 3;
+    setText("shadow-min-samples", t("shadow.minSamples", "至少 {count} 条有效文本").replace("{count}", fmt(state.shadow.minimumSamples, 0)));
+    setText("shadow-profile-count", fmt(state.shadow.profiles.length, 0));
+    qsa("#shadow-source button").forEach((btn) => btn.classList.toggle("active", btn.dataset.shadowSource === state.shadow.source));
+    const groups = ((data.sources || {})[state.shadow.source]) || [];
+    const groupSelect = $("shadow-group");
+    if (groupSelect) {
+      groupSelect.innerHTML = groups.map((group) => `<option value="${escapeAttr(group.group_id)}">${escapeHtml(group.group_id)} · ${escapeHtml(fmt(group.member_count, 0))} ${escapeHtml(t("units.people", "人"))}</option>`).join("")
+        || `<option value="">${escapeHtml(t("shadow.noGroups", "暂无可用群组"))}</option>`;
+      if (groups.length) {
+        const known = groups.some((group) => group.group_id === state.shadow.groupId);
+        if (!known) state.shadow.groupId = groups[0].group_id || "";
+        if (!state.shadow.targetGroupId) state.shadow.targetGroupId = state.shadow.groupId;
+      }
+      groupSelect.value = state.shadow.groupId || "";
+    }
+    const target = $("shadow-target-group");
+    if (target && !target.value) target.value = state.shadow.targetGroupId || state.shadow.groupId || "";
+    renderShadowProfiles();
+    refreshShadowLearnState();
+  }
+
+  function renderShadowProfiles() {
+    const rows = state.shadow.profiles;
+    setHtml("shadow-profile-list", rows.map((profile) => `
+      <div class="table-row rich-row">
+        <div>
+          <strong>${escapeHtml(profile.sender_name || profile.sender_id || `#${profile.id}`)}</strong>
+          <small>QQ ${escapeHtml(profile.sender_qq || profile.sender_id || "-")} · ${escapeHtml(profile.source_type === "imported" ? t("shadow.importedSource", "导入记录") : t("shadow.liveSource", "现有群聊"))} · ${escapeHtml(t("units.samples", "{count} 条样本").replace("{count}", fmt(profile.sample_count, 0)))}</small>
+        </div>
+        <strong>${escapeHtml(profile.target_group_id || "-")}</strong>
+        <small>${escapeHtml(formatTimestamp(profile.updated_at))}</small>
+        <div class="row-actions">
+          ${pill(profile.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), profile.enabled ? "ok" : "warn")}
+          ${button(profile.enabled ? t("actions.disable", "停用") : t("actions.enable", "启用"), `data-shadow-profile-action="${profile.enabled ? "disable" : "enable"}" data-id="${escapeAttr(profile.id)}"`, profile.enabled ? "" : "solid-button")}
+        </div>
+      </div>
+    `).join("") || empty(t("empty.shadowProfiles", "尚未创建影子档案")));
+  }
+
+  async function loadShadowCandidates(force) {
+    if (!state.shadow.groupId) {
+      setHtml("shadow-candidate-list", empty(t("shadow.noGroups", "暂无可用群组")));
+      return;
+    }
+    const params = { source: state.shadow.source, group_id: state.shadow.groupId };
+    const data = await cached(`shadow-candidates:${JSON.stringify(params)}`, () => apiGet("shadow-mode/candidates", params), force);
+    state.shadow.minimumSamples = Number(data.minimum_samples) || state.shadow.minimumSamples;
+    if (state.shadow.statusData) state.shadow.statusData.minimum_samples = state.shadow.minimumSamples;
+    state.shadow.selectedId = "";
+    renderShadowCandidates(data.candidates || []);
+    refreshShadowLearnState();
+  }
+
+  function renderShadowCandidates(candidates) {
+    setHtml("shadow-candidate-list", candidates.map((candidate) => `
+      <button class="candidate-row ${state.shadow.selectedId === candidate.sender_id ? "selected" : ""}" type="button"
+        data-shadow-candidate="${escapeAttr(candidate.sender_id)}" ${candidate.ready ? "" : "disabled"}
+        aria-pressed="${state.shadow.selectedId === candidate.sender_id}">
+        <strong>${escapeHtml(candidate.sender_name || candidate.sender_id)}</strong>
+        <small>QQ ${escapeHtml(candidate.sender_qq || candidate.sender_id || "-")}</small>
+        <b>${escapeHtml(fmt(candidate.message_count, 0))}</b>
+        ${pill(candidate.ready ? t("shadow.learnable", "可学习") : t("shadow.insufficient", "样本不足"), candidate.ready ? "ok" : "warn")}
+      </button>
+    `).join("") || empty(t("empty.shadowCandidates", "这个群组暂无可选用户")));
+  }
+
+  function refreshShadowLearnState() {
+    const hasSelection = Boolean(state.shadow.selectedId);
+    setText("shadow-learn-hint", hasSelection
+      ? t("shadow.learnHint", "将重新分析目标用户的全部有效文本，并替换该群组当前影子。")
+      : t("shadow.pickFirst", "选择用户后即可开始学习。"));
+    const learn = $("shadow-learn-button");
+    if (learn) learn.disabled = !hasSelection;
+  }
+
+  async function handleShadowLearn() {
+    if (!state.shadow.selectedId) return;
+    const targetGroup = ($("shadow-target-group")?.value || "").trim();
+    if (!targetGroup) {
+      showToast(t("shadow.missingTarget", "请输入影子模式的生效群组"), "error");
+      return;
+    }
+    const learn = $("shadow-learn-button");
+    const originalLabel = learn?.textContent || "";
+    try {
+      if (learn) { learn.disabled = true; learn.classList.add("is-busy"); learn.textContent = t("actions.learning", "学习中"); }
+      const result = await apiPost("shadow-mode/action", {
+        action: "learn",
+        source_type: state.shadow.source,
+        source_group_id: state.shadow.groupId,
+        target_group_id: targetGroup,
+        sender_id: state.shadow.selectedId,
+        activate: true,
+      });
+      showToast(result.message || t("messages.shadowLearned", "影子模式已学习并启用"), result.success ? "ok" : "error");
+      state.shadow.targetGroupId = targetGroup;
+      state.pageData["shadow-mode"] = null;
+      await loadShadowMode(true);
+    } catch (error) {
+      showToast(error.message || String(error), "error");
+    } finally {
+      if (learn) { learn.disabled = false; learn.classList.remove("is-busy"); learn.textContent = originalLabel; }
+      refreshShadowLearnState();
+    }
+  }
+
+  async function handleShadowProfileAction(buttonEl) {
+    const result = await apiPost("shadow-mode/action", {
+      action: "set_enabled",
+      profile_id: buttonEl.dataset.id,
+      enabled: buttonEl.dataset.shadowProfileAction === "enable",
+    });
+    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
+    state.pageData["shadow-mode"] = null;
+    await loadShadowMode(true);
+  }
+
+  function formatTimestamp(value) {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return String(value || "");
+    const ms = num < 1e12 ? num * 1000 : num;
+    try {
+      return new Date(ms).toLocaleString(locale());
+    } catch (_) {
+      return String(value);
+    }
+  }
+
   function renderContent(data) {
     const content = data.content || {};
     const items = content[state.contentType] || [];
@@ -938,8 +1176,11 @@
 
   async function loadGraphs(force) {
     const type = $("graph-type")?.value || "memory";
+    const group = ($("graph-group")?.value || "").trim();
     state.graph.type = type;
-    const data = await cached(`graphs:${type}`, () => apiGet("graphs", { type, limit: 140 }), force);
+    const params = { type, limit: 140 };
+    if (group) params.group_id = group;
+    const data = await cached(`graphs:${type}:${group}`, () => apiGet("graphs", params), force);
     renderGraphs(data);
   }
 
@@ -1071,6 +1312,7 @@
       </div>
     `).join("") || empty(t("empty.integrationSettings", "暂无融合设置")));
     renderMaiBotImportPreview(data.maibot_learning || null);
+    loadWorldbookHistory();
   }
 
   function integrationCardHtml(item) {
@@ -1180,6 +1422,169 @@
     output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
   }
 
+  function collectWorldbookPayload() {
+    const raw = ($("worldbook-json-input")?.value || "").trim();
+    if (!raw) {
+      throw new Error(t("worldbook.missingJson", "请先填写世界书 JSON"));
+    }
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (_) {
+      throw new Error(t("worldbook.invalidJson", "世界书 JSON 格式无效"));
+    }
+    return {
+      payload,
+      default_group_id: ($("worldbook-group-input")?.value || "").trim() || "global",
+      import_memories: Boolean($("worldbook-import-memories")?.checked),
+      import_jargons: Boolean($("worldbook-import-jargons")?.checked),
+      import_knowledge_graph: Boolean($("worldbook-import-knowledge")?.checked),
+      include_disabled: Boolean($("worldbook-include-disabled")?.checked),
+    };
+  }
+
+  function renderWorldbookPreview(detail) {
+    const output = $("worldbook-import-output");
+    if (!output) return;
+    const counts = detail.counts || {};
+    const breakdown = detail.review_breakdown || {};
+    const lines = [];
+    if (detail.name) lines.push(t("worldbook.name", "世界书：{name}").replace("{name}", detail.name));
+    if (Object.keys(counts).length) {
+      lines.push(t("worldbook.previewCounts", "预览: 条目 {entries}（启用 {enabled} / 禁用 {disabled}）· 关键词 {keywords}")
+        .replace("{entries}", fmt(counts.entries, 0))
+        .replace("{enabled}", fmt(counts.enabled_entries, 0))
+        .replace("{disabled}", fmt(counts.disabled_entries, 0))
+        .replace("{keywords}", fmt(counts.keywords, 0)));
+      lines.push(t("worldbook.tokenCounts", "字符 {chars} · 预估 Tokens {tokens}")
+        .replace("{chars}", fmt(counts.content_chars, 0))
+        .replace("{tokens}", fmt(counts.estimated_tokens, 0)));
+    }
+    if (Object.keys(breakdown).length) {
+      lines.push(t("worldbook.breakdown", "去向: 记忆审查 {memory} · 黑话候选 {jargon} · 图谱实体 {entities}")
+        .replace("{memory}", fmt(breakdown.persona_memory_reviews, 0))
+        .replace("{jargon}", fmt(breakdown.jargon_candidates, 0))
+        .replace("{entities}", fmt(breakdown.knowledge_graph_entities, 0)));
+    }
+    if (detail.entries_imported !== undefined) {
+      lines.push(t("worldbook.importCounts", "导入: 条目 {entries} · 记忆 {memory} · 黑话 {jargon} · 图谱实体/关系 {entities}/{relations} · 跳过 {skipped}")
+        .replace("{entries}", fmt(detail.entries_imported, 0))
+        .replace("{memory}", fmt(detail.memory_reviews_imported, 0))
+        .replace("{jargon}", fmt(detail.jargons_imported, 0))
+        .replace("{entities}", fmt(detail.kg_entities_imported, 0))
+        .replace("{relations}", fmt(detail.kg_relations_imported, 0))
+        .replace("{skipped}", fmt(detail.skipped, 0)));
+    }
+    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(detail, null, 2)}`;
+  }
+
+  async function loadWorldbookHistory() {
+    try {
+      const result = await apiPost("integrations/action", { action: "worldbook_history", limit: 8 });
+      const history = result.history || {};
+      const imports = history.imports || {};
+      const rows = Object.values(imports)
+        .sort((a, b) => String(b.imported_at || b.created_at || "").localeCompare(String(a.imported_at || a.created_at || "")))
+        .slice(0, 8);
+      setHtml("worldbook-history-list", rows.length ? `
+        <div class="table-row history-heading">
+          <strong>${escapeHtml(t("worldbook.recentImports", "最近导入记录"))}</strong>
+        </div>
+        ${rows.map((item) => `
+          <div class="table-row">
+            <div>
+              <strong>${escapeHtml(item.worldbook_name || item.source_name || item.import_id || t("worldbook.defaultName", "世界书导入"))}</strong>
+              <small>${escapeHtml(formatTimestamp(item.imported_at || item.created_at))}</small>
+            </div>
+            <strong>${escapeHtml(fmt(item.entries, 0))}</strong>
+            ${pill(String(item.status ?? ""), item.status === "approved" || item.status === "success" ? "ok" : "warn")}
+          </div>
+        `).join("")}` : "");
+    } catch (_) {
+      setHtml("worldbook-history-list", "");
+    }
+  }
+
+  async function runWorldbookAction(action) {
+    const buttonEl = action === "worldbook_import" ? $("worldbook-import-button") : $("worldbook-preview-button");
+    const originalLabel = buttonEl?.textContent || "";
+    try {
+      const payload = collectWorldbookPayload();
+      if (action === "worldbook_import") {
+        const confirmed = await showConfirm(
+          t("modal.confirmImport", "确认导入"),
+          t("worldbook.confirmImport", "将写入人格审查、黑话候选或知识图谱，确定继续吗？"),
+          t("actions.import", "导入"),
+        );
+        if (!confirmed) return;
+      }
+      if (buttonEl) {
+        buttonEl.disabled = true;
+        buttonEl.classList.add("is-busy");
+        buttonEl.textContent = action === "worldbook_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
+      }
+      setText("worldbook-import-output", action === "worldbook_import" ? t("worldbook.importing", "正在导入世界书...") : t("worldbook.previewing", "正在解析世界书..."));
+      const result = await apiPost("integrations/action", { action, ...payload });
+      const detail = result.preview || result.result || result.payload || result;
+      renderWorldbookPreview(detail);
+      showToast(result.message || t("worldbook.done", "世界书操作完成"), result.success !== false ? "ok" : "error");
+      if (action === "worldbook_import") {
+        state.pageData = {};
+        await loadDashboard(true);
+        await loadWorldbookHistory();
+      }
+    } catch (error) {
+      const message = error.message || String(error);
+      setText("worldbook-import-output", message);
+      showToast(message, "error");
+    } finally {
+      if (buttonEl) {
+        buttonEl.disabled = false;
+        buttonEl.classList.remove("is-busy");
+        buttonEl.textContent = originalLabel;
+      }
+    }
+  }
+
+  function renderQchatSenders() {
+    const senders = (state.qchatPreviewData || {}).senders || [];
+    const container = $("qchat-sender-list");
+    if (!container) return;
+    if (!senders.length) {
+      container.replaceChildren();
+      return;
+    }
+    container.innerHTML = `
+      <div class="sender-heading">
+        <strong>${escapeHtml(t("qchat.senders", "导入记录中的用户"))}</strong>
+        <span>${escapeHtml(t("qchat.sendersHint", "{count} 人 · 选择一人可在导入后立即启用影子模式").replace("{count}", fmt(senders.length, 0)))}</span>
+      </div>
+      <div class="sender-grid">
+        ${senders.map((sender) => {
+          const senderId = String(sender.sender_id ?? "");
+          const count = Number(sender.message_count) || 0;
+          const learnable = count >= 3;
+          return `<button class="sender-row ${state.qchatShadowSender === senderId ? "selected" : ""}" type="button"
+            data-qchat-sender="${escapeAttr(senderId)}" ${learnable ? "" : "disabled"}>
+            <strong>${escapeHtml(sender.sender_name || senderId)}</strong>
+            <small>QQ ${escapeHtml(sender.sender_qq || senderId)}</small>
+            <b>${escapeHtml(fmt(count, 0))}</b>
+            <small>${escapeHtml(learnable ? t("shadow.learnable", "可学习") : t("shadow.insufficient", "样本不足"))}</small>
+          </button>`;
+        }).join("")}
+      </div>
+    `;
+    updateQchatImportButton();
+  }
+
+  function updateQchatImportButton() {
+    const buttonEl = $("qchat-import-button");
+    if (!buttonEl) return;
+    buttonEl.textContent = state.qchatShadowSender
+      ? t("qchat.importWithShadow", "导入并启用影子")
+      : t("actions.import", "导入");
+  }
+
   function currentBatchReviewIds(kind) {
     const selected = selectedReviewIds(kind);
     return selected.length ? selected : visibleReviewIds(kind);
@@ -1261,7 +1666,34 @@
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderQchatImportPreview(detail);
+      if (action === "qchat_preview") {
+        state.qchatPreviewData = detail;
+        state.qchatShadowSender = "";
+        const groupInput = $("qchat-default-group-input");
+        if (groupInput && !groupInput.value.trim() && detail.group_id && detail.group_id !== "global") groupInput.value = String(detail.group_id);
+        renderQchatSenders();
+        showToast(result.message || t("qchat.previewDone", "预览完成，可从用户列表选择影子对象"), "ok");
+        return;
+      }
       showToast(result.message || t("qchat.done", "QQ 聊天记录操作完成"), result.success !== false ? "ok" : "error");
+      if (action === "qchat_import" && state.qchatShadowSender) {
+        try {
+          const senderId = state.qchatShadowSender;
+          const sender = ((state.qchatPreviewData || {}).senders || [])
+            .find((item) => String(item.sender_id ?? "") === senderId);
+          const shadowResult = await apiPost("shadow-mode/action", {
+            action: "learn",
+            source_type: "imported",
+            source_group_id: String(detail.group_id || payload.default_group_id || ""),
+            target_group_id: payload.default_group_id || String(detail.group_id || ""),
+            sender_id: senderId,
+            activate: true,
+          });
+          showToast(t("qchat.shadowLearned", "已启用 {name} 的影子模式").replace("{name}", sender?.sender_name || senderId), shadowResult.success ? "ok" : "error");
+        } catch (shadowError) {
+          showToast(t("qchat.shadowFailed", "聊天记录已导入，但影子学习失败：{reason}").replace("{reason}", shadowError.message || String(shadowError)), "error");
+        }
+      }
       if (action === "qchat_import") {
         state.pageData = {};
         await loadDashboard(true);
@@ -1276,6 +1708,7 @@
         buttonEl.classList.remove("is-busy");
         buttonEl.textContent = originalLabel;
       }
+      updateQchatImportButton();
     }
   }
 
@@ -1682,9 +2115,65 @@
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
     $("qchat-preview-button")?.addEventListener("click", () => runQchatImportAction("qchat_preview"));
     $("qchat-import-button")?.addEventListener("click", () => runQchatImportAction("qchat_import"));
+    $("worldbook-preview-button")?.addEventListener("click", () => runWorldbookAction("worldbook_preview"));
+    $("worldbook-import-button")?.addEventListener("click", () => runWorldbookAction("worldbook_import"));
+    $("qchat-source-input")?.addEventListener("input", () => {
+      state.qchatPreviewData = null;
+      state.qchatShadowSender = "";
+      renderQchatSenders();
+    });
+
+    qsa("#shadow-source button").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (state.shadow.source === btn.dataset.shadowSource) return;
+        state.shadow.source = btn.dataset.shadowSource || "live";
+        const status = state.shadow.statusData || {};
+        if (!(status.sources || {})[state.shadow.source]) {
+          try {
+            const data = await apiGet("shadow-mode");
+            state.pageData["shadow-mode"] = data;
+            renderShadowMode(data);
+          } catch (error) {
+            showToast(error.message || String(error), "error");
+            return;
+          }
+        } else {
+          renderShadowMode(status);
+        }
+        await loadShadowCandidates(true);
+      });
+    });
+    $("shadow-group")?.addEventListener("change", async (event) => {
+      state.shadow.groupId = event.target.value || "";
+      if (!state.shadow.targetGroupId || $("shadow-target-group")?.value === state.shadow.targetGroupId) {
+        state.shadow.targetGroupId = state.shadow.groupId;
+        if ($("shadow-target-group")) $("shadow-target-group").value = state.shadow.groupId;
+      }
+      await loadShadowCandidates(true);
+    });
+    $("shadow-learn-button")?.addEventListener("click", handleShadowLearn);
+    document.addEventListener("click", (event) => {
+      const candidate = event.target.closest("[data-shadow-candidate]");
+      if (candidate) {
+        state.shadow.selectedId = candidate.dataset.shadowCandidate || "";
+        qsa("[data-shadow-candidate]").forEach((el) => {
+          const selected = el.dataset.shadowCandidate === state.shadow.selectedId;
+          el.classList.toggle("selected", selected);
+          el.setAttribute("aria-pressed", String(selected));
+        });
+        refreshShadowLearnState();
+        return;
+      }
+      const sender = event.target.closest("[data-qchat-sender]");
+      if (sender) {
+        const senderId = sender.dataset.qchatSender || "";
+        state.qchatShadowSender = state.qchatShadowSender === senderId ? "" : senderId;
+        renderQchatSenders();
+      }
+    });
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group]");
       if (!target) return;
       if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
@@ -1695,6 +2184,7 @@
       if (target.dataset.styleAction) await handleStyleAction(target.dataset.styleAction, target.dataset.id);
       if (target.dataset.styleBatchAction) await handleStyleBatchAction(target.dataset.styleBatchAction);
       if (target.dataset.personaAction) await handlePersonaAction(target);
+      if (target.dataset.shadowProfileAction) await handleShadowProfileAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
       if (target.dataset.settingsGroup) {
         state.settingsGroup = target.dataset.settingsGroup;
@@ -1738,7 +2228,8 @@
         showToast(t("jargon.import.empty", "请先填写要导入的词条"), "error");
         return;
       }
-      const groupId = ($("jargon-import-group")?.value || "").trim();
+      const scopeValue = $("jargon-import-group")?.value || "__global__";
+      const groupId = scopeValue === "__global__" ? "" : scopeValue;
       importSubmit.disabled = true;
       try {
         const result = await apiPost("jargon/action", {
@@ -1755,6 +2246,7 @@
           ok ? "ok" : "error"
         );
         if (ok) $("jargon-import-text").value = "";
+        renderJargonImportReport(result);
         state.pageData = {};
         await loadPageData("jargon-learning", { force: true });
       } catch (error) {
@@ -1762,6 +2254,12 @@
       } finally {
         importSubmit.disabled = false;
       }
+    });
+
+    document.addEventListener("input", (event) => {
+      if (!event.target.closest || !event.target.closest("#jargon-import-text")) return;
+      const output = $("jargon-import-output");
+      if (output && !output.hidden) output.hidden = true;
     });
 
     document.addEventListener("click", async (event) => {
@@ -1860,6 +2358,7 @@
       else if (state.page === "jargon-learning" && state.pageData.currentJargonData) renderJargon(state.pageData.currentJargonData);
       else if (state.page === "expression-learning" && state.pageData.style) renderStyle(state.pageData.style);
       else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
+      else if (state.page === "shadow-mode" && state.pageData["shadow-mode"]) renderShadowMode(state.pageData["shadow-mode"]);
       else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
       else if (state.page === "graphs" && data) renderGraphs(data);
       else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);

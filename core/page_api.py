@@ -44,6 +44,9 @@ class PluginPageApi:
             ("reviews/action", self.post_reviews_action, ["POST"], "Self Learning embedded review actions"),
             ("persona", self.get_persona, ["GET"], "Self Learning embedded persona module"),
             ("persona/action", self.post_persona_action, ["POST"], "Self Learning embedded persona actions"),
+            ("shadow-mode", self.get_shadow_mode, ["GET"], "Self Learning embedded shadow mode status"),
+            ("shadow-mode/candidates", self.get_shadow_mode_candidates, ["GET"], "Self Learning embedded shadow mode candidates"),
+            ("shadow-mode/action", self.post_shadow_mode_action, ["POST"], "Self Learning embedded shadow mode actions"),
             ("content", self.get_content, ["GET"], "Self Learning embedded learning content module"),
             ("content/action", self.post_content_action, ["POST"], "Self Learning embedded content actions"),
             ("graphs", self.get_graphs, ["GET"], "Self Learning embedded graph module"),
@@ -544,6 +547,60 @@ class PluginPageApi:
             logger.error(f"[PluginPageAPI] persona action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
 
+    def _shadow_service(self) -> Any:
+        imports = self._imports()
+        database_manager = getattr(self._container(), "database_manager", None)
+        return imports.ShadowModeService(database_manager)
+
+    async def get_shadow_mode(self) -> dict[str, Any]:
+        try:
+            return self._ok(await self._shadow_service().get_status())
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] shadow mode status failed: {exc}", exc_info=True)
+            return self._operation(False, str(exc))
+
+    async def get_shadow_mode_candidates(self) -> dict[str, Any]:
+        args = self._query()
+        try:
+            data = await self._shadow_service().list_candidates(
+                source_type=self._query_value(args, "source", "live"),
+                group_id=self._query_value(args, "group_id", ""),
+            )
+            return self._ok(data)
+        except ValueError:
+            return self._operation(False, "请求处理失败，请稍后重试")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] shadow candidates failed: {exc}", exc_info=True)
+            return self._operation(False, str(exc))
+
+    async def post_shadow_mode_action(self) -> dict[str, Any]:
+        body = await self._body()
+        action = str(body.get("action", "")).strip()
+        try:
+            service = self._shadow_service()
+            if action == "learn":
+                profile = await service.learn(
+                    source_type=str(body.get("source_type") or body.get("source") or "live"),
+                    source_group_id=str(body.get("source_group_id") or body.get("group_id") or ""),
+                    target_group_id=str(body.get("target_group_id") or body.get("group_id") or ""),
+                    sender_id=str(body.get("sender_id") or ""),
+                    activate=self._body_bool(body, "activate", True),
+                )
+                return self._operation(True, "影子模式已学习并启用", profile=profile)
+            if action == "set_enabled":
+                profile = await service.set_enabled(
+                    self._body_int(body, "profile_id"),
+                    self._body_bool(body, "enabled", True),
+                )
+                return self._operation(True, "影子模式状态已更新", profile=profile)
+            return self._operation(False, f"未知影子模式操作: {action or '(empty)'}")
+        except ValueError as exc:
+            logger.warning(f"[PluginPageAPI] shadow action rejected: {exc}")
+            return self._operation(False, str(exc) or "请求处理失败，请稍后重试")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] shadow action failed: {exc}", exc_info=True)
+            return self._operation(False, str(exc))
+
     async def get_content(self) -> dict[str, Any]:
         args = self._query()
         return self._ok(
@@ -662,6 +719,38 @@ class PluginPageApi:
                     "QQ 聊天记录导入完成" if result.get("success") else "QQ 聊天记录导入存在错误",
                     result=result,
                 )
+            if action in {"worldbook_preview", "worldbook_import", "worldbook_history"}:
+                WorldBookImporter = imports.WorldBookImporter
+                worldbook_importer = WorldBookImporter(database_manager)
+                # 与独立 WebUI 一致：不接受请求传入的服务器端路径，只收 JSON 内容。
+                payload = body.get("payload") if body.get("payload") is not None else body.get("worldbook")
+                worldbook_source_args = {
+                    "payload": payload if isinstance(payload, (dict, list, str)) else None,
+                    "json_text": body.get("json_text") or None,
+                    "json_path": None,
+                }
+                if action == "worldbook_preview":
+                    preview = worldbook_importer.preview(**worldbook_source_args)
+                    return self._operation(True, "世界书预览完成", preview=preview)
+                if action == "worldbook_import":
+                    result = await worldbook_importer.import_from_source(
+                        **worldbook_source_args,
+                        default_group_id=str(body.get("default_group_id") or body.get("group_id") or "global"),
+                        import_memories=self._body_bool(body, "import_memories", True),
+                        import_jargons=self._body_bool(body, "import_jargons", True),
+                        import_knowledge_graph=self._body_bool(body, "import_knowledge_graph", True),
+                        include_disabled=self._body_bool(body, "include_disabled", False),
+                    )
+                    return self._operation(
+                        bool(result.get("success")),
+                        "世界书导入完成" if result.get("success") else "世界书导入存在错误",
+                        result=result,
+                    )
+                history = await worldbook_importer.import_history(
+                    limit=max(1, min(self._body_int(body, "limit", 8), 50)),
+                    offset=max(0, self._body_int(body, "offset", 0)),
+                )
+                return self._operation(True, "世界书导入历史已读取", history=history)
             return self._operation(False, f"未知融合操作: {action or '(empty)'}")
         except Exception as exc:
             logger.error(f"[PluginPageAPI] integrations action failed: {exc}", exc_info=True)
@@ -1148,9 +1237,26 @@ class PluginPageApi:
             errors,
             default={"debug_mode": False, "functions": [], "timestamp": time.time()},
         )
+        llm_adapter = getattr(container, "llm_adapter", None)
+        llm_call_statistics: dict[str, Any] = {}
+        llm_provider_info: dict[str, Any] = {}
+        if llm_adapter and hasattr(llm_adapter, "get_call_statistics"):
+            try:
+                llm_call_statistics = llm_adapter.get_call_statistics() or {}
+            except Exception as exc:
+                errors["llm_stats"] = str(exc)
+        if llm_adapter and hasattr(llm_adapter, "get_provider_info"):
+            try:
+                llm_provider_info = llm_adapter.get_provider_info() or {}
+            except Exception as exc:
+                errors["provider_info"] = str(exc)
         return {
             "health": health,
             "functions": functions,
+            "llm": {
+                "call_statistics": llm_call_statistics,
+                "provider_info": llm_provider_info,
+            },
             "runtime": {
                 "database_degraded": bool(getattr(container, "database_degraded", False)),
                 "database_start_error": getattr(container, "database_start_error", None),
@@ -1750,6 +1856,8 @@ class PluginPageApi:
             from ..webui.services.persona_service import PersonaService
             from ..services.integration.maibot_learning_importer import MaiBotLearningImporter
             from ..services.integration.qq_chat_history_importer import QQChatHistoryImporter
+            from ..services.integration.worldbook_importer import WorldBookImporter
+            from ..services.shadow_mode import ShadowModeService
         except ImportError:
             from webui.blueprints.config import (
                 DEPENDENCY_TIERS,
@@ -1768,6 +1876,8 @@ class PluginPageApi:
             from webui.services.persona_service import PersonaService
             from services.integration.maibot_learning_importer import MaiBotLearningImporter
             from services.integration.qq_chat_history_importer import QQChatHistoryImporter
+            from services.integration.worldbook_importer import WorldBookImporter
+            from services.shadow_mode import ShadowModeService
 
         imports.get_container = get_container
         imports.ConfigService = ConfigService
@@ -1781,6 +1891,8 @@ class PluginPageApi:
         imports.PersonaService = PersonaService
         imports.MaiBotLearningImporter = MaiBotLearningImporter
         imports.QQChatHistoryImporter = QQChatHistoryImporter
+        imports.WorldBookImporter = WorldBookImporter
+        imports.ShadowModeService = ShadowModeService
         imports.DEPENDENCY_TIERS = DEPENDENCY_TIERS
         imports.MANUAL_DEPENDENCY_INSTALL_SOURCE = MANUAL_DEPENDENCY_INSTALL_SOURCE
         imports.PIP_MIRROR_SOURCES = PIP_MIRROR_SOURCES
@@ -2009,6 +2121,12 @@ class PluginPageApi:
                 "label": "内嵌 WebUI",
                 "url": plugin_page_hash_url(PLUGIN_NAME, "dashboard"),
                 "description": "AstrBot 官方插件页",
+            },
+            {
+                "id": "shadow_mode",
+                "label": "影子模式",
+                "url": "#/shadow-mode",
+                "description": "学习群友的表达习惯",
             },
             {
                 "id": "full_dashboard",

@@ -21,6 +21,7 @@ AstrBot 自主学习插件的实现文档和使用文档。
 - [配置](configuration.md): AstrBot 配置组、运行时配置、WebUI 全量设置和重启生效项。
 - [功能融合](integrations.md): LivingMemory、Group Chat Plus 的检测、委托、Dashboard 和开发 API。
 - [WebUI API](webui-api.md): Dashboard 页面依赖的主要接口和返回数据用途。
+- [远程部署与连接](webui-remote-deployment.md): 远程服务器 Docker 容器部署后的 WebUI 访问教程：端口映射、防火墙/安全组放行、密码策略、SSH 隧道与反代、常见连接问题排查。
 - [使用指南](usage.md): 安装、依赖、基础配置、WebUI、命令和常见排查。
 - [开发指南](development.md): 本地开发、测试、添加服务/接口/表、日志和提交约束。
 

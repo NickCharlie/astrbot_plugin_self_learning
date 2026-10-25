@@ -503,7 +503,8 @@
         "content": "学习内容",
         "graphs": "图谱",
         "integrations": "功能融合",
-        "settings": "设置"
+        "settings": "设置",
+        "shadowMode": "影子模式"
       },
       "page": {
         "home": {
@@ -594,7 +595,10 @@
         "selectAll": "全选",
         "setGlobal": "设为全局",
         "unsetGlobal": "取消全局",
-        "view": "查看"
+        "view": "查看",
+        "disable": "停用",
+        "enable": "启用",
+        "learning": "学习中"
       },
       "status": {
         "bridgeFailed": "桥接失败",
@@ -620,7 +624,9 @@
         "on": "开启",
         "unhealthy": "异常",
         "unset": "未设置",
-        "yes": "是"
+        "yes": "是",
+        "abnormal": "异常",
+        "normal": "正常"
       },
       "selection": {
         "currentPage": "当前页",
@@ -641,7 +647,10 @@
           "messages": "采集消息",
           "persona": "人格更新",
           "style": "表达样本"
-        }
+        },
+        "noTrends": "暂无趋势数据，积累消息后这里会出现每日采集曲线。",
+        "trendsNote": "近 {days} 天采集 {count} 条消息 · 最近 {batches} 个学习批次。",
+        "trendsTitle": "消息与学习趋势"
       },
       "insights": {
         "databaseDegraded": "数据库处于降级状态",
@@ -664,7 +673,9 @@
         "desc": "健康检查、服务可用性和函数级性能。",
         "functions": "函数性能",
         "health": "健康状态",
-        "title": "运行监控"
+        "title": "运行监控",
+        "llmCalls": "模型调用",
+        "llmMeta": "平均 {avg}ms · 失败 {errors}"
       },
       "reviews": {
         "confirmBatch": "确定批量{action}{scope} {count} 条{type}？",
@@ -705,8 +716,15 @@
         "import": {
           "done": "导入完成",
           "empty": "请先填写要导入的词条",
-          "failed": "导入失败"
-        }
+          "failed": "导入失败",
+          "failedLine": "第 {line} 行「{term}」：{reason}",
+          "globalScope": "全局共享（所有群生效）",
+          "partialFailed": "部分词条导入失败"
+        },
+        "completed": "已完成",
+        "pendingOnly": "待审",
+        "pendingReview": "待审",
+        "rejected": "已驳回"
       },
       "style": {
         "batchDone": "批量表达审查完成",
@@ -775,7 +793,8 @@
           "links": "连线",
           "nodes": "节点",
           "source": "来源"
-        }
+        },
+        "groupFilter": "群组 ID（可选）"
       },
       "integrations": {
         "desc": "Self Learning、LivingMemory 与 Group Chat Plus 的协作状态。",
@@ -822,7 +841,13 @@
         "reading": "正在读取 QQ 聊天记录...",
         "title": "QQ 聊天记录导入",
         "tokenCounts": "字符 {chars} · 预估 Tokens {tokens}",
-        "waitingPreview": "等待预览。"
+        "waitingPreview": "等待预览。",
+        "importWithShadow": "导入并启用影子",
+        "previewDone": "预览完成，可从用户列表选择影子对象",
+        "senders": "导入记录中的用户",
+        "sendersHint": "{count} 人 · 选择一人可在导入后立即启用影子模式",
+        "shadowFailed": "聊天记录已导入，但影子学习失败：{reason}",
+        "shadowLearned": "已启用 {name} 的影子模式"
       },
       "settings": {
         "basicDeps": "基础能力依赖",
@@ -843,7 +868,8 @@
         "editStyle": "编辑表达方式",
         "insightContext": "巡检上下文",
         "personaExport": "人格导出",
-        "reviewDetails": "审查详情"
+        "reviewDetails": "审查详情",
+        "confirmImport": "确认导入"
       },
       "messages": {
         "actionDone": "操作完成",
@@ -853,7 +879,8 @@
         "personaUpdated": "人格已更新",
         "relearnSubmitted": "重新学习已提交",
         "settingsSaved": "设置已保存",
-        "styleUpdated": "表达方式已更新"
+        "styleUpdated": "表达方式已更新",
+        "shadowLearned": "影子模式已学习并启用"
       },
       "empty": {
         "batchHistory": "暂无批次历史",
@@ -877,14 +904,64 @@
         "personaUpdates": "暂无人格更新",
         "reviewed": "暂无已审查记录",
         "selectConfigGroup": "请选择配置分组",
-        "styleReviews": "暂无表达审查"
+        "styleReviews": "暂无表达审查",
+        "llmCalls": "暂无模型调用统计",
+        "shadowCandidates": "这个群组暂无可选用户",
+        "shadowProfiles": "尚未创建影子档案"
       },
       "errors": {
         "bridgeMissing": "AstrBot 插件页桥接 SDK 未加载",
         "requestFailed": "请求失败"
       },
       "units": {
-        "times": "{count} 次"
+        "times": "{count} 次",
+        "calls": "次调用",
+        "entries": "条",
+        "people": "人",
+        "samples": "{count} 条样本"
+      },
+      "shadow": {
+        "desc": "从已学习的群聊中选择一位群友，复现其语言节奏与表达习惯。",
+        "importedSource": "导入记录",
+        "insufficient": "样本不足",
+        "learnAndEnable": "学习并启用",
+        "learnHint": "将重新分析目标用户的全部有效文本，并替换该群组当前影子。",
+        "learnable": "可学习",
+        "liveSource": "现有群聊",
+        "minSamples": "至少 {count} 条有效文本",
+        "missingTarget": "请输入影子模式的生效群组",
+        "noGroups": "暂无可用群组",
+        "pickFirst": "选择用户后即可开始学习。",
+        "profiles": "影子档案",
+        "selectTarget": "选择学习对象",
+        "targetGroup": "生效群组",
+        "title": "影子模式"
+      },
+      "worldbook": {
+        "breakdown": "去向: 记忆审查 {memory} · 黑话候选 {jargon} · 图谱实体 {entities}",
+        "confirmImport": "将写入人格审查、黑话候选或知识图谱，确定继续吗？",
+        "defaultName": "世界书导入",
+        "desc": "粘贴 SillyTavern 世界书 JSON，先预览统计，再写入人格审查、黑话候选或知识图谱。",
+        "done": "世界书操作完成",
+        "group": "目标群组",
+        "groupHint": "留空使用 global。",
+        "importCounts": "导入: 条目 {entries} · 记忆 {memory} · 黑话 {jargon} · 图谱实体/关系 {entities}/{relations} · 跳过 {skipped}",
+        "importing": "正在导入世界书...",
+        "includeDisabled": "包含禁用条目",
+        "invalidJson": "世界书 JSON 格式无效",
+        "jargons": "导入黑话",
+        "json": "世界书 JSON",
+        "jsonHint": "支持 SillyTavern 世界书导出的 JSON 对象或数组。",
+        "knowledge": "导入知识图谱",
+        "memories": "导入记忆/人格候选",
+        "missingJson": "请先填写世界书 JSON",
+        "name": "世界书：{name}",
+        "previewCounts": "预览: 条目 {entries}（启用 {enabled} / 禁用 {disabled}）· 关键词 {keywords}",
+        "previewing": "正在解析世界书...",
+        "recentImports": "最近导入记录",
+        "title": "世界书导入",
+        "tokenCounts": "字符 {chars} · 预估 Tokens {tokens}",
+        "waitingPreview": "等待预览。"
       }
     }
   }
