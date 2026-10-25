@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional
 from astrbot.api import logger
 
 try:
-    from ..models.orm import (
+    from ...models.orm import (
         ExpressionGenerationResult,
         ExpressionPattern,
         Jargon,

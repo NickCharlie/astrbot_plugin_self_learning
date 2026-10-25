@@ -27,7 +27,7 @@ from typing import Any, Deque, Dict, Optional
 from astrbot.api import logger
 
 try:
-    from ..models.orm import (
+    from ...models.orm import (
         BotMood,
         EmotionProfile,
         LearningGateDailyStat,

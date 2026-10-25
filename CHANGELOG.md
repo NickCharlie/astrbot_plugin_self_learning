@@ -2,6 +2,18 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.1] - 2026-10-25
+
+### 修复：4.4.0 在真实 AstrBot 环境加载崩溃——models 相对导入层级错误
+
+- `services/learning/forgetting_manager.py` 与 `services/state/emotion_learning_gate.py` 误用 `from ..models.orm`（两个点解析到不存在的 `services.models`）；fallback 的绝对导入 `from models.orm` 在真实部署（插件以 `data.plugins.*` 包路径加载、插件根不在 sys.path）同样失败，导致 4.4.0 一加载即抛 `ModuleNotFoundError: No module named 'models'`，消息收集器创建失败、插件加载失败。两处已改为正确的 `from ...models.orm`（三个点，与 `services/<子包>/` 下全部既有文件一致）。
+- 本地测试此前未拦截的原因：测试环境的 fallback 绝对导入恰好可解析，掩盖了 try 分支的层级错误。新增 `tests/unit/test_relative_model_imports.py` 双保险：① 屏蔽绝对导入 `models` 后按包路径强制重载两个模块（精确复现真实部署的失败条件）；② 结构化扫描 `services/`、`webui/`、`core/` 全部 `.py` 的 `from <N 点>models` 导入，断言点数 = 目录深度 + 1（全仓库既有文件均符合该规则），杜绝同类错误再犯。
+- 已在本地 AstrBot 4.29.1 环境按 `data.plugins.astrbot_plugin_self_learning.*` 包路径完成部署级导入验证：主模块、`services.core_learning` 崩溃链、`webui.blueprints` 全部导入成功，ORM 解析到插件包内 `models.orm.*`。
+
+### 版本
+
+- 版本号由 4.4.0 提升至 **4.4.1**（热修复）。
+
 ## [4.4.0] - 2026-10-25
 
 ### 功能：情绪中枢板块 + 情绪学习闸门 + 三阶段遗忘（参考 EmotionAI Pro 思路）
