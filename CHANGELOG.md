@@ -2,6 +2,26 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.3] - 2026-10-27
+
+### 功能：好感度存储维度可选——按 QQ 号统一（affection_scope，issue #278 / PR #279）
+
+- 新增配置 `affection_scope`（好感度设置组，默认 `per_group` 保持既有行为）：`per_user` 模式下，同一用户在私聊与所有群聊共用一份好感度记录（存储键统一映射为 `__user__`），切换后历史数据不会自动合并（配置说明与 WebUI 下拉提示均已注明）。
+- 映射收口在 `SQLAlchemyDatabaseManager._affection_scope_key`：用户好感度的读取、更新、列表与总量查询统一接入；全库排查确认命令、响应器、社交注入、WebUI 指标等调用方均经过该路由层。
+- **并发保护**（Sourcery review 修复）：`AffectionManager.update_affection` 的「读取当前值 → 计算变化 → 检查总量 → 写入」全序列持有一把 `asyncio.Lock` 串行化，避免 per_user 模式下跨会话并发更新基于同一旧值互相覆盖（加分丢失/共享总量突破 `max_total_affection` 上限）；`_redistribute_affection` 同锁覆盖。
+- **学习门接入**（Sourcery review 修复）：`EmotionLearningGate._read_affection_level` 直查 ORM 前先走同一存储键映射（`getattr` 兼容未实现该方法的 `IDataStorage` 实现），否则 per_user 模式下好感度因子恒为中性。
+- **配置校验**（Sourcery review 修复）：`_normalize_affection_scope` 只接受 `per_group`/`per_user`（大小写与空白归一），非法值告警并回退 `per_group`，不影响插件启动。
+- 已知限制：per_user 模式下情绪看板的全表遥测会显示一个名为 `__user__` 的分组（只读展示，不影响功能）。
+
+### 测试
+
+- 新增回归测试 `tests/unit/test_affection_scope.py`（9 例）：配置校验（合法透传/大小写归一/非法回退）、作用域键映射（per_group 透传、per_user 固定键、旧配置缺字段兼容）、学习门直查 ORM 按同一映射解析存储键（含无 resolver 的兼容实现）。
+- 本地全套测试：954 passed, 1 skipped（AstrBot 4.29.1 venv）。
+
+### 版本
+
+- 版本号由 4.4.2 提升至 **4.4.3**。
+
 ## [4.4.2] - 2026-10-25
 
 ### 修复：/affection_status「前5名」未按好感度排序，实为数据库任意前几行
