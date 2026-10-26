@@ -22,6 +22,10 @@ except ImportError:
     from core.database.engine import DatabaseEngine
 
 
+# 好感度按用户统一存储时使用的固定分组标识
+_AFFECTION_USER_SCOPE = "__user__"
+
+
 class SQLAlchemyDatabaseManager:
     """DomainRouter — 薄路由层，委托给 11 个领域 Facade。
 
@@ -37,6 +41,7 @@ class SQLAlchemyDatabaseManager:
         self._started = False
         self._starting = False
         self._start_lock = asyncio.Lock()
+
 
         # Facades（在 start() 中初始化）
         self._affection = None
@@ -589,24 +594,45 @@ class SQLAlchemyDatabaseManager:
         except Exception:
             raise
 
+    def _affection_scope_key(self, group_id: str) -> str:
+        """解析好感度存储键。
+
+        Args:
+            group_id: 原始会话所属群号（私聊时为用户号）。
+
+        Returns:
+            按群存储时原样返回；按用户统一存储时返回固定键。
+        """
+        scope = getattr(self.config, "affection_scope", "per_group")
+        if str(scope).lower() == "per_user":
+            return _AFFECTION_USER_SCOPE
+        return group_id
+
     # Domain delegates: AffectionFacade
 
     async def get_user_affection(self, group_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        return await self._affection.get_user_affection(group_id, user_id)
+        return await self._affection.get_user_affection(
+            self._affection_scope_key(group_id), user_id
+        )
 
     async def update_user_affection(
         self, group_id: str, user_id: str, new_level: int,
         change_reason: str = "", bot_mood: str = "",
     ) -> bool:
         return await self._affection.update_user_affection(
-            group_id, user_id, new_level, change_reason, bot_mood,
+            self._affection_scope_key(group_id), user_id, new_level,
+            change_reason, bot_mood,
         )
 
     async def get_all_user_affections(self, group_id: str) -> List[Dict[str, Any]]:
-        return await self._affection.get_all_user_affections(group_id)
+        return await self._affection.get_all_user_affections(
+            self._affection_scope_key(group_id)
+        )
 
     async def get_total_affection(self, group_id: str) -> int:
-        return await self._affection.get_total_affection(group_id)
+        return await self._affection.get_total_affection(
+            self._affection_scope_key(group_id)
+        )
 
     async def save_bot_mood(
         self, group_id: str, mood_type: str, mood_intensity: float,

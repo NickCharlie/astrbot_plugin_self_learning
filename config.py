@@ -263,6 +263,7 @@ class PluginConfig(BaseModel):
     max_total_affection: int = 250 # bot总好感度满分值
     max_user_affection: int = 100 # 单个用户最大好感度
     affection_decay_rate: float = 0.95 # 好感度衰减比例
+    affection_scope: str = "per_group" # 好感度存储维度：per_group=按群分开，per_user=按 QQ 号统一
     daily_mood_change: bool = True # 启用每日情绪变化
     mood_affect_affection: bool = True # 情绪影响好感度变化
 
@@ -553,6 +554,7 @@ class PluginConfig(BaseModel):
             max_total_affection=affection_settings.get('max_total_affection', 250),
             max_user_affection=affection_settings.get('max_user_affection', 100),
             affection_decay_rate=affection_settings.get('affection_decay_rate', 0.95),
+            affection_scope=affection_settings.get('affection_scope', 'per_group'),
             daily_mood_change=affection_settings.get('daily_mood_change', True),
             mood_affect_affection=affection_settings.get('mood_affect_affection', True),
 

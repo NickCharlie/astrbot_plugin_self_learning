@@ -412,6 +412,20 @@
         "type": "bool",
         "hint": "当前情绪是否影响好感度变化幅度",
         "default": true
+      },
+      "affection_scope": {
+        "description": "好感度存储维度",
+        "type": "string",
+        "options": [
+          "per_group",
+          "per_user"
+        ],
+        "labels": [
+          "按群分开",
+          "按 QQ 号统一"
+        ],
+        "default": "per_group",
+        "hint": "per_group：每个群各存一份，同一个群里的表现不同；per_user：所有会话共用一份，私聊和群里看到的是同一个好感度。切换后历史数据不会自动合并。"
       }
     }
   },
