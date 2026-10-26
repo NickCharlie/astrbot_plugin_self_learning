@@ -42,7 +42,6 @@ class SQLAlchemyDatabaseManager:
         self._starting = False
         self._start_lock = asyncio.Lock()
 
-
         # Facades（在 start() 中初始化）
         self._affection = None
         self._message = None
