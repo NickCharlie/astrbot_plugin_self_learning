@@ -182,6 +182,10 @@ class EmotionLearningGate:
     async def _read_affection_level(self, group_id: str, user_id: str) -> Optional[float]:
         if not self._database_manager:
             return None
+        # per_user 模式下好感度存在固定键上，这里要用同一套映射才能读到
+        resolver = getattr(self._database_manager, "_affection_scope_key", None)
+        if callable(resolver):
+            group_id = resolver(group_id)
         try:
             async with self._database_manager.get_session() as session:
                 row = (

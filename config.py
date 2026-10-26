@@ -134,6 +134,29 @@ def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False
     return normalized
 
 
+VALID_AFFECTION_SCOPES = ("per_group", "per_user")
+
+
+def _normalize_affection_scope(value) -> str:
+    """规范化好感度存储维度。
+
+    Args:
+        value: 配置里读到的原始值。
+
+    Returns:
+        ``per_group`` 或 ``per_user``；非法值会记录告警并回退到 ``per_group``。
+    """
+    scope = str(value or "per_group").strip().lower()
+    if scope in VALID_AFFECTION_SCOPES:
+        return scope
+    logger.warning(
+        "未知的 affection_scope=%r，可选值为 %s，已回退到 per_group",
+        value,
+        ", ".join(VALID_AFFECTION_SCOPES),
+    )
+    return "per_group"
+
+
 class PluginConfig(BaseModel):
     """插件配置类"""
 
@@ -263,6 +286,7 @@ class PluginConfig(BaseModel):
     max_total_affection: int = 250 # bot总好感度满分值
     max_user_affection: int = 100 # 单个用户最大好感度
     affection_decay_rate: float = 0.95 # 好感度衰减比例
+    affection_scope: str = "per_group" # 好感度存储维度：per_group=按群分开，per_user=按 QQ 号统一
     daily_mood_change: bool = True # 启用每日情绪变化
     mood_affect_affection: bool = True # 情绪影响好感度变化
 
@@ -553,6 +577,9 @@ class PluginConfig(BaseModel):
             max_total_affection=affection_settings.get('max_total_affection', 250),
             max_user_affection=affection_settings.get('max_user_affection', 100),
             affection_decay_rate=affection_settings.get('affection_decay_rate', 0.95),
+            affection_scope=_normalize_affection_scope(
+                affection_settings.get('affection_scope', 'per_group')
+            ),
             daily_mood_change=affection_settings.get('daily_mood_change', True),
             mood_affect_affection=affection_settings.get('mood_affect_affection', True),
 

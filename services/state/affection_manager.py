@@ -115,6 +115,9 @@ class AffectionManager(AsyncServiceBase):
         # 使用框架适配器
         self.llm_adapter = llm_adapter
         
+        # 好感度更新的串行锁：避免并发读写导致加分丢失或突破总量上限
+        self._affection_lock = asyncio.Lock()
+
         # 情绪和好感度状态缓存
         self.current_moods: Dict[str, BotMood] = {}  # group_id -> BotMood
         self.user_affections: Dict[str, Dict[str, UserAffection]] = {}  # group_id -> {user_id -> UserAffection}
@@ -657,7 +660,27 @@ class AffectionManager(AsyncServiceBase):
 
     async def update_affection(self, group_id: str, user_id: str, 
                              interaction_type: InteractionType) -> Dict[str, Any]:
-        """更新用户好感度"""
+        """更新用户好感度。
+
+        整个「读取当前值 → 计算变化 → 检查总量 → 写入」过程持有同一把锁，
+        避免并发请求基于同一个旧值计算、互相覆盖。
+
+        Args:
+            group_id: 会话所属群号（per_user 模式下由存储层统一映射）。
+            user_id: 用户 QQ 号。
+            interaction_type: 交互类型，决定加分规则。
+
+        Returns:
+            包含 success / current_level / change 等字段的结果字典。
+        """
+        async with self._affection_lock:
+            return await self._update_affection_locked(
+                group_id, user_id, interaction_type
+            )
+
+    async def _update_affection_locked(self, group_id: str, user_id: str,
+                                       interaction_type: InteractionType) -> Dict[str, Any]:
+        """update_affection 的实际实现，调用方必须已持有 _affection_lock。"""
         try:
             # 获取当前好感度
             current_affection = await self.db_manager.get_user_affection(group_id, user_id)
