@@ -2,6 +2,27 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.5] - 2026-10-29
+
+### 修复：MaiBot 增强质量指标恒为 0
+
+- 质量评估不再从人格字典读取不存在的 `expression_patterns`/`memory_updates`/`knowledge_updates` 字段，改为在批次前后采集真实学习产物快照：`expression_patterns` 表、本地记忆图/`memories` 表或 LivingMemory 统计、知识图谱表。
+- 学习落库后由 `refresh_learning_impact` 二次采集并重算增长指标，两处批量学习调用点均已接入；全 0 增长时保留首次评估/消息信号分数，避免把 `quality_score` 异常写成 0。
+- `prompt_improvement` 改为真实文本差异评分（长度不变但内容变化也能得分），移除硬编码 0.3/0.4 兜底；无数据源的指标为 `n/a`，不再当作 0 拉低均值。
+- 记忆委托 LivingMemory 时读取 `MemoryEngine.get_statistics().sessions` 按群作用域求和；`livingmemory:user:*` 无法归属到群时返回 N/A，不再用全库总量污染单群指标。
+
+### 功能：适配 LivingMemory 2.8.2 与 Group Chat Plus 1.2.3
+
+- `remember`/Hub 显式记忆在记忆委托时改走 LivingMemory `MemoryEngine.add_memory`：按 `memory_scope_mode` 解析 `session`/`user`/`global`/`legacy` 与 `isolated_sessions`，遵守 `access_control` 白名单与 `identity_aliases`，写入 `memory_origin`/`memorize_reason`；人格 ID 单独解析（不再混用表达作用域的 bot 账号 ID），缺少 UMO、人格无法解析、engine 未就绪或写入失败时回退本地 `memories` 表。
+- 图谱读取在 `limit >= 300` 时优先 LivingMemory `get_full_graph_snapshot`，放宽节点/关系/记忆预算；`global` 作用域优先读 `livingmemory:global`，按群查询不再回退无过滤快照，避免跨群图谱泄漏。
+- 功能融合页 LivingMemory 卡片新增 `memory_count`（`get_statistics().total_memories`）与插件 `version`；补全 Group Chat Plus 最新面板 API（heartbeat/logout/data sessions/session detail/chat-history 等）。
+- 学习样本剥离图片/表情/引用图片占位（含 ChatPlus 的 `[引用 >>> 昵称(ID:x): [图片]]`），纯媒体消息不进入表达学习；补充 `GroupChatPlus` 日志过滤。
+- 新增回归测试 4 个文件（媒体过滤、remember 委托、图谱适配、质量指标，合计 46 例）；本地 `tests/unit`：895 passed, 1 skipped；`ruff check .` 通过。
+
+### 版本
+
+- 版本号由 4.4.4 提升至 **4.4.5**。
+
 ## [4.4.4] - 2026-10-29
 
 ### 修复：WebUI 人格审核看不到修改内容、人格备份无法查看（issue #280）
