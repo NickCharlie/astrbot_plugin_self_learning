@@ -2,6 +2,8 @@
 MaiBot功能适配器 - 将MaiBot功能适配到现有self_learning架构
 遵循现有接口规范，不创造新接口，复用现有架构
 """
+import difflib
+import inspect
 import time
 from typing import Dict, List, Optional, Any
 from dataclasses import asdict
@@ -303,11 +305,27 @@ class MaiBotQualityMonitor(IQualityMonitor):
     集成MaiBot的时间衰减机制进行质量监控
     """
     
-    def __init__(self, config: PluginConfig, db_manager: DatabaseManager):
+    # 学习质量指标：真实学习产物，缺失数据源时用 None 表示“不可用”
+    _GROWTH_METRIC_KEYS = (
+        "expression_pattern_improvement",
+        "memory_graph_growth",
+        "knowledge_graph_growth",
+        "prompt_improvement",
+    )
+
+    def __init__(
+        self,
+        config: PluginConfig,
+        db_manager: DatabaseManager,
+        context: Any = None,
+    ):
         self.config = config
         self.db_manager = db_manager
+        self.context = context
         self.time_decay_manager = TimeDecayManager(config, db_manager)
         self._status = ServiceLifecycle.CREATED
+        # 批次开始时的真实状态快照，供学习产物落库后比较增长
+        self._batch_snapshots: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def _message_text(message) -> str:
@@ -345,7 +363,350 @@ class MaiBotQualityMonitor(IQualityMonitor):
         unique_score = len(set(texts)) / len(texts)
         quality_score = volume_score * 0.55 + length_score * 0.30 + unique_score * 0.15
         return max(0.25, min(0.95, quality_score))
-    
+
+    @staticmethod
+    def _resolve_group_id(
+        original_persona: Dict[str, Any],
+        updated_persona: Dict[str, Any],
+        learning_messages: List[Dict[str, Any]],
+    ) -> str:
+        """从学习消息或人格数据中解析群组 ID。"""
+        for message in learning_messages or []:
+            if isinstance(message, dict) and message.get("group_id"):
+                return str(message["group_id"])
+        for persona in (original_persona, updated_persona):
+            if isinstance(persona, dict) and persona.get("group_id"):
+                return str(persona["group_id"])
+        return ""
+
+    def _local_memory_node_count(self, group_id: str) -> Optional[int]:
+        """本地记忆图的实时节点数（内存图比 memories 表更及时）。"""
+        try:
+            manager = MemoryGraphManager.get_instance()
+            memory_graph = getattr(manager, "memory_graphs", {}).get(group_id)
+            graph = getattr(memory_graph, "G", None)
+            if graph is None or not hasattr(graph, "number_of_nodes"):
+                return None
+            return int(graph.number_of_nodes())
+        except Exception as exc:
+            logger.debug(f"读取本地记忆图节点数失败: {exc}")
+            return None
+
+    def _livingmemory_graph_store(self) -> Optional[Any]:
+        """获取 LivingMemory 后端 graph_store（仅在记忆委托生效时）。"""
+        return self._livingmemory_backend()[0]
+
+    def _livingmemory_memory_engine(self) -> Optional[Any]:
+        """获取 LivingMemory MemoryEngine（用于统计回退）。"""
+        return self._livingmemory_backend()[1]
+
+    def _livingmemory_backend(self) -> tuple[Optional[Any], Optional[Any]]:
+        """探测 LivingMemory 的 graph_store 与 memory_engine。
+
+        LivingMemory 2.8.x 的插件结构仍为
+        ``star.star_cls.initializer.memory_engine``；旧版本字段保持兼容。
+        """
+        if not self.context:
+            return None, None
+        try:
+            from ...core.feature_delegation import FeatureDelegation
+
+            delegation = FeatureDelegation(self.config, self.context)
+            if not delegation.should_delegate_memory():
+                return None, None
+            star = delegation.memory_plugin()
+            plugin = getattr(star, "star_cls", None)
+            initializer = getattr(plugin, "initializer", None)
+            memory_engine = (
+                getattr(initializer, "memory_engine", None)
+                or getattr(plugin, "memory_engine", None)
+            )
+            return getattr(memory_engine, "graph_store", None), memory_engine
+        except Exception as exc:
+            logger.debug(f"读取 LivingMemory 后端失败: {exc}")
+            return None, None
+
+    async def _livingmemory_total_memories(self) -> Optional[int]:
+        """回退读取 LivingMemory 全局记忆总数（2.7+ 的 get_statistics）。"""
+        memory_engine = self._livingmemory_memory_engine()
+        stats_getter = getattr(memory_engine, "get_statistics", None)
+        if not callable(stats_getter):
+            return None
+        try:
+            stats = stats_getter()
+            if inspect.isawaitable(stats):
+                stats = await stats
+        except Exception as exc:
+            logger.debug(f"读取 LivingMemory 统计失败: {exc}")
+            return None
+        if not isinstance(stats, dict):
+            return None
+        total = stats.get("total_memories")
+        if isinstance(total, (int, float)):
+            return int(total)
+        return None
+
+    async def _count_livingmemory_memories(self, group_id: str) -> Optional[int]:
+        """从 LivingMemory 图谱快照统计记忆条数，无法读取时返回 None。"""
+        graph_store = self._livingmemory_graph_store()
+        snapshot_getter = getattr(graph_store, "get_graph_snapshot", None)
+        if not callable(snapshot_getter):
+            return await self._livingmemory_total_memories()
+
+        for session_id in (group_id, None):
+            try:
+                snapshot = snapshot_getter(
+                    session_id=session_id,
+                    persona_id=None,
+                    limit_memories=500,
+                    limit_entries=100,
+                    limit_nodes=100,
+                    limit_edges=200,
+                )
+                if inspect.isawaitable(snapshot):
+                    snapshot = await snapshot
+            except TypeError:
+                continue
+            except Exception as exc:
+                logger.debug(f"读取 LivingMemory 快照失败: {exc}")
+                continue
+            if isinstance(snapshot, dict):
+                memories = snapshot.get("memories") or []
+                if memories:
+                    return len(memories)
+
+        # 2.8.x 轻量快照有条数上限；无快照数据时回退全局统计
+        return await self._livingmemory_total_memories()
+
+    async def _count_local_memories(self, group_id: str) -> Optional[int]:
+        """本地 memories 表记忆条数。"""
+        if not self.db_manager or not hasattr(self.db_manager, "get_session"):
+            return None
+        try:
+            from sqlalchemy import func, select
+
+            from ...models.orm.memory import Memory
+
+            async with self.db_manager.get_session() as session:
+                result = await session.execute(
+                    select(func.count(Memory.id)).where(Memory.group_id == group_id)
+                )
+                count = result.scalar()
+            return int(count or 0)
+        except Exception as exc:
+            logger.debug(f"读取本地记忆条数失败: {exc}")
+            return None
+
+    async def _collect_learning_snapshot(self, group_id: str) -> Optional[Dict[str, Any]]:
+        """采集群组真实学习产物计数（表达模式 / 记忆 / 知识图谱）。
+
+        人格字典本身不包含这些字段，必须从数据库或委托插件读取，
+        否则质量指标会永远退化。无法读取的指标保留 None（N/A）。
+        """
+        if not group_id:
+            return None
+
+        snapshot: Dict[str, Any] = {
+            "expression_patterns": None,
+            "memory_updates": None,
+            "knowledge_updates": None,
+            "memory_source": None,
+        }
+
+        if self.db_manager and hasattr(self.db_manager, "get_session"):
+            try:
+                from sqlalchemy import func, select
+
+                from ...models.orm.expression import ExpressionPattern
+                from ...models.orm.knowledge_graph import KGEntity, KGRelation
+
+                async with self.db_manager.get_session() as session:
+                    pattern_result = await session.execute(
+                        select(func.count(ExpressionPattern.id)).where(
+                            ExpressionPattern.group_id == group_id
+                        )
+                    )
+                    snapshot["expression_patterns"] = int(
+                        pattern_result.scalar() or 0
+                    )
+
+                    entity_result = await session.execute(
+                        select(func.count(KGEntity.id)).where(
+                            KGEntity.group_id == group_id
+                        )
+                    )
+                    relation_result = await session.execute(
+                        select(func.count(KGRelation.id)).where(
+                            KGRelation.group_id == group_id
+                        )
+                    )
+                    snapshot["knowledge_updates"] = int(
+                        entity_result.scalar() or 0
+                    ) + int(relation_result.scalar() or 0)
+            except Exception as exc:
+                logger.debug(f"读取表达模式/知识图谱快照失败: {exc}")
+
+        livingmemory_count = await self._count_livingmemory_memories(group_id)
+        if livingmemory_count is not None:
+            snapshot["memory_updates"] = livingmemory_count
+            snapshot["memory_source"] = "livingmemory"
+        else:
+            local_graph_count = self._local_memory_node_count(group_id)
+            if local_graph_count is not None:
+                snapshot["memory_updates"] = local_graph_count
+                snapshot["memory_source"] = "local_graph"
+            else:
+                local_db_count = await self._count_local_memories(group_id)
+                if local_db_count is not None:
+                    snapshot["memory_updates"] = local_db_count
+                    snapshot["memory_source"] = "local_db"
+
+        if all(snapshot[key] is None for key in (
+            "expression_patterns",
+            "memory_updates",
+            "knowledge_updates",
+        )):
+            return None
+        return snapshot
+
+    @staticmethod
+    def _growth_score(before_count: Any, after_count: Any) -> Optional[float]:
+        """把计数增长归一化到 0-1（10 条增量视为满分）。"""
+        if after_count is None:
+            return None
+        try:
+            before_value = int(before_count or 0)
+            after_value = int(after_count or 0)
+        except (TypeError, ValueError):
+            return None
+        return min(max(after_value - before_value, 0) / 10.0, 1.0)
+
+    @staticmethod
+    def _score_prompt_change(before_prompt: str, after_prompt: str) -> float:
+        """按真实文本差异评分，长度不变但内容变化时也能得分。"""
+        if before_prompt == after_prompt:
+            return 0.0
+        if not before_prompt:
+            return 1.0
+        if not after_prompt:
+            return 0.0
+
+        added_chars = max(len(after_prompt) - len(before_prompt), 0)
+        score = min(added_chars / max(len(before_prompt) * 0.2, 20.0), 1.0)
+
+        similarity = difflib.SequenceMatcher(None, before_prompt, after_prompt).ratio()
+        score = max(score, min(1.0 - similarity, 1.0))
+
+        if "【学习更新" in after_prompt and "【学习更新" not in before_prompt:
+            score = max(score, 0.6)
+        return max(0.0, min(score, 1.0))
+
+    @staticmethod
+    def _format_metric(value: Any) -> str:
+        return "n/a" if value is None else f"{float(value):.3f}"
+
+    def _log_quality_metrics(
+        self,
+        metrics: Dict[str, Any],
+        group_id: str,
+        level: str = "info",
+    ) -> None:
+        log = logger.info if level == "info" else logger.debug
+        log(
+            "学习质量评估详情 (group=%s): prompt_improvement=%s, "
+            "pattern_improvement=%s, memory_growth=%s, knowledge_growth=%s, "
+            "overall_quality=%s, source=%s",
+            group_id or "unknown",
+            self._format_metric(metrics.get("prompt_improvement")),
+            self._format_metric(metrics.get("expression_pattern_improvement")),
+            self._format_metric(metrics.get("memory_graph_growth")),
+            self._format_metric(metrics.get("knowledge_graph_growth")),
+            self._format_metric(metrics.get("overall_quality")),
+            metrics.get("memory_source") or metrics.get("quality_source") or "local",
+        )
+
+    def _build_quality_metrics(
+        self,
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+        snapshot_before: Optional[Dict[str, Any]] = None,
+        snapshot_after: Optional[Dict[str, Any]] = None,
+        learning_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """按真实学习产物构建指标；无数据源的指标返回 None。"""
+        metrics: Dict[str, Any] = {
+            "expression_pattern_improvement": None,
+            "memory_graph_growth": None,
+            "knowledge_graph_growth": None,
+            "prompt_improvement": None,
+            "overall_quality": 0.0,
+        }
+
+        before_snapshot = snapshot_before or {}
+        after_snapshot = snapshot_after or {}
+        if after_snapshot.get("memory_source"):
+            metrics["memory_source"] = after_snapshot["memory_source"]
+
+        # 1. 表达模式改进度：优先使用真实快照，兼容旧的 state 字典字段
+        if after_snapshot.get("expression_patterns") is not None:
+            metrics["expression_pattern_improvement"] = self._growth_score(
+                before_snapshot.get("expression_patterns"),
+                after_snapshot.get("expression_patterns"),
+            )
+        else:
+            before_patterns = before.get("expression_patterns") or []
+            after_patterns = after.get("expression_patterns") or []
+            if after_patterns:
+                pattern_improvement = len(after_patterns) / max(len(before_patterns), 1)
+                metrics["expression_pattern_improvement"] = min(pattern_improvement, 2.0) / 2.0
+
+        # 2. 记忆图增长
+        if after_snapshot.get("memory_updates") is not None:
+            metrics["memory_graph_growth"] = self._growth_score(
+                before_snapshot.get("memory_updates"),
+                after_snapshot.get("memory_updates"),
+            )
+        else:
+            before_memory = before.get("memory_updates")
+            after_memory = after.get("memory_updates")
+            if isinstance(after_memory, (int, float)):
+                metrics["memory_graph_growth"] = self._growth_score(
+                    before_memory, after_memory
+                )
+
+        # 3. 知识图谱增长
+        if after_snapshot.get("knowledge_updates") is not None:
+            metrics["knowledge_graph_growth"] = self._growth_score(
+                before_snapshot.get("knowledge_updates"),
+                after_snapshot.get("knowledge_updates"),
+            )
+        else:
+            before_knowledge = before.get("knowledge_updates")
+            after_knowledge = after.get("knowledge_updates")
+            if isinstance(after_knowledge, (int, float)):
+                metrics["knowledge_graph_growth"] = self._growth_score(
+                    before_knowledge, after_knowledge
+                )
+
+        # 4. 人格 prompt 改进度
+        before_prompt = str(before.get("prompt", "") or "")
+        after_prompt = str(after.get("prompt", "") or "")
+        if before_prompt or after_prompt:
+            metrics["prompt_improvement"] = self._score_prompt_change(before_prompt, after_prompt)
+
+        # 5. 总体质量：只对可用指标求均值，避免缺失数据被当成 0 拉低分数
+        available = [
+            metrics[key]
+            for key in self._GROWTH_METRIC_KEYS
+            if isinstance(metrics.get(key), (int, float))
+        ]
+        if available:
+            metrics["overall_quality"] = sum(available) / len(available)
+        elif learning_messages:
+            metrics["overall_quality"] = self._derive_message_batch_quality(learning_messages)
+            metrics["quality_source"] = "learning_messages"
+        return metrics
+
     async def start(self) -> bool:
         """启动服务"""
         self._status = ServiceLifecycle.RUNNING
@@ -356,13 +717,25 @@ class MaiBotQualityMonitor(IQualityMonitor):
         self._status = ServiceLifecycle.STOPPED
         return await self.time_decay_manager.stop()
     
-    async def evaluate_learning_quality(self, before: Dict[str, Any], after: Dict[str, Any]) -> AnalysisResult:
+    async def evaluate_learning_quality(
+        self,
+        before: Dict[str, Any],
+        after: Dict[str, Any],
+        snapshot_before: Optional[Dict[str, Any]] = None,
+        snapshot_after: Optional[Dict[str, Any]] = None,
+        learning_messages: Optional[List[Dict[str, Any]]] = None,
+        log_details: bool = True,
+    ) -> AnalysisResult:
         """
         评估学习质量 - 使用MaiBot的质量评估方法
 
         Args:
-            before: 学习前的状态
-            after: 学习后的状态
+            before: 学习前的人格状态
+            after: 学习后的人格状态
+            snapshot_before: 学习前真实学习产物计数（表达模式/记忆/知识）
+            snapshot_after: 学习后真实学习产物计数
+            learning_messages: 本批次学习消息
+            log_details: 是否输出评估详情日志
 
         Returns:
             质量评估结果
@@ -386,8 +759,13 @@ class MaiBotQualityMonitor(IQualityMonitor):
                 logger.warning(f"学习质量评估: after参数为list类型(长度{len(after)})，转换为空字典")
                 after = {}
 
-            # 如果两个参数都为空,返回中性结果
-            if not before and not after:
+            # 如果没有任何可评估数据,返回中性结果
+            if (
+                not before
+                and not after
+                and not snapshot_after
+                and not learning_messages
+            ):
                 logger.warning("学习质量评估: before和after参数都为空，返回中性结果")
                 return AnalysisResult(
                     success=True,
@@ -395,90 +773,30 @@ class MaiBotQualityMonitor(IQualityMonitor):
                     data={"message": "无足够数据进行质量评估"},
                     consistency_score=0.5
                 )
-            
-            quality_metrics = {
-                "expression_pattern_improvement": 0.0,
-                "memory_graph_growth": 0.0,
-                "knowledge_graph_growth": 0.0,
-                "prompt_improvement": 0.0,
-                "overall_quality": 0.0
-            }
-            
-            # 1. 表达模式改进度
-            before_patterns = before.get("expression_patterns", [])
-            after_patterns = after.get("expression_patterns", [])
-            if after_patterns:
-                pattern_improvement = len(after_patterns) / max(len(before_patterns), 1)
-                quality_metrics["expression_pattern_improvement"] = min(pattern_improvement, 2.0) / 2.0
-            
-            # 2. 记忆图增长
-            before_memory = before.get("memory_updates", 0)
-            after_memory = after.get("memory_updates", 0)
-            if after_memory > before_memory:
-                quality_metrics["memory_graph_growth"] = min((after_memory - before_memory) / 10.0, 1.0)
-            
-            # 3. 知识图谱增长
-            before_knowledge = before.get("knowledge_updates", 0)
-            after_knowledge = after.get("knowledge_updates", 0)
-            if after_knowledge > before_knowledge:
-                quality_metrics["knowledge_graph_growth"] = min((after_knowledge - before_knowledge) / 10.0, 1.0)
-            
-            # 4. 新增：基于人格prompt的改进评估
-            before_prompt = before.get("prompt", "")
-            after_prompt = after.get("prompt", "")
-            
-            if before_prompt != after_prompt:
-                # 计算prompt长度变化（增加内容通常表示学习到新知识）
-                length_ratio = len(after_prompt) / max(len(before_prompt), 1)
-                if length_ratio > 1.0:  # 内容增加
-                    quality_metrics["prompt_improvement"] = min((length_ratio - 1.0) * 2, 1.0)  # 最大值1.0
-                
-                # 检查是否包含学习标识符
-                if "【学习更新" in after_prompt and "【学习更新" not in before_prompt:
-                    quality_metrics["prompt_improvement"] = max(quality_metrics["prompt_improvement"], 0.6)
-                
-                # 如果有任何变化，至少给予基础分数
-                if quality_metrics["prompt_improvement"] == 0.0:
-                    quality_metrics["prompt_improvement"] = 0.3
-            
-            # 5. 如果没有任何特定指标，但存在人格数据，给予基础评分
-            if all(v == 0.0 for v in [quality_metrics["expression_pattern_improvement"], 
-                                     quality_metrics["memory_graph_growth"], 
-                                     quality_metrics["knowledge_graph_growth"],
-                                     quality_metrics["prompt_improvement"]]):
-                # 检查是否有有效的人格数据
-                if (before.get("prompt") or after.get("prompt")) and before != after:
-                    quality_metrics["overall_quality"] = 0.4  # 基础质量分数
-                    logger.info("基于数据存在差异给予基础质量评分")
-            else:
-                # 6. 计算总体质量（包含prompt改进）
-                quality_metrics["overall_quality"] = (
-                    quality_metrics["expression_pattern_improvement"] +
-                    quality_metrics["memory_graph_growth"] +
-                    quality_metrics["knowledge_graph_growth"] +
-                    quality_metrics["prompt_improvement"]
-                ) / 4
-            
-            # 调试日志
-            logger.info(f"学习质量评估详情: prompt_improvement={quality_metrics['prompt_improvement']:.3f}, "
-                       f"pattern_improvement={quality_metrics['expression_pattern_improvement']:.3f}, "
-                       f"memory_growth={quality_metrics['memory_graph_growth']:.3f}, "
-                       f"knowledge_growth={quality_metrics['knowledge_graph_growth']:.3f}, "
-                       f"overall_quality={quality_metrics['overall_quality']:.3f}")
-            
-            logger.info(f"Before prompt长度: {len(before.get('prompt', ''))}, After prompt长度: {len(after.get('prompt', ''))}")
-            
-            if before != after:
-                logger.info("检测到before和after存在差异")
-            else:
-                logger.info("before和after完全相同")
-            
+
+            quality_metrics = self._build_quality_metrics(
+                before,
+                after,
+                snapshot_before=snapshot_before,
+                snapshot_after=snapshot_after,
+                learning_messages=learning_messages,
+            )
+
+            if log_details:
+                self._log_quality_metrics(quality_metrics, "", level="info")
+                logger.info(
+                    "Before prompt长度: %s, After prompt长度: %s",
+                    len(str(before.get("prompt", "") or "")),
+                    len(str(after.get("prompt", "") or "")),
+                )
+
+            overall = float(quality_metrics.get("overall_quality") or 0.0)
             return AnalysisResult(
                 success=True,
-                confidence=quality_metrics["overall_quality"],
+                confidence=overall,
                 data=quality_metrics,
                 timestamp=time.time(),
-                consistency_score=quality_metrics["overall_quality"]
+                consistency_score=overall
             )
             
         except Exception as e:
@@ -497,7 +815,10 @@ class MaiBotQualityMonitor(IQualityMonitor):
                                     learning_messages: List[Dict[str, Any]]) -> Any:
         """
         评估学习批次质量 - 兼容LearningQualityMonitor的接口
-        
+
+        人格字典不包含表达模式/记忆/知识字段，因此从数据库或委托插件
+        采集真实学习产物快照，并在学习应用后由 refresh_learning_impact 刷新。
+
         Args:
             original_persona: 原始人格数据
             updated_persona: 更新后的人格数据
@@ -507,15 +828,35 @@ class MaiBotQualityMonitor(IQualityMonitor):
             质量评估结果
         """
         try:
-            # 调用现有的evaluate_learning_quality方法
-            result = await self.evaluate_learning_quality(original_persona, updated_persona)
+            group_id = self._resolve_group_id(
+                original_persona, updated_persona, learning_messages
+            )
+            snapshot = (
+                await self._collect_learning_snapshot(group_id)
+                if group_id
+                else None
+            )
+            if group_id and snapshot is not None:
+                self._batch_snapshots[group_id] = snapshot
+
+            result = await self.evaluate_learning_quality(
+                original_persona,
+                updated_persona,
+                snapshot_before=snapshot,
+                snapshot_after=snapshot,
+                learning_messages=learning_messages,
+                log_details=False,
+            )
+            result.data = dict(result.data or {})
+            if group_id:
+                result.data["group_id"] = group_id
+
             score = result.consistency_score if result.consistency_score is not None else result.confidence
             if (score or 0.0) <= 0:
                 message_quality = self._derive_message_batch_quality(learning_messages)
                 if message_quality > 0:
                     result.consistency_score = message_quality
                     result.confidence = message_quality
-                    result.data = dict(result.data or {})
                     result.data["message_signal_quality"] = message_quality
                     result.data["quality_source"] = "learning_messages"
             return result
@@ -529,6 +870,75 @@ class MaiBotQualityMonitor(IQualityMonitor):
                 error=str(e),
                 consistency_score=0.0
             )
+
+    async def refresh_learning_impact(
+        self,
+        group_id: str,
+        quality_metrics: Any,
+        learning_messages: Optional[List[Dict[str, Any]]] = None,
+    ) -> Optional[float]:
+        """学习产物落库后刷新真实增长指标。
+
+        表达模式在批次末尾才写入 expression_patterns 表，本地记忆图与
+        LivingMemory 图存储也只在消息处理/维护时变化，因此需要在
+        ``_apply_learning_updates`` 之后再采集一次快照。
+
+        Returns:
+            刷新后的 overall_quality；无可用快照时返回 None。
+        """
+        data = getattr(quality_metrics, "data", None)
+        if not group_id or not isinstance(data, dict):
+            return None
+
+        snapshot_before = self._batch_snapshots.get(group_id)
+        snapshot_after = await self._collect_learning_snapshot(group_id)
+        if snapshot_before is None or snapshot_after is None:
+            return None
+
+        updated = dict(data)
+        for metric_key, snapshot_key in (
+            ("expression_pattern_improvement", "expression_patterns"),
+            ("memory_graph_growth", "memory_updates"),
+            ("knowledge_graph_growth", "knowledge_updates"),
+        ):
+            updated[metric_key] = self._growth_score(
+                (snapshot_before or {}).get(snapshot_key),
+                snapshot_after.get(snapshot_key),
+            )
+
+        if snapshot_after.get("memory_source"):
+            updated["memory_source"] = snapshot_after["memory_source"]
+
+        available = [
+            updated[key]
+            for key in self._GROWTH_METRIC_KEYS
+            if isinstance(updated.get(key), (int, float))
+        ]
+        if available:
+            updated["overall_quality"] = sum(available) / len(available)
+            updated.pop("quality_source", None)
+        elif learning_messages:
+            updated["overall_quality"] = self._derive_message_batch_quality(learning_messages)
+            updated["quality_source"] = "learning_messages"
+
+        overall = float(updated.get("overall_quality") or 0.0)
+        quality_metrics.data = updated
+        quality_metrics.consistency_score = overall
+        quality_metrics.confidence = overall
+        self._batch_snapshots.pop(group_id, None)
+
+        self._log_quality_metrics(updated, group_id, level="info")
+        logger.info(
+            "学习前后真实计数 (group=%s): 表达模式 %s→%s, 记忆 %s→%s, 知识 %s→%s",
+            group_id,
+            (snapshot_before or {}).get("expression_patterns"),
+            snapshot_after.get("expression_patterns"),
+            (snapshot_before or {}).get("memory_updates"),
+            snapshot_after.get("memory_updates"),
+            (snapshot_before or {}).get("knowledge_updates"),
+            snapshot_after.get("knowledge_updates"),
+        )
+        return overall
     
     async def detect_quality_issues(self, data: Dict[str, Any]) -> List[str]:
         """
