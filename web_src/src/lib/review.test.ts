@@ -69,6 +69,13 @@ describe('review change preview parsing', () => {
     expect(formatDialogLines(reviewBeginDialogs(item).after).split('\n')).toHaveLength(3);
   });
 
+  it('falls back to top-level content for legacy content-only records', () => {
+    const item = { id: 6, content: '只有待审文本的记录' };
+
+    expect(reviewAfterPrompt(item)).toBe('只有待审文本的记录');
+    expect(reviewHasChange(item)).toBe(true);
+  });
+
   it('reports no change for a record without any preview content', () => {
     expect(reviewHasChange({ id: 1 })).toBe(false);
   });

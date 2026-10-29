@@ -37,8 +37,8 @@ const installFetch = () => {
       return json({
         enabled: true,
         defaultBuild: 'v4.4.3',
-        severityOptions: [{ value: 3, label: '3 - 一般' }],
-        priorityOptions: [{ value: 3, label: '3 - 中' }],
+        severityOptions: [{ value: 1, label: '1 - 致命' }, { value: 3, label: '3 - 一般' }],
+        priorityOptions: [{ value: 1, label: '1 - 紧急' }, { value: 3, label: '3 - 中' }],
         typeOptions: [{ value: 'codeerror', label: '代码错误' }],
         logPreview: {},
       });

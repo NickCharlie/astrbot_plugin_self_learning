@@ -1,8 +1,7 @@
 import { createSignal, For, onMount, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
-import { list, object } from '../../pages/shared';
-import { formatTime, textOrDash } from '../../lib/format';
+import { object } from '../../pages/shared';
 import { Button, EmptyState, Input, Panel, Select, Textarea } from '../ui';
 import styles from './BugReportPanel.module.scss';
 
@@ -26,7 +25,6 @@ const FALLBACK_TYPE: Option[] = [
 export function BugReportPanel() {
   const dashboard = useDashboard();
   const [config, setConfig] = createSignal<Record<string, unknown>>({});
-  const [history, setHistory] = createSignal<Record<string, unknown>[]>([]);
   const [title, setTitle] = createSignal('');
   const [steps, setSteps] = createSignal('');
   const [severity, setSeverity] = createSignal('3');
@@ -46,17 +44,12 @@ export function BugReportPanel() {
     Object.entries(object(config().logPreview))
       .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].length > 0);
 
-  const loadHistory = async () => {
-    const payload = await api.get<Record<string, unknown>>('/api/bug_report/history?limit=10');
-    setHistory(list<Record<string, unknown>>(payload.history ?? payload));
-  };
   const load = async () => {
     try {
       const payload = await api.get<Record<string, unknown>>('/api/bug_report/config');
       setConfig(payload);
       // 用户可能已经手动填写，仅在为空时回填默认版本
       setBuild((current) => current.trim() ? current : String(payload.defaultBuild ?? ''));
-      await loadHistory();
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : 'Bug 报告配置加载失败', 'danger');
     }
@@ -83,7 +76,6 @@ export function BugReportPanel() {
       dashboard.toast(result.message || 'Bug 报告已提交', 'success');
       setTitle('');
       setSteps('');
-      await loadHistory();
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : 'Bug 报告提交失败', 'danger');
     } finally { setBusy(false); }
@@ -116,7 +108,7 @@ export function BugReportPanel() {
         <Textarea label="重现步骤" rows={6} value={steps()} onInput={(event) => setSteps(event.currentTarget.value)} placeholder={'1. 打开 WebUI\n2. 点击某个按钮\n3. 观察到异常'} />
         <Show when={logEntries().length}>
           <details class={styles['log-preview']}>
-            <summary>附加日志预览（{logEntries().length} 项）</summary>
+            <summary>附加日志预览（{logEntries().length} 项，仅展示，不会随报告提交）</summary>
             <For each={logEntries()}>{([name, content]) => <>
               <h4>{name}</h4>
               <pre>{content}</pre>
@@ -125,20 +117,6 @@ export function BugReportPanel() {
         </Show>
         <div class="inline-actions">
           <Button tone="primary" icon="send" loading={busy()} onClick={submit}>提交 Bug 报告</Button>
-        </div>
-      </Show>
-      <Show when={history().length}>
-        <h4 class={styles['history-title']}>最近提交</h4>
-        <div class="data-list">
-          <For each={history()}>{(item) =>
-            <div class="check-row">
-              <div>
-                <strong>{textOrDash(item.title ?? item.id ?? 'Bug 报告')}</strong>
-                <small>{formatTime(item.created_at ?? item.timestamp)}</small>
-              </div>
-              <span>{textOrDash(item.status ?? item.message)}</span>
-            </div>
-          }</For>
         </div>
       </Show>
     </Panel>

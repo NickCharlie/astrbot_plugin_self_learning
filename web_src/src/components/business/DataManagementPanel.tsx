@@ -32,15 +32,18 @@ export function DataManagementPanel() {
   const [stats, setStats] = createSignal<Record<string, unknown>>({});
   const [loading, setLoading] = createSignal(false);
   const [busy, setBusy] = createSignal('');
+  let loadToken = 0;
 
   const load = async () => {
+    const token = ++loadToken;
     setLoading(true);
     try {
       const payload = await api.get<Record<string, unknown>>('/api/data/statistics');
+      if (token !== loadToken) return;
       setStats(object(payload.data ?? payload));
     } catch (caught) {
-      dashboard.toast(caught instanceof Error ? caught.message : '数据统计加载失败', 'danger');
-    } finally { setLoading(false); }
+      if (token === loadToken) dashboard.toast(caught instanceof Error ? caught.message : '数据统计加载失败', 'danger');
+    } finally { if (token === loadToken) setLoading(false); }
   };
   onMount(load);
 
@@ -64,7 +67,7 @@ export function DataManagementPanel() {
   return (
     <Panel
       title="数据管理"
-      hint="按模块查看数据量，并在二次确认后清空；清空操作不可撤销"
+      hint="按模块查看数据量，并在二次确认后清空；清空操作不可撤销。记忆/知识图谱/运行时状态仅展示统计（后端未提供单独清空接口）"
       icon="storage"
       actions={<Button icon="refresh" loading={loading()} onClick={load}>刷新统计</Button>}
     >

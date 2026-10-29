@@ -19,7 +19,9 @@
 
 ### 测试
 
-- 新增前端测试：`review.test.ts`、`PersonaLearningPage.test.tsx`、`SettingsExtraPanels.test.tsx`、`MaiBotImportPanel.test.tsx`、`GraphsSocial.test.tsx`；前端全套 78 个测试通过。
+- 新增前端测试：`review.test.ts`、`PersonaLearningPage.test.tsx`、`SettingsExtraPanels.test.tsx`、`MaiBotImportPanel.test.tsx`、`GraphsSocial.test.tsx`、`socialGraph.test.ts`；前端全套 82 个测试通过。
+- 按 Sourcery review 修复：MaiBot 导入部分失败提示、图谱群组自动加载/操作互斥/旧响应覆盖、分享链接剪贴板失败回退、`content` 旧记录 diff 回退、对话框焦点陷阱、去除永远为空的 Bug 历史区块。
+- 修复 `test_page_api_shadow_worldbook.py` 在 pytest-randomly 随机顺序下删除 `_FakeWorldbookImporter.preview` 污染后续用例的问题（CI 随机失败根因）。
 - 版本号由 4.4.3 提升至 **4.4.4**。
 
 ## [4.4.3] - 2026-10-27

@@ -70,7 +70,7 @@ export function ReviewCard(props: { item: ReviewItem; kind: ReviewKind; onDone?:
       <Show when={props.item.definition || props.item.meaning || props.item.review_detail}>
         <p>{textOrDash(props.item.definition ?? props.item.meaning ?? props.item.review_detail)}</p>
       </Show>
-      <Show when={reviewHasChange(props.item) || meta().length || proposedContent()}>
+      <Show when={props.kind !== 'jargon' && (reviewHasChange(props.item) || meta().length || proposedContent())}>
         <details class={styles['review-diff']}>
           <summary>查看变更详情</summary>
           <Show when={props.kind !== 'jargon' && (before() || after())}>

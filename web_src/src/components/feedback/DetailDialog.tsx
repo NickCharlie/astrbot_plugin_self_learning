@@ -19,6 +19,26 @@ export function DetailDialog(props: {
       if (event.key === 'Escape') {
         event.preventDefault();
         props.onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialogRef) return;
+      // 把 Tab 焦点限制在对话框内，避免键盘用户走到遮罩后的页面（Sourcery review）
+      const focusables = Array.from(
+        dialogRef.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+      );
+      if (!focusables.length) {
+        event.preventDefault();
+        dialogRef.focus();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener('keydown', onKeyDown);

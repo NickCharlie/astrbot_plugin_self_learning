@@ -125,7 +125,7 @@ export function PersonaLearningPage() {
   const revertReview = async (item: ReviewItem) => {
     const id = String(item.id ?? '');
     if (!id) return;
-    if (!await dashboard.confirm({ title: '撤回审查决定', message: '撤回后该记录会重新回到待审队列，确定继续吗？', tone: 'warning', confirmText: '确认撤回' })) return;
+    if (!await dashboard.confirm({ title: '撤回审查决定', message: '撤回后该记录会重新回到待审队列；若记录已被他人处理，撤回会覆盖新的审查状态。确定继续吗？', tone: 'warning', confirmText: '确认撤回' })) return;
     setBusy(`revert-${id}`);
     try {
       await api.post(`/api/persona_updates/${encodeURIComponent(id)}/revert`, { reason: 'WebUI 撤回' });

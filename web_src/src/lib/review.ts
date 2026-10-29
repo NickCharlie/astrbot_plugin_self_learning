@@ -45,7 +45,9 @@ export const reviewAfterPrompt = (item: ReviewItem | UnknownRecord): string => {
     ?? item.after
     ?? item.new_content
     ?? item.proposed_content
-    ?? preview.proposed_content,
+    ?? preview.proposed_content
+    // 部分旧记录只把待审文本放在 content 中（原 ReviewCard 的兜底行为）
+    ?? item.content,
   );
 };
 

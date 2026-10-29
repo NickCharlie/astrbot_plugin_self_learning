@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@solidjs/testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app/App';
 
@@ -99,8 +99,15 @@ describe('persona review and backup visibility (issue #280)', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看备份' }));
 
     expect(await screen.findByRole('dialog', { name: '备份详情' })).toBeInTheDocument();
-    expect(screen.getByText('备份中的旧提示词')).toBeInTheDocument();
-    expect(screen.getByRole('dialog', { name: '备份详情' }).textContent).toContain('用户: 你好');
+    const backupDialog = screen.getByRole('dialog', { name: '备份详情' });
+    // 断言专用「人格提示词」区域与「示例对话」区域，而不是整段对话框文本
+    // （原始 JSON 折叠区也包含这些字符串，会掩盖详情区缺失）。
+    expect(within(backupDialog).getByText('备份中的旧提示词')).toBeInTheDocument();
+    expect(within(backupDialog).getByRole('heading', { name: /示例对话（2 条）/ })).toBeInTheDocument();
+    // 对话专用 pre 是 JSON 数组（以 [ 开头），与原始备份数据的 JSON 对象区分
+    const dialoguePre = Array.from(backupDialog.querySelectorAll('pre'))
+      .find((pre) => (pre.textContent ?? '').trim().startsWith('['));
+    expect(dialoguePre?.textContent).toContain('用户: 你好');
   });
 
   it('expands the nested change_preview when reviewing a pending update', async () => {
@@ -111,7 +118,12 @@ describe('persona review and backup visibility (issue #280)', () => {
 
     expect(await screen.findByText(/应用方式：replace_system_prompt/)).toBeInTheDocument();
     expect(screen.getByText(/影响字段：system_prompt/)).toBeInTheDocument();
-    const diffText = document.body.textContent ?? '';
+    // 只在逐行 diff 区域内断言，避免原始 JSON 折叠区误命中
+    const details = toggle.closest('details');
+    expect(details).not.toBeNull();
+    const diffText = Array.from(details!.querySelectorAll('[class*="diff-line"]'))
+      .map((line) => line.textContent ?? '')
+      .join('\n');
     expect(diffText).toContain('旧提示词');
     expect(diffText).toContain('新提示词');
   });
@@ -134,6 +146,7 @@ describe('persona review and backup visibility (issue #280)', () => {
     fireEvent.click(screen.getByRole('button', { name: '查看人格' }));
 
     expect(await screen.findByRole('dialog', { name: '人格详情' })).toBeInTheDocument();
-    expect(screen.getByText('人格提示词')).toBeInTheDocument();
+    const personaDialog = screen.getByRole('dialog', { name: '人格详情' });
+    expect(within(personaDialog).getByText('人格提示词')).toBeInTheDocument();
   });
 });

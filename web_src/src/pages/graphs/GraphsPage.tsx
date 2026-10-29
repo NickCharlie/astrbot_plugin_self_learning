@@ -4,6 +4,7 @@ import { useDashboard } from '../../stores/dashboard';
 import type { GraphPayload } from '../../types/dashboard';
 import { object } from '../shared';
 import { formatCount } from '../../lib/format';
+import { socialGroupId, socialGroupName, socialToGraph, type SocialGroup } from '../../lib/socialGraph';
 import { GraphView } from '../../components/business/GraphView';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, EmptyState, Input, Panel, SegmentedControl, Select } from '../../components/ui';
@@ -11,31 +12,7 @@ import styles from './GraphsPage.module.scss';
 
 type GraphType = 'memory' | 'knowledge' | 'social';
 type Layout = 'force' | 'circular';
-type SocialGroup = Record<string, unknown>;
 
-const socialGroupId = (group: SocialGroup): string => String(group.group_id ?? group.id ?? '');
-const socialGroupName = (group: SocialGroup): string => String(group.group_name ?? group.name ?? socialGroupId(group));
-
-// 后端 /api/social_relations/* 已提供社交关系分析与分享，但图谱页此前只暴露
-// 记忆/知识两类视图，社交关系数据在 WebUI 中完全不可见。
-const socialToGraph = (data: Record<string, unknown>): GraphPayload => {
-  const members = Array.isArray(data.members) ? data.members as Record<string, unknown>[] : [];
-  const relations = Array.isArray(data.relations) ? data.relations as Record<string, unknown>[] : [];
-  return {
-    nodes: members.map((member) => ({
-      id: String(member.user_id ?? member.id ?? ''),
-      name: String(member.nickname ?? member.user_id ?? ''),
-      value: Number(member.message_count) || 1,
-      category: 'member',
-    })),
-    links: relations.map((relation) => ({
-      source: String(relation.source ?? ''),
-      target: String(relation.target ?? ''),
-      value: Number(relation.strength) || 0,
-    })),
-    categories: [{ name: 'member' }],
-  };
-};
 
 export function GraphsPage() {
   const dashboard = useDashboard();
@@ -48,8 +25,11 @@ export function GraphsPage() {
   const [groups, setGroups] = createSignal<SocialGroup[]>([]);
   const [socialGroup, setSocialGroup] = createSignal('');
   const [socialInfo, setSocialInfo] = createSignal<Record<string, unknown>>({});
+  // 共享递增令牌：快速切换视图/群组时旧响应不得覆盖新数据（Sourcery review）
+  let requestToken = 0;
 
   const loadSocial = async (targetGroupId: string) => {
+    const token = ++requestToken;
     if (!targetGroupId) {
       setPayload({});
       setSocialInfo({});
@@ -58,23 +38,28 @@ export function GraphsPage() {
     setLoading(true);
     try {
       const data = await api.get<Record<string, unknown>>(`/api/social_relations/${encodeURIComponent(targetGroupId)}`);
+      if (token !== requestToken) return;
       setSocialInfo(data);
       setPayload(socialToGraph(data));
       if (data.success === false && data.error) dashboard.toast(String(data.error), 'warning');
     } catch (caught) {
-      dashboard.toast(caught instanceof Error ? caught.message : '社交关系加载失败', 'danger');
-    } finally { setLoading(false); }
+      if (token === requestToken) dashboard.toast(caught instanceof Error ? caught.message : '社交关系加载失败', 'danger');
+    } finally { if (token === requestToken) setLoading(false); }
   };
 
   const load = async () => {
     if (type() === 'social') return loadSocial(socialGroup());
+    const token = ++requestToken;
     setLoading(true);
     try {
       const params = new URLSearchParams();
       if (groupId().trim()) params.set('group_id', groupId().trim());
-      setPayload(await api.get(`/api/graphs/${type()}?${params}`));
-    } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '图谱加载失败', 'danger'); }
-    finally { setLoading(false); }
+      const data = await api.get<GraphPayload>(`/api/graphs/${type()}?${params}`);
+      if (token !== requestToken) return;
+      setPayload(data);
+    } catch (caught) {
+      if (token === requestToken) dashboard.toast(caught instanceof Error ? caught.message : '图谱加载失败', 'danger');
+    } finally { if (token === requestToken) setLoading(false); }
   };
   onMount(load);
   onMount(async () => {
@@ -82,8 +67,13 @@ export function GraphsPage() {
       const result = await api.get<{ groups?: SocialGroup[] }>('/api/social_relations/groups');
       const rows = Array.isArray(result.groups) ? result.groups : [];
       setGroups(rows);
-      // 等 For 渲染完 option 后再写入 value，避免 select 回退到第一项
-      if (rows.length) queueMicrotask(() => setSocialGroup(socialGroupId(rows[0])));
+      // 等 For 渲染完 option 后再写入 value，避免 select 回退到第一项；
+      // 若用户已切到社交视图，选中后立即加载关系，避免出现空白图。
+      if (rows.length) queueMicrotask(() => {
+        const first = socialGroupId(rows[0]);
+        setSocialGroup(first);
+        if (type() === 'social') void loadSocial(first);
+      });
     } catch { /* 群组列表加载失败不阻塞图谱页 */ }
   });
 
@@ -115,11 +105,18 @@ export function GraphsPage() {
       } else {
         const result = await api.post<{ data?: { share_url?: string } }>(`/api/social_relations/${encodeURIComponent(targetGroupId)}/share`, { expires_hours: 168 });
         const shareUrl = result.data?.share_url;
-        if (shareUrl && navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(shareUrl);
-          dashboard.toast('分享链接已复制到剪贴板', 'success');
+        if (!shareUrl) {
+          dashboard.toast('分享链接已创建', 'success');
+        } else if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            dashboard.toast('分享链接已复制到剪贴板', 'success');
+          } catch {
+            // 剪贴板被拒绝时仍要把已创建的链接展示给用户（Sourcery review）
+            dashboard.toast(`分享链接已创建：${shareUrl}`, 'warning');
+          }
         } else {
-          dashboard.toast(shareUrl ? `分享链接：${shareUrl}` : '分享链接已创建', 'success');
+          dashboard.toast(`分享链接：${shareUrl}`, 'success');
         }
       }
     } catch (caught) {
@@ -163,9 +160,9 @@ export function GraphsPage() {
         </div>
         <Show when={type() === 'social' && socialGroup()}>
           <div class="inline-actions">
-            <Button size="sm" icon="auto_awesome" loading={busy() === 'analyze'} onClick={() => socialAction('analyze')}>重新分析</Button>
-            <Button size="sm" icon="share" loading={busy() === 'share'} onClick={() => socialAction('share')}>分享图谱</Button>
-            <Button size="sm" tone="danger" icon="delete" loading={busy() === 'clear'} onClick={() => socialAction('clear')}>清空关系</Button>
+            <Button size="sm" icon="auto_awesome" disabled={Boolean(busy())} loading={busy() === 'analyze'} onClick={() => socialAction('analyze')}>重新分析</Button>
+            <Button size="sm" icon="share" disabled={Boolean(busy())} loading={busy() === 'share'} onClick={() => socialAction('share')}>分享图谱</Button>
+            <Button size="sm" tone="danger" icon="delete" disabled={Boolean(busy())} loading={busy() === 'clear'} onClick={() => socialAction('clear')}>清空关系</Button>
           </div>
           <p class="footer-note">
             成员 {formatCount(socialInfo().member_count)} · 关系 {formatCount(socialInfo().relation_count)} · 消息 {formatCount(socialInfo().message_count)}
