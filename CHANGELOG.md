@@ -2,6 +2,28 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.4.4] - 2026-10-29
+
+### 修复：WebUI 人格审核看不到修改内容、人格备份无法查看（issue #280）
+
+- `ReviewCard` 此前只读取顶层的 `before_system_prompt`/`after_system_prompt`，而后端把逐行变更快照放在 `change_preview`（待审）或 `change_snapshot`（已审）中，导致「查看变更详情」整块不渲染、审查人无法看到修改内容。现统一解析嵌套快照，展示人格提示词逐行 diff、示例对话（begin_dialogs）diff、应用方式/影响字段/来源群组与建议内容原文，并新增「查看原始审查数据」折叠区。
+- 人格备份「查看」此前只弹出「已读取备份」toast，随后丢弃接口返回的详情。现改为打开备份详情对话框，展示备份名称、群组、时间、原因、人格提示词、示例对话与原始 JSON。
+- 新增 `web_src/src/lib/review.ts` 统一解析审查快照，并补充 `review.test.ts` 与 `PersonaLearningPage.test.tsx` 回归测试。
+
+### 功能：补齐后端已实现但 WebUI 缺失的入口
+
+- 人格学习页：新增人格列表（`/api/persona_management/list`）、人格详情（`/get/<id>`）与导出（`/export/<id>`）；新增最近已审查记录展示与撤回（`/api/persona_updates/reviewed` 此前已由 Dashboard 加载但无页面消费，`/revert` 无入口）。
+- 设置页：新增数据管理面板，展示 `/api/data/statistics` 各模块行数并支持按模块/全部清空（`/api/data/clear/*`，均带二次确认）；新增 Bug 反馈面板（`/api/bug_report/config|history` 与提交）。
+- 功能融合页：新增 MaiBot 学习数据预览/导入/导出（`/api/integrations/maibot-learning/*`）。
+- 图谱页：新增「社交关系」视图，支持群组选择、关系图、重新分析、分享与清空（`/api/social_relations/*`）。
+
+### 测试
+
+- 新增前端测试：`review.test.ts`、`PersonaLearningPage.test.tsx`、`SettingsExtraPanels.test.tsx`、`MaiBotImportPanel.test.tsx`、`GraphsSocial.test.tsx`、`socialGraph.test.ts`；前端全套 82 个测试通过。
+- 按 Sourcery review 修复：MaiBot 导入部分失败提示、图谱群组自动加载/操作互斥/旧响应覆盖、分享链接剪贴板失败回退、`content` 旧记录 diff 回退、对话框焦点陷阱、去除永远为空的 Bug 历史区块。
+- 修复 `test_page_api_shadow_worldbook.py` 在 pytest-randomly 随机顺序下删除 `_FakeWorldbookImporter.preview` 污染后续用例的问题（CI 随机失败根因）。
+- 版本号由 4.4.3 提升至 **4.4.4**。
+
 ## [4.4.3] - 2026-10-27
 
 ### 功能：好感度存储维度可选——按 QQ 号统一（affection_scope，issue #278 / PR #279）

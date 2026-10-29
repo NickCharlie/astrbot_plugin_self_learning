@@ -1,0 +1,42 @@
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.stat-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  strong {
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.action-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.action-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    font-size: 13px;
+  }
+}

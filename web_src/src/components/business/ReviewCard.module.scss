@@ -31,9 +31,56 @@
   flex-wrap: wrap;
 }
 
-.review-diff summary {
+.review-diff summary,
+.review-raw summary {
   cursor: pointer;
   color: var(--primary);
+}
+
+.review-raw {
+  pre {
+    max-height: 320px;
+    margin: 8px 0 0;
+    padding: 10px;
+    overflow: auto;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font: 12px/1.5 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.review-section-title {
+  margin: 12px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.review-meta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.review-proposal {
+  margin-top: 8px;
+
+  pre {
+    max-height: 260px;
+    margin: 6px 0 0;
+    padding: 10px;
+    overflow: auto;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font: 12px/1.5 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 }
 
 .diff-lines {

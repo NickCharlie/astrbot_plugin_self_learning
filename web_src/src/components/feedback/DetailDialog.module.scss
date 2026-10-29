@@ -1,0 +1,75 @@
+@use "../../styles/tokens";
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: rgba(10, 12, 16, 0.55);
+}
+
+.dialog {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(760px, 100%);
+  max-height: min(82vh, 880px);
+  color: var(--text);
+  background: var(--surface-solid);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+
+  h2 {
+    margin: 0;
+    font-size: 16px;
+  }
+}
+
+.body {
+  padding: 16px 20px 20px;
+  overflow: auto;
+
+  h4 {
+    margin: 16px 0 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+
+    &:first-child {
+      margin-top: 0;
+    }
+  }
+
+  pre {
+    max-height: 360px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    background: var(--surface-alt);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font: 12px/1.6 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  details > summary {
+    cursor: pointer;
+    color: var(--primary);
+  }
+
+  details > pre {
+    margin-top: 8px;
+  }
+}

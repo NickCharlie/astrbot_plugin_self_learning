@@ -1,4 +1,4 @@
-import { For, Show, splitProps, onMount, type JSX, type ParentProps } from 'solid-js';
+import { For, Show, splitProps, onMount, onCleanup, type JSX, type ParentProps } from 'solid-js';
 import type { Tone } from '../../types/dashboard';
 import buttonStyles from './Button.module.scss';
 import spinnerStyles from './Spinner.module.scss';
@@ -125,10 +125,21 @@ export function Input(props: JSX.InputHTMLAttributes<HTMLInputElement> & FieldPr
 export function Select(props: ParentProps<JSX.SelectHTMLAttributes<HTMLSelectElement> & FieldProps>) {
   const [local, select] = splitProps(props, ['label', 'hint', 'error', 'class', 'children']);
   let element: HTMLSelectElement | undefined;
+  const syncValue = () => {
+    if (!element || select.value === undefined) return;
+    const next = String(select.value ?? '');
+    if (element.value !== next) element.value = next;
+  };
   // Solid 会先应用 value 属性、后插入 <For> 渲染的 option，真实浏览器对无选项的
   // select 设置 value 不生效，导致回退选中第一项（issue #243）。挂载后再同步一次。
   onMount(() => {
-    if (element && select.value !== undefined) element.value = String(select.value ?? '');
+    syncValue();
+    if (!element || typeof MutationObserver === 'undefined') return;
+    // 选项异步替换（如配置/统计加载完成后 For 重建 option）同样会让 select 回退；
+    // 监听子节点变化后重新应用受控值，避免显示值与信号值不一致。
+    const observer = new MutationObserver(syncValue);
+    observer.observe(element, { childList: true });
+    onCleanup(() => observer.disconnect());
   });
   return <Field {...local}><select ref={element} {...select} class="slx-input">{local.children}</select></Field>;
 }

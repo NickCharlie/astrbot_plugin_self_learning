@@ -4,7 +4,9 @@ import { useDashboard } from '../../stores/dashboard';
 import type { ConfigField as ConfigFieldType, ConfigGroup } from '../../types/dashboard';
 import { object } from '../shared';
 import { ConfigField } from '../../components/business/ConfigField';
+import { BugReportPanel } from '../../components/business/BugReportPanel';
 import { CustomStylePanel } from '../../components/business/CustomStylePanel';
+import { DataManagementPanel } from '../../components/business/DataManagementPanel';
 import { WebuiPasswordPanel } from '../../components/business/WebuiPasswordPanel';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Badge, Button, EmptyState, Input, Select } from '../../components/ui';
@@ -84,6 +86,8 @@ export function SettingsPage() {
       } />
       <WebuiPasswordPanel />
       <CustomStylePanel />
+      <DataManagementPanel />
+      <BugReportPanel />
       <div class={styles['settings-layout']}>
         <aside class={styles['group-nav']}>
           <Show when={dashboard.schema()} fallback={<p class={styles['no-match']}>配置面板尚未加载。</p>}>
