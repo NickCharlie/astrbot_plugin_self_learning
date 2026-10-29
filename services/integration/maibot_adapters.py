@@ -426,8 +426,8 @@ class MaiBotQualityMonitor(IQualityMonitor):
             logger.debug(f"读取 LivingMemory 后端失败: {exc}")
             return None, None
 
-    async def _livingmemory_total_memories(self) -> Optional[int]:
-        """回退读取 LivingMemory 全局记忆总数（2.7+ 的 get_statistics）。"""
+    async def _livingmemory_statistics(self) -> Optional[Dict[str, Any]]:
+        """读取 LivingMemory 2.7+ ``MemoryEngine.get_statistics``。"""
         memory_engine = self._livingmemory_memory_engine()
         stats_getter = getattr(memory_engine, "get_statistics", None)
         if not callable(stats_getter):
@@ -439,19 +439,58 @@ class MaiBotQualityMonitor(IQualityMonitor):
         except Exception as exc:
             logger.debug(f"读取 LivingMemory 统计失败: {exc}")
             return None
-        if not isinstance(stats, dict):
-            return None
-        total = stats.get("total_memories")
-        if isinstance(total, (int, float)):
-            return int(total)
-        return None
+        return stats if isinstance(stats, dict) else None
+
+    @staticmethod
+    def _session_matches_group(session_id: Any, group_id: str) -> bool:
+        """Match LivingMemory scopes that belong to this group.
+
+        LivingMemory 2.8.x stores sessions as full UMO
+        (``platform:type:group_id``), ``livingmemory:global`` for global scope,
+        or ``livingmemory:user:*`` for per-user scope.
+        """
+        if session_id is None:
+            return False
+        text = str(session_id)
+        return (
+            text == group_id
+            or text.endswith(f":{group_id}")
+            or text == "livingmemory:global"
+        )
 
     async def _count_livingmemory_memories(self, group_id: str) -> Optional[int]:
-        """从 LivingMemory 图谱快照统计记忆条数，无法读取时返回 None。"""
+        """统计本群在 LivingMemory 中的记忆条数。
+
+        优先使用 ``get_statistics().sessions`` 按作用域分桶求和（精确到群）；
+        无分桶的旧版回退图谱快照；``livingmemory:user:*`` 无法归属到群时返回
+        None（N/A），不再用全库总量污染单群指标。
+        """
+        stats = await self._livingmemory_statistics()
+        if stats is not None:
+            sessions = stats.get("sessions")
+            if isinstance(sessions, dict):
+                if not sessions:
+                    return 0
+                matched = [
+                    int(count or 0)
+                    for session_id, count in sessions.items()
+                    if self._session_matches_group(session_id, group_id)
+                ]
+                if matched:
+                    return sum(matched)
+                if any(
+                    str(session_id).startswith("livingmemory:user:")
+                    for session_id in sessions
+                ):
+                    # 按用户隔离的作用域无法映射到当前群
+                    return None
+                return 0
+
+        # 旧版回退：快照 session_id 可能直接是 group_id
         graph_store = self._livingmemory_graph_store()
         snapshot_getter = getattr(graph_store, "get_graph_snapshot", None)
         if not callable(snapshot_getter):
-            return await self._livingmemory_total_memories()
+            return None
 
         for session_id in (group_id, None):
             try:
@@ -474,9 +513,7 @@ class MaiBotQualityMonitor(IQualityMonitor):
                 memories = snapshot.get("memories") or []
                 if memories:
                     return len(memories)
-
-        # 2.8.x 轻量快照有条数上限；无快照数据时回退全局统计
-        return await self._livingmemory_total_memories()
+        return None
 
     async def _count_local_memories(self, group_id: str) -> Optional[int]:
         """本地 memories 表记忆条数。"""
@@ -572,11 +609,12 @@ class MaiBotQualityMonitor(IQualityMonitor):
     @staticmethod
     def _growth_score(before_count: Any, after_count: Any) -> Optional[float]:
         """把计数增长归一化到 0-1（10 条增量视为满分）。"""
-        if after_count is None:
+        if after_count is None or before_count is None:
+            # 缺少任一基准都视为不可用，避免把存量当成增量
             return None
         try:
-            before_value = int(before_count or 0)
-            after_value = int(after_count or 0)
+            before_value = int(before_count)
+            after_value = int(after_count)
         except (TypeError, ValueError):
             return None
         return min(max(after_value - before_value, 0) / 10.0, 1.0)
@@ -890,7 +928,7 @@ class MaiBotQualityMonitor(IQualityMonitor):
         if not group_id or not isinstance(data, dict):
             return None
 
-        snapshot_before = self._batch_snapshots.get(group_id)
+        snapshot_before = self._batch_snapshots.pop(group_id, None)
         snapshot_after = await self._collect_learning_snapshot(group_id)
         if snapshot_before is None or snapshot_after is None:
             return None
@@ -902,7 +940,7 @@ class MaiBotQualityMonitor(IQualityMonitor):
             ("knowledge_graph_growth", "knowledge_updates"),
         ):
             updated[metric_key] = self._growth_score(
-                (snapshot_before or {}).get(snapshot_key),
+                snapshot_before.get(snapshot_key),
                 snapshot_after.get(snapshot_key),
             )
 
@@ -914,28 +952,37 @@ class MaiBotQualityMonitor(IQualityMonitor):
             for key in self._GROWTH_METRIC_KEYS
             if isinstance(updated.get(key), (int, float))
         ]
-        if available:
+        if any(value > 0 for value in available):
             updated["overall_quality"] = sum(available) / len(available)
             updated.pop("quality_source", None)
-        elif learning_messages:
-            updated["overall_quality"] = self._derive_message_batch_quality(learning_messages)
-            updated["quality_source"] = "learning_messages"
+        else:
+            # 本批次没有正向增长：保留首次评估的分数（可能来自 prompt 变化
+            # 或消息信号），不要用全 0 覆盖，避免把质量分异常写成 0。
+            previous = float(data.get("overall_quality") or 0.0)
+            if previous > 0:
+                updated["overall_quality"] = previous
+            elif learning_messages:
+                updated["overall_quality"] = self._derive_message_batch_quality(
+                    learning_messages
+                )
+                updated["quality_source"] = "learning_messages"
+            else:
+                updated["overall_quality"] = 0.0
 
         overall = float(updated.get("overall_quality") or 0.0)
         quality_metrics.data = updated
         quality_metrics.consistency_score = overall
         quality_metrics.confidence = overall
-        self._batch_snapshots.pop(group_id, None)
 
         self._log_quality_metrics(updated, group_id, level="info")
         logger.info(
             "学习前后真实计数 (group=%s): 表达模式 %s→%s, 记忆 %s→%s, 知识 %s→%s",
             group_id,
-            (snapshot_before or {}).get("expression_patterns"),
+            snapshot_before.get("expression_patterns"),
             snapshot_after.get("expression_patterns"),
-            (snapshot_before or {}).get("memory_updates"),
+            snapshot_before.get("memory_updates"),
             snapshot_after.get("memory_updates"),
-            (snapshot_before or {}).get("knowledge_updates"),
+            snapshot_before.get("knowledge_updates"),
             snapshot_after.get("knowledge_updates"),
         )
         return overall

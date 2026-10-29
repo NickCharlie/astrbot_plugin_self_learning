@@ -140,6 +140,35 @@ async def test_batch_evaluation_refreshes_real_growth(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_refresh_without_growth_keeps_message_quality(monkeypatch):
+    monitor = _monitor()
+    static_snapshot = {
+        "expression_patterns": 2,
+        "memory_updates": 5,
+        "knowledge_updates": 1,
+        "memory_source": "local_graph",
+    }
+
+    async def fake_collect(_group_id):
+        return dict(static_snapshot)
+
+    monkeypatch.setattr(monitor, "_collect_learning_snapshot", fake_collect)
+
+    messages = [{"message": "你好呀今天过得怎么样呀", "group_id": "g1"}]
+    result = await monitor.evaluate_learning_batch(
+        {"prompt": "人格", "group_id": "g1"},
+        {"prompt": "人格", "group_id": "g1"},
+        messages,
+    )
+
+    refreshed = await monitor.refresh_learning_impact("g1", result, messages)
+
+    assert refreshed is not None and refreshed > 0
+    assert result.data["expression_pattern_improvement"] == 0.0
+    assert result.data["quality_source"] == "learning_messages"
+
+
+@pytest.mark.asyncio
 async def test_refresh_requires_before_snapshot(monkeypatch):
     monitor = _monitor()
     monkeypatch.setattr(
@@ -187,17 +216,54 @@ async def test_missing_snapshot_falls_back_to_message_signal(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_livingmemory_total_memories_fallback(monkeypatch):
+async def test_livingmemory_memory_count_uses_session_scope(monkeypatch):
     monitor = _monitor(context=SimpleNamespace())
     engine = SimpleNamespace(
-        get_statistics=AsyncMock(return_value={"total_memories": 128})
+        get_statistics=AsyncMock(
+            return_value={
+                "total_memories": 15,
+                "sessions": {
+                    "aiocqhttp:GroupMessage:g1": 12,
+                    "aiocqhttp:GroupMessage:g2": 3,
+                },
+            }
+        )
     )
-    monkeypatch.setattr(monitor, "_livingmemory_graph_store", lambda: None)
     monkeypatch.setattr(monitor, "_livingmemory_backend", lambda: (None, engine))
 
-    count = await monitor._count_livingmemory_memories("g1")
+    assert await monitor._count_livingmemory_memories("g1") == 12
 
-    assert count == 128
+
+@pytest.mark.asyncio
+async def test_livingmemory_user_scope_returns_unavailable(monkeypatch):
+    monitor = _monitor(context=SimpleNamespace())
+    engine = SimpleNamespace(
+        get_statistics=AsyncMock(
+            return_value={
+                "sessions": {"livingmemory:user:aiocqhttp:alice": 8},
+            }
+        )
+    )
+    monkeypatch.setattr(monitor, "_livingmemory_backend", lambda: (None, engine))
+
+    assert await monitor._count_livingmemory_memories("g1") is None
+
+
+@pytest.mark.asyncio
+async def test_livingmemory_empty_sessions_counts_zero(monkeypatch):
+    monitor = _monitor(context=SimpleNamespace())
+    engine = SimpleNamespace(
+        get_statistics=AsyncMock(return_value={"sessions": {}})
+    )
+    monkeypatch.setattr(monitor, "_livingmemory_backend", lambda: (None, engine))
+
+    assert await monitor._count_livingmemory_memories("g1") == 0
+
+
+@pytest.mark.unit
+def test_growth_score_requires_before_baseline():
+    assert MaiBotQualityMonitor._growth_score(None, 12) is None
+    assert MaiBotQualityMonitor._growth_score(10, None) is None
 
 
 @pytest.mark.asyncio

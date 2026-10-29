@@ -344,9 +344,9 @@ class GraphService:
         light_snapshot_getter = getattr(graph_store, "get_graph_snapshot", None)
         full_snapshot_getter = getattr(graph_store, "get_full_graph_snapshot", None)
 
-        # LivingMemory 2.8.x 新增全量快照（取消固定截断）。大图请求
-        # （Dashboard 全量视图）优先用它，普通概览仍用轻量快照。
-        use_full_snapshot = callable(full_snapshot_getter) and limit >= 200
+        # LivingMemory 2.8.x 新增全量快照（取消固定截断）。仅在显式请求
+        # 最大 limit（Dashboard 全量视图）时使用，避免默认概览拉全库图。
+        use_full_snapshot = callable(full_snapshot_getter) and limit >= 300
         snapshot_getter = (
             full_snapshot_getter if use_full_snapshot else light_snapshot_getter
         )
@@ -413,9 +413,9 @@ class GraphService:
                 if mapped:
                     candidates.append(str(mapped))
             candidates.append(str(group_id))
-
-        # 最后回退到无过滤快照，避免作用域模式变化后图谱页空白
-        candidates.append(None)
+        else:
+            # 仅在“全部群”视图时回退无过滤快照；按群查询不得混入其他群图谱
+            candidates.append(None)
         return list(dict.fromkeys(candidates))
 
     def _livingmemory_scope_mode(self) -> str:

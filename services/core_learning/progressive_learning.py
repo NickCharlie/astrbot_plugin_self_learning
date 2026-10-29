@@ -266,7 +266,7 @@ class ProgressiveLearningService:
             logger.debug(f"刷新学习质量指标失败: {exc}")
             return quality_score
 
-        if isinstance(refreshed, (int, float)):
+        if isinstance(refreshed, (int, float)) and refreshed > 0:
             return float(refreshed)
         return quality_score
 

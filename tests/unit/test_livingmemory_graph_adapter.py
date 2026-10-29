@@ -66,7 +66,6 @@ async def test_large_limit_prefers_full_snapshot():
     assert store.light_calls == []
     assert snapshot["nodes"][0]["label"] == "Alice"
 
-
 @pytest.mark.asyncio
 async def test_default_limit_uses_light_snapshot_with_roomier_budget():
     service = _service()
@@ -107,4 +106,11 @@ def test_global_scope_prefers_livingmemory_global_candidate():
 
     candidates = service._livingmemory_session_candidates("g1")
 
-    assert candidates == ["livingmemory:global", "umo:g1", "g1", None]
+    assert candidates == ["livingmemory:global", "umo:g1", "g1"]
+
+
+@pytest.mark.unit
+def test_groupless_view_falls_back_to_unfiltered_snapshot():
+    service = _service()
+
+    assert service._livingmemory_session_candidates(None) == [None]

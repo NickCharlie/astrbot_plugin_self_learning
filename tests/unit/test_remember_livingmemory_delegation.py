@@ -88,8 +88,9 @@ async def test_remember_delegates_to_livingmemory_engine():
     add_memory = AsyncMock(return_value=42)
     service = RememberService(
         db,
-        feature_delegation=_delegation_with_engine(
-            SimpleNamespace(add_memory=add_memory)
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {"filtering_settings.use_persona_filtering": False},
         ),
         group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
     )
@@ -103,10 +104,33 @@ async def test_remember_delegates_to_livingmemory_engine():
     add_memory.assert_awaited_once()
     kwargs = add_memory.await_args.kwargs
     assert kwargs["session_id"] == "aiocqhttp:GroupMessage:group-a"
-    assert kwargs["persona_id"] == "default"
+    assert kwargs["persona_id"] is None
     assert kwargs["metadata"]["source"] == "self_learning_remember"
     assert result.memory_id == 42
     assert db.saved_memories == []
+
+
+@pytest.mark.asyncio
+async def test_remember_falls_back_when_persona_unresolved():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {"filtering_settings.use_persona_filtering": True},
+        ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+    )
+
+    add_memory.assert_not_awaited()
+    assert result.memory_id == 7
 
 
 @pytest.mark.asyncio
@@ -138,9 +162,11 @@ async def test_remember_falls_back_when_livingmemory_write_fails():
     add_memory = AsyncMock(side_effect=RuntimeError("engine not ready"))
     service = RememberService(
         db,
-        feature_delegation=_delegation_with_engine(
-            SimpleNamespace(add_memory=add_memory)
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {"filtering_settings.use_persona_filtering": False},
         ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
     )
 
     result = await service.remember(
@@ -162,6 +188,13 @@ async def test_remember_falls_back_when_livingmemory_write_fails():
         (
             {"filtering_settings.memory_scope_mode": "user"},
             "livingmemory:user:aiocqhttp:user-a",
+        ),
+        (
+            {
+                "filtering_settings.memory_scope_mode": "user",
+                "access_control.identity_aliases": "aiocqhttp:user-a=Alice",
+            },
+            "livingmemory:user:aiocqhttp:alice",
         ),
         ({"filtering_settings.use_session_filtering": False}, None),
         (
@@ -198,10 +231,12 @@ async def test_remember_respects_livingmemory_whitelist_denial():
         feature_delegation=_delegation_with_settings(
             SimpleNamespace(add_memory=add_memory),
             {
+                "filtering_settings.use_persona_filtering": False,
                 "access_control.whitelist_enabled": True,
                 "access_control.allowed_ids": "someone-else",
             },
         ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
     )
 
     result = await service.remember(
@@ -223,10 +258,12 @@ async def test_remember_allowed_when_whitelist_matches_sender():
         feature_delegation=_delegation_with_settings(
             SimpleNamespace(add_memory=add_memory),
             {
+                "filtering_settings.use_persona_filtering": False,
                 "access_control.whitelist_enabled": True,
                 "access_control.allowed_ids": "user-a",
             },
         ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
     )
 
     result = await service.remember(

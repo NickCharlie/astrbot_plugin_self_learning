@@ -57,11 +57,15 @@ class RememberService:
         embedding_provider: Any = None,
         feature_delegation: Any = None,
         group_id_to_unified_origin: Optional[Dict[str, str]] = None,
+        context: Any = None,
+        plugin_config: Any = None,
     ) -> None:
         self._db = db_manager
         self._embedding_provider = embedding_provider
         self._feature_delegation = feature_delegation
         self._group_id_to_unified_origin = group_id_to_unified_origin or {}
+        self._context = context
+        self._config = plugin_config
 
     async def remember(
         self,
@@ -89,7 +93,6 @@ class RememberService:
             group_id=group_id,
             sender_id=sender_id,
             content=content,
-            persona_id=persona_id,
             unified_origin=unified_origin,
         )
         if delegated_id is not None:
@@ -132,7 +135,6 @@ class RememberService:
         group_id: str,
         sender_id: str,
         content: str,
-        persona_id: str,
         unified_origin: Optional[str] = None,
     ) -> Optional[int]:
         """Write the snippet through LivingMemory when memory is delegated.
@@ -173,6 +175,26 @@ class RememberService:
             logger.debug("remember 被 LivingMemory 访问控制拒绝，回退本地记忆")
             return None
 
+        base_session = unified_origin or self._group_id_to_unified_origin.get(group_id)
+        if not base_session:
+            logger.debug(
+                "remember 缺少 unified_msg_origin，回退本地记忆以避免写入不可召回的 LivingMemory 数据"
+            )
+            return None
+
+        use_persona_filtering = bool(
+            cfg("filtering_settings.use_persona_filtering", True)
+        )
+        livingmemory_persona_id = await self._resolve_livingmemory_persona_id(
+            group_id=group_id,
+            unified_origin=base_session,
+        )
+        if use_persona_filtering and not livingmemory_persona_id:
+            logger.warning(
+                "remember 无法解析 AstrBot 人格 ID，回退本地记忆以避免写入不可召回的 LivingMemory 数据"
+            )
+            return None
+
         session_id = self._resolve_livingmemory_session_id(
             plugin=plugin,
             group_id=group_id,
@@ -183,7 +205,7 @@ class RememberService:
             memory_id = await add_memory(
                 content,
                 session_id=session_id,
-                persona_id=persona_id,
+                persona_id=livingmemory_persona_id,
                 importance=0.9,
                 metadata={
                     "memory_origin": "self_learning_remember",
@@ -205,6 +227,43 @@ class RememberService:
             )
             return memory_id
         return None
+
+    async def _resolve_livingmemory_persona_id(
+        self,
+        *,
+        group_id: str,
+        unified_origin: str,
+    ) -> Optional[str]:
+        """Resolve AstrBot persona id expected by LivingMemory filtering.
+
+        ``remember`` receives the expression-pattern isolation key (bot account
+        id) from the command handler; LivingMemory stores the AstrBot persona id
+        in metadata and filters recall by strict equality, so the two must not
+        be mixed.
+        """
+        context = self._context
+        persona_manager = getattr(context, "persona_manager", None) if context else None
+        if not persona_manager:
+            return None
+        try:
+            from ...utils.persona_selection import (
+                get_persona_identifier,
+                resolve_target_persona,
+            )
+
+            persona = await resolve_target_persona(
+                persona_manager,
+                self._config,
+                unified_origin or group_id,
+                require_existing=False,
+                log=logger,
+            )
+        except Exception as exc:
+            logger.debug(f"remember 解析 AstrBot 人格失败: {exc}")
+            return None
+        if not persona:
+            return None
+        return get_persona_identifier(persona)
 
     def _resolve_livingmemory_session_id(
         self,
@@ -259,7 +318,8 @@ class RememberService:
             platform = ""
             if isinstance(session_id, str) and ":" in session_id:
                 platform = session_id.split(":", 1)[0].casefold()
-            identity = str(sender_id or "").casefold()
+            alias = self._resolve_identity_alias(_cfg, platform, sender_id)
+            identity = (alias or str(sender_id or "")).casefold()
             return f"livingmemory:user:{platform or 'unknown'}:{identity}"
 
         use_session = bool(
@@ -309,16 +369,40 @@ class RememberService:
         if isinstance(unified_origin, str) and ":" in unified_origin:
             platform = unified_origin.split(":", 1)[0]
 
+        alias = RememberService._resolve_identity_alias(cfg, platform, sender_id)
         candidates = {
             str(group_id or ""),
             str(sender_id or ""),
             str(unified_origin or ""),
             f"{platform}:{sender_id}" if platform and sender_id else "",
+            str(alias or ""),
         }
         return any(
             candidate and candidate.casefold() in allowed
             for candidate in candidates
         )
+
+    @staticmethod
+    def _resolve_identity_alias(cfg, platform: str, sender_id: str) -> Optional[str]:
+        """Mirror LivingMemory ``identity_aliases`` (source=canonical)."""
+        raw = cfg("access_control.identity_aliases", "") or ""
+        aliases = {}
+        for line in str(raw).splitlines():
+            source, separator, target = line.partition("=")
+            if not separator:
+                continue
+            source = source.strip()
+            target = target.strip()
+            if source and target:
+                aliases[source.casefold()] = target
+        candidates = (
+            f"{platform}:{sender_id}" if platform and sender_id else "",
+            str(sender_id or ""),
+        )
+        for candidate in candidates:
+            if candidate and candidate.casefold() in aliases:
+                return aliases[candidate.casefold()]
+        return None
 
     @staticmethod
     def _clean_command_payload(content: str) -> str:
