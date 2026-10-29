@@ -1,0 +1,44 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px;
+    background: var(--surface-alt);
+    border-radius: 10px;
+  }
+}
+
+.result-box {
+  max-height: 320px;
+  margin: 10px 0 0;
+  overflow: auto;
+  padding: 12px;
+  background: var(--surface-alt);
+  border-radius: 11px;
+  font: 12px/1.6 ui-monospace, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@include mobile {
+  .source-grid,
+  .option-grid {
+    grid-template-columns: 1fr;
+  }
+}

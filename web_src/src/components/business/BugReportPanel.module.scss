@@ -1,0 +1,55 @@
+@use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.log-preview {
+  margin: 10px 0;
+
+  summary {
+    cursor: pointer;
+    color: var(--primary);
+  }
+
+  h4 {
+    margin: 10px 0 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  pre {
+    max-height: 240px;
+    margin: 0;
+    padding: 10px;
+    overflow: auto;
+    background: var(--surface-alt);
+    border-radius: 10px;
+    font: 12px/1.6 ui-monospace, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+}
+
+.history-title {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+@include tablet {
+  .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@include mobile {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}

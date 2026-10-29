@@ -23,6 +23,61 @@
   gap: 10px;
 }
 
+.persona-list,
+.reviewed-list {
+  display: grid;
+  gap: 10px;
+}
+
+.persona-card,
+.reviewed-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+
+  > div:first-child {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  small {
+    color: var(--muted);
+  }
+}
+
+.reviewed-card {
+  display: grid;
+  gap: 8px;
+
+  p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+}
+
+.reviewed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+
+  > div {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+}
+
+.detail-line {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .backup-card {
   display: flex;
   justify-content: space-between;
@@ -39,7 +94,8 @@
 }
 
 @include mobile {
-  .backup-card {
+  .backup-card,
+  .persona-card {
     align-items: flex-start;
     flex-direction: column;
   }

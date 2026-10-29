@@ -6,6 +6,7 @@ import type { IntegrationItem } from '../../types/dashboard';
 import { summarize } from '../../lib/format';
 import { resolveHostUrl } from '../../lib/routing';
 import { IntegrationCard } from '../../components/business/IntegrationCard';
+import { MaiBotImportPanel } from '../../components/business/MaiBotImportPanel';
 import { PageHeader } from '../../components/layout/PageHeader';
 import { Button, Input, Panel, Select, Textarea } from '../../components/ui';
 import styles from './IntegrationsPage.module.scss';
@@ -185,6 +186,7 @@ export function IntegrationsPage() {
           </div>
         </Panel>
       </div>
+      <MaiBotImportPanel />
     </div>
   );
 }
