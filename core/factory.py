@@ -217,7 +217,11 @@ class ServiceFactory(IServiceFactory):
             if getattr(self.config, 'enable_maibot_features', False):
                 try:
                     from ..services.integration import MaiBotQualityMonitor
-                    service = MaiBotQualityMonitor(self.config, self.create_database_manager())
+                    service = MaiBotQualityMonitor(
+                        self.config,
+                        self.create_database_manager(),
+                        self.context,
+                    )
                     self._registry.register_service("quality_monitor", service)
                     self._logger.info("创建MaiBot质量监控器成功")
                     return service

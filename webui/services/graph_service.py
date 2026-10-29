@@ -341,28 +341,57 @@ class GraphService:
         group_id: Optional[str],
         limit: int,
     ) -> Dict[str, Any]:
-        snapshot_getter = getattr(graph_store, "get_graph_snapshot", None)
+        light_snapshot_getter = getattr(graph_store, "get_graph_snapshot", None)
+        full_snapshot_getter = getattr(graph_store, "get_full_graph_snapshot", None)
+
+        # LivingMemory 2.8.x 新增全量快照（取消固定截断）。仅在显式请求
+        # 最大 limit（Dashboard 全量视图）时使用，避免默认概览拉全库图。
+        use_full_snapshot = callable(full_snapshot_getter) and limit >= 300
+        snapshot_getter = (
+            full_snapshot_getter if use_full_snapshot else light_snapshot_getter
+        )
         if not callable(snapshot_getter):
             return {}
 
-        limit_memories = max(1, min(max(limit // 8, 12), 24))
-        limit_entries = max(12, min(limit, 80))
-        limit_nodes = max(12, min(limit, 80))
-        limit_edges = max(12, min(limit * 2, 120))
+        # 节点/关系/记忆预算与页面容量对齐；graph_store 内部会再钳制
+        # entries/nodes/edges 上限（400/200/400）。
+        limit_memories = max(12, min(max(limit // 4, 12), 48))
+        limit_entries = max(24, min(limit, 200))
+        limit_nodes = max(24, min(limit, 200))
+        limit_edges = max(24, min(limit * 2, 400))
 
         session_candidates = self._livingmemory_session_candidates(group_id)
         last_snapshot: Dict[str, Any] = {}
         for session_id in session_candidates:
-            snapshot = snapshot_getter(
-                session_id=session_id,
-                persona_id=None,
-                limit_memories=limit_memories,
-                limit_entries=limit_entries,
-                limit_nodes=limit_nodes,
-                limit_edges=limit_edges,
-            )
-            if inspect.isawaitable(snapshot):
-                snapshot = await snapshot
+            snapshot: Any = None
+            if use_full_snapshot:
+                try:
+                    snapshot = snapshot_getter(
+                        session_id=session_id,
+                        persona_id=None,
+                    )
+                    if inspect.isawaitable(snapshot):
+                        snapshot = await snapshot
+                except TypeError:
+                    # 旧版 graph_store 可能不接受全量参数，本次及后续回退轻量快照
+                    use_full_snapshot = False
+                    snapshot_getter = light_snapshot_getter
+                    if not callable(snapshot_getter):
+                        return {}
+                    snapshot = None
+
+            if snapshot is None:
+                snapshot = snapshot_getter(
+                    session_id=session_id,
+                    persona_id=None,
+                    limit_memories=limit_memories,
+                    limit_entries=limit_entries,
+                    limit_nodes=limit_nodes,
+                    limit_edges=limit_edges,
+                )
+                if inspect.isawaitable(snapshot):
+                    snapshot = await snapshot
+
             if isinstance(snapshot, dict):
                 last_snapshot = snapshot
                 if self._livingmemory_snapshot_has_data(snapshot):
@@ -370,17 +399,44 @@ class GraphService:
         return last_snapshot
 
     def _livingmemory_session_candidates(self, group_id: Optional[str]) -> List[Optional[str]]:
-        if not group_id:
-            return [None]
-
         candidates: List[Optional[str]] = []
-        mapping = getattr(self.container, "group_id_to_unified_origin", None)
-        if isinstance(mapping, dict):
-            mapped = mapping.get(str(group_id))
-            if mapped:
-                candidates.append(str(mapped))
-        candidates.append(str(group_id))
+
+        # LivingMemory 2.8.x 作用域模式：global 模式把记忆存到固定 scope，
+        # 优先直接读该 scope；user 模式需要身份信息，回退到无过滤快照。
+        if self._livingmemory_scope_mode() == "global":
+            candidates.append("livingmemory:global")
+
+        if group_id:
+            mapping = getattr(self.container, "group_id_to_unified_origin", None)
+            if isinstance(mapping, dict):
+                mapped = mapping.get(str(group_id))
+                if mapped:
+                    candidates.append(str(mapped))
+            candidates.append(str(group_id))
+        else:
+            # 仅在“全部群”视图时回退无过滤快照；按群查询不得混入其他群图谱
+            candidates.append(None)
         return list(dict.fromkeys(candidates))
+
+    def _livingmemory_scope_mode(self) -> str:
+        delegation = self._delegation()
+        if not delegation:
+            return ""
+        try:
+            star = delegation.memory_plugin()
+        except Exception:
+            return ""
+        plugin = getattr(star, "star_cls", None)
+        config_manager = getattr(plugin, "config_manager", None)
+        getter = getattr(config_manager, "get", None)
+        if not callable(getter):
+            return ""
+        try:
+            return str(
+                getter("filtering_settings.memory_scope_mode", "legacy")
+            ).casefold()
+        except Exception:
+            return ""
 
     @staticmethod
     def _livingmemory_snapshot_has_data(snapshot: Any) -> bool:

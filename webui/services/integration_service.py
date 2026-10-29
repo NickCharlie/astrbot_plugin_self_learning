@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import sys
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+from astrbot.api import logger
 
 try:
     from ...config import get_config_cost_warnings
@@ -56,13 +59,21 @@ LIVINGMEMORY_API_ENDPOINTS = [
 GROUP_CHAT_PLUS_API_ENDPOINTS = [
     "POST /api/auth/login",
     "GET /api/auth/status",
+    "GET /api/auth/heartbeat",
+    "POST /api/auth/logout",
     "GET /api/config",
     "PUT /api/config",
     "POST /api/config/reload",
+    "GET /api/config/download",
     "GET /api/data/overview",
     "GET /api/data/status",
+    "GET /api/data/sessions",
+    "GET /api/data/session-detail/{session}",
     "GET /api/session/list",
+    "POST /api/session/reset/{session}",
     "POST /api/session/clean-ghosts",
+    "GET /api/session/chat-history/{session}",
+    "PUT /api/session/chat-history/{session}",
     "GET /api/security/access-log",
 ]
 
@@ -242,7 +253,7 @@ class IntegrationService:
             "warnings": get_config_cost_warnings(config),
             "dashboards": [
                 self._self_learning_dashboard(),
-                self._livingmemory_dashboard(memory_star, status),
+                await self._livingmemory_dashboard(memory_star, status),
                 await self._group_chat_plus_dashboard(reply_star, status),
             ],
             "hub": self._hub_contract(config),
@@ -316,7 +327,9 @@ class IntegrationService:
             "settings_group": "Integration_Settings",
         }
 
-    def _livingmemory_dashboard(self, star: Any, status: Dict[str, Any]) -> Dict[str, Any]:
+    async def _livingmemory_dashboard(
+        self, star: Any, status: Dict[str, Any]
+    ) -> Dict[str, Any]:
         plugin = getattr(star, "star_cls", None)
         webui_settings = {}
         config_manager = getattr(plugin, "config_manager", None)
@@ -333,6 +346,7 @@ class IntegrationService:
             )
 
         official_page_url = self._livingmemory_official_page_url(star)
+        memory_count = await self._livingmemory_memory_count(star)
 
         if star is None:
             status_block = {
@@ -355,6 +369,7 @@ class IntegrationService:
             "delegated": bool(status.get("memory_delegated")),
             "plugin": self._star_info(star),
             "status": status_block,
+            "memory_count": memory_count,
             "dashboard": {
                 "available": bool(dashboard_url or plugin or official_page_url),
                 "external_url": dashboard_url or official_page_url,
@@ -370,6 +385,29 @@ class IntegrationService:
             },
             "settings_group": "Integration_Settings",
         }
+
+    async def _livingmemory_memory_count(self, star: Any) -> Optional[int]:
+        """Read LivingMemory 2.7+ total memory count for the integration card."""
+        plugin = getattr(star, "star_cls", None)
+        initializer = getattr(plugin, "initializer", None)
+        memory_engine = (
+            getattr(initializer, "memory_engine", None)
+            or getattr(plugin, "memory_engine", None)
+        )
+        stats_getter = getattr(memory_engine, "get_statistics", None)
+        if not callable(stats_getter):
+            return None
+        try:
+            stats = stats_getter()
+            if inspect.isawaitable(stats):
+                stats = await stats
+        except Exception as exc:
+            logger.debug(f"读取 LivingMemory 记忆统计失败: {exc}")
+            return None
+        if not isinstance(stats, dict):
+            return None
+        total = stats.get("total_memories")
+        return int(total) if isinstance(total, (int, float)) else None
 
     def _livingmemory_official_page_url(self, star: Any) -> Optional[str]:
         """LivingMemory 2.6.0+ 自带 AstrBot 官方插件页（views|pages/<页名>/index.html）。
@@ -465,12 +503,14 @@ class IntegrationService:
             return {
                 "name": None,
                 "display_name": None,
+                "version": None,
                 "root_dir_name": None,
                 "module_path": None,
             }
         return {
             "name": getattr(star, "name", None),
             "display_name": getattr(star, "display_name", None),
+            "version": getattr(star, "version", None),
             "root_dir_name": getattr(star, "root_dir_name", None),
             "module_path": getattr(star, "module_path", None),
         }

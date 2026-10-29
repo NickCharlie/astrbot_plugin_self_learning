@@ -244,6 +244,32 @@ class ProgressiveLearningService:
             except Exception:
                 pass
 
+    async def _refresh_quality_after_updates(
+        self,
+        group_id: str,
+        quality_metrics,
+        learning_messages: List[Dict[str, Any]],
+        quality_score: float,
+    ) -> float:
+        """学习产物落库后刷新真实增长指标。
+
+        MaiBot 质量监控器的表达/记忆/知识指标需要在学习应用后才能从
+        数据库或 LivingMemory 读取到真实增量（人格字典本身没有这些字段）。
+        """
+        refresh = getattr(self.quality_monitor, "refresh_learning_impact", None)
+        if not callable(refresh):
+            return quality_score
+
+        try:
+            refreshed = await refresh(group_id, quality_metrics, learning_messages)
+        except Exception as exc:
+            logger.debug(f"刷新学习质量指标失败: {exc}")
+            return quality_score
+
+        if isinstance(refreshed, (int, float)) and refreshed > 0:
+            return float(refreshed)
+        return quality_score
+
     def _build_fallback_style_analysis_data(
         self,
         filtered_messages: List[Dict[str, Any]],
@@ -547,6 +573,9 @@ class ProgressiveLearningService:
             # 注意：对话风格（表达模式）学习总是成功，人格学习在_apply_learning_updates中会加入审查
             # 传递 relearn_mode 和 ml_tuning_info 参数
             await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=relearn_mode, ml_tuning_info=ml_tuning_info)
+            quality_score = await self._refresh_quality_after_updates(
+                group_id, quality_metrics, filtered_messages, quality_score
+            )
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_score:.3f} for group {group_id}")
             success = True # 对话风格学习总是成功
             
@@ -738,6 +767,9 @@ class ProgressiveLearningService:
             if style_analysis is None:
                 style_analysis = AnalysisResult(success=True, confidence=0.5, data={})
             await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
+            quality_score = await self._refresh_quality_after_updates(
+                group_id, quality_metrics, filtered_messages, quality_score
+            )
             logger.info(f"学习更新已应用（对话风格学习已完成，人格学习已加入审查），质量得分: {quality_score:.3f} for group {group_id}")
             success = True # 对话风格学习总是成功
 
