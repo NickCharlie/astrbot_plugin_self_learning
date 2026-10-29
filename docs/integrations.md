@@ -11,7 +11,7 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 | 风格审查 | Self Learning | 保持不变 |
 | 黑话学习 | Self Learning | 保持不变 |
 | few-shot 注入 | Self Learning | 保持不变 |
-| 长期记忆写入 | Self Learning | LivingMemory 已加载时跳过本地写入 |
+| 长期记忆写入 | Self Learning | 后台学习跳过本地写入；`remember`/Hub 显式记忆改由 LivingMemory `MemoryEngine.add_memory` 写入 |
 | 长期记忆注入 | Self Learning | LivingMemory 已加载时跳过本地 V2 记忆注入 |
 | 回复决策 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器 |
 | 回复生成 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器 |
@@ -28,6 +28,17 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 | `delegate_reply_to_group_chat_plus` | `true` | 允许把回复决策和生成委托给 Group Chat Plus |
 | `group_chat_plus_plugin_name` | `astrbot_plugin_group_chat_plus` | Group Chat Plus 检测名 |
 | `disable_local_reply_when_delegated` | `true` | 委托生效时禁用本地回复器 |
+
+兼容基线（2026-10 实测）:
+
+- LivingMemory `2.8.2`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`）
+- Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名）
+
+两个插件更新时优先检查以下契约:
+
+- LivingMemory 插件结构 `star.star_cls.initializer.memory_engine`（`graph_store` / `add_memory` / `get_statistics`）
+- LivingMemory 记忆注入为 add-only `extra_user_content_parts`，本插件同样只追加临时片段，不改写宿主对话历史
+- Group Chat Plus 引用纯图片会渲染为 `[引用 >>> 昵称(ID:x): [图片]]`，本插件在学习样本过滤阶段会剥离媒体占位，纯媒体消息不进入表达学习
 
 检测别名:
 
@@ -55,6 +66,7 @@ feature_delegation.should_delegate_memory()
 - `services/core_learning/v2_learning_integration.py`: 跳过本地 memory engine 写入和检索。
 - `services/hooks/llm_hook_handler.py`: 跳过本地 V2 记忆上下文注入。
 - `services/persona/persona_updater.py`: 跳过本地记忆图谱更新。
+- `services/learning/remember_service.py`: `remember`/Hub 显式记忆转写 LivingMemory `MemoryEngine.add_memory`（按 LivingMemory `filtering_settings.memory_scope_mode` 解析 `session`/`user`/`global`/`legacy` 作用域，遵守 `access_control` 白名单；engine 未就绪、白名单拒绝或写入失败时回退本地 `memories` 表）。
 
 ### 回复委托
 
@@ -152,8 +164,9 @@ GET /api/hub/v1/status
 | `role` | 插件职责 |
 | `active` | 是否检测到插件 |
 | `delegated` | 当前能力是否已委托 |
-| `plugin` | AstrBot star 元信息 |
+| `plugin` | AstrBot star 元信息（含 `version`） |
 | `status` | 运行状态标识：`healthy`（`true`/`false`/`null`=未知）、`state`（`ok`/`degraded`/`offline`/`not_installed`/`unknown`）、`message`（人读原因）。Group Chat Plus 会对面板端口做可达性探测（结果缓存 60 秒）；LivingMemory 以插件是否加载为准 |
+| `memory_count` | LivingMemory 已就绪时的全局记忆总数（`MemoryEngine.get_statistics().total_memories`），不可读为 `null` |
 | `dashboard` | 面板入口：`external_url`（新窗口打开的独立面板/官方面板链接）、`route`（本监控板内路由，如 LivingMemory 的 `#/graphs`）、`label`。插件面板不再以 iframe 内嵌（issue #271：GCP v1.2.x 固定 `X-Frame-Options: DENY`、AstrBot 官方插件页固定 `SAMEORIGIN`，内嵌必被浏览器拦截），一律新窗口打开 |
 | `dashboard.official_page_url` | 伴随插件自带 AstrBot 官方插件页时的入口（LivingMemory 2.6.0+）。指向 AstrBot Dashboard 前端 hash 路由 `/#/plugin-page/<插件名>/<页名>`（v4.29 起 `/#/plugin-view/...`），由集成服务探测插件 `views|pages/<页名>/index.html` 与主配置 `dashboard.host/port` 自动生成；该页面需 AstrBot 会话 JWT，只能新窗口打开 |
 | `dev_api` | 该插件公开 API 列表 |
@@ -244,17 +257,31 @@ ECharts 图谱 payload。记忆图和知识图谱都会优先读取 LivingMemory
 - `GET /api/graphs/memory`
 - `GET /api/graphs/knowledge`
 
+LivingMemory `2.8.x` 新增 `get_full_graph_snapshot`（取消固定节点截断）。
+当本插件图谱请求的 `limit >= 200` 时优先使用全量快照，普通概览仍使用
+`get_graph_snapshot` 轻量快照；节点/关系/记忆预算与看板容量对齐。
+读取时会根据 LivingMemory `memory_scope_mode` 优先尝试 `livingmemory:global`
+作用域，最后回退到无会话过滤快照，避免切换作用域模式后图谱页空白。
+
 ### Group Chat Plus
 
 - `POST /api/auth/login`
 - `GET /api/auth/status`
+- `GET /api/auth/heartbeat`
+- `POST /api/auth/logout`
 - `GET /api/config`
 - `PUT /api/config`
 - `POST /api/config/reload`
+- `GET /api/config/download`
 - `GET /api/data/overview`
 - `GET /api/data/status`
+- `GET /api/data/sessions`
+- `GET /api/data/session-detail/{session}`
 - `GET /api/session/list`
+- `POST /api/session/reset/{session}`
 - `POST /api/session/clean-ghosts`
+- `GET /api/session/chat-history/{session}`
+- `PUT /api/session/chat-history/{session}`
 - `GET /api/security/access-log`
 
 ## 排查
@@ -262,7 +289,8 @@ ECharts 图谱 payload。记忆图和知识图谱都会优先读取 LivingMemory
 | 现象 | 检查 |
 | --- | --- |
 | Dashboard 显示未委托 | 目标插件是否已加载、启用、名称是否匹配 |
-| LivingMemory 已安装但仍写入本地记忆 | `delegate_memory_to_livingmemory` 和 `disable_local_memory_when_delegated` 是否为 `true` |
+| LivingMemory 已安装但仍写入本地记忆 | `delegate_memory_to_livingmemory` 和 `disable_local_memory_when_delegated` 是否为 `true`；`remember` 会在 `memory_engine` 未就绪时回退本地并记录 debug 日志 |
+| 纯图片/引用图片消息被学成表达 | 检查日志中的样本过滤；`services/learning/sample_filter.py` 会剥离 `[图片]` / `[CQ:image,...]` / `[引用 >>> ...: [图片]]` 占位，纯媒体消息不进入学习 |
 | Group Chat Plus 已安装但仍创建本地回复器 | `delegate_reply_to_group_chat_plus` 和 `disable_local_reply_when_delegated` 是否为 `true` |
 | 面板入口为空 | 目标插件 Web 面板是否开启；LivingMemory 2.6.0+ 由集成服务自动探测其官方插件页（`pages/` 目录 + AstrBot 主配置 `dashboard` 段），图谱模块仍可通过本插件 `/api/graphs/*` 查看 |
 | Group Chat Plus 嵌入壳显示"面板禁止内嵌" | 该面板自 v1.2.x 起返回 `X-Frame-Options: DENY`，无法被 iframe 嵌入，属预期行为；集成服务会探测响应头并自动改用新窗口入口 |

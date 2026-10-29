@@ -282,6 +282,8 @@ class PluginLifecycle:
                     "_embedding_provider",
                     None,
                 ),
+                feature_delegation=getattr(p, "feature_delegation", None),
+                group_id_to_unified_origin=group_id_to_unified_origin,
             )
 
             p._command_handlers = PluginCommandHandlers(

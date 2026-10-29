@@ -24,6 +24,22 @@ BARE_COMMANDS = {
 }
 COMMAND_LIKE_PATTERN = re.compile(r"^[/!#.][^\W\d_][\w-]*(?:\s+.*)?$")
 COMMAND_REFERENCE_PATTERN = re.compile(r"[/!#.][^\W\d_][\w-]*")
+
+# 媒体占位符：图片/表情/语音等消息在文本层只剩占位标签。
+# ChatPlus 1.2.x 会把引用消息中的纯图片渲染为
+# ``[引用 >>> 昵称(ID:x): [图片]]``，这类样本没有学习价值。
+MEDIA_PLACEHOLDER_PATTERN = re.compile(
+    r"\[(?:图片|表情|动画表情|语音|视频|文件|音乐|卡片|位置|链接|image|img|sticker|voice|video|file)\]"
+    r"|\[CQ:(?:image|face|record|video|file|mface)[^\]]*\]"
+    r"|<(?:img|image)\b[^>]*>",
+    re.IGNORECASE,
+)
+REFERENCE_CONTAINER_PATTERN = re.compile(
+    r"\[引用\s*>>>\s*[^:(\]]*(?:\([^)]*\))?\s*:\s*"
+    r"((?:[^\[\]]|\[[^\]]*\])*)\]",
+    re.DOTALL,
+)
+CQ_REPLY_PATTERN = re.compile(r"\[CQ:reply[^\]]*\]", re.IGNORECASE)
 COMMAND_GUIDANCE_PATTERNS = (
     re.compile(
         r"(?:使用|输入|发送|执行|运行|调用|通过).{0,12}"
@@ -98,7 +114,8 @@ PLUGIN_RUNTIME_CONTEXT_PATTERN = (
     r"(?:LivingMemory|astrbot_plugin_livingmemory|MemoryEngine|"
     r"ConversationManager|FaissVecDB|FAISS|BM25|WebUI|"
     r"EventHandler|ConversationStore|MemoryProcessor|PageAPI|"
-    r"BackupManager|AtomLifecycle|StorageMaintenance|VectorRetriever)"
+    r"BackupManager|AtomLifecycle|StorageMaintenance|VectorRetriever|"
+    r"GroupChatPlus|astrbot_plugin_group_chat_plus)"
 )
 PLUGIN_RUNTIME_ACTION_PATTERN = (
     r"(?:初始化|启动|停止|关闭|退出|失败|异常|成功|超时|耗时|"
@@ -131,6 +148,34 @@ PLUGIN_LOG_PATTERNS = (
 
 def _normalize_text(message_text: Any) -> str:
     return "" if message_text is None else str(message_text).strip()
+
+
+def strip_media_placeholders(message_text: Any) -> str:
+    """Remove media-only placeholders while keeping surrounding chat text.
+
+    ``[引用 >>> A(ID:1): [图片]]`` becomes empty and is dropped entirely;
+    ``[引用 >>> A(ID:1): 你好 [图片]]`` keeps ``你好``.
+    """
+    text = _normalize_text(message_text)
+    if not text:
+        return ""
+
+    def _unwrap_reference(match: re.Match[str]) -> str:
+        content = MEDIA_PLACEHOLDER_PATTERN.sub("", match.group(1))
+        return content.strip(" []:：")
+
+    cleaned = REFERENCE_CONTAINER_PATTERN.sub(_unwrap_reference, text)
+    cleaned = MEDIA_PLACEHOLDER_PATTERN.sub("", cleaned)
+    cleaned = CQ_REPLY_PATTERN.sub("", cleaned)
+    return cleaned.strip()
+
+
+def is_media_only_message(message_text: Any) -> bool:
+    """Return true when the message contains no learnable text."""
+    text = _normalize_text(message_text)
+    if not text:
+        return True
+    return not strip_media_placeholders(text)
 
 
 def _metadata_values(value: Any) -> List[str]:
@@ -390,6 +435,9 @@ def should_ignore_learning_sample(
     text = _normalize_text(message_text)
     if not text:
         return True
+    if is_media_only_message(text):
+        return True
+    plain_text = strip_media_placeholders(text)
     if has_system_event_metadata(
         source=source,
         message_type=message_type,
@@ -404,8 +452,8 @@ def should_ignore_learning_sample(
     if is_plugin_log_message(text):
         return True
     if is_bot or str(sender_id or "").lower() == "bot":
-        return is_system_response(text)
-    return is_command_message(text) or is_system_response(text)
+        return is_system_response(plain_text)
+    return is_command_message(plain_text) or is_system_response(plain_text)
 
 
 def filter_learning_messages(messages: Iterable[Any]) -> List[Any]:
@@ -414,10 +462,24 @@ def filter_learning_messages(messages: Iterable[Any]) -> List[Any]:
     for item in messages or []:
         if isinstance(item, dict):
             text = item.get("message", "")
-            sender_id = item.get("sender_id")
         else:
             text = getattr(item, "message", "")
-            sender_id = getattr(item, "sender_id", None)
+
+        # 去掉图片/表情占位符，避免 ChatPlus 的引用图片占位污染样本
+        cleaned_text = strip_media_placeholders(text)
+        if cleaned_text != _normalize_text(text):
+            if isinstance(item, dict):
+                item["message"] = cleaned_text
+            else:
+                try:
+                    setattr(item, "message", cleaned_text)
+                except Exception:
+                    pass
+        text = cleaned_text
+
+        sender_id = (
+            item.get("sender_id") if isinstance(item, dict) else getattr(item, "sender_id", None)
+        )
         metadata = extract_learning_message_metadata(item)
         if should_ignore_learning_sample(
             text,

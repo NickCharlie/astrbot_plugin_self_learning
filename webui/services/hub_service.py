@@ -272,11 +272,15 @@ class HubService:
         if not service:
             raise ValueError("remember service is not initialized")
 
-        result = await service.remember(
-            group_id=self._required_text(payload, "group_id"),
-            sender_id=self._text(payload.get("sender_id") or payload.get("user_id") or "api"),
-            content=self._required_text(payload, "content"),
-        )
+        remember_kwargs = {
+            "group_id": self._required_text(payload, "group_id"),
+            "sender_id": self._text(payload.get("sender_id") or payload.get("user_id") or "api"),
+            "content": self._required_text(payload, "content"),
+        }
+        unified_origin = payload.get("unified_origin") or payload.get("session_id")
+        if unified_origin:
+            remember_kwargs["unified_origin"] = str(unified_origin)
+        result = await service.remember(**remember_kwargs)
         return {
             "memory_id": result.memory_id,
             "expression_saved": result.expression_saved,

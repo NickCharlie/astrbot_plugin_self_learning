@@ -272,12 +272,16 @@ class PluginCommandHandlers:
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
             persona_id = get_event_persona_scope(event, self._config)
-            result = await self._remember_service.remember(
-                group_id=group_id,
-                sender_id=sender_id,
-                content=content,
-                persona_id=persona_id,
-            )
+            remember_kwargs = {
+                "group_id": group_id,
+                "sender_id": sender_id,
+                "content": content,
+                "persona_id": persona_id,
+            }
+            unified_origin = getattr(event, "unified_msg_origin", None)
+            if unified_origin:
+                remember_kwargs["unified_origin"] = unified_origin
+            result = await self._remember_service.remember(**remember_kwargs)
 
             yield event.plain_result(
                 "已记住这段对话上下文，并同步到表达方式和对话示例。\n"
