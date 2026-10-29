@@ -228,10 +228,13 @@ def test_post_integrations_action_worldbook_invalid_json_reports_failure():
         raise ValueError("世界书 JSON 格式无效")
 
     _FakeWorldbookImporter.instances = []
+    # 还原类方法而不是 del：pytest-randomly 会打乱用例顺序，删除类属性会
+    # 污染后续依赖 preview 的用例（CI 随机失败的根因）。
+    original_preview = _FakeWorldbookImporter.preview
     _FakeWorldbookImporter.preview = broken_preview
     try:
         result = asyncio.run(api.post_integrations_action())
     finally:
-        del _FakeWorldbookImporter.preview
+        _FakeWorldbookImporter.preview = original_preview
 
     assert result["data"]["success"] is False
