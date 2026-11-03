@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 from astrbot.api import logger
 
 from ._base import BaseFacade
-from sqlalchemy import and_, desc, distinct, func, select
+from sqlalchemy import and_, desc, distinct, func, or_, select
 try:
     from ....repositories.raw_message_repository import RawMessageRepository
     from ....repositories.filtered_message_repository import FilteredMessageRepository
@@ -102,11 +102,17 @@ class MessageFacade(BaseFacade):
     async def get_recent_raw_messages(
         self, group_id: str, limit: int = 200
     ) -> List[Dict[str, Any]]:
-        """获取最近的原始消息"""
+        """获取最近的原始消息（已按学习黑名单排除发送者与群组）"""
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
                 repo = RawMessageRepository(session)
-                messages = await repo.get_recent(group_id=group_id, limit=limit)
+                messages = await repo.get_recent(
+                    group_id=group_id,
+                    limit=limit,
+                    excluded_sender_ids=blocked_senders,
+                    excluded_group_ids=blocked_groups,
+                )
                 return [
                     {
                         'id': msg.id, 'sender_id': msg.sender_id,
@@ -126,13 +132,20 @@ class MessageFacade(BaseFacade):
     async def get_unprocessed_messages(
         self, limit: Optional[int] = None, group_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """获取未处理的原始消息"""
+        """获取未处理的原始消息（已按学习黑名单排除发送者与群组）
+
+        学习批次就从这条链路取数（issue #284）：黑名单必须在这里也生效，
+        否则入站后已写入的 raw_messages 会持续被风格学习消费。
+        """
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
                 repo = RawMessageRepository(session)
                 messages = await repo.get_unprocessed(
                     limit=limit or 100,
                     group_id=group_id,
+                    excluded_sender_ids=blocked_senders,
+                    excluded_group_ids=blocked_groups,
                 )
                 return [
                     {
@@ -172,11 +185,19 @@ class MessageFacade(BaseFacade):
     async def get_messages_by_group_and_timerange(
         self, group_id: str, start_time: int, end_time: int, limit: int = 500
     ) -> List[Dict[str, Any]]:
-        """按群组和时间范围获取消息"""
+        """按群组和时间范围获取消息（已按学习黑名单排除发送者与群组）"""
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
                 repo = RawMessageRepository(session)
-                messages = await repo.get_by_timerange(group_id, start_time, end_time, limit)
+                messages = await repo.get_by_timerange(
+                    group_id,
+                    start_time,
+                    end_time,
+                    limit,
+                    excluded_sender_ids=blocked_senders,
+                    excluded_group_ids=blocked_groups,
+                )
                 return [
                     {
                         'id': msg.id, 'sender_id': msg.sender_id,
@@ -192,18 +213,28 @@ class MessageFacade(BaseFacade):
     async def get_messages_for_replay(
         self, group_id: str, days: int = 30, limit: int = 100
     ) -> List[Dict[str, Any]]:
-        """获取用于记忆重放的消息"""
+        """获取用于记忆重放的消息（已按学习黑名单排除发送者与群组）"""
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
 
                 cutoff_time = time.time() - (days * 24 * 3600)
+                conditions = [
+                    RawMessage.group_id == group_id,
+                    RawMessage.timestamp > cutoff_time,
+                    RawMessage.processed == True,  # noqa: E712
+                ]
+                if blocked_senders:
+                    conditions.append(
+                        or_(RawMessage.sender_id.is_(None), RawMessage.sender_id.notin_(blocked_senders))
+                    )
+                if blocked_groups:
+                    conditions.append(
+                        or_(RawMessage.group_id.is_(None), RawMessage.group_id.notin_(blocked_groups))
+                    )
                 stmt = (
                     select(RawMessage)
-                    .where(and_(
-                        RawMessage.group_id == group_id,
-                        RawMessage.timestamp > cutoff_time,
-                        RawMessage.processed == True,  # noqa: E712
-                    ))
+                    .where(and_(*conditions))
                     .order_by(desc(RawMessage.timestamp))
                     .limit(limit)
                 )
@@ -225,11 +256,17 @@ class MessageFacade(BaseFacade):
     async def get_recent_filtered_messages(
         self, group_id: str, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """获取最近的筛选消息"""
+        """获取最近的筛选消息（已按学习黑名单排除发送者与群组）"""
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
                 repo = FilteredMessageRepository(session)
-                messages = await repo.get_recent(group_id=group_id, limit=limit)
+                messages = await repo.get_recent(
+                    group_id=group_id,
+                    limit=limit,
+                    excluded_sender_ids=blocked_senders,
+                    excluded_group_ids=blocked_groups,
+                )
                 return [
                     {
                         'id': msg.id, 'raw_message_id': msg.raw_message_id,
@@ -248,11 +285,16 @@ class MessageFacade(BaseFacade):
     async def get_filtered_messages_for_learning(
         self, limit: int = 20
     ) -> List[Dict[str, Any]]:
-        """获取待学习的筛选消息"""
+        """获取待学习的筛选消息（已按学习黑名单排除发送者与群组）"""
+        blocked_senders, blocked_groups = self._learning_blacklist_exclusions()
         try:
             async with self.get_session() as session:
                 repo = FilteredMessageRepository(session)
-                messages = await repo.get_for_learning(limit=limit)
+                messages = await repo.get_for_learning(
+                    limit=limit,
+                    excluded_sender_ids=blocked_senders,
+                    excluded_group_ids=blocked_groups,
+                )
                 return [
                     {
                         'id': msg.id, 'message': msg.message,

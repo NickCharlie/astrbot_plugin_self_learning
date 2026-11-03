@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from astrbot.api import logger
 from astrbot.api.star import Context
 
-from ...config import PluginConfig
+from ...config import PluginConfig, split_learning_blacklist
 from ...exceptions import LearningError
 
 from ..database import DatabaseManager
 from ..learning.expression_learning import ExpressionLearningModule
 from ..learning.persona_learning import PersonaLearningModule
-from ..learning.sample_filter import filter_learning_messages
+from ..learning.sample_filter import filter_blacklisted_messages, filter_learning_messages
 from ..monitoring.instrumentation import monitored
 
 
@@ -876,10 +876,22 @@ class ProgressiveLearningService:
 
     @monitored
     async def _filter_messages_with_context(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """对话风格学习不需要筛选，直接返回所有消息"""
+        """对话风格学习不做LLM筛选，但仍需排除黑名单与不可学习样本"""
+        # 取数层（MessageFacade）已按 target_blacklist 排除；这里再兜一次，覆盖
+        # 黑名单刚变更、以及调用方直接传入消息列表的路径（issue #284）。
+        blocked_senders, blocked_groups = split_learning_blacklist(
+            getattr(self.config, "target_blacklist", None)
+        )
+        if blocked_senders or blocked_groups:
+            kept = filter_blacklisted_messages(messages, self.config.target_blacklist)
+            dropped = len(messages or []) - len(kept)
+            if dropped:
+                logger.info(f"学习批次跳过 {dropped} 条黑名单消息")
+            messages = kept
+
         messages = filter_learning_messages(messages)
 
-        # 对话风格学习不需要LLM筛选，直接学习所有原始消息
+        # 对话风格学习不需要LLM筛选，直接学习所有非黑名单消息
         logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
 
         # 为每条消息添加默认的相关性评分

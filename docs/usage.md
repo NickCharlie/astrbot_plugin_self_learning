@@ -82,7 +82,12 @@ WebUI 相关配置:
 
 `Target_Settings.target_blacklist`:
 
-- 排除指定用户或群组。
+- 排除指定用户或群组（群组写 `group_<群号>`）。
+- 黑名单不只在入站采集时生效：风格/表达/黑话/社交分析等学习入口从 `raw_messages`、
+  `filtered_messages` 取数时同样在 SQL 层排除，因此拉黑后已经写入的历史消息也不会再
+  被学习，无需清洗数据；修改保存后立即生效（下一个学习周期起）。
+- bot 自身账号（`self_id`）默认不进入学习数据，不需要手动拉黑；黑名单群组的 Bot 出站
+  消息也不再写入 `BotMessage`。
 
 ### 3. 设置 Provider
 

@@ -55,6 +55,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         self,
         limit: int = 100,
         group_id: Optional[str] = None,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
     ) -> List[RawMessage]:
         """
         获取未处理的消息
@@ -62,6 +64,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         Args:
             limit: 最大返回数量
             group_id: 群组 ID（可选）
+            excluded_sender_ids: 学习黑名单里的发送者 ID，取数时直接排除
+            excluded_group_ids: 学习黑名单里的群组 ID，取数时直接排除
         Returns:
             List[RawMessage]: 未处理消息列表（按时间升序）
         """
@@ -72,6 +76,11 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             )
             if group_id:
                 stmt = stmt.where(RawMessage.group_id == group_id)
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
             stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
@@ -83,6 +92,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         self,
         group_id: str,
         limit: int = 100,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
     ) -> List[RawMessage]:
         """获取指定群组的未处理消息（按时间升序）。"""
         try:
@@ -92,9 +103,13 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                     RawMessage.processed == False,  # noqa: E712
                     RawMessage.group_id == group_id,
                 )
-                .order_by(RawMessage.timestamp.asc())
-                .limit(limit)
             )
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
+            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
@@ -154,7 +169,9 @@ class RawMessageRepository(BaseRepository[RawMessage]):
     async def get_recent(
         self,
         group_id: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
     ) -> List[RawMessage]:
         """
         获取最近的消息
@@ -162,6 +179,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         Args:
             group_id: 群组 ID（为 None 时不过滤）
             limit: 最大返回数量
+            excluded_sender_ids: 学习黑名单里的发送者 ID，取数时直接排除
+            excluded_group_ids: 学习黑名单里的群组 ID，取数时直接排除
 
         Returns:
             List[RawMessage]: 消息列表（按时间倒序）
@@ -170,6 +189,11 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             stmt = select(RawMessage)
             if group_id:
                 stmt = stmt.where(RawMessage.group_id == group_id)
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
             stmt = stmt.order_by(desc(RawMessage.timestamp)).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
@@ -182,7 +206,9 @@ class RawMessageRepository(BaseRepository[RawMessage]):
         group_id: str,
         start_ts: int,
         end_ts: int,
-        limit: int = 500
+        limit: int = 500,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
     ) -> List[RawMessage]:
         """
         按时间范围获取消息
@@ -192,6 +218,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             start_ts: 开始时间戳
             end_ts: 结束时间戳
             limit: 最大返回数量
+            excluded_sender_ids: 学习黑名单里的发送者 ID，取数时直接排除
+            excluded_group_ids: 学习黑名单里的群组 ID，取数时直接排除
 
         Returns:
             List[RawMessage]: 消息列表
@@ -204,9 +232,13 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                     RawMessage.timestamp >= start_ts,
                     RawMessage.timestamp <= end_ts,
                 ))
-                .order_by(RawMessage.timestamp.asc())
-                .limit(limit)
             )
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
+            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:

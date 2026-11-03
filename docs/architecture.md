@@ -112,7 +112,7 @@ AstrBot 完成 handler 绑定后调用 `initialize()`，它委托给 `PluginLife
 2. 对 at/唤醒消息触发好感度后台处理。
 3. 检查 `enable_message_capture`。
 4. 过滤 AstrBot 命令。
-5. 检查 QQ 白名单/黑名单。
+5. 检查 QQ 白名单/黑名单；bot 自身（`self_id`）消息默认跳过，不写入学习数据（issue #284）。
 6. 创建后台任务执行 `MessagePipeline.process_learning()`。
 
 ### `inject_diversity_to_llm_request`
