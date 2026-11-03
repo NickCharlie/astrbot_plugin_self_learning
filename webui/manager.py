@@ -50,12 +50,41 @@ class WebUIManager:
         self._database_degraded = False
         self._database_start_error: Optional[str] = None
         self._database_start_attempted = False
+        self._container_bound = False
+        self._services_bound = False
+
+    # 容器绑定（与独立 WebUI 服务器解耦）
+
+    def bind_container(self) -> bool:
+        """同步将插件服务绑定到 WebUI 容器，不创建也不启动服务器。
+
+        AstrBot 官方面板页只读容器，不读 7833 端口；WebUI 未启用、依赖缺失
+        或端口占用时也必须完成绑定，否则页面所有 section 报「未初始化」（issue #283）。
+        """
+        if self._container_bound:
+            return True
+        if self._plugin_instance is None:
+            return False
+
+        from .dependencies import get_container
+
+        container = get_container()
+        if not container.bind_plugin(self._plugin_instance):
+            logger.warning("[WebUI] 插件服务尚未就绪，面板页将无法读取数据，等待 on_load 重试")
+            return False
+        container.perf_collector = self._perf_tracker
+        self._container_bound = True
+        logger.info("[WebUI] 服务容器已绑定（与独立 WebUI 服务器解耦）")
+        return True
 
     # 创建
 
     def create_server(self) -> bool:
         """创建 Server 实例（不启动）。返回 True 表示需要立即启动。"""
         global _server_instance
+
+        # 面板页只依赖容器、不依赖独立服务器：先绑定，后续任何早退路径都不会让页面空转
+        self.bind_container()
 
         if not self._config.enable_web_interface:
             logger.info("WebUI 未启用")
@@ -107,6 +136,27 @@ class WebUIManager:
 
     # 启动
 
+    async def bind_services(self, *, force: bool = False) -> bool:
+        """将插件服务完整注册到 WebUI 容器（必要时先启动数据库）。
+
+        只在拿到 AstrBot 人格管理器后才置幂等标记；`__init__` 阶段框架可能尚未
+        就绪，on_load 需要能再试一次，否则人格相关服务会一直缺席。
+        """
+        if self._services_bound and not force:
+            return True
+
+        astrbot_pm = await self._acquire_persona_manager()
+        try:
+            await self._setup_services(astrbot_pm, self._database_manager)
+        except Exception as e:
+            logger.error(f"设置 Web 服务器插件服务失败: {e}", exc_info=True)
+            return False
+        self._container_bound = True
+        if astrbot_pm is not None:
+            self._services_bound = True
+        logger.info("Web 服务器插件服务设置完成")
+        return True
+
     async def immediate_start(self, db_manager: Any) -> None:
         """__init__ 阶段立即启动 WebUI（通过 asyncio.create_task 调用）"""
         await asyncio.sleep(1) # 等待插件完全初始化
@@ -121,12 +171,7 @@ class WebUIManager:
             return
 
         # 设置 WebUI 服务
-        db_manager = await self._ensure_database_manager_started(db_manager)
-        astrbot_pm = await self._acquire_persona_manager()
-        try:
-            await self._setup_services(astrbot_pm, db_manager)
-        except Exception as e:
-            logger.error(f"设置插件服务失败: {e}", exc_info=True)
+        if not await self.bind_services():
             return
 
         # 启动服务器
@@ -139,23 +184,18 @@ class WebUIManager:
             _server_instance = None
 
     async def setup_and_start(self) -> None:
-        """on_load 阶段设置服务并启动。"""
+        """on_load 阶段绑定服务并按需启动独立 WebUI 服务器。"""
         global _server_instance
 
-        if not self._config.enable_web_interface or not _server_instance:
-            if not self._config.enable_web_interface:
-                logger.info("WebUI 未启用，跳过启动")
-            if not _server_instance:
-                logger.info("WebUI 服务器未创建，跳过启动；如需使用请在插件设置页面手动安装 WebUI 依赖")
-            return
+        # 容器绑定与服务器启停解耦：官方面板页只依赖容器，因此即使 WebUI 未启用
+        # 或服务器未创建，也要先绑定，避免页面全部 section 报「未初始化」。
+        await self.bind_services()
 
-        # 设置 WebUI 服务
-        astrbot_pm = await self._acquire_persona_manager()
-        try:
-            await self._setup_services(astrbot_pm, self._database_manager)
-            logger.info("Web 服务器插件服务设置完成")
-        except Exception as e:
-            logger.error(f"设置 Web 服务器插件服务失败: {e}", exc_info=True)
+        if not self._config.enable_web_interface:
+            logger.info("WebUI 未启用，跳过启动")
+            return
+        if not _server_instance:
+            logger.info("WebUI 服务器未创建，跳过启动；如需使用请在插件设置页面手动安装 WebUI 依赖")
             return
 
         # 启动服务器
