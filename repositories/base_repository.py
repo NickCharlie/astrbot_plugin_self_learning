@@ -3,8 +3,8 @@ Repository 基类 - 提供通用的数据库操作
 使用泛型支持类型安全
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, update, func
-from typing import TypeVar, Generic, Type, List, Optional, Dict, Any
+from sqlalchemy import select, delete, update, func, or_
+from typing import TypeVar, Generic, Type, List, Optional, Dict, Any, Iterable
 from astrbot.api import logger
 
 
@@ -37,6 +37,40 @@ class BaseRepository(Generic[T]):
         """
         self.session = session
         self.model_class = model_class
+
+    def _apply_exclusions(
+        self,
+        stmt,
+        *,
+        excluded_sender_ids: Optional[Iterable[Any]] = None,
+        excluded_group_ids: Optional[Iterable[Any]] = None,
+    ):
+        """为查询加上学习黑名单排除条件。
+
+        issue #284：target_blacklist 过去只在入站采集时生效，历史行仍会被批量学习
+        消费。这里在 SQL 层排除，使黑名单变更立即对旧数据生效。列为 NULL 的旧行
+        无法归属，保留不加排除，避免丢失原有数据。
+
+        Args:
+            stmt: SQLAlchemy select 语句
+            excluded_sender_ids: 排除的发送者 ID 列表
+            excluded_group_ids: 排除的群组 ID 列表
+
+        Returns:
+            加上排除条件后的语句（两个列表均为空时原样返回）
+        """
+        for column_name, values in (
+            ("sender_id", excluded_sender_ids),
+            ("group_id", excluded_group_ids),
+        ):
+            cleaned = [str(value) for value in (values or []) if str(value or "").strip()]
+            if not cleaned:
+                continue
+            column = getattr(self.model_class, column_name, None)
+            if column is None:
+                continue
+            stmt = stmt.where(or_(column.is_(None), column.notin_(cleaned)))
+        return stmt
 
     async def get_by_id(self, id: int) -> Optional[T]:
         """

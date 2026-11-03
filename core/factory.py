@@ -18,7 +18,7 @@ from .patterns import StrategyFactory, ServiceRegistry
 from .framework_llm_adapter import FrameworkLLMAdapter # 导入框架LLM适配器
 
 # 使用单例模式导入配置和异常
-from ..config import PluginConfig, normalize_identifier_list
+from ..config import PluginConfig, normalize_identifier_list, split_learning_blacklist
 from ..exceptions import ServiceError
 from ..statics import prompts
 from ..utils.json_utils import safe_parse_llm_json
@@ -636,21 +636,22 @@ class QQFilter:
         # 检查是否在目标列表中（支持个人QQ号和群聊格式）
         return self._is_in_target_list(sender_id, group_id)
     
+    def is_blacklisted(self, sender_id: str, group_id: str = None) -> bool:
+        """仅判定黑名单（不含白名单语义），供采集、取数与学习入口共用。"""
+        return self._is_in_blacklist(sender_id, group_id)
+
     def _is_in_blacklist(self, sender_id: str, group_id: str = None) -> bool:
-        """检查用户是否在黑名单中"""
-        if not self.blacklist:
+        """检查用户是否在黑名单中（与取数层共用 split_learning_blacklist 语义）"""
+        blocked_senders, blocked_groups = split_learning_blacklist(self.blacklist)
+        if not blocked_senders and not blocked_groups:
             return False
-        
-        # 检查个人QQ号
-        if sender_id in self.blacklist:
+
+        if sender_id and str(sender_id) in blocked_senders:
             return True
-        
-        # 检查群聊格式 (group_群号)
-        if group_id:
-            group_format = f"group_{group_id}"
-            if group_format in self.blacklist:
-                return True
-        
+
+        if group_id and str(group_id) in blocked_groups:
+            return True
+
         return False
     
     def _is_in_target_list(self, sender_id: str, group_id: str = None) -> bool:
@@ -684,15 +685,7 @@ class QQFilter:
 
     def get_blocked_group_ids(self) -> list:
         """从 target_blacklist 中提取需要排除的群组 ID 列表。"""
-        if not self.blacklist:
-            return []
-
-        prefix = "group_"
-        return [
-            item[len(prefix):]
-            for item in self.blacklist
-            if item.startswith(prefix)
-        ]
+        return split_learning_blacklist(self.blacklist)[1]
 
 
 class MessageFilter:

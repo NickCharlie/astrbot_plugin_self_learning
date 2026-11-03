@@ -193,7 +193,9 @@ LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 批量学习流程:
 
 1. 创建 `LearningSession`。
-2. 获取当前群组未处理消息。
+2. 获取当前群组未处理消息。取数层（`MessageFacade.get_unprocessed_messages`）已按
+   `target_blacklist` 排除黑名单发送者与群组，因此拉黑后 `raw_messages` 里的历史消息
+   也不会再进入学习（issue #284）；`_filter_messages_with_context` 再兜一次。
 3. 筛选消息并保存到 `FilteredMessage`。
 4. 获取当前人格。
 5. 构造轻量 `AnalysisResult`。

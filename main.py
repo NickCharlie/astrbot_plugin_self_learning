@@ -282,6 +282,21 @@ class SelfLearningPlugin(star.Star):
 
     # 消息监听
 
+    def _is_self_message(self, event: AstrMessageEvent, sender_id: Optional[str]) -> bool:
+        """入站消息是否由 bot 自身发出。
+
+        issue #284：bot 自身账号默认不进学习数据，不要求用户把 self_id 手填黑名单；
+        部分平台会把 bot 自己发的消息再投递为事件，这些样本会污染学习。
+        """
+        getter = getattr(event, "get_self_id", None)
+        if not callable(getter):
+            return False
+        try:
+            self_id = str(getter() or "").strip()
+        except Exception:
+            return False
+        return bool(self_id) and self_id == str(sender_id or "").strip()
+
     def _log_message_capture_diag(
         self,
         reason: str,
@@ -366,6 +381,9 @@ class SelfLearningPlugin(star.Star):
 
             group_id = event.get_group_id() or event.get_sender_id()
             sender_id = event.get_sender_id()
+            if self._is_self_message(event, sender_id):
+                self._log_message_capture_diag("skip:self_message", event, message_text)
+                return
             event_metadata = extract_learning_event_metadata(event)
             if should_ignore_learning_sample(
                 message_text,
@@ -495,6 +513,11 @@ class SelfLearningPlugin(star.Star):
                 logger.debug(f"检测到Bot固定输出，跳过学习样本保存: {bot_text[:80]}")
                 return
             group_id = event.get_group_id() or event.get_sender_id()
+            # 黑名单群组不计入 few-shot 对话对（只查黑名单，不受白名单限制影响）
+            qq_filter = getattr(self, 'qq_filter', None)
+            if qq_filter and qq_filter.is_blacklisted("bot", group_id):
+                logger.debug(f"群组 {group_id} 在学习黑名单中，跳过 Bot 出站消息保存")
+                return
             await db.save_bot_message(
                 group_id=group_id,
                 message=bot_text,

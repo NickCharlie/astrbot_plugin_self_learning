@@ -3,7 +3,7 @@
 """
 import os
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from astrbot.api import logger
 from pydantic import BaseModel, Field, ConfigDict, ValidationError, field_validator
@@ -124,6 +124,8 @@ def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False
 
     normalized: List[str] = []
     for item in raw_items:
+        if item is None:
+            continue
         text = str(item).strip()
         if not text:
             continue
@@ -132,6 +134,34 @@ def normalize_identifier_list(value: Any, *, full_learning_markers: bool = False
         normalized.append(text)
 
     return normalized
+
+
+# 目标列表里群组条目的前缀，与 ``core.factory.QQFilter`` 的 ``group_<群号>`` 格式一致。
+GROUP_TARGET_PREFIX = "group_"
+
+
+def split_learning_blacklist(blacklist: Any) -> Tuple[List[str], List[str]]:
+    """把 ``target_blacklist`` 拆成 ``(排除的发送者 ID, 排除的群组 ID)``。
+
+    issue #284：黑名单不能只在入站采集时生效，学习取数时也要排除；放在配置层提供
+    统一语义，使 ``QQFilter``、MessageFacade 与各学习入口共用同一套匹配规则。
+
+    Args:
+        blacklist: ``group_<群号>`` 表示整群排除，其余条目按发送者 ID 精确匹配。
+
+    Returns:
+        去重后的 (发送者 ID, 群组 ID) 两个列表，均为已裁剪空白后的字符串。
+    """
+    sender_ids: List[str] = []
+    group_ids: List[str] = []
+    for item in normalize_identifier_list(blacklist):
+        if item.startswith(GROUP_TARGET_PREFIX):
+            group_id = item[len(GROUP_TARGET_PREFIX):].strip()
+            if group_id and group_id not in group_ids:
+                group_ids.append(group_id)
+        elif item not in sender_ids:
+            sender_ids.append(item)
+    return sender_ids, group_ids
 
 
 VALID_AFFECTION_SCOPES = ("per_group", "per_user")

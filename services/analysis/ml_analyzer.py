@@ -26,7 +26,7 @@ except ImportError:
 
 from astrbot.api import logger
 
-from ...config import PluginConfig
+from ...config import PluginConfig, split_learning_blacklist
 
 from ...exceptions import StyleAnalysisError
 
@@ -659,20 +659,34 @@ class LightweightMLAnalyzer:
             raise StyleAnalysisError(f"分析用户行为模式失败: {str(e)}")
 
     async def _get_user_messages(self, group_id: str, user_id: str, limit: int) -> List[Dict[str, Any]]:
-        """获取用户消息（限制数量）"""
+        """获取用户消息（限制数量，已排除学习黑名单）"""
         try:
-            from sqlalchemy import select, desc, and_
+            from sqlalchemy import select, desc, and_, or_
             from ...models.orm import RawMessage
+
+            blocked_senders, blocked_groups = split_learning_blacklist(
+                getattr(self.config, "target_blacklist", None)
+            )
+            if user_id in blocked_senders or group_id in blocked_groups:
+                return []
 
             async with self.db_manager.get_session() as session:
                 cutoff_time = time.time() - 86400 * 7 # 最近7天
+                conditions = [
+                    RawMessage.sender_id == user_id,
+                    RawMessage.group_id == group_id,
+                    RawMessage.timestamp > cutoff_time,
+                ]
+                if blocked_senders:
+                    conditions.append(
+                        or_(
+                            RawMessage.sender_id.is_(None),
+                            RawMessage.sender_id.notin_(blocked_senders),
+                        )
+                    )
                 stmt = (
                     select(RawMessage)
-                    .where(and_(
-                        RawMessage.sender_id == user_id,
-                        RawMessage.group_id == group_id,
-                        RawMessage.timestamp > cutoff_time
-                    ))
+                    .where(and_(*conditions))
                     .order_by(desc(RawMessage.timestamp))
                     .limit(limit)
                 )
@@ -847,19 +861,33 @@ class LightweightMLAnalyzer:
             return {}
 
     async def _get_recent_group_messages(self, group_id: str, limit: int) -> List[Dict[str, Any]]:
-        """获取群聊最近消息"""
+        """获取群聊最近消息（已排除学习黑名单发送者）"""
         try:
-            from sqlalchemy import select, desc, and_
+            from sqlalchemy import select, desc, and_, or_
             from ...models.orm import RawMessage
+
+            blocked_senders, blocked_groups = split_learning_blacklist(
+                getattr(self.config, "target_blacklist", None)
+            )
+            if group_id in blocked_groups:
+                return []
 
             async with self.db_manager.get_session() as session:
                 cutoff_time = time.time() - 3600 * 6 # 最近6小时
+                conditions = [
+                    RawMessage.group_id == group_id,
+                    RawMessage.timestamp > cutoff_time,
+                ]
+                if blocked_senders:
+                    conditions.append(
+                        or_(
+                            RawMessage.sender_id.is_(None),
+                            RawMessage.sender_id.notin_(blocked_senders),
+                        )
+                    )
                 stmt = (
                     select(RawMessage)
-                    .where(and_(
-                        RawMessage.group_id == group_id,
-                        RawMessage.timestamp > cutoff_time
-                    ))
+                    .where(and_(*conditions))
                     .order_by(desc(RawMessage.timestamp))
                     .limit(limit)
                 )

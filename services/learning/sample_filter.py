@@ -7,6 +7,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from astrbot.api import logger
 
+try:
+    from ...config import split_learning_blacklist
+except ImportError:  # pragma: no cover - AstrBot 以顶层目录加载插件时
+    from config import split_learning_blacklist
+
 
 _LOGGER = logger
 
@@ -148,6 +153,54 @@ PLUGIN_LOG_PATTERNS = (
 
 def _normalize_text(message_text: Any) -> str:
     return "" if message_text is None else str(message_text).strip()
+
+
+def is_learning_blacklisted(
+    sender_id: Any,
+    group_id: Any,
+    *,
+    blocked_sender_ids: Iterable[str],
+    blocked_group_ids: Iterable[str],
+) -> bool:
+    """单条消息是否命中学习黑名单。"""
+    sender = str(sender_id or "").strip()
+    group = str(group_id or "").strip()
+    if sender and sender in set(blocked_sender_ids or []):
+        return True
+    if group and group in set(blocked_group_ids or []):
+        return True
+    return False
+
+
+def filter_blacklisted_messages(
+    messages: Iterable[Any],
+    blacklist: Any,
+) -> List[Any]:
+    """丢掉黑名单账号/群组的消息（dict 与对象两种形式）。
+
+    供已经拿到消息列表、但取数不经 ``MessageFacade`` 的学习入口兜底使用。
+    """
+    blocked_sender_ids, blocked_group_ids = split_learning_blacklist(blacklist)
+    if not blocked_sender_ids and not blocked_group_ids:
+        return list(messages or [])
+
+    kept: List[Any] = []
+    for item in messages or []:
+        if isinstance(item, dict):
+            sender_id = item.get("sender_id")
+            group_id = item.get("group_id")
+        else:
+            sender_id = getattr(item, "sender_id", None)
+            group_id = getattr(item, "group_id", None)
+        if is_learning_blacklisted(
+            sender_id,
+            group_id,
+            blocked_sender_ids=blocked_sender_ids,
+            blocked_group_ids=blocked_group_ids,
+        ):
+            continue
+        kept.append(item)
+    return kept
 
 
 def strip_media_placeholders(message_text: Any) -> str:

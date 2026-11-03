@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Optional, Union
 from astrbot.api import logger
 
 try:
-    from ....config import PluginConfig
+    from ....config import PluginConfig, split_learning_blacklist
     from ....core.database.engine import DatabaseEngine
 except ImportError:
-    from config import PluginConfig
+    from config import PluginConfig, split_learning_blacklist
     from core.database.engine import DatabaseEngine
 
 
@@ -44,6 +44,20 @@ class BaseFacade:
                 yield session
         except Exception:
             raise
+
+    def _learning_blacklist_exclusions(self) -> tuple:
+        """当前 ``target_blacklist`` 对应的 (排除发送者 ID, 排除群组 ID)。
+
+        issue #284：黑名单必须在取数层生效，否则入站后已经写入的历史消息仍会被
+        学习。从 ``self.config`` 现取，保证面板修改配置后立即对旧数据生效。
+        """
+        try:
+            return split_learning_blacklist(
+                list(getattr(self.config, "target_blacklist", None) or [])
+            )
+        except Exception as exc:  # 配置形态异常时不阻断学习取数
+            self._logger.debug(f"[Facade] 解析学习黑名单失败: {exc}")
+            return [], []
 
     @staticmethod
     def _row_to_dict(obj: Any, fields: Optional[List[str]] = None) -> Dict[str, Any]:

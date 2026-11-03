@@ -48,12 +48,19 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
             logger.error(f"[FilteredMessageRepository] 添加筛选消息失败: {e}")
             return None
 
-    async def get_for_learning(self, limit: int = 200) -> List[FilteredMessage]:
+    async def get_for_learning(
+        self,
+        limit: int = 200,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
+    ) -> List[FilteredMessage]:
         """
         获取待学习的筛选消息（未处理的）
 
         Args:
             limit: 最大返回数量
+            excluded_sender_ids: 学习黑名单里的发送者 ID，取数时直接排除
+            excluded_group_ids: 学习黑名单里的群组 ID，取数时直接排除
 
         Returns:
             List[FilteredMessage]: 待学习消息列表（按时间升序）
@@ -62,9 +69,13 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
             stmt = (
                 select(FilteredMessage)
                 .where(FilteredMessage.processed == False)  # noqa: E712
-                .order_by(FilteredMessage.timestamp.asc())
-                .limit(limit)
             )
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
+            stmt = stmt.order_by(FilteredMessage.timestamp.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
@@ -124,7 +135,9 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
     async def get_recent(
         self,
         group_id: Optional[str] = None,
-        limit: int = 50
+        limit: int = 50,
+        excluded_sender_ids: Optional[List[str]] = None,
+        excluded_group_ids: Optional[List[str]] = None,
     ) -> List[FilteredMessage]:
         """
         获取最近的筛选消息
@@ -132,6 +145,8 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
         Args:
             group_id: 群组 ID（为 None 时不过滤）
             limit: 最大返回数量
+            excluded_sender_ids: 学习黑名单里的发送者 ID，取数时直接排除
+            excluded_group_ids: 学习黑名单里的群组 ID，取数时直接排除
 
         Returns:
             List[FilteredMessage]: 消息列表（按时间倒序）
@@ -140,6 +155,11 @@ class FilteredMessageRepository(BaseRepository[FilteredMessage]):
             stmt = select(FilteredMessage)
             if group_id:
                 stmt = stmt.where(FilteredMessage.group_id == group_id)
+            stmt = self._apply_exclusions(
+                stmt,
+                excluded_sender_ids=excluded_sender_ids,
+                excluded_group_ids=excluded_group_ids,
+            )
             stmt = stmt.order_by(desc(FilteredMessage.timestamp)).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
