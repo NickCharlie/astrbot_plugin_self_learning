@@ -63,6 +63,8 @@
 - `PluginCommandHandlers`
 - `WebUIManager`
 
+`WebUIManager.create_server()` 会先把插件服务绑定进 `webui/dependencies.py` 的 `ServiceContainer`，再决定是否创建独立 WebUI 服务器。AstrBot 官方面板页（`pages/dashboard` + `core/page_api.py`）只读这个容器，不读 7833 端口，因此 `enable_web_interface=false`、WebUI 依赖缺失或端口占用都不会让面板失效。
+
 Provider 初始化是宽容的。没有可用 Provider 时，`FrameworkLLMAdapter` 不会让插件加载失败，会标记为延迟初始化。
 
 如果检测到 LivingMemory 已加载，`V2LearningIntegration` 和 `LLMHookHandler` 会跳过本插件本地长期记忆写入与注入，保留知识图谱、few-shot 和风格上下文。若检测到 Group Chat Plus 已加载，`PluginLifecycle` 会跳过本地 `IntelligentResponder`，让回复决策和生成由 Group Chat Plus 处理。
@@ -78,7 +80,7 @@ AstrBot 完成 handler 绑定后调用 `initialize()`，它委托给 `PluginLife
 3. 启动好感度服务。
 4. 启动可选 V2 学习集成，并异步预热活跃群组。
 5. debug 模式下启用函数级性能监控。
-6. 注册 WebUI 服务容器并启动 Hypercorn 线程。
+6. `WebUIManager.setup_and_start()` 先用 `bind_services()` 完整注册 WebUI 服务容器（含 AstrBot 人格管理器与已启动的数据库管理器），再按 `enable_web_interface` 与服务器实例是否存在决定是否启动 Hypercorn 线程。容器绑定与服务器启停解耦，服务器没起来时面板页仍可用。
 
 ### 4. terminate 有序关停
 

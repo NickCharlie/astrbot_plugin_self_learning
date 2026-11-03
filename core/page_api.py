@@ -27,8 +27,12 @@ PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 class PluginPageApi:
     """Official AstrBot Plugin Page API for the self-learning dashboard."""
 
+    # 容器未绑定时补绑的最小间隔（秒），避免服务未就绪时每次请求都重试并刷日志。
+    _CONTAINER_RETRY_INTERVAL = 5.0
+
     def __init__(self, plugin: Any) -> None:
         self.plugin = plugin
+        self._container_bind_last_try = -self._CONTAINER_RETRY_INTERVAL
 
     def register_routes(self) -> None:
         """Register all routes consumed by ``pages/dashboard``."""
@@ -1830,7 +1834,33 @@ class PluginPageApi:
         return value
 
     def _container(self) -> Any:
-        return self._imports().get_container()
+        container = self._imports().get_container()
+        if getattr(container, "bound", False):
+            return container
+
+        # 容器未被绑定（独立 WebUI 未启动、面板先于 on_load 被打开等），补绑一次
+        now = time.monotonic()
+        if now - self._container_bind_last_try >= self._CONTAINER_RETRY_INTERVAL:
+            self._container_bind_last_try = now
+            self._rebind_container(container)
+        return container
+
+    def _rebind_container(self, container: Any) -> None:
+        """容器未绑定时从当前插件实例补绑一次。
+
+        issue #283：面板页在插件 ``__init__`` 就已注册，但容器过去只在独立 WebUI
+        服务器启动路径里绑定；WebUI 未启用、依赖缺失或端口占用时任一环节被跳过，
+        页面所有 section 就会报「数据库管理器未初始化 / Plugin config not initialized」。
+        """
+        try:
+            if container.bind_plugin(self.plugin):
+                if not getattr(container, "perf_collector", None):
+                    container.perf_collector = getattr(self.plugin, "_perf_tracker", None)
+                logger.info("[PluginPageAPI] 已从插件实例补绑 WebUI 服务容器")
+            else:
+                logger.warning("[PluginPageAPI] 插件服务尚未就绪，页面数据可能不完整")
+        except Exception as exc:
+            logger.warning(f"[PluginPageAPI] 补绑 WebUI 服务容器失败: {exc}", exc_info=True)
 
     @staticmethod
     def _imports() -> Any:

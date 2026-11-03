@@ -211,6 +211,53 @@ class ServiceContainer:
         """获取数据库管理器"""
         return self.database_manager
 
+    @property
+    def bound(self) -> bool:
+        """容器是否已绑定插件服务。
+
+        AstrBot 官方面板页（core.page_api）与独立 WebUI 共用本容器，页面每个
+        section 都依赖 ``plugin_config`` 与 ``database_manager``；两者缺失时页面
+        只会报「未初始化」，因此用它作为需要补绑的判据。
+        """
+        return self.plugin_config is not None and self.database_manager is not None
+
+    def bind_plugin(self, plugin_instance) -> bool:
+        """从插件实例同步绑定容器，不依赖独立 WebUI 服务器。
+
+        独立 WebUI 服务器可能因 ``enable_web_interface=false``、WebUI 依赖缺失
+        或端口占用而未创建，但官方面板页依然可访问；此时若等服务器来绑定容器，
+        页面所有 section 都会抛「数据库管理器未初始化 / Plugin config not
+        initialized」。插件实例上的服务在 bootstrap 阶段已全部创建，直接取用即可。
+        """
+        if plugin_instance is None:
+            return False
+
+        plugin_config = getattr(plugin_instance, "plugin_config", None)
+        factory_manager = getattr(plugin_instance, "factory_manager", None)
+        if plugin_config is None or factory_manager is None:
+            return False
+
+        try:
+            self.initialize(
+                plugin_config=plugin_config,
+                factory_manager=factory_manager,
+                astrbot_persona_manager=getattr(
+                    getattr(plugin_instance, "context", None), "persona_manager", None
+                ),
+                group_id_to_unified_origin=getattr(
+                    plugin_instance, "group_id_to_unified_origin", None
+                ),
+                feature_delegation=getattr(plugin_instance, "feature_delegation", None),
+                astrbot_config=getattr(plugin_instance, "config", None),
+                plugin_instance=plugin_instance,
+                database_manager=getattr(plugin_instance, "db_manager", None),
+                v2_integration=getattr(plugin_instance, "v2_integration", None),
+            )
+        except Exception as e:
+            logger.warning(f"从插件实例绑定 WebUI 服务容器失败: {e}", exc_info=True)
+            return False
+        return True
+
     def get_llm_adapter(self):
         """获取 LLM 适配器"""
         return self.llm_adapter
