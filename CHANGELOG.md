@@ -2,6 +2,32 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.7.1] - 2026-11-03
+
+### 修复：AstrBot 面板页整段报「数据库管理器未初始化」（issue #283）
+
+- 面板页依赖的 `ServiceContainer` 过去只在独立 WebUI 服务器（7833）的启动路径里绑定；关闭 `enable_web_interface`、WebUI 依赖缺失（fastapi/uvicorn）或端口占用导致服务器未创建/未启动时，容器始终为空，`persona_backups`、`settings`、`style_reviews`、`jargon_pending`、`groups`、人格列表等每个 section 都抛「数据库管理器未初始化 / Plugin config not initialized / PersonaManager未初始化」，重载、重装插件都无法恢复。
+- 容器绑定与服务器启停解耦：`ServiceContainer.bind_plugin()` 在 `WebUIManager.create_server()` 开头用 bootstrap 阶段已创建好的插件服务同步绑定容器；`setup_and_start()` 无条件先绑定，再按开关与实例决定是否启动服务器；`bind_services()` 统一「先启动数据库、再完整注册」的路径，并只在拿到 AstrBot 人格管理器后置幂等标记，保证 on_load 还能重试。
+- 面板页自愈：`PluginPageApi._container()` 发现容器未绑定时按 5 秒节流从当前插件实例补绑一次，覆盖面板先于 `initialize()` 打开、插件重载后容器错位等场景。
+- 新增 `tests/unit/test_page_api_container_binding.py` 与 `tests/unit/test_webui_dependencies.py` 补测（WebUI 关闭、依赖缺失、服务器未创建三种形态均能绑定容器，以及补绑节流），共 9 例。
+
+### 修复：学习黑名单只在入站采集生效，历史数据仍被学习（issue #284）
+
+- `target_blacklist` 过去只被 `QQFilter.should_collect_message()` 在入站时用一次，批量/风格/表达/黑话等学习入口直接读 `raw_messages`、`filtered_messages` 且不判断黑名单，导致拉黑账号的历史消息（以及拉黑前已采集的记录）继续被消费：`filtered_messages` 里数千条记录的 `filter_reason` 全为 `style_learning_no_filter`。
+- 新增统一语义 `config.split_learning_blacklist()`（条目=发送者 ID，`group_<群号>`=整群排除），`QQFilter` 与取数层共用同一实现；`BaseRepository._apply_exclusions()` 在 SQL 层用 `IS NULL OR NOT IN` 排除（归属不明的旧行不被误伤），`MessageFacade` 的 `get_unprocessed_messages`、`get_recent_raw_messages`、`get_messages_by_group_and_timerange`、`get_messages_for_replay`、`get_recent_filtered_messages`、`get_filtered_messages_for_learning` 全部按当前黑名单过滤，配置改动立即对旧数据生效、无需清洗。
+- 学习入口兜底：`ProgressiveLearningService._filter_messages_with_context()` 再过滤一次并记录跳过条数；`LightweightMLAnalyzer` 两处直查 `RawMessage` 的读取同样排除。
+- 采集层：bot 自身账号（`event.get_self_id()`）默认不写入 `raw_messages`，无需手动拉黑；黑名单群组的 Bot 出站消息不再写入 `BotMessage`，避免污染 few-shot 对话对。顺带修正 `normalize_identifier_list()` 把 `None` 变成字符串 `"None"` 的问题。
+- 新增 `tests/unit/test_learning_blacklist_filter.py` 9 例（真实 SQLite 取数、黑名单变更后旧数据立即不再参与学习、NULL 归属行保留、批量学习漏斗、self_id 默认排除）。
+
+### 修复：人格更新器被注入 prompts 而非数据库管理器
+
+- `ComponentFactory.create_persona_updater()` 把 `service_factory.get_prompts()`（`statics.prompts` 模块）按位置传给了 `PersonaUpdater` 的第 5 个参数 `db_manager`，导致插件实例上的 `persona_updater.db_manager` 是 prompts 模块：人格更新审查记录的读写与 `ExpressionPatternLearner` 的数据库访问全部踩空。
+- 改为与 `ServiceFactory.create_persona_updater()` 一致传 `create_database_manager()`，并改用关键字参数固定语义；新增 `tests/unit/test_persona_updater_factory.py` 2 例守卫（去掉修复后两例均失败）。
+
+### 版本
+
+- 版本号由 4.4.5 提升至 **4.7.1**。
+
 ## [4.4.5] - 2026-10-29
 
 ### 修复：MaiBot 增强质量指标恒为 0
