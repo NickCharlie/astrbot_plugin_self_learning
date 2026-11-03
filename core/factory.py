@@ -793,10 +793,22 @@ class ComponentFactory:
         return LearningScheduler(plugin_instance)
     
     def create_persona_updater(self, context: Context, backup_manager):
-        """创建人格更新器"""
+        """创建人格更新器
+
+        ``PersonaUpdater`` 的第 5 个参数是 ``db_manager``（人格更新审查记录的读写、
+        表达模式学习都依赖它），这里早期误将 ``get_prompts()`` 按位置传入，导致插件
+        实例上的 ``persona_updater.db_manager`` 实际是 prompts 模块，相关路径直接踩空。
+        改为与 ``ServiceFactory.create_persona_updater`` 一致传数据库管理器，并用关键字
+        参数固定语义。
+        """
         from ..services.persona import PersonaUpdater as ActualPersonaUpdater # 导入实际的 PersonaUpdater
-        prompts = self.service_factory.get_prompts() # 获取 prompts
-        return ActualPersonaUpdater(self.config, context, backup_manager, None, prompts)
+        return ActualPersonaUpdater(
+            self.config,
+            context,
+            backup_manager,
+            None, # llm_client 参数保持兼容性，但不使用
+            db_manager=self.service_factory.create_database_manager(),
+        )
 
     @cached_service("advanced_learning")
     def create_advanced_learning_service(self):
