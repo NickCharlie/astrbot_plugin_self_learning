@@ -28,6 +28,7 @@ class FrameworkLLMAdapter:
         self._filter_cache_max_size: int = 256
         self._filter_cache: Dict[str, Tuple[float, Optional[str]]] = {}
         self._filter_inflight: Dict[str, asyncio.Task] = {}
+        self._unavailable_provider_ids: Dict[str, str] = {}
 
         # 添加调用统计
         self.call_stats = {
@@ -97,20 +98,12 @@ class FrameworkLLMAdapter:
             self.filter_provider = self.context.get_provider_by_id(config.filter_provider_id)
             if not self.filter_provider:
                 logger.warning(f"找不到筛选Provider: {config.filter_provider_id}")
-                # 如果指定的Provider不存在，尝试使用第一个可用的Provider
-                if available_providers:
-                    self.filter_provider = available_providers[0]
-                    logger.info(f"自动分配筛选Provider: {self.filter_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.filter_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"筛选Provider类型错误: {config.filter_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.filter_provider = None
-                    # 尝试使用备选Provider
-                    if available_providers:
-                        self.filter_provider = available_providers[0]
-                        logger.info(f"自动分配筛选Provider: {self.filter_provider.meta().id}")
                 else:
                     logger.info(f"筛选Provider已配置: {config.filter_provider_id}")
                     
@@ -122,28 +115,12 @@ class FrameworkLLMAdapter:
             self.refine_provider = self.context.get_provider_by_id(config.refine_provider_id)
             if not self.refine_provider:
                 logger.warning(f"找不到提炼Provider: {config.refine_provider_id}")
-                # 如果指定的Provider不存在，尝试使用可用的Provider（避免与filter重复）
-                for provider in available_providers:
-                    if provider != self.filter_provider:
-                        self.refine_provider = provider
-                        logger.info(f"自动分配提炼Provider: {self.refine_provider.meta().id}")
-                        break
-                if not self.refine_provider and available_providers:
-                    # 如果没有其他Provider，也可以复用filter_provider
-                    self.refine_provider = available_providers[0]
-                    logger.info(f"复用筛选Provider作为提炼Provider: {self.refine_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.refine_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"提炼Provider类型错误: {config.refine_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.refine_provider = None
-                    # 尝试使用备选Provider
-                    for provider in available_providers:
-                        if provider != self.filter_provider:
-                            self.refine_provider = provider
-                            logger.info(f"自动分配提炼Provider: {self.refine_provider.meta().id}")
-                            break
                 else:
                     logger.info(f"提炼Provider已配置: {config.refine_provider_id}")
                     
@@ -155,28 +132,12 @@ class FrameworkLLMAdapter:
             self.reinforce_provider = self.context.get_provider_by_id(config.reinforce_provider_id)
             if not self.reinforce_provider:
                 logger.warning(f"找不到强化Provider: {config.reinforce_provider_id}")
-                # 如果指定的Provider不存在，尝试使用可用的Provider（避免与已有重复）
-                for provider in available_providers:
-                    if provider != self.filter_provider and provider != self.refine_provider:
-                        self.reinforce_provider = provider
-                        logger.info(f"自动分配强化Provider: {self.reinforce_provider.meta().id}")
-                        break
-                if not self.reinforce_provider and available_providers:
-                    # 如果没有其他Provider，也可以复用已有Provider
-                    self.reinforce_provider = available_providers[0]
-                    logger.info(f"复用Provider作为强化Provider: {self.reinforce_provider.meta().id}")
             else:
                 # 检查Provider类型
                 provider_meta = self.reinforce_provider.meta()
                 if provider_meta.provider_type != ProviderType.CHAT_COMPLETION:
                     logger.error(f"强化Provider类型错误: {config.reinforce_provider_id} 是 {provider_meta.provider_type.value} 类型，需要 {ProviderType.CHAT_COMPLETION.value} 类型")
                     self.reinforce_provider = None
-                    # 尝试使用备选Provider
-                    for provider in available_providers:
-                        if provider != self.filter_provider and provider != self.refine_provider:
-                            self.reinforce_provider = provider
-                            logger.info(f"自动分配强化Provider: {self.reinforce_provider.meta().id}")
-                            break
                 else:
                     logger.info(f"强化Provider已配置: {config.reinforce_provider_id}")
                     
@@ -184,7 +145,7 @@ class FrameworkLLMAdapter:
             self.providers_configured += 1
         
         # 如果配置文件中没有指定任何Provider，尝试自动配置第一个可用的Provider到所有角色
-        if self.providers_configured == 0 and available_providers:
+        if not has_configured_provider_ids and available_providers:
             logger.warning("配置文件中未指定任何Provider，尝试自动配置...")
             first_provider = available_providers[0]
             self.filter_provider = first_provider
@@ -237,6 +198,48 @@ class FrameworkLLMAdapter:
         except Exception as e:
             logger.warning(f"[LLM适配器] 延迟初始化失败: {e}")
 
+    def _current_registered_provider(self, provider_attr: str, role_label: str) -> Optional[Provider]:
+        """Resolve the configured ID again before use; provider objects can be replaced or closed."""
+        from astrbot.core.provider.entities import ProviderType
+
+        bound_provider = getattr(self, provider_attr)
+        provider_id = getattr(self._config, f"{provider_attr}_id", None)
+        if not provider_id and bound_provider:
+            provider_id = bound_provider.meta().id
+        if not provider_id:
+            return None
+
+        lookup_error = None
+        try:
+            provider = self.context.get_provider_by_id(provider_id)
+            if provider and provider.meta().provider_type != ProviderType.CHAT_COMPLETION:
+                provider = None
+        except Exception as exc:
+            lookup_error = type(exc).__name__
+            provider = None
+
+        if provider is not bound_provider and provider_attr == "filter_provider":
+            self._filter_cache.clear()
+        setattr(self, provider_attr, provider)
+        self.providers_configured = sum(
+            bool(item) for item in (self.filter_provider, self.refine_provider, self.reinforce_provider)
+        )
+        if not provider:
+            if not any(
+                getattr(self._config, f"{role}_provider_id", None)
+                for role in ("filter", "refine", "reinforce")
+            ):
+                self._needs_lazy_init = True
+            if self._unavailable_provider_ids.get(provider_attr) != provider_id:
+                reason = f" ({lookup_error})" if lookup_error else ""
+                logger.warning(
+                    f"[LLM适配器] {role_label}Provider 不可用，跳过本次调用: {provider_id}{reason}"
+                )
+                self._unavailable_provider_ids[provider_attr] = provider_id
+        else:
+            self._unavailable_provider_ids.pop(provider_attr, None)
+        return provider
+
     @staticmethod
     def _looks_like_stale_provider_error(exc: Exception) -> bool:
         message = str(exc).lower()
@@ -281,13 +284,13 @@ class FrameworkLLMAdapter:
         system_prompt: Optional[str],
         **kwargs,
     ) -> Optional[LLMResponse]:
-        provider = getattr(self, provider_attr)
+        provider = self._current_registered_provider(provider_attr, role_label)
         if not provider:
             return None
 
         logger.debug(f"调用{role_label}Provider: {provider.meta().id}")
         try:
-            return await provider.text_chat(
+            response = await provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
@@ -297,7 +300,7 @@ class FrameworkLLMAdapter:
             if not self._refresh_provider_bindings_after_error(role_label, exc):
                 raise
 
-            retry_provider = getattr(self, provider_attr)
+            retry_provider = self._current_registered_provider(provider_attr, role_label)
             if not retry_provider or retry_provider is provider:
                 raise
 
@@ -305,12 +308,18 @@ class FrameworkLLMAdapter:
                 f"[LLM适配器] {role_label}Provider 已重新绑定: "
                 f"{retry_provider.meta().id}"
             )
-            return await retry_provider.text_chat(
+            provider = retry_provider
+            response = await provider.text_chat(
                 prompt=prompt,
                 contexts=contexts,
                 system_prompt=system_prompt,
                 **kwargs,
             )
+
+        if self._current_registered_provider(provider_attr, role_label) is not provider:
+            logger.debug(f"[LLM适配器] {role_label}Provider 已删除或替换，丢弃旧调用结果")
+            return None
+        return response
 
     @staticmethod
     def _filter_cache_key(
@@ -356,7 +365,7 @@ class FrameworkLLMAdapter:
         contexts: List[Dict[str, str]],
         system_prompt: Optional[str],
         **kwargs,
-    ) -> Optional[str]:
+    ) -> Tuple[Optional[str], Optional[Provider]]:
         start_time = time.time()
         self.call_stats['filter']['total_calls'] += 1
 
@@ -369,11 +378,13 @@ class FrameworkLLMAdapter:
                 system_prompt=system_prompt,
                 **kwargs,
             )
-            return response.completion_text if response else None
+            if response:
+                return response.completion_text, self.filter_provider
+            return None, None
         except Exception as e:
             self.call_stats['filter']['errors'] += 1
             logger.error(f"筛选模型调用失败: {e}")
-            return None
+            return None, None
         finally:
             elapsed_time = time.time() - start_time
             self.call_stats['filter']['total_time'] += elapsed_time
@@ -389,6 +400,10 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
+        filter_provider = self._current_registered_provider("filter_provider", "筛选")
+        if getattr(self._config, "filter_provider_id", None) and not self.filter_provider:
+            return None
+
         # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
         if contexts is None:
             contexts = []
@@ -396,7 +411,10 @@ class FrameworkLLMAdapter:
         if not self.filter_provider:
             logger.warning("筛选Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
-            fallback_provider = self.refine_provider or self.reinforce_provider
+            fallback_provider = (
+                self._current_registered_provider("refine_provider", "提炼")
+                or self._current_registered_provider("reinforce_provider", "强化")
+            )
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
@@ -414,27 +432,31 @@ class FrameworkLLMAdapter:
                 logger.error("没有可用的Provider，无法执行筛选任务")
                 return None
             
-        cache_key = self._filter_cache_key(prompt, contexts, system_prompt, kwargs)
+        cache_key = f"{id(filter_provider)}:{self._filter_cache_key(prompt, contexts, system_prompt, kwargs)}"
         cached_response = self._get_filter_cache(cache_key)
         if cached_response is not None:
             logger.debug("筛选模型命中短期缓存，跳过重复调用")
             return cached_response
 
-        inflight = self._filter_inflight.get(cache_key)
-        if inflight and not inflight.done():
+        task = self._filter_inflight.get(cache_key)
+        owns_task = not task or task.done()
+        if not owns_task:
             logger.debug("筛选模型已有相同请求进行中，复用结果")
-            return await inflight
-
-        task = asyncio.create_task(
-            self._call_filter_provider(prompt, contexts, system_prompt, **kwargs)
-        )
-        self._filter_inflight[cache_key] = task
+        else:
+            task = asyncio.create_task(
+                self._call_filter_provider(prompt, contexts, system_prompt, **kwargs)
+            )
+            self._filter_inflight[cache_key] = task
         try:
-            result = await task
-            self._set_filter_cache(cache_key, result)
+            result, used_provider = await task
+            if not used_provider or self._current_registered_provider("filter_provider", "筛选") is not used_provider:
+                return None
+            if used_provider is filter_provider and result is not None:
+                self._set_filter_cache(cache_key, result)
             return result
         finally:
-            self._filter_inflight.pop(cache_key, None)
+            if owns_task and self._filter_inflight.get(cache_key) is task:
+                self._filter_inflight.pop(cache_key, None)
     
     async def refine_chat_completion(
         self,
@@ -447,6 +469,10 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
+        self._current_registered_provider("refine_provider", "提炼")
+        if getattr(self._config, "refine_provider_id", None) and not self.refine_provider:
+            return None
+
         # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
         if contexts is None:
             contexts = []
@@ -454,7 +480,10 @@ class FrameworkLLMAdapter:
         if not self.refine_provider:
             logger.warning("提炼Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
-            fallback_provider = self.filter_provider or self.reinforce_provider
+            fallback_provider = (
+                self._current_registered_provider("filter_provider", "筛选")
+                or self._current_registered_provider("reinforce_provider", "强化")
+            )
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
@@ -510,6 +539,10 @@ class FrameworkLLMAdapter:
         # 尝试延迟初始化
         self._try_lazy_init()
 
+        self._current_registered_provider("reinforce_provider", "强化")
+        if getattr(self._config, "reinforce_provider_id", None) and not self.reinforce_provider:
+            return None
+
         # 确保 contexts 不为 None，避免 Provider 内部调用 len(None)
         if contexts is None:
             contexts = []
@@ -517,7 +550,10 @@ class FrameworkLLMAdapter:
         if not self.reinforce_provider:
             logger.warning("强化Provider未配置，尝试使用备选Provider或降级处理")
             # 尝试使用其他可用的Provider作为备选
-            fallback_provider = self.refine_provider or self.filter_provider
+            fallback_provider = (
+                self._current_registered_provider("refine_provider", "提炼")
+                or self._current_registered_provider("filter_provider", "筛选")
+            )
             if fallback_provider:
                 logger.info(f"使用备选Provider: {fallback_provider.meta().id}")
                 try:
@@ -603,15 +639,18 @@ class FrameworkLLMAdapter:
 
     def has_filter_provider(self) -> bool:
         """检查是否有筛选Provider"""
-        return self.filter_provider is not None
+        self._try_lazy_init()
+        return self._current_registered_provider("filter_provider", "筛选") is not None
     
     def has_refine_provider(self) -> bool:
         """检查是否有提炼Provider"""
-        return self.refine_provider is not None
+        self._try_lazy_init()
+        return self._current_registered_provider("refine_provider", "提炼") is not None
     
     def has_reinforce_provider(self) -> bool:
         """检查是否有强化Provider"""
-        return self.reinforce_provider is not None
+        self._try_lazy_init()
+        return self._current_registered_provider("reinforce_provider", "强化") is not None
 
     def get_provider_info(self) -> Dict[str, str]:
         """获取Provider信息"""
