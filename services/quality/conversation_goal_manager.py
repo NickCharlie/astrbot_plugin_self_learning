@@ -741,6 +741,10 @@ class ConversationGoalManager:
 
             logger.debug(f" [对话目标-动态规划阶段] LLM Response: {response}")
 
+            if not response or not str(response).strip():
+                logger.warning(" [对话目标-动态规划阶段] 提炼模型未返回内容，使用基础阶段模板")
+                return base_stages
+
             # 消毒响应
             try:
                 sanitized_response, report = self.prompt_protection.sanitize_response(response)
@@ -748,6 +752,10 @@ class ConversationGoalManager:
             except Exception as sanitize_error:
                 logger.error(f"消毒响应失败: {sanitize_error}", exc_info=True)
                 sanitized_response = response # 使用原始响应
+
+            if not sanitized_response or not str(sanitized_response).strip():
+                logger.warning(" [对话目标-动态规划阶段] 消毒后响应为空，使用基础阶段模板")
+                return base_stages
 
             stages = None
             if self.guardrails:

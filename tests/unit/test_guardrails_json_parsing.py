@@ -184,6 +184,55 @@ class TestGoalManagerEmptyResponseShortCircuit:
         assert result["reasoning"] == "模型未返回有效分析结果"
         goal_manager.prompt_protection.sanitize_response.assert_not_called()
 
+    @pytest.mark.parametrize("response", [None, "", "   \n"])
+    async def test_dynamic_stages_empty_response_uses_base_without_json_parsing(
+        self, goal_manager, response
+    ):
+        goal_manager.llm.refine_chat_completion = AsyncMock(return_value=response)
+        goal_manager.guardrails = MagicMock()
+        goal_manager._parse_array_fallback = MagicMock()
+        base_stages = ["了解话题", "自然交流"]
+
+        result = await goal_manager._plan_dynamic_stages(
+            "casual_chat", "日常", "你好", base_stages
+        )
+
+        assert result == base_stages
+        goal_manager.llm.refine_chat_completion.assert_awaited_once()
+        goal_manager.prompt_protection.sanitize_response.assert_not_called()
+        goal_manager.guardrails.validate_and_clean_json.assert_not_called()
+        goal_manager._parse_array_fallback.assert_not_called()
+
+    @pytest.mark.parametrize("sanitized", [None, "", "   \n"])
+    async def test_dynamic_stages_sanitized_to_empty_uses_base_without_json_parsing(
+        self, goal_manager, sanitized
+    ):
+        goal_manager.llm.refine_chat_completion = AsyncMock(return_value="some reply")
+        goal_manager.prompt_protection.sanitize_response.return_value = (sanitized, {})
+        goal_manager.guardrails = MagicMock()
+        goal_manager._parse_array_fallback = MagicMock()
+        base_stages = ["了解话题", "自然交流"]
+
+        result = await goal_manager._plan_dynamic_stages(
+            "casual_chat", "日常", "你好", base_stages
+        )
+
+        assert result == base_stages
+        goal_manager.guardrails.validate_and_clean_json.assert_not_called()
+        goal_manager._parse_array_fallback.assert_not_called()
+
+    async def test_dynamic_stages_valid_response_keeps_generated_stages(self, goal_manager):
+        goal_manager.llm.refine_chat_completion = AsyncMock(return_value='["破冰", "交流"]')
+        goal_manager.prompt_protection.sanitize_response.return_value = ('["破冰", "交流"]', {})
+        goal_manager.guardrails = MagicMock()
+        goal_manager.guardrails.validate_and_clean_json.return_value = ["破冰", "交流"]
+
+        result = await goal_manager._plan_dynamic_stages(
+            "casual_chat", "日常", "你好", ["基础阶段一", "基础阶段二"]
+        )
+
+        assert result == ["破冰", "交流"]
+
     async def test_initial_goal_whitespace_response(self, goal_manager):
         goal_manager.llm.refine_chat_completion = AsyncMock(return_value="   \n")
         result = await goal_manager._analyze_initial_goal("你好")
