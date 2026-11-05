@@ -134,8 +134,8 @@ class JargonStatisticalFilter:
 
             # Store limited context examples.
             ctx_list = contexts[token]
-            if len(ctx_list) < _MAX_CONTEXT_EXAMPLES:
-                ctx_list.append(content)
+            ctx_list.append(content)
+            del ctx_list[:-_MAX_CONTEXT_EXAMPLES]
 
         self._dirty_groups.add(group_id)
 
@@ -211,7 +211,7 @@ class JargonStatisticalFilter:
                 "unique_users": unique_users,
                 "context_examples": self._term_contexts.get(
                     group_id, {}
-                ).get(term, [])[:5],
+                ).get(term, [])[-5:],
             })
 
         candidates.sort(key=lambda x: x["score"], reverse=True)

@@ -157,7 +157,10 @@ class JargonInferenceEngine:
                 return None
 
             # 判断是否为黑话
-            is_similar = comparison.get('is_similar', False)
+            is_similar = comparison.get('is_similar')
+            if not isinstance(is_similar, bool):
+                logger.warning(f"黑话 {content} 对比缺少有效的布尔判断")
+                return None
             is_jargon = not is_similar
 
             if is_jargon:

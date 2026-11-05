@@ -325,6 +325,65 @@ class TestTier2Execution:
         assert result.tier2_triggered is True
         assert result.tier2_details["batch"] is False
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ready_by", ["count", "cooldown"])
+    async def test_disabled_batch_resumes_with_accrued_threshold_or_cooldown(self, ready_by):
+        trigger = TieredLearningTrigger()
+        enabled = False
+        completed = []
+
+        async def optional_batch(group_id):
+            if not enabled:
+                return False
+            completed.append(group_id)
+
+        trigger.register_tier2(
+            "optional", optional_batch,
+            BatchTriggerPolicy(message_threshold=3 if ready_by == "count" else 100, cooldown_seconds=30),
+        )
+        with patch("services.quality.tiered_learning_trigger.time.time", return_value=1000) as clock:
+            state = trigger._get_state("g1")
+            state.message_count = 2 if ready_by == "count" else 0
+            original_last_run = 1000 if ready_by == "count" else 970
+            state.last_op_times["optional"] = original_last_run
+
+            for now in (1000, 1001):
+                clock.return_value = now
+                result = await trigger.process_message(_make_message(), "g1")
+                assert result.tier2_triggered is False and result.tier2_details == {}
+                assert state.last_op_times["optional"] == original_last_run
+            accrued = state.message_count
+            assert accrued == (4 if ready_by == "count" else 2)
+            assert await trigger.force_tier2("optional", "g1") is False
+            assert state.message_count == accrued
+            assert state.last_op_times["optional"] == original_last_run
+
+            enabled = True
+            clock.return_value = 1002
+            result = await trigger.process_message(_make_message(), "g1")
+
+        assert completed == ["g1"]
+        assert result.tier2_details == {"optional": True}
+        assert state.message_count == 0 and state.last_op_times["optional"] == 1002
+
+    @pytest.mark.asyncio
+    async def test_other_completed_batch_resets_shared_counter_while_disabled_batch_skips(self):
+        trigger = TieredLearningTrigger()
+        disabled_batch = AsyncMock(return_value=False)
+        completed_batch = AsyncMock(return_value=None)
+        policy = BatchTriggerPolicy(message_threshold=1, cooldown_seconds=30)
+        trigger.register_tier2("disabled", disabled_batch, policy)
+        trigger.register_tier2("completed", completed_batch, policy)
+        with patch("services.quality.tiered_learning_trigger.time.time", return_value=1000) as clock:
+            state = trigger._get_state("g1")
+            clock.return_value = 1001
+            result = await trigger.process_message(_make_message(), "g1")
+
+        assert result.tier2_triggered is True
+        assert result.tier2_details == {"completed": True}
+        assert state.last_op_times == {"disabled": 1000, "completed": 1001}
+        assert state.message_count == 0
+
 
 @pytest.mark.unit
 @pytest.mark.quality
