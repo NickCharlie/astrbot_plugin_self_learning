@@ -255,6 +255,17 @@ class LearningService:
     def _parse_few_shot_pairs(content: Any) -> List[Dict[str, str]]:
         if not content:
             return []
+        try:
+            from ...utils.style_samples import decode_style_samples
+        except ImportError:
+            from utils.style_samples import decode_style_samples
+
+        structured_pairs = decode_style_samples(content)
+        if structured_pairs is not None:
+            return [
+                {"user": situation, "bot": expression}
+                for situation, expression in structured_pairs
+            ]
         text = str(content)
         pairs = []
         for match in re.finditer(

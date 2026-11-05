@@ -18,6 +18,12 @@ from ...exceptions import ExpressionLearningError, ModelAccessError
 from ...utils.json_utils import safe_parse_llm_json
 from ...utils.persona_selection import normalize_persona_scope
 from ..database import DatabaseManager
+from ..learning.conversation_samples import (
+    encode_style_samples,
+    extract_human_dialog_pairs,
+    is_human_learning_message,
+)
+from ..learning.sample_filter import mark_style_context_messages, mask_blacklisted_messages
 
 
 @dataclass
@@ -113,109 +119,6 @@ class ExpressionPatternLearner:
     ) -> str:
         return f"{group_id}:{persona_id}:{user_id or 'group-level'}"
 
-    @staticmethod
-    def _msg_sender_id(msg: Any) -> str:
-        if hasattr(msg, "sender_id"):
-            return str(getattr(msg, "sender_id", "") or "")
-        if isinstance(msg, dict):
-            return str(msg.get("sender_id", "") or "")
-        return ""
-
-    @staticmethod
-    def _msg_timestamp(msg: Any) -> float:
-        value = (
-            getattr(msg, "timestamp", 0)
-            if hasattr(msg, "timestamp")
-            else msg.get("timestamp", 0) if isinstance(msg, dict) else 0
-        )
-        try:
-            return float(value or 0)
-        except (TypeError, ValueError):
-            return 0.0
-
-    @staticmethod
-    def _msg_content(msg: Any) -> str:
-        if hasattr(msg, "message"):
-            return str(getattr(msg, "message", "") or "")
-        if isinstance(msg, dict):
-            return str(msg.get("message", "") or "")
-        return ""
-
-    async def _merge_bot_messages_for_group(
-        self, group_id: str, messages: List[Any]
-    ) -> List[Any]:
-        """将数据库中的 Bot 回复按时间线合并进用户消息，供 few-shot 对话对提取。
-
-        实时学习链路已在调用前合并过 bot 消息（消息中已含 sender_id=='bot'），
-        此时直接返回避免重复查询；批量/审批链路传入的原始消息只有用户发言，
-        必须合并 bot 回复才能提取到 用户→bot 对话对（否则学习结果恒为空，
-        即 issue #257 日志中的“未获得有效结果”）。
-
-        为避免跨窗口误配对：只取与这批用户消息时间窗口（末条向后一个宽容窗口）
-        重叠的 Bot 回复；为避免“先 limit 后过滤”将有效回复滤空：先多取候选再在
-        内存过滤并截断到与用户消息相当的数量。
-        """
-        if not messages or not self.db_manager:
-            return messages
-        if any(self._msg_sender_id(m) == "bot" for m in messages):
-            return messages
-        try:
-            from sqlalchemy import select
-
-            from ...models.orm.message import BotMessage
-            from ..learning.sample_filter import should_ignore_learning_sample
-
-            user_ts = [
-                self._msg_timestamp(m)
-                for m in messages
-                if self._msg_content(m)
-            ]
-            user_ts = [t for t in user_ts if t > 0]
-            if not user_ts:
-                return messages
-
-            forward_window_seconds = 3600.0
-            t_lo = min(user_ts)
-            t_hi = max(user_ts) + forward_window_seconds
-            # 先多取候选，再过滤/截断，避免被 ignore 样本占满 limit 导致有效回复被漏掉
-            fetch_limit = max(len(messages) * 3, 60)
-
-            async with self.db_manager.get_session() as session:
-                stmt = (
-                    select(BotMessage)
-                    .where(
-                        BotMessage.group_id == group_id,
-                        BotMessage.timestamp >= t_lo,
-                        BotMessage.timestamp <= t_hi,
-                    )
-                    .order_by(BotMessage.timestamp.asc())
-                    .limit(fetch_limit)
-                )
-                result = await session.execute(stmt)
-                bot_msgs: List[Dict[str, Any]] = []
-                for row in result.scalars().all():
-                    if should_ignore_learning_sample(
-                        row.message, sender_id="bot", is_bot=True
-                    ):
-                        continue
-                    bot_msgs.append(
-                        {
-                            "sender_id": "bot",
-                            "message": row.message,
-                            "timestamp": float(row.timestamp),
-                        }
-                    )
-                    if len(bot_msgs) >= len(messages):
-                        break
-            if not bot_msgs:
-                return messages
-            merged = list(messages) + bot_msgs
-            merged.sort(key=self._msg_timestamp)
-            return merged
-        except Exception as exc:
-            logger.debug(f"合并 Bot 回复失败，使用原始消息继续: {exc}")
-            return messages
-
     @classmethod
     def get_instance(cls, config: PluginConfig = None, db_manager: DatabaseManager = None, context=None, llm_adapter=None) -> 'ExpressionPatternLearner':
         """获取单例实例，支持延迟初始化"""
@@ -260,8 +163,9 @@ class ExpressionPatternLearner:
             bool: 是否应该触发学习
         """
         # 检查消息数量（至少5条消息）
-        if len(recent_messages) < 5:
-            logger.debug(f"群组 {group_id} 消息数量不足: {len(recent_messages)} < 5")
+        human_count = sum(is_human_learning_message(msg, group_id) for msg in recent_messages)
+        if human_count < self.MIN_MESSAGES_FOR_LEARNING:
+            logger.debug(f"群组 {group_id} 有效用户消息数量不足: {human_count}")
             return False
 
         return True
@@ -287,12 +191,6 @@ class ExpressionPatternLearner:
             return False
         
         try:
-            # 先合并数据库中已存储的 Bot 回复，才能提取到 用户→bot 对话对（修复批量链路恒为空）
-            recent_messages = await self._merge_bot_messages_for_group(
-                group_id, recent_messages
-            )
-            if len(recent_messages) < 3:
-                return False
             persona_id = normalize_persona_scope(persona_id)
             user_scope = self._normalize_user_scope(user_id)
             learning_scope = self._expression_scope_key(group_id, persona_id, user_scope)
@@ -381,82 +279,32 @@ class ExpressionPatternLearner:
         persona_id: str = "default",
         user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
-        """
-        从原始消息中提取用户-bot 对话对作为 few-shot 样本。
-        寻找「用户发言 → bot回复」的连续对，直接作为 situation/expression 保存。
-        """
-        pairs = []
-        current_time = time.time()
+        """Learn the response speaker's style from adjacent human group turns."""
         persona_id = normalize_persona_scope(persona_id)
         user_id = self._normalize_user_scope(user_id)
+        messages = mask_blacklisted_messages(
+            messages, getattr(getattr(self, "config", None), "target_blacklist", []),
+            group_id=group_id,
+        )
+        messages = mark_style_context_messages(
+            messages, getattr(getattr(self, "config", None), "target_qq_list", []),
+            group_id=group_id,
+        )
+        pairs = extract_human_dialog_pairs(messages, group_id, user_id=user_id)
+        return [
+            ExpressionPattern(
+                situation=pair["situation"][:50],
+                expression=pair["expression"][:100],
+                weight=pair["weight"],
+                last_active_time=pair["last_active_time"],
+                create_time=pair["create_time"],
+                group_id=group_id,
+                persona_id=persona_id,
+                user_id=user_id,
+            )
+            for pair in pairs
+        ]
 
-        for i in range(len(messages) - 1):
-            msg = messages[i]
-            next_msg = messages[i + 1]
-
-            # 兼容字典和对象
-            if hasattr(msg, 'sender_id'):
-                msg_is_bot = msg.sender_id == "bot"
-                msg_content = (getattr(msg, 'message', '') or '').strip()
-                next_is_bot = next_msg.sender_id == "bot"
-                next_content = (getattr(next_msg, 'message', '') or '').strip()
-            else:
-                msg_is_bot = msg.get('sender_id') == "bot"
-                msg_content = msg.get('message', '').strip()
-                next_is_bot = next_msg.get('sender_id') == "bot"
-                next_content = next_msg.get('message', '').strip()
-
-            # 用户发言 → bot回复
-            if not msg_is_bot and next_is_bot and msg_content and next_content:
-                # 过滤过短或纯链接/图片/@的消息
-                if len(msg_content) < 3 or len(next_content) < 3:
-                    continue
-                if msg_content.startswith(('[', 'http', '@')):
-                    continue
-                if next_content.startswith(('[', 'http', '@')):
-                    continue
-                if '@' in msg_content or '@' in next_content:
-                    continue
-
-                pairs.append(ExpressionPattern(
-                    situation=msg_content[:50],
-                    expression=next_content[:100],
-                    weight=1.0,
-                    last_active_time=current_time,
-                    create_time=current_time,
-                    group_id=group_id,
-                    persona_id=persona_id,
-                    user_id=user_id,
-                ))
-
-        return pairs
-
-    # ---- 以下为旧版 LLM 分析代码，已停用 ----
-
-    # def _build_anonymous_chat_context(self, messages: List[MessageData]) -> str:
-    #     """
-    #     构建匿名化的聊天上下文 - 参考MaiBot的build_anonymous_messages
-    #     """
-    #     context_lines = []
-    #     for msg in messages:
-    #         if hasattr(msg, 'sender_id'):
-    #             is_bot = msg.sender_id == "bot"
-    #             sender = msg.sender_name or msg.sender_id or 'Unknown'
-    #             content = msg.message.strip() if msg.message else ''
-    #             timestamp = msg.timestamp
-    #         else:
-    #             is_bot = msg.get('sender_id') == "bot"
-    #             sender = msg.get('sender_name') or msg.get('sender_id') or 'Unknown'
-    #             content = msg.get('message', '').strip()
-    #             timestamp = msg.get('timestamp', time.time())
-    #         if content and not content.startswith('[') and not content.startswith('http'):
-    #             timestamp_str = datetime.fromtimestamp(timestamp).strftime("%H:%M")
-    #             context_lines.append(f"{timestamp_str} {sender}: {content}")
-    #     return '\n'.join(context_lines)
-
-    # def _generate_fallback_expression_patterns(self, messages): ...
-    # def _parse_expression_response(self, response, group_id): ...
-    
     async def _save_expression_patterns(
         self,
         patterns: List[ExpressionPattern],
@@ -731,18 +579,19 @@ class ExpressionPatternLearner:
         Returns:
             格式化的表达模式字符串，用于插入到对话prompt中
         """
-        patterns = await self.get_expression_patterns(
+        get_approved_patterns = getattr(
+            self.db_manager, "get_recent_week_expression_patterns", None
+        )
+        if not callable(get_approved_patterns):
+            return ""
+        patterns = await get_approved_patterns(
             group_id,
-            limit,
+            limit=limit,
+            hours=168,
             persona_id=persona_id,
             user_id=user_id,
         )
-        
         if not patterns:
             return ""
-        
-        lines = ["学到的表达习惯："]
-        for pattern in patterns:
-            lines.append(f"- 当{pattern.situation}时，可以{pattern.expression}")
-        
-        return "\n".join(lines)
+
+        return "学到的表达习惯：\n" + encode_style_samples(patterns)

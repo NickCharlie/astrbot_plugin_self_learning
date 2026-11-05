@@ -13,14 +13,21 @@ from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
 from ...utils.persona_selection import normalize_persona_scope
-from .sample_filter import filter_learning_messages, should_ignore_learning_sample
+from .conversation_samples import (
+    encode_style_samples,
+    extract_human_dialog_pairs,
+    is_human_learning_message,
+    sanitize_style_sample,
+)
+from .sample_filter import should_ignore_learning_sample
 
 
 class ExpressionLearningModule:
     """Persist learned expression patterns and style review records."""
 
-    def __init__(self, db_manager: Any) -> None:
+    def __init__(self, db_manager: Any, config: Any = None) -> None:
         self.db_manager = db_manager
+        self.config = config
 
     async def save_style_learning_record(
         self,
@@ -32,7 +39,11 @@ class ExpressionLearningModule:
     ) -> None:
         """Save expression learning output and create a style review record."""
         try:
-            messages = filter_learning_messages(messages or [])
+            timeline = list(messages or [])
+            messages = [
+                message for message in timeline
+                if is_human_learning_message(message, group_id)
+            ]
             persona_id = normalize_persona_scope(persona_id)
 
             if style_analysis and hasattr(style_analysis, "data"):
@@ -41,6 +52,8 @@ class ExpressionLearningModule:
                 style_analysis_dict = style_analysis
             else:
                 style_analysis_dict = {}
+            if not isinstance(style_analysis_dict, dict):
+                style_analysis_dict = {}
 
             if not style_analysis_dict and not messages:
                 logger.debug(
@@ -48,18 +61,33 @@ class ExpressionLearningModule:
                 )
                 return
 
-            expression_patterns = style_analysis_dict.get("expression_patterns", [])
-            expression_patterns = self.filter_expression_patterns(expression_patterns)
-
-            if not expression_patterns and messages:
-                try:
-                    merged = await self.merge_bot_messages_for_pairs(group_id, messages)
-                    if merged:
-                        expression_patterns = self.extract_fewshot_pairs_from_merged(
-                            merged, group_id
-                        )
-                except Exception as pair_err:
-                    logger.debug(f"提取 fewshot 对话对失败: {pair_err}")
+            # Model summaries do not necessarily contain expression_patterns.
+            # Ground automatic samples in human turns, never generated bot text.
+            if timeline:
+                expression_patterns = extract_human_dialog_pairs(timeline, group_id)
+            else:
+                expression_patterns = self.filter_expression_patterns(
+                    style_analysis_dict.get("expression_patterns", [])
+                )
+            expression_patterns = [
+                pattern for pattern in expression_patterns
+                if str(pattern.get("group_id") or group_id) == str(group_id)
+            ]
+            user_scope_enabled = bool(
+                getattr(self.config, "enable_expression_user_scope", False)
+            )
+            expression_patterns = [
+                {
+                    **pattern,
+                    "group_id": str(group_id),
+                    "persona_id": persona_id,
+                    "user_id": (
+                        str(pattern.get("user_id") or pattern.get("sender_id") or "").strip() or None
+                        if user_scope_enabled else None
+                    ),
+                }
+                for pattern in expression_patterns
+            ]
 
             if expression_patterns:
                 await self.save_expression_patterns(
@@ -85,6 +113,9 @@ class ExpressionLearningModule:
                         "expression": pattern.get("expression", ""),
                         "weight": pattern.get("weight", 1.0),
                         "confidence": pattern.get("confidence", 0.8),
+                        "group_id": pattern.get("group_id", group_id),
+                        "persona_id": persona_id,
+                        "user_id": pattern.get("user_id"),
                     }
                 )
 
@@ -95,7 +126,7 @@ class ExpressionLearningModule:
             )
             del confidence_score  # Stored review currently derives status from patterns.
 
-            pattern_count = len(learned_patterns) if learned_patterns else 0
+            pattern_count = len(expression_patterns)
             message_count = len(messages) if messages else 0
             description = (
                 f"群组 {group_id} 的对话风格学习结果"
@@ -117,6 +148,13 @@ class ExpressionLearningModule:
                             learned_patterns, ensure_ascii=False
                         ),
                         few_shots_content=few_shots_content,
+                        metadata_=json.dumps({
+                            "persona_id": persona_id,
+                            "user_ids": sorted({
+                                pattern["user_id"] for pattern in learned_patterns
+                                if pattern.get("user_id")
+                            }),
+                        }, ensure_ascii=False),
                         status="pending" if has_patterns else "approved",
                         description=description,
                         reviewer_comment=None if has_patterns else "自动批准（无有效对话对）",
@@ -151,123 +189,44 @@ class ExpressionLearningModule:
                 continue
             situation = pattern.get("situation", "")
             expression = pattern.get("expression", "")
+            if not isinstance(situation, str) or not isinstance(expression, str):
+                continue
             if should_ignore_learning_sample(situation):
                 continue
-            if should_ignore_learning_sample(expression, sender_id="bot", is_bot=True):
+            if should_ignore_learning_sample(expression):
                 continue
-            filtered.append(pattern)
+            if str(pattern.get("sender_id", "")).strip().lower() in {"bot", "assistant"}:
+                continue
+            filtered.append({
+                **pattern,
+                "situation": sanitize_style_sample(situation),
+                "expression": sanitize_style_sample(expression),
+            })
         return filtered
 
-    def build_few_shots_from_patterns(self, patterns: List[Dict[str, Any]]) -> str:
+    @classmethod
+    def build_few_shots_from_patterns(cls, patterns: List[Dict[str, Any]]) -> str:
         """Build few-shot dialog text from expression patterns."""
-        few_shots = (
-            "*Here are few shots of dialogs, you need to imitate the tone of 'B' "
-            "in the following dialogs to respond:\n"
-        )
-
-        for pattern in self.filter_expression_patterns(patterns)[:5]:
-            situation = pattern.get("situation", "")
-            expression = pattern.get("expression", "")
-            if situation and expression:
-                few_shots += f"A: {situation}\nB: {expression}\n\n"
-
-        return few_shots.strip()
+        pairs = [
+            pattern for pattern in cls.filter_expression_patterns(patterns)[:5]
+            if pattern.get("situation") and pattern.get("expression")
+        ]
+        if not pairs:
+            return ""
+        return encode_style_samples(pairs)
 
     async def merge_bot_messages_for_pairs(
         self, group_id: str, user_messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Merge user messages with bot messages from DB to form a timeline."""
-        user_messages = filter_learning_messages(user_messages)
-        if not user_messages:
-            return []
-
-        bot_texts = await self.db_manager.get_recent_bot_responses(
-            group_id, limit=50
-        )
-        if not bot_texts:
-            return []
-
-        bot_msgs = []
-        async with self.db_manager.get_session() as session:
-            from sqlalchemy import desc, select
-
-            from ...models.orm.message import BotMessage
-
-            stmt = (
-                select(BotMessage)
-                .where(BotMessage.group_id == group_id)
-                .order_by(desc(BotMessage.timestamp))
-                .limit(50)
-            )
-            result = await session.execute(stmt)
-            for row in result.scalars().all():
-                if should_ignore_learning_sample(
-                    row.message,
-                    sender_id="bot",
-                    is_bot=True,
-                ):
-                    continue
-                bot_msgs.append(
-                    {
-                        "sender_id": "bot",
-                        "message": row.message,
-                        "timestamp": row.timestamp,
-                    }
-                )
-
-        if not bot_msgs:
-            return []
-
-        merged = list(user_messages) + bot_msgs
-        merged.sort(key=lambda message: message.get("timestamp", 0))
-        return merged
+        """Compatibility shim: preserve the supplied timeline without bot lookups."""
+        return list(user_messages or [])
 
     @staticmethod
     def extract_fewshot_pairs_from_merged(
         merged: List[Dict[str, Any]], group_id: str
     ) -> List[Dict[str, Any]]:
-        """Extract user->bot conversation pairs from a merged timeline."""
-        pairs = []
-        current_time = time.time()
-
-        for idx in range(len(merged) - 1):
-            msg = merged[idx]
-            nxt = merged[idx + 1]
-
-            msg_is_bot = msg.get("sender_id") == "bot"
-            nxt_is_bot = nxt.get("sender_id") == "bot"
-            msg_text = msg.get("message", "").strip()
-            nxt_text = nxt.get("message", "").strip()
-
-            if not msg_is_bot and nxt_is_bot and msg_text and nxt_text:
-                if should_ignore_learning_sample(msg_text):
-                    continue
-                if should_ignore_learning_sample(
-                    nxt_text, sender_id="bot", is_bot=True
-                ):
-                    continue
-                if len(msg_text) < 3 or len(nxt_text) < 3:
-                    continue
-                if msg_text.startswith(("[", "http", "@")):
-                    continue
-                if nxt_text.startswith(("[", "http", "@")):
-                    continue
-                if "@" in msg_text or "@" in nxt_text:
-                    continue
-
-                pairs.append(
-                    {
-                        "situation": msg_text[:50],
-                        "expression": nxt_text[:100],
-                        "weight": 1.0,
-                        "confidence": 0.8,
-                        "group_id": group_id,
-                        "last_active_time": current_time,
-                        "create_time": current_time,
-                    }
-                )
-
-        return pairs
+        """Compatibility entry point for source-grounded human dialog pairs."""
+        return extract_human_dialog_pairs(merged, group_id)
 
     async def save_expression_patterns(
         self,
@@ -287,7 +246,9 @@ class ExpressionLearningModule:
                 current_time = time.time()
                 objects = []
 
-                for pattern in patterns:
+                for pattern in self.filter_expression_patterns(patterns):
+                    if str(pattern.get("group_id") or group_id) != str(group_id):
+                        continue
                     situation = pattern.get("situation", "").strip()
                     expression = pattern.get("expression", "").strip()
 
@@ -297,10 +258,8 @@ class ExpressionLearningModule:
                     objects.append(
                         ExpressionPattern(
                             group_id=group_id,
-                            persona_id=normalize_persona_scope(
-                                pattern.get("persona_id"),
-                                fallback=persona_id,
-                            ),
+                            persona_id=persona_id,
+                            user_id=pattern.get("user_id"),
                             situation=situation,
                             expression=expression,
                             weight=float(pattern.get("weight", 1.0)),

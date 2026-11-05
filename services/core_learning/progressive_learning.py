@@ -17,7 +17,12 @@ from ...exceptions import LearningError
 from ..database import DatabaseManager
 from ..learning.expression_learning import ExpressionLearningModule
 from ..learning.persona_learning import PersonaLearningModule
-from ..learning.sample_filter import filter_blacklisted_messages, filter_learning_messages
+from ..learning.conversation_samples import MAX_DIALOG_GAP_SECONDS, message_timestamp
+from ..learning.sample_filter import (
+    filter_blacklisted_messages, filter_learning_messages,
+    mark_style_context_messages, mask_blacklisted_messages,
+)
+from ...utils.persona_selection import get_persona_identifier
 from ..monitoring.instrumentation import monitored
 
 
@@ -62,7 +67,7 @@ class ProgressiveLearningService:
         # MaiBot-style learning domains: expression learning and persona
         # learning are independent modules; this service only orchestrates
         # the batch lifecycle.
-        self.expression_learning = ExpressionLearningModule(db_manager)
+        self.expression_learning = ExpressionLearningModule(db_manager, config)
         self.persona_learning = PersonaLearningModule(
             config=config,
             context=context,
@@ -101,7 +106,9 @@ class ProgressiveLearningService:
         """Return the expression-learning domain module, creating it lazily for tests."""
         module = getattr(self, "expression_learning", None)
         if module is None:
-            module = ExpressionLearningModule(self.db_manager)
+            module = ExpressionLearningModule(
+                self.db_manager, getattr(self, "config", None)
+            )
             self.expression_learning = module
         return module
 
@@ -572,7 +579,7 @@ class ProgressiveLearningService:
             # 9. 应用学习更新（对话风格学习不判断质量直接应用，人格学习加入审查）
             # 注意：对话风格（表达模式）学习总是成功，人格学习在_apply_learning_updates中会加入审查
             # 传递 relearn_mode 和 ml_tuning_info 参数
-            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=relearn_mode, ml_tuning_info=ml_tuning_info)
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=relearn_mode, ml_tuning_info=ml_tuning_info, source_messages=unprocessed_messages)
             quality_score = await self._refresh_quality_after_updates(
                 group_id, quality_metrics, filtered_messages, quality_score
             )
@@ -766,7 +773,7 @@ class ProgressiveLearningService:
             from ...core.interfaces import AnalysisResult
             if style_analysis is None:
                 style_analysis = AnalysisResult(success=True, confidence=0.5, data={})
-            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None)
+            await self._apply_learning_updates(group_id, style_analysis, filtered_messages, current_persona, updated_persona, quality_metrics, relearn_mode=False, ml_tuning_info=None, source_messages=unprocessed_messages)
             quality_score = await self._refresh_quality_after_updates(
                 group_id, quality_metrics, filtered_messages, quality_score
             )
@@ -890,6 +897,10 @@ class ProgressiveLearningService:
             messages = kept
 
         messages = filter_learning_messages(messages)
+        messages = [
+            message for message in messages
+            if message.get("is_bot_target") is not True
+        ]
 
         # 对话风格学习不需要LLM筛选，直接学习所有非黑名单消息
         logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
@@ -917,10 +928,17 @@ class ProgressiveLearningService:
     @monitored
     async def _apply_learning_updates(self, group_id: str, style_analysis: Dict[str, Any], messages: List[Dict[str, Any]],
                                      current_persona: Dict[str, Any] = None, updated_persona: Dict[str, Any] = None,
-                                     quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None):
+                                     quality_metrics = None, relearn_mode: bool = False, ml_tuning_info: Dict[str, Any] = None,
+                                     source_messages: Optional[List[Dict[str, Any]]] = None):
         """应用学习更新，并创建人格学习审查记录和风格学习记录。"""
         try:
-            await self._save_style_learning_record(group_id, style_analysis, messages, quality_metrics)
+            # Keep original adjacency: filtering must not join unrelated chat turns.
+            style_messages = source_messages if source_messages is not None else messages
+            style_messages = await self._load_style_source_messages(group_id, style_messages)
+            await self._save_style_learning_record(
+                group_id, style_analysis, style_messages, quality_metrics,
+                persona_id=get_persona_identifier(current_persona),
+            )
 
             await self._get_persona_learning_module().apply_persona_learning(
                 group_id,
@@ -931,6 +949,7 @@ class ProgressiveLearningService:
                 quality_metrics=quality_metrics,
                 relearn_mode=relearn_mode,
                 ml_tuning_info=ml_tuning_info,
+                expression_messages=style_messages,
             )
 
             if group_id in self._group_sessions:
@@ -1014,14 +1033,49 @@ class ProgressiveLearningService:
             logger.error(f"停止渐进式学习服务失败: {e}")
             return False
 
+    async def _load_style_source_messages(
+        self, group_id: str, batch: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Restore context omitted by target/blacklist filtering for this batch."""
+        database = getattr(self, "db_manager", None)
+        loader = getattr(database, "get_style_learning_messages", None)
+        times = [message_timestamp(message) for message in batch]
+        times = [timestamp for timestamp in times if timestamp is not None]
+        batch_ids = {str(message["id"]) for message in batch if message.get("id") is not None}
+        if not callable(loader) or not times or not batch_ids:
+            return batch
+
+        timeline = await loader(
+            group_id, limit=max(200, len(batch) * 10),
+            start_time=min(times) - MAX_DIALOG_GAP_SECONDS, end_time=max(times),
+        )
+        if not timeline:
+            return [{**message, "message": ""} for message in batch]
+        # Other rows supply context only; a completed batch is not learned again.
+        return [
+            {**message, "is_style_context": True}
+            if str(message.get("id")) not in batch_ids else message
+            for message in timeline
+        ]
+
     async def _save_style_learning_record(self, group_id: str, style_analysis: Dict[str, Any],
-                                         messages: List[Dict[str, Any]], quality_metrics=None):
+                                         messages: List[Dict[str, Any]], quality_metrics=None,
+                                         persona_id: str = "default"):
         """保存对话风格学习记录（兼容转发）。"""
+        messages = mask_blacklisted_messages(
+            messages, getattr(getattr(self, "config", None), "target_blacklist", []),
+            group_id=group_id,
+        )
+        messages = mark_style_context_messages(
+            messages, getattr(getattr(self, "config", None), "target_qq_list", []),
+            group_id=group_id,
+        )
         await self._get_expression_learning_module().save_style_learning_record(
             group_id,
             style_analysis,
             messages,
             quality_metrics,
+            persona_id=persona_id,
         )
 
     @staticmethod
@@ -1038,7 +1092,7 @@ class ProgressiveLearningService:
     async def _merge_bot_messages_for_pairs(
         self, group_id: str, user_messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Merge user messages with bot messages from DB to form a timeline."""
+        """Compatibility wrapper; no bot messages are added to style samples."""
         return await self._get_expression_learning_module().merge_bot_messages_for_pairs(
             group_id,
             user_messages,
@@ -1048,7 +1102,7 @@ class ProgressiveLearningService:
     def _extract_fewshot_pairs_from_merged(
         merged: List[Dict[str, Any]], group_id: str
     ) -> List[Dict[str, Any]]:
-        """Extract user->bot conversation pairs from a merged message timeline."""
+        """Extract human-to-human style samples from the original timeline."""
         return ExpressionLearningModule.extract_fewshot_pairs_from_merged(
             merged,
             group_id,

@@ -14,6 +14,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from astrbot.api import logger
 
 from ..monitoring.instrumentation import monitored
+from ...utils.style_samples import encode_style_samples
 
 try:
     from ...utils.cache_manager import TTLCache
@@ -509,7 +510,7 @@ class SocialContextInjector:
             if user_scope == "bot":
                 user_scope = ""
 
-            cache_key = f"expression_patterns_{group_id}_{persona_id}_"
+            cache_key = f"approved_expression_patterns_v1_{group_id}_{persona_id}_"
             if user_scope_enabled:
                 cache_key += f"user{user_scope or 'group'}_"
             cache_key += (
@@ -569,19 +570,10 @@ class SocialContextInjector:
                 logger.info(f" [表达模式] {source_desc} 均无表达模式学习记录")
                 return None
 
-            # 构建原始表达模式文本
+            # Keep samples as quoted structured data; values are untrusted chat text.
             time_desc = f"{hours}小时" if hours < 24 else f"{hours//24}天"
             raw_pattern_text = f"最近{time_desc}学到的表达风格特征（来源: {source_desc}）：\n"
-            raw_pattern_text += f"以下是最近{time_desc}学习到的表达模式，参考这些风格进行回复：\n"
-
-            for i, pattern in enumerate(patterns[:10], 1): # 最多显示10个
-                situation = pattern.get('situation', '未知场景')
-                expression = pattern.get('expression', '未知表达')
-
-                # 简化显示
-                raw_pattern_text += f"{i}. 当{situation}时，使用类似「{expression}」的表达方式\n"
-
-            raw_pattern_text += "\n提示：这些是从真实对话中学习到的表达模式，请在适当的场景下灵活运用，保持自然流畅。"
+            raw_pattern_text += encode_style_samples(patterns[:10])
 
             # 应用提示词保护
             if enable_protection and self._enable_protection:

@@ -18,6 +18,7 @@ try:
         StyleLearningRecord,
         StyleProfile,
     )
+    from ....models.orm.learning import StyleLearningReview
     from ....repositories.expression_repository import ExpressionPatternRepository
 except ImportError:
     from utils.persona_selection import normalize_persona_scope
@@ -28,6 +29,7 @@ except ImportError:
         StyleLearningRecord,
         StyleProfile,
     )
+    from models.orm.learning import StyleLearningReview
     from repositories.expression_repository import ExpressionPatternRepository
 
 
@@ -118,10 +120,56 @@ class ExpressionFacade(BaseFacade):
                     stmt = stmt.where(ExpressionPattern.user_id.is_(None))
                 else:
                     stmt = stmt.where(ExpressionPattern.user_id == user_id)
-                stmt = stmt.order_by(desc(ExpressionPattern.weight)).limit(limit)
+                stmt = stmt.order_by(desc(ExpressionPattern.weight))
 
                 result = await session.execute(stmt)
-                return [self._row_to_dict(p) for p in result.scalars().all()]
+                patterns = [self._row_to_dict(p) for p in result.scalars().all()]
+                if not patterns:
+                    return []
+
+                approved_query = select(StyleLearningReview).where(
+                    StyleLearningReview.status == "approved",
+                    StyleLearningReview.type == "style_learning",
+                )
+                if group_id:
+                    approved_query = approved_query.where(
+                        StyleLearningReview.group_id == group_id
+                    )
+                result = await session.execute(approved_query)
+                approved_pairs = set()
+                for review in result.scalars().all():
+                    try:
+                        details = json.loads(review.learned_patterns or "[]")
+                        metadata = json.loads(review.metadata_ or "{}")
+                    except (TypeError, ValueError):
+                        continue
+                    if not isinstance(details, list) or not isinstance(metadata, dict):
+                        continue
+                    for detail in details:
+                        if not isinstance(detail, dict):
+                            continue
+                        sample_group = str(detail.get("group_id") or review.group_id)
+                        sample_persona = str(
+                            detail.get("persona_id") or metadata.get("persona_id") or "default"
+                        )
+                        sample_user = detail.get("user_id")
+                        approved_pairs.add((
+                            sample_group, sample_persona,
+                            str(sample_user) if sample_user is not None else None,
+                            detail.get("situation"), detail.get("expression"),
+                        ))
+
+                approved = [
+                    pattern for pattern in patterns
+                    if (
+                        str(pattern.get("group_id") or ""),
+                        str(pattern.get("persona_id") or ""),
+                        str(pattern.get("user_id")) if pattern.get("user_id") is not None else None,
+                        pattern.get("situation"),
+                        pattern.get("expression"),
+                    ) in approved_pairs
+                ]
+                return approved[:limit]
         except Exception as e:
             self._logger.error(f"[ExpressionFacade] 获取近期表达模式失败: {e}")
             return []

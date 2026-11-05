@@ -341,31 +341,6 @@ def test_progressive_learning_fallback_style_analysis_is_reviewable():
 
 
 @pytest.mark.unit
-def test_realtime_expression_builder_keeps_current_sender_messages():
-    raw_messages = [
-        {
-            "id": 1,
-            "sender_id": "user-a",
-            "sender_name": "User A",
-            "message": "这个表达应该留下来参与学习",
-            "group_id": "group-a",
-            "timestamp": time.time(),
-            "platform": "test",
-        }
-    ]
-
-    result = RealtimeProcessor._build_message_data_list(
-        raw_messages,
-        group_id="group-a",
-        sender_id="user-a",
-    )
-
-    assert len(result) == 1
-    assert result[0].sender_id == "user-a"
-    assert result[0].message == "这个表达应该留下来参与学习"
-
-
-@pytest.mark.unit
 def test_learning_sample_filter_blocks_commands_and_system_outputs():
     bot_help = (
         "AstrBot v4.24.5(WebUI: None)\n"
@@ -589,38 +564,6 @@ def test_learning_event_metadata_logs_unexpected_accessor_failures(monkeypatch):
 
 
 @pytest.mark.unit
-def test_realtime_expression_builder_filters_command_samples():
-    raw_messages = [
-        {
-            "id": 1,
-            "sender_id": "user-a",
-            "sender_name": "User A",
-            "message": "help",
-            "group_id": "group-a",
-            "timestamp": time.time(),
-            "platform": "test",
-        },
-        {
-            "id": 2,
-            "sender_id": "user-a",
-            "sender_name": "User A",
-            "message": "这个表达应该保留用于学习",
-            "group_id": "group-a",
-            "timestamp": time.time(),
-            "platform": "test",
-        },
-    ]
-
-    result = RealtimeProcessor._build_message_data_list(
-        raw_messages,
-        group_id="group-a",
-        sender_id="user-a",
-    )
-
-    assert [item.message for item in result] == ["这个表达应该保留用于学习"]
-
-
-@pytest.mark.unit
 def test_progressive_fewshot_extraction_skips_command_system_pairs():
     merged = [
         {"sender_id": "user-a", "message": "help", "timestamp": 1},
@@ -634,7 +577,7 @@ def test_progressive_fewshot_extraction_skips_command_system_pairs():
             "timestamp": 2,
         },
         {"sender_id": "user-a", "message": "今天状态怎么样", "timestamp": 3},
-        {"sender_id": "bot", "message": "我今天状态不错", "timestamp": 4},
+        {"sender_id": "user-b", "message": "我今天状态不错", "timestamp": 4},
     ]
 
     pairs = ProgressiveLearningService._extract_fewshot_pairs_from_merged(
@@ -1882,11 +1825,11 @@ async def test_realtime_expression_learning_user_scope_is_opt_in():
         persona_id="bot-a",
     )
 
-    assert learner.trigger_learning_for_group.await_count == 3
+    assert learner.trigger_learning_for_group.await_count == 2
     assert [
         call.kwargs["user_id"]
         for call in learner.trigger_learning_for_group.await_args_list
-    ] == ["user-a", "user-b", None]
+    ] == ["user-a", "user-b"]
 
 
 @pytest.mark.unit
@@ -2283,7 +2226,10 @@ async def test_progressive_learning_saves_canonical_style_review_type():
     await service._save_style_learning_record(
         "group-a",
         style_analysis,
-        messages=[{"message": "你好"}],
+        messages=[
+            {"sender_id": "user-a", "message": "用户问候"},
+            {"sender_id": "user-b", "message": "我来了"},
+        ],
         quality_metrics=None,
     )
 
@@ -2650,8 +2596,8 @@ async def test_update_persona_with_style_forwards_group_and_persona(monkeypatch)
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_expression_learning_merges_stored_bot_replies_for_batch(tmp_path):
-    """回归 issue #257：批量/审批链路只传用户消息时，应合并数据库 Bot 回复后才能学到模式。"""
+async def test_expression_learning_uses_human_turns_despite_stored_bot_replies(tmp_path):
+    """批量学习只使用群友上下文，数据库中的 Bot 回复不应成为表达范例。"""
     from self_learning_EterU.models.orm.message import BotMessage
 
     config = PluginConfig(
@@ -2689,104 +2635,29 @@ async def test_expression_learning_merges_stored_bot_replies_for_batch(tmp_path)
                 "sender_id": f"user-{idx}",
                 "sender_name": f"User {idx}",
                 "message": f"这是用户第{idx}条足够长的学习消息内容",
-                "timestamp": now + idx * 2 - 1,
+                "timestamp": base,
                 "group_id": "group-a",
+                "message_id": f"human-{idx}",
+                "reply_to": f"human-{idx - 1}" if idx > 1 else None,
             }
             for idx in range(1, 6)
         ]
 
-        ok = await learner.trigger_learning_for_group(
-            "group-a", user_messages, persona_id="bot-a"
-        )
+        for message in user_messages:
+            assert await db.save_raw_message(message)
+        pending = await db.get_unprocessed_messages(group_id="group-a")
+        recent = await db.get_recent_raw_messages("group-a")
+        assert [message["message_id"] for message in pending] == [
+            message["message_id"] for message in user_messages
+        ]
+        assert pending[-1]["reply_to"] == "human-4"
+        ok = await learner.trigger_learning_for_group("group-a", recent, persona_id="bot-a")
         assert ok is True
         patterns = await learner.get_expression_patterns("group-a", persona_id="bot-a")
-        assert len(patterns) >= 2
-    finally:
-        await db.stop()
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_expression_learning_merge_skipped_when_bot_present_or_no_db():
-    """实时链路已预先合并 bot 消息，不应重复查询；无 db 时直接返回。"""
-    learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
-
-    learner.db_manager = None
-    user_only = [{"sender_id": "user-a", "message": "hi", "timestamp": 1}]
-    assert await learner._merge_bot_messages_for_group("g", user_only) is user_only
-
-    def _boom():
-        raise AssertionError("不应在已含 bot 消息时查询数据库")
-
-    learner.db_manager = SimpleNamespace(get_session=_boom)
-    already_merged = [
-        {"sender_id": "user-a", "message": "hi", "timestamp": 1},
-        {"sender_id": "bot", "message": "yo", "timestamp": 2},
-    ]
-    assert (
-        await learner._merge_bot_messages_for_group("g", already_merged)
-        is already_merged
-    )
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_merge_bot_replies_bounds_to_message_time_window(tmp_path):
-    """回归审查意见：合并只取与这批用户消息时间窗口重叠的 Bot 回复，避免跨窗口误配对。"""
-    from self_learning_EterU.models.orm.message import BotMessage
-
-    config = PluginConfig(
-        data_dir=str(tmp_path),
-        db_type="sqlite",
-        enable_web_interface=False,
-    )
-    db = SQLAlchemyDatabaseManager(config)
-    try:
-        assert await db.start() is True
-        now = time.time()
-        base = int(now)
-        async with db.get_session() as session:
-            session.add_all(
-                [
-                    BotMessage(
-                        group_id="group-a",
-                        message="窗口内的有效机器人回复",
-                        timestamp=base + 2,
-                        created_at=base,
-                    ),
-                    BotMessage(
-                        group_id="group-a",
-                        message="窗口外很晚的无关机器人回复",
-                        timestamp=base + 99999,
-                        created_at=base,
-                    ),
-                ]
-            )
-            await session.commit()
-
-        learner = ExpressionPatternLearner.__new__(ExpressionPatternLearner)
-        learner.db_manager = db
-        learner.config = config
-
-        user_messages = [
-            {
-                "sender_id": f"user-{idx}",
-                "sender_name": f"User {idx}",
-                "message": f"这是用户第{idx}条足够长的学习消息",
-                "timestamp": now + idx,
-                "group_id": "group-a",
-            }
-            for idx in range(1, 6)
-        ]
-
-        merged = await learner._merge_bot_messages_for_group("group-a", user_messages)
-        bot_texts = [
-            m.get("message")
-            for m in merged
-            if isinstance(m, dict) and m.get("sender_id") == "bot"
-        ]
-        assert "窗口内的有效机器人回复" in bot_texts
-        assert "窗口外很晚的无关机器人回复" not in bot_texts
+        assert len(patterns) == 4
+        assert {pattern.expression for pattern in patterns} == {
+            message["message"][:100] for message in user_messages[1:]
+        }
     finally:
         await db.stop()
 
@@ -2827,10 +2698,14 @@ async def test_message_pipeline_sanitizes_sender_name_before_collection():
     )
     pipeline._should_process_v2_realtime = lambda: True
 
+    from astrbot.api.message_components import Reply
+
     event = SimpleNamespace(
         get_sender_name=lambda: "\n\x1a\x12\x18群名片\x92\x10\x00",
         get_platform_name=lambda: "aiocqhttp",
         get_self_id=lambda: "bot-a",
+        get_messages=lambda: [Reply(id="quoted-human-message")],
+        message_obj=SimpleNamespace(message_id="current-human-message"),
     )
 
     assert await pipeline.process_learning(
@@ -2839,6 +2714,8 @@ async def test_message_pipeline_sanitizes_sender_name_before_collection():
 
     collected = collector.collect_message.call_args[0][0]
     assert collected["sender_name"] == "\n\x1a\x12\x18群名片\x92\x10"
+    assert collected["message_id"] == "current-human-message"
+    assert collected["reply_to"] == "quoted-human-message"
 
     v2_msg = v2_integration.process_message.call_args[0][0]
     assert v2_msg.sender_name == "\n\x1a\x12\x18群名片\x92\x10"

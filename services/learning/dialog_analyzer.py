@@ -11,7 +11,12 @@ from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
 from ..monitoring.instrumentation import monitored
-from .sample_filter import should_ignore_learning_sample
+from .conversation_samples import (
+    extract_human_dialog_pairs,
+    human_dialog_timeline,
+    message_timestamp,
+    message_value,
+)
 
 
 class DialogAnalyzer:
@@ -50,50 +55,37 @@ class DialogAnalyzer:
                 return ""
 
             dialog_pairs: List[Dict[str, str]] = []
-            sorted_messages = sorted(message_data_list, key=lambda x: x.timestamp)
+            sorted_messages = human_dialog_timeline(message_data_list)
 
             for i in range(len(sorted_messages) - 1):
                 current_msg = sorted_messages[i]
                 next_msg = sorted_messages[i + 1]
 
-                # Skip consecutive messages from the same sender
-                if current_msg.sender_id == next_msg.sender_id:
+                pairs = extract_human_dialog_pairs([current_msg, next_msg], group_id)
+                if not pairs:
                     continue
-
-                user_msg = current_msg.message.strip()
-                bot_response = next_msg.message.strip()
-                if should_ignore_learning_sample(
-                    user_msg,
-                    sender_id=current_msg.sender_id,
-                ) or should_ignore_learning_sample(
-                    bot_response,
-                    sender_id=next_msg.sender_id,
-                    is_bot=str(next_msg.sender_id).lower() == "bot",
-                ):
-                    continue
+                context_text = pairs[0]["situation"]
+                response_text = pairs[0]["expression"]
 
                 # Basic length / trivial-content filter
                 if (
-                    len(user_msg) < 5
-                    or len(bot_response) < 5
-                    or user_msg in ("？", "？？", "...", "。。。")
-                    or bot_response in ("？", "？？", "...", "。。。")
+                    len(context_text) < 5
+                    or len(response_text) < 5
                 ):
                     continue
 
                 # Filter duplicate / contained content
                 if (
-                    user_msg == bot_response
-                    or user_msg in bot_response
-                    or bot_response in user_msg
+                    context_text in response_text
+                    or response_text in context_text
                 ):
                     logger.debug(
-                        f"过滤重复内容: A='{user_msg[:30]}...' B='{bot_response[:30]}...'"
+                        f"过滤重复内容: A='{context_text[:30]}...' B='{response_text[:30]}...'"
                     )
                     continue
 
                 if await self.is_valid_dialog_pair(current_msg, next_msg, group_id):
-                    dialog_pairs.append({"user": user_msg, "assistant": bot_response})
+                    dialog_pairs.append({"context": context_text, "response": response_text})
 
             if len(dialog_pairs) >= 3:
                 selected_pairs = dialog_pairs[:5]
@@ -102,8 +94,8 @@ class DialogAnalyzer:
                     "the tone of 'B' in the following dialogs to respond:"
                 ]
                 for pair in selected_pairs:
-                    few_shots_lines.append(f"A: {pair['user']}")
-                    few_shots_lines.append(f"B: {pair['assistant']}")
+                    few_shots_lines.append(f"A: {pair['context']}")
+                    few_shots_lines.append(f"B: {pair['response']}")
 
                 logger.info(
                     f"群组 {group_id} 生成了 {len(selected_pairs)} 组Few Shots对话"
@@ -129,36 +121,41 @@ class DialogAnalyzer:
         """Determine whether two messages form a genuine dialog pair.
 
         Uses the professional ``MessageRelationshipAnalyzer`` when available,
-        falling back to a simple inequality check otherwise.
+        falling back to validated human adjacency otherwise.
         """
         try:
+            pairs = extract_human_dialog_pairs([msg1, msg2], group_id)
+            if not pairs or pairs[0]["context_sender_id"] != str(
+                message_value(msg1, "sender_id", "")
+            ).strip():
+                return False
             if (
                 not self._factory_manager
                 or not hasattr(self._factory_manager, "_service_factory")
                 or not self._factory_manager._service_factory
             ):
-                return msg1.message != msg2.message
+                return True
 
             relationship_analyzer = (
                 self._factory_manager.get_service_factory()
                 .create_message_relationship_analyzer()
             )
             if not relationship_analyzer:
-                return msg1.message != msg2.message
+                return True
 
             msg1_dict = {
-                "message_id": msg1.message_id
-                or str(hash(f"{msg1.timestamp}{msg1.sender_id}")),
-                "sender_id": msg1.sender_id,
-                "message": msg1.message,
-                "timestamp": msg1.timestamp,
+                "message_id": message_value(msg1, "message_id")
+                or str(hash(f"{message_timestamp(msg1)}{message_value(msg1, 'sender_id')}")),
+                "sender_id": message_value(msg1, "sender_id"),
+                "message": pairs[0]["situation"],
+                "timestamp": message_timestamp(msg1) or 0,
             }
             msg2_dict = {
-                "message_id": msg2.message_id
-                or str(hash(f"{msg2.timestamp}{msg2.sender_id}")),
-                "sender_id": msg2.sender_id,
-                "message": msg2.message,
-                "timestamp": msg2.timestamp,
+                "message_id": message_value(msg2, "message_id")
+                or str(hash(f"{message_timestamp(msg2)}{message_value(msg2, 'sender_id')}")),
+                "sender_id": message_value(msg2, "sender_id"),
+                "message": pairs[0]["expression"],
+                "timestamp": message_timestamp(msg2) or 0,
             }
 
             relationship = await relationship_analyzer._analyze_message_pair(
