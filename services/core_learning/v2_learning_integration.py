@@ -30,7 +30,6 @@ Design notes:
 
 import asyncio
 import hashlib
-import json
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
@@ -40,7 +39,6 @@ from astrbot.api import logger
 from ...config import PluginConfig
 from ...core.interfaces import MessageData
 from ...utils.cache_manager import get_cache_manager
-from ...utils.json_utils import safe_parse_llm_json
 from ..monitoring.instrumentation import monitored
 from ..quality import (
     BatchTriggerPolicy,
@@ -676,8 +674,6 @@ class V2LearningIntegration:
             async def _jargon_update(
                 message: MessageData, group_id: str
             ) -> None:
-                if not self._config.enable_jargon_learning:
-                    return
                 jf.update_from_message(message.message, group_id, message.sender_id)
 
             self._trigger.register_tier1("jargon_stats", _jargon_update)
@@ -728,11 +724,10 @@ class V2LearningIntegration:
 
         if self._jargon_filter:
             jf2 = self._jargon_filter
+            llm = self._llm
             db = self._db
 
             async def _jargon_batch(group_id: str) -> None:
-                if not self._config.enable_jargon_learning:
-                    return
                 exclude_terms = set()
                 if db and hasattr(db, "get_recent_jargon_list"):
                     try:
@@ -755,11 +750,32 @@ class V2LearningIntegration:
                     top_k=20,
                     exclude_terms=exclude_terms,
                 )
-                if not candidates:
+                if not candidates or not llm:
                     return
                 for candidate in candidates[:10]:
                     try:
-                        await self._infer_jargon_candidate(group_id, candidate)
+                        meaning = await llm.generate_response(
+                            f"Explain the slang/jargon term "
+                            f"'{candidate['term']}' in the context of an "
+                            f"online chat group. Return a concise definition.",
+                            model_type="filter",
+                        )
+                        if (
+                            meaning
+                            and db
+                            and hasattr(db, "save_or_update_jargon")
+                        ):
+                            await db.save_or_update_jargon(
+                                group_id,
+                                candidate["term"],
+                                {
+                                    "meaning": meaning,
+                                    "raw_content": "[]",
+                                    "is_jargon": True,
+                                    "count": 1,
+                                    "is_complete": True,
+                                },
+                            )
                     except Exception as exc:
                         logger.debug(
                             f"[V2Integration] Jargon inference failed "
@@ -799,70 +815,6 @@ class V2LearningIntegration:
                     message_threshold=50, cooldown_seconds=600
                 ),
             )
-
-    async def _infer_jargon_candidate(
-        self, group_id: str, candidate: Dict[str, Any]
-    ) -> None:
-        """Reuse contextual inference without replacing reviewed definitions."""
-        if not self._config.enable_jargon_learning:
-            return
-        term = str(candidate.get("term") or "").strip()
-        examples = candidate.get("context_examples") or []
-        if not term or not isinstance(examples, list):
-            return
-        contexts = list(dict.fromkeys(
-            text.strip() for text in examples
-            if isinstance(text, str) and term in text and text.strip() != term
-        ))[:5]
-        db = self._db
-        if (
-            not contexts or not self._llm or not db
-            or not hasattr(db, "get_jargon")
-            or not hasattr(db, "save_or_update_jargon")
-        ):
-            return
-
-        current = await db.get_jargon(group_id, term)
-        if self._has_jargon_definition(current):
-            return
-
-        from ..jargon.jargon_miner import JargonInferenceEngine
-
-        inference = await JargonInferenceEngine(self._llm).infer_meaning(term, contexts)
-        if not inference or inference.get("no_info") or not inference.get("meaning"):
-            return
-        if not isinstance(inference.get("is_jargon"), bool):
-            return
-
-        # Review may finish during the LLM calls; re-read before writing.
-        current = await db.get_jargon(group_id, term)
-        if not self._config.enable_jargon_learning or self._has_jargon_definition(current):
-            return
-        previous_contexts = safe_parse_llm_json((current or {}).get("raw_content")) or []
-        if not isinstance(previous_contexts, list):
-            previous_contexts = []
-        contexts = list(dict.fromkeys(
-            [text for text in previous_contexts if isinstance(text, str)] + contexts
-        ))
-        count = max(
-            1, int(candidate.get("frequency") or 1), int((current or {}).get("count") or 1)
-        )
-        await db.save_or_update_jargon(group_id, term, {
-            "meaning": inference["meaning"],
-            "raw_content": json.dumps(contexts, ensure_ascii=False),
-            "is_jargon": inference["is_jargon"],
-            "count": count,
-            "last_inference_count": count,
-            "is_complete": False,
-        })
-
-    @staticmethod
-    def _has_jargon_definition(row: Optional[Dict[str, Any]]) -> bool:
-        return bool(row and (
-            row.get("is_complete")
-            or row.get("is_jargon") is not None
-            or str(row.get("meaning") or "").strip()
-        ))
 
     # Batch ingestion
 
