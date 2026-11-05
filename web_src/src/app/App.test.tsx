@@ -86,19 +86,14 @@ describe('dashboard page smoke tests', () => {
     expect(screen.getByText('System Entry Points')).toBeInTheDocument();
   });
 
-  it.each([
-    { tier: 'basic', label: '基础能力依赖', icon: 'bolt', mirror: 'default' },
-    { tier: 'full', label: '全能力依赖', icon: 'extension', mirror: 'tsinghua' },
-  ])('confirms and installs $tier dependencies with consistent button states', async ({ tier, label, icon, mirror }) => {
+  it('sends explicit webui confirmation when installing dependencies', async () => {
     vi.restoreAllMocks();
     const posts: unknown[] = [];
-    let finishInstall!: (response: Response) => void;
-    const installResponse = new Promise<Response>((resolve) => { finishInstall = resolve; });
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if (init?.method === 'POST' && url.includes('/api/dependencies/install')) {
         posts.push(JSON.parse(String(init.body)));
-        return installResponse;
+        return new Response('{"message":"ok"}', { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
       const payload = url.includes('/api/config/schema')
         ? { groups: [{ label: '基础设置', fields: [] }] }
@@ -112,27 +107,16 @@ describe('dashboard page smoke tests', () => {
     render(() => <App />);
     expect(await screen.findByRole('heading', { name: '设置', level: 2 })).toBeInTheDocument();
 
-    const installButton = screen.getByRole('button', { name: label });
-    expect(installButton.querySelector('.material-icons')).toHaveTextContent(icon);
-    await fireEvent.change(screen.getByLabelText('pip 镜像源'), { target: { value: mirror } });
-    await fireEvent.click(installButton);
+    await fireEvent.click(screen.getByRole('button', { name: '基础能力依赖' }));
     expect(await screen.findByRole('heading', { name: '安装 Python 依赖', level: 2 })).toBeInTheDocument();
-    expect(posts).toHaveLength(0);
     await fireEvent.click(screen.getByRole('button', { name: '确认' }));
 
     await waitFor(() => expect(posts).toHaveLength(1));
     expect(posts[0]).toMatchObject({
       manual_confirmed: true,
       source: 'webui_settings',
-      tier,
-      pip_mirror: mirror,
+      tier: 'basic',
+      pip_mirror: 'default',
     });
-    const installButtons = [
-      screen.getByRole('button', { name: '基础能力依赖' }),
-      screen.getByRole('button', { name: '全能力依赖' }),
-    ];
-    installButtons.forEach((button) => expect(button).toBeDisabled());
-    finishInstall(new Response('{"message":"ok"}', { status: 200, headers: { 'Content-Type': 'application/json' } }));
-    await waitFor(() => installButtons.forEach((button) => expect(button).toBeEnabled()));
   });
 });

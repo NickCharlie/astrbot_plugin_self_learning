@@ -117,9 +117,9 @@ export function SettingsPage() {
               <option value="default">PyPI 默认源</option><option value="tsinghua">清华大学 TUNA</option><option value="aliyun">阿里云</option><option value="tencent">腾讯云</option><option value="ustc">中国科大 USTC</option><option value="douban">豆瓣</option>
             </Select>
             <p class={styles['dep-hint']}>不会在插件安装或启动时自动执行。</p>
-            <div class={styles['dep-actions']}>
-              <Button class={styles['dep-button']} icon="bolt" loading={installing()} onClick={() => install('basic')}>基础能力依赖</Button>
-              <Button class={styles['dep-button']} tone="primary" icon="extension" loading={installing()} onClick={() => install('full')}>全能力依赖</Button>
+            <div class="inline-actions">
+              <Button size="sm" icon="bolt" loading={installing()} disabled={installing()} onClick={() => install('basic')}>基础能力依赖</Button>
+              <Button size="sm" tone="primary" icon="deployed_code" loading={installing()} disabled={installing()} onClick={() => install('full')}>全能力依赖</Button>
             </div>
           </div>
         </aside>

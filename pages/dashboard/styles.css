@@ -1055,23 +1055,6 @@ textarea {
   margin-top: 14px;
 }
 
-.dependency-panel .panel-heading {
-  flex-wrap: wrap;
-}
-
-.dependency-controls {
-  display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) minmax(100px, auto);
-  gap: 8px;
-  flex: 0 1 600px;
-  min-width: 0;
-}
-
-.dependency-controls > * {
-  min-width: 0;
-  height: 36px;
-}
-
 .dependency-panel .code-preview {
   margin-top: 12px;
   min-height: 80px;
@@ -1401,7 +1384,7 @@ textarea {
 
 @media (max-width: 1120px) {
   .app-shell {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
 
   .sidebar {
@@ -1481,12 +1464,6 @@ textarea {
 }
 
 @media (max-width: 560px) {
-  .dependency-controls {
-    width: 100%;
-    grid-template-columns: minmax(0, 1fr);
-    flex-basis: auto;
-  }
-
   .topbar,
   .page-titlebar,
   .panel-heading {

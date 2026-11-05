@@ -6,7 +6,7 @@
 
 让 AstrBot 在群聊中持续采集、学习、审查并注入上下文，使 Bot 逐步具备表达风格、群组黑话、社交关系、长期记忆和人格演化能力。
 
-[![Version](https://img.shields.io/badge/version-4.7.3-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
+[![Version](https://img.shields.io/badge/version-4.7.2-blue.svg)](https://github.com/NickCharlie/astrbot_plugin_self_learning)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 [![AstrBot](https://img.shields.io/badge/AstrBot-%3E%3D4.11.4-orange.svg)](https://github.com/Soulter/AstrBot)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
@@ -55,7 +55,7 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| 对话风格学习 | 从群友之间的上下文对话提取表达模式、few-shot 和风格审查记录，排除 Bot 回复 |
+| 对话风格学习 | 从真实 user -> bot 对话对中提取表达模式、few-shot 和风格审查记录 |
 | 群组黑话学习 | 统计预筛高频词，结合上下文推断含义，并在 LLM 请求前注入解释 |
 | 人格演化审查 | 学习结果先进入审查链路，支持批准、拒绝、删除、回滚和自动应用策略 |
 | 社交关系分析 | 记录互动关系、好感度、心理状态和群组社交上下文 |
@@ -164,7 +164,7 @@ flowchart LR
     Raw["原始消息 RawMessage"] --> Filtered["筛选消息 FilteredMessage"]
     Raw --> Expression["表达模式 ExpressionPattern"]
     Raw --> Jargon["黑话 Jargon"]
-    Raw --> Pair["群友 A -> 群友 B 上下文对话"]
+    Sent["Bot 出站消息 BotMessage"] --> Pair["user -> bot 对话对"]
     Pair --> StyleReview["风格审查 StyleLearningReview"]
     Filtered --> PersonaReview["人格审查 PersonaLearningReview"]
     StyleReview --> Approved["批准后的 few-shot"]
