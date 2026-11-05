@@ -103,6 +103,12 @@ class GroupLearningOrchestrator:
                 )
                 return
 
+            # Configuration may change while timestamps/statistics are awaited.
+            if not self._config.enable_auto_learning or not self._config.enable_style_learning:
+                return
+            if group_id in self.learning_tasks:
+                return
+
             self._last_learning_start[group_id] = current_time
 
             learning_task = asyncio.create_task(

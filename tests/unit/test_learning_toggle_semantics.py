@@ -18,6 +18,8 @@ from self_learning_EterU.services.learning.persona_learning import PersonaLearni
 from self_learning_EterU.services.persona import persona_updater as persona_updater_module
 from self_learning_EterU.services.persona.persona_updater import PersonaUpdater
 from self_learning_EterU.services.quality import TieredLearningTrigger
+from self_learning_EterU.services.jargon.jargon_miner import JargonInferenceEngine
+from self_learning_EterU.services.jargon.jargon_statistical_filter import JargonStatisticalFilter
 
 
 @pytest.mark.unit
@@ -105,7 +107,7 @@ async def test_v2_jargon_switch_gates_stats_and_inference_after_runtime_changes(
         ]
 
         await integration._trigger.process_message(message, "group-a")
-        await integration._trigger.force_tier2("jargon", "group-a")
+        assert await integration._trigger.force_tier2("jargon", "group-a") is enabled
 
         assert jargon_filter.update_from_message.call_count == int(enabled)
         assert jargon_filter.get_jargon_candidates.call_count == int(enabled)
@@ -120,7 +122,7 @@ async def test_v2_jargon_switch_gates_stats_and_inference_after_runtime_changes(
             assert json.loads(saved["raw_content"]) == ["An example from the group"]
             assert saved["meaning"] == "A group-specific meaning"
             assert saved["count"] == 3
-            assert saved["is_jargon"] is True
+            assert saved["is_jargon"] is None
             assert saved["is_complete"] is False
 
 
@@ -183,6 +185,99 @@ async def test_v2_contextual_jargon_preserves_decisions_and_skips_uncertain_infe
     assert json.loads(saved["raw_content"]) == [
         "An earlier example in the group", "An example from the group",
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize("classification", [True, False])
+async def test_v2_pending_jargon_merges_concurrent_context_and_refreshes_until_review(
+    classification, monkeypatch,
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from self_learning_EterU.models.orm import Base
+    from self_learning_EterU.services.database.facades.jargon_facade import JargonFacade
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    database = JargonFacade(SimpleNamespace(engine=engine, get_session=sessions), SimpleNamespace())
+    integration = V2LearningIntegration.__new__(V2LearningIntegration)
+    integration._config = SimpleNamespace(enable_jargon_learning=True)
+    integration._db = database
+    integration._llm = object()
+    inference_calls = []
+
+    async def infer(_engine, term, contexts):
+        inference_calls.append((term, contexts))
+        await asyncio.sleep(0)
+        if "unclear" in contexts[-1]:
+            return {"no_info": True}
+        return {"is_jargon": classification, "meaning": contexts[-1], "no_info": False}
+
+    monkeypatch.setattr(JargonInferenceEngine, "infer_meaning", infer)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.create_all)
+        candidates = [
+            {"term": "term", "context_examples": [context], "frequency": frequency}
+            for context, frequency in (("term first context", 5), ("term later context", 8))
+        ]
+        await asyncio.gather(*(
+            integration._infer_jargon_candidate("group-a", candidate)
+            for candidate in candidates
+        ))
+        row = await database.get_jargon("group-a", "term")
+        assert json.loads(row["raw_content"]) == ["term first context", "term later context"]
+        assert row["meaning"] == "term later context"
+        assert row["count"] == row["last_inference_count"] == 8
+        assert row["is_jargon"] is (None if classification else False)
+        assert row["is_complete"] is False
+        assert len(await database.get_recent_jargon_list(chat_id="group-a", pending_only=True)) == 1
+        assert await database.get_jargon_count(chat_id="group-a", pending_only=True) == 1
+        assert await database.get_recent_jargon_list(chat_id="group-a", only_confirmed=True) == []
+
+        if classification:
+            # An earlier V2 writer used True before the pending-review fix.
+            await database.update_jargon({"id": row["id"], "is_jargon": True})
+        await integration._infer_jargon_candidate("group-a", {
+            "term": "term", "context_examples": ["term unclear new context"], "frequency": 9,
+        })
+        row = await database.get_jargon("group-a", "term")
+        assert row["meaning"] == "term later context"
+        assert row["count"] == 9
+        assert row["is_jargon"] is (None if classification else False)
+        assert json.loads(row["raw_content"])[-1] == "term unclear new context"
+
+        await database.update_jargon({"id": row["id"], "is_jargon": True, "is_complete": True})
+        calls_before_review = len(inference_calls)
+        assert await integration._infer_jargon_candidate("group-a", candidates[0]) is False
+        assert len(inference_calls) == calls_before_review
+        assert await database.get_jargon_count(chat_id="group-a", pending_only=True) == 0
+        assert len(await database.get_recent_jargon_list(chat_id="group-a", only_confirmed=True)) == 1
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_statistical_and_inference_windows_follow_recent_context(monkeypatch):
+    statistical = JargonStatisticalFilter()
+    monkeypatch.setattr(statistical, "_tokenize", lambda _text: ["term"])
+    contexts = [f"term occurrence {index}" for index in range(12)]
+    for context in contexts:
+        statistical.update_from_message(context, "group-a", "user-a")
+    assert statistical._term_contexts["group-a"]["term"] == contexts[-10:]
+    assert statistical.get_jargon_candidates("group-a")[0]["context_examples"] == contexts[-5:]
+
+    integration = V2LearningIntegration.__new__(V2LearningIntegration)
+    integration._config = SimpleNamespace(enable_jargon_learning=True)
+    integration._db = SimpleNamespace(
+        get_jargon=AsyncMock(return_value=None), save_or_update_jargon=AsyncMock(),
+    )
+    integration._llm = SimpleNamespace(generate_response=AsyncMock(return_value='{"no_info":true}'))
+    await integration._infer_jargon_candidate("group-a", {"term": "term", "context_examples": contexts})
+    prompt = integration._llm.generate_response.await_args.args[0]
+    assert contexts[-1] in prompt and contexts[0] not in prompt
 
 
 @pytest.mark.unit

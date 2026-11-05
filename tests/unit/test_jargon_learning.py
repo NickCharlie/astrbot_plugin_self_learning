@@ -115,12 +115,13 @@ async def test_mine_jargon_keeps_pending_statistical_candidates_eligible():
 async def test_v2_jargon_batch_only_excludes_confirmed_terms():
     pending = {"content": "待确认", "is_jargon": None}
     confirmed = {"content": "已确认", "is_jargon": True}
+    earlier_inference = {"content": "待确认", "is_jargon": True, "last_inference_count": 3}
     query_calls = []
 
     async def get_recent_jargon_list(**kwargs):
         query_calls.append(kwargs)
         if kwargs.get("only_confirmed") is True:
-            return [confirmed]
+            return [confirmed, earlier_inference]
         return [pending, confirmed]
 
     candidate = {"term": "待确认", "context_examples": ["群友使用待确认表达群内含义"]}
@@ -182,7 +183,7 @@ async def test_v2_jargon_batch_only_excludes_confirmed_terms():
         {
             "meaning": "测试释义",
             "raw_content": '["群友使用待确认表达群内含义"]',
-            "is_jargon": True,
+            "is_jargon": None,
             "count": 1,
             "last_inference_count": 1,
             "is_complete": False,

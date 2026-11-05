@@ -160,11 +160,13 @@ class TieredLearningTrigger:
 
         The callback signature must be::
 
-            async def callback(group_id: str) -> None
+            async def callback(group_id: str) -> bool | None
 
         The operation fires when the group's message count exceeds
         ``policy.message_threshold`` **or** ``policy.cooldown_seconds``
         have elapsed since the last execution, whichever comes first.
+        Return ``False`` to skip without consuming the trigger or cooldown;
+        ``None`` preserves the existing successful-completion contract.
         """
         if callback is None:
             return
@@ -222,6 +224,8 @@ class TieredLearningTrigger:
                 ok = await self._execute_tier2_op(
                     name, callback, group_id, state
                 )
+                if ok is None:
+                    continue
                 result.tier2_details[name] = ok
                 result.tier2_triggered = True
 
@@ -248,7 +252,7 @@ class TieredLearningTrigger:
 
         state = self._get_state(group_id)
         callback, _ = self._tier2_ops[name]
-        return await self._execute_tier2_op(name, callback, group_id, state)
+        return await self._execute_tier2_op(name, callback, group_id, state) is True
 
     # Inspection / statistics
 
@@ -324,10 +328,11 @@ class TieredLearningTrigger:
         callback: _AsyncCallable,
         group_id: str,
         state: _GroupTriggerState,
-    ) -> bool:
-        """Execute a single Tier 2 operation with error handling."""
+    ) -> Optional[bool]:
+        """Return success/failure, or None when the callback explicitly skips."""
         try:
-            await callback(group_id)
+            if await callback(group_id) is False:
+                return None
             state.last_op_times[name] = time.time()
             logger.debug(
                 f"[TieredTrigger] Tier 2 op '{name}' completed for "
