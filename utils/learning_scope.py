@@ -63,5 +63,3 @@ def mark_style_context_messages(
         else:
             marked.append(message)
     return marked
-
-
