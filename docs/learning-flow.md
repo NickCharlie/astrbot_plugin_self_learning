@@ -46,7 +46,7 @@ sequenceDiagram
 - 消息文本非空。
 - `enable_message_capture=True`。
 - 不是 AstrBot 命令。
-- 发送者和群组未被 QQ 过滤器排除。
+- 发送者和群组未被黑名单排除；白名单外的其他群友仅可作为指定用户的风格上下文。
 
 采集动作:
 
@@ -67,6 +67,11 @@ await database_manager.save_raw_message(message_obj)
 ```
 
 当前实现是实时写入，不依赖内存批量缓存。
+
+原始消息保留 `message_id`、`reply_to`、`is_bot_target`（明确 @Bot/唤醒）和
+`is_style_context`（仅作为群友上文）标记。白名单外群友只走上下文采集，不触发其他学习；
+普通学习查询排除这类上下文记录。表达学习使用专用时间线查询，按当前白名单确定响应方，
+并将黑名单和已排除消息保留为空白分隔。旧记录来源信息不足，不做自动清理。
 
 ## 2. 每条消息后台流水线
 
@@ -102,17 +107,17 @@ await database_manager.save_raw_message(message_obj)
 
 处理流程:
 
-1. 读取最近 25 条原始消息。
-2. 过滤过短、过长、纯 at 后无内容的消息。
-3. 合并最近 Bot 出站消息，形成时间线。
-4. 延迟创建 `ExpressionPatternLearner`。
-5. 调用 `trigger_learning_for_group(group_id, message_data_list)`。
-6. 读取最新表达模式。
-7. 将表达模式临时注入 `begin_dialogs`。
-8. 生成 few-shot 对话内容。
-9. 创建风格学习审查记录。
+1. 读取最近 25 条原始群聊消息，不合并 Bot 出站回复。
+2. 按时间及同秒数据库 ID 还原发言顺序。
+3. 使用共享规则提取群友 A → 群友 B 的上下文对话；要求不同发送者，默认相隔不超过 300 秒。
+4. 明确的引用回复必须指向上下文消息；Bot、命令、媒体占位及跨群消息作为分隔，不跳过它们拼接对话。
+5. 延迟创建 `ExpressionPatternLearner`，以当前群组和人格作用域保存表达模式。
+6. 开启 `enable_expression_user_scope` 时，只学习响应方用户的表达，保留其他群友的上文。
+7. 使用已学习且作用域一致的表达模式生成 few-shot 并提交风格审查；批准后再写入 `begin_dialogs`。
 
-表达模式来自真实 user -> bot 邻接对，不再依赖 LLM 对表达方式做二次生成。
+基础批量风格学习同样使用原始用户时间线提取表达模式，而不是依赖风格摘要中可选的
+`expression_patterns` 字段。LLM 筛选不会把原本不相邻的发言拼接成学习样本。
+表达模式计数来自实际保存的表达样本，不以审查条数代替。
 
 ## 4. Bot 出站消息记录
 
@@ -126,9 +131,8 @@ await database_manager.save_raw_message(message_obj)
 
 用途:
 
-- 表达学习时与用户消息合并。
-- 提取 user -> bot few-shot。
-- 支撑 WebUI 查看具体学习内容。
+- 支撑 Bot 回复质量评估和相关历史查询。
+- 不参与自动表达模式或对话风格的学习样本，避免自我模仿反馈。
 
 ## 5. 黑话学习
 
@@ -147,7 +151,7 @@ await database_manager.save_raw_message(message_obj)
 
 挖掘流程:
 
-1. `JargonStatisticalFilter.update_from_message()` 低成本统计候选词。
+1. `JargonStatisticalFilter.update_from_message()` 低成本统计候选词；V2 统计和推断也遵守 `enable_jargon_learning` 实时开关。
 2. `MessagePipeline.mine_jargon()` 读取最近 30 条原始消息。
 3. 优先使用统计候选，跳过 LLM 候选提取。
 4. 没有统计候选时使用 LLM 从聊天片段中提取候选。
@@ -185,7 +189,7 @@ LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 触发条件:
 
 - `enable_style_learning=True`
-- `enable_auto_learning=True` 时自动延迟启动。
+- 自动启动需要 `enable_auto_learning=True`；关闭后仅保留手动启动。
 - 群组未处理消息数达到 `min_messages_for_learning`。
 - 距离上次学习超过 `learning_interval_hours`。
 - QQ 白名单/黑名单允许该群组。
@@ -226,6 +230,7 @@ LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 - 重新学习模式会尽量创建审查记录。
 - 正常模式只有检测到人格内容变化时创建审查记录。
 - 审查记录包含原始人格、增量内容、完整新人格、置信度和元数据。
+- `auto_apply_approved_persona` 只作用于批准后的应用流程，待审候选不会提前写入框架人格。
 
 WebUI 通过统一人格审查接口处理传统人格更新、渐进式人格学习、风格学习等来源。
 
