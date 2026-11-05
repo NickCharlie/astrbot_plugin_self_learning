@@ -330,44 +330,9 @@ class MaiBotEnhancedLearningManager:
             return False
 
     async def _build_expression_learning_timeline(self, group_id: str) -> List[MessageData]:
-        """合并用户消息和 Bot 回复，生成表达学习需要的 user->bot 时间线。"""
-        recent_messages = list(self.message_buffers.get(group_id, []))
-        if not recent_messages:
-            return []
+        """Use the group chat buffer without injecting the bot's own replies."""
+        return list(self.message_buffers.get(group_id, []))
 
-        bot_messages: List[MessageData] = []
-        if self.db_manager:
-            try:
-                async with self.db_manager.get_session() as session:
-                    from sqlalchemy import select, desc
-                    from ...models.orm.message import BotMessage
-
-                    stmt = (
-                        select(BotMessage)
-                        .where(BotMessage.group_id == group_id)
-                        .order_by(desc(BotMessage.timestamp))
-                        .limit(len(recent_messages))
-                    )
-                    result = await session.execute(stmt)
-                    bot_messages = [
-                        MessageData(
-                            sender_id="bot",
-                            sender_name="bot",
-                            message=row.message,
-                            group_id=group_id,
-                            timestamp=float(row.timestamp),
-                            platform="bot",
-                            message_id=str(row.id),
-                        )
-                        for row in result.scalars().all()
-                    ]
-            except Exception as exc:
-                logger.debug(f"[ExpressionLearning] 读取 Bot 消息失败: {exc}")
-
-        merged = recent_messages + bot_messages
-        merged.sort(key=lambda msg: getattr(msg, "timestamp", 0))
-        return merged
-    
     async def _trigger_memory_update(self, message: MessageData, group_id: str) -> bool:
         """触发记忆图更新"""
         try:

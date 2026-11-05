@@ -671,6 +671,14 @@ class SQLAlchemyDatabaseManager:
     ) -> List[Dict[str, Any]]:
         return await self._message.get_unprocessed_messages(limit, group_id)
 
+    async def get_style_learning_messages(
+        self, group_id: str, limit: int = 200,
+        start_time: Optional[float] = None, end_time: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        return await self._message.get_style_learning_messages(
+            group_id, limit, start_time, end_time,
+        )
+
     async def mark_messages_processed(self, message_ids: List[int]) -> bool:
         return await self._message.mark_messages_processed(message_ids)
 

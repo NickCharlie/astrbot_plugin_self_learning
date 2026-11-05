@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional, Set
 
 from astrbot.api import logger
+from astrbot.api.message_components import At, Reply
 
 from ...core.interfaces import MessageData
 from ...statics.messages import LogMessages
@@ -71,6 +72,26 @@ class MessagePipeline:
             or getattr(self._config, "enable_realtime_v2_processing", False)
         )
 
+    @staticmethod
+    def _is_bot_target(event: Any, components: Any) -> bool:
+        """Identify explicit bot mentions/wake words, not listener wake status."""
+        if getattr(event, "is_at_or_wake_command", False) is True:
+            return True
+        get_self_id = getattr(event, "get_self_id", None)
+        if not callable(get_self_id):
+            return False
+        try:
+            self_id = get_self_id()
+            if not isinstance(self_id, (str, int)) or not str(self_id).strip():
+                return False
+            return any(
+                isinstance(component, At) and str(component.qq) == str(self_id)
+                for component in components
+            )
+        except Exception as exc:
+            logger.debug(f"读取机器人提及状态失败，继续采集消息正文: {exc}")
+            return False
+
     async def _evaluate_emotion_gate(
         self, group_id: str, sender_id: str, message_text: str
     ) -> bool:
@@ -91,6 +112,59 @@ class MessagePipeline:
         except Exception as exc:
             logger.warning(f"[EmotionGate] 闸门执行异常，按放行处理: {exc}")
         return True
+
+    def _raw_message_data(
+        self, group_id: str, sender_id: str, message_text: str, event: Any,
+        *, is_style_context: bool = False,
+    ) -> dict:
+        """Preserve source metadata for regular samples and context-only turns."""
+        try:
+            sender_name = clean_db_text(event.get_sender_name())
+        except Exception as name_error:
+            logger.debug(f"获取发送者昵称失败，回退为 sender_id: {name_error}")
+            sender_name = sender_id
+        reply_to = None
+        components = []
+        try:
+            get_messages = getattr(event, "get_messages", None)
+            components = get_messages() if callable(get_messages) else []
+            reply_to = next(
+                (component.id for component in components if isinstance(component, Reply)),
+                None,
+            )
+        except Exception as reference_error:
+            logger.debug(f"读取引用消息失败，继续采集消息正文: {reference_error}")
+        return {
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "message": message_text,
+            "group_id": group_id,
+            "timestamp": time.time(),
+            "platform": event.get_platform_name(),
+            "message_id": getattr(getattr(event, "message_obj", None), "message_id", None),
+            "reply_to": reply_to,
+            "is_bot_target": self._is_bot_target(event, components),
+            "is_style_context": is_style_context,
+            **extract_learning_event_metadata(event),
+        }
+
+    async def capture_style_context(
+        self, group_id: str, sender_id: str, message_text: str, event: Any,
+    ) -> bool:
+        """Collect surrounding group chat without running other learning features."""
+        try:
+            if should_ignore_learning_sample(
+                message_text, sender_id=sender_id, **extract_learning_event_metadata(event),
+            ):
+                message_text = ""
+            return bool(await self._message_collector.collect_message(
+                self._raw_message_data(
+                    group_id, sender_id, message_text, event, is_style_context=True,
+                )
+            ))
+        except Exception as exc:
+            logger.debug(f"保存风格对话上下文失败: {exc}")
+            return False
 
     # 后台学习流水线（6 步）
 
@@ -123,26 +197,11 @@ class MessagePipeline:
                 return False
 
             # 1. 消息收集
-            # 平台昵称可能混入 NUL 等数据库无法存储的字节，先清理一次，
-            # 保证原始消息与下游学习链路拿到的都是干净文本。
-            # 访问器异常不能中断整条学习流水线，回退为 sender_id。
+            sender_name = sender_id
             try:
-                sender_name = clean_db_text(event.get_sender_name())
-            except Exception as name_error:
-                logger.debug(f"获取发送者昵称失败，回退为 sender_id: {name_error}")
-                sender_name = sender_id
-            try:
-                message_collected = bool(await self._message_collector.collect_message(
-                    {
-                        "sender_id": sender_id,
-                        "sender_name": sender_name,
-                        "message": message_text,
-                        "group_id": group_id,
-                        "timestamp": time.time(),
-                        "platform": event.get_platform_name(),
-                        **event_metadata,
-                    }
-                ))
+                raw_message = self._raw_message_data(group_id, sender_id, message_text, event)
+                sender_name = raw_message["sender_name"]
+                message_collected = bool(await self._message_collector.collect_message(raw_message))
             except RuntimeError as e:
                 if "attached to a different loop" in str(e):
                     logger.warning(

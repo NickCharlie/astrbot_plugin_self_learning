@@ -4,16 +4,16 @@ Handles the per-message processing pipeline that runs in the background
 after each incoming message.
 """
 
-import re
 import time
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, Optional
 
 from astrbot.api import logger
 
-from ...core.interfaces import MessageData
 from ...statics.messages import StatusMessages
 from ..monitoring.instrumentation import monitored
+from .conversation_samples import is_human_learning_message
 from .dialog_analyzer import DialogAnalyzer
+from .expression_learning import ExpressionLearningModule
 from .sample_filter import should_ignore_learning_sample
 from ...utils.persona_selection import normalize_persona_scope
 
@@ -120,6 +120,8 @@ class RealtimeProcessor:
         persona_id: str = "default",
     ) -> None:
         """Process a single message for expression-style learning only."""
+        if str(sender_id or "").strip().lower() in {"bot", "assistant", "system"}:
+            return
         if self._should_skip_message(message_text):
             return
         if not self._config.enable_expression_patterns:
@@ -146,7 +148,7 @@ class RealtimeProcessor:
                 return
 
             # Expression-style learning (bypasses filtering)
-            if self._config.enable_expression_patterns:
+            if self._config.enable_expression_patterns and str(sender_id or "").strip().lower() not in {"bot", "assistant", "system"}:
                 await self._process_expression_style_learning(
                     group_id,
                     message_text,
@@ -271,35 +273,32 @@ class RealtimeProcessor:
                 f"当前消息数：{raw_message_count}"
             )
 
-            recent_raw_messages = await self._db_manager.get_recent_raw_messages(
-                group_id, limit=25
-            )
-            if not recent_raw_messages or len(recent_raw_messages) < 3:
+            get_style_messages = getattr(self._db_manager, "get_style_learning_messages", None)
+            if not callable(get_style_messages):
+                get_style_messages = self._db_manager.get_recent_raw_messages
+            recent_raw_messages = await get_style_messages(group_id, limit=25)
+            if not recent_raw_messages:
                 logger.debug(
                     f"群组 {group_id} 原始消息数量不足，数据库中只有 "
                     f"{len(recent_raw_messages) if recent_raw_messages else 0} 条"
                 )
                 return
 
-            message_data_list = self._build_message_data_list(
-                recent_raw_messages, group_id, sender_id
+            human_message_count = sum(
+                is_human_learning_message(message, group_id)
+                for message in recent_raw_messages
             )
-            if message_data_list:
-                message_data_list = await self._merge_bot_messages_for_pairs(
-                    group_id,
-                    message_data_list,
-                )
 
-            if len(message_data_list) < 3:
+            if human_message_count < 5:
                 logger.debug(
-                    f"群组 {group_id} 有效学习消息不足3条，跳过表达风格学习，"
-                    f"当前：{len(message_data_list)}"
+                    f"群组 {group_id} 有效用户消息不足5条，跳过表达风格学习，"
+                    f"当前：{human_message_count}"
                 )
                 return
 
             logger.info(
                 f"群组 {group_id} 准备进行表达风格学习，"
-                f"有效消息数：{len(message_data_list)}"
+                f"有效消息数：{human_message_count}"
             )
 
             if not self._expression_learner:
@@ -318,7 +317,7 @@ class RealtimeProcessor:
 
             learning_success = await expression_learner.trigger_learning_for_group(
                 group_id,
-                message_data_list,
+                recent_raw_messages,
                 persona_id=persona_id,
                 user_id=user_scope,
             )
@@ -336,10 +335,8 @@ class RealtimeProcessor:
                     user_id=user_scope,
                 )
                 if learned_patterns:
-                    few_shots_content = (
-                        await self._dialog_analyzer.generate_few_shots_dialog(
-                            group_id, message_data_list
-                        )
+                    few_shots_content = ExpressionLearningModule.build_few_shots_from_patterns(
+                        [pattern.to_dict() for pattern in learned_patterns]
                     )
                     if few_shots_content:
                         await self._dialog_analyzer.create_style_learning_review_request(
@@ -361,94 +358,3 @@ class RealtimeProcessor:
 
         except Exception as e:
             logger.error(f"群组 {group_id} 表达风格学习处理失败: {e}")
-
-    # Helpers
-
-    @staticmethod
-    def _build_message_data_list(
-        recent_raw_messages: List[Dict[str, Any]],
-        group_id: str,
-        sender_id: str,
-    ) -> List[MessageData]:
-        """Convert raw DB messages to filtered ``MessageData`` objects."""
-        at_pattern = re.compile(r"@[^\s]+\s+")
-        result: List[MessageData] = []
-
-        for msg in recent_raw_messages:
-            content = msg.get("message", "")
-            sender = msg.get("sender_id", "")
-            if should_ignore_learning_sample(content, sender_id=sender):
-                continue
-            if len(content.strip()) < 5 or len(content) > 500:
-                continue
-            if content.strip() in ("", "???", "。。。", "...", "嗯", "哦", "额"):
-                continue
-
-            processed = content
-            if "@" in content:
-                processed = at_pattern.sub("", content).strip()
-                if len(processed.strip()) < 5:
-                    continue
-
-            result.append(
-                MessageData(
-                    sender_id=msg.get("sender_id", ""),
-                    sender_name=msg.get("sender_name", ""),
-                    message=processed,
-                    group_id=group_id,
-                    timestamp=msg.get("timestamp", time.time()),
-                    platform=msg.get("platform", "default"),
-                    message_id=msg.get("id"),
-                    reply_to=None,
-                )
-            )
-
-        return result
-
-    async def _merge_bot_messages_for_pairs(
-        self,
-        group_id: str,
-        user_messages: List[MessageData],
-    ) -> List[MessageData]:
-        """Merge stored bot replies into the raw-message timeline."""
-        if not user_messages or not self._db_manager:
-            return user_messages
-
-        try:
-            async with self._db_manager.get_session() as session:
-                from sqlalchemy import select, desc
-                from ...models.orm.message import BotMessage
-
-                stmt = (
-                    select(BotMessage)
-                    .where(BotMessage.group_id == group_id)
-                    .order_by(desc(BotMessage.timestamp))
-                    .limit(len(user_messages))
-                )
-                result = await session.execute(stmt)
-                bot_messages = []
-                for row in result.scalars().all():
-                    if should_ignore_learning_sample(
-                        row.message,
-                        sender_id="bot",
-                        is_bot=True,
-                    ):
-                        continue
-                    bot_messages.append(
-                        MessageData(
-                            sender_id="bot",
-                            sender_name="bot",
-                            message=row.message,
-                            group_id=group_id,
-                            timestamp=float(row.timestamp),
-                            platform="bot",
-                            message_id=str(row.id),
-                        )
-                    )
-        except Exception as exc:
-            logger.debug(f"合并 Bot 回复失败，使用用户消息继续: {exc}")
-            return user_messages
-
-        merged = user_messages + bot_messages
-        merged.sort(key=lambda msg: msg.timestamp)
-        return merged

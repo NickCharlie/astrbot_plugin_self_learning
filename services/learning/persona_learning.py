@@ -230,6 +230,7 @@ class PersonaLearningModule:
         quality_metrics: Any = None,
         relearn_mode: bool = False,
         ml_tuning_info: Optional[Dict[str, Any]] = None,
+        expression_messages: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """Apply persona-side learning and create a review when needed."""
         try:
@@ -244,8 +245,12 @@ class PersonaLearningModule:
             if style_analysis_dict is None:
                 return False
 
+            expression_options = (
+                {"expression_messages": expression_messages}
+                if expression_messages is not None else {}
+            )
             update_success = await self.persona_manager.update_persona(
-                group_id, style_analysis_dict, messages
+                group_id, style_analysis_dict, messages, **expression_options,
             )
             if not update_success:
                 logger.error(f"通过 PersonaManagerService 更新人格失败 for group {group_id}")
