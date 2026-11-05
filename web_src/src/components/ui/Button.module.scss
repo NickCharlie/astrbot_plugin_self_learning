@@ -38,7 +38,8 @@
     cursor: not-allowed;
   }
 
-  .material-icons {
+  :global(.material-icons) {
+    flex: none;
     font-size: 17px;
   }
 }
