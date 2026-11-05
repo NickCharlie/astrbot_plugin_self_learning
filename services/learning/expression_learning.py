@@ -13,15 +13,21 @@ from astrbot.api import logger
 
 from ...constants import UPDATE_TYPE_STYLE_LEARNING
 from ...utils.persona_selection import normalize_persona_scope
-from .conversation_samples import extract_human_dialog_pairs, is_human_learning_message
+from .conversation_samples import (
+    encode_style_samples,
+    extract_human_dialog_pairs,
+    is_human_learning_message,
+    sanitize_style_sample,
+)
 from .sample_filter import should_ignore_learning_sample
 
 
 class ExpressionLearningModule:
     """Persist learned expression patterns and style review records."""
 
-    def __init__(self, db_manager: Any) -> None:
+    def __init__(self, db_manager: Any, config: Any = None) -> None:
         self.db_manager = db_manager
+        self.config = config
 
     async def save_style_learning_record(
         self,
@@ -67,6 +73,21 @@ class ExpressionLearningModule:
                 pattern for pattern in expression_patterns
                 if str(pattern.get("group_id") or group_id) == str(group_id)
             ]
+            user_scope_enabled = bool(
+                getattr(self.config, "enable_expression_user_scope", False)
+            )
+            expression_patterns = [
+                {
+                    **pattern,
+                    "group_id": str(group_id),
+                    "persona_id": persona_id,
+                    "user_id": (
+                        str(pattern.get("user_id") or pattern.get("sender_id") or "").strip() or None
+                        if user_scope_enabled else None
+                    ),
+                }
+                for pattern in expression_patterns
+            ]
 
             if expression_patterns:
                 await self.save_expression_patterns(
@@ -92,6 +113,9 @@ class ExpressionLearningModule:
                         "expression": pattern.get("expression", ""),
                         "weight": pattern.get("weight", 1.0),
                         "confidence": pattern.get("confidence", 0.8),
+                        "group_id": pattern.get("group_id", group_id),
+                        "persona_id": persona_id,
+                        "user_id": pattern.get("user_id"),
                     }
                 )
 
@@ -124,6 +148,13 @@ class ExpressionLearningModule:
                             learned_patterns, ensure_ascii=False
                         ),
                         few_shots_content=few_shots_content,
+                        metadata_=json.dumps({
+                            "persona_id": persona_id,
+                            "user_ids": sorted({
+                                pattern["user_id"] for pattern in learned_patterns
+                                if pattern.get("user_id")
+                            }),
+                        }, ensure_ascii=False),
                         status="pending" if has_patterns else "approved",
                         description=description,
                         reviewer_comment=None if has_patterns else "自动批准（无有效对话对）",
@@ -166,7 +197,11 @@ class ExpressionLearningModule:
                 continue
             if str(pattern.get("sender_id", "")).strip().lower() in {"bot", "assistant"}:
                 continue
-            filtered.append(pattern)
+            filtered.append({
+                **pattern,
+                "situation": sanitize_style_sample(situation),
+                "expression": sanitize_style_sample(expression),
+            })
         return filtered
 
     @classmethod
@@ -178,18 +213,7 @@ class ExpressionLearningModule:
         ]
         if not pairs:
             return ""
-        few_shots = (
-            "*Here are few shots of dialogs, you need to imitate the tone of 'B' "
-            "in the following dialogs to respond:\n"
-        )
-
-        for pattern in pairs:
-            situation = pattern.get("situation", "")
-            expression = pattern.get("expression", "")
-            if situation and expression:
-                few_shots += f"A: {situation}\nB: {expression}\n\n"
-
-        return few_shots.strip()
+        return encode_style_samples(pairs)
 
     async def merge_bot_messages_for_pairs(
         self, group_id: str, user_messages: List[Dict[str, Any]]
@@ -235,6 +259,7 @@ class ExpressionLearningModule:
                         ExpressionPattern(
                             group_id=group_id,
                             persona_id=persona_id,
+                            user_id=pattern.get("user_id"),
                             situation=situation,
                             expression=expression,
                             weight=float(pattern.get("weight", 1.0)),

@@ -30,6 +30,7 @@ from self_learning_EterU.services.core_learning.message_collector import Message
 from self_learning_EterU.services.core_learning.progressive_learning import ProgressiveLearningService
 from self_learning_EterU.services.database.facades.message_facade import MessageFacade
 from self_learning_EterU.services.learning.conversation_samples import (
+    decode_style_samples,
     extract_human_dialog_pairs,
 )
 from self_learning_EterU.services.learning.dialog_analyzer import DialogAnalyzer
@@ -268,13 +269,16 @@ async def test_realtime_short_chat_review_preserves_response_scope_and_bot_bound
     assert group_id == "group-a" and reviewed == learned
     assert "NEVER LEARN THIS" not in content
     assert all(pattern.persona_id == "persona-a" for pattern in learned)
-    assert "B: Yep!" in content
+    assert ("Go?", "Yep!") in decode_style_samples(content)
     if user_scoped:
         assert all(pattern.user_id == "bob" for pattern in learned)
-        assert "B: Soon" not in content and "B: Done" not in content
+        assert decode_style_samples(content) == [
+            ("Go?", "Yep!"), ("Soon", "Race?"),
+        ]
     else:
         assert all(pattern.user_id is None for pattern in learned)
-        assert "B: Soon" in content and "B: Done" in content
+        assert ("Now?", "Soon") in decode_style_samples(content)
+        assert ("Race?", "Done") in decode_style_samples(content)
 
 
 @pytest.mark.asyncio

@@ -229,13 +229,21 @@ class PersonaReviewService:
     @staticmethod
     def _extract_style_dialog_pairs(review: Dict[str, Any]) -> List[Tuple[str, str]]:
         """Extract style review dialog pairs from structured patterns or few-shot text."""
+        try:
+            from ...utils.style_samples import sanitize_style_sample
+        except ImportError:
+            from utils.style_samples import sanitize_style_sample
+
         dialog_pairs = []
         learned_patterns = review.get('learned_patterns', [])
         for pattern in learned_patterns:
             situation = pattern.get('situation', '') if isinstance(pattern, dict) else ''
             expression = pattern.get('expression', '') if isinstance(pattern, dict) else ''
             if situation and expression:
-                dialog_pairs.append((str(situation), str(expression)))
+                situation = sanitize_style_sample(situation)
+                expression = sanitize_style_sample(expression)
+                if situation and expression:
+                    dialog_pairs.append((situation, expression))
 
         if not dialog_pairs:
             dialog_pairs = PersonaReviewService._parse_few_shots_to_pairs(
@@ -1145,6 +1153,15 @@ class PersonaReviewService:
           A: xxx\\nB: yyy
           A（用户发言）: xxx\\nB（回复）: yyy
         """
+        try:
+            from ...utils.style_samples import decode_style_samples
+        except ImportError:
+            from utils.style_samples import decode_style_samples
+
+        structured_pairs = decode_style_samples(text)
+        if structured_pairs is not None:
+            return structured_pairs
+
         import re
         pairs = []
         # 匹配 A: ... B: ... 对

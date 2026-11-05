@@ -3,10 +3,19 @@
 from __future__ import annotations
 
 import math
+import re
 import time
 from datetime import datetime
 from itertools import groupby
 from typing import Any, Dict, Iterable, List, Optional
+
+from ...utils.style_samples import (
+    MAX_DIALOG_SAMPLE_LENGTH,
+    STYLE_SAMPLE_JSON_MARKER,
+    decode_style_samples,
+    encode_style_samples,
+    sanitize_style_sample,
+)
 
 from .sample_filter import (
     extract_learning_message_metadata,
@@ -128,8 +137,12 @@ def extract_human_dialog_pairs(
             if context_id is None or str(reply_to) != str(context_id):
                 continue
 
-        situation = strip_media_placeholders(message_value(context, "message", ""))
-        expression = strip_media_placeholders(message_value(response, "message", ""))
+        situation = sanitize_style_sample(
+            strip_media_placeholders(message_value(context, "message", ""))
+        )
+        expression = sanitize_style_sample(
+            strip_media_placeholders(message_value(response, "message", ""))
+        )
         if situation == expression:
             continue
         pairs.append({

@@ -18,7 +18,11 @@ from ...exceptions import ExpressionLearningError, ModelAccessError
 from ...utils.json_utils import safe_parse_llm_json
 from ...utils.persona_selection import normalize_persona_scope
 from ..database import DatabaseManager
-from ..learning.conversation_samples import extract_human_dialog_pairs, is_human_learning_message
+from ..learning.conversation_samples import (
+    encode_style_samples,
+    extract_human_dialog_pairs,
+    is_human_learning_message,
+)
 from ..learning.sample_filter import mark_style_context_messages, mask_blacklisted_messages
 
 
@@ -575,18 +579,19 @@ class ExpressionPatternLearner:
         Returns:
             格式化的表达模式字符串，用于插入到对话prompt中
         """
-        patterns = await self.get_expression_patterns(
+        get_approved_patterns = getattr(
+            self.db_manager, "get_recent_week_expression_patterns", None
+        )
+        if not callable(get_approved_patterns):
+            return ""
+        patterns = await get_approved_patterns(
             group_id,
-            limit,
+            limit=limit,
+            hours=168,
             persona_id=persona_id,
             user_id=user_id,
         )
-        
         if not patterns:
             return ""
-        
-        lines = ["学到的表达习惯："]
-        for pattern in patterns:
-            lines.append(f"- 当{pattern.situation}时，可以{pattern.expression}")
-        
-        return "\n".join(lines)
+
+        return "学到的表达习惯：\n" + encode_style_samples(patterns)

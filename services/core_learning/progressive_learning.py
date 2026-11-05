@@ -67,7 +67,7 @@ class ProgressiveLearningService:
         # MaiBot-style learning domains: expression learning and persona
         # learning are independent modules; this service only orchestrates
         # the batch lifecycle.
-        self.expression_learning = ExpressionLearningModule(db_manager)
+        self.expression_learning = ExpressionLearningModule(db_manager, config)
         self.persona_learning = PersonaLearningModule(
             config=config,
             context=context,
@@ -106,7 +106,9 @@ class ProgressiveLearningService:
         """Return the expression-learning domain module, creating it lazily for tests."""
         module = getattr(self, "expression_learning", None)
         if module is None:
-            module = ExpressionLearningModule(self.db_manager)
+            module = ExpressionLearningModule(
+                self.db_manager, getattr(self, "config", None)
+            )
             self.expression_learning = module
         return module
 
@@ -895,6 +897,10 @@ class ProgressiveLearningService:
             messages = kept
 
         messages = filter_learning_messages(messages)
+        messages = [
+            message for message in messages
+            if message.get("is_bot_target") is not True
+        ]
 
         # 对话风格学习不需要LLM筛选，直接学习所有非黑名单消息
         logger.info(f"对话风格学习模式：直接学习 {len(messages)} 条原始消息（跳过LLM筛选）")
