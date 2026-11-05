@@ -54,6 +54,9 @@ class GroupLearningOrchestrator:
     async def smart_start_learning_for_group(self, group_id: str) -> None:
         """Smart-start a learning task for *group_id* with frequency throttling."""
         try:
+            if not self._config.enable_auto_learning or not self._config.enable_style_learning:
+                return
+
             if group_id in self.learning_tasks:
                 return
 

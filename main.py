@@ -17,12 +17,13 @@ from astrbot.api.star import Context, StarTools
 from astrbot.api import logger, AstrBotConfig
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-from .config import DEFAULT_DATA_DIR, PluginConfig
+from .config import DEFAULT_DATA_DIR, PluginConfig, normalize_identifier_list, split_learning_blacklist
 from .core.plugin_lifecycle import PluginLifecycle
 from .services.hooks.perf_tracker import PerfTracker
 from .services.monitoring.instrumentation import monitored, reset_trace_context
 from .services.learning.sample_filter import (
     extract_learning_event_metadata,
+    is_learning_blacklisted,
     should_ignore_learning_sample,
 )
 from .statics.messages import StatusMessages, FileNames
@@ -282,6 +283,29 @@ class SelfLearningPlugin(star.Star):
 
     # 消息监听
 
+    def _queue_style_context_capture(self, group_id, sender_id, message_text, event) -> bool:
+        """Capture group context or blank boundaries without learning side effects."""
+        config = getattr(self, "plugin_config", None)
+        pipeline = getattr(self, "_pipeline", None)
+        if not config or not config.enable_message_capture or not pipeline or not event.get_group_id():
+            return False
+        targets = normalize_identifier_list(
+            getattr(config, "target_qq_list", []), full_learning_markers=True,
+        )
+        if targets and all(target.startswith("group_") for target in targets):
+            if f"group_{group_id}" not in targets:
+                return False
+        blocked_senders, blocked_groups = split_learning_blacklist(config.target_blacklist)
+        if is_learning_blacklisted(
+            sender_id, group_id, blocked_sender_ids=blocked_senders,
+            blocked_group_ids=blocked_groups,
+        ):
+            return False
+        self._track_task(asyncio.create_task(
+            pipeline.capture_style_context(group_id, sender_id, message_text, event)
+        ))
+        return True
+
     def _is_self_message(self, event: AstrMessageEvent, sender_id: Optional[str]) -> bool:
         """入站消息是否由 bot 自身发出。
 
@@ -390,18 +414,28 @@ class SelfLearningPlugin(star.Star):
                 sender_id=sender_id,
                 **event_metadata,
             ):
+                boundary_queued = self._queue_style_context_capture(group_id, sender_id, "", event)
                 logger.debug(f"检测到指令或系统模板消息，跳过学习数据收集: {message_text[:80]}")
-                self._log_message_capture_diag("skip:system_or_command_sample", event, message_text)
+                self._log_message_capture_diag(
+                    "queued:style_boundary" if boundary_queued else "skip:system_or_command_sample",
+                    event, message_text,
+                )
                 return
             self._log_message_capture_diag("accepted:event_received", event, message_text)
 
             # 好感度处理（后台，仅 at/唤醒消息）
             pipeline = getattr(self, '_pipeline', None)
+            qq_filter = getattr(self, 'qq_filter', None)
+            is_target = not qq_filter or qq_filter.should_collect_message(sender_id, group_id)
+            cmd_filter = getattr(self, '_command_filter', None)
+            is_command = bool(cmd_filter and cmd_filter.is_astrbot_command(event))
             if (
                 event.is_at_or_wake_command
                 and self.plugin_config
                 and self.plugin_config.enable_affection_system
                 and pipeline
+                and is_target
+                and not is_command
             ):
                 self._track_task(asyncio.create_task(
                     pipeline.process_affection(group_id, sender_id, message_text)
@@ -412,14 +446,18 @@ class SelfLearningPlugin(star.Star):
                 return
 
             # 命令过滤
-            cmd_filter = getattr(self, '_command_filter', None)
-            if cmd_filter and cmd_filter.is_astrbot_command(event):
+            if is_command:
+                boundary_queued = self._queue_style_context_capture(group_id, sender_id, "", event)
                 logger.debug(f"检测到AstrBot命令，跳过学习数据收集: {message_text}")
-                self._log_message_capture_diag("skip:command_message", event, message_text)
+                self._log_message_capture_diag(
+                    "queued:style_boundary" if boundary_queued else "skip:command_message", event, message_text,
+                )
                 return
 
-            qq_filter = getattr(self, 'qq_filter', None)
-            if qq_filter and not qq_filter.should_collect_message(sender_id, group_id):
+            if not is_target:
+                if self._queue_style_context_capture(group_id, sender_id, message_text, event):
+                    self._log_message_capture_diag("queued:style_context", event, message_text)
+                    return
                 self._log_message_capture_diag("skip:target_filter", event, message_text, level="info")
                 return
 

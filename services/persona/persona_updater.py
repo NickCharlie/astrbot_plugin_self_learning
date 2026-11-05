@@ -68,8 +68,9 @@ class PersonaUpdater(IPersonaUpdater):
             return self.group_id_to_unified_origin.get(group_id, group_id)
         return group_id
         
-    async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
-        """根据风格分析和筛选过的消息更新人格"""
+    async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData],
+                                       *, expression_messages: Optional[List[MessageData]] = None) -> bool:
+        """根据风格分析构造人格候选；实际人格写入留给批准后的应用流程。"""
         try:
             # 使用新版框架的PersonaManager获取默认人格
             if not hasattr(self.context, 'persona_manager') or not self.context.persona_manager:
@@ -88,6 +89,7 @@ class PersonaUpdater(IPersonaUpdater):
                 self._logger.error(f"无法获取群组 {group_id} 的当前人格")
                 return False
 
+            current_persona = dict(current_persona)
             persona_name = get_persona_identifier(current_persona, 'unknown')
             self._logger.info(f"当前人格: {persona_name} for group {group_id}")
             
@@ -123,7 +125,7 @@ class PersonaUpdater(IPersonaUpdater):
             
             before_persona = clone_persona_data(current_persona)
 
-            # 更新人格prompt
+            # 只更新本地候选，不能在审查记录创建前写入框架人格。
             if 'enhanced_prompt' in style_analysis:
                 # Personality是TypedDict,直接使用字典访问
                 original_prompt = current_persona.get('prompt', '')
@@ -132,22 +134,8 @@ class PersonaUpdater(IPersonaUpdater):
                 # 审查记录由调用方（progressive_learning._apply_learning_updates）统一创建，
                 # 此处不再重复创建，避免产生重复的审查记录
 
-                # Personality是TypedDict,需要通过PersonaManager更新
                 current_persona['prompt'] = enhanced_prompt
-                self._logger.info(f"人格prompt已更新，长度: {len(enhanced_prompt)} for group {group_id}")
-
-                # 自动应用到框架默认人格（需配置开启）
-                auto_apply = getattr(self.config, 'auto_apply_approved_persona', False)
-                self._logger.info(f"[自动应用] 配置状态: auto_apply_approved_persona={auto_apply}, persona_name={persona_name}")
-                if auto_apply:
-                    try:
-                        await self.context.persona_manager.update_persona(
-                            persona_id=get_persona_identifier(current_persona),
-                            system_prompt=enhanced_prompt
-                        )
-                        self._logger.info(f"[自动应用] 已将批准内容应用到默认人格 [{persona_name}]（群组 {group_id}），内容长度: {len(enhanced_prompt)}")
-                    except Exception as auto_apply_err:
-                        self._logger.error(f"[自动应用] 应用到默认人格失败: {auto_apply_err}", exc_info=True)
+                self._logger.info(f"人格prompt候选已生成，长度: {len(enhanced_prompt)} for group {group_id}")
 
             # 3. 更新对话风格特征（使用MaiBot的表达模式学习而不是直接保存对话）
             if filtered_messages:
@@ -159,6 +147,7 @@ class PersonaUpdater(IPersonaUpdater):
                     filtered_messages,
                     group_id=group_id,
                     persona_id=persona_name,
+                    expression_messages=expression_messages,
                 )
             
             # 更新其他风格属性
@@ -610,7 +599,8 @@ class PersonaUpdater(IPersonaUpdater):
         except Exception as e:
             self._logger.error(f"应用风格属性失败: {e}")
     
-    async def _update_style_based_features_with_maibot(self, current_persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData], group_id: Optional[str] = None, persona_id: Optional[str] = None):
+    async def _update_style_based_features_with_maibot(self, current_persona: Personality, style_analysis: Dict[str, Any], filtered_messages: List[MessageData], group_id: Optional[str] = None, persona_id: Optional[str] = None,
+                                                     expression_messages: Optional[List[MessageData]] = None):
         """使用MaiBot功能更新风格相关特征
 
         Args:
@@ -642,7 +632,7 @@ class PersonaUpdater(IPersonaUpdater):
                 # 使用trigger_learning_for_group以确保保存到数据库
                 learning_success = await self.expression_learner.trigger_learning_for_group(
                     resolved_group_id,
-                    filtered_messages,
+                    expression_messages if expression_messages is not None else filtered_messages,
                     persona_id=resolved_persona_id,
                 )
 

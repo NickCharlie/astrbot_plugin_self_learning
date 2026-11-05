@@ -16,6 +16,7 @@ try:
     from ....models.orm.message import BotMessage, FilteredMessage, RawMessage
     from ....models.orm.social_relation import SocialRelation
     from ....utils.text_utils import clean_db_text
+    from ....utils.learning_scope import mark_style_context_messages, mask_blacklisted_messages
 except ImportError:
     from models.orm.memory import Memory
     from repositories.raw_message_repository import RawMessageRepository
@@ -24,6 +25,7 @@ except ImportError:
     from models.orm.message import BotMessage, FilteredMessage, RawMessage
     from models.orm.social_relation import SocialRelation
     from utils.text_utils import clean_db_text
+    from utils.learning_scope import mark_style_context_messages, mask_blacklisted_messages
 
 
 class MessageFacade(BaseFacade):
@@ -58,6 +60,8 @@ class MessageFacade(BaseFacade):
                     platform=clean_db_text(data.get('platform', '')),
                     message_id=clean_db_text(data.get('message_id')),
                     reply_to=clean_db_text(data.get('reply_to')),
+                    is_bot_target=data.get('is_bot_target') is True,
+                    is_style_context=data.get('is_style_context') is True,
                     created_at=int(time.time()),
                     processed=False,
                 )
@@ -121,6 +125,8 @@ class MessageFacade(BaseFacade):
                         'group_id': msg.group_id, 'timestamp': msg.timestamp,
                         'platform': msg.platform, 'message_id': msg.message_id,
                         'reply_to': msg.reply_to, 'created_at': msg.created_at,
+                        'is_bot_target': msg.is_bot_target,
+                        'is_style_context': msg.is_style_context,
                         'processed': msg.processed,
                     }
                     for msg in messages
@@ -154,12 +160,40 @@ class MessageFacade(BaseFacade):
                         'message': msg.message,
                         'group_id': msg.group_id, 'platform': msg.platform,
                         'timestamp': msg.timestamp,
+                        'message_id': msg.message_id, 'reply_to': msg.reply_to,
+                        'is_bot_target': msg.is_bot_target,
+                        'is_style_context': msg.is_style_context,
                     }
                     for msg in messages
                 ]
         except Exception as e:
             self._logger.error(f"[MessageFacade] 获取未处理消息失败: {e}")
             raise RuntimeError(f"获取未处理消息失败: {e}") from e
+
+    async def get_style_learning_messages(
+        self, group_id: str, limit: int = 200,
+        start_time: Optional[float] = None, end_time: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
+        """Read human context without removing excluded turns from the timeline."""
+        _, blocked_groups = self._learning_blacklist_exclusions()
+        if str(group_id) in blocked_groups:
+            return []
+        async with self.get_session() as session:
+            messages = await RawMessageRepository(session).get_style_learning_messages(
+                group_id, limit, start_time, end_time,
+            )
+            # The stored flag isolates ordinary learning; response eligibility
+            # in this dedicated timeline follows the current target selection.
+            rows = [
+                {**self._row_to_dict(message), "is_style_context": False}
+                for message in messages
+            ]
+        rows = mark_style_context_messages(
+            rows, getattr(self.config, "target_qq_list", []), group_id=group_id,
+        )
+        return mask_blacklisted_messages(
+            rows, getattr(self.config, "target_blacklist", []), group_id=group_id,
+        )
 
     async def mark_messages_processed(self, message_ids: List[int]) -> bool:
         """批量标记消息为已处理"""
@@ -223,6 +257,7 @@ class MessageFacade(BaseFacade):
                     RawMessage.group_id == group_id,
                     RawMessage.timestamp > cutoff_time,
                     RawMessage.processed == True,  # noqa: E712
+                    RawMessage.is_style_context.is_(False),
                 ]
                 if blocked_senders:
                     conditions.append(
@@ -363,12 +398,15 @@ class MessageFacade(BaseFacade):
             async with self.get_session() as session:
 
                 total_stmt = select(func.count()).select_from(RawMessage).where(
-                    RawMessage.group_id == group_id
+                    RawMessage.group_id == group_id,
+                    RawMessage.is_style_context.is_(False),
                 )
                 total = (await session.execute(total_stmt)).scalar() or 0
 
                 unprocessed_stmt = select(func.count()).select_from(RawMessage).where(
-                    and_(RawMessage.group_id == group_id, RawMessage.processed == False)  # noqa: E712
+                    RawMessage.group_id == group_id,
+                    RawMessage.processed.is_(False),
+                    RawMessage.is_style_context.is_(False),
                 )
                 unprocessed = (await session.execute(unprocessed_stmt)).scalar() or 0
 
@@ -397,7 +435,7 @@ class MessageFacade(BaseFacade):
             async with self.get_session() as session:
 
                 raw_count = (await session.execute(
-                    select(func.count()).select_from(RawMessage)
+                    select(func.count()).select_from(RawMessage).where(RawMessage.is_style_context.is_(False))
                 )).scalar() or 0
                 filtered_count = (await session.execute(
                     select(func.count()).select_from(FilteredMessage)
@@ -460,6 +498,7 @@ class MessageFacade(BaseFacade):
                         func.count().label('message_count'),
                         func.count(distinct(RawMessage.sender_id)).label('member_count'),
                     )
+                    .where(RawMessage.is_style_context.is_(False))
                     .group_by(RawMessage.group_id)
                     .order_by(func.count().desc())
                 )

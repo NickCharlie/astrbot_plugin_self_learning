@@ -61,7 +61,11 @@ class MessageCollectorService:
                     return False
 
             metadata = extract_learning_message_metadata(message_data)
-            if should_ignore_learning_sample(
+            is_context_boundary = (
+                message_data.get('is_style_context') is True
+                and message_data.get('message') == ''
+            )
+            if not is_context_boundary and should_ignore_learning_sample(
                 message_data.get('message', ''),
                 sender_id=message_data.get('sender_id'),
                 **metadata,
@@ -81,7 +85,9 @@ class MessageCollectorService:
                 timestamp=message_data.get('timestamp', time.time()),
                 platform=message_data.get('platform', 'unknown'),
                 message_id=message_data.get('message_id'),
-                reply_to=message_data.get('reply_to')
+                reply_to=message_data.get('reply_to'),
+                is_bot_target=message_data.get('is_bot_target') is True,
+                is_style_context=message_data.get('is_style_context') is True,
             )
 
             message_id = await self.database_manager.save_raw_message(message_obj)
@@ -122,7 +128,9 @@ class MessageCollectorService:
                     timestamp=msg_dict.get('timestamp', time.time()),
                     platform=msg_dict.get('platform', 'unknown'),
                     message_id=msg_dict.get('message_id'),
-                    reply_to=msg_dict.get('reply_to')
+                    reply_to=msg_dict.get('reply_to'),
+                    is_bot_target=msg_dict.get('is_bot_target') is True,
+                    is_style_context=msg_dict.get('is_style_context') is True,
                 )
                 message_objects.append(message_data)
             

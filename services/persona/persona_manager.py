@@ -52,7 +52,8 @@ class PersonaManagerService(IPersonaManager):
     async def health_check(self) -> bool:
         return self._status == ServiceLifecycle.RUNNING
 
-    async def update_persona(self, group_id: str, style_data: Dict[str, Any], messages: List[MessageData]) -> bool:
+    async def update_persona(self, group_id: str, style_data: Dict[str, Any], messages: List[MessageData],
+                            *, expression_messages: Optional[List[MessageData]] = None) -> bool:
         """
         更新人格。
         此方法将委托给 PersonaUpdater。
@@ -68,7 +69,13 @@ class PersonaManagerService(IPersonaManager):
                 self._logger.info(f"PersonaManagerService: Created persona backup: {backup_id} for group {group_id}")
 
             # 调用 PersonaUpdater 的方法进行实际更新
-            update_success = await self._persona_updater.update_persona_with_style(group_id, style_data, messages)
+            expression_options = (
+                {"expression_messages": expression_messages}
+                if expression_messages is not None else {}
+            )
+            update_success = await self._persona_updater.update_persona_with_style(
+                group_id, style_data, messages, **expression_options,
+            )
             
             if update_success:
                 self._logger.info(f"PersonaManagerService: Persona updated successfully for group {group_id}.")

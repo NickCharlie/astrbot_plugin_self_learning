@@ -107,13 +107,16 @@
   font-size: 11px;
 }
 
-.dep-block :global(.inline-actions) {
+.dep-actions {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 
-.dep-block :global(.inline-actions) > * {
+.dep-button {
   width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
 }
 
 /* 右侧详情面板 */

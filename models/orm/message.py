@@ -20,6 +20,8 @@ class RawMessage(Base):
     platform = Column(String(100))
     message_id = Column(String(255), nullable=True)  # 可能在旧表中不存在
     reply_to = Column(String(255), nullable=True)    # 可能在旧表中不存在
+    is_bot_target = Column(Boolean, default=False, server_default='0', nullable=False)
+    is_style_context = Column(Boolean, default=False, server_default='0', nullable=False)
     created_at = Column(BigInteger, nullable=False)
     processed = Column(Boolean, default=False)
 

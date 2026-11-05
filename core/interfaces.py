@@ -31,6 +31,8 @@ class MessageData:
     platform: str
     message_id: Optional[str] = None
     reply_to: Optional[str] = None
+    is_bot_target: bool = False
+    is_style_context: bool = False
 
 
 @dataclass
@@ -153,7 +155,8 @@ class IPersonaManager(ABC):
     """人格管理器接口 - 负责协调人格的更新、备份和恢复"""
     
     @abstractmethod
-    async def update_persona(self, style_data: Dict[str, Any], messages: List[MessageData]) -> bool:
+    async def update_persona(self, group_id: str, style_data: Dict[str, Any], messages: List[MessageData],
+                            *, expression_messages: Optional[List[MessageData]] = None) -> bool:
         """更新人格"""
         pass
     
@@ -172,7 +175,8 @@ class IPersonaUpdater(ABC):
     """人格更新器接口 - 负责执行具体的人格更新逻辑"""
     
     @abstractmethod
-    async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData]) -> bool:
+    async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData],
+                                       *, expression_messages: Optional[List[MessageData]] = None) -> bool:
         """根据风格分析和筛选过的消息更新人格"""
         pass
 

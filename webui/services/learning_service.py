@@ -61,12 +61,40 @@ class LearningService:
 
                     logger.debug(f"使用ORM获取风格学习统计: {real_stats}")
 
-                # 获取进度数据（保持原有逻辑）
+            except Exception as e:
+                logger.warning(f"无法从数据库获取风格审查统计: {e}", exc_info=True)
+
+            try:
+                if hasattr(self.db_manager, 'get_expression_patterns_statistics'):
+                    pattern_stats = await self.db_manager.get_expression_patterns_statistics()
+                    pattern_count = int(pattern_stats.get('total_patterns', 0))
+                elif hasattr(self.db_manager, 'get_session'):
+                    from sqlalchemy import func, select
+                    from ...models.orm.expression import ExpressionPattern
+
+                    async with self.db_manager.get_session() as session:
+                        count_result = await session.execute(
+                            select(func.count()).select_from(ExpressionPattern)
+                        )
+                        pattern_count = count_result.scalar() or 0
+                else:
+                    pattern_count = 0
+
+                # Each stored expression row is one observed dialogue sample;
+                # review counts describe a separate queue, not learned patterns.
+                results_data['statistics'].update({
+                    'unique_styles': pattern_count,
+                    'total_samples': pattern_count,
+                })
+            except Exception as e:
+                logger.warning(f"无法从数据库获取表达模式统计: {e}", exc_info=True)
+
+            try:
                 real_progress = await self.db_manager.get_style_progress_data()
                 if real_progress and isinstance(real_progress, list):
                     results_data['style_progress'] = real_progress
             except Exception as e:
-                logger.warning(f"无法从数据库获取风格学习数据: {e}", exc_info=True)
+                logger.warning(f"无法从数据库获取风格学习进度: {e}", exc_info=True)
 
         return results_data
 

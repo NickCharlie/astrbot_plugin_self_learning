@@ -9,8 +9,14 @@ from astrbot.api import logger
 
 try:
     from ...config import split_learning_blacklist
+    from ...utils.learning_scope import (
+        is_learning_blacklisted, mark_style_context_messages, mask_blacklisted_messages,
+    )
 except ImportError:  # pragma: no cover - AstrBot 以顶层目录加载插件时
     from config import split_learning_blacklist
+    from utils.learning_scope import (
+        is_learning_blacklisted, mark_style_context_messages, mask_blacklisted_messages,
+    )
 
 
 _LOGGER = logger
@@ -153,23 +159,6 @@ PLUGIN_LOG_PATTERNS = (
 
 def _normalize_text(message_text: Any) -> str:
     return "" if message_text is None else str(message_text).strip()
-
-
-def is_learning_blacklisted(
-    sender_id: Any,
-    group_id: Any,
-    *,
-    blocked_sender_ids: Iterable[str],
-    blocked_group_ids: Iterable[str],
-) -> bool:
-    """单条消息是否命中学习黑名单。"""
-    sender = str(sender_id or "").strip()
-    group = str(group_id or "").strip()
-    if sender and sender in set(blocked_sender_ids or []):
-        return True
-    if group and group in set(blocked_group_ids or []):
-        return True
-    return False
 
 
 def filter_blacklisted_messages(

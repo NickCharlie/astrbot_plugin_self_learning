@@ -44,6 +44,8 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 platform=clean_db_text(message_data.get('platform', '')),
                 message_id=clean_db_text(message_data.get('message_id')),
                 reply_to=clean_db_text(message_data.get('reply_to')),
+                is_bot_target=message_data.get('is_bot_target') is True,
+                is_style_context=message_data.get('is_style_context') is True,
                 created_at=now,
                 processed=False,
             )
@@ -73,6 +75,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             stmt = (
                 select(RawMessage)
                 .where(RawMessage.processed == False)  # noqa: E712
+                .where(RawMessage.is_style_context.is_(False))
             )
             if group_id:
                 stmt = stmt.where(RawMessage.group_id == group_id)
@@ -81,7 +84,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 excluded_sender_ids=excluded_sender_ids,
                 excluded_group_ids=excluded_group_ids,
             )
-            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
+            stmt = stmt.order_by(RawMessage.timestamp.asc(), RawMessage.id.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
@@ -102,6 +105,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 .where(
                     RawMessage.processed == False,  # noqa: E712
                     RawMessage.group_id == group_id,
+                    RawMessage.is_style_context.is_(False),
                 )
             )
             stmt = self._apply_exclusions(
@@ -109,7 +113,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 excluded_sender_ids=excluded_sender_ids,
                 excluded_group_ids=excluded_group_ids,
             )
-            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
+            stmt = stmt.order_by(RawMessage.timestamp.asc(), RawMessage.id.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
@@ -186,7 +190,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             List[RawMessage]: 消息列表（按时间倒序）
         """
         try:
-            stmt = select(RawMessage)
+            stmt = select(RawMessage).where(RawMessage.is_style_context.is_(False))
             if group_id:
                 stmt = stmt.where(RawMessage.group_id == group_id)
             stmt = self._apply_exclusions(
@@ -194,7 +198,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 excluded_sender_ids=excluded_sender_ids,
                 excluded_group_ids=excluded_group_ids,
             )
-            stmt = stmt.order_by(desc(RawMessage.timestamp)).limit(limit)
+            stmt = stmt.order_by(desc(RawMessage.timestamp), desc(RawMessage.id)).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
@@ -231,6 +235,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                     RawMessage.group_id == group_id,
                     RawMessage.timestamp >= start_ts,
                     RawMessage.timestamp <= end_ts,
+                    RawMessage.is_style_context.is_(False),
                 ))
             )
             stmt = self._apply_exclusions(
@@ -238,12 +243,26 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                 excluded_sender_ids=excluded_sender_ids,
                 excluded_group_ids=excluded_group_ids,
             )
-            stmt = stmt.order_by(RawMessage.timestamp.asc()).limit(limit)
+            stmt = stmt.order_by(RawMessage.timestamp.asc(), RawMessage.id.asc()).limit(limit)
             result = await self.session.execute(stmt)
             return list(result.scalars().all())
         except Exception as e:
             logger.error(f"[RawMessageRepository] 按时间范围获取消息失败: {e}")
             return []
+
+    async def get_style_learning_messages(
+        self, group_id: str, limit: int = 200,
+        start_time: Optional[float] = None, end_time: Optional[float] = None,
+    ) -> List[RawMessage]:
+        """Return the latest complete style timeline, including context boundaries."""
+        stmt = select(RawMessage).where(RawMessage.group_id == group_id)
+        if start_time is not None:
+            stmt = stmt.where(RawMessage.timestamp >= start_time)
+        if end_time is not None:
+            stmt = stmt.where(RawMessage.timestamp <= end_time)
+        stmt = stmt.order_by(desc(RawMessage.timestamp), desc(RawMessage.id)).limit(limit)
+        result = await self.session.execute(stmt)
+        return list(reversed(result.scalars().all()))
 
     async def count_all(self, group_id: Optional[str] = None) -> int:
         """
@@ -256,7 +275,9 @@ class RawMessageRepository(BaseRepository[RawMessage]):
             int: 消息数量
         """
         try:
-            stmt = select(func.count()).select_from(RawMessage)
+            stmt = select(func.count()).select_from(RawMessage).where(
+                RawMessage.is_style_context.is_(False)
+            )
             if group_id:
                 stmt = stmt.where(RawMessage.group_id == group_id)
             result = await self.session.execute(stmt)
@@ -308,6 +329,7 @@ class RawMessageRepository(BaseRepository[RawMessage]):
                     func.count().label('count')
                 )
                 .where(RawMessage.group_id == group_id)
+                .where(RawMessage.is_style_context.is_(False))
                 .group_by(RawMessage.sender_id, RawMessage.sender_name)
                 .order_by(desc('count'))
                 .limit(limit)
