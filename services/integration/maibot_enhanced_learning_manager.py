@@ -483,7 +483,7 @@ class MaiBotEnhancedLearningManager:
                 'knowledge_graph_context': ''
             }
 
-            # 1. Expression patterns — always legacy
+            # Keep the legacy response context on the same approval gate as hooks.
             if self.expression_learner:
                 patterns_text = await self.expression_learner.format_expression_patterns_for_prompt(group_id)
                 context['expression_patterns'] = patterns_text

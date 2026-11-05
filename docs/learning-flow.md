@@ -103,16 +103,16 @@ await database_manager.save_raw_message(message_obj)
 处理流程:
 
 1. 读取最近 25 条原始消息。
-2. 过滤过短、过长、纯 at 后无内容的消息。
-3. 合并最近 Bot 出站消息，形成时间线。
-4. 延迟创建 `ExpressionPatternLearner`。
-5. 调用 `trigger_learning_for_group(group_id, message_data_list)`。
-6. 读取最新表达模式。
-7. 将表达模式临时注入 `begin_dialogs`。
-8. 生成 few-shot 对话内容。
-9. 创建风格学习审查记录。
+2. 按时间及同秒数据库 ID 恢复原始群聊顺序，不合并 Bot 出站回复。
+3. 提取不同群友之间有限间隔内的相邻上下文；校验显式引用目标。
+4. Bot 定向消息、命令、黑名单消息和排除边界不会被跳过或连接穿透。
+5. 只指定目标用户时，其他群友只作为上下文，按响应方建立用户作用域。
+6. 延迟创建 `ExpressionPatternLearner`，使用群组/人格作用域保存表达模式。
+7. 将新表达模式写入风格审查，批准且作用域匹配后才注入回复上下文。
 
-表达模式来自真实 user -> bot 邻接对，不再依赖 LLM 对表达方式做二次生成。
+样本被压平限长后以 JSON 引用，作为不可信风格数据而非可执行指令。入站保留
+`message_id`、`reply_to`、`is_bot_target`、`is_style_context`。仅风格上下文的消息不进入
+普通人格、记忆、黑话学习；基础风格学习直接从原始时间线提取，不再依赖模型摘要中的可选字段。
 
 ## 4. Bot 出站消息记录
 
@@ -126,9 +126,8 @@ await database_manager.save_raw_message(message_obj)
 
 用途:
 
-- 表达学习时与用户消息合并。
-- 提取 user -> bot few-shot。
-- 支撑 WebUI 查看具体学习内容。
+- 支撑 Bot 回复质量评估和历史查询。
+- 不参与表达/风格样本提取，避免 Bot 自我回复成为模仿对象。
 
 ## 5. 黑话学习
 
@@ -185,7 +184,7 @@ LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 触发条件:
 
 - `enable_style_learning=True`
-- `enable_auto_learning=True` 时自动延迟启动。
+- 自动延迟启动需要 `enable_auto_learning=True`；关闭后仅保留手动学习。
 - 群组未处理消息数达到 `min_messages_for_learning`。
 - 距离上次学习超过 `learning_interval_hours`。
 - QQ 白名单/黑名单允许该群组。
