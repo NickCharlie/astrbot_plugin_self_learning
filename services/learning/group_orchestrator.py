@@ -54,6 +54,9 @@ class GroupLearningOrchestrator:
     async def smart_start_learning_for_group(self, group_id: str) -> None:
         """Smart-start a learning task for *group_id* with frequency throttling."""
         try:
+            if not self._config.enable_auto_learning or not self._config.enable_style_learning:
+                return
+
             if group_id in self.learning_tasks:
                 return
 
@@ -98,6 +101,12 @@ class GroupLearningOrchestrator:
                     f"群组 {group_id} 未处理消息数量未达到学习阈值: "
                     f"{unprocessed_count}/{min_messages}"
                 )
+                return
+
+            # Configuration may change while timestamps/statistics are awaited.
+            if not self._config.enable_auto_learning or not self._config.enable_style_learning:
+                return
+            if group_id in self.learning_tasks:
                 return
 
             self._last_learning_start[group_id] = current_time

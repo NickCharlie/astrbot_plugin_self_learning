@@ -115,15 +115,16 @@ async def test_mine_jargon_keeps_pending_statistical_candidates_eligible():
 async def test_v2_jargon_batch_only_excludes_confirmed_terms():
     pending = {"content": "待确认", "is_jargon": None}
     confirmed = {"content": "已确认", "is_jargon": True}
+    earlier_inference = {"content": "待确认", "is_jargon": True, "last_inference_count": 3}
     query_calls = []
 
     async def get_recent_jargon_list(**kwargs):
         query_calls.append(kwargs)
         if kwargs.get("only_confirmed") is True:
-            return [confirmed]
+            return [confirmed, earlier_inference]
         return [pending, confirmed]
 
-    candidate = {"term": "待确认"}
+    candidate = {"term": "待确认", "context_examples": ["群友使用待确认表达群内含义"]}
 
     def get_jargon_candidates(group_id, *, top_k, exclude_terms):
         assert group_id == "group-a"
@@ -135,12 +136,18 @@ async def test_v2_jargon_batch_only_excludes_confirmed_terms():
     )
     db = SimpleNamespace(
         get_recent_jargon_list=get_recent_jargon_list,
+        get_jargon=AsyncMock(return_value=None),
         save_or_update_jargon=AsyncMock(),
     )
     llm = SimpleNamespace(
-        generate_response=AsyncMock(return_value="测试释义"),
+        generate_response=AsyncMock(side_effect=[
+            '{"meaning":"测试释义","no_info":false}',
+            '{"meaning":"词典释义"}',
+            '{"is_similar":false}',
+        ]),
     )
     integration = V2LearningIntegration.__new__(V2LearningIntegration)
+    integration._config = SimpleNamespace(enable_jargon_learning=True)
     integration._jargon_filter = jargon_filter
     integration._llm = llm
     integration._db = db
@@ -169,15 +176,16 @@ async def test_v2_jargon_batch_only_excludes_confirmed_terms():
         top_k=20,
         exclude_terms={"已确认"},
     )
-    llm.generate_response.assert_awaited_once()
+    assert llm.generate_response.await_count == 3
     db.save_or_update_jargon.assert_awaited_once_with(
         "group-a",
         "待确认",
         {
             "meaning": "测试释义",
-            "raw_content": "[]",
-            "is_jargon": True,
+            "raw_content": '["群友使用待确认表达群内含义"]',
+            "is_jargon": None,
             "count": 1,
-            "is_complete": True,
+            "last_inference_count": 1,
+            "is_complete": False,
         },
     )
