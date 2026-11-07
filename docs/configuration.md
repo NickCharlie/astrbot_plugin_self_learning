@@ -7,7 +7,7 @@
 
 `PluginConfig.create_from_config()` 从 AstrBot 的分组配置读取字段，生成扁平化运行时对象。WebUI 设置页通过 `webui/services/config_service.py` 暴露完整 schema 和当前值。
 
-> 本章只展开常用配置组；**全部 143 个配置项**的权威参考见文末「[完整配置参考](#完整配置参考)」（由 `scripts/gen_config_reference.py` 从 `_conf_schema.json` 生成，与插件配置页一致）。
+> 本章只展开常用配置组；**全部 143 个配置项**的权威参考见文末「[完整配置参考](#完整配置参考)」（由 `.github/scripts/gen_config_reference.py` 从 `_conf_schema.json` 生成，与插件配置页一致）。
 
 ## 基础学习设置
 
@@ -249,7 +249,7 @@ POST /api/config
 
 WebUI 更新配置后如果包含重启项，响应消息会提示部分变更重启后生效。
 
-<!-- CONFIG-REFERENCE:START 由 scripts/gen_config_reference.py 生成，请勿手改 -->
+<!-- CONFIG-REFERENCE:START 由 .github/scripts/gen_config_reference.py 生成，请勿手改 -->
 
 ## 完整配置参考
 

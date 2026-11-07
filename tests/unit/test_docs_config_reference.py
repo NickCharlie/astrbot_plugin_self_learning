@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = PACKAGE_ROOT / "scripts" / "gen_config_reference.py"
+SCRIPT = PACKAGE_ROOT / ".github" / "scripts" / "gen_config_reference.py"
 README_DOCS = PACKAGE_ROOT / "docs" / "README.md"
 METADATA = PACKAGE_ROOT / "metadata.yaml"
 
