@@ -8,6 +8,33 @@
     margin: 0;
     color: var(--muted);
   }
+
+  /* 审查队列逐条勾选：复选框单列 + 卡片主体（与内嵌插件页 review-card.selectable 同构） */
+  &.selectable {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.review-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.select-cell {
+  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+  }
 }
 
 .review-card-head {
@@ -45,7 +72,7 @@
     overflow: auto;
     background: var(--surface-alt);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     font: 12px/1.5 ui-monospace, monospace;
     white-space: pre-wrap;
     word-break: break-word;
@@ -76,7 +103,7 @@
     overflow: auto;
     background: var(--surface-alt);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     font: 12px/1.5 ui-monospace, monospace;
     white-space: pre-wrap;
     word-break: break-word;
@@ -87,7 +114,7 @@
   margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .diff-line {

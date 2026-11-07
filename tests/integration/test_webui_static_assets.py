@@ -73,7 +73,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
     styles = (PLUGIN_ROOT / "pages" / "dashboard" / "styles.css").read_text(encoding="utf-8")
 
-    assert "AstrBot Embedded WebUI" in index
+    assert "AstrBot 内嵌 WebUI" in index
     for label in [
         "Dashboard",
         "AI 巡检",
@@ -125,7 +125,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert 'data-jargon-action="edit"' in script
     assert 'data-style-action="edit"' in script
     assert 'data-persona-action="edit"' in script
-    assert 'id="modal-jargon-save"' in script
+    assert 'data-jargon-action="save"' in script
     assert 'id="modal-style-save"' in script
     assert 'id="modal-persona-save"' in script
     assert "region.replaceChildren()" in script
@@ -146,8 +146,27 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "function localNavigationHost" in script
     assert "browserHost = window.location.hostname" in script
     assert 'resolveHostUrl(webui.dashboard_url || "")' in script
-    assert "resolveHostUrl(link.url || \"#\")" in script
-    assert "resolveHostUrl(dash.external_url || dash.official_page_url || \"#\")" in script
+    # 首页快捷入口与独立版一致：7 个页内路由（不再下发宿主链接，iframe 内的 #/extension 是死链）
+    assert "function homeQuickLinks" in script
+    assert 'data-route-card="${escapeAttr(item.page)}"' in script
+    assert "#/extension" not in script
+    # 融合状态卡打开按钮：外部链接优先，无外部入口退回内嵌路由（与独立版 openIntegration 一致）
+    assert "function handleIntegrationOpen" in script
+    assert 'resolveHostUrl(String(dash.external_url || ""))' in script
+    assert "data-integration-open=" in script
+    # 设置页：数据管理 / Bug 反馈面板与依赖安装确认均在桥接页渲染
+    assert "function handleDataClear" in script
+    assert "function handleBugSubmit" in script
+    assert "function handleDependencyInstall" in script
+    assert "data-data-clear=" in script
+    assert 'data-dep-tier="basic"' in index
+    assert 'data-dep-tier="full"' in index
+    assert 'id="settings-search"' in index
+    assert 'id="bug-report-submit"' in index
+    assert 'id="data-stat-grid"' in index
+    assert "graph-social-group" in index
+    assert "graph-type-tabs" in index
+    assert "graph-empty" in index
     assert 'id="physics-canvas"' in index
     assert 'id="graph-canvas"' in index
     assert 'id="graph-canvas" width=' not in index
@@ -155,7 +174,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "persona-layout" in index
     assert 'http://127.0.0.1:7833' not in index
     assert ".module-card" in styles
-    assert ".ring-chart" in styles
+    assert ".system-entry-grid" in styles
     assert ".sidebar" in styles
     assert ".graph-panel" in styles
     assert ".persona-layout" in styles
@@ -228,7 +247,7 @@ def test_embedded_plugin_page_hides_review_buttons_for_confirmed_jargon():
     script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
 
     assert 'item.is_confirmed ? "" : button(t("actions.confirm"' in script
-    assert 'item.is_confirmed ? "" : button(t("actions.reject"' in script
+    assert 'item.is_confirmed ? "" : button(t("actions.rejectBack"' in script
 
 
 def test_graph_share_rendering_uses_stable_static_layout():

@@ -1,25 +1,43 @@
 @use "../../styles/tokens";
 @use "../../styles/mixins" as *;
 
+/* 编辑式节标题：display 大标题 + 黄楔起笔 + 规则线延伸进负空间 */
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 20px;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+
+  /* 标题底线右端的信号缺口：选中/到达即黄（state cue） */
+  &::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    bottom: -1px;
+    width: 72px;
+    height: 3px;
+    background: var(--signal);
+    clip-path: var(--ark-wedge);
+  }
 
   h2 {
     margin: 3px 0;
-    font-size: 26px;
-    line-height: 1.15;
+    font-family: var(--font-display);
+    font-size: 30px;
+    line-height: 0.95;
     letter-spacing: -0.02em;
+    font-weight: 700;
   }
 
   p {
     max-width: 720px;
     margin: 0;
     color: var(--muted);
-    font-size: 15px;
+    font-size: 13.5px;
   }
 }
 

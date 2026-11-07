@@ -2,7 +2,7 @@ import { createMemo, For, Show } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
 import type { IntegrationItem, PageId, Tone } from '../../types/dashboard';
 import { formatCount, formatPercent, safeNumber } from '../../lib/format';
-import { list, jargonPendingTotal, object, reviews } from '../shared';
+import { list, object, reviewBacklog } from '../shared';
 import { Badge, Card } from '../../components/ui';
 import { PageHeader } from '../../components/layout/PageHeader';
 import styles from './HomePage.module.scss';
@@ -43,17 +43,10 @@ export function HomePage() {
     const trends = object(dashboard.data.trends);
     const jargon = object(dashboard.data.jargon_stats);
     const statistics = object(object(dashboard.data.data_statistics).data ?? dashboard.data.data_statistics);
-    const personaPayload = object(dashboard.data.persona_updates);
-    const stylePayload = object(dashboard.data.style_learning_reviews);
-    const personaItems = reviews(dashboard.data, 'persona_updates');
-    const personaTotal = safeNumber(personaPayload.total, personaItems.length);
-    const styleTotal = safeNumber(stylePayload.total, reviews(dashboard.data, 'style_learning_reviews').length);
-    const personaIncludesStyle = personaItems.some((item) => item.review_source === 'style_learning');
-    const personaPending = personaIncludesStyle ? Math.max(0, personaTotal - styleTotal) : personaTotal;
+    // 待审数与审查队列同源：读待审接口的分页 total，已驳回（is_complete）不再计入
+    const { personaPending, styleTotal, jargonPending, total: backlog } = reviewBacklog(dashboard.data);
     const jargonCandidates = safeNumber(jargon.total_candidates ?? object(jargon.data).total_candidates);
     const jargonConfirmed = safeNumber(jargon.confirmed_jargon ?? object(jargon.data).confirmed_jargon);
-    // 待审数与审查队列同源：读待审接口的分页 total，已驳回（is_complete）不再计入
-    const jargonPending = jargonPendingTotal(dashboard.data);
     const contentCount = safeNumber(statistics.style_learning);
     const graphNodes = safeNumber(statistics.memory) + safeNumber(statistics.knowledge_graph);
     const integrations = list<IntegrationItem>(
@@ -66,7 +59,6 @@ export function HomePage() {
     const filtered = safeNumber(metrics.filtered_messages);
     const filterRate = totalMessages ? filtered / totalMessages * 100 : 0;
     const learningEfficiency = safeNumber(metrics.learning_efficiency);
-    const backlog = personaPending + styleTotal + jargonPending;
     const batches = list(trends.recent_batches).length;
     const llmSummary = object(metrics.llm_call_summary);
     const llmCalls = safeNumber(llmSummary.total_calls);

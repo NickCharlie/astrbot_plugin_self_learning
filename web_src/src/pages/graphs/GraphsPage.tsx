@@ -3,11 +3,12 @@ import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import type { GraphPayload } from '../../types/dashboard';
 import { object } from '../shared';
-import { formatCount } from '../../lib/format';
+import { formatCount, textOrDash } from '../../lib/format';
+import { graphCategoryLabel, graphDetailNodes, graphDetailStats } from '../../lib/graphDetails';
 import { socialGroupId, socialGroupName, socialToGraph, type SocialGroup } from '../../lib/socialGraph';
 import { GraphView } from '../../components/business/GraphView';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { Button, EmptyState, Input, Panel, SegmentedControl, Select } from '../../components/ui';
+import { Badge, Button, EmptyState, Input, Panel, SegmentedControl, Select, StatCard } from '../../components/ui';
 import styles from './GraphsPage.module.scss';
 
 type GraphType = 'memory' | 'knowledge' | 'social';
@@ -128,6 +129,7 @@ export function GraphsPage() {
   return (
     <div class="page">
       <PageHeader title="记忆 / 知识图谱" description="探索记忆节点、知识实体、群友社交关系及其联系；拖动位置会在本次会话中保留。" icon="hub" />
+      <div class={styles['graph-layout']}>
       <Panel
         title="图谱视图"
         hint="稳定静态布局避免每次刷新后节点重新飞散"
@@ -172,6 +174,28 @@ export function GraphsPage() {
           <GraphView payload={payload()} layout={layout()} />
         </Show>
       </Panel>
+      {/* 图谱详情：读数 + 前 18 个节点（与内嵌页图谱详情同位置、同文案） */}
+      <Panel title="图谱详情">
+        <div class={styles['detail-stats']}>
+          <For each={graphDetailStats(payload())}>{([label, value]) =>
+            <StatCard label={label} value={typeof value === 'number' ? formatCount(value) : textOrDash(value)} />
+          }</For>
+        </div>
+        <Show when={graphDetailNodes(payload()).length} fallback={<div class={styles['detail-empty']}>暂无图谱节点</div>}>
+          <div class="check-list">
+            <For each={graphDetailNodes(payload())}>{(node) =>
+              <div class="check-row">
+                <div>
+                  <strong>{String(node.name ?? node.label ?? node.id ?? '')}</strong>
+                  <Show when={node.detail}><small>{String(node.detail)}</small></Show>
+                </div>
+                <Badge>{graphCategoryLabel(node)}</Badge>
+              </div>
+            }</For>
+          </div>
+        </Show>
+      </Panel>
+      </div>
     </div>
   );
 }

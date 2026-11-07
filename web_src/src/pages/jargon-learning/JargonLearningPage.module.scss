@@ -14,9 +14,67 @@
   gap: 10px;
 }
 
+/* 批量工具条（与内嵌插件页 batch-toolbar 同构） */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* 词条行：勾选 / 词条与释义 / 群组 / 状态 / 范围（与内嵌插件页 jargon-row-main 同构） */
+.row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.row-copy {
+  min-width: 0;
+  display: grid;
+
+  strong {
+    overflow-wrap: anywhere;
+  }
+}
+
+.row-group {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.select-cell {
+  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+  }
+}
+
 @include mobile {
   .filter-bar {
     grid-template-columns: 1fr;
+  }
+
+  .row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+
+    > .row-group,
+    > :global(.slx-badge) {
+      grid-column: 2;
+      justify-self: start;
+    }
   }
 }
 

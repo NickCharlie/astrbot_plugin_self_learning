@@ -1,6 +1,7 @@
 @use "../../styles/tokens";
 @use "../../styles/mixins" as *;
 
+/* ── 指挥台主屏：endfield 场地舞台（工程网格 + 楔形信号条 + 校准读数阵列） ── */
 .hero-command {
   @include panel;
   container-type: inline-size;
@@ -11,30 +12,80 @@
   align-items: center;
   gap: clamp(20px, 4vw, 48px);
   overflow: hidden;
-  border-inline-start: 3px solid var(--accent, var(--primary));
+  position: relative;
+
+  /* 舞台层 1：工程坐标网格，向下淡出 */
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--ark-stage-opacity);
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: var(--ark-stage-grid) var(--ark-stage-grid);
+    mask-image: linear-gradient(180deg, #000 0%, transparent 88%);
+  }
+
+  /* 舞台层 2：左缘信号楔条（到达/动作色，唯一强色块） */
+  &::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 14px;
+    background: var(--signal);
+    clip-path: var(--ark-wedge);
+    pointer-events: none;
+  }
+
+  > * {
+    position: relative;
+    z-index: 1;
+  }
 }
 
 .hero-command-copy {
+  /* 字段码 kicker：黄楔 + mono 大写微标签 */
   > span {
-    color: var(--accent, var(--primary));
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-family: var(--font-mono);
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+
+    &::before {
+      content: '';
+      width: 16px;
+      height: 8px;
+      background: var(--signal);
+      clip-path: var(--ark-wedge);
+    }
   }
 
   h3 {
-    margin: 10px 0;
+    margin: 12px 0;
     max-width: 620px;
-    font-size: clamp(24px, 4vw, 40px);
-    line-height: 1.1;
-    letter-spacing: -0.04em;
+    font-family: var(--font-display);
+    font-size: clamp(26px, 4vw, 42px);
+    line-height: 0.94;
+    letter-spacing: -0.03em;
+    font-weight: 700;
   }
 
   p {
     color: var(--muted);
+    max-width: 560px;
   }
 }
 
+/* 校准读数阵列：方角单元 + 顶缘强线 + 等宽表格数字 */
 .hero-pulse-grid {
   min-width: 0;
   display: grid;
@@ -45,29 +96,38 @@
 .pulse-stat {
   min-width: 0;
   min-height: 104px;
-  padding: clamp(14px, 2vw, 20px);
+  padding: clamp(14px, 2vw, 18px);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  background: var(--surface-alt);
+  background: var(--surface-solid);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-top: 2px solid var(--border-strong);
+  border-radius: 0;
+  position: relative;
 
   span {
     color: var(--muted);
-    font-size: 12px;
+    font-family: var(--font-tech);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   strong {
     overflow-wrap: anywhere;
-    font-size: clamp(22px, 3.5cqw, 32px);
-    letter-spacing: -0.04em;
+    font-family: var(--font-display);
+    font-size: clamp(24px, 3.5cqw, 34px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
   }
 }
 
+/* 快捷坞：动作条，hover ink 反白 + 左缘黄楔（黄=可执行） */
 .quick-dock {
   display: flex;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: wrap;
   margin-top: 20px;
 
@@ -77,14 +137,26 @@
     gap: 6px;
     padding: 7px 10px;
     color: var(--muted);
-    background: var(--surface-alt);
-    border: 1px solid transparent;
-    border-radius: var(--radius);
+    background: var(--surface-solid);
+    border: 1px solid var(--border);
+    border-radius: 0;
     font-size: 12px;
+    font-weight: 600;
+    transition:
+      color var(--duration) ease-out,
+      background var(--duration) ease-out,
+      border-color var(--duration) ease-out;
 
-    &:hover {
-      color: var(--primary);
+    &:hover,
+    &:focus-visible {
+      color: var(--primary-ink);
+      background: var(--primary);
       border-color: var(--primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ark-signal);
+      outline-offset: 2px;
     }
   }
 
@@ -112,6 +184,7 @@
   }
 }
 
+/* ── 学习模块卡：黄楔洗底图标 + 硬偏移 hover（交互卡仪器影） ── */
 .learning-module-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -136,13 +209,15 @@
     height: 44px;
     display: grid;
     place-items: center;
-    color: var(--accent, var(--primary));
-    border-radius: var(--radius);
-    background: var(--accent-soft, var(--primary-soft));
+    color: var(--text);
+    border-radius: 0;
+    background: var(--signal-soft);
+    border: 1px solid var(--border);
   }
 
   strong {
-    font-size: 18px;
+    font-size: 17px;
+    font-weight: 700;
   }
 
   p {
@@ -154,6 +229,19 @@
     display: block;
     margin-top: 10px;
     color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  > a > .material-icons:last-child {
+    color: var(--muted);
+    transition: color var(--duration) ease-out;
+  }
+
+  &:hover > a > .material-icons:last-child {
+    color: var(--text);
   }
 }
 
@@ -167,13 +255,16 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-.system-entry-card a {
+/* 双类选择器提升优先级：.route-card a 的横向 flex 不得覆盖入口卡的纵向分层 */
+.system-entry-card.route-card a {
   min-height: 184px;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  align-items: stretch;
   gap: 12px;
 }
 
+/* 入口卡：图标方框 + 读数区顶线 + display 数值 */
 .route-card {
   padding: 0;
 
@@ -186,10 +277,11 @@
   }
 
   > a > .material-icons {
-    color: var(--accent, var(--primary));
+    color: var(--text);
     padding: 8px;
-    background: var(--accent-soft, var(--primary-soft));
-    border-radius: var(--radius);
+    background: var(--signal-soft);
+    border: 1px solid var(--border);
+    border-radius: 0;
   }
 
   p {
@@ -205,15 +297,17 @@
   gap: 8px;
 
   > .material-icons {
-    color: var(--accent, var(--primary));
+    color: var(--text);
     padding: 8px;
-    background: var(--accent-soft, var(--primary-soft));
-    border-radius: var(--radius);
+    background: var(--signal-soft);
+    border: 1px solid var(--border);
+    border-radius: 0;
   }
 }
 
 .entry-card-copy strong {
   font-size: 15px;
+  font-weight: 700;
 }
 
 .entry-card-state {
@@ -223,8 +317,11 @@
   border-top: 1px solid var(--border);
 
   strong {
-    font-size: 23px;
-    letter-spacing: -0.035em;
+    font-family: var(--font-display);
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
   }
 
@@ -261,7 +358,7 @@
   .system-entry-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .system-entry-card a {
+  .system-entry-card.route-card a {
     min-height: 168px;
     padding: 14px;
   }

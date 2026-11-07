@@ -35,7 +35,7 @@ export function PageNav() {
   };
   return (
     <nav class={`slx-nav ${styles['page-nav']}`} aria-label="Dashboard 页面" onWheel={handleWheel}>
-      <For each={items}>{(item) =>
+      <For each={items}>{(item, index) =>
         <a
           href={`#/${item.id}`}
           data-accent={item.accent}
@@ -43,7 +43,10 @@ export function PageNav() {
           classList={{ 'slx-nav-item-active': dashboard.page() === item.id, [styles['active']]: dashboard.page() === item.id }}
           onClick={(event) => { event.preventDefault(); dashboard.navigate(item.id); }}
         >
-          <span class="material-icons">{item.icon}</span><span>{item.label}</span>
+          {/* 节编号：endfield 场地码，装饰性，不进可访问名 */}
+          <span class={styles['nav-index']} aria-hidden="true">{String(index() + 1).padStart(2, '0')}</span>
+          <span class="material-icons" aria-hidden="true">{item.icon}</span>
+          <span class={styles['nav-label']}>{item.label}</span>
         </a>
       }</For>
     </nav>

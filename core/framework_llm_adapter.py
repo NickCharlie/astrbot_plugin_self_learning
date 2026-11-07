@@ -7,8 +7,7 @@ import hashlib
 import time
 from typing import Optional, List, Dict, Any, Tuple
 from astrbot.api import logger
-from astrbot.core.provider.provider import Provider
-from astrbot.core.provider.entities import LLMResponse
+from astrbot.api.provider import LLMResponse, Provider
 
 class FrameworkLLMAdapter:
     """AstrBot框架LLM适配器，用于替换自定义LLMClient"""
@@ -40,7 +39,7 @@ class FrameworkLLMAdapter:
         
     def initialize_providers(self, config):
         """根据配置初始化Provider"""
-        from astrbot.core.provider.entities import ProviderType
+        from astrbot.api.provider import ProviderType
 
         # 保存配置用于可能的延迟初始化
         self._config = config
@@ -200,7 +199,7 @@ class FrameworkLLMAdapter:
 
     def _current_registered_provider(self, provider_attr: str, role_label: str) -> Optional[Provider]:
         """Resolve the configured ID again before use; provider objects can be replaced or closed."""
-        from astrbot.core.provider.entities import ProviderType
+        from astrbot.api.provider import ProviderType
 
         bound_provider = getattr(self, provider_attr)
         provider_id = getattr(self._config, f"{provider_attr}_id", None)

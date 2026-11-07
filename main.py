@@ -15,7 +15,10 @@ from astrbot.api.event import filter
 import astrbot.api.star as star
 from astrbot.api.star import Context, StarTools
 from astrbot.api import logger, AstrBotConfig
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+try:  # 公开 API 未提供 AstrBot 数据根（仅 StarTools.get_data_dir 给插件目录），仅作回退与旧目录迁移
+    from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+except ImportError:  # 内部路径变动时由 StarTools 推导数据根，不阻断插件加载
+    get_astrbot_data_path = None
 
 from .config import DEFAULT_DATA_DIR, PluginConfig, normalize_identifier_list, split_learning_blacklist
 from .core.plugin_lifecycle import PluginLifecycle
@@ -83,6 +86,21 @@ def _archive_legacy_config_copy(config_file: str) -> None:
         logger.warning(f"归档旧版 WebUI 配置副本失败，将继续忽略该文件: {exc}")
 
 
+def _astrbot_data_root() -> Optional[str]:
+    """AstrBot 数据根：优先内部工具（与历史行为一致），不可用时由公开 StarTools 推导。"""
+    if get_astrbot_data_path is not None:
+        try:
+            return get_astrbot_data_path()
+        except Exception as exc:
+            logger.warning(f"get_astrbot_data_path() 不可用，改由 StarTools 推导数据根: {exc}")
+    try:
+        # StarTools.get_data_dir() 公开契约：data/plugin_data/{plugin_name}
+        return os.fspath(Path(StarTools.get_data_dir()).parent.parent)
+    except Exception as exc:
+        logger.warning(f"无法推导 AstrBot 数据根: {exc}")
+        return None
+
+
 def _default_plugin_data_dir(astrbot_data_path: str) -> str:
     try:
         data_dir = StarTools.get_data_dir()
@@ -139,7 +157,7 @@ class SelfLearningPlugin(star.Star):
 
         # ------ 插件配置加载 ------
         try:
-            astrbot_data_path = get_astrbot_data_path()
+            astrbot_data_path = _astrbot_data_root()
             if astrbot_data_path is None:
                 astrbot_data_path = os.path.join(os.path.dirname(__file__), "data")
                 logger.warning("无法获取 AstrBot 数据路径，使用插件目录下的 data 目录")
@@ -539,7 +557,7 @@ class SelfLearningPlugin(star.Star):
             result = event.get_result()
             if not result or not result.chain:
                 return
-            from astrbot.core.message.components import Plain
+            from astrbot.api.message_components import Plain
             text_parts = []
             for comp in result.chain:
                 if isinstance(comp, Plain):

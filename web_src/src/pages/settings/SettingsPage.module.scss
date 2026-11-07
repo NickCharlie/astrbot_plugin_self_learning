@@ -76,7 +76,7 @@
 .dirty-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--warning);
 }
 
@@ -117,6 +117,52 @@
   width: 100%;
   min-width: 0;
   justify-content: flex-start;
+}
+
+/* pip 输出框（内嵌页既有输出框移植） */
+.dep-output {
+  max-height: 220px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface-alt);
+  border-radius: 0;
+  font: 12px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 成本提醒列表（内嵌页 settings-warning 移植）：warning 左缘条 */
+.cost-warnings {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.cost-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--warning-soft);
+  border-left: 3px solid var(--warning);
+  border-radius: 0;
+  color: var(--warning);
+  background: var(--warning-soft);
+
+  strong {
+    white-space: nowrap;
+    font-size: 12px;
+  }
+
+  span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 12px;
+    line-height: 1.55;
+  }
 }
 
 /* 右侧详情面板 */

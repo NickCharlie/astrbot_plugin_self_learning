@@ -5,6 +5,7 @@ import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from
 import { CanvasRenderer } from 'echarts/renderers';
 import { createEffect, onCleanup, onMount } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
+import { endfieldChartTheme } from './endfieldTheme';
 import styles from './EChart.module.scss';
 
 echarts.use([
@@ -23,7 +24,7 @@ export function EChart(props: {
   let chart: echarts.ECharts | undefined;
   let observer: ResizeObserver | undefined;
   onMount(() => {
-    chart = echarts.init(element, dashboard.theme());
+    chart = echarts.init(element, endfieldChartTheme(dashboard.theme()));
     chart.setOption(props.option, true);
     props.onReady?.(chart);
     observer = new ResizeObserver(() => chart?.resize());
@@ -34,7 +35,7 @@ export function EChart(props: {
     if (!chart) return;
     const option = props.option;
     chart.dispose();
-    chart = echarts.init(element, nextTheme);
+    chart = echarts.init(element, endfieldChartTheme(nextTheme));
     chart.setOption(option, true);
     props.onReady?.(chart);
   });

@@ -7,31 +7,38 @@
   overflow: hidden;
 }
 
+/* 面板头：标题码条——图标入黄楔方块，标题 + 提示两级 */
 .ui-panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 18px;
+  padding: 12px 18px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, var(--surface-alt), transparent 60%);
 
   h2 {
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 7px;
+    gap: 9px;
     font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 700;
 
     .material-icons {
-      color: var(--accent, var(--primary));
-      font-size: 18px;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      color: var(--ark-signal-ink);
+      background: var(--signal);
+      clip-path: var(--ark-notch);
+      font-size: 15px;
     }
   }
 
   p {
-    margin: 2px 0 0;
+    margin: 3px 0 0;
     color: var(--muted);
     font-size: 12px;
   }

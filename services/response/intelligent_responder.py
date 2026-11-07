@@ -10,7 +10,7 @@ from datetime import datetime
 from astrbot.api import logger
 from astrbot.api.star import Context
 from astrbot.api.event import AstrMessageEvent
-from astrbot.core.platform.message_type import MessageType
+from astrbot.api.platform import MessageType
 
 from ..monitoring.instrumentation import monitored
 

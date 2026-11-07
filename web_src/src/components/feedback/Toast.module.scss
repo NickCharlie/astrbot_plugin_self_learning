@@ -11,26 +11,46 @@
   gap: 8px;
 }
 
+/* 通知条：左缘状态楔条（成功=状态绿，失败=红），mono 时序质感 */
 .toast {
   @include panel;
   padding: 12px 14px;
   display: flex;
   align-items: center;
   gap: 9px;
-  animation: toast-in 240ms ease both;
+  border-left: 3px solid var(--border-strong);
+  animation: toast-in 240ms var(--ease-out) both;
 }
 
-.tone-success .material-icons {
-  color: var(--success);
+.tone-success {
+  border-left-color: var(--state);
+
+  .material-icons {
+    color: var(--success);
+  }
 }
 
-.tone-danger .material-icons {
-  color: var(--danger);
+.tone-danger {
+  border-left-color: var(--danger);
+
+  .material-icons {
+    color: var(--danger);
+  }
 }
 
 @keyframes toast-in {
   from {
     opacity: 0;
     transform: translateY(12px);
+    clip-path: inset(0 0 0 100%);
+  }
+  to {
+    clip-path: inset(0);
+  }
+}
+
+@include reduced-motion {
+  .toast {
+    animation-duration: 0.01ms;
   }
 }

@@ -2,7 +2,8 @@
   "use strict";
 
   const PAGE_META = {
-    home: ["page.home.kicker", "page.home.title", "Dashboard", "完整内嵌 WebUI"],
+    home: ["page.home.kicker", "page.home.title", "Dashboard", "学习模块控制台"],
+    overview: ["page.overview.kicker", "page.overview.title", "Overview", "总览"],
     insights: ["page.insights.kicker", "page.insights.title", "Insights", "AI 巡检"],
     monitoring: ["page.monitoring.kicker", "page.monitoring.title", "Monitoring", "运行监控"],
     reviews: ["page.reviews.kicker", "page.reviews.title", "Reviews", "审查队列"],
@@ -10,6 +11,7 @@
     "expression-learning": ["page.style.kicker", "page.style.title", "Expression", "表达方式学习"],
     "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
     "shadow-mode": ["page.shadow.kicker", "page.shadow.title", "Shadow", "影子模式"],
+    emotion: ["page.emotion.kicker", "page.emotion.title", "Emotion", "情绪中枢"],
     content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
     graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
     integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
@@ -25,6 +27,8 @@
     page: "home",
     ready: false,
     dashboard: null,
+    dashboardToken: 0,
+    dashboardLoading: false,
     overview: null,
     pageData: {},
     selectedReviews: {
@@ -33,9 +37,23 @@
       jargon: new Set(),
     },
     selectedJargon: new Set(),
+    reviewParams: {},
+    reviewBatchPage: 1,
+    reviewBatchPages: 1,
+    jargon: {
+      page: 1,
+      totalPages: 1,
+      items: [],
+      editingId: null,
+      draft: { content: "", meaning: "" },
+    },
+    styleBucket: "dialogues",
     contentType: "dialogues",
-    settingsGroup: null,
+    contentQuery: "",
+    settingsGroup: storageGet("sl-settings-group"),
+    settingsQuery: "",
     dirtySettings: new Map(),
+    bugReportConfig: null,
     shadow: {
       source: "live",
       groupId: "",
@@ -43,7 +61,9 @@
       selectedId: "",
       minimumSamples: 3,
       profiles: [],
+      candidates: [],
       statusData: null,
+      initialized: false,
     },
     qchatPreviewData: null,
     qchatShadowSender: "",
@@ -54,6 +74,18 @@
       dragged: null,
       hovered: null,
       type: "memory",
+      layout: "force",
+      group: "",
+      payload: null,
+      token: 0,
+      busy: "",
+      socialGroup: "",
+      socialGroups: [],
+      socialGroupsLoaded: false,
+      socialInfo: {},
+      // 会话内节点位置缓存（与独立版 GraphView positionCache 同义）：按「图谱类型 + 群组」分桶，
+      // 记录归一化坐标，刷新/切换后节点不再重新飞散，拖动过的节点停在放下的位置
+      positions: new Map(),
       width: 0,
       height: 0,
       canvasBound: false,
@@ -71,6 +103,15 @@
   const $ = (id) => document.getElementById(id);
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  // 读取主题 CSS 变量（canvas 无法直接用 var()，逐帧读取跟随主题切换）
+  const cssVar = (name, fallback) => {
+    try {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return value || fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   function locale() {
     try {
@@ -164,6 +205,22 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, "&#96;");
+  }
+
+  // 插件页 iframe 可能处于 opaque origin（localStorage 访问抛 SecurityError）：
+  // 记忆类偏好一律走安全封装，失败时静默降级为会话内状态
+  function storageGet(key) {
+    try {
+      return window.localStorage?.getItem(key) ?? null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      window.localStorage?.setItem(key, value);
+    } catch (_) {}
   }
 
   function localNavigationHost(hostname) {
@@ -270,15 +327,17 @@
 
   function reviewCheckbox(kind, id) {
     const safeId = normalizeId(id);
-    return `<label class="select-cell" title="${escapeAttr(t("actions.select", "选择"))}">
-      <input type="checkbox" data-review-select-kind="${escapeAttr(kind)}" data-review-select-id="${escapeAttr(safeId)}" ${isReviewSelected(kind, safeId) ? "checked" : ""}>
+    const label = escapeAttr(t("actions.select", "选择"));
+    return `<label class="select-cell" title="${label}">
+      <input type="checkbox" aria-label="${label}" data-review-select-kind="${escapeAttr(kind)}" data-review-select-id="${escapeAttr(safeId)}" ${isReviewSelected(kind, safeId) ? "checked" : ""}>
     </label>`;
   }
 
   function jargonCheckbox(id) {
     const safeId = normalizeId(id);
-    return `<label class="select-cell" title="${escapeAttr(t("actions.select", "选择"))}">
-      <input type="checkbox" data-jargon-select-id="${escapeAttr(safeId)}" ${isJargonSelected(safeId) ? "checked" : ""}>
+    const label = escapeAttr(t("actions.select", "选择"));
+    return `<label class="select-cell" title="${label}">
+      <input type="checkbox" aria-label="${label}" data-jargon-select-id="${escapeAttr(safeId)}" ${isJargonSelected(safeId) ? "checked" : ""}>
     </label>`;
   }
 
@@ -287,36 +346,29 @@
     return selected ? `${fmt(selected, 0)}/${fmt(total, 0)}` : fmt(total, 0);
   }
 
-  function visibleReviewIds(kind) {
-    const reviews = state.pageData.reviews || {};
-    if (kind === "persona") {
-      return ((reviews.persona_pending || {}).updates || [])
-        .filter((item) => item && item.review_source !== "style_learning")
-        .map((item) => normalizeId(item.id))
-        .filter(Boolean);
-    }
+  // 审查队列三栏数据源（与独立版 ReviewsPage 同口径）：人格栏排除风格审查；风格栏优先取
+  // 人格待审中 review_source === "style_learning" 的记录、缺失时回退到风格审查列表；
+  // 任一栏带搜索词时风格栏直接取风格审查列表（服务端按风格搜索词过滤）。
+  function reviewQueueItems(kind, data = state.pageData.reviews || {}) {
+    const personaAll = listOf(data.persona_pending).filter(isRecord);
+    if (kind === "persona") return personaAll.filter((item) => item.review_source !== "style_learning");
     if (kind === "style") {
-      return ((reviews.style_reviews || {}).reviews || [])
-        .map((item) => normalizeId(item.id))
-        .filter(Boolean);
+      const params = state.reviewParams || {};
+      const fromPersona = personaAll.filter((item) => item.review_source === "style_learning");
+      const fromStyle = listOf(data.style_reviews).filter(isRecord);
+      if (params.persona_keyword || params.style_keyword) return fromStyle;
+      return fromPersona.length ? fromPersona : fromStyle;
     }
-    if (kind === "jargon") {
-      return (((reviews.jargon_pending || {}).jargon_list) || [])
-        .map((item) => normalizeId(item.id))
-        .filter(Boolean);
-    }
+    if (kind === "jargon") return listOf(data.jargon_pending).filter(isRecord);
     return [];
   }
 
-  function stylePageReviewIds() {
-    const style = state.pageData.style || {};
-    return (((style.reviews || {}).reviews) || [])
-      .map((item) => normalizeId(item.id))
-      .filter(Boolean);
+  function visibleReviewIds(kind) {
+    return reviewQueueItems(kind).map((item) => normalizeId(item.id)).filter(Boolean);
   }
 
   function jargonPageIds() {
-    return (state.pageData.lastJargonItems || [])
+    return (state.jargon.items || [])
       .map((item) => normalizeId(item.id))
       .filter(Boolean);
   }
@@ -332,25 +384,28 @@
     return params;
   }
 
-  function styleSearchParams() {
-    const params = { limit: 50 };
-    const keyword = $("style-page-keyword")?.value?.trim() || "";
-    if (keyword) params.keyword = keyword;
-    return params;
-  }
-
   function clearCached(prefix) {
     Object.keys(state.pageData)
       .filter((key) => key === prefix || key.startsWith(`${prefix}:`))
       .forEach((key) => delete state.pageData[key]);
   }
 
+  // 批量按钮：未勾选时作用于当前列出的全部记录（全部通过 / 驳回 / 删除），勾选后只作用于选中项
+  function reviewBatchLabel(action, scoped) {
+    if (action === "approve") return scoped ? t("reviews.batch.approveSelected", "通过所选") : t("reviews.batch.approveAll", "全部通过");
+    if (action === "reject") return scoped ? t("reviews.batch.rejectSelected", "驳回所选") : t("reviews.batch.rejectAll", "全部驳回");
+    return scoped ? t("reviews.batch.deleteSelected", "删除所选") : t("reviews.batch.deleteAll", "全部删除");
+  }
+
   function refreshSelectionLabels() {
     ["persona", "style", "jargon"].forEach((kind) => {
       const ids = visibleReviewIds(kind);
       setText(`${kind}-review-count`, reviewCountText(kind, ids.length));
+      const scoped = selectedReviewIds(kind).length > 0;
+      qsa(`[data-batch-review-kind="${kind}"]`).forEach((buttonEl) => {
+        buttonEl.textContent = reviewBatchLabel(buttonEl.dataset.batchReviewAction, scoped);
+      });
     });
-    setText("expression-review-count", t("selection.selectedCount", "已选 {count}").replace("{count}", fmt(selectedReviewIds("style").length, 0)));
     const selectedJargon = Array.from(state.selectedJargon).filter(Boolean).length;
     const visibleJargon = jargonPageIds().length;
     setText("jargon-selection-count", t("selection.selectedOfTotal", "已选 {selected}/{total}")
@@ -436,13 +491,16 @@
     modal.setAttribute("open", "");
   }
 
-  function showConfirm(title, message, confirmText = t("actions.confirm", "确认")) {
+  // tone 与独立版 ConfirmDialog 的确认按钮色调一致：danger（默认）/ success / warning
+  function showConfirm(title, message, confirmText = t("actions.confirm", "确认"), tone = "danger") {
     return new Promise((resolve) => {
+      const confirmClass = tone === "success" ? "ghost-button success-button"
+        : tone === "warning" ? "ghost-button warning-button" : "danger-button";
       const html = `
         <p>${escapeHtml(message)}</p>
         <div class="inline-actions">
           <button class="ghost-button" type="button" id="modal-confirm-cancel">${escapeHtml(t("actions.cancel", "取消"))}</button>
-          <button class="danger-button" type="button" id="modal-confirm-ok">${escapeHtml(confirmText)}</button>
+          <button class="${confirmClass}" type="button" id="modal-confirm-ok">${escapeHtml(confirmText)}</button>
         </div>
       `;
       showModal(title, html);
@@ -489,19 +547,32 @@
     loadPageData(next, { force: !!options.force });
   }
 
-  async function loadDashboard(force = false) {
+  async function loadDashboard(force = false, options = {}) {
     if (state.dashboard && !force) {
       renderDashboard(state.dashboard);
       return state.dashboard;
     }
-    setBusy(t("status.syncing", "同步中"));
+    // 静默刷新（60s 定时）不切换加载态、不弹错误提示；并发时只采用最后一次发起的结果
+    const quiet = !!options.quiet;
+    const token = ++state.dashboardToken;
+    if (!quiet) {
+      state.dashboardLoading = true;
+      setBusy(t("status.syncing", "同步中"));
+      renderSystemEntries(state.dashboard || {});
+    }
     try {
       const data = await apiGet("dashboard");
+      if (token !== state.dashboardToken) return state.dashboard;
+      state.dashboardLoading = false;
       state.dashboard = data;
       state.overview = data.overview || data;
       renderDashboard(data);
       return data;
     } catch (error) {
+      if (token !== state.dashboardToken) return state.dashboard;
+      state.dashboardLoading = false;
+      renderSystemEntries(state.dashboard || {});
+      if (quiet) return state.dashboard;
       showToast(error.message || String(error), "error");
       showErrors({ bridge: error.message || String(error) });
       throw error;
@@ -511,27 +582,28 @@
   async function loadPageData(page, options = {}) {
     const force = !!options.force;
     try {
-      if (page === "home" || page === "insights") {
-        const data = await loadDashboard(force);
-        if (page === "insights") renderInsights(data);
+      // 首页 / AI 巡检 / 运行监控与独立版一样共用同一份 Dashboard 快照
+      if (page === "home" || page === "insights" || page === "monitoring") {
+        await loadDashboard(force);
         return;
       }
-      if (page === "monitoring") return renderMonitoring(await cached("monitoring", () => apiGet("monitoring"), force));
-      if (page === "reviews") {
-        const params = reviewSearchParams();
-        return renderReviews(await cached(`reviews:${JSON.stringify(params)}`, () => apiGet("reviews", params), force));
-      }
-      if (page === "jargon-learning") return loadJargon(force);
-      if (page === "expression-learning") {
-        const params = styleSearchParams();
-        return renderStyle(await cached(`style:${JSON.stringify(params)}`, () => apiGet("style", params), force));
-      }
-      if (page === "persona-learning") return renderPersona(await cached("persona", () => apiGet("persona", { group_id: "default", limit: 30 }), force));
-      if (page === "shadow-mode") return loadShadowMode(force);
-      if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
+      if (page === "overview") return renderOverview(await loadDashboard(force));
+      if (page === "emotion") return loadEmotion(force);
+      if (page === "reviews") return await loadReviews(force);
+      if (page === "jargon-learning") return await loadJargon(force);
+      if (page === "expression-learning") return await loadStyle(force);
+      if (page === "persona-learning") return await loadPersona(force);
+      if (page === "shadow-mode") return await loadShadowMode(force);
+      if (page === "content") return await loadContent(force);
       if (page === "graphs") return loadGraphs(force);
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
-      if (page === "settings") return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+      if (page === "settings") {
+        if (force) state.dirtySettings.clear();
+        renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+        // 数据管理 / Bug 反馈面板：与设置快照并行加载，失败不阻塞配置表单
+        await Promise.allSettled([loadDataStatistics(force), loadBugReport(force)]);
+        return;
+      }
     } catch (error) {
       showToast(error.message || String(error), "error");
     }
@@ -540,10 +612,15 @@
   async function cached(key, loader, force) {
     if (!force && state.pageData[key]) return state.pageData[key];
     setBusy(t("status.loading", "加载中"));
-    const data = await loader();
+    let data;
+    try {
+      data = await loader();
+    } finally {
+      // 加载结束（成功或失败）复位为最近一次确定状态，避免非快照页徽标永远停在"加载中"
+      setBusy(state.runtimeStatusLabel || t("status.connected", "已连接"));
+    }
     state.pageData[key] = data;
     if (key.startsWith("reviews:")) state.pageData.reviews = data;
-    if (key.startsWith("style:")) state.pageData.style = data;
     return data;
   }
 
@@ -551,14 +628,12 @@
     const overview = data.overview || data;
     const runtime = overview.runtime || {};
     const webui = overview.webui || {};
-    const learning = overview.learning_stats || {};
-    const jargon = overview.jargon || {};
-    const styleStats = ((overview.style || {}).statistics) || {};
-    const persona = overview.persona || {};
     const errors = data.errors || overview.errors || {};
     const degraded = runtime.database_degraded || Object.keys(errors).length > 0;
 
+    // 桥接连接状态：侧栏运行状态 + 首页 hero 次要信息行（iframe 专属）
     const statusLabel = degraded ? t("status.partial", "部分可用") : t("status.healthy", "运行正常");
+    state.runtimeStatusLabel = statusLabel;
     const resolvedDashboardUrl = resolveHostUrl(webui.dashboard_url || "");
     const summary = degraded
       ? t("status.degradedSummary", "嵌入式页面已载入，部分服务处于降级状态。")
@@ -574,215 +649,745 @@
     const fullLink = $("full-dashboard-link");
     if (fullLink && resolvedDashboardUrl) fullLink.href = resolvedDashboardUrl;
 
-    setText("stat-messages", fmt(learning.total_messages_collected));
-    setText("stat-jargon", fmt(jargon.confirmed_jargon));
-    setText("stat-style", fmt(styleStats.unique_styles || styleStats.total_samples));
-    setText("stat-persona", fmt(learning.persona_updates || persona.begin_dialog_count));
-
-    renderQuickActions(overview.quick_links || []);
-    renderModuleCards(overview.modules || []);
-    renderModuleChart(overview.modules || []);
-    renderIntelligence(overview.metrics || {});
-    renderHomeTrends((data.metrics || {}).trends || {});
+    // 首页 / AI 巡检 / 运行监控与独立版一样由同一份快照驱动
+    renderHome(data);
     renderInsights(data);
+    renderMonitoring(data);
     showErrors(errors);
   }
 
-  function renderHomeTrends(trends) {
-    const daily = trends.daily_messages || {};
-    const labels = Object.keys(daily).sort().slice(-14);
-    const items = labels.map((label) => ({
-      title: String(label).slice(5),
-      metric: Number(daily[label] || 0),
-      accent: "#0ea5e9",
-    }));
-    renderGenericBarChart("home-trend-chart", items);
-    const total = items.reduce((sum, item) => sum + item.metric, 0);
-    const batches = Array.isArray(trends.recent_batches) ? trends.recent_batches.length : 0;
-    setText("home-trend-note", items.length
-      ? t("home.trendsNote", "近 {days} 天采集 {count} 条消息 · 最近 {batches} 个学习批次。")
-        .replace("{days}", fmt(items.length, 0))
-        .replace("{count}", fmt(total, 0))
-        .replace("{batches}", fmt(batches, 0))
-      : t("home.noTrends", "暂无趋势数据，积累消息后这里会出现每日采集曲线。"));
+  // ── 与独立版 lib/format.ts / pages/shared.ts 同口径的读数工具 ──
+  function safeNum(value, fallback = 0) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
   }
 
-  function renderQuickActions(links) {
-    const html = links.map((link) => {
-      const url = resolveHostUrl(link.url || "#");
-      const external = /^https?:\/\//.test(String(url || ""));
-      return `<a class="quick-entry" href="${escapeAttr(url || "#")}" target="${external ? "_blank" : "_self"}" rel="noreferrer">
-        <span>${escapeHtml(link.label || t("actions.entry", "入口"))}</span>
-        <small>${escapeHtml(link.description || "")}</small>
-      </a>`;
-    }).join("");
-    setHtml("quick-actions", html);
+  function fmtPercent(value) {
+    return `${Math.max(0, Math.min(100, safeNum(value))).toFixed(0)}%`;
   }
 
-  function renderModuleCards(modules) {
-    const html = modules.map((item) => `
-      <article class="module-card" style="--accent:${escapeAttr(item.accent || "#2563eb")}" data-route-card="${escapeAttr(item.target || "home")}">
-        <div class="module-card-head">
-          <h3>${escapeHtml(item.title)}</h3>
-          ${pill(item.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), item.enabled ? "ok" : "warn")}
-        </div>
-        <p>${escapeHtml(item.description || "")}</p>
-        <div class="metric-line">
-          <strong>${escapeHtml(fmt(item.metric))}</strong>
-          <span>${escapeHtml(item.metric_label || "")}</span>
-        </div>
-      </article>
-    `).join("");
-    setHtml("module-card-grid", html || empty());
+  function textOrDash(value) {
+    return value === null || value === undefined || value === "" ? "--" : String(value);
   }
 
-  function renderModuleChart(modules) {
-    const maxValue = Math.max(1, ...modules.map((item) => Number(item.metric || 0)));
-    const html = modules.map((item) => {
-      const value = Math.max(4, Math.min(100, (Number(item.metric || 0) / maxValue) * 100));
-      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "#2563eb")}">
-        <span>${escapeHtml(item.title)}</span>
-        <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
-        <strong>${escapeHtml(fmt(item.metric))}</strong>
-      </div>`;
-    }).join("");
-    setHtml("module-chart", html || empty());
+  function isRecord(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
   }
 
-  function renderIntelligence(metrics) {
-    const score = normalizeScore(metrics.overall_score);
-    $("intelligence-ring")?.style.setProperty("--value", String(score));
-    setText("intelligence-score", fmt(score));
-    const dimCount = metrics.dimensions && typeof metrics.dimensions === "object"
-      ? Object.keys(metrics.dimensions).length
-      : 0;
-    setText("metrics-summary", dimCount
-      ? t("home.metricsSummary", "已有 {count} 个维度参与评估。").replace("{count}", fmt(dimCount, 0))
-      : t("home.noMetrics", "智能指标服务暂未产生维度数据。"));
+  function listOf(value) {
+    if (Array.isArray(value)) return value;
+    const record = isRecord(value) ? value : {};
+    for (const key of ["items", "data", "results", "updates", "reviews", "backups", "batches", "dashboards", "jargon_list"]) {
+      if (Array.isArray(record[key])) return record[key];
+    }
+    return [];
   }
 
-  function buildInsights(data) {
-    const overview = data.overview || {};
+  // 独立版 Badge tone → 内嵌 mini-badge 修饰类
+  function toneClass(tone) {
+    return tone === "success" ? "ok" : tone === "warning" ? "warn" : tone === "danger" ? "danger" : "";
+  }
+
+  // 健康检查等明细对象：前 3 项 key: value，以 · 连接（与独立版 detailText 同口径）
+  function detailText(value) {
+    if (value === null || value === undefined || value === "") return "--";
+    if (typeof value !== "object") return String(value);
+    const entries = Object.entries(value).slice(0, 3);
+    if (!entries.length) return "--";
+    return entries
+      .map(([key, item]) => `${key}: ${item !== null && typeof item === "object" ? JSON.stringify(item) : String(item)}`)
+      .join(" · ");
+  }
+
+  // 黑话待审：读待审接口分页 total（列表被 limit 截断）；待审段读取失败时退回 stats 估算，
+  // 避免误报「队列已清空」（与独立版 jargonPendingTotal 同口径）
+  function jargonPendingTotal(data) {
     const reviews = data.reviews || {};
-    const monitoring = data.monitoring || {};
-    const integrations = data.integrations || {};
-    const errors = data.errors || {};
-    const items = [];
-    const push = (severity, title, detail, target) => items.push({ severity, title, detail, target });
+    const failed = Boolean((reviews.errors || {}).jargon_pending);
+    const payload = failed ? {} : reviews.jargon_pending;
+    if (Array.isArray(payload)) return payload.length;
+    const envelope = isRecord(payload) ? payload : {};
+    const total = envelope.total;
+    if (total !== undefined && total !== null && total !== "") return safeNum(total);
+    const rows = listOf(payload);
+    if (rows.length || Object.keys(envelope).length) return rows.length;
+    const stats = (data.overview || {}).jargon || {};
+    const nested = stats.data || {};
+    return Math.max(0, safeNum(stats.total_candidates ?? nested.total_candidates) - safeNum(stats.confirmed_jargon ?? nested.confirmed_jargon));
+  }
 
-    if ((overview.runtime || {}).database_degraded) {
-      push("warn", t("insights.databaseDegraded", "数据库处于降级状态"), (overview.runtime || {}).database_error || t("insights.databaseNotReady", "数据库服务未完整启动。"), "monitoring");
+  // 待办总量：人格待审 + 风格待审 + 黑话待审（分页 total）；人格首屏混入风格审查时扣除
+  // 风格部分避免重复计数。首页与 AI 巡检同源（与独立版 reviewBacklog 同口径）
+  function reviewBacklog(data) {
+    const reviews = data.reviews || {};
+    const personaPayload = reviews.persona_pending;
+    const stylePayload = reviews.style_reviews;
+    const personaItems = listOf(personaPayload);
+    const personaTotal = safeNum((isRecord(personaPayload) ? personaPayload : {}).total, personaItems.length);
+    const styleTotal = safeNum((isRecord(stylePayload) ? stylePayload : {}).total, listOf(stylePayload).length);
+    const personaIncludesStyle = personaItems.some((item) => isRecord(item) && item.review_source === "style_learning");
+    const personaPending = personaIncludesStyle ? Math.max(0, personaTotal - styleTotal) : personaTotal;
+    const jargonPending = jargonPendingTotal(data);
+    return { personaPending, styleTotal, jargonPending, total: personaPending + styleTotal + jargonPending };
+  }
+
+  // 智能指标综合评分（0-100）与参与评估的维度数
+  function intelligenceScore(data) {
+    const intelligence = (data.metrics || {}).intelligence || (data.overview || {}).metrics || {};
+    return {
+      score: normalizeScore(intelligence.overall_score),
+      dimensions: isRecord(intelligence.dimensions) ? Object.keys(intelligence.dimensions).length : 0,
+    };
+  }
+
+  // ── 首页（对齐独立版 HomePage：hero + 快捷坞 + 4 读数 + 学习模块 + 系统入口） ──
+  // 快捷入口与学习模块与独立版同序同文案；独立版图标为 Material Icons，iframe 内不加载图标字体。
+  function homeQuickLinks() {
+    return [
+      { page: "jargon-learning", label: t("home.quick.jargon", "黑话") },
+      { page: "expression-learning", label: t("home.quick.expression", "表达") },
+      { page: "persona-learning", label: t("home.quick.persona", "人格") },
+      { page: "shadow-mode", label: t("home.quick.shadow", "影子") },
+      { page: "reviews", label: t("home.quick.reviews", "审查") },
+      { page: "content", label: t("home.quick.content", "内容") },
+      { page: "monitoring", label: t("home.quick.monitoring", "监控") },
+    ];
+  }
+
+  function homeModules() {
+    return [
+      { page: "jargon-learning", title: t("home.modules.jargonTitle", "黑话学习"), description: t("home.modules.jargonDesc", "群聊词汇、语义和确认队列") },
+      { page: "expression-learning", title: t("home.modules.styleTitle", "表达方式学习"), description: t("home.modules.styleDesc", "对话样本、风格特征与学习记录") },
+      { page: "persona-learning", title: t("home.modules.personaTitle", "人格学习"), description: t("home.modules.personaDesc", "当前人格、演化建议与备份") },
+      { page: "shadow-mode", title: t("home.modules.shadowTitle", "影子模式"), description: t("home.modules.shadowDesc", "选择群友并学习其表达习惯") },
+    ];
+  }
+
+  // 与独立版 HomePage snapshot 同口径
+  function homeSnapshot(data) {
+    const overview = data.overview || {};
+    const metrics = data.metrics || {};
+    const health = (data.monitoring || {}).health || {};
+    const trends = metrics.trends || {};
+    const jargon = overview.jargon || {};
+    const jargonNested = jargon.data || {};
+    const statsRaw = data.data_statistics || {};
+    const statistics = isRecord(statsRaw.data ?? statsRaw) ? (statsRaw.data ?? statsRaw) : {};
+    const backlog = reviewBacklog(data);
+    const integrations = listOf((data.integrations || {}).dashboards ?? data.integrations);
+    const totalMessages = safeNum(metrics.total_messages_collected);
+    const filtered = safeNum(metrics.filtered_messages);
+    const llmSummary = metrics.llm_call_summary || {};
+    const llmAbnormal = safeNum(llmSummary.abnormal_provider_count);
+    return {
+      health,
+      totalMessages,
+      filterRate: totalMessages ? filtered / totalMessages * 100 : 0,
+      learningEfficiency: safeNum(metrics.learning_efficiency),
+      backlog: backlog.total,
+      personaPending: backlog.personaPending,
+      styleTotal: backlog.styleTotal,
+      jargonPending: backlog.jargonPending,
+      batches: listOf(trends.recent_batches).length,
+      jargonCandidates: safeNum(jargon.total_candidates ?? jargonNested.total_candidates),
+      jargonConfirmed: safeNum(jargon.confirmed_jargon ?? jargonNested.confirmed_jargon),
+      contentCount: safeNum(statistics.style_learning),
+      graphNodes: safeNum(statistics.memory) + safeNum(statistics.knowledge_graph),
+      integrations,
+      activeIntegrations: integrations.filter((item) => isRecord(item) && item.active).length,
+      delegatedIntegrations: integrations.filter((item) => isRecord(item) && item.delegated).length,
+      memory: integrations.find((item) => isRecord(item) && item.id === "livingmemory") || {},
+      llmCalls: safeNum(llmSummary.total_calls),
+      llmAbnormal,
+      insightTone: health.overall !== "healthy" || llmAbnormal > 0 ? "danger" : backlog.total > 20 ? "warning" : "success",
+      backups: listOf((overview.persona_backups || {}).backups).length,
+    };
+  }
+
+  function renderHome(data) {
+    const snap = homeSnapshot(data);
+    const count = (value) => fmt(value, 0);
+    setHtml("quick-actions", homeQuickLinks().map((item) => `
+      <a class="quick-entry" href="#/${escapeAttr(item.page)}" data-route-card="${escapeAttr(item.page)}">${escapeHtml(item.label)}</a>
+    `).join(""));
+    setText("home-pulse-efficiency", fmtPercent(snap.learningEfficiency));
+    setText("home-pulse-backlog", count(snap.backlog));
+    setText("home-pulse-content", snap.contentCount ? count(snap.contentCount) : "--");
+    setText("home-pulse-batches", count(snap.batches));
+
+    const notes = {
+      "jargon-learning": t("home.modules.jargonNote", "候选 {candidates} · 已确认 {confirmed}")
+        .replace("{candidates}", count(snap.jargonCandidates))
+        .replace("{confirmed}", count(snap.jargonConfirmed)),
+      "expression-learning": t("home.modules.styleNote", "内容 {content} · 待审 {pending}")
+        .replace("{content}", count(snap.contentCount))
+        .replace("{pending}", count(snap.styleTotal)),
+      "persona-learning": t("home.modules.personaNote", "待审 {pending} · 备份 {backups}")
+        .replace("{pending}", count(snap.personaPending))
+        .replace("{backups}", count(snap.backups)),
+      "shadow-mode": t("home.modules.shadowNote", "现有群聊与导入记录均可学习"),
+    };
+    setHtml("module-card-grid", homeModules().map((item) => `
+      <a class="module-card learning-module-card" href="#/${escapeAttr(item.page)}" data-route-card="${escapeAttr(item.page)}">
+        <span class="module-card-head">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span class="card-arrow" aria-hidden="true">→</span>
+        </span>
+        <span class="card-desc">${escapeHtml(item.description)}</span>
+        <small class="card-note">${escapeHtml(notes[item.page] || "")}</small>
+      </a>
+    `).join(""));
+    renderSystemEntries(data);
+  }
+
+  // 系统入口卡（与独立版 HomePage entries 同序、同文案、同判定）
+  function systemEntries(data) {
+    const s = homeSnapshot(data);
+    const count = (value) => fmt(value, 0);
+    const health = String(s.health.overall || "unknown");
+    return [
+      {
+        page: "overview",
+        title: t("home.entries.overviewTitle", "总览"),
+        description: t("home.entries.overviewDesc", "核心指标与消息趋势"),
+        value: fmtPercent(s.learningEfficiency),
+        note: t("home.entries.overviewNote", "{messages} 条消息 · 筛选率 {rate}")
+          .replace("{messages}", count(s.totalMessages))
+          .replace("{rate}", fmtPercent(s.filterRate)),
+        status: t("home.entries.overviewStatus", "数据已同步"),
+        tone: s.totalMessages > 0 ? "success" : "warning",
+      },
+      {
+        page: "insights",
+        title: t("home.entries.insightsTitle", "AI 巡检"),
+        description: t("home.entries.insightsDesc", "异常、瓶颈与下一步建议"),
+        value: s.insightTone === "danger"
+          ? t("home.entries.insightsAttention", "需关注")
+          : s.insightTone === "warning" ? t("home.entries.insightsBacklog", "有积压") : t("home.entries.insightsNormal", "正常"),
+        note: t("home.entries.insightsNote", "{backlog} 项待办 · {abnormal} 个模型异常")
+          .replace("{backlog}", count(s.backlog))
+          .replace("{abnormal}", count(s.llmAbnormal)),
+        status: s.insightTone === "success" ? t("home.entries.insightsClear", "暂无高优先级问题") : t("home.entries.insightsReview", "建议查看"),
+        tone: s.insightTone,
+      },
+      {
+        page: "monitoring",
+        title: t("home.entries.monitoringTitle", "运行监控"),
+        description: t("home.entries.monitoringDesc", "健康状态、热点与模型调用"),
+        value: health,
+        note: t("home.entries.monitoringNote", "{calls} 次模型调用 · {abnormal} 个异常")
+          .replace("{calls}", count(s.llmCalls))
+          .replace("{abnormal}", count(s.llmAbnormal)),
+        status: health === "healthy" ? t("home.entries.monitoringHealthy", "系统健康") : t("home.entries.monitoringUnhealthy", "健康检查异常"),
+        tone: health === "healthy" ? "success" : "danger",
+      },
+      {
+        page: "reviews",
+        title: t("home.entries.reviewsTitle", "审查队列"),
+        description: t("home.entries.reviewsDesc", "人格、风格、黑话与批次"),
+        value: count(s.backlog),
+        note: t("home.entries.reviewsNote", "人格 {persona} · 风格 {style} · 黑话 {jargon}")
+          .replace("{persona}", count(s.personaPending))
+          .replace("{style}", count(s.styleTotal))
+          .replace("{jargon}", count(s.jargonPending)),
+        status: s.backlog ? t("home.entries.reviewsPending", "等待处理") : t("home.entries.reviewsClear", "队列已清空"),
+        tone: s.backlog > 20 ? "warning" : "success",
+      },
+      {
+        page: "content",
+        title: t("home.entries.contentTitle", "学习内容"),
+        description: t("home.entries.contentDesc", "对话、分析、表达模式与历史"),
+        value: s.contentCount ? count(s.contentCount) : "--",
+        note: t("home.entries.contentNote", "当前表达学习内容总量"),
+        status: s.contentCount ? t("home.entries.contentReady", "内容可浏览") : t("home.entries.contentEmpty", "暂无内容"),
+        tone: s.contentCount ? "success" : "default",
+      },
+      {
+        page: "graphs",
+        title: t("home.entries.graphsTitle", "记忆 / 知识图谱"),
+        description: t("home.entries.graphsDesc", "本地图谱与记忆后端"),
+        value: s.graphNodes ? count(s.graphNodes) : s.memory.active ? t("home.entries.graphsBackend", "后端") : "--",
+        note: s.graphNodes
+          ? t("home.entries.graphsNodesNote", "个当前记忆图谱节点")
+          : s.memory.delegated ? t("home.entries.graphsDelegatedNote", "读取 LivingMemory 后端") : t("home.entries.graphsLocalNote", "本地图谱"),
+        status: s.graphNodes || s.memory.active ? t("home.entries.graphsAvailable", "可用") : t("home.entries.graphsEmpty", "暂无节点"),
+        tone: s.graphNodes || s.memory.active ? "success" : "default",
+      },
+      {
+        page: "integrations",
+        title: t("home.entries.integrationsTitle", "功能融合"),
+        description: t("home.entries.integrationsDesc", "插件分工与伴随插件运行状态"),
+        value: s.integrations.length ? `${s.activeIntegrations}/${s.integrations.length}` : "--",
+        note: s.delegatedIntegrations
+          ? t("home.entries.integrationsDelegated", "{count} 项已委托").replace("{count}", String(s.delegatedIntegrations))
+          : t("home.entries.integrationsApi", "插件 API 入口"),
+        status: s.activeIntegrations ? t("home.entries.integrationsConnected", "已连接") : t("home.entries.integrationsSolo", "仅本插件在线"),
+        tone: s.activeIntegrations ? "success" : "warning",
+      },
+      {
+        page: "integrations",
+        title: t("home.entries.importsTitle", "世界书 / QQ 导入"),
+        description: t("home.entries.importsDesc", "预览、导入和结果统计"),
+        value: "API",
+        note: t("home.entries.importsNote", "世界书与聊天记录导入接口"),
+        status: s.integrations.length ? t("home.entries.importsAvailable", "可用") : t("home.entries.importsWaiting", "等待融合状态"),
+        tone: s.integrations.length ? "success" : "default",
+      },
+    ];
+  }
+
+  // 加载中（非静默刷新）与独立版一致：隐藏状态徽标，读数显示 -- / 加载中...
+  function renderSystemEntries(data) {
+    const loading = state.dashboardLoading;
+    setHtml("system-entry-grid", systemEntries(data || {}).map((entry) => `
+      <a class="module-card entry-card" href="#/${escapeAttr(entry.page)}" data-route-card="${escapeAttr(entry.page)}">
+        <span class="module-card-head">
+          <strong>${escapeHtml(entry.title)}</strong>
+          ${loading ? "" : pill(entry.status, toneClass(entry.tone))}
+        </span>
+        <span class="card-desc">${escapeHtml(entry.description)}</span>
+        <span class="entry-state">
+          <strong>${escapeHtml(loading ? "--" : entry.value)}</strong>
+          <span>${escapeHtml(loading ? t("home.entries.loading", "加载中...") : entry.note)}</span>
+        </span>
+      </a>
+    `).join(""));
+  }
+
+  // ── AI 巡检：与独立版 pages/insights/insights.ts buildInsights 同一组规则、顺序与文案（改动需两端同步） ──
+  function buildInsights(data) {
+    const monitoring = data.monitoring || {};
+    const metrics = data.metrics || {};
+    const runtime = monitoring.runtime || {};
+    const items = [];
+    const push = (tone, title, detail, page) => items.push({ tone, title, detail, page });
+
+    if (runtime.database_degraded === true) {
+      push("danger", t("insights.databaseDegraded", "数据库处于降级状态"),
+        runtime.database_start_error ? String(runtime.database_start_error) : t("insights.databaseNotReady", "数据库服务未完整启动。"), "monitoring");
     }
-    const pendingPersona = ((reviews.persona_pending || {}).updates || []).length;
-    const pendingStyle = ((reviews.style_reviews || {}).reviews || []).length;
-    const pendingJargon = (((reviews.jargon_pending || {}).jargon_list) || []).length;
-    const totalBacklog = pendingPersona + pendingStyle + pendingJargon;
-    if (totalBacklog > 0) {
-      push("action", t("insights.reviewBacklog", "审查队列有积压"), t("insights.reviewBacklogDetail", "当前有 {count} 条学习结果等待确认。").replace("{count}", fmt(totalBacklog, 0)), "reviews");
+    const backlog = reviewBacklog(data).total;
+    if (backlog > 0) {
+      push(backlog > 20 ? "danger" : "warning", t("insights.reviewBacklog", "审查队列存在积压"),
+        t("insights.reviewBacklogDetail", "当前约 {count} 条记录等待处理。").replace("{count}", fmt(backlog, 0)), "reviews");
     }
-    const score = normalizeScore(((overview.metrics || {}).overall_score));
+    const filteredRaw = metrics.filtered_messages ?? (metrics.messages || {}).filtered;
+    const filtered = filteredRaw === undefined || filteredRaw === null ? 0 : safeNum(filteredRaw);
+    if (filtered > 0) {
+      push("default", t("insights.filtered", "过滤链路持续工作"),
+        t("insights.filteredDetail", "{count} 条消息因质量或规则未进入学习。").replace("{count}", fmt(filtered, 0)), "monitoring");
+    }
+    const checks = (monitoring.health || {}).checks;
+    const failures = Object.values(isRecord(checks) ? checks : {})
+      .filter((item) => isRecord(item) && item.status && item.status !== "healthy").length;
+    if (failures > 0) {
+      push("danger", t("insights.healthFailed", "健康检查发现异常"),
+        t("insights.healthFailedDetail", "{count} 项检查未处于健康状态。").replace("{count}", fmt(failures, 0)), "monitoring");
+    }
+    const { score } = intelligenceScore(data);
     if (score > 0 && score < 60) {
-      push("warn", t("insights.lowScore", "智能评分偏低"), t("insights.lowScoreDetail", "综合评分 {score}，建议查看表达样本和学习批次。").replace("{score}", fmt(score)), "metrics");
+      push("warning", t("insights.lowScore", "智能评分偏低"),
+        t("insights.lowScoreDetail", "综合评分 {score}，建议查看表达样本和学习批次。").replace("{score}", fmt(score)), "monitoring");
     }
-    const health = (monitoring.health || {}).overall;
-    if (health && health !== "healthy") {
-      push("warn", t("insights.healthWarn", "健康检查提示异常"), t("insights.healthWarnDetail", "当前健康状态为 {status}。").replace("{status}", health), "monitoring");
-    }
-    const delegation = integrations.delegation || {};
+    const delegation = (data.integrations || {}).delegation || {};
     if (delegation.memory_delegated || delegation.reply_delegated) {
-      push("ok", t("insights.delegationEnabled", "伴随插件委托已启用"), t("insights.delegationDetail", "记忆委托: {memory}，回复委托: {reply}。")
+      push("default", t("insights.delegationEnabled", "伴随插件委托已启用"), t("insights.delegationDetail", "记忆委托: {memory}，回复委托: {reply}。")
         .replace("{memory}", delegation.memory_delegated ? t("state.yes", "是") : t("state.no", "否"))
         .replace("{reply}", delegation.reply_delegated ? t("state.yes", "是") : t("state.no", "否")), "integrations");
     }
-    Object.entries(errors).forEach(([key, value]) => {
-      push("warn", t("insights.moduleFailed", "模块 {name} 读取失败").replace("{name}", key), String(value), "monitoring");
+    Object.entries(data.errors || {}).forEach(([key, value]) => {
+      push("warning", t("insights.moduleFailed", "模块 {name} 读取失败").replace("{name}", key), String(value), "monitoring");
     });
     if (!items.length) {
-      push("ok", t("insights.noIssues", "暂无高优先级问题"), t("insights.noIssuesDetail", "核心学习、审查和监控模块均已返回可用数据。"), "home");
+      push("success", t("insights.noIssues", "暂未发现需要立即处理的问题"), t("insights.noIssuesDetail", "当前快照没有明显积压或健康告警。"), "overview");
     }
     return items;
   }
 
-  function renderInsights(data) {
-    const insights = buildInsights(data || state.dashboard || {});
-    const html = insights.map((item) => `
-      <article class="insight-card ${escapeAttr(item.severity)}">
-        <span>${escapeHtml(item.severity === "ok" ? "OK" : item.severity === "action" ? "ACTION" : "WARN")}</span>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.detail)}</p>
-        ${button(t("actions.go", "前往"), `data-route-card="${escapeAttr(item.target)}"`)}
-      </article>
-    `).join("");
-    setHtml("ai-insight-list", html);
+  function insightLevel(tone) {
+    return tone === "danger" ? t("insights.levelHigh", "高") : tone === "warning" ? t("insights.levelMedium", "中") : t("insights.levelInfo", "提示");
   }
 
-  function renderMonitoring(data) {
-    const health = data.health || {};
-    const checks = health.checks || {};
-    const healthHtml = Object.entries(checks).map(([key, item]) => `
-      <article class="health-card ${escapeAttr(item.status || "")}">
-        <span>${escapeHtml(key)}</span>
-        <strong>${escapeHtml(item.status || "unknown")}</strong>
-        <small>${escapeHtml(summarizeObject(item.detail || {}))}</small>
-      </article>
-    `).join("");
-    setHtml("health-grid", healthHtml || empty(t("empty.healthChecks", "暂无健康检查数据")));
+  function renderInsights(data) {
+    const insights = buildInsights(data || state.dashboard || {});
+    setHtml("ai-insight-list", insights.map((item) => `
+      <button class="insight-card tone-${escapeAttr(item.tone)}" type="button" data-route-card="${escapeAttr(item.page)}">
+        <span class="insight-card-head">${pill(insightLevel(item.tone), toneClass(item.tone))}<strong>${escapeHtml(item.title)}</strong></span>
+        <span class="insight-card-detail">${escapeHtml(item.detail)}</span>
+        <span class="card-arrow" aria-hidden="true">→</span>
+      </button>
+    `).join("") || empty());
+  }
 
-    const functions = ((data.functions || {}).functions || []).slice(0, 20);
-    const fnHtml = functions.map((item) => `
-      <div class="table-row">
-        <span>${escapeHtml(shortName(item.name))}</span>
-        <strong>${escapeHtml(fmt((item.duration || {}).avg || 0, 4))}s</strong>
-        <small>${escapeHtml(fmt(item.calls || 0, 0))} calls</small>
+  // 「复制摘要」：与独立版一致，每条巡检一行「- 标题: 说明」
+  function insightSummaryText(data) {
+    return buildInsights(data || {}).map((item) => `- ${item.title}: ${item.detail}`).join("\n");
+  }
+
+  // ── 运行监控（对齐独立版 MonitoringPage：4 读数 + 系统健康 / 监控热点 + 模型调用） ──
+  function renderMonitoring(data) {
+    const monitoring = data.monitoring || {};
+    const health = monitoring.health || {};
+    const functions = monitoring.functions || {};
+    const metrics = data.metrics || {};
+    const healthSource = health.checks ?? health.items ?? health;
+    const healthRows = Array.isArray(healthSource)
+      ? healthSource
+      : Object.entries(isRecord(healthSource) ? healthSource : {}).map(([name, value]) => ({ name, ...(isRecord(value) ? value : {}) }));
+    const functionRows = Array.isArray(functions.functions) ? functions.functions : [];
+    const { score, dimensions } = intelligenceScore(data);
+
+    setText("mon-stat-checks", fmt(healthRows.length, 0));
+    setText("mon-stat-functions", fmt(functionRows.length, 0));
+    setText("mon-stat-trace", functions.trace_enabled ? t("monitoring.traceEnabled", "已启用") : t("monitoring.traceDisabled", "未启用"));
+    setText("mon-stat-overall", textOrDash(health.overall ?? health.status));
+    setText("mon-stat-score", fmt(score));
+    setText("mon-stat-score-note", dimensions
+      ? t("monitoring.scoreNote", "已有 {count} 个维度参与评估。").replace("{count}", fmt(dimensions, 0))
+      : t("monitoring.scoreEmpty", "智能指标服务暂未产生维度数据。"));
+
+    setHtml("health-list", healthRows.map((item) => {
+      const tone = item.status === "healthy" || item.ok === true ? "success" : item.status === "unhealthy" ? "danger" : "warning";
+      return `<div class="check-row">
+        <div><strong>${escapeHtml(textOrDash(item.name ?? item.key))}</strong><small>${escapeHtml(detailText(item.detail ?? item.message))}</small></div>
+        ${pill(textOrDash(item.status ?? (item.ok ? "healthy" : "unknown")), toneClass(tone))}
+      </div>`;
+    }).join("") || empty(t("empty.healthChecks", "暂无健康检查数据")));
+
+    // 监控热点：与独立版 ProgressBar 同语义（avg_ms ?? total_ms ?? calls，封顶 100，显示 N%）
+    setHtml("function-list", functionRows.map((item) => {
+      const value = Math.max(0, Math.min(100, Number(item.avg_ms ?? item.total_ms ?? item.calls) || 0));
+      return `<div class="bar-row stacked">
+        <span>${escapeHtml(textOrDash(item.name ?? item.function))}</span>
+        <strong>${escapeHtml(value.toFixed(0))}%</strong>
+        <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
+      </div>`;
+    }).join("") || empty(t("monitoring.noTrace", "当前没有函数追踪样本；可在配置中开启 trace。")));
+
+    const llmSource = metrics.llm_call_breakdown ?? metrics.llm_calls ?? metrics.filter_model_summary ?? {};
+    const llmRows = Array.isArray(llmSource)
+      ? llmSource
+      : Object.entries(isRecord(llmSource) ? llmSource : {}).map(([provider, calls]) =>
+        (typeof calls === "object" ? { provider, ...(isRecord(calls) ? calls : {}) } : { provider, calls }));
+    setText("llm-total-calls", `${fmt(safeNum((metrics.llm_call_summary || {}).total_calls), 0)} ${t("units.calls", "次调用")}`);
+    setHtml("llm-call-list", llmRows.map((item) => `<div class="check-row">
+        <div>
+          <strong>${escapeHtml(textOrDash(item.provider_label ?? item.provider_type ?? item.provider ?? item.name ?? item.model))}</strong>
+          <small>${escapeHtml(t("monitoring.llmMeta", "平均 {avg}ms · 失败 {errors}")
+            .replace("{avg}", fmt(safeNum(item.avg_response_time_ms), 0))
+            .replace("{errors}", fmt(safeNum(item.error_count ?? item.errors), 0)))}</small>
+        </div>
+        ${pill(fmt(safeNum(item.total_calls ?? item.calls ?? item.count), 0), item.is_abnormal === true || item.abnormal === true ? "danger" : "")}
+      </div>`).join("") || empty(t("empty.llmCalls", "暂无模型调用统计")));
+  }
+
+  // ── 双端对齐共用工具：与独立版 lib/format.ts、lib/diff.ts、lib/review.ts 同口径 ──
+  function formatTime(value) {
+    if (value === null || value === undefined || value === "") return "--";
+    const raw = typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value;
+    const date = typeof raw === "number" ? new Date(raw > 1e12 ? raw : raw * 1000) : new Date(String(raw));
+    if (Number.isNaN(date.getTime())) return String(value);
+    try {
+      return date.toLocaleString(locale());
+    } catch (_) {
+      return date.toLocaleString();
+    }
+  }
+
+  function summarize(value) {
+    if (value === null || value === undefined || value === "") return "--";
+    if (typeof value === "string") return value;
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch (_) {
+      return String(value);
+    }
+  }
+
+  // 模板占位符替换：用函数替换避免用户内容中的 `$&` 等被 String.replace 解释
+  function fill(template, values) {
+    return String(template).replace(/\{(\w+)\}/g, (match, key) => (
+      Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match
+    ));
+  }
+
+  function emptyDetail(title, detail) {
+    return `<div class="empty-state with-detail"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div>`;
+  }
+
+  // 读数卡（值为已格式化文本；与独立版 StatCard 同构）
+  function readoutCards(items) {
+    return items.map(([label, value]) => `<article class="stat-card small">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </article>`).join("");
+  }
+
+  // 与独立版一致：成功提示固定文案，失败优先展示后端原因
+  function operationToast(result, okText, failText) {
+    const ok = !!(result && result.success);
+    showToast(ok ? okText : ((result && result.message) || failText), ok ? "ok" : "error");
+    return ok;
+  }
+
+  // 写操作后静默刷新首页 / AI 巡检共享快照（对齐独立版 dashboard.refresh(true)）
+  function syncDashboardSnapshot() {
+    loadDashboard(true, { quiet: true }).catch(() => {});
+  }
+
+  // 分页（与独立版 Pagination 同构：上一页 / 第 N / M 页 / 下一页）
+  function paginationHtml(target, page, totalPages) {
+    const total = Math.max(1, totalPages);
+    return `${button(t("pagination.prev", "上一页"), `data-page-nav="${escapeAttr(target)}" data-page-to="${page - 1}" ${page <= 1 ? "disabled" : ""}`)}
+      <span>${escapeHtml(fill(t("pagination.status", "第 {page} / {total} 页"), { page, total }))}</span>
+      ${button(t("pagination.next", "下一页"), `data-page-nav="${escapeAttr(target)}" data-page-to="${page + 1}" ${page >= totalPages ? "disabled" : ""}`)}`;
+  }
+
+  // 下载 JSON 文件（插件页 iframe 带 allow-downloads，与独立版导出行为一致）
+  function downloadJson(filename, data) {
+    const text = JSON.stringify(data, null, 2);
+    const canObjectUrl = typeof Blob !== "undefined" && typeof URL !== "undefined" && typeof URL.createObjectURL === "function";
+    const href = canObjectUrl
+      ? URL.createObjectURL(new Blob([text], { type: "application/json" }))
+      : `data:application/json;charset=utf-8,${encodeURIComponent(text)}`;
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    if (canObjectUrl) setTimeout(() => URL.revokeObjectURL(href), 0);
+  }
+
+  function buildLineDiff(beforeValue, afterValue) {
+    const before = String(beforeValue ?? "").split(/\r?\n/);
+    const after = String(afterValue ?? "").split(/\r?\n/);
+    const table = Array.from({ length: before.length + 1 }, () => new Array(after.length + 1).fill(0));
+    for (let i = before.length - 1; i >= 0; i -= 1) {
+      for (let j = after.length - 1; j >= 0; j -= 1) {
+        table[i][j] = before[i] === after[j]
+          ? table[i + 1][j + 1] + 1
+          : Math.max(table[i + 1][j], table[i][j + 1]);
+      }
+    }
+    const result = [];
+    let i = 0;
+    let j = 0;
+    while (i < before.length || j < after.length) {
+      if (i < before.length && j < after.length && before[i] === after[j]) {
+        result.push({ kind: "same", text: before[i] }); i += 1; j += 1;
+      } else if (j < after.length && (i >= before.length || table[i][j + 1] >= table[i + 1][j])) {
+        result.push({ kind: "add", text: after[j] }); j += 1;
+      } else {
+        result.push({ kind: "remove", text: before[i] }); i += 1;
+      }
+    }
+    return result;
+  }
+
+  function asText(value) {
+    if (value === undefined || value === null) return "";
+    return typeof value === "string" ? value : String(value);
+  }
+
+  // 后端把 before/after 人格快照放在 change_preview（待审）或 change_snapshot（已审）里（issue #280）
+  function reviewChangePreview(item) {
+    const value = item.change_preview ?? item.persona_change_preview ?? item.change_snapshot ?? item.persona_change_snapshot;
+    return isRecord(value) ? value : {};
+  }
+
+  function reviewBeforePrompt(item) {
+    const preview = reviewChangePreview(item);
+    return asText(preview.before_system_prompt ?? item.before_system_prompt ?? item.before ?? item.original_content ?? item.original_prompt);
+  }
+
+  function reviewAfterPrompt(item) {
+    const preview = reviewChangePreview(item);
+    return asText(preview.after_system_prompt ?? item.after_system_prompt ?? item.after ?? item.new_content
+      ?? item.proposed_content ?? preview.proposed_content ?? item.content);
+  }
+
+  function reviewBeginDialogs(item) {
+    const preview = reviewChangePreview(item);
+    const asList = (value) => (Array.isArray(value) ? value : []);
+    return {
+      before: asList(preview.before_begin_dialogs ?? item.before_begin_dialogs),
+      after: asList(preview.after_begin_dialogs ?? item.after_begin_dialogs),
+    };
+  }
+
+  function formatDialogLines(dialogs) {
+    return dialogs
+      .map((dialog) => (typeof dialog === "string" ? dialog : JSON.stringify(dialog)))
+      .filter((line) => line.length > 0)
+      .join("\n");
+  }
+
+  function reviewChangeMeta(item) {
+    const preview = reviewChangePreview(item);
+    const meta = [];
+    const mode = asText(preview.application_mode);
+    if (mode) meta.push(fill(t("reviews.card.metaMode", "应用方式：{value}"), { value: mode }));
+    const fieldSource = preview.target_fields ?? preview.affected_fields;
+    const fields = (Array.isArray(fieldSource) ? fieldSource : []).map(asText).filter(Boolean);
+    if (fields.length) meta.push(fill(t("reviews.card.metaFields", "影响字段：{value}"), { value: fields.join("、") }));
+    const groupId = asText(preview.group_id ?? item.group_id);
+    if (groupId) meta.push(fill(t("reviews.card.metaGroup", "群组：{value}"), { value: groupId }));
+    const proposed = asText(preview.proposed_content);
+    if (proposed) meta.push(fill(t("reviews.card.metaProposed", "建议内容：{count} 字"), { count: proposed.length }));
+    return meta;
+  }
+
+  function reviewHasChange(item) {
+    if (reviewBeforePrompt(item) || reviewAfterPrompt(item)) return true;
+    const dialogs = reviewBeginDialogs(item);
+    return dialogs.before.length > 0 || dialogs.after.length > 0;
+  }
+
+  function reviewTitle(item) {
+    return textOrDash(item.title ?? item.content ?? item.jargon ?? item.pattern ?? item.update_type ?? item.description ?? `#${item.id}`);
+  }
+
+  function diffLinesHtml(lines) {
+    return `<div class="diff-lines">${lines.map((line) => `<div class="diff-line ${line.kind}"><span>${line.kind === "add" ? "+" : line.kind === "remove" ? "−" : " "}</span>${escapeHtml(line.text || " ")}</div>`).join("")}</div>`;
+  }
+
+  // 审查卡（与独立版 components/business/ReviewCard 同字段、同分区、同动作）
+  function reviewCardHtml(item, kind, options = {}) {
+    const id = normalizeId(item.id);
+    const before = reviewBeforePrompt(item);
+    const after = reviewAfterPrompt(item);
+    const dialogs = reviewBeginDialogs(item);
+    const meta = reviewChangeMeta(item);
+    const proposedRaw = reviewChangePreview(item).proposed_content ?? item.proposed_content;
+    const proposed = typeof proposedRaw === "string" ? proposedRaw : "";
+    const showChanges = kind !== "jargon" && (reviewHasChange(item) || meta.length > 0 || proposed);
+    const actionAttrs = (action) => `data-review-action="${action}" data-kind="${escapeAttr(kind)}" data-id="${escapeAttr(id)}"`;
+    const status = item.status ?? "pending";
+    const tone = item.status === "approved" ? "ok" : item.status === "rejected" ? "danger" : "warn";
+    const changes = showChanges ? `<details class="review-diff">
+          <summary>${escapeHtml(t("reviews.card.viewChanges", "查看变更详情"))}</summary>
+          ${before || after ? diffLinesHtml(buildLineDiff(before, after)) : ""}
+          ${dialogs.before.length || dialogs.after.length
+    ? `<h4 class="review-section-title">${escapeHtml(t("reviews.card.dialogChanges", "示例对话变化"))}</h4>${diffLinesHtml(buildLineDiff(formatDialogLines(dialogs.before), formatDialogLines(dialogs.after)))}`
+    : ""}
+          ${meta.length ? `<p class="review-meta">${escapeHtml(meta.join(" · "))}</p>` : ""}
+          ${proposed ? `<details class="review-proposal"><summary>${escapeHtml(fill(t("reviews.card.proposal", "建议内容原文（{count} 字）"), { count: proposed.length }))}</summary><pre>${escapeHtml(proposed)}</pre></details>` : ""}
+        </details>` : "";
+    return `<article class="review-item review-card${options.selectable ? " selectable" : ""}">
+      ${options.selectable ? reviewCheckbox(kind, id) : ""}
+      <div class="review-card-body">
+        <div class="review-card-head">
+          <div><strong>${escapeHtml(reviewTitle(item))}</strong><small>${escapeHtml(formatTime(item.created_at))}</small></div>
+          ${pill(textOrDash(status), tone)}
+        </div>
+        ${item.definition || item.meaning || item.review_detail ? `<p>${escapeHtml(textOrDash(item.definition ?? item.meaning ?? item.review_detail))}</p>` : ""}
+        ${changes}
+        ${item.pattern_details || item.few_shot_pairs ? `<details class="review-structured"><summary>${escapeHtml(t("reviews.card.structured", "结构化信息"))}</summary><pre>${escapeHtml(summarize(item.pattern_details ?? item.few_shot_pairs))}</pre></details>` : ""}
+        <details class="review-raw"><summary>${escapeHtml(t("reviews.card.raw", "查看原始审查数据"))}</summary><pre>${escapeHtml(summarize(item))}</pre></details>
+        <div class="review-actions">
+          ${button(t("actions.pass", "通过"), actionAttrs("approve"), "ghost-button success-button")}
+          ${button(t("actions.rejectBack", "驳回"), actionAttrs("reject"), "ghost-button warning-button")}
+          ${kind === "style" && options.editable ? button(t("actions.edit", "编辑"), `data-style-action="edit" data-id="${escapeAttr(id)}"`) : ""}
+          ${button(t("actions.delete", "删除"), actionAttrs("delete"), "danger-button")}
+        </div>
       </div>
-    `).join("");
-    setHtml("function-list", fnHtml || empty((data.functions || {}).debug_mode ? t("empty.functionStats", "暂无函数性能数据") : t("empty.debugDisabled", "debug_mode 未启用")));
-    renderLlmCalls(data.llm || {});
+    </article>`;
+  }
+
+  function reviewQueueTitle(kind) {
+    if (kind === "persona") return t("reviews.queue.persona", "待审人格");
+    if (kind === "style") return t("reviews.queue.style", "风格审查");
+    return t("reviews.queue.jargon", "黑话审查");
+  }
+
+  // ── 审查队列（对齐独立版 ReviewsPage：三栏队列 + 最近学习批次） ──
+  async function loadReviews(force) {
+    const params = reviewSearchParams();
+    const [data] = await Promise.all([
+      cached(`reviews:${JSON.stringify(params)}`, () => apiGet("reviews", params), force),
+      loadReviewBatches(force).catch((error) => showToast(error.message || t("reviews.batches.failed", "批次操作失败"), "error")),
+    ]);
+    state.reviewParams = params;
+    renderReviews(data);
+  }
+
+  function renderReviews(data) {
+    state.pageData.reviews = data;
+    ["persona", "style", "jargon"].forEach((kind) => {
+      const items = reviewQueueItems(kind, data);
+      pruneSelection(selectedReviewSet(kind), items.map((item) => item.id));
+      setHtml(`${kind}-review-list`, items.map((item) => reviewCardHtml(item, kind, { selectable: true, editable: true })).join("")
+        || empty(t("reviews.queueEmpty", "队列为空")));
+    });
+    refreshSelectionLabels();
     showErrors(data.errors || {});
   }
 
-  function renderLlmCalls(llm) {
-    const stats = llm.call_statistics || {};
-    const providers = llm.provider_info || {};
-    const entries = Object.entries(stats).filter(([key]) => key !== "overall");
-    const overall = stats.overall || {};
-    setText("llm-total-calls", fmt(overall.total_calls, 0));
-    const rows = entries.map(([key, item]) => {
-      const calls = Number(item.total_calls || item.calls || 0);
-      const errors = Number(item.error_count || item.errors || 0);
-      const avg = Number(item.avg_response_time_ms || 0);
-      const label = providers[key] || key;
-      return `<div class="table-row">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(fmt(calls, 0))} ${escapeHtml(t("units.calls", "次调用"))}</strong>
-        <small>${escapeHtml(t("monitoring.llmMeta", "平均 {avg}ms · 失败 {errors}").replace("{avg}", fmt(avg, 0)).replace("{errors}", fmt(errors, 0)))}</small>
-        ${pill(errors > 0 ? t("state.abnormal", "异常") : t("state.normal", "正常"), errors > 0 ? "warn" : "ok")}
-      </div>`;
-    });
-    setHtml("llm-call-list", rows.join("") || empty(t("empty.llmCalls", "暂无模型调用统计")));
+  async function loadReviewBatches(force) {
+    const params = { page: state.reviewBatchPage, page_size: 10 };
+    const data = await cached(`batches:${JSON.stringify(params)}`, () => apiGet("batches", params), force);
+    renderReviewBatches(data);
   }
 
-  async function loadJargon(force) {
+  function renderReviewBatches(data) {
+    state.pageData.reviewBatches = data;
+    const rows = listOf(data.batches ?? data).filter(isRecord);
+    state.reviewBatchPages = Math.max(1, Number(data.total_pages ?? 1) || 1);
+    setHtml("review-batch-list", rows.map((item) => {
+      const batchId = normalizeId(item.id ?? item.batch_id);
+      const score = safeNum(item.quality_score);
+      const quality = item.quality_score === undefined
+        ? "--"
+        : fill(t("reviews.batches.quality", "quality {value}"), { value: score.toFixed(score < 1 ? 3 : 1) });
+      return `<article class="batch-card">
+        <div class="batch-card-head"><strong>${escapeHtml(textOrDash(item.batch_name ?? item.batch_id ?? t("reviews.batches.defaultName", "学习批次")))}</strong><span>${escapeHtml(quality)}</span></div>
+        <p>${escapeHtml(fill(t("reviews.batches.meta", "群组 {group} · 开始 {start} · 结束 {end}"), {
+    group: textOrDash(item.group_id),
+    start: formatTime(item.start_time),
+    end: formatTime(item.end_time),
+  }))}</p>
+        <div class="inline-actions">
+          ${item.group_id ? button(t("reviews.batches.relearn", "重跑学习"), `data-batch-record-action="relearn" data-group-id="${escapeAttr(item.group_id)}"`) : ""}
+          ${batchId ? button(t("reviews.batches.delete", "删除批次"), `data-batch-record-action="delete" data-id="${escapeAttr(batchId)}"`, "danger-button") : ""}
+        </div>
+      </article>`;
+    }).join("") || empty(t("reviews.batches.empty", "暂无批次记录")));
+    setHtml("review-batch-pagination", paginationHtml("batches", state.reviewBatchPage, state.reviewBatchPages));
+  }
+
+  // ── 黑话学习（对齐独立版 JargonLearningPage：黑话词库 + 导入面板；读数 / 范围 / 批量为双端并集） ──
+  function jargonListParams() {
     const confirmed = $("jargon-confirmed")?.value || "";
     const filter = $("jargon-filter")?.value || "";
-    const keyword = $("jargon-keyword")?.value || "";
-    const params = { page: 1, page_size: 30 };
+    const keyword = ($("jargon-keyword")?.value || "").trim();
+    const params = { page: state.jargon.page, page_size: 10 };
+    if (keyword) params.keyword = keyword;
     if (confirmed === "pending") params.pending = "true";
     else if (confirmed) params.confirmed = confirmed;
     if (filter) params.filter = filter;
-    if (keyword) params.keyword = keyword;
-    const data = await cached(`jargon:${JSON.stringify(params)}`, () => apiGet("jargon", params), force);
+    return params;
+  }
+
+  async function loadJargon(force) {
+    const params = jargonListParams();
+    let data;
+    try {
+      data = await cached(`jargon:${JSON.stringify(params)}`, () => apiGet("jargon", params), force);
+    } catch (error) {
+      showToast(error.message || t("jargon.loadFailed", "黑话加载失败"), "error");
+      return;
+    }
     renderJargon(data);
   }
 
-  // 与独立 WebUI 保持一致：is_complete 只表示审查/推断结束；is_jargon === false
-  // 才是明确驳回，导入等中性完成不应误标为已驳回（issue #274）。
+  // is_complete 只表示审查/推断结束；is_jargon === false 才是明确驳回（issue #274）
   function jargonStatusBadge(item) {
     if (item.is_confirmed) return pill(t("jargon.confirmed", "已确认"), "ok");
-    if (!item.is_complete) return pill(String(item.status || t("jargon.pendingReview", "待审")), "warn");
+    if (!item.is_complete) return pill(textOrDash(item.status ?? t("jargon.pendingReview", "待审")), "warn");
     return item.is_jargon === false
-      ? pill(t("jargon.rejected", "已驳回"), "")
-      : pill(t("jargon.completed", "已完成"), "ok");
+      ? pill(t("jargon.rejected", "已驳回"), "danger")
+      : pill(t("jargon.completed", "已完成"));
   }
 
   function renderJargonImportGroups(groups) {
@@ -791,11 +1396,11 @@
     const current = select.value;
     const options = [`<option value="__global__">${escapeHtml(t("jargon.import.globalScope", "全局共享（所有群生效）"))}</option>`]
       .concat((groups || []).map((group) => {
-        const id = group.group_id || group.id || "";
+        const id = String(group.group_id ?? group.id ?? "");
         if (!id) return "";
-        const name = group.group_name || group.group_id || id;
-        const count = group.count ?? group.confirmed_jargon;
-        return `<option value="${escapeAttr(id)}">${escapeHtml(name)}${Number.isFinite(Number(count)) ? `（${escapeHtml(fmt(count, 0))} ${escapeHtml(t("units.entries", "条"))}）` : ""}</option>`;
+        const name = String(group.group_name ?? group.group_id ?? t("jargon.import.unknownGroup", "未知群组"));
+        const count = Number(group.count ?? group.confirmed_jargon ?? 0) || 0;
+        return `<option value="${escapeAttr(id)}">${escapeHtml(fill(t("jargon.import.groupOption", "{name}（{count} 条）"), { name, count }))}</option>`;
       }));
     select.innerHTML = options.join("");
     if (current && qsa("option", select).some((option) => option.value === current)) select.value = current;
@@ -804,238 +1409,360 @@
   function renderJargonImportReport(result) {
     const output = $("jargon-import-output");
     if (!output) return;
-    const detail = result?.result || {};
-    const failed = ((detail.details || {}).failed) || [];
-    if (!failed.length) {
+    if (!result) {
       output.hidden = true;
+      output.innerHTML = "";
       return;
     }
-    const lines = failed.map((failure) => t("jargon.import.failedLine", "第 {line} 行「{term}」：{reason}")
-      .replace("{line}", fmt(failure.line, 0))
-      .replace("{term}", failure.term || "")
-      .replace("{reason}", failure.reason || ""));
+    const detail = result.result || {};
+    const failed = ((detail.details || {}).failed) || [];
     output.hidden = false;
-    output.textContent = `${detail.message || t("jargon.import.partialFailed", "部分词条导入失败")}\n${lines.join("\n")}`;
+    output.innerHTML = `<strong>${escapeHtml(result.message || detail.message || "")}</strong>${failed.length
+      ? `<ul>${failed.map((failure) => `<li>${escapeHtml(fill(t("jargon.import.failedLine", "第 {line} 行「{term}」：{reason}"), {
+        line: failure.line,
+        term: failure.term || "",
+        reason: failure.reason || "",
+      }))}</li>`).join("")}</ul>`
+      : ""}`;
+  }
+
+  function syncJargonImportButton() {
+    const submit = $("jargon-import-submit");
+    if (submit && !submit.classList.contains("is-busy")) {
+      submit.disabled = !($("jargon-import-text")?.value || "").trim();
+    }
+  }
+
+  function jargonRowHtml(item) {
+    const id = normalizeId(item.id);
+    if (state.jargon.editingId === id) {
+      const draft = state.jargon.draft || { content: "", meaning: "" };
+      return `<article class="data-row jargon-row editing">
+        <div class="jargon-edit-grid">
+          <label class="stack-field"><span>${escapeHtml(t("jargon.term", "词条"))}</span><input id="jargon-edit-content" data-jargon-draft="content" value="${escapeAttr(draft.content)}"></label>
+          <label class="stack-field"><span>${escapeHtml(t("jargon.definition", "释义"))}</span><textarea id="jargon-edit-meaning" data-jargon-draft="meaning" rows="3">${escapeHtml(draft.meaning)}</textarea></label>
+          <div class="inline-actions">
+            ${button(t("actions.save", "保存"), `data-jargon-action="save" data-id="${escapeAttr(id)}"`, "ghost-button success-button")}
+            ${button(t("actions.cancel", "取消"), `data-jargon-action="cancel" data-id="${escapeAttr(id)}"`)}
+          </div>
+        </div>
+      </article>`;
+    }
+    return `<article class="data-row jargon-row">
+      <div class="jargon-row-main">
+        ${jargonCheckbox(id)}
+        <div class="jargon-row-copy">
+          <strong>${escapeHtml(textOrDash(item.content ?? item.jargon))}</strong>
+          <p>${escapeHtml(textOrDash(item.meaning ?? item.definition))}</p>
+          <small>${escapeHtml(formatTime(item.created_at))}</small>
+        </div>
+        <span class="jargon-row-group">${escapeHtml(textOrDash(item.group_id))}</span>
+        ${jargonStatusBadge(item)}
+        ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
+      </div>
+      <div class="inline-actions">
+        ${item.is_confirmed ? "" : button(t("actions.confirm", "确认"), `data-jargon-action="approve" data-id="${escapeAttr(id)}"`, "ghost-button success-button")}
+        ${item.is_confirmed ? "" : button(t("actions.rejectBack", "驳回"), `data-jargon-action="reject" data-id="${escapeAttr(id)}"`, "ghost-button warning-button")}
+        ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(id)}"`)}
+        ${button(item.is_global ? t("actions.unsetGlobal", "取消全局") : t("actions.setGlobal", "设为全局"), `data-jargon-action="toggle_global" data-id="${escapeAttr(id)}"`)}
+        ${button(t("actions.delete", "删除"), `data-jargon-action="delete" data-id="${escapeAttr(id)}"`, "danger-button")}
+      </div>
+    </article>`;
   }
 
   function renderJargon(data) {
-    const stats = data.stats || {};
-    setHtml("jargon-stat-grid", statCards([
-      [t("jargon.stats.candidates", "候选词"), stats.total_candidates],
-      [t("jargon.stats.confirmed", "已确认"), stats.confirmed_jargon],
-      [t("jargon.stats.inferred", "推断完成"), stats.completed_inference],
-      [t("jargon.stats.activeGroups", "活跃群组"), stats.active_groups],
-    ]));
-    const items = ((data.list || {}).jargon_list || []);
-    pruneSelection(state.selectedJargon, items.map((item) => item.id));
-    const html = items.map((item) => `
-      <div class="table-row rich-row selectable-row">
-        ${jargonCheckbox(item.id)}
-        <div>
-          <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
-          <small>${escapeHtml(item.meaning || item.definition || t("empty.definition", "暂无释义"))}</small>
-        </div>
-        <span>${escapeHtml(item.group_id || "global")}</span>
-        ${jargonStatusBadge(item)}
-        ${pill(item.is_global ? t("jargon.global", "全局") : t("jargon.local", "本地"))}
-        <div class="row-actions">
-          ${button(t("actions.edit", "编辑"), `data-jargon-action="edit" data-id="${escapeAttr(item.id)}"`)}
-          ${item.is_confirmed ? "" : button(t("actions.confirm", "确认"), `data-jargon-action="approve" data-id="${escapeAttr(item.id)}"`)}
-          ${item.is_confirmed ? "" : button(t("actions.reject", "驳回"), `data-jargon-action="reject" data-id="${escapeAttr(item.id)}"`)}
-          ${button(item.is_global ? t("actions.unsetGlobal", "取消全局") : t("actions.setGlobal", "设为全局"), `data-jargon-action="toggle_global" data-id="${escapeAttr(item.id)}"`)}
-          ${button(t("actions.delete", "删除"), `data-jargon-action="delete" data-id="${escapeAttr(item.id)}"`, "danger-button")}
-        </div>
-      </div>
-    `).join("");
-    setHtml("jargon-list", html || empty(t("empty.jargon", "暂无黑话数据")));
-    state.pageData.lastJargonItems = items;
     state.pageData.currentJargonData = data;
+    const stats = data.stats || {};
+    setHtml("jargon-stat-grid", readoutCards([
+      [t("jargon.stats.candidates", "候选词"), fmt(stats.total_candidates, 0)],
+      [t("jargon.stats.confirmed", "已确认"), fmt(stats.confirmed_jargon, 0)],
+      [t("jargon.stats.inferred", "推断完成"), fmt(stats.completed_inference, 0)],
+      [t("jargon.stats.activeGroups", "活跃群组"), fmt(stats.active_groups, 0)],
+    ]));
+    const listing = data.list || {};
+    const items = listOf(listing).filter(isRecord);
+    state.jargon.items = items;
+    // 关键词检索返回全部匹配（单页）；普通列表按后端分页（每页 10 条）
+    state.jargon.totalPages = Math.max(1, Number(listing.total_pages ?? Math.ceil(Number(listing.total ?? items.length) / 10)) || 1);
+    pruneSelection(state.selectedJargon, items.map((item) => item.id));
+    setHtml("jargon-list", items.map((item) => jargonRowHtml(item)).join("") || empty(t("jargon.empty", "没有匹配的黑话词条")));
+    setHtml("jargon-pagination", paginationHtml("jargon", state.jargon.page, state.jargon.totalPages));
     renderJargonImportGroups(data.groups || []);
     refreshSelectionLabels();
     showErrors(data.errors || {});
   }
 
+  async function reloadJargon() {
+    clearCached("jargon");
+    await loadJargon(true);
+  }
+
+  async function submitJargonImport(buttonEl) {
+    const importText = $("jargon-import-text")?.value || "";
+    if (!importText.trim()) {
+      showToast(t("jargon.import.empty", "请先填写要导入的词条"), "warn");
+      return;
+    }
+    const scopeValue = $("jargon-import-group")?.value || "__global__";
+    const groupId = scopeValue === "__global__" ? "" : scopeValue;
+    buttonEl.disabled = true;
+    buttonEl.classList.add("is-busy");
+    renderJargonImportReport(null);
+    try {
+      const result = await apiPost("jargon/action", {
+        action: "import_jargons",
+        text: importText,
+        group_id: groupId,
+        is_global: !groupId,
+      });
+      // 与独立版一致：服务受理即按成功提示，部分行失败在导入报告中逐行列出；输入框内容保留
+      const ok = result.success !== false || (result.result || {}).success === true;
+      showToast(result.message || (ok ? t("jargon.import.done", "导入完成") : t("jargon.import.failed", "导入失败")), ok ? "ok" : "error");
+      if (ok) {
+        renderJargonImportReport(result);
+        state.jargon.page = 1;
+        await reloadJargon();
+        syncDashboardSnapshot();
+      }
+    } catch (error) {
+      showToast(error.message || t("jargon.import.failed", "导入失败"), "error");
+    } finally {
+      buttonEl.classList.remove("is-busy");
+      syncJargonImportButton();
+    }
+  }
+
+  // ── 表达方式学习（双端并集：读数卡 + 表达样本库四分类 + 构成 + 学习模式三栏） ──
+  const CONTENT_BUCKETS = ["dialogues", "analysis", "features", "history"];
+  const CONTENT_BUCKET_FALLBACK = { dialogues: "对话", analysis: "分析", features: "特征", history: "历史" };
+  const contentBucketLabel = (bucket) => t(`content.tabs.${bucket}`, CONTENT_BUCKET_FALLBACK[bucket] || bucket);
+
+  async function loadStyle(force) {
+    const data = await cached("style", () => apiGet("style"), force);
+    renderStyle(data);
+  }
+
   function renderStyle(data) {
+    state.pageData.style = data;
     const stats = ((data.results || {}).statistics) || {};
-    setHtml("style-stat-grid", statCards([
-      [t("style.stats.samples", "风格样本"), stats.unique_styles || stats.total_samples],
-      [t("style.stats.avgConfidence", "平均置信度"), stats.avg_confidence],
-      [t("style.stats.totalSamples", "总样本"), stats.total_samples],
-      [t("style.stats.latestUpdate", "最近更新"), stats.latest_update ? t("state.yes", "有") : t("state.none", "无")],
+    setHtml("style-stat-grid", readoutCards([
+      [t("style.stats.samples", "风格样本"), fmt(stats.unique_styles || stats.total_samples, 0)],
+      [t("style.stats.avgConfidence", "平均置信度"), fmt(stats.avg_confidence, 1)],
+      [t("style.stats.totalSamples", "总样本"), fmt(stats.total_samples, 0)],
+      [t("style.stats.latestUpdate", "最近更新"), stats.latest_update ? formatTime(stats.latest_update) : "--"],
     ]));
+    const content = data.content || {};
+    const accents = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)"];
+    renderGenericBarChart("style-composition-chart", CONTENT_BUCKETS.map((bucket, index) => ({
+      title: contentBucketLabel(bucket),
+      metric: listOf(content[bucket]).length,
+      accent: accents[index],
+    })));
+    renderStyleSamples();
     const patterns = data.patterns || {};
-    const patternGroups = [
-      [t("style.patterns.emotion", "情绪模式"), patterns.emotion_patterns || []],
-      [t("style.patterns.language", "语言模式"), patterns.language_patterns || []],
-      [t("style.patterns.topic", "话题模式"), patterns.topic_patterns || []],
+    const groups = [
+      [t("style.patterns.emotion", "情绪模式"), patterns.emotion_patterns],
+      [t("style.patterns.language", "语言模式"), patterns.language_patterns],
+      [t("style.patterns.topic", "话题模式"), patterns.topic_patterns],
     ];
-    setHtml("style-pattern-columns", patternGroups.map(([title, list]) => `
-      <div class="pattern-column">
-        <h4>${escapeHtml(title)}</h4>
-        ${(list || []).slice(0, 12).map((item) => `<span>${escapeHtml(item.name || item.pattern || item.text || "")}</span>`).join("") || empty(t("empty.patterns", "暂无模式"))}
-      </div>
-    `).join(""));
-    const chartItems = patternGroups.map(([title, list]) => ({ title, metric: (list || []).length, accent: "#4169e1" }));
-    renderGenericBarChart("style-pattern-chart", chartItems);
-    const reviews = ((data.reviews || {}).reviews || []);
-    pruneSelection(selectedReviewSet("style"), reviews.map((item) => item.id));
-    setHtml("expression-review-list", reviews.map((item) => styleReviewHtml(item)).join("") || empty(t("empty.styleReviews", "暂无表达审查")));
-    state.pageData.lastStyleItems = reviews;
-    refreshSelectionLabels();
+    setHtml("style-pattern-columns", groups.map(([title, list]) => {
+      const rows = Array.isArray(list) ? list : [];
+      return `<div class="pattern-column">
+        <h4><span>${escapeHtml(title)}</span>${pill(fmt(rows.length, 0))}</h4>
+        ${rows.slice(0, 12).map((item) => `<span class="pattern-chip">${escapeHtml((item && (item.name || item.pattern || item.text)) || "")}</span>`).join("") || empty(t("empty.patterns", "暂无模式"))}
+      </div>`;
+    }).join(""));
   }
 
-  function renderReviews(data) {
-    const personaPending = ((data.persona_pending || {}).updates || [])
-      .filter((item) => item && item.review_source !== "style_learning");
-    const personaReviewed = ((data.persona_reviewed || {}).updates || []);
-    const styleReviews = ((data.style_reviews || {}).reviews || []);
-    const pendingJargon = (((data.jargon_pending || {}).jargon_list) || []);
-    pruneSelection(selectedReviewSet("persona"), personaPending.map((item) => item.id));
-    pruneSelection(selectedReviewSet("style"), styleReviews.map((item) => item.id));
-    pruneSelection(selectedReviewSet("jargon"), pendingJargon.map((item) => item.id));
-    setText("persona-review-count", reviewCountText("persona", personaPending.length));
-    setText("style-review-count", reviewCountText("style", styleReviews.length));
-    setText("jargon-review-count", reviewCountText("jargon", pendingJargon.length));
-    setText("reviewed-count", fmt(personaReviewed.length, 0));
-    setHtml("persona-review-list", personaPending.map((item) => personaReviewHtml(item)).join("") || empty(t("empty.personaUpdates", "暂无人格更新")));
-    setHtml("style-review-list", styleReviews.map((item) => styleReviewHtml(item)).join("") || empty(t("empty.styleReviews", "暂无表达审查")));
-    setHtml("jargon-review-list", pendingJargon.map((item) => jargonReviewHtml(item)).join("") || empty(t("empty.jargonCandidates", "暂无黑话候选")));
-    state.pageData.lastStyleItems = styleReviews;
-    setHtml("reviewed-persona-list", personaReviewed.slice(0, 12).map((item) => `
-      <div class="table-row">
-        <span>${escapeHtml(item.id)}</span>
-        <strong>${escapeHtml(item.status || item.review_status || "reviewed")}</strong>
-        <small>${escapeHtml(item.reason || item.update_type || item.review_source || "")}</small>
-      </div>
-    `).join("") || empty(t("empty.reviewed", "暂无已审查记录")));
-    showErrors(data.errors || {});
+  function renderStyleSamples() {
+    const content = ((state.pageData.style || {}).content) || {};
+    qsa("#style-sample-tabs button").forEach((btn) => btn.classList.toggle("active", btn.dataset.styleBucket === state.styleBucket));
+    const items = listOf(content[state.styleBucket]).filter(isRecord).slice(0, 20);
+    setHtml("style-sample-list", items.map((item) => `<details class="sample-item">
+        <summary>${escapeHtml(textOrDash(item.title ?? item.name ?? item.id ?? t("content.itemFallback", "内容项")))}</summary>
+        <pre class="code-preview">${escapeHtml(summarize(item))}</pre>
+      </details>`).join("") || empty());
   }
 
-  function personaReviewHtml(item) {
-    const id = item.id;
-    return `<article class="review-item selectable">
-      ${reviewCheckbox("persona", id)}
-      <div class="review-main">
-        <strong>${escapeHtml(item.update_type || item.review_source || t("reviews.personaUpdates", "人格更新"))}</strong>
-        <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.reason || item.description || "")}</small>
-        <p>${escapeHtml(item.proposed_content || item.new_content || item.incremental_content || "").slice(0, 220)}</p>
-      </div>
-      <div class="row-actions">
-        ${button(t("actions.details", "详情"), `data-review-action="detail" data-kind="persona" data-id="${escapeAttr(id)}"`)}
-        ${button(t("actions.approve", "批准"), `data-review-action="approve" data-kind="persona" data-id="${escapeAttr(id)}"`, "solid-button")}
-        ${button(t("actions.reject", "拒绝"), `data-review-action="reject" data-kind="persona" data-id="${escapeAttr(id)}"`)}
-        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="persona" data-id="${escapeAttr(id)}"`, "danger-button")}
-      </div>
-    </article>`;
+  // ── 人格学习（对齐独立版 PersonaLearningPage：当前人格 / 人格备份 / 人格列表 / 最近已审查 / 待审人格更新） ──
+  async function loadPersona(force) {
+    const data = await cached("persona", () => apiGet("persona", { group_id: "default", limit: 8 }), force);
+    renderPersona(data);
   }
 
-  function styleReviewHtml(item) {
-    return `<article class="review-item selectable">
-      ${reviewCheckbox("style", item.id)}
-      <div class="review-main">
-        <strong>${escapeHtml(item.description || t("style.title", "表达方式学习"))}</strong>
-        <small>${escapeHtml(item.group_id || "default")} · ${escapeHtml(item.status || "pending")}</small>
-        <p>${escapeHtml(item.few_shots_content || item.learned_patterns || "").slice(0, 220)}</p>
-      </div>
-      <div class="row-actions">
-        ${button(t("actions.edit", "编辑"), `data-style-action="edit" data-id="${escapeAttr(item.id)}"`)}
-        ${button(t("actions.details", "详情"), `data-review-action="detail" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
-        ${button(t("actions.approve", "批准"), `data-review-action="approve" data-kind="style" data-id="${escapeAttr(item.id)}"`, "solid-button")}
-        ${button(t("actions.reject", "拒绝"), `data-review-action="reject" data-kind="style" data-id="${escapeAttr(item.id)}"`)}
-        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="style" data-id="${escapeAttr(item.id)}"`, "danger-button")}
-      </div>
-    </article>`;
+  function personaIdOf(item) {
+    return String(item.persona_id ?? item.id ?? item.name ?? "");
   }
 
-  function jargonReviewHtml(item) {
-    return `<article class="review-item selectable">
-      ${reviewCheckbox("jargon", item.id)}
-      <div class="review-main">
-        <strong>${escapeHtml(item.term || item.content || `#${item.id}`)}</strong>
-        <small>${escapeHtml(item.group_id || "global")} · ${escapeHtml(t("units.times", "{count} 次").replace("{count}", fmt(item.occurrences || item.count, 0)))}</small>
-        <p>${escapeHtml(item.meaning || item.definition || item.review_detail || t("empty.definition", "暂无释义"))}</p>
+  function personaNameOf(item) {
+    return textOrDash(item.name ?? item.persona_id ?? item.id ?? t("persona.unnamed", "未命名人格"));
+  }
+
+  function personaPromptOf(item) {
+    return String(item.system_prompt ?? item.prompt ?? "");
+  }
+
+  function reviewedStatusText(item) {
+    if (item.status === "approved") return t("persona.statusApproved", "已通过");
+    if (item.status === "rejected") return t("persona.statusRejected", "已驳回");
+    return textOrDash(item.status);
+  }
+
+  function renderPersonaCurrent(current) {
+    const snapshot = isRecord(current) ? current : {};
+    if (!Object.keys(snapshot).length) {
+      setHtml("persona-current", empty(t("persona.emptySnapshot", "暂无人格快照")));
+      return;
+    }
+    const persona = isRecord(snapshot.persona) ? snapshot.persona : {};
+    setHtml("persona-current", `<div class="persona-current">
+      <div class="persona-current-head">
+        <h4>${escapeHtml(textOrDash(persona.name ?? persona.persona_id ?? t("persona.defaultName", "Default Persona")))}</h4>
+        ${pill(snapshot.degraded ? t("persona.degraded", "降级预览") : t("persona.active", "当前生效"), snapshot.degraded ? "warn" : "ok")}
       </div>
-      <div class="row-actions">
-        ${button(t("actions.confirm", "确认"), `data-review-action="approve" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "solid-button")}
-        ${button(t("actions.rejectBack", "驳回"), `data-review-action="reject" data-kind="jargon" data-id="${escapeAttr(item.id)}"`)}
-        ${button(t("actions.delete", "删除"), `data-review-action="delete" data-kind="jargon" data-id="${escapeAttr(item.id)}"`, "danger-button")}
-      </div>
-    </article>`;
+      <section class="stat-grid compact">${readoutCards([
+    [t("persona.stats.promptLength", "提示词字数"), fmt(snapshot.prompt_length, 0)],
+    [t("persona.stats.beginDialogs", "开场对话"), fmt(snapshot.begin_dialog_count, 0)],
+    [t("persona.stats.toolCount", "工具数量"), fmt(snapshot.tool_count, 0)],
+    [t("persona.stats.currentGroup", "当前群组"), textOrDash(snapshot.group_id || "default")],
+  ])}</section>
+      <p class="persona-current-prompt">${escapeHtml(textOrDash(snapshot.prompt_preview ?? persona.prompt ?? persona.system_prompt))}</p>
+      <details><summary>${escapeHtml(t("persona.fullState", "查看完整状态"))}</summary><pre class="code-preview">${escapeHtml(summarize(snapshot))}</pre></details>
+    </div>`);
   }
 
   function renderPersona(data) {
-    const current = data.current || {};
-    const persona = current.persona || {};
-    setHtml("persona-state-stats", statCards([
-      [t("persona.stats.promptLength", "提示词字数"), current.prompt_length],
-      [t("persona.stats.beginDialogs", "开场对话"), current.begin_dialog_count],
-      [t("persona.stats.toolCount", "工具数量"), current.tool_count],
-      [t("persona.stats.currentGroup", "当前群组"), current.group_id || "default"],
-    ]));
-    setText("persona-prompt-preview", current.prompt_preview || persona.system_prompt || persona.prompt || t("empty.personaPrompt", "暂无人格提示词"));
+    state.pageData.persona = data;
+    renderPersonaCurrent(data.current);
 
-    const personas = data.personas || [];
-    setHtml("persona-list", personas.map((item) => {
-      const id = item.persona_id || item.id || item.name;
-      return `<div class="table-row">
-        <span>${escapeHtml(id)}</span>
-        <strong>${escapeHtml(item.name || id)}</strong>
+    const backups = listOf(data.backups).filter(isRecord);
+    setText("persona-backup-count", fmt(backups.length, 0));
+    setHtml("persona-backup-list", backups.map((item) => {
+      const attrs = `data-id="${escapeAttr(item.id ?? item.backup_id ?? item.name ?? "")}" data-group-id="${escapeAttr(item.group_id ?? "")}"`;
+      return `<div class="table-row backup-row">
+        <div><strong>${escapeHtml(textOrDash(item.backup_name ?? item.name ?? item.id))}</strong><small>${escapeHtml(formatTime(item.created_at ?? item.timestamp))}</small></div>
         <div class="row-actions">
-          ${button(t("actions.edit", "编辑"), `data-persona-action="edit" data-persona-id="${escapeAttr(id)}"`)}
-          ${button(t("actions.export", "导出"), `data-persona-action="export" data-persona-id="${escapeAttr(id)}"`)}
-          ${button(t("actions.delete", "删除"), `data-persona-action="delete" data-persona-id="${escapeAttr(id)}"`, "danger-button")}
+          ${button(t("persona.viewBackup", "查看备份"), `data-persona-action="backup_detail" ${attrs}`)}
+          ${button(t("actions.restore", "恢复"), `data-persona-action="backup_restore" ${attrs}`, "ghost-button warning-button")}
+          ${button(t("actions.delete", "删除"), `data-persona-action="backup_delete" ${attrs}`, "danger-button")}
         </div>
       </div>`;
-    }).join("") || empty(t("empty.personaList", "暂无人格列表")));
-    state.pageData.lastPersonaItems = personas;
+    }).join("") || empty(t("persona.emptyBackups", "暂无备份")));
 
-    const backups = ((data.backups || {}).backups || []);
-    setText("persona-backup-count", fmt(backups.length, 0));
-    setHtml("persona-backup-list", backups.map((item) => `
-      <div class="table-row rich-row">
+    const personas = Array.isArray(data.personas) ? data.personas.filter(isRecord) : [];
+    state.pageData.lastPersonaItems = personas;
+    setHtml("persona-list", personas.map((item) => {
+      const id = personaIdOf(item);
+      const attrs = `data-persona-id="${escapeAttr(id)}"`;
+      return `<div class="table-row persona-row">
         <div>
-          <strong>${escapeHtml(item.backup_name || t("persona.backupName", "备份 {id}").replace("{id}", item.id))}</strong>
-          <small>${escapeHtml(item.reason_short || item.reason || t("empty.noRemark", "无备注"))}</small>
+          <strong>${escapeHtml(personaNameOf(item))}</strong>
+          <small>${escapeHtml(fill(t("persona.listMeta", "{id} · 提示词 {length} 字 · 示例对话 {count} 条"), {
+    id: textOrDash(id),
+    length: personaPromptOf(item).length,
+    count: listOf(item.begin_dialogs).length,
+  }))}</small>
         </div>
-        <span>${escapeHtml(item.group_id || "default")}</span>
-        <small>${escapeHtml(item.timestamp || item.created_at || "")}</small>
         <div class="row-actions">
-          ${button(t("actions.view", "查看"), `data-persona-action="backup_detail" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`)}
-          ${button(t("actions.restore", "恢复"), `data-persona-action="backup_restore" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "solid-button")}
-          ${button(t("actions.delete", "删除"), `data-persona-action="backup_delete" data-id="${escapeAttr(item.id)}" data-group-id="${escapeAttr(item.group_id || "")}"`, "danger-button")}
+          ${button(t("persona.view", "查看人格"), `data-persona-action="view" ${attrs}`)}
+          ${button(t("persona.edit", "编辑人格"), `data-persona-action="edit" ${attrs}`)}
+          ${button(t("persona.export", "导出人格"), `data-persona-action="export" ${attrs}`)}
+          ${button(t("persona.delete", "删除人格"), `data-persona-action="delete" ${attrs}`, "danger-button")}
         </div>
-      </div>
-    `).join("") || empty(t("empty.personaBackups", "暂无人格备份")));
+      </div>`;
+    }).join("") || emptyDetail(t("empty.personaList", "暂无人格列表"), t("persona.emptyListDetail", "AstrBot PersonaManager 未提供人格数据。")));
+
+    const reviewed = listOf(data.reviewed).filter(isRecord).slice(0, 8);
+    state.pageData.lastReviewedItems = reviewed;
+    setText("persona-reviewed-count", fmt(reviewed.length, 0));
+    setHtml("persona-reviewed-list", reviewed.map((item) => {
+      const tone = item.status === "approved" ? "ok" : item.status === "rejected" ? "danger" : "";
+      const id = normalizeId(item.id);
+      return `<div class="table-row reviewed-row">
+        <div class="reviewed-head">
+          <div>
+            <strong>${escapeHtml(textOrDash(item.update_type ?? item.title ?? item.review_source ?? `#${item.id}`))}</strong>
+            <small>${escapeHtml(formatTime(item.review_time))} · ${escapeHtml(textOrDash(item.review_source ?? item.group_id))}</small>
+          </div>
+          ${pill(reviewedStatusText(item), tone)}
+        </div>
+        <p>${escapeHtml(textOrDash(String(item.proposed_content ?? item.new_content ?? item.reason ?? "").slice(0, 120)))}</p>
+        <div class="row-actions">
+          ${button(t("persona.viewDetails", "查看详情"), `data-persona-action="reviewed_detail" data-id="${escapeAttr(id)}"`)}
+          ${button(t("persona.revert", "撤回"), `data-persona-action="revert" data-id="${escapeAttr(id)}"`, "ghost-button warning-button")}
+        </div>
+      </div>`;
+    }).join("") || empty(t("empty.reviewed", "暂无已审查记录")));
+
+    const pending = listOf(data.pending).filter(isRecord);
+    setHtml("persona-pending-list", pending.map((item) => reviewCardHtml(item, "persona")).join("")
+      || empty(t("persona.pendingEmpty", "没有待审人格更新")));
     showErrors(data.errors || {});
   }
 
-  async function loadShadowMode(force) {
-    const data = await cached("shadow-mode", () => apiGet("shadow-mode"), force);
-    renderShadowMode(data);
+  // ── 影子模式（对齐独立版 ShadowModePage） ──
+  function shadowGroupsOf(data) {
+    const groups = ((data || {}).sources || {})[state.shadow.source];
+    return Array.isArray(groups) ? groups.filter(isRecord) : [];
+  }
+
+  // 生效群组默认跟随来源群组；用户手动改过（与上一次来源群组不同）时保留输入
+  function syncShadowTarget(previousGroup) {
+    const input = $("shadow-target-group");
+    const current = ((input ? input.value : state.shadow.targetGroupId) || "").trim();
+    if (!current || current === previousGroup) {
+      state.shadow.targetGroupId = state.shadow.groupId;
+      if (input) input.value = state.shadow.groupId;
+    }
+  }
+
+  function shadowMinSamplesText() {
+    return fill(t("shadow.minSamples", "至少需要 {count} 条有效文本"), { count: state.shadow.minimumSamples });
+  }
+
+  async function loadShadowMode(force, options = {}) {
+    let data;
+    try {
+      data = await cached("shadow-mode", () => apiGet("shadow-mode"), force);
+    } catch (error) {
+      showToast(error.message || t("shadow.statusFailed", "读取影子模式状态失败"), "error");
+      return;
+    }
+    if (data && data.success === false) {
+      showToast(data.message || t("shadow.statusFailed", "读取影子模式状态失败"), "error");
+    }
+    if (!state.shadow.initialized) {
+      // 与独立版一致：首次进入时有现有群聊记录则选现有群聊，否则选导入记录
+      const live = ((data || {}).sources || {}).live;
+      state.shadow.source = Array.isArray(live) && live.length ? "live" : "imported";
+      state.shadow.initialized = true;
+    }
+    renderShadowMode(data || {}, options);
     await loadShadowCandidates(force);
   }
 
-  function renderShadowMode(data) {
+  function renderShadowMode(data, options = {}) {
     state.shadow.statusData = data || {};
-    state.shadow.profiles = data.profiles || [];
+    state.shadow.profiles = Array.isArray(data.profiles) ? data.profiles : [];
     state.shadow.minimumSamples = Number(data.minimum_samples) || 3;
-    setText("shadow-min-samples", t("shadow.minSamples", "至少 {count} 条有效文本").replace("{count}", fmt(state.shadow.minimumSamples, 0)));
+    setText("shadow-min-samples", shadowMinSamplesText());
     setText("shadow-profile-count", fmt(state.shadow.profiles.length, 0));
     qsa("#shadow-source button").forEach((btn) => btn.classList.toggle("active", btn.dataset.shadowSource === state.shadow.source));
-    const groups = ((data.sources || {})[state.shadow.source]) || [];
+    const groups = shadowGroupsOf(data);
+    const previousGroup = state.shadow.groupId;
+    if (options.resetGroup || !groups.some((group) => String(group.group_id) === state.shadow.groupId)) {
+      state.shadow.groupId = groups.length ? String(groups[0].group_id ?? "") : "";
+    }
+    syncShadowTarget(previousGroup);
     const groupSelect = $("shadow-group");
     if (groupSelect) {
-      groupSelect.innerHTML = groups.map((group) => `<option value="${escapeAttr(group.group_id)}">${escapeHtml(group.group_id)} · ${escapeHtml(fmt(group.member_count, 0))} ${escapeHtml(t("units.people", "人"))}</option>`).join("")
-        || `<option value="">${escapeHtml(t("shadow.noGroups", "暂无可用群组"))}</option>`;
-      if (groups.length) {
-        const known = groups.some((group) => group.group_id === state.shadow.groupId);
-        if (!known) state.shadow.groupId = groups[0].group_id || "";
-        if (!state.shadow.targetGroupId) state.shadow.targetGroupId = state.shadow.groupId;
-      }
-      groupSelect.value = state.shadow.groupId || "";
+      groupSelect.innerHTML = groups.map((group) => `<option value="${escapeAttr(group.group_id)}">${escapeHtml(fill(t("shadow.groupOption", "{group} · {count} 人"), {
+        group: group.group_id,
+        count: fmt(group.member_count, 0),
+      }))}</option>`).join("");
+      groupSelect.disabled = !groups.length;
+      groupSelect.value = state.shadow.groupId;
     }
-    const target = $("shadow-target-group");
-    if (target && !target.value) target.value = state.shadow.targetGroupId || state.shadow.groupId || "";
     renderShadowProfiles();
     refreshShadowLearnState();
   }
@@ -1043,16 +1770,19 @@
   function renderShadowProfiles() {
     const rows = state.shadow.profiles;
     setHtml("shadow-profile-list", rows.map((profile) => `
-      <div class="table-row rich-row">
+      <div class="table-row rich-row shadow-profile-row">
         <div>
           <strong>${escapeHtml(profile.sender_name || profile.sender_id || `#${profile.id}`)}</strong>
           <small>QQ ${escapeHtml(profile.sender_qq || profile.sender_id || "-")} · ${escapeHtml(profile.source_type === "imported" ? t("shadow.importedSource", "导入记录") : t("shadow.liveSource", "现有群聊"))} · ${escapeHtml(t("units.samples", "{count} 条样本").replace("{count}", fmt(profile.sample_count, 0)))}</small>
         </div>
-        <strong>${escapeHtml(profile.target_group_id || "-")}</strong>
-        <small>${escapeHtml(formatTimestamp(profile.updated_at))}</small>
+        <div class="profile-scope">
+          <span>${escapeHtml(t("shadow.targetGroup", "生效群组"))}</span>
+          <strong>${escapeHtml(profile.target_group_id || "-")}</strong>
+          <small>${escapeHtml(formatTime(profile.updated_at))}</small>
+        </div>
+        ${pill(profile.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), profile.enabled ? "ok" : "warn")}
         <div class="row-actions">
-          ${pill(profile.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), profile.enabled ? "ok" : "warn")}
-          ${button(profile.enabled ? t("actions.disable", "停用") : t("actions.enable", "启用"), `data-shadow-profile-action="${profile.enabled ? "disable" : "enable"}" data-id="${escapeAttr(profile.id)}"`, profile.enabled ? "" : "solid-button")}
+          ${button(profile.enabled ? t("actions.disable", "停用") : t("actions.enable", "启用"), `data-shadow-profile-action="${profile.enabled ? "disable" : "enable"}" data-id="${escapeAttr(profile.id)}"`, profile.enabled ? "ghost-button warning-button" : "ghost-button success-button")}
         </div>
       </div>
     `).join("") || empty(t("empty.shadowProfiles", "尚未创建影子档案")));
@@ -1060,29 +1790,44 @@
 
   async function loadShadowCandidates(force) {
     if (!state.shadow.groupId) {
-      setHtml("shadow-candidate-list", empty(t("shadow.noGroups", "暂无可用群组")));
+      state.shadow.candidates = [];
+      state.shadow.selectedId = "";
+      setHtml("shadow-candidate-list", empty(state.shadow.source === "live"
+        ? t("shadow.noLiveGroups", "暂无现有群聊记录")
+        : t("shadow.noImportedGroups", "暂无已导入聊天记录")));
+      refreshShadowLearnState();
       return;
     }
     const params = { source: state.shadow.source, group_id: state.shadow.groupId };
-    const data = await cached(`shadow-candidates:${JSON.stringify(params)}`, () => apiGet("shadow-mode/candidates", params), force);
-    state.shadow.minimumSamples = Number(data.minimum_samples) || state.shadow.minimumSamples;
-    if (state.shadow.statusData) state.shadow.statusData.minimum_samples = state.shadow.minimumSamples;
+    let data = {};
+    try {
+      data = await cached(`shadow-candidates:${JSON.stringify(params)}`, () => apiGet("shadow-mode/candidates", params), force);
+    } catch (error) {
+      showToast(error.message || t("shadow.candidatesFailed", "读取群友列表失败"), "error");
+    }
+    if (data && data.success === false) {
+      showToast(data.message || t("shadow.candidatesFailed", "读取群友列表失败"), "error");
+    }
+    state.shadow.minimumSamples = Number((data || {}).minimum_samples) || 3;
+    setText("shadow-min-samples", shadowMinSamplesText());
     state.shadow.selectedId = "";
-    renderShadowCandidates(data.candidates || []);
+    state.shadow.candidates = Array.isArray((data || {}).candidates) ? data.candidates.filter(isRecord) : [];
+    renderShadowCandidates(state.shadow.candidates);
     refreshShadowLearnState();
   }
 
   function renderShadowCandidates(candidates) {
-    setHtml("shadow-candidate-list", candidates.map((candidate) => `
-      <button class="candidate-row ${state.shadow.selectedId === candidate.sender_id ? "selected" : ""}" type="button"
-        data-shadow-candidate="${escapeAttr(candidate.sender_id)}" ${candidate.ready ? "" : "disabled"}
-        aria-pressed="${state.shadow.selectedId === candidate.sender_id}">
-        <strong>${escapeHtml(candidate.sender_name || candidate.sender_id)}</strong>
-        <small>QQ ${escapeHtml(candidate.sender_qq || candidate.sender_id || "-")}</small>
-        <b>${escapeHtml(fmt(candidate.message_count, 0))}</b>
+    setHtml("shadow-candidate-list", candidates.map((candidate) => {
+      const senderId = String(candidate.sender_id ?? "");
+      const selected = state.shadow.selectedId === senderId;
+      return `<button class="candidate-row ${selected ? "selected" : ""}" type="button"
+        data-shadow-candidate="${escapeAttr(senderId)}" ${candidate.ready ? "" : "disabled"}
+        aria-pressed="${selected}">
+        <span class="candidate-copy"><strong>${escapeHtml(candidate.sender_name || senderId)}</strong><small>QQ ${escapeHtml(candidate.sender_qq || senderId || "-")}</small></span>
+        <span class="candidate-meta"><b>${escapeHtml(fmt(candidate.message_count, 0))}</b><small>${escapeHtml(t("shadow.messagesUnit", "条消息"))}</small></span>
         ${pill(candidate.ready ? t("shadow.learnable", "可学习") : t("shadow.insufficient", "样本不足"), candidate.ready ? "ok" : "warn")}
-      </button>
-    `).join("") || empty(t("empty.shadowCandidates", "这个群组暂无可选用户")));
+      </button>`;
+    }).join("") || empty(t("empty.shadowCandidates", "这个群组暂无可选用户")));
   }
 
   function refreshShadowLearnState() {
@@ -1091,48 +1836,67 @@
       ? t("shadow.learnHint", "将重新分析目标用户的全部有效文本，并替换该群组当前影子。")
       : t("shadow.pickFirst", "选择用户后即可开始学习。"));
     const learn = $("shadow-learn-button");
-    if (learn) learn.disabled = !hasSelection;
+    if (learn && !learn.classList.contains("is-busy")) learn.disabled = !hasSelection;
   }
 
   async function handleShadowLearn() {
-    if (!state.shadow.selectedId) return;
+    const candidate = (state.shadow.candidates || []).find((item) => String(item.sender_id ?? "") === state.shadow.selectedId);
+    if (!candidate) {
+      showToast(t("shadow.pickCandidate", "请先选择一位可学习的群友"), "warn");
+      return;
+    }
     const targetGroup = ($("shadow-target-group")?.value || "").trim();
     if (!targetGroup) {
-      showToast(t("shadow.missingTarget", "请输入影子模式的生效群组"), "error");
+      showToast(t("shadow.missingTarget", "请输入影子模式的生效群组"), "warn");
       return;
     }
     const learn = $("shadow-learn-button");
-    const originalLabel = learn?.textContent || "";
     try {
-      if (learn) { learn.disabled = true; learn.classList.add("is-busy"); learn.textContent = t("actions.learning", "学习中"); }
+      if (learn) { learn.disabled = true; learn.classList.add("is-busy"); }
       const result = await apiPost("shadow-mode/action", {
         action: "learn",
         source_type: state.shadow.source,
         source_group_id: state.shadow.groupId,
         target_group_id: targetGroup,
-        sender_id: state.shadow.selectedId,
+        sender_id: candidate.sender_id,
         activate: true,
       });
-      showToast(result.message || t("messages.shadowLearned", "影子模式已学习并启用"), result.success ? "ok" : "error");
+      if (result.success === false) {
+        showToast(result.message || t("shadow.learnFailed", "影子学习失败"), "error");
+        return;
+      }
+      showToast(fill(t("shadow.learnedToast", "已学习并启用 {name} 的影子模式"), { name: candidate.sender_name || "" }), "ok");
       state.shadow.targetGroupId = targetGroup;
-      state.pageData["shadow-mode"] = null;
+      clearCached("shadow-mode");
+      clearCached("shadow-candidates");
       await loadShadowMode(true);
     } catch (error) {
-      showToast(error.message || String(error), "error");
+      showToast(error.message || t("shadow.learnFailed", "影子学习失败"), "error");
     } finally {
-      if (learn) { learn.disabled = false; learn.classList.remove("is-busy"); learn.textContent = originalLabel; }
+      if (learn) learn.classList.remove("is-busy");
       refreshShadowLearnState();
     }
   }
 
   async function handleShadowProfileAction(buttonEl) {
-    const result = await apiPost("shadow-mode/action", {
-      action: "set_enabled",
-      profile_id: buttonEl.dataset.id,
-      enabled: buttonEl.dataset.shadowProfileAction === "enable",
-    });
-    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
-    state.pageData["shadow-mode"] = null;
+    const enabled = buttonEl.dataset.shadowProfileAction === "enable";
+    try {
+      const result = await apiPost("shadow-mode/action", {
+        action: "set_enabled",
+        profile_id: buttonEl.dataset.id,
+        enabled,
+      });
+      if (result.success === false) {
+        showToast(result.message || t("shadow.updateFailed", "更新影子模式失败"), "error");
+        return;
+      }
+      showToast(enabled ? t("shadow.enabledToast", "影子模式已启用") : t("shadow.disabledToast", "影子模式已停用"), "ok");
+    } catch (error) {
+      showToast(error.message || t("shadow.updateFailed", "更新影子模式失败"), "error");
+      return;
+    }
+    clearCached("shadow-mode");
+    clearCached("shadow-candidates");
     await loadShadowMode(true);
   }
 
@@ -1147,71 +1911,335 @@
     }
   }
 
-  function renderContent(data) {
-    const content = data.content || {};
-    const items = content[state.contentType] || [];
-    qsa("#content-tabs button").forEach((btn) => btn.classList.toggle("active", btn.dataset.contentType === state.contentType));
-    setHtml("learning-content-list", items.map((item) => `
-      <article class="content-item">
-        <div>
-          <strong>${escapeHtml(item.title || item.type || `#${item.id}`)}</strong>
-          <small>${escapeHtml(item.timestamp || "")} ${escapeHtml(item.metadata || "")}</small>
-          <p>${escapeHtml(item.text || item.detail || "").slice(0, 360)}</p>
-        </div>
-        ${button(t("actions.delete", "删除"), `data-content-action="delete_content" data-bucket="${escapeAttr(state.contentType)}" data-id="${escapeAttr(item.id)}"`, "danger-button")}
-      </article>
-    `).join("") || empty(t("empty.learningContent", "暂无学习内容")));
+  // ── 学习内容（对齐独立版 ContentPage：内容浏览器 + 分类检索 + 删除确认） ──
+  async function loadContent(force) {
+    const data = await cached("content", () => apiGet("content", { page: 1, page_size: 10 }), force);
+    renderContent(data);
+  }
 
-    const batches = ((data.batches || {}).batches || []);
-    setHtml("batch-list", batches.map((item) => `
-      <div class="table-row">
-        <span>${escapeHtml(item.batch_name || item.batch_id || item.id)}</span>
-        <strong>${escapeHtml(item.status || (item.success ? "success" : "unknown"))}</strong>
-        <small>${escapeHtml(fmt(item.quality_score || 0, 3))}</small>
-        ${button(t("actions.delete", "删除"), `data-content-action="delete_batch" data-id="${escapeAttr(item.id)}"`, "danger-button")}
-      </div>
-    `).join("") || empty(t("empty.batchHistory", "暂无批次历史")));
+  function renderContent(data) {
+    state.pageData.content = data;
+    const content = data.content || {};
+    qsa("#content-tabs button").forEach((btn) => btn.classList.toggle("active", btn.dataset.contentType === state.contentType));
+    const query = String(state.contentQuery || "").toLowerCase();
+    const items = listOf(content[state.contentType]).filter(isRecord)
+      .filter((item) => !query || summarize(item).toLowerCase().includes(query));
+    setHtml("learning-content-list", items.map((item) => `<details class="content-entry">
+        <summary><strong>${escapeHtml(textOrDash(item.title ?? item.name ?? item.id ?? t("content.itemFallback", "内容项")))}</strong><span class="content-entry-arrow" aria-hidden="true">▾</span></summary>
+        <pre class="code-preview">${escapeHtml(summarize(item))}</pre>
+        ${button(t("actions.delete", "删除"), `data-content-action="delete_content" data-bucket="${escapeAttr(state.contentType)}" data-id="${escapeAttr(item.id ?? item.uuid ?? "")}"`, "danger-button")}
+      </details>`).join("") || empty(t("content.empty", "当前分类暂无内容")));
     showErrors(data.errors || {});
   }
 
+  // ── 图谱（对齐独立版 GraphsPage：记忆 / 知识 / 社交关系三视图 + 稳定 / 环形布局 + 图谱详情） ──
+  function graphGroupKey() {
+    return state.graph.type === "social" ? state.graph.socialGroup : state.graph.group;
+  }
+
+  function graphPositionBucket(create = false) {
+    const key = `${state.graph.type}:${graphGroupKey() || ""}`;
+    let bucket = state.graph.positions.get(key);
+    if (!bucket && create) {
+      bucket = new Map();
+      state.graph.positions.set(key, bucket);
+    }
+    return bucket || null;
+  }
+
+  function rememberGraphPosition(node, width, height, dragged = false) {
+    if (!node || !width || !height) return;
+    const bucket = graphPositionBucket(true);
+    const previous = bucket.get(String(node.id));
+    bucket.set(String(node.id), {
+      x: node.x / width,
+      y: node.y / height,
+      dragged: dragged || Boolean(previous && previous.dragged),
+    });
+  }
+
+  function cachedGraphPosition(id) {
+    if (state.graph.layout !== "force") return null;
+    const bucket = graphPositionBucket();
+    return bucket ? bucket.get(String(id)) || null : null;
+  }
+
   async function loadGraphs(force) {
-    const type = $("graph-type")?.value || "memory";
+    ensureSocialGroups();
+    syncGraphToolbar();
+    if (state.graph.type === "social") return loadSocialGraph(state.graph.socialGroup);
+    const token = ++state.graph.token;
+    const type = state.graph.type;
     const group = ($("graph-group")?.value || "").trim();
-    state.graph.type = type;
-    const params = { type, limit: 140 };
+    state.graph.group = group;
+    // 与独立版一致不传 limit，由后端默认 120 个节点封顶
+    const params = { type };
     if (group) params.group_id = group;
-    const data = await cached(`graphs:${type}:${group}`, () => apiGet("graphs", params), force);
-    renderGraphs(data);
+    try {
+      const data = await cached(`graphs:${type}:${group}`, () => apiGet("graphs", params), force);
+      if (token !== state.graph.token) return;
+      renderGraphs(data);
+    } catch (error) {
+      if (token === state.graph.token) showToast(error.message || t("graphs.loadFailed", "图谱加载失败"), "error");
+    }
   }
 
   function renderGraphs(data) {
-    const graph = data[state.graph.type] || data.memory || data.knowledge || {};
+    const graph = (data || {})[state.graph.type] || {};
+    renderGraphPayload(graph);
+  }
+
+  // 社交关系 → 图谱节点/连线（与独立版 lib/socialGraph socialToGraph 同口径）
+  function socialToGraph(data) {
+    const members = listOf(data.members).filter(isRecord);
+    const relations = listOf(data.relations).filter(isRecord);
+    return {
+      nodes: members.map((member) => ({
+        id: String(member.user_id ?? member.id ?? ""),
+        name: String(member.nickname ?? member.user_id ?? ""),
+        value: Number(member.message_count) || 1,
+        category: "member",
+      })),
+      links: relations.map((relation) => ({
+        source: String(relation.source ?? ""),
+        target: String(relation.target ?? ""),
+        value: Number(relation.strength) || 0,
+      })),
+      groups: data.group_id ? [String(data.group_id)] : [],
+      data_source: "social_relations",
+    };
+  }
+
+  function socialGroupId(group) {
+    return String(group.group_id ?? group.id ?? "");
+  }
+
+  function socialGroupName(group) {
+    return String(group.group_name ?? group.name ?? socialGroupId(group));
+  }
+
+  async function ensureSocialGroups() {
+    if (state.graph.socialGroupsLoaded) return;
+    state.graph.socialGroupsLoaded = true;
+    try {
+      const result = await apiGet("graphs/social/groups");
+      const rows = Array.isArray(result.groups) ? result.groups.filter(isRecord) : [];
+      state.graph.socialGroups = rows;
+      renderSocialGroupOptions();
+      // 与独立版一致：列表就绪后默认选中第一个群组；若已在社交视图则立即加载关系，避免空白图
+      if (rows.length && !state.graph.socialGroup) {
+        state.graph.socialGroup = socialGroupId(rows[0]);
+        renderSocialGroupOptions();
+        if (state.graph.type === "social") await loadSocialGraph(state.graph.socialGroup);
+      }
+    } catch (_) {
+      // 群组列表加载失败不阻塞图谱页；下次进入图谱页再重试
+      state.graph.socialGroupsLoaded = false;
+    }
+  }
+
+  function renderSocialGroupOptions() {
+    const select = $("graph-social-group");
+    if (!select) return;
+    select.innerHTML = `<option value="">${escapeHtml(t("graphs.selectGroup", "选择群组"))}</option>${state.graph.socialGroups
+      .map((group) => `<option value="${escapeAttr(socialGroupId(group))}">${escapeHtml(socialGroupName(group))}</option>`)
+      .join("")}`;
+    select.value = state.graph.socialGroup || "";
+  }
+
+  async function loadSocialGraph(groupId) {
+    const token = ++state.graph.token;
+    if (!groupId) {
+      state.graph.socialInfo = {};
+      renderGraphPayload({});
+      return;
+    }
+    setBusy(t("status.loading", "加载中"));
+    try {
+      const data = await apiGet("graphs/social", { group_id: groupId });
+      if (token !== state.graph.token) return;
+      state.graph.socialInfo = data;
+      renderGraphPayload(socialToGraph(data));
+      if (data.success === false && data.error) showToast(String(data.error), "warn");
+      else if (data.success === false && data.message) showToast(String(data.message), "error");
+    } catch (error) {
+      if (token === state.graph.token) showToast(error.message || t("graphs.socialLoadFailed", "社交关系加载失败"), "error");
+    } finally {
+      setBusy(state.runtimeStatusLabel || t("status.connected", "已连接"));
+    }
+  }
+
+  function syncGraphToolbar() {
+    const social = state.graph.type === "social";
+    qsa("#graph-type-tabs [data-graph-type]").forEach((btn) => btn.classList.toggle("active", btn.dataset.graphType === state.graph.type));
+    qsa("#graph-layout-tabs [data-graph-layout]").forEach((btn) => btn.classList.toggle("active", btn.dataset.graphLayout === state.graph.layout));
+    const groupInput = $("graph-group");
+    if (groupInput) groupInput.hidden = social;
+    const socialField = $("graph-social-field");
+    if (socialField) socialField.hidden = !social;
+    syncGraphSocialBar();
+  }
+
+  function syncGraphSocialBar() {
+    const bar = $("graph-social-bar");
+    if (!bar) return;
+    bar.hidden = !(state.graph.type === "social" && state.graph.socialGroup);
+    qsa("[data-graph-social]", bar).forEach((buttonEl) => {
+      buttonEl.disabled = Boolean(state.graph.busy);
+      buttonEl.classList.toggle("is-busy", state.graph.busy === buttonEl.dataset.graphSocial);
+    });
+    const info = state.graph.socialInfo || {};
+    setText("graph-social-summary", t("graphs.socialSummary", "成员 {members} · 关系 {relations} · 消息 {messages}")
+      .replace("{members}", fmt(info.member_count, 0))
+      .replace("{relations}", fmt(info.relation_count, 0))
+      .replace("{messages}", fmt(info.message_count, 0)));
+  }
+
+  function graphCategoryLabel(node) {
+    if (node.category_name) return String(node.category_name);
+    if (node.category === "member") return t("graphs.member", "成员");
+    return node.category !== undefined && node.category !== null && node.category !== ""
+      ? String(node.category)
+      : t("graphs.node", "节点");
+  }
+
+  // 图谱详情读数（两端同口径）：节点 / 连线 / 群组优先取后端 stats，来源取 data_source
+  function graphDetailStats(graph, nodes, links) {
+    const stats = isRecord(graph.stats) ? graph.stats : {};
+    return [
+      [t("graphs.stats.nodes", "节点"), safeNum(stats.nodes ?? nodes.length)],
+      [t("graphs.stats.links", "连线"), safeNum(stats.links ?? links.length)],
+      [t("graphs.stats.groups", "群组"), safeNum(stats.groups ?? listOf(graph.groups).length)],
+      [t("graphs.stats.source", "来源"), String(graph.data_source || "self_learning")],
+    ];
+  }
+
+  function renderGraphPayload(graph) {
+    const payload = isRecord(graph) ? graph : {};
+    state.graph.payload = payload;
+    syncGraphToolbar();
     const canvas = $("graph-canvas");
-    const size = canvas
+    const rawNodes = listOf(payload.nodes).filter(isRecord);
+    const rawLinks = listOf(payload.links).length ? listOf(payload.links) : listOf(payload.edges);
+    const hasNodes = rawNodes.length > 0;
+    if (canvas) canvas.hidden = !hasNodes;
+    const emptyEl = $("graph-empty");
+    if (emptyEl) {
+      emptyEl.hidden = hasNodes;
+      const social = state.graph.type === "social";
+      emptyEl.innerHTML = hasNodes ? "" : `<div class="empty-state with-detail">
+        <strong>${escapeHtml(social ? t("graphs.socialEmpty", "该群组暂无社交关系") : t("graphs.empty", "图谱暂无节点"))}</strong>
+        <span>${escapeHtml(social ? t("graphs.socialEmptyDetail", "点击「重新分析」基于群聊记录生成关系图。") : t("graphs.emptyDetail", "可尝试清空群组筛选后刷新。"))}</span>
+      </div>`;
+    }
+    const size = canvas && hasNodes
       ? syncGraphCanvasSize(canvas, { force: true })
-      : { width: 960, height: 520 };
-    const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+      : { width: state.graph.width || 960, height: state.graph.height || 520 };
     state.graph.nodes = rawNodes.map((node, index) =>
       createGraphNode(node, index, rawNodes.length, size.width, size.height),
     );
-    state.graph.links = normalizeGraphLinks(graph.links || []);
-    settleGraphLayout(state.graph.nodes, state.graph.links, size.width, size.height);
+    state.graph.links = normalizeGraphLinks(rawLinks);
+    if (state.graph.layout === "force") {
+      settleGraphLayout(state.graph.nodes, state.graph.links, size.width, size.height);
+      // 首次出现的节点记录稳定位置：之后刷新沿用，不再重新飞散
+      const bucket = graphPositionBucket();
+      state.graph.nodes.forEach((node) => {
+        if (!bucket || !bucket.has(String(node.id))) rememberGraphPosition(node, size.width, size.height);
+      });
+    }
     state.graph.dragged = null;
     state.graph.hovered = null;
-    setHtml("graph-stat-grid", statCards([
-      [t("graphs.stats.nodes", "节点"), (graph.stats || {}).nodes || state.graph.nodes.length],
-      [t("graphs.stats.links", "连线"), (graph.stats || {}).links || state.graph.links.length],
-      [t("graphs.stats.groups", "群组"), (graph.stats || {}).groups || (graph.groups || []).length],
-      [t("graphs.stats.source", "来源"), graph.data_source || "self_learning"],
-    ]));
+    setHtml("graph-stat-grid", graphDetailStats(payload, state.graph.nodes, state.graph.links).map(([label, value]) => `
+      <article class="stat-card small">
+        <span>${escapeHtml(label)}</span>
+        <strong class="${typeof value === "number" ? "" : "stat-text"}">${escapeHtml(typeof value === "number" ? fmt(value, 0) : textOrDash(value))}</strong>
+      </article>`).join(""));
     setHtml("graph-node-list", state.graph.nodes.slice(0, 18).map((node) => `
-      <div class="table-row">
-        <span>${escapeHtml(node.name || node.id)}</span>
-        <strong>${escapeHtml(node.category_name || node.category || t("graphs.node", "节点"))}</strong>
-        <small>${escapeHtml(node.detail || "")}</small>
+      <div class="check-row">
+        <div>
+          <strong>${escapeHtml(node.name || node.label || node.id)}</strong>
+          ${node.detail ? `<small>${escapeHtml(node.detail)}</small>` : ""}
+        </div>
+        ${pill(graphCategoryLabel(node))}
       </div>
     `).join("") || empty(t("empty.graphNodes", "暂无图谱节点")));
-    startGraphRender();
+    if (hasNodes) startGraphRender();
+  }
+
+  function setGraphType(next) {
+    if (!["memory", "knowledge", "social"].includes(next) || next === state.graph.type) return;
+    state.graph.type = next;
+    syncGraphToolbar();
+    if (next === "social") {
+      ensureSocialGroups();
+      loadSocialGraph(state.graph.socialGroup);
+    } else {
+      loadGraphs(true);
+    }
+  }
+
+  function setGraphLayout(next) {
+    if (!["force", "circular"].includes(next) || next === state.graph.layout) return;
+    state.graph.layout = next;
+    syncGraphToolbar();
+    if (state.graph.payload) renderGraphPayload(state.graph.payload);
+  }
+
+  async function handleGraphSocialAction(action) {
+    const groupId = state.graph.socialGroup;
+    if (!groupId) {
+      showToast(t("graphs.selectGroupFirst", "请先选择群组"), "warn");
+      return;
+    }
+    if (action === "analyze" && !await showConfirm(
+      t("graphs.analyzeTitle", "重新分析社交关系"),
+      t("graphs.analyzeConfirm", "将调用 LLM 分析该群组的成员互动关系，可能需要一段时间。确定继续吗？"),
+      t("graphs.analyzeOk", "开始分析"),
+      "warning",
+    )) return;
+    if (action === "clear" && !await showConfirm(
+      t("graphs.clearTitle", "清空社交关系"),
+      t("graphs.clearConfirm", "将删除该群组已分析的社交关系数据，确定继续吗？"),
+      t("graphs.clearOk", "确认清空"),
+      "danger",
+    )) return;
+    state.graph.busy = action;
+    syncGraphSocialBar();
+    try {
+      if (action === "analyze") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId });
+        showToast(result.message || t("graphs.analyzeDone", "社交关系分析已完成"), result.success === false ? "warn" : "ok");
+        await loadSocialGraph(groupId);
+      } else if (action === "clear") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId, confirmed: true });
+        if (result.success === false) throw new Error(result.message || t("graphs.actionFailed", "社交关系操作失败"));
+        showToast(t("graphs.cleared", "社交关系数据已清空"), "ok");
+        await loadSocialGraph(groupId);
+      } else if (action === "share") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId, expires_hours: 168 });
+        if (result.success === false) throw new Error(result.message || t("graphs.actionFailed", "社交关系操作失败"));
+        const rawUrl = (result.data || {}).share_url;
+        const shareUrl = rawUrl ? resolveHostUrl(String(rawUrl)) : "";
+        if (!shareUrl) {
+          showToast(t("graphs.shareCreated", "分享链接已创建"), "ok");
+        } else if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            showToast(t("graphs.shareCopied", "分享链接已复制到剪贴板"), "ok");
+          } catch (_) {
+            // iframe 未授予剪贴板权限时仍要把已创建的链接展示给用户（与独立版一致）
+            showToast(t("graphs.shareCreatedUrl", "分享链接已创建：{url}").replace("{url}", shareUrl), "warn");
+          }
+        } else {
+          showToast(t("graphs.shareUrl", "分享链接：{url}").replace("{url}", shareUrl), "ok");
+        }
+      }
+    } catch (error) {
+      showToast(error.message || t("graphs.actionFailed", "社交关系操作失败"), "error");
+    } finally {
+      state.graph.busy = "";
+      syncGraphSocialBar();
+    }
   }
 
   function createGraphNode(node, index, total, width, height) {
@@ -1220,6 +2248,7 @@
     const safeWidth = Math.max(320, width || 960);
     const safeHeight = Math.max(320, height || 520);
     const home = graphHomePosition(id, index, total, safeWidth, safeHeight, radius);
+    const cachedPosition = cachedGraphPosition(id);
     return {
       ...node,
       id,
@@ -1231,7 +2260,8 @@
       homeY: home.y,
       vx: 0,
       vy: 0,
-      pinned: false,
+      // 本次会话中拖动过的节点停在放下的位置（与独立版 positionCache 一致）
+      pinned: Boolean(cachedPosition && cachedPosition.dragged),
     };
   }
 
@@ -1239,6 +2269,22 @@
     const margin = graphNodeMargin(radius);
     const centerX = width / 2;
     const centerY = height / 2;
+    if (state.graph.layout === "circular") {
+      // 环形布局：节点按顺序均匀排在一个圆上（与独立版 ECharts circular 布局同义）
+      const ringRadius = Math.max(40, Math.min(width, height) / 2 - margin);
+      const ringAngle = (index / Math.max(1, total)) * Math.PI * 2 - Math.PI / 2;
+      return {
+        x: clamp(centerX + Math.cos(ringAngle) * ringRadius, margin, width - margin),
+        y: clamp(centerY + Math.sin(ringAngle) * ringRadius, margin, height - margin),
+      };
+    }
+    const cachedPosition = cachedGraphPosition(id);
+    if (cachedPosition) {
+      return {
+        x: clamp(cachedPosition.x * width, margin, width - margin),
+        y: clamp(cachedPosition.y * height, margin, height - margin),
+      };
+    }
     const seed = graphStableSeed(id);
     const angleOffset = state.graph.type === "knowledge" ? 0.72 : 0;
     const angle = index * 2.399963229728653 + angleOffset + seed * 0.0007;
@@ -1301,41 +2347,107 @@
     })).filter((link) => link.source && link.target);
   }
 
+  // ── 功能融合（对齐独立版 IntegrationsPage：状态卡 → 世界书 + QQ → MaiBot → 融合设置） ──
   function renderIntegrations(data) {
-    setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
-    setHtml("integration-warnings", warningListHtml(data.warnings || []));
-    const settings = data.settings || {};
+    const payload = isRecord(data) ? data : {};
+    setHtml("integration-cards", listOf(payload.dashboards).filter(isRecord).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
+    setHtml("integration-warnings", warningListHtml(payload.warnings || []));
+    const settings = isRecord(payload.settings) ? payload.settings : {};
     setHtml("integration-settings", Object.entries(settings).map(([key, value]) => `
       <div class="table-row">
         <span>${escapeHtml(key)}</span>
         <strong>${escapeHtml(value === true ? t("state.on", "开启") : value === false ? t("state.off", "关闭") : value ?? t("state.unset", "未设置"))}</strong>
       </div>
     `).join("") || empty(t("empty.integrationSettings", "暂无融合设置")));
-    renderMaiBotImportPreview(data.maibot_learning || null);
+    renderMaiBotImportPreview(payload.maibot_learning || null);
     loadWorldbookHistory();
   }
 
+  // 状态徽标：正常 / 异常 / 未知 / 未安装（与独立版 IntegrationCard badge 同口径）
+  function integrationStatusBadge(item) {
+    const status = isRecord(item.status) ? item.status : {};
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const active = item.active === true || dash.available === true;
+    const healthy = status.healthy;
+    const text = healthy === true ? t("state.healthy", "正常")
+      : healthy === false ? t("state.unhealthy", "异常")
+      : active ? t("state.unknown", "未知") : t("state.notInstalled", "未安装");
+    return pill(text, healthy === true ? "ok" : healthy === false ? "danger" : "warn");
+  }
+
+  // 委托状态独立成徽标，不掩盖健康状态（两端 union 后一致）
+  function integrationDelegationBadge(item) {
+    if (item.delegated !== true && item.delegated !== false) return "";
+    return pill(item.delegated ? t("state.delegated", "已委托") : t("state.notDelegated", "未委托"), item.delegated ? "ok" : "");
+  }
+
   function integrationCardHtml(item) {
-    const dash = item.dashboard || {};
-    const status = item.status || {};
-    const url = resolveHostUrl(dash.external_url || dash.official_page_url || "#");
-    const disabled = !dash.available || !url || url === "#";
-    const stateText = status.healthy === true ? t("state.healthy", "正常")
-      : status.healthy === false ? t("state.unhealthy", "异常")
-      : item.active ? t("state.available", "可用") : t("state.disabled", "未启用");
-    return `<article class="integration-card ${item.active ? "active" : ""}">
-      <div>
-        <span>${escapeHtml(item.role || "")}</span>
-        <h3>${escapeHtml(item.title || item.id)}</h3>
-        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : stateText)}</p>
-        ${status.message ? `<small>${escapeHtml(String(status.message))}</small>` : ""}
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const status = isRecord(item.status) ? item.status : {};
+    const devApi = isRecord(item.dev_api) ? item.dev_api : {};
+    const actionable = Boolean(dash.available || String(dash.route || "").startsWith("#/") || dash.external_url || dash.official_page_url);
+    return `<article class="integration-card ${item.active || dash.available ? "active" : ""}">
+      <div class="integration-card-head">
+        <h3>${escapeHtml(item.title || item.id || "")}</h3>
+        <div class="integration-badges">${integrationStatusBadge(item)}${integrationDelegationBadge(item)}</div>
       </div>
-      <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || t("actions.open", "打开"))}</a>
-      <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>
+      <p>${escapeHtml(textOrDash(item.description ?? item.role))}</p>
+      ${status.message ? `<small class="integration-card-status">${escapeHtml(String(status.message))}</small>` : ""}
+      ${devApi.mode ? `<small class="integration-card-mode">${escapeHtml(String(devApi.mode))}</small>` : ""}
+      ${button(t("integrations.openPanel", "打开面板"), `data-integration-open="${escapeAttr(item.id || "")}" ${actionable ? "" : "disabled"}`, "ghost-button integration-open-button")}
     </article>`;
   }
 
+  // 打开面板：外部链接优先新窗口打开；无外部入口的卡片退回内嵌路由（与独立版 openIntegration 一致）
+  function handleIntegrationOpen(id) {
+    const item = listOf((state.pageData.integrations || {}).dashboards)
+      .find((entry) => isRecord(entry) && String(entry.id || "") === String(id));
+    if (!item) return;
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const external = resolveHostUrl(String(dash.external_url || ""));
+    if (external && external !== "#") {
+      window.open(external, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const route = String(dash.route || "");
+    if (route.startsWith("#/")) {
+      const page = route.replace(/^#\//, "");
+      if (PAGE_META[page]) {
+        navigateToPage(page);
+        return;
+      }
+    }
+    const official = resolveHostUrl(String(dash.official_page_url || ""));
+    if (official && official !== "#") window.open(official, "_blank", "noopener,noreferrer");
+  }
+
+  // 结果框：仅有内容时显示（预览/导入摘要 + 原始 JSON），避免空态占位（与独立版一致）
+  function showImportOutput(id, text) {
+    const el = $(id);
+    if (!el) return;
+    if (text) {
+      el.hidden = false;
+      el.textContent = text;
+    } else {
+      el.hidden = true;
+      el.textContent = "";
+    }
+  }
+
   function collectMaiBotPayload() {
+    const payloadText = ($("maibot-payload-input")?.value || "").trim();
+    if (payloadText) {
+      let payload;
+      try {
+        payload = JSON.parse(payloadText);
+      } catch (_) {
+        throw new Error(t("maibot.invalidPayload", "MaiBot 导出 JSON 格式无效"));
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error(t("maibot.payloadNotObject", "MaiBot 导出 JSON 必须是对象"));
+      }
+      return { payload };
+    }
     const payload = {
       maibot_root: $("maibot-root-input")?.value?.trim() || "",
       db_path: $("maibot-db-input")?.value?.trim() || "",
@@ -1347,7 +2459,7 @@
       approve_checked_expressions: Boolean($("maibot-approve-checked")?.checked),
     };
     if (!payload.maibot_root && !payload.db_path) {
-      throw new Error(t("maibot.missingPath", "请填写 MaiBot 项目目录或主数据库路径"));
+      throw new Error(t("maibot.missingPath", "请填写 MaiBot 根目录或数据库路径，或粘贴导出 JSON"));
     }
     return payload;
   }
@@ -1360,14 +2472,18 @@
       include_training_pairs: Boolean($("qchat-include-training")?.checked),
     };
     if (!payload.source_path) {
-      throw new Error(t("qchat.missingPath", "请填写 QQ 聊天记录路径"));
+      throw new Error(t("qchat.missingPath", "请输入聊天记录源路径"));
     }
     return payload;
   }
 
   function renderMaiBotImportPreview(summary) {
     const output = $("maibot-import-output");
-    if (!output || !summary) return;
+    if (!output) return;
+    if (!summary || typeof summary !== "object") {
+      showImportOutput("maibot-import-output", "");
+      return;
+    }
     const counts = summary.counts || {};
     const breakdown = summary.review_breakdown || {};
     const destinations = summary.destinations || {};
@@ -1390,12 +2506,16 @@
         .replace("{jargons}", destinations.jargons)
         .replace("{memories}", destinations.memories));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+    showImportOutput("maibot-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`);
   }
 
   function renderQchatImportPreview(summary) {
     const output = $("qchat-import-output");
-    if (!output || !summary) return;
+    if (!output) return;
+    if (!summary || typeof summary !== "object") {
+      showImportOutput("qchat-import-output", "");
+      return;
+    }
     const counts = summary.counts || {};
     const lines = [];
     if (Object.keys(counts).length) {
@@ -1419,7 +2539,7 @@
         .replace("{raw}", destinations.raw_messages || "raw_messages")
         .replace("{queue}", destinations.learning_queue || "raw_messages.processed=false"));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+    showImportOutput("qchat-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`);
   }
 
   function collectWorldbookPayload() {
@@ -1446,6 +2566,10 @@
   function renderWorldbookPreview(detail) {
     const output = $("worldbook-import-output");
     if (!output) return;
+    if (!detail || typeof detail !== "object") {
+      showImportOutput("worldbook-import-output", "");
+      return;
+    }
     const counts = detail.counts || {};
     const breakdown = detail.review_breakdown || {};
     const lines = [];
@@ -1475,32 +2599,41 @@
         .replace("{relations}", fmt(detail.kg_relations_imported, 0))
         .replace("{skipped}", fmt(detail.skipped, 0)));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(detail, null, 2)}`;
+    showImportOutput("worldbook-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(detail, null, 2)}`);
+  }
+
+  // 世界书导入历史：折叠面板显示世界书名 / 条目数 / 状态徽标（后端聚合 status）
+  function worldbookStatusPill(item) {
+    const status = item.status;
+    const tone = status === "approved" || status === "success" ? "ok" : status === "rejected" ? "danger" : "warn";
+    return pill(textOrDash(status), tone);
   }
 
   async function loadWorldbookHistory() {
+    const wrapper = $("worldbook-history");
     try {
       const result = await apiPost("integrations/action", { action: "worldbook_history", limit: 8 });
-      const history = result.history || {};
-      const imports = history.imports || {};
-      const rows = Object.values(imports)
+      const history = isRecord(result.history) ? result.history : {};
+      const rows = listOf(history.imports).filter(isRecord)
         .sort((a, b) => String(b.imported_at || b.created_at || "").localeCompare(String(a.imported_at || a.created_at || "")))
         .slice(0, 8);
-      setHtml("worldbook-history-list", rows.length ? `
-        <div class="table-row history-heading">
-          <strong>${escapeHtml(t("worldbook.recentImports", "最近导入记录"))}</strong>
-        </div>
-        ${rows.map((item) => `
-          <div class="table-row">
-            <div>
-              <strong>${escapeHtml(item.worldbook_name || item.source_name || item.import_id || t("worldbook.defaultName", "世界书导入"))}</strong>
-              <small>${escapeHtml(formatTimestamp(item.imported_at || item.created_at))}</small>
-            </div>
-            <strong>${escapeHtml(fmt(item.entries, 0))}</strong>
-            ${pill(String(item.status ?? ""), item.status === "approved" || item.status === "success" ? "ok" : "warn")}
+      if (wrapper) wrapper.hidden = rows.length === 0;
+      const summary = wrapper?.querySelector("summary");
+      if (summary) {
+        summary.textContent = `${t("worldbook.recentImports", "最近导入记录")}（${fmt(rows.length, 0)}）`;
+      }
+      setHtml("worldbook-history-list", rows.map((item) => `
+        <div class="table-row">
+          <div>
+            <strong>${escapeHtml(item.worldbook_name || item.import_id || t("worldbook.defaultName", "世界书导入"))}</strong>
+            <small>${escapeHtml(formatTimestamp(item.imported_at || item.created_at))}</small>
           </div>
-        `).join("")}` : "");
+          <strong>${escapeHtml(fmt(item.entries, 0))}</strong>
+          ${worldbookStatusPill(item)}
+        </div>
+      `).join(""));
     } catch (_) {
+      if (wrapper) wrapper.hidden = true;
       setHtml("worldbook-history-list", "");
     }
   }
@@ -1512,9 +2645,10 @@
       const payload = collectWorldbookPayload();
       if (action === "worldbook_import") {
         const confirmed = await showConfirm(
-          t("modal.confirmImport", "确认导入"),
+          t("worldbook.confirmTitle", "导入世界书"),
           t("worldbook.confirmImport", "将写入人格审查、黑话候选或知识图谱，确定继续吗？"),
-          t("actions.import", "导入"),
+          t("worldbook.confirmImportOk", "确认导入"),
+          "warning",
         );
         if (!confirmed) return;
       }
@@ -1523,11 +2657,11 @@
         buttonEl.classList.add("is-busy");
         buttonEl.textContent = action === "worldbook_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
       }
-      setText("worldbook-import-output", action === "worldbook_import" ? t("worldbook.importing", "正在导入世界书...") : t("worldbook.previewing", "正在解析世界书..."));
+      showImportOutput("worldbook-import-output", action === "worldbook_import" ? t("worldbook.importing", "正在导入世界书...") : t("worldbook.previewing", "正在解析世界书..."));
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderWorldbookPreview(detail);
-      showToast(result.message || t("worldbook.done", "世界书操作完成"), result.success !== false ? "ok" : "error");
+      showToast(action === "worldbook_import" ? t("worldbook.importDone", "导入完成") : t("worldbook.previewDone", "预览完成"), "ok");
       if (action === "worldbook_import") {
         state.pageData = {};
         await loadDashboard(true);
@@ -1535,7 +2669,7 @@
       }
     } catch (error) {
       const message = error.message || String(error);
-      setText("worldbook-import-output", message);
+      showImportOutput("worldbook-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -1568,7 +2702,7 @@
             data-qchat-sender="${escapeAttr(senderId)}" ${learnable ? "" : "disabled"}>
             <strong>${escapeHtml(sender.sender_name || senderId)}</strong>
             <small>QQ ${escapeHtml(sender.sender_qq || senderId)}</small>
-            <b>${escapeHtml(fmt(count, 0))}</b>
+            <b>${escapeHtml(`${fmt(count, 0)} ${t("qchat.countUnit", "条")}`)}</b>
             <small>${escapeHtml(learnable ? t("shadow.learnable", "可学习") : t("shadow.insufficient", "样本不足"))}</small>
           </button>`;
         }).join("")}
@@ -1582,66 +2716,54 @@
     if (!buttonEl) return;
     buttonEl.textContent = state.qchatShadowSender
       ? t("qchat.importWithShadow", "导入并启用影子")
-      : t("actions.import", "导入");
-  }
-
-  function currentBatchReviewIds(kind) {
-    const selected = selectedReviewIds(kind);
-    return selected.length ? selected : visibleReviewIds(kind);
-  }
-
-  async function handleBatchReviewAction(kind, action) {
-    const ids = currentBatchReviewIds(kind);
-    if (!ids.length) {
-      showToast(t("reviews.noBatchItems", "当前页没有可批量处理的审查项"), "error");
-      return;
-    }
-    const typeText = { persona: t("reviews.personaUpdates", "人格更新"), style: t("reviews.expressionReviews", "表达审查"), jargon: t("reviews.jargonCandidates", "黑话候选") }[kind] || t("reviews.items", "审查项");
-    const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
-    const scopeText = selectedReviewIds(kind).length ? t("selection.selected", "选中") : t("selection.currentPage", "当前页");
-    const confirmed = await showConfirm(t("modal.confirmBatch", "确认批量操作"), t("reviews.confirmBatch", "确定批量{action}{scope} {count} 条{type}？")
-      .replace("{action}", actionText)
-      .replace("{scope}", scopeText)
-      .replace("{count}", fmt(ids.length, 0))
-      .replace("{type}", typeText), actionText);
-    if (!confirmed) return;
-
-    const payload = {
-      action: action === "delete"
-        ? kind === "persona" ? "batch_delete" : kind === "style" ? "batch_delete_style" : "batch_delete_jargon"
-        : kind === "persona" ? "batch_review" : kind === "style" ? "batch_review_style" : "batch_review_jargon",
-      ids,
-      decision: action,
-    };
-    const result = await apiPost("reviews/action", payload);
-    showToast(result.message || t("messages.batchDone", "批量操作完成"), result.success ? "ok" : "error");
-    selectedReviewSet(kind).clear();
-    state.pageData.reviews = null;
-    await loadPageData(state.page, { force: true });
+      : t("qchat.importButton", "导入记录");
+    // 与独立版一致：预览完成后才允许导入
+    buttonEl.disabled = !state.qchatPreviewData;
   }
 
   async function runMaiBotImportAction(action) {
-    const buttonEl = action === "maibot_import" ? $("maibot-import-button") : $("maibot-preview-button");
+    const buttonEl = action === "maibot_import" ? $("maibot-import-button")
+      : action === "maibot_export" ? $("maibot-export-button") : $("maibot-preview-button");
     const originalLabel = buttonEl?.textContent || "";
     try {
       const payload = collectMaiBotPayload();
+      if (action === "maibot_import" && !await showConfirm(
+        t("maibot.confirmTitle", "导入 MaiBot 学习数据"),
+        t("maibot.confirmImport", "将写入表达样本、黑话候选和记忆数据，重复内容会被跳过。确定继续吗？"),
+        t("worldbook.confirmImportOk", "确认导入"),
+        "warning",
+      )) return;
       if (buttonEl) {
         buttonEl.disabled = true;
         buttonEl.classList.add("is-busy");
-        buttonEl.textContent = action === "maibot_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
+        buttonEl.textContent = action === "maibot_import" ? t("actions.importing", "导入中") : action === "maibot_export" ? t("maibot.exporting", "导出中") : t("actions.previewing", "预览中");
       }
-      setText("maibot-import-output", t("maibot.reading", "正在读取 MaiBot 学习数据..."));
+      showImportOutput("maibot-import-output", t("maibot.reading", "正在读取 MaiBot 学习数据..."));
       const result = await apiPost("integrations/action", { action, ...payload });
+      if (action === "maibot_export") {
+        // 导出不写数据：直接把导出包下载为 JSON 文件（与独立版 downloadJson 一致）
+        downloadJson("maibot-learning-export.json", result.payload ?? result);
+        showImportOutput("maibot-import-output", "");
+        showToast(t("maibot.exported", "MaiBot 学习数据已导出"), "ok");
+        return;
+      }
       const detail = result.preview || result.result || result.payload || result;
       renderMaiBotImportPreview(detail);
-      showToast(result.message || t("maibot.done", "MaiBot 学习数据操作完成"), result.success !== false ? "ok" : "error");
+      const errors = listOf(detail && detail.errors);
+      const failed = action === "maibot_import" && (result.success === false || errors.length > 0);
+      showToast(
+        failed
+          ? t("maibot.partialFailed", "导入部分失败，请查看下方明细")
+          : action === "maibot_import" ? t("maibot.importDone", "导入完成") : t("maibot.previewDone", "预览完成"),
+        failed ? "warn" : "ok",
+      );
       if (action === "maibot_import") {
         state.pageData = {};
         await loadDashboard(true);
       }
     } catch (error) {
       const message = error.message || String(error);
-      setText("maibot-import-output", message);
+      showImportOutput("maibot-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -1657,12 +2779,18 @@
     const originalLabel = buttonEl?.textContent || "";
     try {
       const payload = collectQchatPayload();
+      if (action === "qchat_import" && !await showConfirm(
+        t("qchat.confirmTitle", "导入 QQ 聊天记录"),
+        t("qchat.confirmImport", "消息将写入原始消息队列，重复消息会被跳过。确定继续吗？"),
+        t("worldbook.confirmImportOk", "确认导入"),
+        "warning",
+      )) return;
       if (buttonEl) {
         buttonEl.disabled = true;
         buttonEl.classList.add("is-busy");
         buttonEl.textContent = action === "qchat_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
       }
-      setText("qchat-import-output", t("qchat.reading", "正在读取 QQ 聊天记录..."));
+      showImportOutput("qchat-import-output", t("qchat.reading", "正在读取 QQ 聊天记录..."));
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderQchatImportPreview(detail);
@@ -1672,11 +2800,11 @@
         const groupInput = $("qchat-default-group-input");
         if (groupInput && !groupInput.value.trim() && detail.group_id && detail.group_id !== "global") groupInput.value = String(detail.group_id);
         renderQchatSenders();
-        showToast(result.message || t("qchat.previewDone", "预览完成，可从用户列表选择影子对象"), "ok");
+        showToast(t("qchat.previewDone", "预览完成，请从用户列表中选择影子对象"), "ok");
         return;
       }
-      showToast(result.message || t("qchat.done", "QQ 聊天记录操作完成"), result.success !== false ? "ok" : "error");
-      if (action === "qchat_import" && state.qchatShadowSender) {
+      showToast(t("qchat.importDone", "导入完成"), "ok");
+      if (state.qchatShadowSender) {
         try {
           const senderId = state.qchatShadowSender;
           const sender = ((state.qchatPreviewData || {}).senders || [])
@@ -1691,16 +2819,14 @@
           });
           showToast(t("qchat.shadowLearned", "已启用 {name} 的影子模式").replace("{name}", sender?.sender_name || senderId), shadowResult.success ? "ok" : "error");
         } catch (shadowError) {
-          showToast(t("qchat.shadowFailed", "聊天记录已导入，但影子学习失败：{reason}").replace("{reason}", shadowError.message || String(shadowError)), "error");
+          showToast(t("qchat.shadowFailed", "聊天记录已导入，但影子学习失败：{reason}").replace("{reason}", shadowError.message || String(shadowError)), "warn");
         }
       }
-      if (action === "qchat_import") {
-        state.pageData = {};
-        await loadDashboard(true);
-      }
+      state.pageData = {};
+      await loadDashboard(true);
     } catch (error) {
       const message = error.message || String(error);
-      setText("qchat-import-output", message);
+      showImportOutput("qchat-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -1712,21 +2838,126 @@
     }
   }
 
-  function renderSettings(data) {
-    const schema = data.schema || {};
-    setHtml("settings-warnings", warningListHtml(schema.warnings || data.warnings || []));
-    const groups = schema.groups || [];
-    if (!state.settingsGroup && groups.length) state.settingsGroup = groups[0].key;
-    setHtml("settings-groups", groups.map((group) => `
-      <button class="settings-group ${group.key === state.settingsGroup ? "active" : ""}" type="button" data-settings-group="${escapeAttr(group.key)}">
-        <strong>${escapeHtml(configT(`${group.key}.description`, group.title || group.key))}</strong>
-        <small>${escapeHtml(configT(`${group.key}.hint`, group.hint || ""))}</small>
-      </button>
-    `).join("") || empty(t("empty.configSchema", "配置 schema 暂不可用")));
+  // ── 设置（对齐独立版 SettingsPage：数据管理 / Bug 反馈 / 分组搜索 / 依赖安装） ──
+  const SETTINGS_GROUP_STORAGE_KEY = "sl-settings-group";
+  const PIP_MIRROR_STORAGE_KEY = "sl-pip-mirror";
 
-    const active = groups.find((group) => group.key === state.settingsGroup) || groups[0] || { fields: [] };
-    setHtml("config-form", (active.fields || []).map(fieldHtml).join("") || empty(t("empty.selectConfigGroup", "请选择配置分组")));
-    renderPipMirrors(data.pip_mirrors || {});
+  function settingsGroups() {
+    const schema = (state.pageData.settings || {}).schema || {};
+    return listOf(schema.groups).filter(isRecord);
+  }
+
+  function settingsGroupKey(group) {
+    return String(group.key ?? group.title ?? "");
+  }
+
+  function settingsGroupLabel(group) {
+    return configT(`${settingsGroupKey(group)}.description`, group.title || settingsGroupKey(group));
+  }
+
+  function settingsFieldMatches(field, query) {
+    const groupKey = field.group_key || activeSettingsGroupKeyForField(field.key);
+    const haystack = `${configT(`${groupKey}.${field.key}.description`, field.label || field.key)} ${field.key} ${configT(`${groupKey}.${field.key}.hint`, field.hint || "")}`.toLowerCase();
+    return haystack.includes(query);
+  }
+
+  // 「未保存 N 项」徽标 + 保存/重置按钮可用性（与独立版 PageHeader actions 同步）
+  function syncSettingsHeader() {
+    const dirtyCount = state.dirtySettings.size;
+    const badge = $("settings-dirty-badge");
+    if (badge) {
+      badge.hidden = dirtyCount === 0;
+      badge.textContent = t("settings.dirtyBadge", "未保存 {count} 项").replace("{count}", fmt(dirtyCount, 0));
+    }
+    const save = $("config-save-button");
+    if (save) save.disabled = dirtyCount === 0;
+    const reset = $("config-reset-button");
+    if (reset) reset.disabled = dirtyCount === 0;
+  }
+
+  // 侧栏分组导航：搜索过滤、字段数、未保存圆点（与独立版 group-nav 同构）
+  function renderSettingsNav() {
+    const groups = settingsGroups();
+    const query = String(state.settingsQuery || "").trim().toLowerCase();
+    const matched = query
+      ? groups.filter((group) => listOf(group.fields).some((field) => isRecord(field) && settingsFieldMatches(field, query)))
+      : groups;
+    const nav = $("settings-groups");
+    const noMatch = $("settings-no-match");
+    if (noMatch) {
+      noMatch.hidden = groups.length > 0 && matched.length > 0;
+      noMatch.textContent = groups.length === 0
+        ? t("settings.notLoaded", "配置面板尚未加载。")
+        : query
+          ? t("settings.noMatchQuery", "没有匹配「{query}」的配置项").replace("{query}", String(state.settingsQuery || "").trim())
+          : t("settings.noMatch", "没有匹配的配置项");
+    }
+    if (nav) {
+      nav.innerHTML = matched.map((group) => {
+        const key = settingsGroupKey(group);
+        const dirty = listOf(group.fields).some((field) => isRecord(field) && state.dirtySettings.has(field.key));
+        return `<button class="settings-group ${!query && key === state.settingsGroup ? "active" : ""}" type="button" data-settings-group="${escapeAttr(key)}">
+          <span class="settings-group-label">
+            <strong>${escapeHtml(settingsGroupLabel(group))}</strong>
+            <small>${escapeHtml(configT(`${key}.hint`, group.hint || ""))}</small>
+          </span>
+          <span class="settings-group-meta">${dirty ? `<i class="dirty-dot" title="${escapeAttr(t("settings.dirtyDot", "有未保存修改"))}"></i>` : ""}${escapeHtml(fmt(listOf(group.fields).length, 0))}</span>
+        </button>`;
+      }).join("");
+    }
+  }
+
+  // 右侧详情：分组头（名称 + 说明 + N 项）；搜索时跨分组平铺匹配结果（与独立版一致）
+  function renderSettingsDetail() {
+    const groups = settingsGroups();
+    const head = $("config-group-head");
+    if (!groups.length) {
+      if (head) head.hidden = true;
+      setHtml("config-form", `<div class="empty-state with-detail">
+        <strong>${escapeHtml(t("settings.notLoadedTitle", "配置面板尚未加载"))}</strong>
+        <span>${escapeHtml(t("settings.notLoaded", "配置面板尚未加载。"))}</span>
+        ${button(t("settings.loadConfig", "加载配置"), 'data-settings-load="1"', "ghost-button")}
+      </div>`);
+      return;
+    }
+    const query = String(state.settingsQuery || "").trim().toLowerCase();
+    if (query) {
+      if (head) head.hidden = true;
+      const matched = groups
+        .map((group) => ({
+          group,
+          fields: listOf(group.fields).filter((field) => isRecord(field) && settingsFieldMatches(field, query)),
+        }))
+        .filter((entry) => entry.fields.length);
+      setHtml("config-form", matched.map((entry) => `
+        <h4 class="settings-result-group">${escapeHtml(settingsGroupLabel(entry.group))}</h4>
+        ${entry.fields.map(fieldHtml).join("")}
+      `).join("") || empty(t("settings.noMatch", "没有匹配的配置项")));
+      return;
+    }
+    const active = groups.find((group) => settingsGroupKey(group) === state.settingsGroup) || groups[0];
+    if (active) state.settingsGroup = settingsGroupKey(active);
+    if (head) {
+      head.hidden = false;
+      setText("config-group-name", settingsGroupLabel(active));
+      const hintEl = $("config-group-hint");
+      if (hintEl) {
+        hintEl.textContent = configT(`${settingsGroupKey(active)}.hint`, active.hint || "");
+        hintEl.hidden = !hintEl.textContent;
+      }
+      setText("config-group-count", t("settings.fieldCount", "{count} 项").replace("{count}", fmt(listOf(active.fields).length, 0)));
+    }
+    setHtml("config-form", listOf(active.fields).filter(isRecord).map(fieldHtml).join("") || empty(t("empty.selectConfigGroup", "请选择配置分组")));
+  }
+
+  function renderSettings(data) {
+    const payload = isRecord(data) ? data : {};
+    const schema = isRecord(payload.schema) ? payload.schema : {};
+    setHtml("settings-warnings", warningListHtml(schema.warnings || payload.warnings || []));
+    renderPipMirrors(payload.pip_mirrors || {});
+    renderSettingsNav();
+    renderSettingsDetail();
+    syncSettingsHeader();
   }
 
   function fieldHtml(field) {
@@ -1767,21 +2998,503 @@
   function renderPipMirrors(mirrors) {
     const select = $("pip-mirror-select");
     if (!select || select.childElementCount) return;
-    select.innerHTML = Object.entries(mirrors).map(([key, item]) => `<option value="${escapeAttr(key)}">${escapeHtml(item.label || key)}</option>`).join("");
+    select.innerHTML = Object.entries(isRecord(mirrors) ? mirrors : {})
+      .map(([key, item]) => `<option value="${escapeAttr(key)}">${escapeHtml((isRecord(item) ? item.label : null) || key)}</option>`)
+      .join("");
+    // 记住上次选择的镜像源（与独立版 localStorage key sl-pip-mirror 相同）
+    const saved = storageGet(PIP_MIRROR_STORAGE_KEY);
+    if (saved && Array.from(select.options).some((option) => option.value === saved)) select.value = saved;
   }
 
-  function statCards(items) {
-    return items.map(([label, value]) => `<article class="stat-card small">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(fmt(value, typeof value === "number" ? 1 : 0))}</strong>
-    </article>`).join("");
+  // ── 数据管理（对齐独立版 DataManagementPanel：8 读数 + 按模块清空，全部需二次确认） ──
+  const DATA_STAT_ROWS = [
+    ["messages", "原始/筛选消息"],
+    ["persona_reviews", "人格学习与审查"],
+    ["style_learning", "表达风格学习"],
+    ["jargon", "黑话词库"],
+    ["learning_history", "学习历史"],
+    ["memory", "记忆数据"],
+    ["knowledge_graph", "知识图谱"],
+    ["runtime_state", "运行时状态"],
+  ];
+  const DATA_CLEAR_ACTIONS = [
+    ["messages", "消息数据", "warning"],
+    ["persona_reviews", "人格学习/审查数据", "warning"],
+    ["style_learning", "风格学习数据", "warning"],
+    ["jargon", "黑话数据", "warning"],
+    ["learning_history", "学习历史数据", "warning"],
+  ];
+
+  async function loadDataStatistics(force) {
+    try {
+      const result = await cached("data:statistics", () => apiGet("data/statistics"), force);
+      renderDataStatistics(isRecord(result) ? result : {});
+    } catch (error) {
+      showToast(error.message || t("dataMgmt.statsFailed", "数据统计加载失败"), "error");
+    }
+  }
+
+  function renderDataStatistics(stats) {
+    setHtml("data-stat-grid", DATA_STAT_ROWS.map(([key, label]) => `
+      <article class="stat-card small">
+        <span>${escapeHtml(t(`dataMgmt.stats.${key}`, label))}</span>
+        <strong>${escapeHtml(textOrDash(stats[key]))}</strong>
+      </article>`).join(""));
+    const actions = $("data-clear-actions");
+    if (actions && !actions.childElementCount) {
+      actions.innerHTML = DATA_CLEAR_ACTIONS.map(([key, label]) =>
+        button(`${t("dataMgmt.clearPrefix", "清空")}${t(`dataMgmt.clear.${key}`, label)}`, `data-data-clear="${escapeAttr(key)}"`, "ghost-button warning-button"),
+      ).join("") + button(t("dataMgmt.clearAll", "清空全部数据"), 'data-data-clear="all"', "danger-button");
+    }
+  }
+
+  async function handleDataClear(target) {
+    const row = DATA_CLEAR_ACTIONS.find(([key]) => key === target);
+    const isAll = target === "all";
+    if (!row && !isAll) return;
+    const label = isAll ? t("dataMgmt.clearAllLabel", "全部数据") : t(`dataMgmt.clear.${row[0]}`, row[1]);
+    const confirmed = await showConfirm(
+      isAll ? t("dataMgmt.clearAllTitle", "清空全部数据") : `${t("dataMgmt.clearPrefix", "清空")}${label}`,
+      isAll
+        ? t("dataMgmt.clearAllConfirm", "将永久删除插件产生的全部数据（消息、人格审查、风格学习、黑话、学习历史等），且无法恢复。")
+        : t("dataMgmt.clearConfirm", "将永久删除「{label}」相关数据，且无法恢复。").replace("{label}", label),
+      t("dataMgmt.clearOk", "确认清空"),
+      isAll || !row || row[2] !== "warning" ? "danger" : "warning",
+    );
+    if (!confirmed) return;
+    const actionButtons = qsa("[data-data-clear]");
+    actionButtons.forEach((el) => { el.disabled = true; });
+    try {
+      const result = await apiPost("data/clear", { target, confirmed: true });
+      if (result.success === false) throw new Error(result.message || t("dataMgmt.clearFailed", "清空数据失败"));
+      const deleted = result.deleted === undefined ? "" : t("dataMgmt.deletedSuffix", "（{count} 行）").replace("{count}", fmt(result.deleted, 0));
+      showToast(`${result.message || `${t("dataMgmt.clearedPrefix", "已清空")}${label}`}${deleted}`, "ok");
+      // 只失效受影响的缓存：设置快照仍在使用中，整体清空会让设置页渲染退化为空态
+      clearCached("data:statistics");
+      delete state.pageData.integrations;
+      await loadDataStatistics(true);
+      await loadDashboard(true);
+    } catch (error) {
+      showToast(error.message || t("dataMgmt.clearFailed", "清空数据失败"), "error");
+    } finally {
+      actionButtons.forEach((el) => { el.disabled = false; });
+    }
+  }
+
+  // ── Bug 反馈（对齐独立版 BugReportPanel：配置选项 + 日志预览 + 提交） ──
+  const BUG_FALLBACK_SEVERITY = [[1, "1 - 致命"], [2, "2 - 严重"], [3, "3 - 一般"], [4, "4 - 轻微"]];
+  const BUG_FALLBACK_PRIORITY = [[1, "1 - 紧急"], [2, "2 - 高"], [3, "3 - 中"], [4, "4 - 低"]];
+  const BUG_FALLBACK_TYPE = [["codeerror", "代码错误"], ["config", "配置相关"], ["install", "安装部署"], ["performance", "性能问题"], ["others", "其他"]];
+
+  function bugOptions(key, fallback) {
+    const options = listOf((state.bugReportConfig || {})[key]);
+    return options.length ? options : fallback.map(([value, label]) => ({ value, label }));
+  }
+
+  function renderBugSelect(id, options) {
+    const select = $(id);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = options.map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.label ?? option.value)}</option>`).join("");
+    // 下拉选项异步替换后保留受控值，避免回退到第一项（与独立版 Select onMount syncValue 同义）
+    if (previous && options.some((option) => String(option.value) === previous)) select.value = previous;
+  }
+
+  async function loadBugReport(force) {
+    try {
+      const config = await cached("bug:config", () => apiGet("bug-report"), force);
+      renderBugReport(isRecord(config) ? config : {});
+    } catch (error) {
+      showToast(error.message || t("bugReport.configFailed", "Bug 报告配置加载失败"), "error");
+    }
+  }
+
+  function renderBugReport(config) {
+    state.bugReportConfig = config;
+    const enabled = config.enabled !== false;
+    const body = $("bug-report-body");
+    const emptyEl = $("bug-report-empty");
+    if (emptyEl) {
+      emptyEl.hidden = enabled;
+      emptyEl.innerHTML = enabled ? "" : `<div class="empty-state with-detail">
+        <strong>${escapeHtml(t("bugReport.unavailable", "Bug 反馈暂不可用"))}</strong>
+        <span>${escapeHtml(String(config.message || t("bugReport.unavailableDetail", "管理员未开启该功能。")))}</span>
+      </div>`;
+    }
+    if (body) body.hidden = !enabled;
+    if (!enabled) return;
+    renderBugSelect("bug-severity-select", bugOptions("severityOptions", BUG_FALLBACK_SEVERITY));
+    renderBugSelect("bug-priority-select", bugOptions("priorityOptions", BUG_FALLBACK_PRIORITY));
+    renderBugSelect("bug-type-select", bugOptions("typeOptions", BUG_FALLBACK_TYPE));
+    const build = $("bug-build-input");
+    // 用户可能已手动填写：仅在为空时回填默认影响版本（与独立版一致）
+    if (build && !build.value.trim() && config.defaultBuild) build.value = String(config.defaultBuild);
+    const logPreview = isRecord(config.logPreview) ? config.logPreview : {};
+    const entries = Object.entries(logPreview).filter(([, content]) => typeof content === "string" && content.length > 0);
+    const details = $("bug-log-preview");
+    if (details) {
+      details.hidden = entries.length === 0;
+      setText("bug-log-summary", t("bugReport.logPreview", "附加日志预览（{count} 项，仅展示，不会随报告提交）").replace("{count}", fmt(entries.length, 0)));
+      setHtml("bug-log-body", entries.map(([name, content]) => `<h4>${escapeHtml(name)}</h4><pre class="code-preview">${escapeHtml(content)}</pre>`).join(""));
+    }
+  }
+
+  async function handleBugSubmit() {
+    const title = ($("bug-title-input")?.value || "").trim();
+    const steps = ($("bug-steps-input")?.value || "").trim();
+    if (!title || !steps) {
+      showToast(t("bugReport.missingFields", "请填写 Bug 标题和重现步骤"), "warn");
+      return;
+    }
+    const config = state.bugReportConfig || {};
+    const submitButton = $("bug-report-submit");
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.classList.add("is-busy");
+    }
+    try {
+      const result = await apiPost("bug-report/submit", {
+        title,
+        steps,
+        severity: Number($("bug-severity-select")?.value || 3),
+        pri: Number($("bug-priority-select")?.value || 3),
+        type: $("bug-type-select")?.value || "codeerror",
+        build: ($("bug-build-input")?.value || "").trim() || String(config.defaultBuild || ""),
+        os: ($("bug-os-input")?.value || "").trim(),
+        browser: ($("bug-browser-input")?.value || "").trim(),
+        mailto: ($("bug-mailto-input")?.value || "").trim(),
+      });
+      showToast(result.message || t("bugReport.submitted", "Bug 报告已提交"), result.success === false ? "error" : "ok");
+      if (result.success !== false) {
+        setText("bug-title-input", "");
+        setText("bug-steps-input", "");
+      }
+    } catch (error) {
+      showToast(error.message || t("bugReport.submitFailed", "Bug 报告提交失败"), "error");
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.classList.remove("is-busy");
+      }
+    }
+  }
+
+  // ── 依赖安装（对齐独立版 dep-block：两档按钮 + 镜像记忆；保留确认弹窗与 pip 输出框） ──
+  async function handleDependencyInstall(tier) {
+    const tierLabel = tier === "basic" ? t("settings.tierBasic", "基础") : t("settings.tierFull", "全能力");
+    const confirmed = await showConfirm(
+      t("settings.installConfirmTitle", "安装 Python 依赖"),
+      t("settings.installConfirmBody", "即将调用 pip 安装{tier}依赖，确定继续吗？").replace("{tier}", tierLabel),
+      t("actions.confirm", "确认"),
+      "warning",
+    );
+    if (!confirmed) return;
+    qsa("[data-dep-tier]").forEach((installButton) => {
+      installButton.disabled = true;
+      installButton.classList.add("is-busy");
+    });
+    const output = $("dependency-output");
+    if (output) {
+      output.hidden = false;
+      output.textContent = t("settings.installingDeps", "正在调用 pip 安装依赖，请等待命令输出...");
+    }
+    try {
+      const settings = state.pageData.settings || {};
+      const result = await apiPost("settings/action", {
+        action: "install_dependencies",
+        manual_confirmed: true,
+        source: settings.manual_dependency_source || "system_settings",
+        tier,
+        pip_mirror: $("pip-mirror-select")?.value || storageGet(PIP_MIRROR_STORAGE_KEY) || "default",
+      });
+      const detail = isRecord(result.result) ? result.result : result;
+      if (output) output.textContent = detail.output || detail.message || result.message || t("settings.installDone", "依赖安装任务结束");
+      showToast(t("settings.installCompleted", "依赖安装任务已完成"), result.success !== false ? "ok" : "error");
+    } catch (error) {
+      const message = error.message || String(error);
+      if (output) {
+        output.hidden = false;
+        output.textContent = message;
+      }
+      showToast(message, "error");
+    } finally {
+      qsa("[data-dep-tier]").forEach((installButton) => {
+        installButton.disabled = false;
+        installButton.classList.remove("is-busy");
+      });
+    }
+  }
+
+  // ── 总览（对齐独立版 OverviewPage：4 读数 + 消息/学习趋势 + 当前状态） ──
+  function renderOverview(data) {
+    const metrics = (data && data.metrics) || {};
+    const total = Number(metrics.total_messages_collected || 0);
+    const rawEfficiency = Number(metrics.learning_efficiency ?? metrics.efficiency ?? 0);
+    const efficiency = rawEfficiency <= 1 ? rawEfficiency * 100 : rawEfficiency;
+    const filtered = Number(metrics.filtered_messages ?? (metrics.messages || {}).filtered ?? 0);
+    const memory = Number((metrics.system_metrics || {}).memory_percent || 0);
+    setText("ov-stat-messages", fmt(total, 0));
+    setText("ov-stat-efficiency", `${fmt(efficiency, 1)}%`);
+    setText("ov-stat-filtered", fmt(filtered, 0));
+    setText("ov-stat-memory", `${fmt(memory, 1)}%`);
+
+    const trends = metrics.trends || (data && data.trends) || {};
+    const daily = trends.daily_messages || {};
+    const labels = Object.keys(daily).sort().slice(-14);
+    const items = labels.map((label) => ({
+      title: String(label).slice(5),
+      metric: Number(daily[label] || 0),
+      accent: "var(--chart-1)",
+    }));
+    renderGenericBarChart("ov-trend-chart", items);
+    const batches = Array.isArray(trends.recent_batches) ? trends.recent_batches : [];
+    const learned = batches.reduce((sum, batch) => sum + Number(batch.processed_messages ?? batch.message_count ?? 0), 0);
+    setText("ov-trend-note", items.length
+      ? t("overview.trendNote", "近 {days} 天采集 {count} 条消息 · 学习处理 {learned} 条。")
+        .replace("{days}", fmt(items.length, 0))
+        .replace("{count}", fmt(items.reduce((sum, item) => sum + item.metric, 0), 0))
+        .replace("{learned}", fmt(learned, 0))
+      : t("home.noTrends", "暂无趋势数据，积累消息后这里会出现每日采集曲线。"));
+  }
+
+  // ── 情绪中枢（对齐独立版 EmotionBoardPage） ──
+  const MOOD_OPTIONS = ["happy", "excited", "playful", "calm", "curious", "nostalgic", "serious", "anxious", "sad", "angry"];
+  const MOOD_FALLBACK = {
+    happy: "开心", excited: "兴奋", playful: "顽皮", calm: "平静", curious: "好奇",
+    nostalgic: "怀旧", serious: "严肃", anxious: "焦虑", sad: "低落", angry: "生气",
+  };
+  const FACTOR_FALLBACK = { affection: "好感度", sentiment: "消息情感", mood: "Bot 心情", stability: "情绪稳定性" };
+  const KIND_FALLBACK = { expression: "表达", jargon: "黑话" };
+
+  const moodLabel = (type) => t(`emotion.moods.${type}`, MOOD_FALLBACK[type] || type);
+  const factorLabel = (key) => t(`emotion.factors.${key}`, FACTOR_FALLBACK[key] || key);
+  const kindLabel = (kind) => t(`emotion.kinds.${kind}`, KIND_FALLBACK[kind] || kind);
+  // 心情语气：正向=ok（状态绿），负向=warn，其余中性（与独立版 moodTone 同规则）
+  const moodTone = (type) => ["happy", "excited", "playful"].includes(type) ? "ok"
+    : ["sad", "anxious", "angry"].includes(type) ? "warn" : "";
+  const fmtPct = (value) => `${fmt(Number(value || 0) <= 1 ? Number(value || 0) * 100 : Number(value || 0), 1)}%`;
+
+  async function loadEmotion(force) {
+    const [board, trends] = await Promise.all([
+      cached("emotion:board", () => apiGet("emotion/board"), force),
+      cached("emotion:trends", () => apiGet("emotion/trends", { days: 14 }), force),
+    ]);
+    renderEmotion(board || {}, trends || {});
+  }
+
+  function emotionCandidates(forgetting) {
+    const data = (forgetting && forgetting.candidates) || {};
+    return [...(data.expression || []), ...(data.jargon || [])]
+      .sort((a, b) => Number(b.stage || 0) - Number(a.stage || 0) || Number(a.last_used || 0) - Number(b.last_used || 0));
+  }
+
+  function renderEmotion(board, trends) {
+    state.emotion = { board, trends };
+    const moods = ((board.moods || {}).active) || [];
+    const affection = board.affection || null;
+    const gateDaily = trends.gate || [];
+    const gateToday = gateDaily.length ? gateDaily[gateDaily.length - 1] : null;
+    const telemetry = (board.gate || {}).telemetry || null;
+    const forgetting = board.forgetting || null;
+    const candidates = emotionCandidates(forgetting);
+
+    // 读数行
+    setText("emo-stat-mood", moods[0] ? moodLabel(moods[0].mood_type) : "--");
+    setText("emo-stat-mood-note", moods.length
+      ? t("emotion.activeGroups", "{count} 个群组有活跃心情").replace("{count}", fmt(moods.length, 0))
+      : t("emotion.noActiveMood", "暂无活跃心情"));
+    const overall = (affection && affection.overall) || {};
+    setText("emo-stat-affection", fmt(overall.average || 0, 1));
+    setText("emo-stat-affection-note", t("emotion.userCount", "{count} 位用户").replace("{count}", fmt(overall.total_users || 0, 0)));
+    setText("emo-stat-gate", gateToday && gateToday.accept_rate != null ? fmtPct(gateToday.accept_rate) : "--");
+    setText("emo-stat-gate-note", telemetry && telemetry.enabled
+      ? t("emotion.gateThreshold", "阈值 {value}").replace("{value}", String(telemetry.threshold))
+      : t("emotion.gateDisabled", "闸门未启用"));
+    setText("emo-stat-forget", fmt(candidates.length, 0));
+    setText("emo-stat-forget-note", forgetting && forgetting.enabled
+      ? t("emotion.cycleDays", "周期 {days} 天").replace("{days}", fmt((forgetting.config || {}).cycle_days || 0, 0))
+      : t("emotion.forgetDisabled", "遗忘未启用"));
+
+    // Bot 心情状态
+    setHtml("emo-mood-list", moods.length ? moods.map((mood) => `
+      <div class="review-item">
+        <div class="table-row rich-row" style="padding:0;border:0;background:transparent;">
+          <div>
+            <strong>${escapeHtml(mood.group_id || "--")}</strong>
+            <small>${escapeHtml(mood.description || "--")} · ${escapeHtml(formatTimestamp(mood.timestamp))}</small>
+          </div>
+          ${pill(moodLabel(mood.mood_type), moodTone(mood.mood_type))}
+        </div>
+        <div class="bar-row" style="--accent:var(--chart-2)">
+          <span>${escapeHtml(t("emotion.intensity", "强度"))} ${escapeHtml(fmtPct(mood.intensity))}</span>
+          <div class="bar-track"><div class="bar-fill" style="--value:${Math.max(0, Math.min(100, Number(mood.intensity || 0) * 100))}"></div></div>
+          <strong></strong>
+        </div>
+      </div>`).join("") : empty(t("emotion.noActiveMoodDetail", "暂无活跃心情：可在下方手动设置，或等待每日情绪更新。")));
+
+    const typeSelect = $("emo-mood-type");
+    if (typeSelect && !typeSelect.options.length) {
+      typeSelect.innerHTML = MOOD_OPTIONS.map((option) => `<option value="${escapeAttr(option)}">${escapeHtml(moodLabel(option))}</option>`).join("");
+    }
+    syncMoodFillButton();
+
+    // 好感度概览
+    if (affection) {
+      setHtml("emo-affection-list", (affection.groups || []).map((group) => `
+        <div class="table-row rich-row">
+          <div>
+            <strong>${escapeHtml(group.group_id || "--")}</strong>
+            <small>${escapeHtml(t("emotion.groupStats", "{users} 位用户 · 高好感 {high} · 低好感 {low}")
+              .replace("{users}", fmt(group.total_users, 0)).replace("{high}", fmt(group.high, 0)).replace("{low}", fmt(group.low, 0)))}</small>
+          </div>
+          ${pill(fmt(group.average, 1), Number(group.average) >= 20 ? "ok" : Number(group.average) <= -20 ? "warn" : "")}
+        </div>`).join("") || empty(t("emotion.noAffection", "暂无好感度数据")));
+      const rankRow = (entry, positive) => `<div class="emo-rank-row"><span>${escapeHtml(entry.user_id)}</span><strong>${positive ? "+" : ""}${escapeHtml(fmt(entry.level, 0))}</strong></div>`;
+      setHtml("emo-affection-top", (affection.leaderboard || []).map((entry) => rankRow(entry, true)).join("") || empty());
+      setHtml("emo-affection-bottom", (affection.bottom || []).map((entry) => rankRow(entry, false)).join("") || empty());
+    } else {
+      setHtml("emo-affection-list", empty(t("emotion.noAffection", "暂无好感度数据")));
+      setHtml("emo-affection-top", "");
+      setHtml("emo-affection-bottom", "");
+    }
+
+    // 走向分析（4 组序列 = 独立版两张双序列图的展开）
+    const delta = trends.affection_delta || [];
+    const moodChanges = trends.mood_changes || [];
+    renderGenericBarChart("emo-trend-affection", delta.map((item) => ({ title: String(item.date).slice(5), metric: Math.abs(Number(item.delta || 0)), accent: Number(item.delta || 0) >= 0 ? "var(--chart-1)" : "var(--danger)" })));
+    renderGenericBarChart("emo-trend-mood", moodChanges.map((item) => ({ title: String(item.date).slice(5), metric: Number(item.count || 0), accent: "var(--chart-3)" })));
+    renderGenericBarChart("emo-trend-gate", gateDaily.map((item) => ({ title: String(item.stat_date).slice(5), metric: Math.round(Number(item.accept_rate || 0) * 100), accent: "var(--chart-2)" })));
+    renderGenericBarChart("emo-trend-score", gateDaily.map((item) => ({ title: String(item.stat_date).slice(5), metric: Math.round(Number(item.avg_score || 0) * 100), accent: "var(--chart-4)" })));
+    const dist = ((board.emotion_profiles || {}).dominant_distribution) || [];
+    const distBlock = $("emo-dist-block");
+    if (distBlock) distBlock.hidden = !dist.length;
+    setHtml("emo-dist-row", dist.map((item) => `<span class="mini-badge"><b>${escapeHtml(item.emotion)}</b>&nbsp;${escapeHtml(fmt(item.count, 0))}</span>`).join(""));
+
+    // 学习联动 · 情绪加权闸门
+    if (telemetry) {
+      const accepted = Number((telemetry.counters || {}).accepted || 0);
+      const skipped = Number((telemetry.counters || {}).skipped || 0);
+      const total = accepted + skipped;
+      const factorAvg = telemetry.recent_factor_avg || {};
+      const weights = telemetry.weights || {};
+      setHtml("emo-gate-body", `
+        <div class="content-grid two-col">
+          <div class="review-list">
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.accepted", "累计放行"))}</strong><small>${escapeHtml(t("emotion.acceptedHint", "重启后计数归零，长期趋势看日统计"))}</small></div>${pill(fmt(accepted, 0), "ok")}</div>
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.skipped", "累计拦截"))}</strong><small>${escapeHtml(t("emotion.skippedHint", "原始消息仍会采集，仅跳过学习"))}</small></div>${pill(fmt(skipped, 0), "warn")}</div>
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.acceptRatio", "放行占比"))}</strong><small>${escapeHtml(t("emotion.sinceRun", "本次运行以来"))}</small></div>${pill(total ? fmtPct(accepted / total) : "--", total && skipped / total > 0.5 ? "warn" : "")}</div>
+          </div>
+          <div>
+            <h4 class="mini-label">${escapeHtml(t("emotion.factorAvg", "近期因子均值"))}</h4>
+            <div class="bar-chart">${Object.keys(factorAvg).map((key) => `
+              <div class="bar-row" style="--accent:var(--chart-1)">
+                <span>${escapeHtml(factorLabel(key))}（${escapeHtml(t("emotion.weight", "权重"))} ${escapeHtml(fmtPct(weights[key] || 0))}）</span>
+                <div class="bar-track"><div class="bar-fill" style="--value:${Math.max(0, Math.min(100, Number(factorAvg[key] || 0) * 100))}"></div></div>
+                <strong>${escapeHtml(fmtPct(factorAvg[key]))}</strong>
+              </div>`).join("")}</div>
+          </div>
+        </div>
+        <h4 class="mini-label" style="margin-top:14px;">${escapeHtml(t("emotion.recentDecisions", "近期判定"))}</h4>
+        <div class="compact-table">${(telemetry.recent || []).slice(-10).reverse().map((item) => `
+          <div class="table-row">
+            <span>${escapeHtml(item.group_id)}</span>
+            <small>${escapeHtml(formatTimestamp(item.timestamp))}</small>
+            <strong>${escapeHtml(fmt(item.score, 2))}</strong>
+            ${pill(item.decision ? t("emotion.pass", "放行") : t("emotion.block", "拦截"), item.decision ? "ok" : "warn")}
+          </div>`).join("") || empty()}</div>`);
+    } else {
+      setHtml("emo-gate-body", empty(t("emotion.gateUnavailable", "闸门遥测不可用：插件运行中才会产生判定记录；历史统计见上方走向分析。")));
+    }
+
+    // 三阶段遗忘治理
+    if (forgetting) {
+      const stageLabels = forgetting.stage_labels || {};
+      const distribution = forgetting.distribution || {};
+      const config = forgetting.config || {};
+      const lastRun = forgetting.last_run_at ? formatTimestamp(forgetting.last_run_at) : t("emotion.neverRun", "尚未执行");
+      const stageBlock = (kind) => `
+        <div>
+          <h4 class="mini-label">${escapeHtml(t("emotion.stageDist", "{kind}阶段分布").replace("{kind}", kindLabel(kind)))}</h4>
+          <div class="inline-actions" style="justify-content:flex-start;">${["0", "1", "2", "3"].map((stage) =>
+            `<span class="mini-badge"><b>${escapeHtml(stageLabels[stage] || t("emotion.stageN", "阶段 {n}").replace("{n}", stage))}</b>&nbsp;${escapeHtml(fmt((distribution[kind] || {})[stage] || 0, 0))}</span>`).join("")}</div>
+          <p class="trend-note">${escapeHtml(t("emotion.forgetMeta", "上次执行：{last} · 周期 {cycle} 天 · 宽限 {grace} 天")
+            .replace("{last}", lastRun).replace("{cycle}", fmt(config.cycle_days || 0, 0)).replace("{grace}", fmt(config.grace_days || 0, 0)))}</p>
+        </div>`;
+      const stageTone = (stage) => Number(stage) >= 3 ? "warn" : Number(stage) === 2 ? "warn" : "";
+      setHtml("emo-forget-body", `
+        <div class="content-grid two-col">${stageBlock("expression")}${stageBlock("jargon")}</div>
+        <div class="review-list">${candidates.map((item) => `
+          <div class="table-row rich-row">
+            <div>
+              <strong>${escapeHtml(item.title || "--")}</strong>
+              <small>${escapeHtml(kindLabel(item.kind))} · ${escapeHtml(item.group_id || "--")} · ${escapeHtml(t("emotion.lastUsed", "最后使用"))} ${escapeHtml(item.last_used ? formatTimestamp(item.last_used) : t("emotion.never", "从未"))}</small>
+            </div>
+            ${pill(stageLabels[String(item.stage)] || t("emotion.stageN", "阶段 {n}").replace("{n}", String(item.stage)), stageTone(item.stage))}
+            <div class="row-actions compact-actions">
+              ${button(t("emotion.reset", "重置"), `data-emo-action="reset_stage" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`)}
+              ${button(t("emotion.markDislike", "标记反感"), `data-emo-action="mark_dislike" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`)}
+              ${button(t("actions.delete", "删除"), `data-emo-action="delete_item" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+            </div>
+          </div>`).join("") || empty(t("emotion.noCandidates", "暂无遗忘候选：所有条目都处于新鲜阶段。"))}</div>`);
+    } else {
+      setHtml("emo-forget-body", empty(t("emotion.forgetUnavailable", "遗忘管理器未运行：需要插件完整启动且数据库可用。")));
+    }
+  }
+
+  function syncMoodFillButton() {
+    const fill = $("emo-mood-fill");
+    const group = $("emo-mood-group");
+    const moods = (((state.emotion || {}).board || {}).moods || {}).active || [];
+    if (fill) fill.hidden = !(moods.length && !(group && group.value.trim()));
+    const submit = $("emo-mood-submit");
+    if (submit) submit.disabled = !(group && group.value.trim());
+  }
+
+  function fillFirstMoodGroup() {
+    const moods = (((state.emotion || {}).board || {}).moods || {}).active || [];
+    const group = $("emo-mood-group");
+    if (group && moods[0]) group.value = moods[0].group_id;
+    syncMoodFillButton();
+  }
+
+  async function runEmotionAction(body, buttonEl) {
+    if (buttonEl) { buttonEl.disabled = true; buttonEl.classList.add("is-busy"); }
+    try {
+      const result = await apiPost("emotion/action", body);
+      showToast(result.message || t("messages.actionDone", "操作完成"), result.success === false ? "error" : "ok");
+      await loadEmotion(true);
+    } catch (error) {
+      showToast(error.message || String(error), "error");
+    } finally {
+      if (buttonEl) { buttonEl.disabled = false; buttonEl.classList.remove("is-busy"); }
+    }
+  }
+
+  async function submitEmotionMood(event) {
+    const group = ($("emo-mood-group") || {}).value || "";
+    if (!group.trim()) return;
+    await runEmotionAction({
+      action: "set_mood",
+      group_id: group.trim(),
+      mood_type: ($("emo-mood-type") || {}).value || "happy",
+      intensity: Number(($("emo-mood-intensity") || {}).value) || 0.6,
+      description: (($("emo-mood-desc") || {}).value || "").trim(),
+    }, event && event.currentTarget);
+  }
+
+  async function handleEmotionAction(target) {
+    await runEmotionAction({
+      action: target.dataset.emoAction,
+      kind: target.dataset.kind,
+      id: Number(target.dataset.id),
+    }, target);
   }
 
   function renderGenericBarChart(id, items) {
     const maxValue = Math.max(1, ...items.map((item) => Number(item.metric || 0)));
     setHtml(id, items.map((item) => {
       const value = Math.max(4, Math.min(100, Number(item.metric || 0) / maxValue * 100));
-      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "#4169e1")}">
+      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}">
         <span>${escapeHtml(item.title)}</span>
         <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
         <strong>${escapeHtml(fmt(item.metric, 0))}</strong>
@@ -1789,66 +3502,198 @@
     }).join("") || empty());
   }
 
-  function summarizeObject(obj) {
-    const entries = Object.entries(obj || {}).slice(0, 3);
-    return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join(" · ");
-  }
-
-  function shortName(name) {
-    const text = String(name || "");
-    return text.length > 58 ? `...${text.slice(-55)}` : text;
-  }
-
   function findReviewItem(kind, id) {
-    const reviews = state.pageData.reviews || {};
-    const style = state.pageData.style || {};
-    if (kind === "persona") return ((reviews.persona_pending || {}).updates || []).find((item) => String(item.id) === String(id));
-    if (kind === "style") {
-      return (
-        ((reviews.style_reviews || {}).reviews || []).find((item) => String(item.id) === String(id))
-        || ((style.reviews || {}).reviews || []).find((item) => String(item.id) === String(id))
-      );
-    }
-    return (((reviews.jargon_pending || {}).jargon_list || []).find((item) => String(item.id) === String(id)));
+    const key = normalizeId(id);
+    const pool = state.page === "persona-learning"
+      ? listOf((state.pageData.persona || {}).pending).filter(isRecord)
+      : reviewQueueItems(kind);
+    return pool.find((item) => normalizeId(item.id) === key) || null;
   }
 
-  async function handleReviewAction(kind, id, action) {
-    if (action === "detail") {
-      showModal(t("modal.reviewDetails", "审查详情"), `<pre class="code-preview">${escapeHtml(JSON.stringify(findReviewItem(kind, id) || {}, null, 2))}</pre>`);
-      return;
+  async function reloadAfterReview() {
+    if (state.page === "persona-learning") {
+      clearCached("persona");
+      await loadPersona(true);
+    } else {
+      clearCached("reviews");
+      await loadReviews(true);
     }
+    syncDashboardSnapshot();
+  }
+
+  // 单条审查：与独立版 ReviewCard 一致，通过 / 驳回 / 删除前均先确认
+  async function handleReviewAction(kind, id, action) {
+    const item = findReviewItem(kind, id) || { id };
+    const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
+    const confirmLabel = action === "approve" ? t("actions.approve", "批准") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
+    const confirmed = await showConfirm(
+      action === "delete" ? t("reviews.card.deleteTitle", "删除审查记录") : t("reviews.card.confirmTitle", "审查确认"),
+      fill(t("reviews.card.confirmMessage", "确定{action}“{title}”吗？"), { action: actionText, title: reviewTitle(item) }),
+      confirmLabel,
+      action === "approve" ? "success" : "danger",
+    );
+    if (!confirmed) return;
     let payload;
     if (kind === "persona") {
-      payload = action === "delete"
-        ? { action: "delete", id }
-        : { action: "review", id, decision: action };
+      payload = action === "delete" ? { action: "delete", id } : { action: "review", id, decision: action };
     } else if (kind === "style") {
-      payload = { action: `style_${action}`, id };
+      payload = { action: `style_${action}`, id: normalizeId(id).replace(/^style_/, "") };
     } else {
       payload = { action: `jargon_${action}`, id };
     }
-    const result = await apiPost("reviews/action", payload);
-    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
+    try {
+      const result = await apiPost("reviews/action", payload);
+      if (!operationToast(result, t("messages.operationDone", "操作已完成"), t("messages.operationFailed", "操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("messages.operationFailed", "操作失败"), "error");
+      return;
+    }
     selectedReviewSet(kind).delete(normalizeId(id));
-    state.pageData.reviews = null;
-    await loadPageData(state.page, { force: true });
+    await reloadAfterReview();
+  }
+
+  // 批量审查：未勾选时作用于当前列出的全部记录，勾选后只作用于选中项（双端同一语义与确认文案）
+  async function handleBatchReviewAction(kind, action) {
+    const selected = selectedReviewIds(kind);
+    const scoped = selected.length > 0;
+    const ids = (scoped ? selected : visibleReviewIds(kind))
+      .map((id) => (kind === "style" ? normalizeId(id).replace(/^style_/, "") : normalizeId(id)))
+      .filter(Boolean);
+    if (!ids.length) {
+      showToast(t("reviews.batch.empty", "当前没有可操作的记录"), "warn");
+      return;
+    }
+    const actionText = action === "approve" ? t("actions.pass", "通过") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
+    const message = fill(scoped
+      ? t("reviews.batch.confirmSelected", "确定对选中的 {count} 条{type}执行{action}吗？")
+      : t("reviews.batch.confirmCurrent", "确定对当前 {count} 条{type}执行{action}吗？"), {
+      count: ids.length,
+      type: reviewQueueTitle(kind),
+      action: actionText,
+    });
+    const confirmed = await showConfirm(t("modal.confirmBatch", "批量操作确认"), message, t("actions.confirm", "确认"), action === "approve" ? "success" : "danger");
+    if (!confirmed) return;
+
+    const payload = {
+      action: action === "delete"
+        ? kind === "persona" ? "batch_delete" : kind === "style" ? "batch_delete_style" : "batch_delete_jargon"
+        : kind === "persona" ? "batch_review" : kind === "style" ? "batch_review_style" : "batch_review_jargon",
+      ids,
+      decision: action,
+    };
+    try {
+      const result = await apiPost("reviews/action", payload);
+      if (!operationToast(result, t("reviews.batch.done", "批量操作已完成"), t("messages.batchFailed", "批量操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("messages.batchFailed", "批量操作失败"), "error");
+      return;
+    }
+    selectedReviewSet(kind).clear();
+    await reloadAfterReview();
+  }
+
+  // 全局重新学习：自动选择消息最多的群组（无批次时也可用，与独立版同一确认与提示）
+  async function handleRelearnAll(buttonEl) {
+    const confirmed = await showConfirm(
+      t("actions.relearn", "重新学习"),
+      t("reviews.batches.relearnAllMessage", "将自动选择消息最多的群组重新学习，可能需要几分钟，确定继续吗？"),
+      t("actions.confirm", "确认"),
+      "warning",
+    );
+    if (!confirmed) return;
+    if (buttonEl) { buttonEl.disabled = true; buttonEl.classList.add("is-busy"); }
+    try {
+      const result = await apiPost("batches/action", { action: "relearn_all" });
+      if (!operationToast(result, t("messages.relearnSubmitted", "重新学习已提交"), t("reviews.batches.failed", "批次操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("reviews.batches.failed", "批次操作失败"), "error");
+      return;
+    } finally {
+      if (buttonEl) { buttonEl.disabled = false; buttonEl.classList.remove("is-busy"); }
+    }
+    clearCached("batches");
+    await loadReviewBatches(true);
+  }
+
+  // 最近学习批次：重跑学习 / 删除批次（与独立版同一确认与提示）
+  async function handleBatchRecordAction(buttonEl) {
+    const action = buttonEl.dataset.batchRecordAction;
+    const id = action === "relearn" ? normalizeId(buttonEl.dataset.groupId) : normalizeId(buttonEl.dataset.id);
+    if (!id) return;
+    const confirmed = await showConfirm(
+      action === "relearn" ? t("actions.relearn", "重新学习") : t("reviews.batches.deleteTitle", "删除学习批次"),
+      action === "relearn" ? t("reviews.batches.relearnMessage", "重新学习可能需要几分钟，确定继续吗？") : t("messages.deleteIrreversible", "删除后不可撤销，确定继续吗？"),
+      t("actions.confirm", "确认"),
+      action === "delete" ? "danger" : "warning",
+    );
+    if (!confirmed) return;
+    try {
+      const result = await apiPost("batches/action", action === "relearn" ? { action, group_id: id } : { action, id });
+      if (!operationToast(result, t("reviews.batches.done", "批次操作已完成"), t("reviews.batches.failed", "批次操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("reviews.batches.failed", "批次操作失败"), "error");
+      return;
+    }
+    clearCached("batches");
+    await loadReviewBatches(true);
   }
 
   async function handleJargonAction(action, id) {
+    const key = normalizeId(id);
+    const item = (state.jargon.items || []).find((entry) => normalizeId(entry.id) === key) || {};
     if (action === "edit") {
-      const item = (state.pageData.lastJargonItems || []).find((entry) => String(entry.id) === String(id)) || {};
-      showModal(t("modal.editJargon", "编辑黑话"), `
-        <label class="config-field"><span><strong>${escapeHtml(t("jargon.term", "词条"))}</strong></span><input id="modal-jargon-content" value="${escapeAttr(item.term || item.content || "")}"></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("jargon.definition", "释义"))}</strong></span><textarea id="modal-jargon-meaning" rows="4">${escapeHtml(item.meaning || item.definition || "")}</textarea></label>
-        <button class="solid-button" type="button" id="modal-jargon-save" data-id="${escapeAttr(id)}">${escapeHtml(t("actions.save", "保存"))}</button>
-      `);
+      state.jargon.editingId = key;
+      state.jargon.draft = { content: String(item.content ?? item.jargon ?? ""), meaning: String(item.meaning ?? item.definition ?? "") };
+      renderJargon(state.pageData.currentJargonData || {});
+      $("jargon-edit-content")?.focus();
       return;
     }
-    const result = await apiPost("jargon/action", { action, id });
-    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
-    state.selectedJargon.delete(normalizeId(id));
-    state.pageData = {};
-    await loadPageData(state.page, { force: true });
+    if (action === "cancel") {
+      state.jargon.editingId = null;
+      renderJargon(state.pageData.currentJargonData || {});
+      return;
+    }
+    if (action === "save") {
+      const draft = {
+        content: $("jargon-edit-content")?.value ?? state.jargon.draft.content,
+        meaning: $("jargon-edit-meaning")?.value ?? state.jargon.draft.meaning,
+      };
+      state.jargon.draft = draft;
+      if (!draft.content.trim()) {
+        showToast(t("jargon.termRequired", "词条不能为空"), "warn");
+        return;
+      }
+      try {
+        const result = await apiPost("jargon/action", { action: "update", id: key, content: draft.content, meaning: draft.meaning });
+        if (!operationToast(result, t("jargon.saved", "词条已保存"), t("messages.saveFailed", "保存失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("messages.saveFailed", "保存失败"), "error");
+        return;
+      }
+      state.jargon.editingId = null;
+      await reloadJargon();
+      syncDashboardSnapshot();
+      return;
+    }
+    if (action === "delete") {
+      const confirmed = await showConfirm(
+        t("jargon.deleteTitle", "删除黑话"),
+        fill(t("jargon.deleteMessage", "确定删除“{term}”吗？"), { term: item.content ?? item.jargon ?? "" }),
+        t("actions.confirm", "确认"),
+        "danger",
+      );
+      if (!confirmed) return;
+    }
+    try {
+      const result = await apiPost("jargon/action", { action, id: key });
+      if (!operationToast(result, t("messages.operationDone", "操作已完成"), t("messages.operationFailed", "操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("messages.operationFailed", "操作失败"), "error");
+      return;
+    }
+    state.selectedJargon.delete(key);
+    await reloadJargon();
+    syncDashboardSnapshot();
   }
 
   async function handleJargonBatchAction(action) {
@@ -1866,26 +3711,32 @@
 
     const ids = Array.from(state.selectedJargon).filter(Boolean);
     if (!ids.length) {
-      showToast(t("jargon.selectFirst", "请先选择黑话条目"), "error");
+      showToast(t("jargon.selectFirst", "请先选择黑话条目"), "warn");
       return;
     }
     const actionText = action === "approve" ? t("actions.confirm", "确认") : action === "reject" ? t("actions.rejectBack", "驳回") : t("actions.delete", "删除");
     const confirmed = await showConfirm(
-      t("modal.confirmBatch", "确认批量操作"),
-      t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)),
+      t("modal.confirmBatch", "批量操作确认"),
+      fill(t("jargon.confirmBatch", "确定批量{action}选中的 {count} 条黑话？"), { action: actionText, count: ids.length }),
       actionText,
+      action === "approve" ? "success" : "danger",
     );
     if (!confirmed) return;
 
-    const result = await apiPost("jargon/action", {
-      action: action === "delete" ? "batch_delete" : "batch_review",
-      ids,
-      decision: action,
-    });
-    showToast(result.message || t("jargon.batchDone", "批量黑话操作完成"), result.success ? "ok" : "error");
+    try {
+      const result = await apiPost("jargon/action", {
+        action: action === "delete" ? "batch_delete" : "batch_review",
+        ids,
+        decision: action,
+      });
+      if (!operationToast(result, result.message || t("jargon.batchDone", "批量黑话操作完成"), t("messages.batchFailed", "批量操作失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("messages.batchFailed", "批量操作失败"), "error");
+      return;
+    }
     state.selectedJargon.clear();
-    state.pageData = {};
-    await loadPageData("jargon-learning", { force: true });
+    await reloadJargon();
+    syncDashboardSnapshot();
   }
 
   function modalFieldValue(id) {
@@ -1902,100 +3753,216 @@
     }
   }
 
-  async function handleStyleAction(action, id) {
-    if (action === "edit") {
-      const item = (state.pageData.lastStyleItems || []).find((entry) => String(entry.id) === String(id)) || {};
-      const patterns = typeof item.learned_patterns === "string"
-        ? item.learned_patterns
-        : JSON.stringify(item.learned_patterns || [], null, 2);
-      showModal(t("modal.editStyle", "编辑表达方式"), `
-        <label class="config-field"><span><strong>${escapeHtml(t("style.description", "描述"))}</strong></span><input id="modal-style-description" value="${escapeAttr(item.description || "")}"></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("style.fewShots", "Few-shot 示例"))}</strong></span><textarea id="modal-style-few-shots" rows="7">${escapeHtml(item.few_shots_content || "")}</textarea></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("style.patternJson", "学习模式 JSON"))}</strong></span><textarea id="modal-style-patterns" rows="7">${escapeHtml(patterns)}</textarea></label>
-        <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(id)}">${escapeHtml(t("actions.save", "保存"))}</button>
-      `);
-    }
+  // 审查队列风格卡「编辑」（双端并集：独立版同样提供编辑对话框）
+  function handleStyleAction(action, id) {
+    if (action !== "edit") return;
+    const item = reviewQueueItems("style").find((entry) => normalizeId(entry.id) === normalizeId(id)) || {};
+    const patternsSource = item.learned_patterns;
+    const patterns = typeof patternsSource === "string" ? patternsSource : JSON.stringify(patternsSource || [], null, 2);
+    showModal(t("modal.editStyle", "编辑表达方式"), `
+      <label class="config-field"><span><strong>${escapeHtml(t("style.description", "描述"))}</strong></span><input id="modal-style-description" value="${escapeAttr(item.description ?? item.reason ?? "")}"></label>
+      <label class="config-field"><span><strong>${escapeHtml(t("style.fewShots", "Few-shot 示例"))}</strong></span><textarea id="modal-style-few-shots" rows="7">${escapeHtml(item.few_shots_content ?? item.proposed_content ?? "")}</textarea></label>
+      <label class="config-field"><span><strong>${escapeHtml(t("style.patternJson", "学习模式 JSON"))}</strong></span><textarea id="modal-style-patterns" rows="7">${escapeHtml(patterns)}</textarea></label>
+      <button class="solid-button" type="button" id="modal-style-save" data-id="${escapeAttr(normalizeId(id).replace(/^style_/, ""))}">${escapeHtml(t("actions.save", "保存"))}</button>
+    `);
   }
 
-  async function handleStyleBatchAction(action) {
-    const visibleIds = stylePageReviewIds();
-    const selected = selectedReviewSet("style");
-    if (action === "select_all") {
-      visibleIds.forEach((id) => selected.add(id));
-      renderStyle(state.pageData.style || {});
-      return;
-    }
-    if (action === "clear") {
-      selected.clear();
-      renderStyle(state.pageData.style || {});
-      return;
-    }
+  function personaDetailHtml(detail) {
+    const dialogs = listOf(detail.begin_dialogs);
+    return `<p class="detail-line">${escapeHtml(fill(t("persona.detailMeta", "{name} · ID {id} · 示例对话 {dialogs} 条 · 工具 {tools} 个"), {
+      name: personaNameOf(detail),
+      id: textOrDash(personaIdOf(detail)),
+      dialogs: dialogs.length,
+      tools: listOf(detail.tools).length,
+    }))}</p>
+      <h4>${escapeHtml(t("persona.systemPrompt", "系统提示词"))}</h4>
+      <pre class="code-preview">${escapeHtml(personaPromptOf(detail) || t("persona.emptyValue", "（空）"))}</pre>
+      ${dialogs.length ? `<h4>${escapeHtml(t("persona.dialogsTitle", "示例对话"))}</h4><pre class="code-preview">${escapeHtml(summarize(detail.begin_dialogs))}</pre>` : ""}
+      <details><summary>${escapeHtml(t("persona.rawPersona", "查看原始人格数据"))}</summary><pre class="code-preview">${escapeHtml(summarize(detail))}</pre></details>`;
+  }
 
-    const ids = selectedReviewIds("style");
-    if (!ids.length) {
-      showToast(t("style.selectFirst", "请先选择表达审查项"), "error");
-      return;
-    }
-    const actionText = action === "approve" ? t("actions.approve", "批准") : action === "reject" ? t("actions.reject", "拒绝") : t("actions.delete", "删除");
-    const confirmed = await showConfirm(
-      t("modal.confirmBatch", "确认批量操作"),
-      t("style.confirmBatch", "确定批量{action}选中的 {count} 条表达审查？").replace("{action}", actionText).replace("{count}", fmt(ids.length, 0)),
-      actionText,
-    );
-    if (!confirmed) return;
+  function backupDetailHtml(detail) {
+    const summary = isRecord(detail.summary) ? detail.summary : {};
+    const personaSource = detail.original_persona ?? detail.persona_config;
+    const persona = isRecord(personaSource) ? personaSource : {};
+    const prompt = String(persona.prompt ?? persona.system_prompt ?? detail.persona_content ?? "");
+    const dialogs = listOf(detail.imitation_dialogues);
+    return `<p class="detail-line">${escapeHtml(fill(t("persona.backupDetail.meta", "{name} · 群组 {group} · {time}"), {
+      name: textOrDash(summary.backup_name ?? detail.backup_name),
+      group: textOrDash(summary.group_id ?? detail.group_id),
+      time: formatTime(summary.timestamp ?? detail.timestamp),
+    }))}</p>
+      <p class="detail-line">${escapeHtml(fill(t("persona.backupDetail.reason", "备份原因：{reason}"), { reason: textOrDash(summary.reason ?? detail.reason ?? detail.backup_reason) }))}</p>
+      <h4>${escapeHtml(t("persona.backupDetail.prompt", "人格提示词"))}</h4>
+      <pre class="code-preview">${escapeHtml(prompt || t("persona.backupDetail.noPrompt", "（备份中没有提示词内容）"))}</pre>
+      ${dialogs.length ? `<h4>${escapeHtml(fill(t("persona.backupDetail.dialogs", "示例对话（{count} 条）"), { count: dialogs.length }))}</h4><pre class="code-preview">${escapeHtml(summarize(dialogs))}</pre>` : ""}
+      <details><summary>${escapeHtml(t("persona.backupDetail.raw", "查看原始备份数据"))}</summary><pre class="code-preview">${escapeHtml(summarize(detail))}</pre></details>`;
+  }
 
-    const result = await apiPost("style/action", {
-      action: action === "delete" ? "batch_delete" : "batch_review",
-      ids,
-      decision: action,
-    });
-    showToast(result.message || t("style.batchDone", "批量表达审查完成"), result.success ? "ok" : "error");
-    selected.clear();
-    state.pageData.style = null;
-    state.pageData.lastStyleItems = [];
-    await loadPageData("expression-learning", { force: true });
+  function showPersonaEditModal(personaId, item) {
+    const beginDialogs = JSON.stringify(item.begin_dialogs || [], null, 2);
+    showModal(t("modal.editPersona", "编辑人格"), `
+      <label class="config-field"><span><strong>${escapeHtml(t("persona.id", "人格 ID"))}</strong></span><input id="modal-persona-id" value="${escapeAttr(personaId)}" disabled></label>
+      <label class="config-field"><span><strong>${escapeHtml(t("persona.name", "名称"))}</strong></span><input id="modal-persona-name" value="${escapeAttr(item.name || personaId || "")}"></label>
+      <label class="config-field"><span><strong>${escapeHtml(t("persona.systemPrompt", "系统提示词"))}</strong></span><textarea id="modal-persona-prompt" rows="9">${escapeHtml(item.system_prompt || item.prompt || "")}</textarea></label>
+      <label class="config-field"><span><strong>${escapeHtml(t("persona.beginDialogsJson", "开场对话 JSON"))}</strong></span><textarea id="modal-persona-dialogs" rows="6">${escapeHtml(beginDialogs)}</textarea></label>
+      <button class="solid-button" type="button" id="modal-persona-save" data-persona-id="${escapeAttr(personaId)}">${escapeHtml(t("actions.save", "保存"))}</button>
+    `);
+  }
+
+  async function reloadPersona() {
+    clearCached("persona");
+    await loadPersona(true);
   }
 
   async function handlePersonaAction(buttonEl) {
     const action = buttonEl.dataset.personaAction;
+    const personaId = normalizeId(buttonEl.dataset.personaId);
+    const id = normalizeId(buttonEl.dataset.id);
+    const groupId = buttonEl.dataset.groupId || "";
+    const personaItem = (state.pageData.lastPersonaItems || []).find((entry) => personaIdOf(entry) === personaId) || {};
+
     if (action === "edit") {
-      const personaId = buttonEl.dataset.personaId;
-      const item = (state.pageData.lastPersonaItems || []).find((entry) => String(entry.persona_id || entry.id || entry.name) === String(personaId)) || {};
-      const beginDialogs = JSON.stringify(item.begin_dialogs || [], null, 2);
-      showModal(t("modal.editPersona", "编辑人格"), `
-        <label class="config-field"><span><strong>${escapeHtml(t("persona.id", "人格 ID"))}</strong></span><input id="modal-persona-id" value="${escapeAttr(personaId)}" disabled></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("persona.name", "名称"))}</strong></span><input id="modal-persona-name" value="${escapeAttr(item.name || personaId || "")}"></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("persona.systemPrompt", "系统提示词"))}</strong></span><textarea id="modal-persona-prompt" rows="9">${escapeHtml(item.system_prompt || item.prompt || "")}</textarea></label>
-        <label class="config-field"><span><strong>${escapeHtml(t("persona.beginDialogsJson", "开场对话 JSON"))}</strong></span><textarea id="modal-persona-dialogs" rows="6">${escapeHtml(beginDialogs)}</textarea></label>
-        <button class="solid-button" type="button" id="modal-persona-save" data-persona-id="${escapeAttr(personaId)}">${escapeHtml(t("actions.save", "保存"))}</button>
+      showPersonaEditModal(personaId, personaItem);
+      return;
+    }
+    if (action === "view") {
+      let detail = personaItem;
+      if (personaId) {
+        try {
+          const result = await apiPost("persona/action", { action: "get", persona_id: personaId });
+          if (result.success && isRecord(result.persona)) detail = result.persona;
+          else showToast(result.message || t("persona.detailFailed", "人格详情加载失败"), "warn");
+        } catch (error) {
+          // 详情接口失败时回退到列表数据（列表本身已包含提示词内容）
+          showToast(error.message || t("persona.detailFailed", "人格详情加载失败"), "warn");
+        }
+      }
+      showModal(t("persona.detailTitle", "人格详情"), personaDetailHtml(detail));
+      return;
+    }
+    if (action === "export") {
+      if (!personaId) return;
+      try {
+        const result = await apiPost("persona/action", { action: "export", persona_id: personaId });
+        if (!result.success || !isRecord(result.persona)) {
+          showToast((!result.success && result.message) || t("persona.exportFailed", "人格导出失败"), "error");
+          return;
+        }
+        downloadJson(`persona_${personaId}.json`, result.persona);
+        showToast(t("persona.exported", "人格配置已导出"), "ok");
+      } catch (error) {
+        showToast(error.message || t("persona.exportFailed", "人格导出失败"), "error");
+      }
+      return;
+    }
+    if (action === "delete") {
+      if (!personaId) return;
+      const confirmed = await showConfirm(
+        t("persona.deleteTitle", "删除人格"),
+        fill(t("persona.deleteMessage", "确定删除人格“{name}”吗？此操作不可撤销。"), { name: personaNameOf(Object.keys(personaItem).length ? personaItem : { persona_id: personaId }) }),
+        t("actions.delete", "删除"),
+        "danger",
+      );
+      if (!confirmed) return;
+      try {
+        const result = await apiPost("persona/action", { action: "delete", persona_id: personaId });
+        if (!operationToast(result, t("persona.deleted", "人格已删除"), t("messages.deleteFailed", "删除失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("messages.deleteFailed", "删除失败"), "error");
+        return;
+      }
+      await reloadPersona();
+      return;
+    }
+    if (action === "backup_detail") {
+      try {
+        const result = await apiPost("persona/action", { action: "backup_detail", id, group_id: groupId });
+        if (!result.success) {
+          showToast(result.message || t("persona.backupDetailFailed", "备份详情加载失败"), "error");
+          return;
+        }
+        showModal(t("modal.backupDetails", "备份详情"), backupDetailHtml(isRecord(result.backup) ? result.backup : {}));
+      } catch (error) {
+        showToast(error.message || t("persona.backupDetailFailed", "备份详情加载失败"), "error");
+      }
+      return;
+    }
+    if (action === "backup_restore" || action === "backup_delete") {
+      const restore = action === "backup_restore";
+      const confirmed = await showConfirm(
+        restore ? t("persona.restoreTitle", "恢复人格备份") : t("persona.deleteBackupTitle", "删除人格备份"),
+        restore ? t("persona.restoreMessage", "当前人格可能被覆盖，确定继续吗？") : t("persona.deleteBackupMessage", "此操作不可撤销，确定删除吗？"),
+        t("actions.confirm", "确认"),
+        "danger",
+      );
+      if (!confirmed) return;
+      try {
+        const result = await apiPost("persona/action", { action, id, group_id: groupId });
+        if (!operationToast(result, t("messages.operationDone", "操作已完成"), t("persona.backupFailed", "备份操作失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("persona.backupFailed", "备份操作失败"), "error");
+        return;
+      }
+      await reloadPersona();
+      syncDashboardSnapshot();
+      return;
+    }
+    if (action === "reviewed_detail") {
+      const item = (state.pageData.lastReviewedItems || []).find((entry) => normalizeId(entry.id) === id);
+      if (!item) return;
+      const before = reviewBeforePrompt(item);
+      const after = reviewAfterPrompt(item);
+      showModal(t("persona.reviewedDetailTitle", "已审查记录"), `
+        <p class="detail-line">${escapeHtml(fill(t("persona.reviewedDetailMeta", "{status} · {time} · 备注：{comment}"), {
+    status: reviewedStatusText(item),
+    time: formatTime(item.review_time),
+    comment: textOrDash(item.reviewer_comment),
+  }))}</p>
+        ${before || after ? `<h4>${escapeHtml(t("persona.before", "变更前"))}</h4><pre class="code-preview">${escapeHtml(before || t("persona.emptyValue", "（空）"))}</pre>
+        <h4>${escapeHtml(t("persona.after", "变更后"))}</h4><pre class="code-preview">${escapeHtml(after || t("persona.emptyValue", "（空）"))}</pre>` : ""}
+        <details><summary>${escapeHtml(t("reviews.card.raw", "查看原始审查数据"))}</summary><pre class="code-preview">${escapeHtml(summarize(item))}</pre></details>
       `);
       return;
     }
-    const body = {
-      action,
-      id: buttonEl.dataset.id,
-      group_id: buttonEl.dataset.groupId,
-      persona_id: buttonEl.dataset.personaId,
-    };
-    const result = await apiPost("persona/action", body);
-    if (action === "backup_detail" || action === "export") {
-      showModal(action === "export" ? t("modal.personaExport", "人格导出") : t("modal.backupDetails", "备份详情"), `<pre class="code-preview">${escapeHtml(JSON.stringify(result.persona || result.backup || result, null, 2))}</pre>`);
-      return;
+    if (action === "revert") {
+      if (!id) return;
+      const confirmed = await showConfirm(
+        t("persona.revertTitle", "撤回审查决定"),
+        t("persona.revertMessage", "撤回后该记录会重新回到待审队列；若记录已被他人处理，撤回会覆盖新的审查状态。确定继续吗？"),
+        t("persona.revertConfirm", "确认撤回"),
+        "warning",
+      );
+      if (!confirmed) return;
+      try {
+        const result = await apiPost("reviews/action", { action: "revert", id, reason: "WebUI 撤回" });
+        if (!operationToast(result, t("persona.reverted", "已撤回审查决定"), t("persona.revertFailed", "撤回失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("persona.revertFailed", "撤回失败"), "error");
+        return;
+      }
+      clearCached("reviews");
+      await reloadPersona();
+      syncDashboardSnapshot();
     }
-    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
-    state.pageData.persona = null;
-    await loadPageData("persona-learning", { force: true });
   }
 
+  // 学习内容删除：与独立版一致先确认（删除后不可撤销）
   async function handleContentAction(buttonEl) {
-    const result = await apiPost("content/action", {
-      action: buttonEl.dataset.contentAction,
-      bucket: buttonEl.dataset.bucket,
-      id: buttonEl.dataset.id,
-    });
-    showToast(result.message || t("messages.actionDone", "操作完成"), result.success ? "ok" : "error");
-    state.pageData.content = null;
-    await loadPageData("content", { force: true });
+    const id = normalizeId(buttonEl.dataset.id);
+    if (!id) return;
+    const confirmed = await showConfirm(t("content.deleteTitle", "删除学习内容"), t("messages.deleteIrreversible", "删除后不可撤销，确定继续吗？"), t("actions.confirm", "确认"), "danger");
+    if (!confirmed) return;
+    try {
+      const result = await apiPost("content/action", { action: "delete_content", bucket: buttonEl.dataset.bucket, id });
+      if (!operationToast(result, t("content.deleted", "学习内容已删除"), t("messages.deleteFailed", "删除失败"))) return;
+    } catch (error) {
+      showToast(error.message || t("messages.deleteFailed", "删除失败"), "error");
+      return;
+    }
+    clearCached("content");
+    clearCached("style");
+    await loadContent(true);
   }
 
   function collectConfigPayload() {
@@ -2020,17 +3987,44 @@
     return payload;
   }
 
+  async function handlePageNav(buttonEl) {
+    const next = Math.max(1, Number(buttonEl.dataset.pageTo) || 1);
+    if (buttonEl.dataset.pageNav === "jargon") {
+      state.jargon.page = next;
+      state.jargon.editingId = null;
+      await loadJargon(true);
+    } else if (buttonEl.dataset.pageNav === "batches") {
+      state.reviewBatchPage = next;
+      await loadReviewBatches(true).catch((error) => showToast(error.message || t("reviews.batches.failed", "批次操作失败"), "error"));
+    }
+  }
+
   function bindEvents() {
     $("refresh-button")?.addEventListener("click", () => loadPageData(state.page, { force: true }));
+    $("emo-mood-submit")?.addEventListener("click", submitEmotionMood);
+    $("emo-mood-fill")?.addEventListener("click", fillFirstMoodGroup);
+    $("emo-mood-group")?.addEventListener("input", syncMoodFillButton);
+    $("emo-forget-run")?.addEventListener("click", (event) => runEmotionAction({ action: "run_forgetting_cycle" }, event.currentTarget));
     $("modal-close")?.addEventListener("click", closeModal);
-    $("jargon-search-button")?.addEventListener("click", () => {
-      clearCached("jargon");
-      loadJargon(true);
+    // 黑话词库：查询 / 状态 / 范围变化都回到第 1 页重新检索（与独立版一致）
+    const searchJargon = () => {
+      state.jargon.page = 1;
+      state.jargon.editingId = null;
+      reloadJargon();
+    };
+    $("jargon-search-button")?.addEventListener("click", searchJargon);
+    $("jargon-confirmed")?.addEventListener("change", searchJargon);
+    $("jargon-filter")?.addEventListener("change", searchJargon);
+    $("jargon-list-refresh")?.addEventListener("click", () => reloadJargon());
+    $("review-batch-relearn-all")?.addEventListener("click", (event) => handleRelearnAll(event.currentTarget));
+    $("review-batch-refresh")?.addEventListener("click", () => {
+      clearCached("batches");
+      loadReviewBatches(true).catch((error) => showToast(error.message || t("reviews.batches.failed", "批次操作失败"), "error"));
     });
-    $("style-search-button")?.addEventListener("click", () => {
-      clearCached("style");
-      selectedReviewSet("style").clear();
-      loadPageData("expression-learning", { force: true });
+    $("persona-list-refresh")?.addEventListener("click", () => reloadPersona().catch((error) => showToast(error.message || String(error), "error")));
+    $("content-search")?.addEventListener("input", (event) => {
+      state.contentQuery = event.target.value || "";
+      renderContent(state.pageData.content || {});
     });
     qsa("[data-review-search]").forEach((buttonEl) => {
       buttonEl.addEventListener("click", () => {
@@ -2043,76 +4037,106 @@
       "persona-review-keyword",
       "style-review-keyword",
       "jargon-review-keyword",
-      "style-page-keyword",
       "jargon-keyword",
     ].forEach((id) => {
       $(id)?.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
-        if (id === "style-page-keyword") {
-          $("style-search-button")?.click();
-        } else if (id === "jargon-keyword") {
-          $("jargon-search-button")?.click();
+        if (id === "jargon-keyword") {
+          searchJargon();
         } else {
           qs(`[data-review-search="${id.split("-")[0]}"]`)?.click();
         }
       });
     });
-    $("copy-insight-context")?.addEventListener("click", async () => {
-      const text = JSON.stringify(state.dashboard || {}, null, 2);
+    $("copy-insight-summary")?.addEventListener("click", async () => {
+      const text = insightSummaryText(state.dashboard || {});
+      const copied = () => showToast(t("messages.summaryCopied", "巡检摘要已复制"));
       try {
         await navigator.clipboard.writeText(text);
-        showToast(t("messages.contextCopied", "巡检上下文已复制"));
-      } catch (_) {
-        showModal(t("modal.insightContext", "巡检上下文"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
-      }
-    });
-    $("relearn-button")?.addEventListener("click", async () => {
-      const result = await apiPost("content/action", { action: "relearn", group_id: "default" });
-      showToast(result.message || t("messages.relearnSubmitted", "重新学习已提交"), result.success ? "ok" : "error");
-    });
-    $("graph-type")?.addEventListener("change", () => loadGraphs(true));
-    $("config-save-button")?.addEventListener("click", async () => {
-      const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
-      showToast(result.message || t("messages.settingsSaved", "设置已保存"), result.success ? "ok" : "error");
-      state.pageData.settings = null;
-      await loadPageData("settings", { force: true });
-    });
-    $("dependency-install-button")?.addEventListener("click", async () => {
-      const installButton = $("dependency-install-button");
-      const originalLabel = installButton?.textContent || t("actions.manualInstall", "手动安装");
-      const settings = state.pageData.settings || {};
-      if (installButton) {
-        installButton.disabled = true;
-        installButton.classList.add("is-busy");
-        installButton.textContent = t("actions.installing", "安装中");
-      }
-      setText("dependency-output", t("settings.installingDeps", "正在调用 pip 安装依赖，请等待命令输出..."));
+        copied();
+        return;
+      } catch (_) {}
+      // iframe 可能未授予剪贴板权限：与独立版一样退回 execCommand；仍失败时展示原文便于手动复制
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      document.body.append(textarea);
+      textarea.select();
+      let done = false;
       try {
-        const result = await apiPost("settings/action", {
-          action: "install_dependencies",
-          manual_confirmed: true,
-          source: settings.manual_dependency_source || "system_settings",
-          tier: $("dependency-tier")?.value || "full",
-          pip_mirror: $("pip-mirror-select")?.value || "default",
-        });
-        const detail = result.result || result;
-        setText("dependency-output", detail.output || detail.message || result.message || t("settings.installDone", "依赖安装任务结束"));
-        showToast(result.message || detail.message || t("settings.installDone", "依赖安装任务结束"), result.success !== false ? "ok" : "error");
+        done = document.execCommand("copy");
+      } catch (_) {
+        done = false;
+      }
+      textarea.remove();
+      if (done) copied();
+      else showModal(t("actions.copySummary", "复制摘要"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
+    });
+    // 图谱：视图 / 布局分段、群组筛选回车刷新、社交群组切换与动作（与独立版 GraphsPage 一致）
+    qsa("#graph-type-tabs [data-graph-type]").forEach((btn) => {
+      btn.addEventListener("click", () => setGraphType(btn.dataset.graphType || "memory"));
+    });
+    qsa("#graph-layout-tabs [data-graph-layout]").forEach((btn) => {
+      btn.addEventListener("click", () => setGraphLayout(btn.dataset.graphLayout || "force"));
+    });
+    $("graph-group")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      loadGraphs(true);
+    });
+    $("graph-social-group")?.addEventListener("change", (event) => {
+      state.graph.socialGroup = event.target.value || "";
+      syncGraphSocialBar();
+      loadSocialGraph(state.graph.socialGroup);
+    });
+    qsa("[data-graph-social]").forEach((btn) => {
+      btn.addEventListener("click", () => handleGraphSocialAction(btn.dataset.graphSocial || ""));
+    });
+    // 设置：保存 / 重新加载 / 重置（重置与强制重新加载都会丢弃未保存修改，与独立版一致）
+    $("config-save-button")?.addEventListener("click", async () => {
+      const saveButton = $("config-save-button");
+      if (saveButton) saveButton.disabled = true;
+      try {
+        const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
+        const saved = !!result.success;
+        showToast(
+          result.message || (saved ? t("messages.settingsSaved", "配置已保存") : t("messages.settingsSaveFailed", "配置保存失败")),
+          saved ? "ok" : "error",
+        );
+        if (!saved) return;
+        state.dirtySettings.clear();
+        state.pageData.settings = null;
+        await loadPageData("settings", { force: true });
       } catch (error) {
-        const message = error.message || String(error);
-        setText("dependency-output", message);
-        showToast(message, "error");
+        showToast(error.message || t("messages.settingsSaveFailed", "配置保存失败"), "error");
       } finally {
-        if (installButton) {
-          installButton.disabled = false;
-          installButton.classList.remove("is-busy");
-          installButton.textContent = originalLabel;
-        }
+        syncSettingsHeader();
+        renderSettingsNav();
       }
     });
+    $("config-reload-button")?.addEventListener("click", () => loadPageData("settings", { force: true }));
+    $("config-reset-button")?.addEventListener("click", () => {
+      state.dirtySettings.clear();
+      renderSettings(state.pageData.settings || {});
+      showToast(t("settings.resetDone", "未保存改动已重置"));
+    });
+    $("settings-search")?.addEventListener("input", (event) => {
+      state.settingsQuery = event.target.value || "";
+      renderSettingsNav();
+      renderSettingsDetail();
+    });
+    $("pip-mirror-select")?.addEventListener("change", (event) => {
+      storageSet(PIP_MIRROR_STORAGE_KEY, event.target.value || "default");
+    });
+    qsa("[data-dep-tier]").forEach((btn) => {
+      btn.addEventListener("click", () => handleDependencyInstall(btn.dataset.depTier || "full"));
+    });
+    $("data-stats-refresh")?.addEventListener("click", () => loadDataStatistics(true));
+    $("bug-report-refresh")?.addEventListener("click", () => loadBugReport(true));
+    $("bug-report-submit")?.addEventListener("click", handleBugSubmit);
     $("maibot-preview-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_preview"));
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
+    $("maibot-export-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_export"));
     $("qchat-preview-button")?.addEventListener("click", () => runQchatImportAction("qchat_preview"));
     $("qchat-import-button")?.addEventListener("click", () => runQchatImportAction("qchat_import"));
     $("worldbook-preview-button")?.addEventListener("click", () => runWorldbookAction("worldbook_preview"));
@@ -2123,32 +4147,19 @@
       renderQchatSenders();
     });
 
+    // 切换聊天记录来源：与独立版一致重新读取状态并选中该来源的第一个群组
     qsa("#shadow-source button").forEach((btn) => {
       btn.addEventListener("click", async () => {
         if (state.shadow.source === btn.dataset.shadowSource) return;
         state.shadow.source = btn.dataset.shadowSource || "live";
-        const status = state.shadow.statusData || {};
-        if (!(status.sources || {})[state.shadow.source]) {
-          try {
-            const data = await apiGet("shadow-mode");
-            state.pageData["shadow-mode"] = data;
-            renderShadowMode(data);
-          } catch (error) {
-            showToast(error.message || String(error), "error");
-            return;
-          }
-        } else {
-          renderShadowMode(status);
-        }
-        await loadShadowCandidates(true);
+        clearCached("shadow-mode");
+        await loadShadowMode(true, { resetGroup: true });
       });
     });
     $("shadow-group")?.addEventListener("change", async (event) => {
+      const previousGroup = state.shadow.groupId;
       state.shadow.groupId = event.target.value || "";
-      if (!state.shadow.targetGroupId || $("shadow-target-group")?.value === state.shadow.targetGroupId) {
-        state.shadow.targetGroupId = state.shadow.groupId;
-        if ($("shadow-target-group")) $("shadow-target-group").value = state.shadow.groupId;
-      }
+      syncShadowTarget(previousGroup);
       await loadShadowCandidates(true);
     });
     $("shadow-learn-button")?.addEventListener("click", handleShadowLearn);
@@ -2173,22 +4184,39 @@
     });
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-batch-record-action],[data-page-nav],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-bucket],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group],[data-emo-action],[data-integration-open],[data-data-clear],[data-settings-load]");
       if (!target) return;
-      if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
+      if (target.dataset.routeCard) {
+        // 首页卡片 / 快捷坞为 <a href="#/page">：拦截默认跳转，避免 hashchange 重复加载
+        if (target.tagName === "A") event.preventDefault();
+        navigateToPage(target.dataset.routeCard);
+      }
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
       if (target.dataset.reviewAction) await handleReviewAction(target.dataset.kind, target.dataset.id, target.dataset.reviewAction);
       if (target.dataset.batchReviewKind) await handleBatchReviewAction(target.dataset.batchReviewKind, target.dataset.batchReviewAction || "approve");
+      if (target.dataset.batchRecordAction) await handleBatchRecordAction(target);
+      if (target.dataset.pageNav) await handlePageNav(target);
       if (target.dataset.jargonAction) await handleJargonAction(target.dataset.jargonAction, target.dataset.id);
       if (target.dataset.jargonBatchAction) await handleJargonBatchAction(target.dataset.jargonBatchAction);
-      if (target.dataset.styleAction) await handleStyleAction(target.dataset.styleAction, target.dataset.id);
-      if (target.dataset.styleBatchAction) await handleStyleBatchAction(target.dataset.styleBatchAction);
+      if (target.dataset.styleAction) handleStyleAction(target.dataset.styleAction, target.dataset.id);
+      if (target.dataset.styleBucket) {
+        state.styleBucket = target.dataset.styleBucket;
+        renderStyleSamples();
+      }
       if (target.dataset.personaAction) await handlePersonaAction(target);
       if (target.dataset.shadowProfileAction) await handleShadowProfileAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
+      if (target.dataset.emoAction) await handleEmotionAction(target);
+      if (target.dataset.integrationOpen) handleIntegrationOpen(target.dataset.integrationOpen);
+      if (target.dataset.dataClear) await handleDataClear(target.dataset.dataClear);
+      if (target.dataset.settingsLoad) await loadPageData("settings", { force: true });
       if (target.dataset.settingsGroup) {
         state.settingsGroup = target.dataset.settingsGroup;
-        renderSettings(state.pageData.settings || {});
+        // 记住选中的分组（与独立版 localStorage key sl-settings-group 相同）
+        storageSet(SETTINGS_GROUP_STORAGE_KEY, state.settingsGroup);
+        renderSettingsNav();
+        renderSettingsDetail();
+        syncSettingsHeader();
       }
     });
 
@@ -2213,107 +4241,81 @@
       const field = event.target.closest("[data-config-field]");
       if (!field) return;
       state.dirtySettings.set(field.dataset.configField, field.type === "checkbox" ? field.checked : field.value);
+      syncSettingsHeader();
+      renderSettingsNav();
     });
 
+    // 导入黑话面板：「导入黑话」切换、「收起」隐藏；导入后保留输入与导入报告（与独立版一致）
     document.addEventListener("click", async (event) => {
       if (event.target.closest("#jargon-import-toggle")) {
         const panel = $("jargon-import-panel");
         if (panel) panel.hidden = !panel.hidden;
+        syncJargonImportButton();
+        return;
+      }
+      if (event.target.closest("#jargon-import-collapse")) {
+        const panel = $("jargon-import-panel");
+        if (panel) panel.hidden = true;
         return;
       }
       const importSubmit = event.target.closest("#jargon-import-submit");
-      if (!importSubmit) return;
-      const importText = $("jargon-import-text")?.value || "";
-      if (!importText.trim()) {
-        showToast(t("jargon.import.empty", "请先填写要导入的词条"), "error");
-        return;
-      }
-      const scopeValue = $("jargon-import-group")?.value || "__global__";
-      const groupId = scopeValue === "__global__" ? "" : scopeValue;
-      importSubmit.disabled = true;
-      try {
-        const result = await apiPost("jargon/action", {
-          action: "import_jargons",
-          text: importText,
-          group_id: groupId,
-          is_global: !groupId,
-        });
-        // 失败（含部分行失败，后端按 success=false 应答）时保留输入框内容，
-        // 修正后可原样重提；列表仍刷新以显示已入库的行。
-        const ok = result.success !== false;
-        showToast(
-          result.message || t(ok ? "jargon.import.done" : "jargon.import.failed", ok ? "导入完成" : "导入失败"),
-          ok ? "ok" : "error"
-        );
-        if (ok) $("jargon-import-text").value = "";
-        renderJargonImportReport(result);
-        state.pageData = {};
-        await loadPageData("jargon-learning", { force: true });
-      } catch (error) {
-        showToast(error.message || t("jargon.import.failed", "导入失败"), "error");
-      } finally {
-        importSubmit.disabled = false;
-      }
+      if (importSubmit) await submitJargonImport(importSubmit);
     });
 
     document.addEventListener("input", (event) => {
-      if (!event.target.closest || !event.target.closest("#jargon-import-text")) return;
-      const output = $("jargon-import-output");
-      if (output && !output.hidden) output.hidden = true;
-    });
-
-    document.addEventListener("click", async (event) => {
-      const save = event.target.closest("#modal-jargon-save");
-      if (!save) return;
-      const result = await apiPost("jargon/action", {
-        action: "update",
-        id: save.dataset.id,
-        content: $("modal-jargon-content")?.value,
-        meaning: $("modal-jargon-meaning")?.value,
-      });
-      closeModal();
-      showToast(result.message || t("messages.jargonUpdated", "黑话已更新"), result.success ? "ok" : "error");
-      state.pageData = {};
-      await loadPageData("jargon-learning", { force: true });
+      if (!event.target.closest) return;
+      if (event.target.closest("#jargon-import-text")) {
+        syncJargonImportButton();
+        return;
+      }
+      const draftField = event.target.closest("[data-jargon-draft]");
+      if (draftField && state.jargon.draft) state.jargon.draft[draftField.dataset.jargonDraft] = draftField.value;
     });
 
     document.addEventListener("click", async (event) => {
       const save = event.target.closest("#modal-style-save");
       if (!save) return;
-      const result = await apiPost("style/action", {
-        action: "update",
-        id: save.dataset.id,
-        description: modalFieldValue("modal-style-description"),
-        few_shots_content: modalFieldValue("modal-style-few-shots"),
-        learned_patterns: parseModalJson("modal-style-patterns", []),
-      });
+      try {
+        const result = await apiPost("style/action", {
+          action: "update",
+          id: save.dataset.id,
+          description: modalFieldValue("modal-style-description"),
+          few_shots_content: modalFieldValue("modal-style-few-shots"),
+          learned_patterns: parseModalJson("modal-style-patterns", []),
+        });
+        if (!operationToast(result, t("messages.styleUpdated", "表达方式已更新"), t("messages.saveFailed", "保存失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("messages.saveFailed", "保存失败"), "error");
+        return;
+      }
       closeModal();
-      showToast(result.message || t("messages.styleUpdated", "表达方式已更新"), result.success ? "ok" : "error");
-      state.pageData.style = null;
-      state.pageData.lastStyleItems = [];
-      await loadPageData("expression-learning", { force: true });
+      clearCached("reviews");
+      await loadReviews(true);
     });
 
     document.addEventListener("click", async (event) => {
       const save = event.target.closest("#modal-persona-save");
       if (!save) return;
       const personaId = save.dataset.personaId;
-      const result = await apiPost("persona/action", {
-        action: "update",
-        persona_id: personaId,
-        persona: {
+      try {
+        const result = await apiPost("persona/action", {
+          action: "update",
           persona_id: personaId,
-          name: modalFieldValue("modal-persona-name"),
-          system_prompt: modalFieldValue("modal-persona-prompt"),
-          prompt: modalFieldValue("modal-persona-prompt"),
-          begin_dialogs: parseModalJson("modal-persona-dialogs", []),
-        },
-      });
+          persona: {
+            persona_id: personaId,
+            name: modalFieldValue("modal-persona-name"),
+            system_prompt: modalFieldValue("modal-persona-prompt"),
+            prompt: modalFieldValue("modal-persona-prompt"),
+            begin_dialogs: parseModalJson("modal-persona-dialogs", []),
+          },
+        });
+        if (!operationToast(result, t("messages.personaUpdated", "人格已更新"), t("messages.saveFailed", "保存失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("messages.saveFailed", "保存失败"), "error");
+        return;
+      }
       closeModal();
-      showToast(result.message || t("messages.personaUpdated", "人格已更新"), result.success ? "ok" : "error");
-      state.pageData.persona = null;
-      state.pageData.lastPersonaItems = [];
-      await loadPageData("persona-learning", { force: true });
+      await reloadPersona();
     });
 
     qsa(".nav-item").forEach((item) => {
@@ -2353,16 +4355,26 @@
       setText("page-title", t(meta[1], meta[3]));
       if (state.dashboard) renderDashboard(state.dashboard);
       const data = state.pageData[state.page] || state.pageData[state.page === "expression-learning" ? "style" : state.page];
-      if (state.page === "monitoring" && state.pageData.monitoring) renderMonitoring(state.pageData.monitoring);
-      else if (state.page === "reviews" && state.pageData.reviews) renderReviews(state.pageData.reviews);
-      else if (state.page === "jargon-learning" && state.pageData.currentJargonData) renderJargon(state.pageData.currentJargonData);
+      if (state.page === "reviews" && state.pageData.reviews) {
+        renderReviews(state.pageData.reviews);
+        if (state.pageData.reviewBatches) renderReviewBatches(state.pageData.reviewBatches);
+      } else if (state.page === "jargon-learning" && state.pageData.currentJargonData) renderJargon(state.pageData.currentJargonData);
       else if (state.page === "expression-learning" && state.pageData.style) renderStyle(state.pageData.style);
       else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
-      else if (state.page === "shadow-mode" && state.pageData["shadow-mode"]) renderShadowMode(state.pageData["shadow-mode"]);
-      else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
-      else if (state.page === "graphs" && data) renderGraphs(data);
-      else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
-      else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
+      else if (state.page === "shadow-mode" && state.pageData["shadow-mode"]) {
+        renderShadowMode(state.pageData["shadow-mode"]);
+        if (state.shadow.groupId) renderShadowCandidates(state.shadow.candidates || []);
+      } else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
+      else if (state.page === "graphs" && state.graph.payload) {
+        renderSocialGroupOptions();
+        renderGraphPayload(state.graph.payload);
+      } else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
+      else if (state.page === "settings" && state.pageData.settings) {
+        renderSettings(state.pageData.settings);
+        // 数据管理 / Bug 反馈面板的静态标签同样跟随语言切换
+        if (state.pageData["data:statistics"]) renderDataStatistics(state.pageData["data:statistics"]);
+        if (state.pageData["bug:config"]) renderBugReport(state.pageData["bug:config"]);
+      }
     };
     try {
       const bridge = window.AstrBotPluginPage;
@@ -2415,7 +4427,7 @@
     const dt = Math.min(0.033, Math.max(0.001, (now - physics.last) / 1000));
     physics.last = now;
     ctx.clearRect(0, 0, rect.width, rect.height);
-    ctx.strokeStyle = "rgba(65, 105, 225, 0.14)";
+    ctx.strokeStyle = cssVar("--border-strong", "rgba(25, 25, 25, 0.42)");
     ctx.lineWidth = 1.2;
 
     const core = { x: rect.width / 2, y: rect.height / 2 };
@@ -2508,6 +4520,8 @@
       if (drag && drag.pointerId === event.pointerId) {
         drag.node.vx = 0;
         drag.node.vy = 0;
+        // 拖动位置在本次会话中保留（按图谱类型 + 群组分桶，与独立版 positionCache 一致）
+        rememberGraphPosition(drag.node, state.graph.width, state.graph.height, true);
         state.graph.dragged = null;
         canvas.classList.remove("is-dragging");
         canvas.releasePointerCapture?.(event.pointerId);
@@ -2532,9 +4546,20 @@
       return;
     }
     const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      state.graph.running = false;
+      return;
+    }
+    // 离开图谱页或画布隐藏（空态）时不再逐帧计算，回到图谱页后继续
+    if (state.page !== "graphs" || canvas.hidden) {
+      requestAnimationFrame(tickGraph);
+      return;
+    }
     const { width, height, ratio } = syncGraphCanvasSize(canvas);
     const nodes = state.graph.nodes;
     const links = state.graph.links;
+    // 环形布局：节点固定在圆上，只保留回位力，不叠加连线/排斥/向心力（与独立版 circular 布局一致）
+    const ring = state.graph.layout === "circular";
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
     const byId = new Map(nodes.map((node) => [String(node.id), node]));
@@ -2547,7 +4572,7 @@
       const dy = target.y - source.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
       const desired = Math.max(78, Math.min(132, Math.min(width, height) * 0.23));
-      const force = (dist - desired) * GRAPH_LINK_STRENGTH;
+      const force = ring ? 0 : (dist - desired) * GRAPH_LINK_STRENGTH;
       if (!source.pinned) {
         source.vx += (dx / dist) * force;
         source.vy += (dy / dist) * force;
@@ -2556,7 +4581,7 @@
         target.vx -= (dx / dist) * force;
         target.vy -= (dy / dist) * force;
       }
-      ctx.strokeStyle = "rgba(100, 116, 139, 0.28)";
+      ctx.strokeStyle = cssVar("--border-strong", "rgba(25, 25, 25, 0.42)");
       ctx.lineWidth = Math.max(1, Math.min(4, Number(link.value || 1)));
       ctx.beginPath();
       ctx.moveTo(source.x, source.y);
@@ -2564,18 +4589,19 @@
       ctx.stroke();
     });
 
-    for (let i = 0; i < nodes.length; i += 1) {
+    for (let i = 0; !ring && i < nodes.length; i += 1) {
       for (let j = i + 1; j < Math.min(nodes.length, i + 45); j += 1) {
         separateGraphNodes(nodes[i], nodes[j], 0.022);
       }
     }
 
+    const centerStrength = ring ? 0 : GRAPH_CENTER_STRENGTH;
     nodes.forEach((node, index) => {
       const cx = width / 2 + Math.sin(index) * 30;
       const cy = height / 2 + Math.cos(index) * 24;
       if (!node.pinned) {
-        node.vx += ((node.homeX || cx) - node.x) * GRAPH_HOME_STRENGTH + (cx - node.x) * GRAPH_CENTER_STRENGTH;
-        node.vy += ((node.homeY || cy) - node.y) * GRAPH_HOME_STRENGTH + (cy - node.y) * GRAPH_CENTER_STRENGTH;
+        node.vx += ((node.homeX || cx) - node.x) * GRAPH_HOME_STRENGTH + (cx - node.x) * centerStrength;
+        node.vy += ((node.homeY || cy) - node.y) * GRAPH_HOME_STRENGTH + (cy - node.y) * centerStrength;
         node.vx *= 0.74;
         node.vy *= 0.74;
         node.x += node.vx;
@@ -2588,16 +4614,16 @@
       }
       const isHovered = state.graph.hovered === node || state.graph.dragged?.node === node;
       if (isHovered) {
-        ctx.fillStyle = "rgba(15, 159, 143, 0.14)";
+        ctx.fillStyle = cssVar("--signal-soft", "rgba(255, 250, 0, 0.2)");
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius + 10, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.fillStyle = node.source === "livingmemory" ? "#0f9f8f" : index % 3 === 0 ? "#4169e1" : index % 3 === 1 ? "#d97706" : "#e11d48";
+      ctx.fillStyle = node.source === "livingmemory" ? cssVar("--state", "#00ffa2") : cssVar(`--chart-${(index % 3) + 1}`, "#191919");
       ctx.beginPath();
       ctx.arc(node.x, node.y, isHovered ? radius + 2 : radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#162033";
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#191919";
       ctx.font = "12px system-ui";
       const label = String(node.name || node.label || "").slice(0, 12);
       const labelWidth = ctx.measureText(label).width;
@@ -2723,18 +4749,57 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  // ── 60s 静默刷新（对齐独立版 stores/dashboard 定时 refresh(true)）：只刷新快照驱动的页面，
+  //    弹窗打开、设置有未保存修改、焦点在输入控件或页面不可见时跳过；不重绘任何表单 ──
+  const AUTO_REFRESH_INTERVAL_MS = 60000;
+  const SNAPSHOT_PAGES = new Set(["home", "overview", "insights", "monitoring"]);
+
+  function autoRefreshBlocked() {
+    if (!state.ready || state.dashboardLoading) return true;
+    if (document.visibilityState === "hidden") return true;
+    const modal = $("detail-modal");
+    if (modal && (modal.open || modal.hasAttribute("open"))) return true;
+    if (state.dirtySettings.size > 0) return true;
+    const active = document.activeElement;
+    return !!(active && typeof active.matches === "function"
+      && active.matches("input, textarea, select, [contenteditable=\"true\"]"));
+  }
+
+  async function autoRefreshTick() {
+    if (!SNAPSHOT_PAGES.has(state.page) || autoRefreshBlocked()) return;
+    const data = await loadDashboard(true, { quiet: true });
+    if (data && state.page === "overview") renderOverview(data);
+  }
+
+  function startAutoRefresh() {
+    window.setInterval(() => {
+      autoRefreshTick().catch(() => {});
+    }, AUTO_REFRESH_INTERVAL_MS);
+  }
+
   async function init() {
     setThemeFromBridge();
     bindEvents();
     initSpringMotion();
+    // 首页静态结构（快捷坞 / 学习模块 / 入口卡骨架）先行渲染：桥接或快照失败时仍可导航
+    state.dashboardLoading = SNAPSHOT_PAGES.has(resolvePageFromHash());
+    renderHome({});
     try {
       await bridgeReady();
       setI18nFromBridge();
+      state.runtimeStatusLabel = t("status.connected", "已连接");
+      setText("runtime-status", state.runtimeStatusLabel);
+      setText("runtime-summary", t("status.bridgeConnected", "已连接 AstrBot 插件页桥接层。"));
       navigateToPage(resolvePageFromHash(), { skipHash: true, force: true });
+      startAutoRefresh();
     } catch (error) {
+      state.dashboardLoading = false;
+      renderHome({});
       showToast(error.message || String(error), "error");
       setText("runtime-status", t("status.bridgeFailed", "桥接失败"));
       setText("runtime-summary", error.message || String(error));
+      setText("hero-status", t("status.bridgeFailed", "桥接失败"));
+      setText("hero-summary", error.message || String(error));
     }
   }
 

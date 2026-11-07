@@ -23,7 +23,10 @@ import time
 from typing import Dict, List, Tuple
 
 from astrbot.api import logger
-from astrbot.core.provider.provider import EmbeddingProvider
+try:  # astrbot.api.provider 未导出 EmbeddingProvider（截至 v4.29），只能引用内部路径
+    from astrbot.core.provider.provider import EmbeddingProvider
+except ImportError:  # 内部路径变动时仅禁用向量能力，不阻断插件加载
+    EmbeddingProvider = None
 
 from .base import IEmbeddingProvider, EmbeddingProviderError
 from ..monitoring.instrumentation import monitored

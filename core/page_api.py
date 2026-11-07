@@ -10,7 +10,6 @@ embedded page does not proxy or iframe it.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import time
@@ -46,6 +45,8 @@ class PluginPageApi:
             ("style/action", self.post_style_action, ["POST"], "Self Learning embedded expression actions"),
             ("reviews", self.get_reviews, ["GET"], "Self Learning embedded review queues"),
             ("reviews/action", self.post_reviews_action, ["POST"], "Self Learning embedded review actions"),
+            ("batches", self.get_batches, ["GET"], "Self Learning embedded learning batches"),
+            ("batches/action", self.post_batches_action, ["POST"], "Self Learning embedded learning batch actions"),
             ("persona", self.get_persona, ["GET"], "Self Learning embedded persona module"),
             ("persona/action", self.post_persona_action, ["POST"], "Self Learning embedded persona actions"),
             ("shadow-mode", self.get_shadow_mode, ["GET"], "Self Learning embedded shadow mode status"),
@@ -54,12 +55,22 @@ class PluginPageApi:
             ("content", self.get_content, ["GET"], "Self Learning embedded learning content module"),
             ("content/action", self.post_content_action, ["POST"], "Self Learning embedded content actions"),
             ("graphs", self.get_graphs, ["GET"], "Self Learning embedded graph module"),
+            ("graphs/social/groups", self.get_social_groups, ["GET"], "Self Learning embedded social graph groups"),
+            ("graphs/social", self.get_social_relations, ["GET"], "Self Learning embedded social relation graph"),
+            ("graphs/social/action", self.post_social_action, ["POST"], "Self Learning embedded social relation actions"),
+            ("emotion/board", self.get_emotion_board, ["GET"], "Self Learning embedded emotion board"),
+            ("emotion/trends", self.get_emotion_trends, ["GET"], "Self Learning embedded emotion trends"),
+            ("emotion/action", self.post_emotion_action, ["POST"], "Self Learning embedded emotion actions"),
             ("metrics", self.get_metrics, ["GET"], "Self Learning embedded metrics module"),
             ("monitoring", self.get_monitoring, ["GET"], "Self Learning embedded monitoring module"),
             ("integrations", self.get_integrations, ["GET"], "Self Learning embedded integrations module"),
             ("integrations/action", self.post_integrations_action, ["POST"], "Self Learning embedded integrations actions"),
             ("settings", self.get_settings, ["GET"], "Self Learning embedded settings module"),
             ("settings/action", self.post_settings_action, ["POST"], "Self Learning embedded settings actions"),
+            ("data/statistics", self.get_data_statistics, ["GET"], "Self Learning embedded data statistics"),
+            ("data/clear", self.post_data_clear, ["POST"], "Self Learning embedded data clearing"),
+            ("bug-report", self.get_bug_report_config, ["GET"], "Self Learning embedded bug report config"),
+            ("bug-report/submit", self.post_bug_report, ["POST"], "Self Learning embedded bug report submission"),
         ]
         for endpoint, handler, methods, description in routes:
             register(f"{PAGE_API_PREFIX}/{endpoint}", handler, methods, description)
@@ -73,10 +84,7 @@ class PluginPageApi:
             "overview", self._load_overview, errors, default={}
         )
         reviews = await self._safe_section(
-            "reviews", lambda: self._load_reviews(limit=8), errors, default={}
-        )
-        content = await self._safe_section(
-            "content", lambda: self._load_content(page=1, page_size=6), errors, default={}
+            "reviews", lambda: self._load_reviews(limit=10), errors, default={}
         )
         metrics = await self._safe_section(
             "metrics", self._load_metrics, errors, default={}
@@ -87,17 +95,12 @@ class PluginPageApi:
         integrations = await self._safe_section(
             "integrations", self._load_integrations, errors, default={}
         )
-        graphs = await self._safe_section(
-            "graphs",
-            lambda: self._load_graphs(graph_type="both", limit=60),
-            errors,
-            default={},
-        )
-        settings = await self._safe_section(
-            "settings",
-            lambda: self._load_settings(include_schema=False),
-            errors,
-            default={},
+        # content/settings/graphs 分区已移除：内嵌页对应路由均走专用
+        # page/content、page/settings、page/graphs 桥接，聚合里从未被消费，
+        # 却让每次 dashboard 加载（含 60 秒自动刷新）多付三份查询。
+        # 与独立 WebUI /api/data/statistics 同源：首页「内容样本」「记忆 / 知识图谱」读数
+        data_statistics = await self._safe_section(
+            "data_statistics", self._load_data_statistics, errors, default={}
         )
 
         merged_errors = dict(overview.get("errors", {}) if isinstance(overview, dict) else {})
@@ -106,12 +109,10 @@ class PluginPageApi:
             {
                 "overview": overview,
                 "reviews": reviews,
-                "content": content,
                 "metrics": metrics,
                 "monitoring": monitoring,
                 "integrations": integrations,
-                "graphs": graphs,
-                "settings": settings,
+                "data_statistics": data_statistics,
                 "errors": merged_errors,
             }
         )
@@ -217,23 +218,22 @@ class PluginPageApi:
             return self._operation(False, str(exc))
 
     async def get_style(self) -> dict[str, Any]:
-        args = self._query()
-        limit = self._query_int(args, "limit", 50)
-        keyword = self._query_value(args, "keyword") or ""
+        # 表达方式学习页：统计、学习模式与表达样本库（四分类内容与独立 WebUI
+        # /api/style_learning/content_text 同源）。待审表达统一在审查队列处理。
         try:
             container = self._container()
             LearningService = self._imports().LearningService
             service = LearningService(container)
-            results, reviews, patterns = await asyncio.gather(
+            results, patterns, content = await asyncio.gather(
                 service.get_style_learning_results(),
-                service.get_style_learning_reviews(limit=limit, keyword=keyword),
                 service.get_style_learning_patterns(),
+                self._get_learning_content_text(),
             )
             return self._ok(
                 {
                     "results": results,
-                    "reviews": reviews,
                     "patterns": patterns,
+                    "content": content,
                 }
             )
         except Exception as exc:
@@ -241,12 +241,12 @@ class PluginPageApi:
             return self._ok(
                 {
                     "results": {"statistics": {}, "style_progress": []},
-                    "reviews": {"reviews": [], "total": 0},
                     "patterns": {
                         "emotion_patterns": [],
                         "language_patterns": [],
                         "topic_patterns": [],
                     },
+                    "content": {"dialogues": [], "analysis": [], "features": [], "history": []},
                     "error": str(exc),
                 }
             )
@@ -492,7 +492,8 @@ class PluginPageApi:
     async def get_persona(self) -> dict[str, Any]:
         args = self._query()
         group_id = self._query_value(args, "group_id", "default") or "default"
-        limit = self._query_int(args, "limit", 20)
+        # 与独立 WebUI 人格学习页同口径：备份取全部群组最近 8 条
+        limit = self._query_int(args, "limit", 8)
         return self._ok(await self._load_persona(group_id=group_id, limit=limit))
 
     async def post_persona_action(self) -> dict[str, Any]:
@@ -528,6 +529,12 @@ class PluginPageApi:
             if action == "export":
                 data = await persona_service.export_persona(str(body.get("persona_id") or ""))
                 return self._operation(True, "人格导出成功", persona=data)
+            if action == "get":
+                # 与独立 WebUI /api/persona_management/get/<id> 同一服务方法
+                data = await persona_service.get_persona_details(str(body.get("persona_id") or ""))
+                if not data:
+                    return self._operation(False, "人格不存在")
+                return self._operation(True, "人格详情已读取", persona=data)
             if action == "backup_detail":
                 data = await backup_service.get_backup(
                     self._body_int(body, "id"),
@@ -605,6 +612,38 @@ class PluginPageApi:
             logger.error(f"[PluginPageAPI] shadow action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
 
+    async def get_emotion_board(self) -> dict[str, Any]:
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            return self._ok(await service.get_board())
+        except Exception as exc:
+            logger.error(f"[内嵌页] 读取情绪板块失败: {exc}", exc_info=True)
+            return self._ok({"available": False, "error": str(exc)})
+
+    async def get_emotion_trends(self) -> dict[str, Any]:
+        args = self._query()
+        days = self._query_int(args, "days", 14)
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            return self._ok(await service.get_trends(days))
+        except Exception as exc:
+            logger.error(f"[内嵌页] 读取情绪走向失败: {exc}", exc_info=True)
+            return self._ok({"days": days, "error": str(exc)})
+
+    async def post_emotion_action(self) -> dict[str, Any]:
+        body = await self._body()
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            result = await service.run_action(body)
+            return self._operation(
+                bool(result.get("success")),
+                str(result.get("message", "")),
+                **{k: v for k, v in result.items() if k not in {"success", "message"}},
+            )
+        except Exception as exc:
+            logger.error(f"[内嵌页] 情绪板块操作失败: {exc}", exc_info=True)
+            return self._operation(False, f"情绪板块操作失败: {exc}")
+
     async def get_content(self) -> dict[str, Any]:
         args = self._query()
         return self._ok(
@@ -641,6 +680,69 @@ class PluginPageApi:
             logger.error(f"[PluginPageAPI] content action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
 
+    async def get_batches(self) -> dict[str, Any]:
+        """审查队列「最近学习批次」：与独立 WebUI /api/batches 同一服务（分页）。
+
+        与独立版一样，分页查询失败时回退到趋势数据中的最近批次（单页）。
+        """
+        args = self._query()
+        page = max(1, self._query_int(args, "page", 1))
+        page_size = max(1, min(self._query_int(args, "page_size", 10), 100))
+        try:
+            return self._ok(
+                await self._get_learning_batches(page=page, page_size=page_size, raise_errors=True)
+            )
+        except Exception as exc:
+            logger.warning(f"[PluginPageAPI] learning batches fallback to trends: {exc}")
+            recent: list[Any] = []
+            database_manager = getattr(self._container(), "database_manager", None)
+            if database_manager and hasattr(database_manager, "get_trends_data"):
+                try:
+                    trends = await database_manager.get_trends_data()
+                    if isinstance(trends, dict) and isinstance(trends.get("recent_batches"), list):
+                        recent = trends["recent_batches"]
+                except Exception as trend_exc:
+                    logger.warning(f"[PluginPageAPI] trends fallback unavailable: {trend_exc}")
+            return self._ok(
+                {
+                    "batches": recent,
+                    "total": len(recent),
+                    "page": 1,
+                    "page_size": page_size,
+                    "total_pages": 1,
+                }
+            )
+
+    async def post_batches_action(self) -> dict[str, Any]:
+        """批次卡片动作：重跑学习（按批次群组）/ 删除批次，与独立 WebUI 同一实现。"""
+        body = await self._body()
+        action = str(body.get("action", "")).strip()
+        try:
+            if action == "relearn":
+                group_id = str(body.get("group_id") or "").strip()
+                if not group_id:
+                    return self._operation(False, "群组ID不能为空")
+                result = await self._relearn(group_id)
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "重新学习已提交",
+                    result=result,
+                )
+            if action == "relearn_all":
+                result = await self._relearn("default")
+                return self._operation(
+                    bool(result.get("success")),
+                    result.get("message") or result.get("error") or "重新学习已提交",
+                    result=result,
+                )
+            if action == "delete":
+                success, message = await self._delete_learning_batch(self._body_int(body, "id"))
+                return self._operation(success, message)
+            return self._operation(False, f"未知学习批次操作: {action or '(empty)'}")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] batch action failed: {exc}", exc_info=True)
+            return self._operation(False, str(exc))
+
     async def get_graphs(self) -> dict[str, Any]:
         args = self._query()
         return self._ok(
@@ -650,6 +752,85 @@ class PluginPageApi:
                 limit=self._query_int(args, "limit", 120),
             )
         )
+
+    # ── 社交关系图谱：与独立 WebUI /api/social_relations/* 同一组服务方法 ──
+    async def get_social_groups(self) -> dict[str, Any]:
+        """可分析社交关系的群组列表（独立版 GET /api/social_relations/groups）。"""
+        try:
+            service = self._imports().SocialService(self._container())
+            groups = await service.get_available_groups()
+            return self._ok({"groups": groups, "total": len(groups)})
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social groups failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def get_social_relations(self) -> dict[str, Any]:
+        """指定群组的成员与关系（独立版 GET /api/social_relations/<group_id>）。"""
+        group_id = str(self._query_value(self._query(), "group_id", "") or "").strip()
+        if not group_id:
+            return self._operation(False, "群组ID不能为空")
+        try:
+            service = self._imports().SocialService(self._container())
+            return self._ok(await service.get_social_relations(group_id))
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social relations failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_social_action(self) -> dict[str, Any]:
+        """重新分析 / 清空关系 / 创建分享链接，与独立版 analyze、clear、share 路由同源。"""
+        body = await self._body()
+        action = str(body.get("action", "")).strip()
+        group_id = str(body.get("group_id") or "").strip()
+        if not group_id:
+            return self._operation(False, "群组ID不能为空")
+        try:
+            imports = self._imports()
+            container = self._container()
+            if action == "analyze":
+                success, message = await imports.SocialService(container).trigger_analysis(group_id)
+                return self._operation(success, message)
+            if action == "clear":
+                # 不可恢复操作：只接受页面二次确认后发出的请求
+                if body.get("confirmed") is not True:
+                    return self._operation(False, "清空社交关系需要在页面中确认后执行")
+                success, message = await imports.SocialService(container).clear_relations(group_id)
+                return self._operation(success, message)
+            if action == "share":
+                share_service_cls = imports.GraphShareService
+                try:
+                    expires_hours = int(body.get("expires_hours", 168))
+                except (TypeError, ValueError):
+                    return self._operation(False, "expires_hours 必须是整数")
+                min_hours = share_service_cls.MIN_EXPIRES_HOURS
+                max_hours = share_service_cls.MAX_EXPIRES_HOURS
+                if expires_hours < min_hours or expires_hours > max_hours:
+                    return self._operation(False, f"expires_hours 必须在 {min_hours}~{max_hours} 之间")
+                share = share_service_cls(container).create_share(
+                    group_id=group_id, expires_hours=expires_hours
+                )
+                share_path = f"/graph/share/{share['token']}"
+                # 分享页由独立 WebUI 提供；内嵌页运行在 AstrBot 面板内，链接需指向独立 WebUI 地址
+                webui = self._build_webui_snapshot(
+                    getattr(self.plugin, "plugin_config", None),
+                    getattr(container, "webui_config", None),
+                )
+                share_url = f"{webui['dashboard_url']}{share_path}" if webui.get("enabled") else None
+                return self._operation(
+                    True,
+                    "分享链接已创建",
+                    data={
+                        "group_id": group_id,
+                        "share_url": share_url,
+                        "share_path": share_path,
+                        "token": share["token"],
+                        "expires_hours": share["expires_hours"],
+                        "expires_at": share["expires_at_iso"],
+                    },
+                )
+            return self._operation(False, f"未知社交关系操作: {action or '(empty)'}")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social action failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
 
     async def get_metrics(self) -> dict[str, Any]:
         return self._ok(await self._load_metrics())
@@ -788,6 +969,63 @@ class PluginPageApi:
             logger.error(f"[PluginPageAPI] settings action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
 
+    # ── 数据管理：与独立 WebUI /api/data/* 同一服务（DataManagementService） ──
+    _DATA_CLEAR_METHODS: dict[str, str] = {
+        "messages": "clear_messages",
+        "persona_reviews": "clear_persona_reviews",
+        "style_learning": "clear_style_learning",
+        "jargon": "clear_jargon",
+        "learning_history": "clear_learning_history",
+        "all": "clear_all",
+    }
+
+    async def get_data_statistics(self) -> dict[str, Any]:
+        """各模块数据行数统计（独立版 GET /api/data/statistics）。"""
+        try:
+            return self._ok(await self._load_data_statistics())
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] data statistics failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_data_clear(self) -> dict[str, Any]:
+        """按模块清空数据（独立版 DELETE /api/data/clear/<target>）。"""
+        body = await self._body()
+        target = str(body.get("target") or "").strip()
+        method_name = self._DATA_CLEAR_METHODS.get(target)
+        if not method_name:
+            return self._operation(False, f"未知清空目标: {target or '(empty)'}")
+        # 不可恢复操作：只接受页面二次确认后发出的请求
+        if body.get("confirmed") is not True:
+            return self._operation(False, "清空数据需要在页面中确认后执行")
+        try:
+            service = self._imports().DataManagementService(self._container())
+            success, message, deleted = await getattr(service, method_name)()
+            return self._operation(success, message, deleted=deleted)
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] data clear failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    # ── Bug 反馈：与独立 WebUI /api/bug_report* 同一服务（BugReportService） ──
+    async def get_bug_report_config(self) -> dict[str, Any]:
+        """Bug 自助提交配置与日志预览（独立版 GET /api/bug_report/config）。"""
+        try:
+            service = self._imports().BugReportService(self._container())
+            return self._ok(service.get_bug_report_config())
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] bug report config failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_bug_report(self) -> dict[str, Any]:
+        """提交 Bug 报告（独立版 POST /api/bug_report）。"""
+        body = await self._body()
+        try:
+            service = self._imports().BugReportService(self._container())
+            success, message, response_data = await service.submit_bug_report(body)
+            return self._operation(success, message, data=response_data)
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] bug report submit failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
     async def _load_overview(self) -> dict[str, Any]:
         imports = self._imports()
         container = self._container()
@@ -833,18 +1071,8 @@ class PluginPageApi:
             default={"overall_score": 0, "dimensions": {}, "trends": []},
         )
 
-        style_stats = style_results.get("statistics") if isinstance(style_results, dict) else {}
-        style_stats = style_stats if isinstance(style_stats, dict) else {}
-
-        modules = self._build_modules(
-            plugin_config=plugin_config,
-            jargon_stats=jargon_stats,
-            style_stats=style_stats,
-            persona_state=persona_state,
-            backups=backups,
-            metrics=metrics,
-        )
-
+        # 首页模块卡与快捷入口已与独立 WebUI 一样由前端静态定义（内嵌页 app.js 的
+        # homeModules / homeQuickLinks），这里只返回原始数据，不再下发宿主链接。
         return {
             "plugin": {
                 "name": PLUGIN_NAME,
@@ -877,8 +1105,6 @@ class PluginPageApi:
             "persona": persona_state,
             "persona_backups": backups,
             "metrics": metrics,
-            "modules": modules,
-            "quick_links": self._build_quick_links(plugin_config, webui_config),
             "errors": errors,
         }
 
@@ -1066,14 +1292,24 @@ class PluginPageApi:
             pending_only=True,
         )
 
-    async def _load_persona(self, *, group_id: str, limit: int) -> dict[str, Any]:
+    async def _load_persona(
+        self,
+        *,
+        group_id: str,
+        limit: int,
+        pending_limit: int = 10,
+        reviewed_limit: int = 5,
+    ) -> dict[str, Any]:
         imports = self._imports()
         container = self._container()
         errors: dict[str, str] = {}
         persona_service = imports.PersonaService(container)
         backup_service = imports.PersonaBackupService(container)
+        review_service = imports.PersonaReviewService(container)
 
-        personas, current, default_persona, backups = await asyncio.gather(
+        # 与独立 WebUI 人格学习页同源：当前人格取 group_id，备份取全部群组最近 limit 条，
+        # 待审人格更新取首屏 10 条、最近已审查 5 条（/api/persona_updates、/reviewed）。
+        personas, current, default_persona, backups, pending, reviewed = await asyncio.gather(
             self._safe_section("list", persona_service.get_all_personas, errors, default=[]),
             self._safe_section(
                 "current",
@@ -1089,9 +1325,21 @@ class PluginPageApi:
             ),
             self._safe_section(
                 "backups",
-                lambda: backup_service.list_backups(group_id=group_id, limit=limit),
+                lambda: backup_service.list_backups(limit=limit),
                 errors,
                 default={"backups": [], "total": 0, "available": False},
+            ),
+            self._safe_section(
+                "pending",
+                lambda: review_service.get_pending_persona_updates(limit=pending_limit),
+                errors,
+                default={"updates": [], "total": 0, "success": True},
+            ),
+            self._safe_section(
+                "reviewed",
+                lambda: review_service.get_reviewed_persona_updates(reviewed_limit, 0, None),
+                errors,
+                default={"updates": [], "total": 0, "success": True},
             ),
         )
         return {
@@ -1100,6 +1348,8 @@ class PluginPageApi:
             "current": current,
             "default": default_persona,
             "backups": backups,
+            "pending": pending,
+            "reviewed": reviewed,
             "errors": errors,
         }
 
@@ -1206,6 +1456,20 @@ class PluginPageApi:
             except Exception as exc:
                 errors["provider_info"] = str(exc)
 
+        # 与独立 WebUI /api/metrics 同口径的顶层字段（同一组共享函数计算），
+        # 首页 / 总览 / 运行监控 / AI 巡检直接读取，避免两端读数分叉。
+        message_totals = message_stats if isinstance(message_stats, dict) else {}
+        total_messages = self._as_int(message_totals.get("total_messages"), 0)
+        filtered_messages = self._as_int(message_totals.get("filtered_messages"), 0)
+        learning_efficiency, learning_dimensions = await self._safe_section(
+            "learning_efficiency",
+            lambda: imports.compute_learning_efficiency(db, total_messages, filtered_messages),
+            errors,
+            default=(0, {}),
+        )
+        llm_summary = imports.summarize_llm_call_statistics(llm_stats, provider_info)
+        system = self._system_metrics()
+
         return {
             "intelligence": intelligence,
             "diversity": diversity,
@@ -1222,7 +1486,13 @@ class PluginPageApi:
                     getattr(self.plugin, "learning_stats", None)
                 ),
             },
-            "system": self._system_metrics(),
+            "system": system,
+            "total_messages_collected": total_messages,
+            "filtered_messages": filtered_messages,
+            "learning_efficiency": learning_efficiency,
+            "learning_dimensions": learning_dimensions,
+            **llm_summary,
+            "system_metrics": system,
             "errors": errors,
         }
 
@@ -1275,6 +1545,10 @@ class PluginPageApi:
         service = self._imports().IntegrationService(self._container())
         return await service.get_status()
 
+    async def _load_data_statistics(self) -> dict[str, Any]:
+        service = self._imports().DataManagementService(self._container())
+        return await service.get_data_statistics()
+
     async def _load_settings(self, *, include_schema: bool) -> dict[str, Any]:
         imports = self._imports()
         service = imports.ConfigService(self._container())
@@ -1294,206 +1568,26 @@ class PluginPageApi:
         return payload
 
     async def _get_learning_content_text(self) -> dict[str, list[dict[str, Any]]]:
-        container = self._container()
-        database_manager = getattr(container, "database_manager", None)
-        content_data: dict[str, list[dict[str, Any]]] = {
-            "dialogues": [],
-            "analysis": [],
-            "features": [],
-            "history": [],
-        }
-        if not database_manager or not hasattr(database_manager, "get_session"):
-            return content_data
+        # 与独立 WebUI /api/style_learning/content_text 共用同一服务（同一份四分类数据）
+        service = self._imports().LearningContentService(self._container())
+        return await service.get_content_text()
 
-        try:
-            from sqlalchemy import desc, select
-
-            try:
-                from ..models.orm import (
-                    ExpressionPattern,
-                    LearningBatch,
-                    RawMessage,
-                    StyleLearningReview,
-                )
-            except ImportError:
-                from models.orm import (
-                    ExpressionPattern,
-                    LearningBatch,
-                    RawMessage,
-                    StyleLearningReview,
-                )
-
-            async with database_manager.get_session() as session:
-                raw_messages = (
-                    await session.execute(
-                        select(RawMessage).order_by(desc(RawMessage.timestamp)).limit(24)
-                    )
-                ).scalars().all()
-                style_reviews = (
-                    await session.execute(
-                        select(StyleLearningReview)
-                        .order_by(desc(StyleLearningReview.timestamp))
-                        .limit(24)
-                    )
-                ).scalars().all()
-                expression_patterns = (
-                    await session.execute(
-                        select(ExpressionPattern)
-                        .order_by(desc(ExpressionPattern.last_active_time))
-                        .limit(24)
-                    )
-                ).scalars().all()
-                batches = (
-                    await session.execute(
-                        select(LearningBatch).order_by(desc(LearningBatch.start_time)).limit(24)
-                    )
-                ).scalars().all()
-
-            for msg in raw_messages:
-                message_text = getattr(msg, "message", "") or ""
-                if len(message_text.strip()) < 2:
-                    continue
-                sender = getattr(msg, "sender_name", None) or getattr(msg, "sender_id", None) or "未知发送者"
-                content_data["dialogues"].append(
-                    {
-                        "id": getattr(msg, "id", None),
-                        "type": "dialogue",
-                        "title": sender,
-                        "timestamp": self._format_ts(getattr(msg, "timestamp", None)),
-                        "text": f"{sender}: {message_text}",
-                        "detail": message_text,
-                        "metadata": f"群组: {getattr(msg, 'group_id', '')}, 平台: {getattr(msg, 'platform', '') or '未知'}",
-                        "raw": {
-                            "sender_id": getattr(msg, "sender_id", None),
-                            "sender_name": getattr(msg, "sender_name", None),
-                            "group_id": getattr(msg, "group_id", None),
-                            "platform": getattr(msg, "platform", None),
-                            "processed": bool(getattr(msg, "processed", False)),
-                        },
-                    }
-                )
-
-            for review in style_reviews:
-                patterns = self._parse_jsonish(getattr(review, "learned_patterns", None), [])
-                description = getattr(review, "description", "") or ""
-                few_shots = getattr(review, "few_shots_content", "") or ""
-                content_data["analysis"].append(
-                    {
-                        "id": getattr(review, "id", None),
-                        "type": getattr(review, "type", None) or "style_learning",
-                        "title": description or f"风格学习 ({getattr(review, 'type', '') or 'style'})",
-                        "timestamp": self._format_ts(getattr(review, "timestamp", None)),
-                        "text": description or few_shots,
-                        "detail": few_shots or description,
-                        "status": getattr(review, "status", None),
-                        "patterns": patterns,
-                        "metadata": f"群组: {getattr(review, 'group_id', '')}, 状态: {getattr(review, 'status', '')}",
-                    }
-                )
-
-            for pattern in expression_patterns:
-                weight = getattr(pattern, "weight", None) or 0
-                situation = getattr(pattern, "situation", "") or "表达模式"
-                expression = getattr(pattern, "expression", "") or ""
-                content_data["features"].append(
-                    {
-                        "id": getattr(pattern, "id", None),
-                        "type": "expression_pattern",
-                        "title": situation,
-                        "timestamp": self._format_ts(getattr(pattern, "last_active_time", None)),
-                        "text": f"场景: {situation}\n表达: {expression}",
-                        "detail": expression,
-                        "metadata": f"群组: {getattr(pattern, 'group_id', '')}, 权重: {float(weight):.2f}",
-                    }
-                )
-
-            max_batch_size = self._config_value(
-                getattr(container, "plugin_config", None),
-                "max_messages_per_batch",
-                200,
-            )
-            for batch in batches:
-                quality_score = self._effective_batch_quality(batch, max_batch_size)
-                content_data["history"].append(
-                    {
-                        "id": getattr(batch, "id", None),
-                        "type": "learning_batch",
-                        "title": getattr(batch, "batch_name", None)
-                        or getattr(batch, "batch_id", None)
-                        or "学习批次",
-                        "timestamp": self._format_ts(getattr(batch, "start_time", None)),
-                        "text": f"质量: {quality_score:.3f}",
-                        "detail": getattr(batch, "error_message", None)
-                        or f"状态: {getattr(batch, 'status', None) or 'unknown'}",
-                        "status": getattr(batch, "status", None),
-                        "metadata": (
-                            f"群组: {getattr(batch, 'group_id', '')}, "
-                            f"消息: {getattr(batch, 'processed_messages', 0) or 0}, "
-                            f"成功: {'是' if getattr(batch, 'success', False) else '否'}"
-                        ),
-                    }
-                )
-        except Exception as exc:
-            logger.warning(f"[PluginPageAPI] learning content unavailable: {exc}", exc_info=True)
-        return content_data
-
-    async def _get_learning_batches(self, *, page: int, page_size: int) -> dict[str, Any]:
-        database_manager = getattr(self._container(), "database_manager", None)
+    async def _get_learning_batches(
+        self,
+        *,
+        page: int,
+        page_size: int,
+        raise_errors: bool = False,
+    ) -> dict[str, Any]:
+        # 与独立 WebUI /api/batches 共用同一服务；raise_errors=False 时读取失败返回空页
         page = max(1, page)
         page_size = max(1, min(page_size or 20, 100))
-        if not database_manager or not hasattr(database_manager, "get_session"):
-            return {"batches": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
-
         try:
-            from sqlalchemy import desc, func, select
-
-            try:
-                from ..models.orm import LearningBatch
-            except ImportError:
-                from models.orm import LearningBatch
-
-            async with database_manager.get_session() as session:
-                total = (await session.execute(select(func.count()).select_from(LearningBatch))).scalar() or 0
-                rows = (
-                    await session.execute(
-                        select(LearningBatch)
-                        .order_by(desc(LearningBatch.start_time))
-                        .offset((page - 1) * page_size)
-                        .limit(page_size)
-                    )
-                ).scalars().all()
-            max_batch_size = self._config_value(
-                getattr(self._container(), "plugin_config", None),
-                "max_messages_per_batch",
-                200,
-            )
-            batches = [
-                {
-                    "id": getattr(batch, "id", None),
-                    "batch_id": getattr(batch, "batch_id", None),
-                    "batch_name": getattr(batch, "batch_name", None),
-                    "group_id": getattr(batch, "group_id", None),
-                    "start_time": getattr(batch, "start_time", None),
-                    "end_time": getattr(batch, "end_time", None),
-                    "quality_score": self._effective_batch_quality(batch, max_batch_size),
-                    "raw_quality_score": getattr(batch, "quality_score", None),
-                    "processed_messages": getattr(batch, "processed_messages", 0),
-                    "message_count": getattr(batch, "message_count", 0),
-                    "filtered_count": getattr(batch, "filtered_count", 0),
-                    "success": bool(getattr(batch, "success", False)),
-                    "status": getattr(batch, "status", None),
-                    "error_message": getattr(batch, "error_message", None),
-                }
-                for batch in rows
-            ]
-            return {
-                "batches": batches,
-                "total": total,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": max(1, (total + page_size - 1) // page_size),
-            }
+            service = self._imports().LearningContentService(self._container())
+            return await service.list_batches(page, page_size)
         except Exception as exc:
+            if raise_errors:
+                raise
             logger.warning(f"[PluginPageAPI] learning batches unavailable: {exc}", exc_info=True)
             return {"batches": [], "total": 0, "page": page, "page_size": page_size, "total_pages": 1}
 
@@ -1543,57 +1637,10 @@ class PluginPageApi:
             return False, str(exc)
 
     async def _update_style_review(self, body: Mapping[str, Any]) -> tuple[bool, str, dict[str, Any]]:
-        review_id = self._body_int(body, "id")
-        updates: dict[str, Any] = {}
-
-        if "description" in body:
-            updates["description"] = str(body.get("description") or "")
-        if "few_shots_content" in body:
-            updates["few_shots_content"] = str(body.get("few_shots_content") or "")
-        if "learned_patterns" in body:
-            patterns = body.get("learned_patterns")
-            updates["learned_patterns"] = (
-                json.dumps(patterns, ensure_ascii=False)
-                if isinstance(patterns, (list, dict))
-                else str(patterns or "")
-            )
-
-        if not updates:
-            return False, "没有可保存的表达方式字段", {}
-
-        database_manager = getattr(self._container(), "database_manager", None)
-        if not database_manager or not hasattr(database_manager, "get_session"):
-            return False, "数据库管理器未初始化", {}
-
+        # 与独立 WebUI PUT /api/style_learning/reviews/<id> 共用同一服务方法
         try:
-            from sqlalchemy import select
-
-            try:
-                from ..models.orm import StyleLearningReview
-            except ImportError:
-                from models.orm import StyleLearningReview
-
-            async with database_manager.get_session() as session:
-                result = await session.execute(
-                    select(StyleLearningReview).where(StyleLearningReview.id == review_id)
-                )
-                review = result.scalar_one_or_none()
-                if not review:
-                    return False, f"表达方式审查 {review_id} 不存在", {}
-                for key, value in updates.items():
-                    setattr(review, key, value)
-                if hasattr(review, "updated_at"):
-                    review.updated_at = datetime.now()
-                item = {
-                    "id": review.id,
-                    "description": review.description,
-                    "few_shots_content": review.few_shots_content,
-                    "learned_patterns": review.learned_patterns,
-                    "status": review.status,
-                    "group_id": review.group_id,
-                }
-                await session.commit()
-                return True, "表达方式已更新", item
+            service = self._imports().LearningService(self._container())
+            return await service.update_style_learning_review(self._body_int(body, "id"), dict(body))
         except Exception as exc:
             logger.error(f"[PluginPageAPI] update style review failed: {exc}", exc_info=True)
             return False, str(exc), {}
@@ -1875,15 +1922,25 @@ class PluginPageApi:
                 PIP_MIRROR_SOURCES,
             )
             from ..webui.dependencies import get_container
+            from ..webui.services.bug_report_service import BugReportService
             from ..webui.services.config_service import ConfigService
+            from ..webui.services.data_management_service import DataManagementService
+            from ..webui.services.emotion_board_service import EmotionBoardService
             from ..webui.services.graph_service import GraphService
+            from ..webui.services.graph_share_service import GraphShareService
             from ..webui.services.integration_service import IntegrationService
             from ..webui.services.jargon_service import JargonService
+            from ..webui.services.learning_content_service import LearningContentService
             from ..webui.services.learning_service import LearningService
-            from ..webui.services.metrics_service import MetricsService
+            from ..webui.services.metrics_service import (
+                MetricsService,
+                compute_learning_efficiency,
+                summarize_llm_call_statistics,
+            )
             from ..webui.services.persona_backup_service import PersonaBackupService
             from ..webui.services.persona_review_service import PersonaReviewService
             from ..webui.services.persona_service import PersonaService
+            from ..webui.services.social_service import SocialService
             from ..services.integration.maibot_learning_importer import MaiBotLearningImporter
             from ..services.integration.qq_chat_history_importer import QQChatHistoryImporter
             from ..services.integration.worldbook_importer import WorldBookImporter
@@ -1895,30 +1952,48 @@ class PluginPageApi:
                 PIP_MIRROR_SOURCES,
             )
             from webui.dependencies import get_container
+            from webui.services.bug_report_service import BugReportService
             from webui.services.config_service import ConfigService
+            from webui.services.data_management_service import DataManagementService
+            from webui.services.emotion_board_service import EmotionBoardService
             from webui.services.graph_service import GraphService
+            from webui.services.graph_share_service import GraphShareService
             from webui.services.integration_service import IntegrationService
             from webui.services.jargon_service import JargonService
+            from webui.services.learning_content_service import LearningContentService
             from webui.services.learning_service import LearningService
-            from webui.services.metrics_service import MetricsService
+            from webui.services.metrics_service import (
+                MetricsService,
+                compute_learning_efficiency,
+                summarize_llm_call_statistics,
+            )
             from webui.services.persona_backup_service import PersonaBackupService
             from webui.services.persona_review_service import PersonaReviewService
             from webui.services.persona_service import PersonaService
+            from webui.services.social_service import SocialService
             from services.integration.maibot_learning_importer import MaiBotLearningImporter
             from services.integration.qq_chat_history_importer import QQChatHistoryImporter
             from services.integration.worldbook_importer import WorldBookImporter
             from services.shadow_mode import ShadowModeService
 
         imports.get_container = get_container
+        imports.BugReportService = BugReportService
         imports.ConfigService = ConfigService
+        imports.DataManagementService = DataManagementService
+        imports.EmotionBoardService = EmotionBoardService
         imports.GraphService = GraphService
+        imports.GraphShareService = GraphShareService
         imports.IntegrationService = IntegrationService
         imports.JargonService = JargonService
         imports.LearningService = LearningService
+        imports.LearningContentService = LearningContentService
         imports.MetricsService = MetricsService
+        imports.compute_learning_efficiency = compute_learning_efficiency
+        imports.summarize_llm_call_statistics = summarize_llm_call_statistics
         imports.PersonaBackupService = PersonaBackupService
         imports.PersonaReviewService = PersonaReviewService
         imports.PersonaService = PersonaService
+        imports.SocialService = SocialService
         imports.MaiBotLearningImporter = MaiBotLearningImporter
         imports.QQChatHistoryImporter = QQChatHistoryImporter
         imports.WorldBookImporter = WorldBookImporter
@@ -2035,78 +2110,6 @@ class PluginPageApi:
             "last_persona_update": getattr(stats, "last_persona_update", None),
         }
 
-    @classmethod
-    def _build_modules(
-        cls,
-        *,
-        plugin_config: Any,
-        jargon_stats: dict[str, Any],
-        style_stats: dict[str, Any],
-        persona_state: dict[str, Any],
-        backups: dict[str, Any],
-        metrics: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        confirmed_jargon = cls._as_int(jargon_stats.get("confirmed_jargon"), 0)
-        unique_styles = cls._as_int(
-            style_stats.get("unique_styles") or style_stats.get("total_samples"), 0
-        )
-        persona_prompt_len = cls._as_int(persona_state.get("prompt_length"), 0)
-        backup_total = cls._as_int(backups.get("total"), 0)
-        intelligence_score = cls._as_number(metrics.get("overall_score"))
-
-        return [
-            {
-                "id": "jargon",
-                "title": "黑话学习",
-                "description": "群内专属词、梗和语义推断",
-                "enabled": cls._config_bool(plugin_config, "enable_jargon_learning", True),
-                "metric": confirmed_jargon,
-                "metric_label": "已确认黑话",
-                "accent": "#0f9f8f",
-                "target": "jargon-learning",
-            },
-            {
-                "id": "style",
-                "title": "表达方式学习",
-                "description": "语气、句式、few-shot 与表达模式",
-                "enabled": cls._config_bool(plugin_config, "enable_style_learning", True),
-                "metric": unique_styles,
-                "metric_label": "风格样本",
-                "accent": "#4169e1",
-                "target": "expression-learning",
-            },
-            {
-                "id": "persona",
-                "title": "人格学习",
-                "description": "人格演化、更新审查与备份恢复",
-                "enabled": cls._config_bool(plugin_config, "enable_persona_evolution", True),
-                "metric": persona_prompt_len,
-                "metric_label": "人格提示词字数",
-                "accent": "#d97706",
-                "target": "persona-learning",
-            },
-            {
-                "id": "reviews",
-                "title": "审查队列",
-                "description": "学习结果进入人格前的确认区",
-                "enabled": True,
-                "metric": backup_total,
-                "metric_label": "近期人格备份",
-                "accent": "#e11d48",
-                "target": "reviews",
-            },
-            {
-                "id": "metrics",
-                "title": "智能指标",
-                "description": "回复多样性、好感度与智能评分",
-                "enabled": True,
-                "metric": round(intelligence_score, 2),
-                "metric_label": "综合评分",
-                "accent": "#0ea5e9",
-                "target": "metrics",
-            },
-        ]
-
     @staticmethod
     def _build_webui_snapshot(plugin_config: Any, webui_config: Any) -> dict[str, Any]:
         enabled = PluginPageApi._config_bool(plugin_config, "enable_web_interface", True)
@@ -2139,38 +2142,6 @@ class PluginPageApi:
                 "[::1]",
             ],
         }
-
-    @staticmethod
-    def _build_quick_links(plugin_config: Any, webui_config: Any) -> list[dict[str, str]]:
-        from ..utils.framework_compat import plugin_page_hash_url
-
-        webui = PluginPageApi._build_webui_snapshot(plugin_config, webui_config)
-        return [
-            {
-                "id": "embedded_dashboard",
-                "label": "内嵌 WebUI",
-                "url": plugin_page_hash_url(PLUGIN_NAME, "dashboard"),
-                "description": "AstrBot 官方插件页",
-            },
-            {
-                "id": "shadow_mode",
-                "label": "影子模式",
-                "url": "#/shadow-mode",
-                "description": "学习群友的表达习惯",
-            },
-            {
-                "id": "full_dashboard",
-                "label": "独立 WebUI",
-                "url": webui["dashboard_url"],
-                "description": "打开 7833 独立管理界面",
-            },
-            {
-                "id": "plugin_settings",
-                "label": "插件设置",
-                "url": "#/extension",
-                "description": "回到 AstrBot 插件管理",
-            },
-        ]
 
     @staticmethod
     def _empty_jargon_stats() -> dict[str, Any]:
@@ -2218,13 +2189,6 @@ class PluginPageApi:
             return default
 
     @staticmethod
-    def _as_number(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value if value is not None else default)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
     def _system_metrics() -> dict[str, Any]:
         metrics = {"cpu_percent": 0, "memory_percent": 0, "disk_usage_percent": 0}
         try:
@@ -2250,61 +2214,6 @@ class PluginPageApi:
             return sum(1 for active in progressive_learning.learning_active.values() if active)
         except Exception:
             return 0
-
-    @staticmethod
-    def _parse_jsonish(value: Any, fallback: Any) -> Any:
-        if value is None or value == "":
-            return fallback
-        if isinstance(value, (list, dict)):
-            return value
-        try:
-            import json
-
-            return json.loads(value)
-        except Exception:
-            return fallback
-
-    @classmethod
-    def _effective_batch_quality(cls, batch: Any, max_batch_size: int = 200) -> float:
-        stored = cls._optional_float(getattr(batch, "quality_score", None))
-        if stored is not None and stored > 0:
-            return stored
-        if getattr(batch, "success", None) is False:
-            return stored if stored is not None else 0.0
-
-        processed = max(
-            cls._as_int(getattr(batch, "processed_messages", 0), 0),
-            cls._as_int(getattr(batch, "message_count", 0), 0),
-        )
-        filtered = cls._as_int(getattr(batch, "filtered_count", 0), 0)
-        if processed <= 0 and filtered <= 0:
-            return stored if stored is not None else 0.0
-
-        batch_size = max(1, cls._as_int(max_batch_size, 200))
-        volume_score = min(processed / batch_size, 1.0)
-        filtered_score = min(filtered / max(processed, filtered, 1), 1.0) if filtered else 0.0
-        success_score = 0.10 if getattr(batch, "success", True) else 0.0
-        return max(0.0, min(1.0, 0.25 + volume_score * 0.45 + filtered_score * 0.20 + success_score))
-
-    @staticmethod
-    def _optional_float(value: Any) -> Optional[float]:
-        if value is None:
-            return None
-        try:
-            return max(0.0, min(1.0, float(value)))
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _format_ts(value: Any) -> str:
-        if not value:
-            return ""
-        if isinstance(value, datetime):
-            return value.strftime("%Y-%m-%d %H:%M:%S")
-        try:
-            return datetime.fromtimestamp(float(value)).strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return str(value)
 
     @staticmethod
     def _metadata_version() -> str:

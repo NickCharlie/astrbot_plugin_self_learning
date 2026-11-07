@@ -1,36 +1,63 @@
+// ═══════════════════════════════════════════════════════════════════
+// Ark UI 设计契约 — endfield 家族 × maximal 深度
+// （证据化 Hypergryph 视觉语言，clean-room 原创实现）
+//
+// 家族（endfield：纸白/炭墨/信号黄的野外工程系统）拥有 ink/paper/signal/
+// 字体/几何性格；深度（maximal）拥有层级数量、仪表覆盖率、动效编排。
+// 两轴通过根属性 data-ark-theme / data-ark-depth 表达，互不耦合。
+//
+// 变量名与旧版完全兼容（--bg/--surface/--text/--primary/--accent…），
+// 全部 SCSS 模块无需改动即继承新视觉；新增 --signal/--ark-* 供
+// maximal 层的舞台分层、仪表与动效使用。
+// ═══════════════════════════════════════════════════════════════════
+
 :root {
   color-scheme: light;
 
-  /* ── 中性面板骨架：固态表面 + 发丝线，无毛玻璃无光晕 ── */
-  --bg: #f4f5f7;
-  --surface: #ffffff;
+  /* ── endfield 家族变量：ink / paper / signal ── */
+  --ark-ink: #191919;
+  --ark-paper: #f2f2f0;
+  --ark-signal: #fffa00; // 信号黄：只用于动作、选中、进度；禁止作长文本底色
+  --ark-signal-ink: #191919; // 黄底上的文字/图形一律用 ink
+  --ark-state: #00ffa2; // 状态绿：仅 verified / online / 运行中
+  --ark-state-ink: #063d2b;
+
+  /* ── 中性面板骨架：固态表面 + 1px 规则线，无毛玻璃无光晕 ── */
+  --bg: #e9e9e6; // 纸色场地（比面板深一档，构成 60/40 舞台）
+  --surface: #f7f7f4;
   --surface-solid: #ffffff;
-  --surface-alt: #f0f1f4;
-  --surface-hover: #e9ebef;
-  --text: #191c21;
-  --muted: #667085;
-  --border: rgba(25, 28, 33, 0.13);
-  --border-strong: rgba(25, 28, 33, 0.24);
+  --surface-alt: #efefec;
+  --surface-hover: #e3e3df;
+  --surface-ink: #191919; // 黑色坞站（topbar/footer 反白区）
+  --surface-ink-text: #f2f2f0;
+  --text: #191919;
+  --muted: #63635e;
+  --border: rgba(25, 25, 25, 0.18);
+  --border-strong: rgba(25, 25, 25, 0.42);
 
-  /* ── 品牌与语义色 ── */
-  --primary: #4f5bd5;
-  --primary-strong: #3f4ac2;
-  --primary-soft: rgba(79, 91, 213, 0.1);
-  --success: #0f7a5c;
-  --success-soft: rgba(15, 122, 92, 0.1);
-  --warning: #b45309;
-  --warning-soft: rgba(180, 83, 9, 0.1);
-  --danger: #c62f45;
-  --danger-soft: rgba(198, 47, 69, 0.09);
+  /* ── 品牌与语义色（endfield：黄=动作/选中，绿=在线/已验证） ── */
+  --primary: #191919; // 主动作按钮：ink 实心 + paper 文字
+  --primary-strong: #000000;
+  --primary-ink: #f2f2f0; // 主色实心上的文字
+  --primary-soft: rgba(25, 25, 25, 0.08);
+  --signal: var(--ark-signal);
+  --signal-soft: rgba(255, 250, 0, 0.2);
+  --success: #0b7d5c; // 文本级绿（纸上可读）
+  --success-soft: rgba(11, 125, 92, 0.1);
+  --state: var(--ark-state); // 填充级绿（徽标底、脉冲点，配 ink 文字）
+  --warning: #a05e08;
+  --warning-soft: rgba(160, 94, 8, 0.1);
+  --danger: #c0303f;
+  --danger-soft: rgba(192, 48, 63, 0.09);
 
-  /* ── 阴影：近平，只做层级提示 ── */
-  --shadow-sm: 0 1px 2px rgba(16, 20, 28, 0.06);
-  --shadow-lg: 0 4px 16px rgba(16, 20, 28, 0.1);
+  /* ── 阴影：近平 + 硬偏移仪器影（maximal 舞台层用） ── */
+  --shadow-sm: 0 1px 0 rgba(25, 25, 25, 0.06);
+  --shadow-lg: 0.4rem 0.4rem 0 rgba(25, 25, 25, 0.12);
 
-  /* ── 圆角：硬朗收紧，绝不超过 10 ── */
-  --radius-sm: 4px;
-  --radius: 6px;
-  --radius-lg: 10px;
+  /* ── 几何：方角工业。默认 0，功能性圆角最多 4px ── */
+  --radius-sm: 2px;
+  --radius: 2px;
+  --radius-lg: 4px;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -40,180 +67,108 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* ── 动效：干脆利落。hover 120ms；布局/切换用 quint-out ── */
-  --duration: 120ms;
-  --duration-slow: 220ms;
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* ── 字体栈：宽扁 display + 技术无衬线 + 等宽数据（安全替代，不分发字体文件） ── */
+  --font-ui: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, sans-serif;
+  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Consolas, monospace;
 
-  /* ── 默认强调色（未匹配页面时）── */
-  --accent: var(--primary);
-  --accent-soft: var(--primary-soft);
+  /* ── 动效：直接交互 140ms；分区揭示 650ms 擦除；注意力回路 2s 呼吸 ── */
+  --duration: 140ms;
+  --duration-slow: 260ms;
+  --duration-reveal: 650ms;
+  --duration-loop: 2000ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-wipe: cubic-bezier(0.22, 0.8, 0.2, 1);
+
+  /* ── maximal 深度变量：舞台分层与仪表覆盖率（深度轴，不改家族色） ── */
+  --ark-stage-opacity: 0.6; // 工程网格/刻度层强度
+  --ark-stage-grid: 3.5rem; // 网格间距
+  --ark-instrument-shadow: 0.35rem 0.35rem 0 rgba(25, 25, 25, 0.14);
+  --ark-wedge: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%); // 左直角右切角楔形
+  --ark-notch: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); // 右上切角
+
+  /* ── 强调色：同一变量在导航（data-accent）与页面容器（data-page）生效。
+     endfield 纪律：全站单一主导强调——黄只做选中/动作标记（楔形条、擦除带、
+     徽标底），文字级强调一律 ink。页面身份由超大节编号与字段码区分，不由色相区分。 */
+  --accent: #191919;
+  --accent-soft: rgba(255, 250, 0, 0.18);
 }
 
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg: #0d0e11;
-  --surface: #16171b;
-  --surface-solid: #16171b;
-  --surface-alt: #1d1f24;
-  --surface-hover: #24262c;
-  --text: #ededf0;
-  --muted: #8d93a0;
-  --border: rgba(237, 237, 240, 0.1);
-  --border-strong: rgba(237, 237, 240, 0.22);
-  --primary: #7d89ff;
-  --primary-strong: #97a1ff;
-  --primary-soft: rgba(125, 137, 255, 0.14);
-  --success: #3ecfa0;
-  --success-soft: rgba(62, 207, 160, 0.12);
-  --warning: #e5a03c;
-  --warning-soft: rgba(229, 160, 60, 0.12);
+
+  /* 炭墨反向：ink 舞台 + paper 仪表，信号黄在暗场下更锐 */
+  --bg: #121212;
+  --surface: #1a1a1a;
+  --surface-solid: #202020;
+  --surface-alt: #222220;
+  --surface-hover: #2b2b28;
+  --surface-ink: #f2f2f0; // 反转坞站：暗场下坞站为纸色
+  --surface-ink-text: #191919;
+  --text: #f2f2f0;
+  --muted: #94948d;
+  --border: rgba(242, 242, 240, 0.14);
+  --border-strong: rgba(242, 242, 240, 0.38);
+
+  --primary: #f2f2f0; // 主动作：paper 实心 + ink 文字
+  --primary-strong: #ffffff;
+  --primary-ink: #191919;
+  --primary-soft: rgba(242, 242, 240, 0.1);
+  --signal-soft: rgba(255, 250, 0, 0.14);
+  --success: #2fbe95;
+  --success-soft: rgba(47, 190, 149, 0.12);
+  --state: #00ffa2;
+  --warning: #e0a23e;
+  --warning-soft: rgba(224, 162, 62, 0.12);
   --danger: #ff7085;
   --danger-soft: rgba(255, 112, 133, 0.12);
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0.4rem 0.4rem 0 rgba(0, 0, 0, 0.45);
+  --ark-stage-opacity: 0.5;
+  --ark-instrument-shadow: 0.35rem 0.35rem 0 rgba(0, 0, 0, 0.5);
+
+  --accent: #f2f2f0;
+  --accent-soft: rgba(255, 250, 0, 0.12);
 }
 
-/* ── 每页强调色：同一变量在导航（data-accent）与页面容器（data-page）生效 ──
-   用色纪律：accent 只出现在导航激活态、kicker、面板图标、StatCard 等小面积。 */
-[data-page='home'],
-[data-accent='home'] {
-  --accent: #4f5bd5;
-  --accent-soft: rgba(79, 91, 213, 0.1);
-}
-[data-page='overview'],
-[data-accent='overview'] {
-  --accent: #2160c4;
-  --accent-soft: rgba(33, 96, 196, 0.1);
-}
-[data-page='insights'],
-[data-accent='insights'] {
-  --accent: #7251e0;
-  --accent-soft: rgba(114, 81, 224, 0.1);
-}
-[data-page='monitoring'],
-[data-accent='monitoring'] {
-  --accent: #0d8a72;
-  --accent-soft: rgba(13, 138, 114, 0.1);
-}
-[data-page='reviews'],
-[data-accent='reviews'] {
-  --accent: #b05e0a;
-  --accent-soft: rgba(176, 94, 10, 0.11);
-}
-[data-page='jargon-learning'],
-[data-accent='jargon-learning'] {
-  --accent: #0c74a8;
-  --accent-soft: rgba(12, 116, 168, 0.1);
-}
-[data-page='expression-learning'],
-[data-accent='expression-learning'] {
-  --accent: #b03d74;
-  --accent-soft: rgba(176, 61, 116, 0.1);
-}
-[data-page='persona-learning'],
-[data-accent='persona-learning'] {
-  --accent: #7a4fdd;
-  --accent-soft: rgba(122, 79, 221, 0.1);
-}
-[data-page='shadow-mode'],
-[data-accent='shadow-mode'] {
-  --accent: #5d6b7e;
-  --accent-soft: rgba(93, 107, 126, 0.12);
-}
-[data-page='content'],
-[data-accent='content'] {
-  --accent: #35753d;
-  --accent-soft: rgba(53, 117, 61, 0.11);
-}
-[data-page='graphs'],
-[data-accent='graphs'] {
-  --accent: #b85a17;
-  --accent-soft: rgba(184, 90, 23, 0.11);
-}
-[data-page='reply-strategy'],
-[data-accent='reply-strategy'] {
-  --accent: #bd3a49;
-  --accent-soft: rgba(189, 58, 73, 0.1);
-}
-[data-page='integrations'],
-[data-accent='integrations'] {
-  --accent: #5e6ad2;
-  --accent-soft: rgba(94, 106, 210, 0.11);
-}
-[data-page='settings'],
-[data-accent='settings'] {
-  --accent: #526178;
-  --accent-soft: rgba(82, 97, 120, 0.12);
+/* ── 页面身份锚点：全部页面共用同一 endfield 强调纪律（黄=选中/动作）。
+   保留 data-page / data-accent 钩子与旧选择器兼容，数值统一指向 token，
+   未来需要按模式细分时只改这里。 ── */
+[data-page='home'], [data-accent='home'],
+[data-page='overview'], [data-accent='overview'],
+[data-page='insights'], [data-accent='insights'],
+[data-page='monitoring'], [data-accent='monitoring'],
+[data-page='reviews'], [data-accent='reviews'],
+[data-page='jargon-learning'], [data-accent='jargon-learning'],
+[data-page='expression-learning'], [data-accent='expression-learning'],
+[data-page='persona-learning'], [data-accent='persona-learning'],
+[data-page='shadow-mode'], [data-accent='shadow-mode'],
+[data-page='emotion'], [data-accent='emotion'],
+[data-page='content'], [data-accent='content'],
+[data-page='graphs'], [data-accent='graphs'],
+[data-page='reply-strategy'], [data-accent='reply-strategy'],
+[data-page='integrations'], [data-accent='integrations'],
+[data-page='settings'], [data-accent='settings'] {
+  --accent: #191919;
+  --accent-soft: rgba(255, 250, 0, 0.18);
 }
 
-[data-theme='dark'] [data-page='overview'],
-[data-theme='dark'] [data-accent='overview'] {
-  --accent: #6da2f5;
-  --accent-soft: rgba(109, 162, 245, 0.14);
-}
-[data-theme='dark'] [data-page='monitoring'],
-[data-theme='dark'] [data-accent='monitoring'] {
-  --accent: #3fc9a8;
-  --accent-soft: rgba(63, 201, 168, 0.14);
-}
-[data-theme='dark'] [data-page='reviews'],
-[data-theme='dark'] [data-accent='reviews'] {
-  --accent: #e5984a;
-  --accent-soft: rgba(229, 152, 74, 0.14);
-}
-[data-theme='dark'] [data-page='jargon-learning'],
-[data-theme='dark'] [data-accent='jargon-learning'] {
-  --accent: #55b1e8;
-  --accent-soft: rgba(85, 177, 232, 0.14);
-}
-[data-theme='dark'] [data-page='expression-learning'],
-[data-theme='dark'] [data-accent='expression-learning'] {
-  --accent: #ef7cb2;
-  --accent-soft: rgba(239, 124, 178, 0.14);
-}
-[data-theme='dark'] [data-page='content'],
-[data-theme='dark'] [data-accent='content'] {
-  --accent: #67bd72;
-  --accent-soft: rgba(103, 189, 114, 0.14);
-}
-[data-theme='dark'] [data-page='graphs'],
-[data-theme='dark'] [data-accent='graphs'] {
-  --accent: #ef9455;
-  --accent-soft: rgba(239, 148, 85, 0.14);
-}
-[data-theme='dark'] [data-page='reply-strategy'],
-[data-theme='dark'] [data-accent='reply-strategy'] {
-  --accent: #f07280;
-  --accent-soft: rgba(240, 114, 128, 0.14);
-}
-[data-theme='dark'] [data-page='settings'],
-[data-theme='dark'] [data-accent='settings'] {
-  --accent: #9aa8bf;
-  --accent-soft: rgba(154, 168, 191, 0.14);
-}
-[data-theme='dark'] [data-page='shadow-mode'],
-[data-theme='dark'] [data-accent='shadow-mode'] {
-  --accent: #93a1b5;
-  --accent-soft: rgba(147, 161, 181, 0.14);
-}
-[data-theme='dark'] [data-page='home'],
-[data-theme='dark'] [data-accent='home'] {
-  --accent: #8f99ff;
-  --accent-soft: rgba(143, 153, 255, 0.14);
-}
-[data-theme='dark'] [data-page='insights'],
-[data-theme='dark'] [data-accent='insights'] {
-  --accent: #a78bfa;
-  --accent-soft: rgba(167, 139, 250, 0.14);
-}
-[data-theme='dark'] [data-page='persona-learning'],
-[data-theme='dark'] [data-accent='persona-learning'] {
-  --accent: #b394ff;
-  --accent-soft: rgba(179, 148, 255, 0.14);
-}
-[data-theme='dark'] [data-page='integrations'],
-[data-theme='dark'] [data-accent='integrations'] {
-  --accent: #9aa5ff;
-  --accent-soft: rgba(154, 165, 255, 0.14);
+[data-theme='dark'] [data-page='home'], [data-theme='dark'] [data-accent='home'],
+[data-theme='dark'] [data-page='overview'], [data-theme='dark'] [data-accent='overview'],
+[data-theme='dark'] [data-page='insights'], [data-theme='dark'] [data-accent='insights'],
+[data-theme='dark'] [data-page='monitoring'], [data-theme='dark'] [data-accent='monitoring'],
+[data-theme='dark'] [data-page='reviews'], [data-theme='dark'] [data-accent='reviews'],
+[data-theme='dark'] [data-page='jargon-learning'], [data-theme='dark'] [data-accent='jargon-learning'],
+[data-theme='dark'] [data-page='expression-learning'], [data-theme='dark'] [data-accent='expression-learning'],
+[data-theme='dark'] [data-page='persona-learning'], [data-theme='dark'] [data-accent='persona-learning'],
+[data-theme='dark'] [data-page='shadow-mode'], [data-theme='dark'] [data-accent='shadow-mode'],
+[data-theme='dark'] [data-page='emotion'], [data-theme='dark'] [data-accent='emotion'],
+[data-theme='dark'] [data-page='content'], [data-theme='dark'] [data-accent='content'],
+[data-theme='dark'] [data-page='graphs'], [data-theme='dark'] [data-accent='graphs'],
+[data-theme='dark'] [data-page='reply-strategy'], [data-theme='dark'] [data-accent='reply-strategy'],
+[data-theme='dark'] [data-page='integrations'], [data-theme='dark'] [data-accent='integrations'],
+[data-theme='dark'] [data-page='settings'], [data-theme='dark'] [data-accent='settings'] {
+  --accent: #f2f2f0;
+  --accent-soft: rgba(255, 250, 0, 0.12);
 }

@@ -2,12 +2,12 @@ import { createSignal, For, onMount, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import type { ReviewItem } from '../../types/dashboard';
-import { list, object, reviews } from '../shared';
-import { formatTime, summarize, textOrDash } from '../../lib/format';
+import { list, object, parseJsonOrLines, reviews } from '../shared';
+import { formatCount, formatTime, summarize, textOrDash } from '../../lib/format';
 import { reviewAfterPrompt, reviewBeforePrompt } from '../../lib/review';
 import { DetailDialog } from '../../components/feedback/DetailDialog';
 import { ReviewCard } from '../../components/business/ReviewCard';
-import { Badge, Button, Card, EmptyState, Panel } from '../../components/ui';
+import { Badge, Button, Card, EmptyState, Input, Panel, StatCard, Textarea } from '../../components/ui';
 import { PageHeader } from '../../components/layout/PageHeader';
 import styles from './PersonaLearningPage.module.scss';
 
@@ -49,6 +49,8 @@ export function PersonaLearningPage() {
   const [backupDetail, setBackupDetail] = createSignal<PersonaRecord | null>(null);
   const [personaDetail, setPersonaDetail] = createSignal<PersonaRecord | null>(null);
   const [reviewedDetail, setReviewedDetail] = createSignal<ReviewItem | null>(null);
+  const [personaEdit, setPersonaEdit] = createSignal<PersonaRecord | null>(null);
+  const [personaDraft, setPersonaDraft] = createSignal({ name: '', prompt: '', dialogs: '' });
 
   const loadPersonas = async () => {
     setPersonaLoading(true);
@@ -122,6 +124,58 @@ export function PersonaLearningPage() {
     } finally { setBusy(''); }
   };
 
+  // 编辑 / 删除人格（双端并集：与内嵌插件页同一表单与确认文案）
+  const openPersonaEdit = (item: PersonaRecord) => {
+    setPersonaDraft({
+      name: String(item.name || personaIdOf(item) || ''),
+      prompt: String(item.system_prompt || item.prompt || ''),
+      dialogs: JSON.stringify(item.begin_dialogs || [], null, 2),
+    });
+    setPersonaEdit(item);
+    dashboard.setEditing(true);
+  };
+  const closePersonaEdit = () => {
+    setPersonaEdit(null);
+    dashboard.setEditing(false);
+  };
+  const savePersona = async () => {
+    const item = personaEdit();
+    if (!item) return;
+    const id = personaIdOf(item);
+    const draft = personaDraft();
+    setBusy(`save-${id}`);
+    try {
+      await api.post(`/api/persona_management/update/${encodeURIComponent(id)}`, {
+        persona_id: id,
+        name: draft.name,
+        system_prompt: draft.prompt,
+        prompt: draft.prompt,
+        begin_dialogs: parseJsonOrLines(draft.dialogs),
+      });
+      dashboard.toast('人格已更新', 'success');
+      closePersonaEdit();
+      await loadPersonas();
+      await dashboard.refresh(true);
+    } catch (caught) {
+      dashboard.toast(caught instanceof Error ? caught.message : '保存失败', 'danger');
+    } finally { setBusy(''); }
+  };
+
+  const deletePersona = async (item: PersonaRecord) => {
+    const id = personaIdOf(item);
+    if (!id) return;
+    if (!await dashboard.confirm({ title: '删除人格', message: `确定删除人格“${personaNameOf(item)}”吗？此操作不可撤销。`, confirmText: '删除', tone: 'danger' })) return;
+    setBusy(`delete-${id}`);
+    try {
+      await api.post(`/api/persona_management/delete/${encodeURIComponent(id)}`, {});
+      dashboard.toast('人格已删除', 'success');
+      await loadPersonas();
+      await dashboard.refresh(true);
+    } catch (caught) {
+      dashboard.toast(caught instanceof Error ? caught.message : '删除失败', 'danger');
+    } finally { setBusy(''); }
+  };
+
   const revertReview = async (item: ReviewItem) => {
     const id = String(item.id ?? '');
     if (!id) return;
@@ -145,12 +199,18 @@ export function PersonaLearningPage() {
             <div class={styles['persona-current']}>
               <span class="material-icons">face</span>
               <div><h3>{textOrDash(persona().name ?? persona().persona_id ?? 'Default Persona')}</h3><Badge tone={current().degraded ? 'warning' : 'success'}>{current().degraded ? '降级预览' : '当前生效'}</Badge></div>
+              <div class={styles['persona-stats']}>
+                <StatCard label="提示词字数" value={formatCount(current().prompt_length)} />
+                <StatCard label="开场对话" value={formatCount(current().begin_dialog_count)} />
+                <StatCard label="工具数量" value={formatCount(current().tool_count)} />
+                <StatCard label="当前群组" value={textOrDash(current().group_id || 'default')} />
+              </div>
               <p>{textOrDash(current().prompt_preview ?? persona().prompt ?? persona().system_prompt)}</p>
               <details><summary>查看完整状态</summary><pre>{summarize(current())}</pre></details>
             </div>
           </Show>
         </Panel>
-        <Panel title="人格备份" hint="可查看备份内容，恢复操作会先要求确认">
+        <Panel title="人格备份" hint="可查看备份内容，恢复操作会先要求确认" actions={<Badge>{formatCount(backups().length)}</Badge>}>
           <div class={styles['backup-list']}>
             <For each={backups()} fallback={<EmptyState title="暂无备份" />}>{(item) =>
               <Card class={styles['backup-card']}>
@@ -167,8 +227,8 @@ export function PersonaLearningPage() {
       </div>
       <Panel
         title="人格列表"
-        hint="浏览 AstrBot 中的人格配置，可查看完整提示词或导出为 JSON"
-        actions={<Button icon="refresh" loading={personaLoading()} onClick={loadPersonas}>刷新人格式</Button>}
+        hint="浏览 AstrBot 中的人格配置，可查看完整提示词、编辑、导出为 JSON 或删除"
+        actions={<Button icon="refresh" loading={personaLoading()} onClick={loadPersonas}>刷新人格</Button>}
       >
         <div class={styles['persona-list']}>
           <For each={personas()} fallback={<EmptyState title="暂无人格列表" detail="AstrBot PersonaManager 未提供人格数据。" />}>{(item) =>
@@ -179,13 +239,15 @@ export function PersonaLearningPage() {
               </div>
               <div class="inline-actions">
                 <Button size="sm" loading={busy() === `persona-${personaIdOf(item)}`} onClick={() => viewPersona(item)}>查看人格</Button>
+                <Button size="sm" onClick={() => openPersonaEdit(item)}>编辑人格</Button>
                 <Button size="sm" loading={busy() === `export-${personaIdOf(item)}`} onClick={() => exportPersona(item)}>导出人格</Button>
+                <Button size="sm" tone="danger" loading={busy() === `delete-${personaIdOf(item)}`} onClick={() => deletePersona(item)}>删除人格</Button>
               </div>
             </Card>
           }</For>
         </div>
       </Panel>
-      <Panel title="最近已审查" hint="撤回后记录会重新进入待审队列">
+      <Panel title="最近已审查" hint="撤回后记录会重新进入待审队列" actions={<Badge>{formatCount(reviewed().length)}</Badge>}>
         <div class={styles['reviewed-list']}>
           <For each={reviewed()} fallback={<EmptyState title="暂无已审查记录" />}>{(item) =>
             <Card class={styles['reviewed-card']}>
@@ -244,6 +306,27 @@ export function PersonaLearningPage() {
             <details><summary>查看原始人格数据</summary><pre>{summarize(detail)}</pre></details>
           </>
         }</Show>
+      </DetailDialog>
+
+      <DetailDialog open={Boolean(personaEdit())} title="编辑人格" onClose={closePersonaEdit}>
+        <div class={styles['edit-form']}>
+          <Input label="人格 ID" value={personaIdOf(personaEdit() ?? {})} disabled />
+          <Input label="名称" value={personaDraft().name} onInput={(event) => {
+            const value = event.currentTarget.value;
+            setPersonaDraft((draft) => ({ ...draft, name: value }));
+          }} />
+          <Textarea label="系统提示词" rows={9} value={personaDraft().prompt} onInput={(event) => {
+            const value = event.currentTarget.value;
+            setPersonaDraft((draft) => ({ ...draft, prompt: value }));
+          }} />
+          <Textarea label="开场对话 JSON" rows={6} value={personaDraft().dialogs} onInput={(event) => {
+            const value = event.currentTarget.value;
+            setPersonaDraft((draft) => ({ ...draft, dialogs: value }));
+          }} />
+          <div class="inline-actions">
+            <Button tone="primary" loading={busy() === `save-${personaIdOf(personaEdit() ?? {})}`} onClick={savePersona}>保存</Button>
+          </div>
+        </div>
       </DetailDialog>
 
       <DetailDialog open={Boolean(reviewedDetail())} title="已审查记录" onClose={() => setReviewedDetail(null)}>

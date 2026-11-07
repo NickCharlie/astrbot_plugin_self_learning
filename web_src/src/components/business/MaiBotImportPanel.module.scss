@@ -20,7 +20,7 @@
     gap: 8px;
     padding: 9px;
     background: var(--surface-alt);
-    border-radius: 10px;
+    border-radius: 0;
   }
 }
 
@@ -30,7 +30,7 @@
   overflow: auto;
   padding: 12px;
   background: var(--surface-alt);
-  border-radius: 11px;
+  border-radius: 0;
   font: 12px/1.6 ui-monospace, monospace;
   white-space: pre-wrap;
   word-break: break-word;

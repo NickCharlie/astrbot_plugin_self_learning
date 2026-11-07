@@ -1,5 +1,6 @@
 @use "../../styles/tokens";
 
+/* 状态视图（空/载/错）：中性场 + 横向扫描线 + 方框图标定位 */
 .state-view {
   min-height: 190px;
   padding: 30px;
@@ -7,16 +8,26 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   color: var(--muted);
   text-align: center;
+  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% 24px;
 
   > .material-icons {
-    font-size: 40px;
-    opacity: 0.65;
+    width: 52px;
+    height: 52px;
+    display: grid;
+    place-items: center;
+    font-size: 30px;
+    opacity: 0.75;
+    border: 1px solid var(--border-strong);
+    margin-bottom: 6px;
   }
 
   strong {
     color: var(--text);
+    font-weight: 700;
   }
 
   p {

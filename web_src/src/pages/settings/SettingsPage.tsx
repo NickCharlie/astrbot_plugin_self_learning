@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import type { ConfigField as ConfigFieldType, ConfigGroup } from '../../types/dashboard';
-import { object } from '../shared';
+import { list, object } from '../shared';
 import { ConfigField } from '../../components/business/ConfigField';
 import { BugReportPanel } from '../../components/business/BugReportPanel';
 import { CustomStylePanel } from '../../components/business/CustomStylePanel';
@@ -18,6 +18,7 @@ export function SettingsPage() {
   const [selectedKey, setSelectedKey] = createSignal(localStorage.getItem('sl-settings-group') || '');
   const [mirror, setMirror] = createSignal(localStorage.getItem('sl-pip-mirror') || 'default');
   const [installing, setInstalling] = createSignal(false);
+  const [installOutput, setInstallOutput] = createSignal('');
   const groups = createMemo<ConfigGroup[]>(() => {
     const schema = dashboard.schema();
     if (!schema) return [];
@@ -62,16 +63,21 @@ export function SettingsPage() {
     // 使用独立 installing 状态：依赖安装不应让无关的「手动保存设置」进入 loading/禁用
     setInstalling(true);
     try {
-      await api.post('/api/dependencies/install', {
+      const result = await api.post<unknown>('/api/dependencies/install', {
         manual_confirmed: true,
         source: 'webui_settings',
         tier,
         pip_mirror: mirror(),
       });
+      // 内嵌页既有输出框移植：展示 pip 输出，便于确认安装结果
+      const payload = object(result);
+      setInstallOutput(String(payload.output ?? payload.message ?? ''));
       dashboard.toast('依赖安装任务已完成', 'success');
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '依赖安装失败', 'danger'); }
     finally { setInstalling(false); }
   };
+  // 成本提醒（内嵌页既有列表移植）：跨功能高成本组合的非阻塞提示
+  const costWarnings = () => list<string>(dashboard.schema()?.warnings);
   return (
     <div class="page">
       <PageHeader title="设置" description="编辑插件配置，并在明确确认后安装可选依赖。" icon="tune" actions={
@@ -84,6 +90,13 @@ export function SettingsPage() {
           <Button tone="primary" icon="save" loading={dashboard.busy()} disabled={!dashboard.schema() || !dirtyKeys().size} onClick={dashboard.saveConfig}>手动保存设置</Button>
         </div>
       } />
+      <Show when={costWarnings().length}>
+        <div class={styles['cost-warnings']}>
+          <For each={costWarnings()}>{(message) =>
+            <div class={styles['cost-warning']}><strong>成本提醒</strong><span>{String(message)}</span></div>
+          }</For>
+        </div>
+      </Show>
       <WebuiPasswordPanel />
       <CustomStylePanel />
       <DataManagementPanel />
@@ -121,6 +134,9 @@ export function SettingsPage() {
               <Button class={styles['dep-button']} icon="bolt" loading={installing()} onClick={() => install('basic')}>基础能力依赖</Button>
               <Button class={styles['dep-button']} tone="primary" icon="extension" loading={installing()} onClick={() => install('full')}>全能力依赖</Button>
             </div>
+            <Show when={installOutput()}>
+              <pre class={styles['dep-output']}>{installOutput()}</pre>
+            </Show>
           </div>
         </aside>
         <section class={styles['group-detail']} aria-live="polite">

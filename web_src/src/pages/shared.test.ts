@@ -1,6 +1,50 @@
 import { describe, expect, it } from 'vitest';
-import { jargonPendingTotal } from './shared';
+import { detailText, intelligenceScore, jargonPendingTotal, reviewBacklog } from './shared';
 import type { DashboardSnapshot } from '../types/dashboard';
+
+describe('reviewBacklog', () => {
+  it('sums paginated totals and removes style reviews mixed into persona updates', () => {
+    const data = {
+      persona_updates: { updates: [{ id: 1, review_source: 'traditional' }, { id: 2, review_source: 'style_learning' }], total: 6 },
+      style_learning_reviews: { reviews: [{ id: 2 }], total: 2 },
+      jargon_reviews: { jargon_list: [{ id: 9 }], total: 25 },
+    } as DashboardSnapshot;
+    // 人格首屏混入风格审查：6 - 2 = 4，避免与风格待审重复计数
+    expect(reviewBacklog(data)).toEqual({ personaPending: 4, styleTotal: 2, jargonPending: 25, total: 31 });
+  });
+
+  it('keeps persona totals when no style reviews are mixed in', () => {
+    const data = {
+      persona_updates: { updates: [{ id: 1, review_source: 'traditional' }], total: 3 },
+      style_learning_reviews: { reviews: [], total: 1 },
+      jargon_reviews: { jargon_list: [], total: 0 },
+    } as DashboardSnapshot;
+    expect(reviewBacklog(data).total).toBe(4);
+  });
+
+  it('falls back to list lengths when totals are missing', () => {
+    const data = { persona_updates: [{ id: 1 }, { id: 2 }], style_learning_reviews: [{ id: 3 }] } as unknown as DashboardSnapshot;
+    expect(reviewBacklog(data)).toMatchObject({ personaPending: 2, styleTotal: 1, jargonPending: 0, total: 3 });
+  });
+});
+
+describe('intelligenceScore', () => {
+  it('normalizes ratios to a 0-100 score and counts dimensions', () => {
+    expect(intelligenceScore({ intelligence: { overall_score: 0.455, dimensions: { a: 1, b: 2 } } } as DashboardSnapshot))
+      .toEqual({ score: 45.5, dimensions: 2 });
+    expect(intelligenceScore({ intelligence: { overall_score: 140 } } as DashboardSnapshot).score).toBe(100);
+    expect(intelligenceScore({} as DashboardSnapshot)).toEqual({ score: 0, dimensions: 0 });
+  });
+});
+
+describe('detailText', () => {
+  it('summarizes detail objects instead of printing [object Object]', () => {
+    expect(detailText({ cpu_percent: 3, nested: { a: 1 }, flag: null, extra: 'hidden' })).toBe('cpu_percent: 3 · nested: {"a":1} · flag: null');
+    expect(detailText('ok')).toBe('ok');
+    expect(detailText({})).toBe('--');
+    expect(detailText(undefined)).toBe('--');
+  });
+});
 
 describe('jargonPendingTotal', () => {
   it('reads the paginated envelope total instead of the truncated list length', () => {

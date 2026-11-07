@@ -60,7 +60,13 @@ export function ShadowModePage() {
     } finally { setBusy(''); }
   };
 
-  const applySource = async (nextSource: ShadowSource, status?: Record<string, unknown>) => {
+  // 生效群组默认跟随来源群组；用户手动改过（与上一次来源群组不同）时保留输入（与内嵌插件页一致）
+  const followTarget = (previousGroup: string, nextGroup: string) => {
+    const current = targetGroupId().trim();
+    if (!current || current === previousGroup) setTargetGroupId(nextGroup);
+  };
+
+  const applySource = async (nextSource: ShadowSource, status?: Record<string, unknown>, options: { keepGroup?: boolean } = {}) => {
     setSource(nextSource);
     const sourceMap = object(status?.sources);
     let nextGroups = array<ShadowGroup>(sourceMap[nextSource]);
@@ -71,13 +77,16 @@ export function ShadowModePage() {
       setProfiles(array<ShadowProfile>(data.profiles));
     }
     setGroups(nextGroups);
-    const nextGroup = nextGroups[0]?.group_id || '';
+    const previousGroup = groupId();
+    const keep = options.keepGroup && nextGroups.some((group) => group.group_id === previousGroup);
+    const nextGroup = keep ? previousGroup : nextGroups[0]?.group_id || '';
+    followTarget(previousGroup, nextGroup);
     setGroupId(nextGroup);
-    setTargetGroupId(nextGroup);
     await loadCandidates(nextSource, nextGroup);
   };
 
-  const loadStatus = async () => {
+  // keep：刷新、学习或启停档案后保留当前来源与群组（首次进入才按「有现有群聊记录优先」选择来源）
+  const loadStatus = async (options: { keep?: boolean } = {}) => {
     setBusy('status');
     try {
       const response = await api.get<{ data?: unknown }>('/api/shadow-mode');
@@ -86,15 +95,15 @@ export function ShadowModePage() {
       setMinimumSamples(Number(data.minimum_samples) || 3);
       const sourceMap = object(data.sources);
       const preferred: ShadowSource = array<ShadowGroup>(sourceMap.live).length ? 'live' : 'imported';
-      await applySource(preferred, data);
+      await applySource(options.keep ? source() : preferred, data, { keepGroup: options.keep });
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : '读取影子模式状态失败', 'danger');
     } finally { setBusy(''); }
   };
 
   const chooseGroup = async (value: string) => {
+    followTarget(groupId(), value);
     setGroupId(value);
-    setTargetGroupId(value);
     await loadCandidates(source(), value);
   };
 
@@ -112,7 +121,7 @@ export function ShadowModePage() {
         activate: true,
       });
       dashboard.toast(`已学习并启用 ${candidate.sender_name} 的影子模式`, 'success');
-      await loadStatus();
+      await loadStatus({ keep: true });
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : '影子学习失败', 'danger');
     } finally { setBusy(''); }
@@ -123,17 +132,17 @@ export function ShadowModePage() {
     try {
       await api.put(`/api/shadow-mode/profiles/${profile.id}`, { enabled });
       dashboard.toast(enabled ? '影子模式已启用' : '影子模式已停用', 'success');
-      await loadStatus();
+      await loadStatus({ keep: true });
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : '更新影子模式失败', 'danger');
     } finally { setBusy(''); }
   };
 
-  onMount(loadStatus);
+  onMount(() => loadStatus());
 
   return (
     <div class="page">
-      <PageHeader title="影子模式" description="从已学习的群聊中选择一位群友，复现其语言节奏与表达习惯。" icon="theater_comedy" actions={<Button icon="refresh" loading={busy() === 'status'} onClick={loadStatus}>刷新</Button>} />
+      <PageHeader title="影子模式" description="从已学习的群聊中选择一位群友，复现其语言节奏与表达习惯。" icon="theater_comedy" actions={<Button icon="refresh" loading={busy() === 'status'} onClick={() => loadStatus({ keep: true })}>刷新</Button>} />
 
       <Panel title="选择学习对象" hint={`至少需要 ${minimumSamples()} 条有效文本`}>
         <div class={styles['source-toolbar']}>
@@ -176,7 +185,7 @@ export function ShadowModePage() {
         </div>
       </Panel>
 
-      <Panel title="影子档案" hint="同一个生效群组同时只启用一份档案">
+      <Panel title="影子档案" hint="同一个生效群组同时只启用一份档案" actions={<Badge>{formatCount(profiles().length)}</Badge>}>
         <div class={styles['profile-list']}>
           <For each={profiles()} fallback={<EmptyState icon="theater_comedy" title="尚未创建影子档案" />}>{(profile) =>
             <div class={styles['profile-row']}>

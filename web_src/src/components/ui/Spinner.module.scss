@@ -1,18 +1,27 @@
 @use "../../styles/tokens";
 @use "../../styles/mixins" as *;
 
+/* 方形步进旋转器：steps() 数据时钟质感；reduced-motion 下静止半透明 */
 .ui-spinner {
-  width: 15px;
-  height: 15px;
+  width: 13px;
+  height: 13px;
   display: inline-block;
   border: 2px solid currentColor;
   border-right-color: transparent;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  border-radius: 0;
+  animation: spin 0.8s steps(8) infinite;
 }
 
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@include reduced-motion {
+  .ui-spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
   }
 }

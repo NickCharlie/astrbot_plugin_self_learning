@@ -8,7 +8,10 @@ providers via ``context.get_provider_by_id(provider_id)``.
 from typing import Optional
 
 from astrbot.api import logger
-from astrbot.core.provider.provider import RerankProvider as FrameworkRerankProvider
+try:  # astrbot.api.provider 未导出 RerankProvider（截至 v4.29），只能引用内部路径
+    from astrbot.core.provider.provider import RerankProvider as FrameworkRerankProvider
+except ImportError:  # 内部路径变动时仅禁用重排能力，不阻断插件加载
+    FrameworkRerankProvider = None
 
 from ..provider_registry import (
     collect_framework_providers,
@@ -49,6 +52,12 @@ class RerankProviderFactory:
             logger.debug(
                 "[RerankFactory] No rerank_provider_id configured, "
                 "reranking disabled"
+            )
+            return None
+
+        if FrameworkRerankProvider is None:
+            logger.warning(
+                "[RerankFactory] 当前 AstrBot 未提供 RerankProvider，reranking disabled"
             )
             return None
 

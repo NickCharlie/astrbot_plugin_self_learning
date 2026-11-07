@@ -1,32 +1,50 @@
 @use "../../styles/tokens";
 
+/* 读数卡：微标签 + 超大 display 数值 + 顶缘黄楔刻线（数值的唯一视觉主人） */
 .stat-card {
   position: relative;
   overflow: hidden;
   padding-top: 14px;
 
-  /* 顶部 2px 强调色刻线：面板骨架保持中性，颜色只在这一条线上 */
+  /* 顶缘黄楔刻线：骨架中性，信号只在这一条楔形上 */
   &::before {
     content: "";
     position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 2px;
-    background: var(--accent, var(--primary));
-    opacity: 0.85;
+    top: -2px;
+    left: -1px;
+    width: 46%;
+    height: 4px;
+    background: var(--signal);
+    clip-path: var(--ark-wedge);
+  }
+
+  /* 右下工程刻度：4 道短刻线，纯定位记号（分组/方向角色） */
+  &::after {
+    content: "";
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 28px;
+    height: 6px;
+    opacity: 0.5;
+    background: repeating-linear-gradient(90deg, var(--border-strong) 0 1px, transparent 1px 7px);
+    pointer-events: none;
   }
 
   strong {
     display: block;
     margin-top: 10px;
-    font-size: 28px;
-    font-weight: 650;
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 0.95;
     letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
   }
 
   small {
+    display: block;
+    margin-top: 6px;
     color: var(--muted);
   }
 }
@@ -36,11 +54,13 @@
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
+  font-family: var(--font-tech);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 
   .material-icons {
-    color: var(--accent, var(--primary));
-    font-size: 17px;
+    color: var(--text);
+    font-size: 16px;
   }
 }

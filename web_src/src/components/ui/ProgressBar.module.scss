@@ -10,22 +10,33 @@
   justify-content: space-between;
   margin-bottom: 5px;
   font-size: 12px;
+
+  b {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
 }
 
+/* 校准条：方角轨道 + 刻度底纹 + 黄色进度（进度=信号色的合法用途） */
 .progress-track {
   height: 8px;
   overflow: hidden;
-  background: var(--surface-alt);
-  border-radius: var(--radius-sm);
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9%, var(--border) 9% calc(9% + 1px)),
+    var(--surface-alt);
+  border-radius: 0;
+  border: 1px solid var(--border);
 
   span {
     display: block;
     height: 100%;
-    background: var(--accent, var(--primary));
-    border-radius: inherit;
+    background: var(--signal);
+    border-radius: 0;
+    box-shadow: inset -2px 0 0 var(--ark-signal-ink);
+    transition: width var(--duration-slow) var(--ease-out);
   }
 
   .tone-success {
-    background: var(--success);
+    background: var(--state);
   }
 }

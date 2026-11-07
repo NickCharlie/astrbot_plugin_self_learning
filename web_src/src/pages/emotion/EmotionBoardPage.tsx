@@ -169,7 +169,7 @@ export function EmotionBoardPage() {
         />
         <StatCard label="平均好感度" icon="favorite" value={formatCount(board()?.affection?.overall?.average ?? 0)} note={`${formatCount(board()?.affection?.overall?.total_users ?? 0)} 位用户`} />
         <StatCard
-          label="闸门放行率" icon="gate"
+          label="闸门放行率" icon="filter_alt"
           value={gateToday()?.accept_rate != null ? formatPercent(gateToday()!.accept_rate) : '--'}
           note={board()?.gate?.telemetry?.enabled ? `阈值 ${board()!.gate!.telemetry!.threshold}` : '闸门未启用'}
           tone={board()?.gate?.telemetry?.enabled ? 'success' : 'warning'}

@@ -9,8 +9,12 @@ to the plugin's own dataclass to avoid tight coupling.
 from typing import List, Optional
 
 from astrbot.api import logger
-from astrbot.core.provider.provider import RerankProvider as FrameworkRerankProvider
-from astrbot.core.provider.entities import RerankResult as FrameworkRerankResult
+try:  # astrbot.api.provider 未导出 RerankProvider/RerankResult（截至 v4.29），只能引用内部路径
+    from astrbot.core.provider.provider import RerankProvider as FrameworkRerankProvider
+    from astrbot.core.provider.entities import RerankResult as FrameworkRerankResult
+except ImportError:  # 内部路径变动时仅禁用重排能力，不阻断插件加载
+    FrameworkRerankProvider = None
+    FrameworkRerankResult = None
 
 from .base import IRerankProvider, RerankResult, RerankProviderError
 from ..monitoring.instrumentation import monitored
