@@ -148,6 +148,9 @@ body {
   min-height: 100vh;
   color: var(--text);
   background: var(--bg);
+  /* 与独立版 main.scss 同一基准字号/行高（此前沿用浏览器默认 16px，全站文字偏大） */
+  font: 14px/1.55 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -434,15 +437,21 @@ h1 {
   transform: scaleY(1);
 }
 
+/* 危险动作：浅红底 + 红字 + 常亮红楔条（与独立版 Button tone="danger" 同构） */
 .danger-button {
-  color: var(--primary-ink);
-  border-color: var(--danger);
-  background: var(--danger);
+  color: var(--danger);
+  border-color: var(--danger-soft);
+  background: var(--danger-soft);
 }
 
 .danger-button::before {
   transform: scaleY(1);
   background: var(--danger);
+}
+
+.danger-button:hover:not(:disabled) {
+  background: var(--danger-soft);
+  border-color: var(--danger);
 }
 
 .disabled {
@@ -732,11 +741,6 @@ button.is-busy {
 
 .stat-card.small {
   min-height: 78px;
-}
-
-.stat-card.small::before {
-  width: 30%;
-  height: 3px;
 }
 
 .stat-card span,
@@ -1803,7 +1807,10 @@ textarea {
   border-left: 2px solid var(--border-strong);
   border-radius: 0;
   color: var(--muted);
-  background: var(--surface-alt);
+  /* 与独立版 StateView 同一横向扫描线纹理 */
+  background-color: transparent;
+  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% 24px;
 }
 
 .errors {
@@ -2053,32 +2060,6 @@ textarea {
   }
 }
 
-/* ── 黑话导入面板 ── */
-#jargon-import-panel {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-
-#jargon-import-panel .import-hint {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-#jargon-import-panel textarea {
-  width: 100%;
-}
-
-#jargon-import-panel .inline-actions {
-  align-items: center;
-}
-
-#jargon-import-panel input[type="text"] {
-  min-width: 220px;
-}
-
-
 /* ── 情绪中枢辅助（endfield 面板语言内） ── */
 .emo-mood-form {
   margin-top: 14px;
@@ -2148,4 +2129,692 @@ textarea {
 /* 闸门因子标签较长：放宽标签列 */
 #emo-gate-body .bar-row {
   grid-template-columns: minmax(150px, 0.9fr) minmax(0, 1.4fr) 56px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   双端对齐 · 审查队列 / 黑话学习 / 表达方式学习 / 人格学习 / 影子模式 / 学习内容
+   结构与独立版（web_src）ReviewCard、Button tone、Pagination、data-row 同构，
+   仅使用 endfield token（var(--…)），不新增色值。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 共用：动作色调按钮（与独立版 Button tone-success / tone-warning 同构） ── */
+.ghost-button.success-button {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-soft);
+}
+
+.ghost-button.success-button::before {
+  background: var(--state);
+  transform: scaleY(1);
+}
+
+.ghost-button.success-button:hover:not(:disabled) {
+  background: var(--success-soft);
+  border-color: var(--success);
+}
+
+.ghost-button.warning-button {
+  color: var(--warning);
+  background: var(--warning-soft);
+  border-color: var(--warning-soft);
+}
+
+.ghost-button.warning-button:hover:not(:disabled) {
+  background: var(--warning-soft);
+  border-color: var(--warning);
+}
+
+/* 通知条警示色调（与独立版 Toast tone-warning 同构） */
+.toast.warn {
+  border-left-color: var(--warning);
+}
+
+/* 纵向表单字段：标签在上（与独立版 FormField 同构） */
+.stack-field {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.stack-field > span {
+  color: var(--muted);
+  font-family: var(--font-tech);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 带说明的空状态（与独立版 EmptyState title + detail 同构） */
+.empty-state.with-detail {
+  gap: 4px;
+  text-align: center;
+}
+
+.empty-state.with-detail strong {
+  color: var(--text);
+}
+
+/* 分页：mono 页码读数（与独立版 Pagination 同构） */
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pagination-bar:empty {
+  display: none;
+}
+
+.pagination-bar .ghost-button,
+.review-actions .ghost-button,
+.review-actions .danger-button,
+.data-row .ghost-button,
+.data-row .danger-button,
+.batch-card .ghost-button,
+.batch-card .danger-button {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* 详情模态：说明行与分区标题（与独立版 DetailDialog detail-line 同构） */
+.detail-line {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+#modal-body h4 {
+  margin: 12px 0 6px;
+}
+
+#modal-body details summary,
+.review-card details summary,
+.persona-current details summary,
+.sample-item summary,
+.content-entry summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+/* 六个对齐页面的分区间距（与独立版 Panel margin-bottom / Panel head 分隔同构） */
+#page-reviews > .panel,
+#page-jargon-learning > .panel,
+#page-jargon-learning > .stat-grid,
+#page-expression-learning > .panel,
+#page-expression-learning > .content-grid,
+#page-persona-learning > .panel,
+#page-persona-learning > .content-grid,
+#page-shadow-mode > .panel,
+#page-content > .panel {
+  margin-bottom: 14px;
+}
+
+#page-reviews .panel-heading,
+#page-jargon-learning .panel-heading,
+#page-expression-learning .panel-heading,
+#page-persona-learning .panel-heading,
+#page-shadow-mode .panel-heading,
+#page-content .panel-heading {
+  margin-bottom: 12px;
+}
+
+/* ── 审查队列（reviews） ── */
+.review-layout {
+  align-items: start;
+}
+
+.review-item.review-card {
+  grid-template-columns: minmax(0, 1fr);
+  padding: 16px;
+  border-top: 2px solid var(--border-strong);
+  background: var(--surface);
+}
+
+.review-item.review-card.selectable {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.review-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.review-card-head > div {
+  min-width: 0;
+  display: grid;
+}
+
+.review-card-head strong {
+  overflow-wrap: anywhere;
+}
+
+.review-card-head small,
+.review-card-body > p {
+  color: var(--muted);
+}
+
+.review-card-body > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-card pre {
+  max-height: 320px;
+  margin: 8px 0 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  font: 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.review-proposal {
+  margin-top: 8px;
+}
+
+.review-proposal pre {
+  max-height: 260px;
+  margin-top: 6px;
+}
+
+.review-section-title {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.review-meta {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.diff-lines {
+  margin-top: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  padding: 3px 8px;
+  font: 12px/1.5 var(--font-mono);
+}
+
+.diff-line.add {
+  color: var(--success);
+  background: var(--success-soft);
+}
+
+.diff-line.remove {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 最近学习批次（与独立版 ReviewsPage batch-grid / batch-card 同构） */
+.batch-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.batch-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--border-strong);
+  background: var(--surface);
+}
+
+.batch-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.batch-card-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.batch-card-head span,
+.batch-card p {
+  color: var(--muted);
+}
+
+.batch-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.batch-card .inline-actions {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.batch-grid > .empty-state {
+  grid-column: 1 / -1;
+}
+
+/* ── 黑话学习（jargon-learning） ── */
+/* 导入面板默认收起：只有未带 hidden 时才启用 grid（此前 display: grid 覆盖了 hidden，面板始终展开） */
+#jargon-import-panel:not([hidden]) {
+  display: grid;
+  gap: 10px;
+}
+
+#jargon-import-panel .import-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#jargon-import-panel .stack-field textarea {
+  width: 100%;
+}
+
+#jargon-import-panel .inline-actions {
+  justify-content: flex-start;
+}
+
+.import-report {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  font-size: 12px;
+}
+
+.import-report strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.import-report ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--danger);
+}
+
+.jargon-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) 160px 160px auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 16px;
+}
+
+.data-list {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.data-row {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+  transition: border-color 140ms ease-out;
+}
+
+.data-row:hover {
+  border-color: var(--border-strong);
+}
+
+.data-row p {
+  margin: 3px 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.data-row small {
+  color: var(--muted);
+}
+
+.data-row .inline-actions {
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.jargon-row-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.jargon-row-copy {
+  min-width: 0;
+  display: grid;
+}
+
+.jargon-row-copy strong {
+  overflow-wrap: anywhere;
+}
+
+.jargon-row-group {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.jargon-edit-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.jargon-edit-grid .inline-actions {
+  margin-top: 0;
+}
+
+@media (max-width: 760px) {
+  .jargon-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .jargon-row-main {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .jargon-row-main > .jargon-row-group,
+  .jargon-row-main > .mini-badge {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* ── 表达方式学习（expression-learning） ── */
+.content-grid.two-col.style-layout {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  align-items: start;
+}
+
+#page-expression-learning .panel-heading {
+  flex-wrap: wrap;
+}
+
+#page-expression-learning .panel-heading .segment-control {
+  margin-bottom: 0;
+}
+
+.sample-list {
+  display: grid;
+  gap: 10px;
+}
+
+.sample-item summary {
+  overflow-wrap: anywhere;
+}
+
+.sample-item pre {
+  margin-top: 8px;
+}
+
+.pattern-column {
+  align-content: start;
+}
+
+.pattern-column h4 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+}
+
+.pattern-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 860px) {
+  .content-grid.two-col.style-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 人格学习（persona-learning） ── */
+/* 当前人格 / 人格备份两栏比例与独立版 two-column 一致（1.4fr / 0.8fr） */
+.content-grid.two-col.persona-layout {
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+  align-items: start;
+}
+
+.persona-current {
+  display: grid;
+  gap: 12px;
+}
+
+.persona-current-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.persona-current-head h4 {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+
+.persona-current .stat-grid.compact {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  margin-bottom: 0;
+}
+
+.persona-current .stat-card strong {
+  overflow-wrap: anywhere;
+}
+
+.persona-current-prompt {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.persona-backup-panel .table-row.backup-row,
+.persona-list-panel .table-row.persona-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.backup-row > div:first-child,
+.persona-row > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.table-row.reviewed-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.reviewed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reviewed-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.reviewed-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.reviewed-row .row-actions {
+  justify-content: flex-start;
+}
+
+@media (max-width: 860px) {
+  .content-grid.two-col.persona-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .persona-backup-panel .table-row.backup-row,
+  .persona-list-panel .table-row.persona-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+}
+
+/* ── 影子模式（shadow-mode） ── */
+.shadow-toolbar {
+  align-items: end;
+}
+
+.shadow-toolbar .segment-control {
+  margin-bottom: 0;
+}
+
+.shadow-toolbar .stack-field {
+  flex: 1 1 200px;
+}
+
+.candidate-copy {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+
+.candidate-meta {
+  display: grid;
+  justify-items: end;
+}
+
+.candidate-meta small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.shadow-profile-row .profile-scope {
+  display: grid;
+  justify-items: end;
+  text-align: right;
+}
+
+.shadow-profile-row .profile-scope span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ── 学习内容（content） ── */
+.content-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.content-toolbar .segment-control {
+  margin-bottom: 0;
+}
+
+.content-toolbar input {
+  flex: 1;
+  width: auto;
+  min-width: 220px;
+}
+
+.content-browser-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.content-browser-grid > .empty-state {
+  grid-column: 1 / -1;
+}
+
+.content-entry {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+}
+
+.content-entry summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.content-entry summary strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.content-entry pre {
+  margin: 10px 0;
+}
+
+@media (max-width: 760px) {
+  .content-browser-grid,
+  .batch-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* 审查队列栏头：标题不折行，动作组在窄栏中整体换到下一行（与独立版视觉一致） */
+#page-reviews .panel-heading {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+#page-reviews .panel-heading > h3 {
+  white-space: nowrap;
+}
+
+#page-reviews .panel-heading > .inline-actions {
+  margin-left: auto;
 }

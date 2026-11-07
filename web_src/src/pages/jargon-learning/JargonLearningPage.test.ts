@@ -21,4 +21,11 @@ describe('buildJargonListParams', () => {
     expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'confirmed', search: '' }).get('confirmed')).toBe('true');
     expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'unconfirmed', search: '' }).get('confirmed')).toBe('false');
   });
+
+  it('maps the scope filter to the backend filter parameter', () => {
+    expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'all', search: '', scope: 'global' }).get('filter')).toBe('global');
+    expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'all', search: '', scope: 'local' }).get('filter')).toBe('local');
+    expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'all', search: '', scope: 'all' }).has('filter')).toBe(false);
+    expect(buildJargonListParams({ page: 1, pageSize: 10, filter: 'all', search: '' }).has('filter')).toBe(false);
+  });
 });

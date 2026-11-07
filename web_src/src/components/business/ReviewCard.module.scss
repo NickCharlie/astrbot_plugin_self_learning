@@ -8,6 +8,33 @@
     margin: 0;
     color: var(--muted);
   }
+
+  /* 审查队列逐条勾选：复选框单列 + 卡片主体（与内嵌插件页 review-card.selectable 同构） */
+  &.selectable {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.review-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.select-cell {
+  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+
+  input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    cursor: pointer;
+  }
 }
 
 .review-card-head {

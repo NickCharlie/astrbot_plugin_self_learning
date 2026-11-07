@@ -227,19 +227,19 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="reviews.title">审查队列</h3>
-              <p data-i18n="reviews.desc">人格更新、表达学习和黑话候选集中处理。</p>
+              <p data-i18n="reviews.desc">集中处理人格更新、表达风格和群聊黑话。</p>
             </div>
             <button class="ghost-button" type="button" data-refresh-page="reviews" data-i18n="actions.refresh">刷新</button>
           </div>
           <div class="review-layout">
-            <div class="panel">
+            <div class="panel review-queue">
               <div class="panel-heading">
-                <h3 data-i18n="reviews.personaUpdates">人格更新</h3>
+                <h3 data-i18n="reviews.queue.persona">待审人格</h3>
                 <div class="inline-actions compact-actions">
                   <span class="mini-badge" id="persona-review-count">0</span>
-                  <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="approve" data-i18n="actions.batchApproveShort">全批</button>
-                  <button class="ghost-button" type="button" data-batch-review-kind="persona" data-batch-review-action="reject" data-i18n="actions.batchRejectShort">全拒</button>
-                  <button class="danger-button" type="button" data-batch-review-kind="persona" data-batch-review-action="delete" data-i18n="actions.delete">删除</button>
+                  <button class="ghost-button success-button" type="button" data-batch-review-kind="persona" data-batch-review-action="approve" data-i18n="reviews.batch.approveAll">全部通过</button>
+                  <button class="ghost-button warning-button" type="button" data-batch-review-kind="persona" data-batch-review-action="reject" data-i18n="reviews.batch.rejectAll">全部驳回</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="persona" data-batch-review-action="delete" data-i18n="reviews.batch.deleteAll">全部删除</button>
                 </div>
               </div>
               <div class="audit-search-row">
@@ -248,14 +248,14 @@
               </div>
               <div class="review-list" id="persona-review-list"></div>
             </div>
-            <div class="panel">
+            <div class="panel review-queue">
               <div class="panel-heading">
-                <h3 data-i18n="reviews.expressionReviews">表达审查</h3>
+                <h3 data-i18n="reviews.queue.style">风格审查</h3>
                 <div class="inline-actions compact-actions">
                   <span class="mini-badge" id="style-review-count">0</span>
-                  <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="approve" data-i18n="actions.batchApproveShort">全批</button>
-                  <button class="ghost-button" type="button" data-batch-review-kind="style" data-batch-review-action="reject" data-i18n="actions.batchRejectShort">全拒</button>
-                  <button class="danger-button" type="button" data-batch-review-kind="style" data-batch-review-action="delete" data-i18n="actions.delete">删除</button>
+                  <button class="ghost-button success-button" type="button" data-batch-review-kind="style" data-batch-review-action="approve" data-i18n="reviews.batch.approveAll">全部通过</button>
+                  <button class="ghost-button warning-button" type="button" data-batch-review-kind="style" data-batch-review-action="reject" data-i18n="reviews.batch.rejectAll">全部驳回</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="style" data-batch-review-action="delete" data-i18n="reviews.batch.deleteAll">全部删除</button>
                 </div>
               </div>
               <div class="audit-search-row">
@@ -264,14 +264,14 @@
               </div>
               <div class="review-list" id="style-review-list"></div>
             </div>
-            <div class="panel">
+            <div class="panel review-queue">
               <div class="panel-heading">
-                <h3 data-i18n="reviews.jargonCandidates">黑话候选</h3>
+                <h3 data-i18n="reviews.queue.jargon">黑话审查</h3>
                 <div class="inline-actions compact-actions">
                   <span class="mini-badge" id="jargon-review-count">0</span>
-                  <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="approve" data-i18n="actions.batchApproveShort">全批</button>
-                  <button class="ghost-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="reject" data-i18n="actions.batchRejectShort">全拒</button>
-                  <button class="danger-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="delete" data-i18n="actions.delete">删除</button>
+                  <button class="ghost-button success-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="approve" data-i18n="reviews.batch.approveAll">全部通过</button>
+                  <button class="ghost-button warning-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="reject" data-i18n="reviews.batch.rejectAll">全部驳回</button>
+                  <button class="danger-button" type="button" data-batch-review-kind="jargon" data-batch-review-action="delete" data-i18n="reviews.batch.deleteAll">全部删除</button>
                 </div>
               </div>
               <div class="audit-search-row">
@@ -281,12 +281,17 @@
               <div class="review-list" id="jargon-review-list"></div>
             </div>
           </div>
-          <div class="panel reviewed-panel">
+          <div class="panel review-batch-panel">
             <div class="panel-heading">
-              <h3 data-i18n="reviews.recentReviewed">最近已审查</h3>
-              <span class="mini-badge" id="reviewed-count">0</span>
+              <h3 data-i18n="reviews.batches.title">最近学习批次</h3>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="reviews.batches.hint">支持重新学习和删除历史批次</span>
+                <button class="ghost-button" type="button" id="review-batch-relearn-all" data-i18n="reviews.batches.relearnAll">重新学习</button>
+                <button class="ghost-button" type="button" id="review-batch-refresh" data-i18n="reviews.batches.refresh">刷新批次</button>
+              </div>
             </div>
-            <div class="compact-table" id="reviewed-persona-list"></div>
+            <div class="batch-grid" id="review-batch-list"></div>
+            <nav class="pagination-bar" id="review-batch-pagination" aria-label="分页" data-i18n-aria-label="pagination.aria"></nav>
           </div>
         </section>
 
@@ -294,48 +299,75 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="jargon.title">黑话学习</h3>
-              <p data-i18n="jargon.desc">管理群内黑话候选、全局共享和语义释义。</p>
+              <p data-i18n="jargon.desc">检索、编辑和审查从群聊语境中学习到的词条。</p>
             </div>
-            <button class="ghost-button" type="button" id="jargon-import-toggle">导入黑话</button>
             <button class="ghost-button" type="button" data-refresh-page="jargon-learning" data-i18n="actions.refresh">刷新</button>
           </div>
+          <section class="stat-grid" id="jargon-stat-grid" aria-label="黑话统计" data-i18n-aria-label="jargon.stats.aria"></section>
           <div class="panel" id="jargon-import-panel" hidden>
-            <p class="import-hint">每行一条，支持「关键词 = 解释」「关键词：解释」「关键词|解释」等分隔；# 或 // 开头为注释行。导入的词条即为已确认黑话。</p>
-            <textarea id="jargon-import-text" rows="6" spellcheck="false" placeholder="摸鱼 = 上班时间偷懒&#10;yyds：永远的神&#10;绝绝子&#10;# 注释行会被忽略"></textarea>
-            <div class="inline-actions compact-actions">
-              <select id="jargon-import-group" aria-label="导入范围"></select>
-              <button class="solid-button" type="button" id="jargon-import-submit">导入</button>
+            <div class="panel-heading">
+              <h3 data-i18n="jargon.importTitle">导入黑话</h3>
             </div>
-            <pre class="code-preview" id="jargon-import-output" hidden></pre>
+            <p class="import-hint" data-i18n="jargon.import.hint">每行一条，支持「关键词 = 解释」「关键词：解释」「关键词|解释」等分隔；# 或 // 开头为注释行</p>
+            <label class="stack-field">
+              <span data-i18n="jargon.import.scope">导入范围</span>
+              <select id="jargon-import-group"></select>
+            </label>
+            <label class="stack-field">
+              <span data-i18n="jargon.import.entries">词条列表</span>
+              <textarea id="jargon-import-text" rows="8" spellcheck="false" placeholder="摸鱼 = 上班时间偷懒&#10;yyds：永远的神&#10;绝绝子&#10;# 注释行会被忽略" data-i18n-placeholder="jargon.import.placeholder"></textarea>
+            </label>
+            <div class="inline-actions">
+              <button class="solid-button" type="button" id="jargon-import-submit" disabled data-i18n="actions.import">导入</button>
+              <button class="ghost-button" type="button" id="jargon-import-collapse" data-i18n="jargon.import.collapse">收起</button>
+            </div>
+            <div class="import-report" id="jargon-import-output" hidden></div>
           </div>
-          <section class="stat-grid compact" id="jargon-stat-grid"></section>
-          <div class="panel toolbar-panel">
-            <input id="jargon-keyword" type="search" placeholder="搜索词条或释义" data-i18n-placeholder="jargon.searchPlaceholder">
-            <select id="jargon-confirmed">
-              <option value="" data-i18n="jargon.allStatuses">全部状态</option>
-              <option value="pending" data-i18n="jargon.pendingOnly">待审</option>
-              <option value="true" data-i18n="jargon.confirmed">已确认</option>
-              <option value="false" data-i18n="jargon.unconfirmed">未确认</option>
-            </select>
-            <select id="jargon-filter">
-              <option value="" data-i18n="jargon.allScopes">全部范围</option>
-              <option value="global" data-i18n="jargon.global">全局</option>
-              <option value="local" data-i18n="jargon.local">本地</option>
-            </select>
-            <button class="solid-button" type="button" id="jargon-search-button" data-i18n="actions.filter">筛选</button>
-          </div>
-          <div class="panel">
+          <div class="panel jargon-library">
+            <div class="panel-heading">
+              <h3 data-i18n="jargon.libraryTitle">黑话词库</h3>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="jargon.libraryHint">支持分页、状态筛选和原地编辑</span>
+                <button class="ghost-button" type="button" id="jargon-import-toggle" data-i18n="jargon.importTitle">导入黑话</button>
+                <button class="ghost-button" type="button" id="jargon-list-refresh" data-i18n="actions.refresh">刷新</button>
+              </div>
+            </div>
+            <div class="jargon-filter-bar">
+              <label class="stack-field">
+                <span data-i18n="actions.search">搜索</span>
+                <input id="jargon-keyword" type="search" placeholder="词条或释义" data-i18n-placeholder="jargon.searchPlaceholder">
+              </label>
+              <label class="stack-field">
+                <span data-i18n="jargon.filter.status">状态</span>
+                <select id="jargon-confirmed">
+                  <option value="" data-i18n="jargon.allStatuses">全部</option>
+                  <option value="pending" data-i18n="jargon.pendingOnly">待审</option>
+                  <option value="true" data-i18n="jargon.confirmed">已确认</option>
+                  <option value="false" data-i18n="jargon.unconfirmed">未确认</option>
+                </select>
+              </label>
+              <label class="stack-field">
+                <span data-i18n="jargon.filter.scope">范围</span>
+                <select id="jargon-filter">
+                  <option value="" data-i18n="jargon.allScopes">全部范围</option>
+                  <option value="global" data-i18n="jargon.global">全局</option>
+                  <option value="local" data-i18n="jargon.local">本地</option>
+                </select>
+              </label>
+              <button class="ghost-button" type="button" id="jargon-search-button" data-i18n="jargon.query">查询</button>
+            </div>
             <div class="batch-toolbar">
-              <span class="mini-badge" id="jargon-selection-count">已选 0</span>
+              <span class="mini-badge" id="jargon-selection-count">已选 0/0</span>
               <div class="inline-actions compact-actions">
                 <button class="ghost-button" type="button" data-jargon-batch-action="select_all" data-i18n="actions.selectAll">全选</button>
                 <button class="ghost-button" type="button" data-jargon-batch-action="clear" data-i18n="actions.clearSelection">取消选择</button>
-                <button class="ghost-button" type="button" data-jargon-batch-action="approve" data-i18n="actions.batchConfirm">批量确认</button>
-                <button class="ghost-button" type="button" data-jargon-batch-action="reject" data-i18n="actions.batchReject">批量驳回</button>
+                <button class="ghost-button success-button" type="button" data-jargon-batch-action="approve" data-i18n="actions.batchConfirm">批量确认</button>
+                <button class="ghost-button warning-button" type="button" data-jargon-batch-action="reject" data-i18n="actions.batchReject">批量驳回</button>
                 <button class="danger-button" type="button" data-jargon-batch-action="delete" data-i18n="actions.batchDelete">批量删除</button>
               </div>
             </div>
-            <div class="compact-table" id="jargon-list"></div>
+            <div class="data-list" id="jargon-list"></div>
+            <nav class="pagination-bar" id="jargon-pagination" aria-label="分页" data-i18n-aria-label="pagination.aria"></nav>
           </div>
         </section>
 
@@ -343,37 +375,35 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="style.title">表达方式学习</h3>
-              <p data-i18n="style.desc">查看风格统计、学习模式和待确认 few-shot。</p>
+              <p data-i18n="style.desc">查看表达统计与学习模式，以及对话样本、分析结果、风格特征与学习历史。</p>
             </div>
             <button class="ghost-button" type="button" data-refresh-page="expression-learning" data-i18n="actions.refresh">刷新</button>
           </div>
-          <div class="content-grid two-col">
+          <section class="stat-grid" id="style-stat-grid" aria-label="表达统计" data-i18n-aria-label="style.statsTitle"></section>
+          <div class="content-grid two-col style-layout">
             <div class="panel">
-              <h3 data-i18n="style.statsTitle">表达统计</h3>
-              <section class="stat-grid compact" id="style-stat-grid"></section>
-              <div class="bar-chart" id="style-pattern-chart"></div>
+              <div class="panel-heading">
+                <h3 data-i18n="style.libraryTitle">表达样本库</h3>
+                <div class="segment-control" id="style-sample-tabs" role="group" aria-label="表达样本库" data-i18n-aria-label="style.libraryTitle">
+                  <button class="active" type="button" data-style-bucket="dialogues" data-i18n="content.tabs.dialogues">对话</button>
+                  <button type="button" data-style-bucket="analysis" data-i18n="content.tabs.analysis">分析</button>
+                  <button type="button" data-style-bucket="features" data-i18n="content.tabs.features">特征</button>
+                  <button type="button" data-style-bucket="history" data-i18n="content.tabs.history">历史</button>
+                </div>
+              </div>
+              <div class="sample-list" id="style-sample-list"></div>
             </div>
             <div class="panel">
               <div class="panel-heading">
-                <h3 data-i18n="style.pendingReviews">待审查表达</h3>
-                <div class="inline-actions compact-actions">
-                  <span class="mini-badge" id="expression-review-count">已选 0</span>
-                  <button class="ghost-button" type="button" data-style-batch-action="select_all" data-i18n="actions.selectAll">全选</button>
-                  <button class="ghost-button" type="button" data-style-batch-action="clear" data-i18n="actions.clearSelection">取消选择</button>
-                  <button class="ghost-button" type="button" data-style-batch-action="approve" data-i18n="actions.batchApprove">批量批准</button>
-                  <button class="ghost-button" type="button" data-style-batch-action="reject" data-i18n="actions.batchReject">批量拒绝</button>
-                  <button class="danger-button" type="button" data-style-batch-action="delete" data-i18n="actions.batchDelete">批量删除</button>
-                </div>
+                <h3 data-i18n="style.compositionTitle">表达学习构成</h3>
               </div>
-              <div class="audit-search-row">
-                <input id="style-page-keyword" type="search" placeholder="搜索表达方式" data-i18n-placeholder="style.searchPlaceholder">
-                <button class="ghost-button" type="button" id="style-search-button" data-i18n="actions.search">搜索</button>
-              </div>
-              <div class="review-list" id="expression-review-list"></div>
+              <div class="bar-chart" id="style-composition-chart"></div>
             </div>
           </div>
           <div class="panel">
-            <h3 data-i18n="style.patternsTitle">学习模式</h3>
+            <div class="panel-heading">
+              <h3 data-i18n="style.patternsTitle">学习模式</h3>
+            </div>
             <div class="pattern-columns" id="style-pattern-columns"></div>
           </div>
         </section>
@@ -382,27 +412,55 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="persona.title">人格学习</h3>
-              <p data-i18n="persona.desc">当前人格状态、人格列表和备份恢复。</p>
+              <p data-i18n="persona.desc">观察当前人格状态、待审更新和可恢复备份。</p>
             </div>
             <button class="ghost-button" type="button" data-refresh-page="persona-learning" data-i18n="actions.refresh">刷新</button>
           </div>
           <div class="content-grid two-col persona-layout">
             <div class="panel persona-state-panel">
-              <h3 data-i18n="persona.currentState">当前人格状态</h3>
-              <section class="stat-grid compact" id="persona-state-stats"></section>
-              <pre class="code-preview" id="persona-prompt-preview"></pre>
+              <div class="panel-heading">
+                <h3 data-i18n="persona.currentState">当前人格</h3>
+                <span class="mini-badge" data-i18n="persona.currentHint">默认群组的实时人格快照</span>
+              </div>
+              <div id="persona-current"></div>
             </div>
-            <div class="panel persona-list-panel">
-              <h3 data-i18n="persona.list">人格列表</h3>
-              <div class="compact-table" id="persona-list"></div>
+            <div class="panel persona-backup-panel">
+              <div class="panel-heading">
+                <h3 data-i18n="persona.backups">人格备份</h3>
+                <div class="inline-actions compact-actions">
+                  <span class="mini-badge" data-i18n="persona.backupsHint">可查看备份内容，恢复操作会先要求确认</span>
+                  <span class="mini-badge" id="persona-backup-count">0</span>
+                </div>
+              </div>
+              <div class="compact-table" id="persona-backup-list"></div>
             </div>
           </div>
-          <div class="panel persona-backup-panel">
+          <div class="panel persona-list-panel">
             <div class="panel-heading">
-              <h3 data-i18n="persona.backups">人格备份</h3>
-              <span class="mini-badge" id="persona-backup-count">0</span>
+              <h3 data-i18n="persona.list">人格列表</h3>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="persona.listHint">浏览 AstrBot 中的人格配置，可查看完整提示词、编辑、导出为 JSON 或删除</span>
+                <button class="ghost-button" type="button" id="persona-list-refresh" data-i18n="persona.refreshList">刷新人格</button>
+              </div>
             </div>
-            <div class="compact-table" id="persona-backup-list"></div>
+            <div class="compact-table" id="persona-list"></div>
+          </div>
+          <div class="panel persona-reviewed-panel">
+            <div class="panel-heading">
+              <h3 data-i18n="persona.reviewedTitle">最近已审查</h3>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="persona.reviewedHint">撤回后记录会重新进入待审队列</span>
+                <span class="mini-badge" id="persona-reviewed-count">0</span>
+              </div>
+            </div>
+            <div class="compact-table" id="persona-reviewed-list"></div>
+          </div>
+          <div class="panel persona-pending-panel">
+            <div class="panel-heading">
+              <h3 data-i18n="persona.pendingTitle">待审人格更新</h3>
+              <span class="mini-badge" data-i18n="persona.pendingHint">点击「查看变更详情」展开逐行差异</span>
+            </div>
+            <div class="review-list" id="persona-pending-list"></div>
           </div>
         </section>
 
@@ -420,14 +478,20 @@
               <span class="mini-badge" id="shadow-min-samples">--</span>
             </div>
             <div class="shadow-toolbar">
-              <div class="segment-control" id="shadow-source">
+              <div class="segment-control" id="shadow-source" role="group" aria-label="聊天记录来源" data-i18n-aria-label="shadow.sourceLabel">
                 <button class="active" type="button" data-shadow-source="live" data-i18n="shadow.liveSource">现有群聊</button>
                 <button type="button" data-shadow-source="imported" data-i18n="shadow.importedSource">导入记录</button>
               </div>
-              <select id="shadow-group" aria-label="来源群组"></select>
-              <input id="shadow-target-group" type="text" placeholder="生效群组" data-i18n-placeholder="shadow.targetGroup">
+              <label class="stack-field">
+                <span data-i18n="shadow.sourceGroup">来源群组</span>
+                <select id="shadow-group" disabled></select>
+              </label>
+              <label class="stack-field">
+                <span data-i18n="shadow.targetGroup">生效群组</span>
+                <input id="shadow-target-group" type="text" autocomplete="off">
+              </label>
             </div>
-            <div class="candidate-list" id="shadow-candidate-list"></div>
+            <div class="candidate-list" id="shadow-candidate-list" aria-label="可学习群友" data-i18n-aria-label="shadow.candidatesLabel"></div>
             <div class="learn-bar">
               <span id="shadow-learn-hint" data-i18n="shadow.pickFirst">选择用户后即可开始学习。</span>
               <button class="solid-button" type="button" id="shadow-learn-button" data-i18n="shadow.learnAndEnable">学习并启用</button>
@@ -436,7 +500,10 @@
           <div class="panel">
             <div class="panel-heading">
               <h3 data-i18n="shadow.profiles">影子档案</h3>
-              <span class="mini-badge" id="shadow-profile-count">0</span>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="shadow.profilesHint">同一个生效群组同时只启用一份档案</span>
+                <span class="mini-badge" id="shadow-profile-count">0</span>
+              </div>
             </div>
             <div class="compact-table" id="shadow-profile-list"></div>
           </div>
@@ -578,25 +645,25 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="content.title">学习内容</h3>
-              <p data-i18n="content.desc">浏览原始对话、分析结果、表达模式和学习批次。</p>
+              <p data-i18n="content.desc">按内容类型浏览、检索和清理表达学习数据。</p>
             </div>
-            <div class="inline-actions">
-              <button class="ghost-button" type="button" id="relearn-button" data-i18n="actions.relearn">重新学习</button>
+            <button class="ghost-button" type="button" data-refresh-page="content" data-i18n="actions.refresh">刷新</button>
+          </div>
+          <div class="panel content-browser">
+            <div class="panel-heading">
+              <h3 data-i18n="content.browserTitle">内容浏览器</h3>
               <button class="ghost-button" type="button" data-refresh-page="content" data-i18n="actions.refresh">刷新</button>
             </div>
-          </div>
-          <div class="segment-control" id="content-tabs">
-            <button class="active" type="button" data-content-type="dialogues" data-i18n="content.tabs.dialogues">对话</button>
-            <button type="button" data-content-type="analysis" data-i18n="content.tabs.analysis">分析</button>
-            <button type="button" data-content-type="features" data-i18n="content.tabs.features">表达模式</button>
-            <button type="button" data-content-type="history" data-i18n="content.tabs.history">批次</button>
-          </div>
-          <div class="panel">
-            <div class="content-list" id="learning-content-list"></div>
-          </div>
-          <div class="panel">
-            <h3 data-i18n="content.batchHistory">批次历史</h3>
-            <div class="compact-table" id="batch-list"></div>
+            <div class="content-toolbar">
+              <div class="segment-control" id="content-tabs" role="group" aria-label="内容浏览器" data-i18n-aria-label="content.browserTitle">
+                <button class="active" type="button" data-content-type="dialogues" data-i18n="content.tabs.dialogues">对话</button>
+                <button type="button" data-content-type="analysis" data-i18n="content.tabs.analysis">分析</button>
+                <button type="button" data-content-type="features" data-i18n="content.tabs.features">特征</button>
+                <button type="button" data-content-type="history" data-i18n="content.tabs.history">历史</button>
+              </div>
+              <input id="content-search" type="search" placeholder="搜索当前分类" data-i18n-placeholder="content.searchPlaceholder">
+            </div>
+            <div class="content-browser-grid" id="learning-content-list"></div>
           </div>
         </section>
 

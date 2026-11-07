@@ -73,7 +73,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
     styles = (PLUGIN_ROOT / "pages" / "dashboard" / "styles.css").read_text(encoding="utf-8")
 
-    assert "AstrBot Embedded WebUI" in index
+    assert "AstrBot 内嵌 WebUI" in index
     for label in [
         "Dashboard",
         "AI 巡检",
@@ -125,7 +125,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert 'data-jargon-action="edit"' in script
     assert 'data-style-action="edit"' in script
     assert 'data-persona-action="edit"' in script
-    assert 'id="modal-jargon-save"' in script
+    assert 'data-jargon-action="save"' in script
     assert 'id="modal-style-save"' in script
     assert 'id="modal-persona-save"' in script
     assert "region.replaceChildren()" in script
@@ -231,7 +231,7 @@ def test_embedded_plugin_page_hides_review_buttons_for_confirmed_jargon():
     script = (PLUGIN_ROOT / "pages" / "dashboard" / "app.js").read_text(encoding="utf-8")
 
     assert 'item.is_confirmed ? "" : button(t("actions.confirm"' in script
-    assert 'item.is_confirmed ? "" : button(t("actions.reject"' in script
+    assert 'item.is_confirmed ? "" : button(t("actions.rejectBack"' in script
 
 
 def test_graph_share_rendering_uses_stable_static_layout():

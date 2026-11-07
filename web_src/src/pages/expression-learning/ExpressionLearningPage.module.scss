@@ -1,6 +1,46 @@
 @use "../../styles/tokens";
+@use "../../styles/mixins" as *;
 
 .content-list {
   display: grid;
   gap: 10px;
+}
+
+/* 学习模式三栏（与内嵌插件页 pattern-columns / pattern-column 同构） */
+.pattern-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.pattern-column {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-solid);
+
+  h4 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+  }
+}
+
+.pattern-chip {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@include mobile {
+  .pattern-columns {
+    grid-template-columns: 1fr;
+  }
 }

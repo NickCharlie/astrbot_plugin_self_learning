@@ -78,3 +78,10 @@ export const detailText = (value: unknown): string => {
 
 export const labelValueRows = (value: unknown): Array<[string, unknown]> =>
   Object.entries(object(value)).filter(([, item]) => typeof item !== 'object').slice(0, 12);
+
+/** JSON 文本框：解析失败时按行拆分（与内嵌插件页 parseModalJson 同口径，用于学习模式 / 开场对话编辑）。 */
+export const parseJsonOrLines = (raw: string): unknown => {
+  const text = raw.trim();
+  if (!text) return [];
+  try { return JSON.parse(text); } catch { return text.split(/\n+/).map((line) => line.trim()).filter(Boolean); }
+};

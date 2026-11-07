@@ -18,6 +18,24 @@
   }
 }
 
+/* 当前人格读数（与内嵌插件页 persona-current stat-grid compact 同构） */
+.persona-stats {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  text-align: left;
+
+  strong {
+    overflow-wrap: anywhere;
+  }
+}
+
+.edit-form {
+  display: grid;
+  gap: 12px;
+}
+
 .backup-list {
   display: grid;
   gap: 10px;

@@ -351,3 +351,62 @@ async def test_learning_content_delete_rejects_invalid_or_missing_rows(client, m
         assert response.status_code == 404
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_style_learning_review_update_route_edits_pending_review(client, monkeypatch):
+    """审查队列「编辑」表达方式：独立 WebUI 与内嵌桥接共用 update_style_learning_review。"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with session_factory() as session:
+        review = StyleLearningReview(
+            type="mood_imitation",
+            group_id="g1",
+            timestamp=1710000010,
+            learned_patterns='["短句"]',
+            few_shots_content="用户: 好耶\nBot: 好耶",
+            status="pending",
+            description="原始描述",
+        )
+        session.add(review)
+        await session.commit()
+        review_id = review.id
+
+    database_manager = SimpleNamespace(get_session=session_factory)
+    monkeypatch.setattr(
+        learning_module,
+        "get_container",
+        lambda: SimpleNamespace(database_manager=database_manager),
+    )
+
+    try:
+        response = await client.put(
+            f"/api/style_learning/reviews/{review_id}",
+            json={
+                "description": "新的描述",
+                "few_shots_content": "用户: 早\nBot: 早呀",
+                "learned_patterns": ["口癖", "短句"],
+            },
+        )
+        assert response.status_code == 200
+        payload = await response.get_json()
+        assert payload["success"] is True
+        assert payload["message"] == "表达方式已更新"
+
+        async with session_factory() as session:
+            stored = await session.get(StyleLearningReview, review_id)
+            assert stored.description == "新的描述"
+            assert stored.few_shots_content == "用户: 早\nBot: 早呀"
+            assert stored.learned_patterns == '["口癖", "短句"]'
+
+        response = await client.put("/api/style_learning/reviews/999", json={"description": "x"})
+        assert response.status_code == 404
+
+        response = await client.put(f"/api/style_learning/reviews/{review_id}", json={})
+        assert response.status_code == 400
+    finally:
+        await engine.dispose()

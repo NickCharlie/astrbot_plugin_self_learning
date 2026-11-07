@@ -401,6 +401,64 @@ class LearningService:
             },
         }
 
+    async def update_style_learning_review(
+        self,
+        review_id: int,
+        payload: Dict[str, Any],
+    ) -> Tuple[bool, str, Dict[str, Any]]:
+        """编辑待审的表达方式（描述 / Few-shot 示例 / 学习模式）。
+
+        独立 WebUI 审查队列与内嵌插件页桥接共用；只更新 payload 中出现的字段。
+        """
+        updates: Dict[str, Any] = {}
+        if "description" in payload:
+            updates["description"] = str(payload.get("description") or "")
+        if "few_shots_content" in payload:
+            updates["few_shots_content"] = str(payload.get("few_shots_content") or "")
+        if "learned_patterns" in payload:
+            patterns = payload.get("learned_patterns")
+            updates["learned_patterns"] = (
+                json.dumps(patterns, ensure_ascii=False)
+                if isinstance(patterns, (list, dict))
+                else str(patterns or "")
+            )
+
+        if not updates:
+            return False, "没有可保存的表达方式字段", {}
+
+        if not self.database_manager or not hasattr(self.database_manager, "get_session"):
+            return False, "数据库管理器未初始化", {}
+
+        from datetime import datetime
+        from sqlalchemy import select
+
+        try:
+            from ...models.orm import StyleLearningReview
+        except ImportError:
+            from models.orm import StyleLearningReview
+
+        async with self.database_manager.get_session() as session:
+            result = await session.execute(
+                select(StyleLearningReview).where(StyleLearningReview.id == review_id)
+            )
+            review = result.scalar_one_or_none()
+            if not review:
+                return False, f"表达方式审查 {review_id} 不存在", {}
+            for key, value in updates.items():
+                setattr(review, key, value)
+            if hasattr(review, "updated_at"):
+                review.updated_at = datetime.now()
+            item = {
+                "id": review.id,
+                "description": review.description,
+                "few_shots_content": review.few_shots_content,
+                "learned_patterns": review.learned_patterns,
+                "status": review.status,
+                "group_id": review.group_id,
+            }
+            await session.commit()
+            return True, "表达方式已更新", item
+
     async def get_style_learning_patterns(self) -> Dict[str, Any]:
         """
         获取风格学习模式

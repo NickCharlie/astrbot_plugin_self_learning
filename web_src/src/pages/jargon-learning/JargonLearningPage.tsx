@@ -2,19 +2,22 @@ import { createSignal, For, onMount, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import type { JargonItem, Paginated, Tone } from '../../types/dashboard';
-import { list } from '../shared';
-import { formatTime, textOrDash } from '../../lib/format';
+import { list, object } from '../shared';
+import { formatCount, formatTime, textOrDash } from '../../lib/format';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { Badge, Button, EmptyState, Input, Pagination, Panel, Select, Textarea } from '../../components/ui';
+import { Badge, Button, EmptyState, Input, Pagination, Panel, Select, StatCard, Textarea } from '../../components/ui';
 import styles from './JargonLearningPage.module.scss';
 
 type JargonFilter = 'all' | 'pending' | 'confirmed' | 'unconfirmed';
+type JargonScope = 'all' | 'global' | 'local';
+type JargonBatchAction = 'approve' | 'reject' | 'delete';
 
 export function buildJargonListParams(input: {
   page: number;
   pageSize: number;
   filter: JargonFilter;
   search: string;
+  scope?: JargonScope;
 }) {
   const params = new URLSearchParams({
     page: String(input.page),
@@ -25,6 +28,8 @@ export function buildJargonListParams(input: {
   if (input.filter === 'pending') params.set('pending', 'true');
   else if (input.filter === 'confirmed') params.set('confirmed', 'true');
   else if (input.filter === 'unconfirmed') params.set('confirmed', 'false');
+  // 范围筛选（与内嵌插件页同一后端参数 filter=global|local）
+  if (input.scope === 'global' || input.scope === 'local') params.set('filter', input.scope);
   return params;
 }
 
@@ -45,8 +50,10 @@ export function JargonLearningPage() {
   const [page, setPage] = createSignal(1);
   const [totalPages, setTotalPages] = createSignal(1);
   const [filter, setFilter] = createSignal<JargonFilter>('all');
+  const [scope, setScope] = createSignal<JargonScope>('all');
   const [search, setSearch] = createSignal('');
   const [loading, setLoading] = createSignal(false);
+  const [selected, setSelected] = createSignal<Set<string>>(new Set());
   const [editing, setEditing] = createSignal<string | null>(null);
   const [draft, setDraft] = createSignal({ content: '', meaning: '' });
   const [showImport, setShowImport] = createSignal(false);
@@ -55,17 +62,27 @@ export function JargonLearningPage() {
   const [importText, setImportText] = createSignal('');
   const [importing, setImporting] = createSignal(false);
   const [importResult, setImportResult] = createSignal<{ message: string; details?: { failed: Array<{ line: number; term: string; reason: string }> } } | null>(null);
+  // 读数与首页 / 内嵌插件页同源：全局黑话统计
+  const stats = () => {
+    const raw = object(dashboard.data.jargon_stats);
+    return Object.keys(object(raw.data)).length ? object(raw.data) : raw;
+  };
   const load = async () => {
     setLoading(true);
     try {
-      const params = buildJargonListParams({ page: page(), pageSize: 10, filter: filter(), search: search() });
+      const params = buildJargonListParams({ page: page(), pageSize: 10, filter: filter(), search: search(), scope: scope() });
       const payload = await api.get<Paginated<JargonItem>>(`/api/jargon/list?${params}`);
       const rows = list<JargonItem>(payload);
       setItems(rows);
-      setTotalPages(Math.max(1, Number(payload.total_pages ?? Math.ceil(Number(payload.total ?? rows.length) / 10))));
+      // 关键词检索返回全部匹配（单页）；普通列表按后端分页（每页 10 条）
+      setTotalPages(Math.max(1, Number(payload.total_pages ?? (search().trim() ? 1 : Math.ceil(Number(payload.total ?? rows.length) / 10)))));
+      const visible = new Set(rows.map((item) => String(item.id)));
+      setSelected((current) => new Set([...current].filter((id) => visible.has(id))));
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '黑话加载失败', 'danger'); }
     finally { setLoading(false); }
   };
+  // 查询 / 状态 / 范围变化都回到第 1 页重新检索（与内嵌插件页一致）
+  const query = () => { setPage(1); load(); };
   onMount(load);
   onMount(() => { loadGroups(); });
   const loadGroups = async () => {
@@ -78,6 +95,12 @@ export function JargonLearningPage() {
       })).filter((group) => group.group_id));
     } catch { /* 群组列表加载失败不阻塞页面 */ }
   };
+  const toggleSelect = (id: string, checked: boolean) => setSelected((current) => {
+    const next = new Set(current);
+    if (checked) next.add(id);
+    else next.delete(id);
+    return next;
+  });
   const edit = (item: JargonItem) => {
     setEditing(String(item.id));
     dashboard.setEditing(true);
@@ -104,16 +127,37 @@ export function JargonLearningPage() {
       dashboard.refresh(true);
     } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '操作失败', 'danger'); }
   };
+  // 批量确认 / 驳回 / 删除（与内嵌插件页同一确认文案）
+  const batchAction = async (name: JargonBatchAction) => {
+    const ids = [...selected()];
+    if (!ids.length) return dashboard.toast('请先选择黑话条目', 'warning');
+    const label = name === 'approve' ? '确认' : name === 'reject' ? '驳回' : '删除';
+    if (!await dashboard.confirm({
+      title: '批量操作确认',
+      message: `确定批量${label}选中的 ${ids.length} 条黑话？`,
+      confirmText: label,
+      tone: name === 'approve' ? 'success' : 'danger',
+    })) return;
+    try {
+      const payload = name === 'delete'
+        ? await api.post<{ message?: string }>('/api/jargon/batch_delete', { jargon_ids: ids })
+        : await api.post<{ message?: string }>('/api/jargon/batch_review', { jargon_ids: ids, action: name });
+      dashboard.toast(payload?.message || '批量黑话操作完成', 'success');
+      setSelected(new Set<string>());
+      await load();
+      dashboard.refresh(true);
+    } catch (caught) { dashboard.toast(caught instanceof Error ? caught.message : '批量操作失败', 'danger'); }
+  };
   const runImport = async () => {
     if (!importText().trim()) return dashboard.toast('请先填写要导入的词条', 'warning');
-    const scope = importScope();
+    const target = importScope();
     setImporting(true);
     setImportResult(null);
     try {
       const payload = await api.post<{ message: string; details?: { failed: Array<{ line: number; term: string; reason: string }> } }>('/api/jargon/import', {
         text: importText(),
-        group_id: scope === '__global__' ? '' : scope,
-        is_global: scope === '__global__',
+        group_id: target === '__global__' ? '' : target,
+        is_global: target === '__global__',
       });
       setImportResult(payload);
       dashboard.toast(payload.message || '导入完成', 'success');
@@ -126,6 +170,12 @@ export function JargonLearningPage() {
   return (
     <div class="page">
       <PageHeader title="黑话学习" description="检索、编辑和审查从群聊语境中学习到的词条。" icon="forum" />
+      <div class="metrics-grid">
+        <StatCard label="候选词" value={formatCount(stats().total_candidates)} />
+        <StatCard label="已确认" value={formatCount(stats().confirmed_jargon)} />
+        <StatCard label="推断完成" value={formatCount(stats().completed_inference)} />
+        <StatCard label="活跃群组" value={formatCount(stats().active_groups)} />
+      </div>
       <Show when={showImport()}>
         <Panel title="导入黑话" hint="每行一条，支持「关键词 = 解释」「关键词：解释」「关键词|解释」等分隔；# 或 // 开头为注释行" icon="upload">
           <div class={styles['import-grid']}>
@@ -161,11 +211,24 @@ export function JargonLearningPage() {
         </div>
       }>
         <div class={styles['filter-bar']}>
-          <Input label="搜索" placeholder="词条或释义" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => event.key === 'Enter' && load()} />
-          <Select label="状态" value={filter()} onChange={(event) => { setFilter(event.currentTarget.value as JargonFilter); setPage(1); queueMicrotask(load); }}>
+          <Input label="搜索" placeholder="词条或释义" value={search()} onInput={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => event.key === 'Enter' && query()} />
+          <Select label="状态" value={filter()} onChange={(event) => { setFilter(event.currentTarget.value as JargonFilter); query(); }}>
             <option value="all">全部</option><option value="pending">待审</option><option value="confirmed">已确认</option><option value="unconfirmed">未确认</option>
           </Select>
-          <Button icon="search" onClick={load}>查询</Button>
+          <Select label="范围" value={scope()} onChange={(event) => { setScope(event.currentTarget.value as JargonScope); query(); }}>
+            <option value="all">全部范围</option><option value="global">全局</option><option value="local">本地</option>
+          </Select>
+          <Button icon="search" onClick={query}>查询</Button>
+        </div>
+        <div class={styles['batch-toolbar']}>
+          <Badge>{`已选 ${formatCount(selected().size)}/${formatCount(items().length)}`}</Badge>
+          <div class="inline-actions">
+            <Button size="sm" onClick={() => setSelected(new Set(items().map((item) => String(item.id))))}>全选</Button>
+            <Button size="sm" onClick={() => setSelected(new Set<string>())}>取消选择</Button>
+            <Button size="sm" tone="success" onClick={() => batchAction('approve')}>批量确认</Button>
+            <Button size="sm" tone="warning" onClick={() => batchAction('reject')}>批量驳回</Button>
+            <Button size="sm" tone="danger" onClick={() => batchAction('delete')}>批量删除</Button>
+          </div>
         </div>
         <div class="data-list">
           <For each={items()} fallback={<EmptyState title="没有匹配的黑话词条" />}>{(item) =>
@@ -177,14 +240,19 @@ export function JargonLearningPage() {
                   <div class="inline-actions"><Button tone="success" onClick={() => save(String(item.id))}>保存</Button><Button onClick={cancel}>取消</Button></div>
                 </div>
               }>
-                <div class="data-row-main">
-                  <div><strong>{textOrDash(item.content ?? item.jargon)}</strong><p>{textOrDash(item.meaning ?? item.definition)}</p><small>{formatTime(item.created_at)}</small></div>
+                <div class={styles['row-main']}>
+                  <label class={styles['select-cell']} title="选择">
+                    <input type="checkbox" aria-label="选择" checked={selected().has(String(item.id))} onChange={(event) => toggleSelect(String(item.id), event.currentTarget.checked)} />
+                  </label>
+                  <div class={styles['row-copy']}><strong>{textOrDash(item.content ?? item.jargon)}</strong><p>{textOrDash(item.meaning ?? item.definition)}</p><small>{formatTime(item.created_at)}</small></div>
+                  <span class={styles['row-group']}>{textOrDash(item.group_id)}</span>
                   <Badge tone={jargonBadge(item).tone}>{jargonBadge(item).label}</Badge>
+                  <Badge>{item.is_global ? '全局' : '本地'}</Badge>
                 </div>
                 <div class="inline-actions">
                   <Show when={!item.is_confirmed}><Button size="sm" tone="success" onClick={() => action(item, 'approve')}>确认</Button><Button size="sm" tone="warning" onClick={() => action(item, 'reject')}>驳回</Button></Show>
                   <Button size="sm" onClick={() => edit(item)}>编辑</Button>
-                  <Button size="sm" onClick={() => action(item, 'toggle_global')}>切换全局</Button>
+                  <Button size="sm" onClick={() => action(item, 'toggle_global')}>{item.is_global ? '取消全局' : '设为全局'}</Button>
                   <Button size="sm" tone="danger" onClick={() => action(item, 'delete')}>删除</Button>
                 </div>
               </Show>

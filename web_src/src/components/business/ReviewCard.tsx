@@ -16,7 +16,15 @@ export type ReviewKind = 'persona' | 'style' | 'jargon';
 const titleFor = (item: ReviewItem) =>
   textOrDash(item.title ?? item.content ?? item.jargon ?? item.pattern ?? item.update_type ?? item.description ?? `#${item.id}`);
 
-export function ReviewCard(props: { item: ReviewItem; kind: ReviewKind; onDone?: () => void }) {
+// selected / onSelect：审查队列的逐条勾选（批量操作作用于选中项）；onEdit：风格审查「编辑」
+export function ReviewCard(props: {
+  item: ReviewItem;
+  kind: ReviewKind;
+  onDone?: () => void;
+  selected?: boolean;
+  onSelect?: (checked: boolean) => void;
+  onEdit?: () => void;
+}) {
   const dashboard = useDashboard();
   const [busy, setBusy] = createSignal(false);
   const id = () => String(props.item.id ?? '');
@@ -60,54 +68,64 @@ export function ReviewCard(props: { item: ReviewItem; kind: ReviewKind; onDone?:
     return typeof value === 'string' ? value : '';
   };
   return (
-    <Card class={styles['review-card']}>
-      <div class={styles['review-card-head']}>
-        <div><strong>{titleFor(props.item)}</strong><small>{formatTime(props.item.created_at)}</small></div>
-        <Badge tone={props.item.status === 'approved' ? 'success' : props.item.status === 'rejected' ? 'danger' : 'warning'}>
-          {textOrDash(props.item.status ?? 'pending')}
-        </Badge>
-      </div>
-      <Show when={props.item.definition || props.item.meaning || props.item.review_detail}>
-        <p>{textOrDash(props.item.definition ?? props.item.meaning ?? props.item.review_detail)}</p>
+    <Card class={`${styles['review-card']} ${props.onSelect ? styles['selectable'] : ''}`}>
+      <Show when={props.onSelect}>
+        <label class={styles['select-cell']} title="选择">
+          <input type="checkbox" aria-label="选择" checked={!!props.selected} onChange={(event) => props.onSelect?.(event.currentTarget.checked)} />
+        </label>
       </Show>
-      <Show when={props.kind !== 'jargon' && (reviewHasChange(props.item) || meta().length || proposedContent())}>
-        <details class={styles['review-diff']}>
-          <summary>查看变更详情</summary>
-          <Show when={props.kind !== 'jargon' && (before() || after())}>
-            <div class={styles['diff-lines']}>
-              <For each={buildLineDiff(before(), after())}>{(line) =>
-                <div class={`${styles['diff-line']} ${styles[line.kind] || ''}`}><span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>
-              }</For>
-            </div>
-          </Show>
-          <Show when={props.kind !== 'jargon' && (dialogDiff().before.length > 0 || dialogDiff().after.length > 0)}>
-            <h4 class={styles['review-section-title']}>示例对话变化</h4>
-            <div class={styles['diff-lines']}>
-              <For each={buildLineDiff(formatDialogLines(dialogDiff().before), formatDialogLines(dialogDiff().after))}>{(line) =>
-                <div class={`${styles['diff-line']} ${styles[line.kind] || ''}`}><span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>
-              }</For>
-            </div>
-          </Show>
-          <Show when={meta().length}><p class={styles['review-meta']}>{meta().join(' · ')}</p></Show>
-          <Show when={proposedContent()}>
-            <details class={styles['review-proposal']}>
-              <summary>建议内容原文（{proposedContent().length} 字）</summary>
-              <pre>{proposedContent()}</pre>
-            </details>
-          </Show>
+      <div class={styles['review-card-body']}>
+        <div class={styles['review-card-head']}>
+          <div><strong>{titleFor(props.item)}</strong><small>{formatTime(props.item.created_at)}</small></div>
+          <Badge tone={props.item.status === 'approved' ? 'success' : props.item.status === 'rejected' ? 'danger' : 'warning'}>
+            {textOrDash(props.item.status ?? 'pending')}
+          </Badge>
+        </div>
+        <Show when={props.item.definition || props.item.meaning || props.item.review_detail}>
+          <p>{textOrDash(props.item.definition ?? props.item.meaning ?? props.item.review_detail)}</p>
+        </Show>
+        <Show when={props.kind !== 'jargon' && (reviewHasChange(props.item) || meta().length || proposedContent())}>
+          <details class={styles['review-diff']}>
+            <summary>查看变更详情</summary>
+            <Show when={props.kind !== 'jargon' && (before() || after())}>
+              <div class={styles['diff-lines']}>
+                <For each={buildLineDiff(before(), after())}>{(line) =>
+                  <div class={`${styles['diff-line']} ${styles[line.kind] || ''}`}><span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>
+                }</For>
+              </div>
+            </Show>
+            <Show when={props.kind !== 'jargon' && (dialogDiff().before.length > 0 || dialogDiff().after.length > 0)}>
+              <h4 class={styles['review-section-title']}>示例对话变化</h4>
+              <div class={styles['diff-lines']}>
+                <For each={buildLineDiff(formatDialogLines(dialogDiff().before), formatDialogLines(dialogDiff().after))}>{(line) =>
+                  <div class={`${styles['diff-line']} ${styles[line.kind] || ''}`}><span>{line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ' '}</span>{line.text || ' '}</div>
+                }</For>
+              </div>
+            </Show>
+            <Show when={meta().length}><p class={styles['review-meta']}>{meta().join(' · ')}</p></Show>
+            <Show when={proposedContent()}>
+              <details class={styles['review-proposal']}>
+                <summary>建议内容原文（{proposedContent().length} 字）</summary>
+                <pre>{proposedContent()}</pre>
+              </details>
+            </Show>
+          </details>
+        </Show>
+        <Show when={props.item.pattern_details || props.item.few_shot_pairs}>
+          <details><summary>结构化信息</summary><pre>{summarize(props.item.pattern_details ?? props.item.few_shot_pairs)}</pre></details>
+        </Show>
+        <details class={styles['review-raw']}>
+          <summary>查看原始审查数据</summary>
+          <pre>{summarize(props.item)}</pre>
         </details>
-      </Show>
-      <Show when={props.item.pattern_details || props.item.few_shot_pairs}>
-        <details><summary>结构化信息</summary><pre>{summarize(props.item.pattern_details ?? props.item.few_shot_pairs)}</pre></details>
-      </Show>
-      <details class={styles['review-raw']}>
-        <summary>查看原始审查数据</summary>
-        <pre>{summarize(props.item)}</pre>
-      </details>
-      <div class={styles['review-actions']}>
-        <Button size="sm" tone="success" icon="check" loading={busy()} onClick={() => execute('approve')}>通过</Button>
-        <Button size="sm" tone="warning" icon="close" loading={busy()} onClick={() => execute('reject')}>驳回</Button>
-        <Button size="sm" tone="danger" icon="delete" loading={busy()} onClick={() => execute('delete')}>删除</Button>
+        <div class={styles['review-actions']}>
+          <Button size="sm" tone="success" icon="check" loading={busy()} onClick={() => execute('approve')}>通过</Button>
+          <Button size="sm" tone="warning" icon="close" loading={busy()} onClick={() => execute('reject')}>驳回</Button>
+          <Show when={props.onEdit}>
+            <Button size="sm" icon="edit" disabled={busy()} onClick={() => props.onEdit?.()}>编辑</Button>
+          </Show>
+          <Button size="sm" tone="danger" icon="delete" loading={busy()} onClick={() => execute('delete')}>删除</Button>
+        </div>
       </div>
     </Card>
   );

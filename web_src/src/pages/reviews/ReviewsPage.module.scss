@@ -8,6 +8,20 @@
   align-items: start;
 }
 
+/* 队列检索（与内嵌插件页 audit-search-row 同构） */
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.edit-form {
+  display: grid;
+  gap: 12px;
+}
+
 .batch-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -41,7 +55,8 @@
 }
 
 @include mobile {
-  .batch-grid {
+  .batch-grid,
+  .search-row {
     grid-template-columns: 1fr;
   }
 }
