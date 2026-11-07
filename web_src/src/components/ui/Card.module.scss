@@ -6,10 +6,23 @@
   padding: 16px;
 
   &.interactive {
-    transition: border-color var(--duration) ease-out;
+    transition:
+      border-color var(--duration) ease-out,
+      transform var(--duration) var(--ease-out),
+      box-shadow var(--duration) var(--ease-out);
 
+    /* 交互卡：hover 硬偏移仪器影 + 顶缘变信号黄（方向性反馈 2px） */
     &:hover {
-      border-color: color-mix(in srgb, var(--accent, var(--primary)) 45%, var(--border));
+      border-color: var(--border-strong);
+      border-top-color: var(--signal);
+      transform: translate(-2px, -2px);
+      box-shadow: var(--ark-instrument-shadow);
     }
+  }
+}
+
+@include reduced-motion {
+  .ui-card.interactive:hover {
+    transform: none;
   }
 }

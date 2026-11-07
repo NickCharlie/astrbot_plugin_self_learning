@@ -1,14 +1,17 @@
+/* endfield 焦点：2px 信号轮廓 + 偏移（轮廓形态即状态，不靠颜色单通道） */
 @mixin focus-ring {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--accent-soft, var(--primary-soft));
-  border-color: var(--accent, var(--primary));
+  outline: 2px solid var(--ark-signal);
+  outline-offset: 2px;
+  border-color: var(--text);
 }
 
+/* 技术面板：平面 + 1px 规则线 + 顶缘强边，无四边圆角卡片外壳 */
 @mixin panel {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  border-top: 2px solid var(--border-strong);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 @mixin mobile {

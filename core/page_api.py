@@ -54,6 +54,9 @@ class PluginPageApi:
             ("content", self.get_content, ["GET"], "Self Learning embedded learning content module"),
             ("content/action", self.post_content_action, ["POST"], "Self Learning embedded content actions"),
             ("graphs", self.get_graphs, ["GET"], "Self Learning embedded graph module"),
+            ("emotion/board", self.get_emotion_board, ["GET"], "Self Learning embedded emotion board"),
+            ("emotion/trends", self.get_emotion_trends, ["GET"], "Self Learning embedded emotion trends"),
+            ("emotion/action", self.post_emotion_action, ["POST"], "Self Learning embedded emotion actions"),
             ("metrics", self.get_metrics, ["GET"], "Self Learning embedded metrics module"),
             ("monitoring", self.get_monitoring, ["GET"], "Self Learning embedded monitoring module"),
             ("integrations", self.get_integrations, ["GET"], "Self Learning embedded integrations module"),
@@ -604,6 +607,38 @@ class PluginPageApi:
         except Exception as exc:
             logger.error(f"[PluginPageAPI] shadow action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
+
+    async def get_emotion_board(self) -> dict[str, Any]:
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            return self._ok(await service.get_board())
+        except Exception as exc:
+            logger.error(f"[内嵌页] 读取情绪板块失败: {exc}", exc_info=True)
+            return self._ok({"available": False, "error": str(exc)})
+
+    async def get_emotion_trends(self) -> dict[str, Any]:
+        args = self._query()
+        days = self._query_int(args, "days", 14)
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            return self._ok(await service.get_trends(days))
+        except Exception as exc:
+            logger.error(f"[内嵌页] 读取情绪走向失败: {exc}", exc_info=True)
+            return self._ok({"days": days, "error": str(exc)})
+
+    async def post_emotion_action(self) -> dict[str, Any]:
+        body = await self._body()
+        try:
+            service = self._imports().EmotionBoardService(self._container())
+            result = await service.run_action(body)
+            return self._operation(
+                bool(result.get("success")),
+                str(result.get("message", "")),
+                **{k: v for k, v in result.items() if k not in {"success", "message"}},
+            )
+        except Exception as exc:
+            logger.error(f"[内嵌页] 情绪板块操作失败: {exc}", exc_info=True)
+            return self._operation(False, f"情绪板块操作失败: {exc}")
 
     async def get_content(self) -> dict[str, Any]:
         args = self._query()
@@ -1876,6 +1911,7 @@ class PluginPageApi:
             )
             from ..webui.dependencies import get_container
             from ..webui.services.config_service import ConfigService
+            from ..webui.services.emotion_board_service import EmotionBoardService
             from ..webui.services.graph_service import GraphService
             from ..webui.services.integration_service import IntegrationService
             from ..webui.services.jargon_service import JargonService
@@ -1896,6 +1932,7 @@ class PluginPageApi:
             )
             from webui.dependencies import get_container
             from webui.services.config_service import ConfigService
+            from webui.services.emotion_board_service import EmotionBoardService
             from webui.services.graph_service import GraphService
             from webui.services.integration_service import IntegrationService
             from webui.services.jargon_service import JargonService
@@ -1911,6 +1948,7 @@ class PluginPageApi:
 
         imports.get_container = get_container
         imports.ConfigService = ConfigService
+        imports.EmotionBoardService = EmotionBoardService
         imports.GraphService = GraphService
         imports.IntegrationService = IntegrationService
         imports.JargonService = JargonService

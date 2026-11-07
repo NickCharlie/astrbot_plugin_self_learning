@@ -1,11 +1,13 @@
 @use "../../styles/tokens";
 
+/* 分段控制：方角连排，选中段 = ink 实心 + 黄楔底标 */
 .segmented {
   display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  background: var(--surface-alt);
-  border-radius: var(--radius);
+  padding: 0;
+  gap: 0;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: 0;
 
   .material-icons {
     font-size: 16px;
@@ -13,17 +15,47 @@
   }
 
   button {
-    padding: 6px 10px;
+    position: relative;
+    padding: 7px 12px;
     color: var(--muted);
     background: transparent;
     border: 0;
-    border-radius: var(--radius-sm);
+    border-right: 1px solid var(--border);
+    border-radius: 0;
+    font-weight: 600;
     cursor: pointer;
+    transition:
+      color var(--duration) ease-out,
+      background var(--duration) ease-out;
+
+    &:last-child {
+      border-right: 0;
+    }
+
+    &:hover:not(.active) {
+      color: var(--text);
+      background: var(--surface-alt);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--ark-signal);
+      outline-offset: 2px;
+    }
 
     &.active {
-      color: var(--accent, var(--primary));
-      background: var(--surface-solid);
-      box-shadow: var(--shadow-sm);
+      color: var(--primary-ink);
+      background: var(--primary);
+
+      &::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        width: 60%;
+        height: 3px;
+        background: var(--signal);
+        clip-path: var(--ark-wedge);
+      }
     }
   }
 }

@@ -1,32 +1,41 @@
 @use "../../styles/tokens";
 
+/* 状态铭牌：方角、技术微标签；成功态 = 填充级状态绿 + ink 文字 */
 .ui-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   padding: 2px 7px;
-  border-radius: var(--radius-sm);
+  border-radius: 0;
   color: var(--muted);
   background: var(--surface-alt);
   border: 1px solid var(--border);
+  font-family: var(--font-tech);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
 .tone-success {
-  color: var(--success);
-  background: var(--success-soft);
+  color: var(--ark-state-ink);
+  background: var(--state);
   border-color: transparent;
 }
 
 .tone-warning {
   color: var(--warning);
   background: var(--warning-soft);
-  border-color: transparent;
+  border-color: var(--warning-soft);
 }
 
 .tone-danger {
   color: var(--danger);
   background: var(--danger-soft);
+  border-color: var(--danger-soft);
+}
+
+.tone-primary {
+  color: var(--ark-signal-ink);
+  background: var(--signal);
   border-color: transparent;
 }

@@ -493,9 +493,9 @@
         "eyebrow": "AstrBot Embedded WebUI"
       },
       "nav": {
-        "home": "Dashboard",
+        "home": "Module Entry",
         "insights": "AI Insights",
-        "monitoring": "Monitoring",
+        "monitoring": "Runtime Monitoring",
         "reviews": "Review Queue",
         "jargonLearning": "Jargon Learning",
         "expressionLearning": "Expression Learning",
@@ -504,12 +504,14 @@
         "graphs": "Graphs",
         "integrations": "Integrations",
         "settings": "Settings",
-        "shadowMode": "Shadow mode"
+        "shadowMode": "Shadow mode",
+        "overview": "Overview",
+        "emotion": "Emotion Board"
       },
       "page": {
         "home": {
           "kicker": "Dashboard",
-          "title": "Full Embedded WebUI"
+          "title": "Learning Module Console"
         },
         "insights": {
           "kicker": "Insights",
@@ -550,6 +552,14 @@
         "settings": {
           "kicker": "Settings",
           "title": "Settings"
+        },
+        "overview": {
+          "kicker": "Overview",
+          "title": "Overview"
+        },
+        "emotion": {
+          "kicker": "Emotion",
+          "title": "Emotion Board"
         }
       },
       "actions": {
@@ -962,6 +972,114 @@
         "title": "Worldbook import",
         "tokenCounts": "Chars {chars} · est. tokens {tokens}",
         "waitingPreview": "Waiting for preview."
+      },
+      "overview": {
+        "title": "Overview",
+        "desc": "Core health, throughput and recent trends of the learning system.",
+        "metricsAria": "Overview metrics",
+        "totalMessages": "Total messages",
+        "totalMessagesNote": "Total data volume entering the plugin",
+        "efficiency": "Learning efficiency",
+        "filtered": "Filtered messages",
+        "memory": "System memory",
+        "trendTitle": "Message & learning trends",
+        "trendHint": "Aggregated by backend time window",
+        "trendNote": "Collected {count} messages in the last {days} days · {learned} processed for learning.",
+        "statusTitle": "Current status",
+        "statusHint": "Latest health snapshot",
+        "statusHeadline": "System running smoothly",
+        "statusBody": "A zero metric or missing curve usually means data has not accumulated yet, not a page failure."
+      },
+      "emotion": {
+        "title": "Emotion Board",
+        "desc": "Status panel for bot mood, affection and learning gating: trends, weighted gate and three-stage forgetting.",
+        "metricsAria": "Emotion metrics",
+        "currentMood": "Current mood",
+        "noActiveMood": "No active mood",
+        "noActiveMoodDetail": "No active mood: set one below or wait for the daily mood update.",
+        "activeGroups": "{count} groups with active mood",
+        "avgAffection": "Average affection",
+        "userCount": "{count} users",
+        "gateRate": "Gate accept rate",
+        "gateThreshold": "Threshold {value}",
+        "gateDisabled": "Gate disabled",
+        "gateUnavailable": "Gate telemetry unavailable: decisions are recorded only while the plugin runs; see trends above for history.",
+        "forgetCandidates": "Forgetting candidates",
+        "cycleDays": "Cycle {days} days",
+        "forgetDisabled": "Forgetting disabled",
+        "forgetUnavailable": "Forgetting manager not running: requires a fully started plugin and an available database.",
+        "moodTitle": "Bot mood",
+        "moodHint": "Active mood per group",
+        "moodGroup": "Group ID",
+        "moodType": "Mood",
+        "moodIntensity": "Intensity",
+        "intensityLow": "Low",
+        "intensityMid": "Mid",
+        "intensityHigh": "High",
+        "moodDesc": "Description (optional)",
+        "setMood": "Set mood",
+        "fillFirstGroup": "Fill first group",
+        "intensity": "Intensity",
+        "affectionTitle": "Affection overview",
+        "affectionHint": "Group distribution and leaderboard",
+        "noAffection": "No affection data",
+        "groupStats": "{users} users · high {high} · low {low}",
+        "affectionTop": "Affection TOP",
+        "affectionBottom": "Affection BOTTOM",
+        "trendTitle": "Trend analysis",
+        "trendHint": "Affection delta, mood changes and gate rate over the last 14 days",
+        "trendAffection": "Affection net change",
+        "trendMood": "Mood switches",
+        "trendGate": "Learning accept rate",
+        "trendScore": "Average weighted score",
+        "distTitle": "Dominant user emotion distribution",
+        "gateTitle": "Learning gate · emotion weighting",
+        "gateHint": "Affection 35% + sentiment 25% + bot mood 20% + stability 20%",
+        "accepted": "Accepted",
+        "acceptedHint": "Counters reset on restart; check daily stats for long-term trends",
+        "skipped": "Skipped",
+        "skippedHint": "Raw messages are still collected; only learning is skipped",
+        "acceptRatio": "Accept ratio",
+        "sinceRun": "Since this run",
+        "factorAvg": "Recent factor averages",
+        "weight": "weight",
+        "recentDecisions": "Recent decisions",
+        "pass": "Pass",
+        "block": "Block",
+        "forgetTitle": "Three-stage forgetting",
+        "runCycle": "Run cycle now",
+        "forgetHint": "Deleted after three consecutive idle cycles; negative feedback or a dislike mark jumps straight to stage 2",
+        "stageDist": "{kind} stage distribution",
+        "stageN": "Stage {n}",
+        "forgetMeta": "Last run: {last} · cycle {cycle} days · grace {grace} days",
+        "lastUsed": "Last used",
+        "never": "never",
+        "neverRun": "Not run yet",
+        "noCandidates": "No forgetting candidates: every entry is still fresh.",
+        "reset": "Reset",
+        "markDislike": "Mark dislike",
+        "moods": {
+          "happy": "Happy",
+          "excited": "Excited",
+          "playful": "Playful",
+          "calm": "Calm",
+          "curious": "Curious",
+          "nostalgic": "Nostalgic",
+          "serious": "Serious",
+          "anxious": "Anxious",
+          "sad": "Sad",
+          "angry": "Angry"
+        },
+        "factors": {
+          "affection": "Affection",
+          "sentiment": "Sentiment",
+          "mood": "Bot mood",
+          "stability": "Stability"
+        },
+        "kinds": {
+          "expression": "Expression",
+          "jargon": "Jargon"
+        }
       }
     }
   }

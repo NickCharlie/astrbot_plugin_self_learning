@@ -1,5 +1,6 @@
 @use "../../styles/tokens";
 
+/* 分页：mono 页码读数 */
 .pagination {
   display: flex;
   align-items: center;
@@ -7,4 +8,7 @@
   gap: 14px;
   margin-top: 18px;
   color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }

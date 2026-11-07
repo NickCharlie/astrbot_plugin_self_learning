@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-ark-theme="endfield" data-ark-depth="maximal">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -18,14 +18,16 @@
           </div>
         </div>
         <nav class="nav-list" id="nav-list">
-          <a class="nav-item active" href="#/home" data-page="home" data-i18n="nav.home">Dashboard</a>
+          <a class="nav-item active" href="#/home" data-page="home" data-i18n="nav.home">模块入口</a>
+          <a class="nav-item" href="#/overview" data-page="overview" data-i18n="nav.overview">总览</a>
           <a class="nav-item" href="#/insights" data-page="insights" data-i18n="nav.insights">AI 巡检</a>
-          <a class="nav-item" href="#/monitoring" data-page="monitoring" data-i18n="nav.monitoring">监控</a>
+          <a class="nav-item" href="#/monitoring" data-page="monitoring" data-i18n="nav.monitoring">运行监控</a>
           <a class="nav-item" href="#/reviews" data-page="reviews" data-i18n="nav.reviews">审查队列</a>
           <a class="nav-item" href="#/jargon-learning" data-page="jargon-learning" data-i18n="nav.jargonLearning">黑话学习</a>
-          <a class="nav-item" href="#/expression-learning" data-page="expression-learning" data-i18n="nav.expressionLearning">表达方式学习</a>
+          <a class="nav-item" href="#/expression-learning" data-page="expression-learning" data-i18n="nav.expressionLearning">表达学习</a>
           <a class="nav-item" href="#/persona-learning" data-page="persona-learning" data-i18n="nav.personaLearning">人格学习</a>
           <a class="nav-item" href="#/shadow-mode" data-page="shadow-mode" data-i18n="nav.shadowMode">影子模式</a>
+          <a class="nav-item" href="#/emotion" data-page="emotion" data-i18n="nav.emotion">情绪中枢</a>
           <a class="nav-item" href="#/content" data-page="content" data-i18n="nav.content">学习内容</a>
           <a class="nav-item" href="#/graphs" data-page="graphs" data-i18n="nav.graphs">图谱</a>
           <a class="nav-item" href="#/integrations" data-page="integrations" data-i18n="nav.integrations">功能融合</a>
@@ -41,7 +43,7 @@
         <header class="topbar">
           <div>
             <p class="eyebrow" id="page-kicker">Dashboard</p>
-            <h2 id="page-title">完整内嵌 WebUI</h2>
+            <h2 id="page-title">学习模块控制台</h2>
           </div>
           <div class="top-actions">
             <a class="icon-button" id="full-dashboard-link" href="#" target="_blank" rel="noreferrer" title="打开独立 WebUI" aria-label="打开独立 WebUI" data-i18n-title="actions.openStandalone" data-i18n-aria-label="actions.openStandalone">↗</a>
@@ -117,6 +119,53 @@
               <p class="trend-note" id="home-trend-note"></p>
             </div>
           </section>
+        </section>
+
+        <section class="page" id="page-overview" data-page="overview">
+          <div class="page-titlebar">
+            <div>
+              <h3 data-i18n="overview.title">总览</h3>
+              <p data-i18n="overview.desc">学习系统的核心健康度、吞吐量和近期趋势。</p>
+            </div>
+            <button class="ghost-button" type="button" data-refresh-page="overview" data-i18n="actions.refresh">刷新</button>
+          </div>
+          <section class="stat-grid" aria-label="总览指标" data-i18n-aria-label="overview.metricsAria">
+            <article class="stat-card">
+              <span data-i18n="overview.totalMessages">总消息数</span>
+              <strong id="ov-stat-messages">0</strong>
+              <small data-i18n="overview.totalMessagesNote">进入插件的数据总量</small>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="overview.efficiency">有效学习率</span>
+              <strong id="ov-stat-efficiency">0%</strong>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="overview.filtered">过滤消息</span>
+              <strong id="ov-stat-filtered">0</strong>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="overview.memory">系统内存</span>
+              <strong id="ov-stat-memory">0%</strong>
+            </article>
+          </section>
+          <div class="content-grid two-col">
+            <div class="panel">
+              <div class="panel-heading">
+                <h3 data-i18n="overview.trendTitle">消息与学习趋势</h3>
+                <span class="mini-badge" data-i18n="overview.trendHint">按后端聚合时间窗口展示</span>
+              </div>
+              <div class="bar-chart" id="ov-trend-chart"></div>
+              <p class="trend-note" id="ov-trend-note"></p>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h3 data-i18n="overview.statusTitle">当前状态</h3>
+                <span class="mini-badge" data-i18n="overview.statusHint">最近一次健康快照</span>
+              </div>
+              <h4 data-i18n="overview.statusHeadline">系统总体运行平稳</h4>
+              <p class="trend-note" data-i18n="overview.statusBody">若某项指标为 0 或暂无曲线，通常表示对应数据尚未积累，而不是页面故障。</p>
+            </div>
+          </div>
         </section>
 
         <section class="page" id="page-insights" data-page="insights">
@@ -373,6 +422,138 @@
               <span class="mini-badge" id="shadow-profile-count">0</span>
             </div>
             <div class="compact-table" id="shadow-profile-list"></div>
+          </div>
+        </section>
+
+        <section class="page" id="page-emotion" data-page="emotion">
+          <div class="page-titlebar">
+            <div>
+              <h3 data-i18n="emotion.title">情绪中枢</h3>
+              <p data-i18n="emotion.desc">Bot 心情、好感度与学习联动的状态面板：走向分析、加权闸门与三阶段遗忘治理。</p>
+            </div>
+            <button class="ghost-button" type="button" data-refresh-page="emotion" data-i18n="actions.refresh">刷新</button>
+          </div>
+
+          <section class="stat-grid" aria-label="情绪指标" data-i18n-aria-label="emotion.metricsAria">
+            <article class="stat-card">
+              <span data-i18n="emotion.currentMood">当前心情</span>
+              <strong id="emo-stat-mood">--</strong>
+              <small id="emo-stat-mood-note"></small>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="emotion.avgAffection">平均好感度</span>
+              <strong id="emo-stat-affection">0</strong>
+              <small id="emo-stat-affection-note"></small>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="emotion.gateRate">闸门放行率</span>
+              <strong id="emo-stat-gate">--</strong>
+              <small id="emo-stat-gate-note"></small>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="emotion.forgetCandidates">遗忘候选</span>
+              <strong id="emo-stat-forget">0</strong>
+              <small id="emo-stat-forget-note"></small>
+            </article>
+          </section>
+
+          <div class="content-grid two-col">
+            <div class="panel">
+              <div class="panel-heading">
+                <h3 data-i18n="emotion.moodTitle">Bot 心情状态</h3>
+                <span class="mini-badge" data-i18n="emotion.moodHint">各群组当前活跃心情</span>
+              </div>
+              <div class="review-list" id="emo-mood-list"></div>
+              <div class="emo-mood-form">
+                <label class="config-field">
+                  <small data-i18n="emotion.moodGroup">群组 ID</small>
+                  <input id="emo-mood-group" type="text" autocomplete="off">
+                </label>
+                <label class="config-field">
+                  <small data-i18n="emotion.moodType">心情</small>
+                  <select id="emo-mood-type"></select>
+                </label>
+                <label class="config-field">
+                  <small data-i18n="emotion.moodIntensity">强度</small>
+                  <select id="emo-mood-intensity">
+                    <option value="0.2" data-i18n="emotion.intensityLow">低</option>
+                    <option value="0.6" selected data-i18n="emotion.intensityMid">中</option>
+                    <option value="1.0" data-i18n="emotion.intensityHigh">高</option>
+                  </select>
+                </label>
+                <label class="config-field emo-mood-desc">
+                  <small data-i18n="emotion.moodDesc">描述（可选）</small>
+                  <textarea id="emo-mood-desc" rows="2"></textarea>
+                </label>
+                <div class="inline-actions">
+                  <button class="solid-button" type="button" id="emo-mood-submit" data-i18n="emotion.setMood">设置心情</button>
+                  <button class="ghost-button" type="button" id="emo-mood-fill" data-i18n="emotion.fillFirstGroup" hidden>填入首个群组</button>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-heading">
+                <h3 data-i18n="emotion.affectionTitle">好感度概览</h3>
+                <span class="mini-badge" data-i18n="emotion.affectionHint">全群好感分布与排行榜</span>
+              </div>
+              <div class="review-list" id="emo-affection-list"></div>
+              <div class="emo-rank-grid">
+                <div>
+                  <h4 class="mini-label" data-i18n="emotion.affectionTop">好感 TOP</h4>
+                  <div class="compact-table" id="emo-affection-top"></div>
+                </div>
+                <div>
+                  <h4 class="mini-label" data-i18n="emotion.affectionBottom">好感 BOTTOM</h4>
+                  <div class="compact-table" id="emo-affection-bottom"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="emotion.trendTitle">走向分析</h3>
+              <span class="mini-badge" data-i18n="emotion.trendHint">近 14 天好感度净变化、心情波动与闸门放行走势</span>
+            </div>
+            <div class="content-grid two-col">
+              <div>
+                <h4 class="mini-label" data-i18n="emotion.trendAffection">好感度净变化</h4>
+                <div class="bar-chart" id="emo-trend-affection"></div>
+              </div>
+              <div>
+                <h4 class="mini-label" data-i18n="emotion.trendMood">心情切换次数</h4>
+                <div class="bar-chart" id="emo-trend-mood"></div>
+              </div>
+              <div>
+                <h4 class="mini-label" data-i18n="emotion.trendGate">学习放行率</h4>
+                <div class="bar-chart" id="emo-trend-gate"></div>
+              </div>
+              <div>
+                <h4 class="mini-label" data-i18n="emotion.trendScore">平均加权分</h4>
+                <div class="bar-chart" id="emo-trend-score"></div>
+              </div>
+            </div>
+            <div id="emo-dist-block" hidden>
+              <h4 class="mini-label" data-i18n="emotion.distTitle">用户主导情绪分布</h4>
+              <div class="emo-dist-row" id="emo-dist-row"></div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="emotion.gateTitle">学习联动 · 情绪加权闸门</h3>
+              <span class="mini-badge" data-i18n="emotion.gateHint">好感度 35% + 消息情感 25% + Bot 心情 20% + 情绪稳定性 20%</span>
+            </div>
+            <div id="emo-gate-body"></div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-heading">
+              <h3 data-i18n="emotion.forgetTitle">三阶段遗忘治理</h3>
+              <button class="ghost-button" type="button" id="emo-forget-run" data-i18n="emotion.runCycle">立即执行周期</button>
+            </div>
+            <p class="trend-note" data-i18n="emotion.forgetHint">连续三个周期无使用/正向反馈即删除；负反馈或手动标记反感直接进入二期</p>
+            <div id="emo-forget-body"></div>
           </div>
         </section>
 

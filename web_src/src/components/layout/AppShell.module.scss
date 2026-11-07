@@ -5,25 +5,27 @@
   min-height: 100vh;
 }
 
+/* ── 黑色坞站 topbar：endfield 品牌坞，反白工具带 ── */
 .topbar {
   position: sticky;
   top: 0;
   z-index: 20;
-  min-height: 60px;
-  padding: 10px clamp(16px, 4vw, 56px);
+  min-height: 56px;
+  padding: 8px clamp(16px, 4vw, 56px);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  background: var(--surface-solid);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface-ink);
+  color: var(--surface-ink-text);
+  border-bottom: 2px solid var(--signal);
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: var(--radius);
+  border-radius: 0;
   transition: opacity var(--duration) ease-out;
 
   &:hover {
@@ -37,28 +39,36 @@
 
   h1 {
     margin: 0;
-    font-size: 17px;
-    letter-spacing: -0.02em;
+    font-size: 16px;
+    letter-spacing: 0.01em;
     line-height: 1.1;
   }
 }
 
+/* 品牌记号：黄色楔形方块 + ink 图标（工程铭牌）；字体保持 Material Icons 连字 */
 .brand-mark {
   width: 34px;
   height: 34px;
   display: grid;
   place-items: center;
-  color: #fff;
-  background: var(--primary);
-  border-radius: var(--radius);
+  color: var(--ark-signal-ink);
+  background: var(--signal);
+  border-radius: 0;
+  clip-path: var(--ark-wedge);
+  font-size: 20px;
 }
 
+/* 字段码 eyebrow：坞站内mono微标签 */
 .eyebrow {
-  color: var(--muted);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  font-weight: 700;
+  color: var(--surface-ink-text);
+  opacity: 0.62;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  font-weight: 500;
   margin-bottom: 2px;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
 
 .page-container {
@@ -73,22 +83,27 @@
   gap: 8px;
 }
 
+/* 状态条：真实信息（更新时间/连接态），mono + 表格数字，edge instrument */
 .update-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--surface-ink-text);
+  opacity: 0.92;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
   padding: 6px 10px;
-  background: var(--surface-alt);
+  background: transparent;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: 0;
+  font-variant-numeric: tabular-nums;
 
   > span {
     width: 7px;
     height: 7px;
-    border-radius: 50%;
-    background: var(--success);
+    border-radius: 0;
+    background: var(--state);
   }
 
   > span.pulse {
@@ -100,6 +115,13 @@
   50% {
     opacity: 0.3;
   }
+}
+
+/* 坞站上的主动作（设置）：信号黄实心——坞站唯一的强动作标记，两主题都可辨 */
+.toolbar :global(.slx-btn-primary) {
+  color: var(--ark-signal-ink);
+  background: var(--signal);
+  border-color: var(--signal);
 }
 
 @include mobile {

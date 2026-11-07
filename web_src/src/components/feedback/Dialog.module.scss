@@ -1,5 +1,6 @@
 @use "../../styles/tokens";
 
+/* 遮罩：半透明黑舞台分层（非玻璃白卡）；对话框为 ink 边坞站 */
 .dialog-overlay {
   position: fixed;
   inset: 0;
@@ -7,7 +8,7 @@
   padding: 20px;
   display: grid;
   place-items: center;
-  background: rgba(10, 12, 16, 0.55);
+  background: rgba(10, 10, 10, 0.62);
 }
 
 .dialog {
@@ -15,12 +16,15 @@
   padding: 20px;
   color: var(--text);
   background: var(--surface-solid);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-strong);
+  border-top: 3px solid var(--signal);
+  border-radius: 0;
   box-shadow: var(--shadow-lg);
 
   h2 {
     margin-top: 0;
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 
   p {

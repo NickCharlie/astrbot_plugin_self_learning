@@ -1,16 +1,17 @@
 @use "../../styles/tokens";
 
+/* endfield 场内导航条：纸色场 + 场地码编号 + 黄楔选中 */
 .page-nav {
   padding: 0 clamp(16px, 4vw, 56px);
   display: flex;
-  gap: 2px;
+  gap: 0;
   overflow-x: auto;
   /* 不显示滚动条：滚轮/触控板直接横向滑动 */
   scrollbar-width: none;
   -ms-overflow-style: none;
   overscroll-behavior-x: contain;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-solid);
+  background: var(--surface);
 
   &::-webkit-scrollbar {
     display: none;
@@ -23,37 +24,65 @@
     align-items: center;
     gap: 6px;
     color: var(--muted);
-    padding: 11px 10px;
+    padding: 10px 12px;
     font-size: 13px;
     border-radius: 0;
-    transition: color var(--duration) ease-out;
+    border-right: 1px solid var(--border);
+    transition:
+      color var(--duration) ease-out,
+      background var(--duration) ease-out;
 
-    /* 底部 2px 强调色指示条，激活时干脆地亮出 */
+    /* 黄楔选中标记：贴容器底缘的动作色，颜色+填充双通道 */
     &::after {
       content: "";
       position: absolute;
-      left: 8px;
-      right: 8px;
+      left: 0;
+      right: auto;
       bottom: -1px;
-      height: 2px;
+      width: 100%;
+      height: 3px;
       background: transparent;
+      clip-path: var(--ark-wedge);
       transition: background var(--duration) ease-out;
     }
 
     &:hover {
       color: var(--text);
+      background: var(--surface-alt);
     }
 
     &.active {
       color: var(--accent);
+      background: var(--accent-soft);
+      font-weight: 600;
 
       &::after {
-        background: var(--accent);
+        background: var(--signal);
       }
     }
   }
 
+  /* 场地码节编号：mono 表格数字，比图标更工程 */
+  .nav-index {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+  }
+
   .material-icons {
-    font-size: 17px;
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 640px) {
+  /* 竖屏重排：编号让位，仅图标+短标签，保证触控面积 */
+  .page-nav a {
+    padding: 10px;
+  }
+
+  .nav-index {
+    display: none;
   }
 }

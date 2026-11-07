@@ -2,7 +2,8 @@
   "use strict";
 
   const PAGE_META = {
-    home: ["page.home.kicker", "page.home.title", "Dashboard", "完整内嵌 WebUI"],
+    home: ["page.home.kicker", "page.home.title", "Dashboard", "学习模块控制台"],
+    overview: ["page.overview.kicker", "page.overview.title", "Overview", "总览"],
     insights: ["page.insights.kicker", "page.insights.title", "Insights", "AI 巡检"],
     monitoring: ["page.monitoring.kicker", "page.monitoring.title", "Monitoring", "运行监控"],
     reviews: ["page.reviews.kicker", "page.reviews.title", "Reviews", "审查队列"],
@@ -10,6 +11,7 @@
     "expression-learning": ["page.style.kicker", "page.style.title", "Expression", "表达方式学习"],
     "persona-learning": ["page.persona.kicker", "page.persona.title", "Persona", "人格学习"],
     "shadow-mode": ["page.shadow.kicker", "page.shadow.title", "Shadow", "影子模式"],
+    emotion: ["page.emotion.kicker", "page.emotion.title", "Emotion", "情绪中枢"],
     content: ["page.content.kicker", "page.content.title", "Content", "学习内容"],
     graphs: ["page.graphs.kicker", "page.graphs.title", "Graphs", "图谱"],
     integrations: ["page.integrations.kicker", "page.integrations.title", "Integrations", "功能融合"],
@@ -71,6 +73,15 @@
   const $ = (id) => document.getElementById(id);
   const qs = (selector, root = document) => root.querySelector(selector);
   const qsa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  // 读取主题 CSS 变量（canvas 无法直接用 var()，逐帧读取跟随主题切换）
+  const cssVar = (name, fallback) => {
+    try {
+      const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return value || fallback;
+    } catch {
+      return fallback;
+    }
+  };
 
   function locale() {
     try {
@@ -516,6 +527,8 @@
         if (page === "insights") renderInsights(data);
         return;
       }
+      if (page === "overview") return renderOverview(await loadDashboard(force));
+      if (page === "emotion") return loadEmotion(force);
       if (page === "monitoring") return renderMonitoring(await cached("monitoring", () => apiGet("monitoring"), force));
       if (page === "reviews") {
         const params = reviewSearchParams();
@@ -594,7 +607,7 @@
     const items = labels.map((label) => ({
       title: String(label).slice(5),
       metric: Number(daily[label] || 0),
-      accent: "#0ea5e9",
+      accent: "var(--chart-1)",
     }));
     renderGenericBarChart("home-trend-chart", items);
     const total = items.reduce((sum, item) => sum + item.metric, 0);
@@ -621,7 +634,7 @@
 
   function renderModuleCards(modules) {
     const html = modules.map((item) => `
-      <article class="module-card" style="--accent:${escapeAttr(item.accent || "#2563eb")}" data-route-card="${escapeAttr(item.target || "home")}">
+      <article class="module-card" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}" data-route-card="${escapeAttr(item.target || "home")}">
         <div class="module-card-head">
           <h3>${escapeHtml(item.title)}</h3>
           ${pill(item.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), item.enabled ? "ok" : "warn")}
@@ -640,7 +653,7 @@
     const maxValue = Math.max(1, ...modules.map((item) => Number(item.metric || 0)));
     const html = modules.map((item) => {
       const value = Math.max(4, Math.min(100, (Number(item.metric || 0) / maxValue) * 100));
-      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "#2563eb")}">
+      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}">
         <span>${escapeHtml(item.title)}</span>
         <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
         <strong>${escapeHtml(fmt(item.metric))}</strong>
@@ -875,7 +888,7 @@
         ${(list || []).slice(0, 12).map((item) => `<span>${escapeHtml(item.name || item.pattern || item.text || "")}</span>`).join("") || empty(t("empty.patterns", "暂无模式"))}
       </div>
     `).join(""));
-    const chartItems = patternGroups.map(([title, list]) => ({ title, metric: (list || []).length, accent: "#4169e1" }));
+    const chartItems = patternGroups.map(([title, list]) => ({ title, metric: (list || []).length, accent: "var(--chart-1)" }));
     renderGenericBarChart("style-pattern-chart", chartItems);
     const reviews = ((data.reviews || {}).reviews || []);
     pruneSelection(selectedReviewSet("style"), reviews.map((item) => item.id));
@@ -1777,11 +1790,276 @@
     </article>`).join("");
   }
 
+  // ── 总览（对齐独立版 OverviewPage：4 读数 + 消息/学习趋势 + 当前状态） ──
+  function renderOverview(data) {
+    const metrics = (data && data.metrics) || {};
+    const total = Number(metrics.total_messages_collected || 0);
+    const rawEfficiency = Number(metrics.learning_efficiency ?? metrics.efficiency ?? 0);
+    const efficiency = rawEfficiency <= 1 ? rawEfficiency * 100 : rawEfficiency;
+    const filtered = Number(metrics.filtered_messages ?? (metrics.messages || {}).filtered ?? 0);
+    const memory = Number((metrics.system_metrics || {}).memory_percent || 0);
+    setText("ov-stat-messages", fmt(total, 0));
+    setText("ov-stat-efficiency", `${fmt(efficiency, 1)}%`);
+    setText("ov-stat-filtered", fmt(filtered, 0));
+    setText("ov-stat-memory", `${fmt(memory, 1)}%`);
+
+    const trends = metrics.trends || (data && data.trends) || {};
+    const daily = trends.daily_messages || {};
+    const labels = Object.keys(daily).sort().slice(-14);
+    const items = labels.map((label) => ({
+      title: String(label).slice(5),
+      metric: Number(daily[label] || 0),
+      accent: "var(--chart-1)",
+    }));
+    renderGenericBarChart("ov-trend-chart", items);
+    const batches = Array.isArray(trends.recent_batches) ? trends.recent_batches : [];
+    const learned = batches.reduce((sum, batch) => sum + Number(batch.processed_messages ?? batch.message_count ?? 0), 0);
+    setText("ov-trend-note", items.length
+      ? t("overview.trendNote", "近 {days} 天采集 {count} 条消息 · 学习处理 {learned} 条。")
+        .replace("{days}", fmt(items.length, 0))
+        .replace("{count}", fmt(items.reduce((sum, item) => sum + item.metric, 0), 0))
+        .replace("{learned}", fmt(learned, 0))
+      : t("home.noTrends", "暂无趋势数据，积累消息后这里会出现每日采集曲线。"));
+  }
+
+  // ── 情绪中枢（对齐独立版 EmotionBoardPage） ──
+  const MOOD_OPTIONS = ["happy", "excited", "playful", "calm", "curious", "nostalgic", "serious", "anxious", "sad", "angry"];
+  const MOOD_FALLBACK = {
+    happy: "开心", excited: "兴奋", playful: "顽皮", calm: "平静", curious: "好奇",
+    nostalgic: "怀旧", serious: "严肃", anxious: "焦虑", sad: "低落", angry: "生气",
+  };
+  const FACTOR_FALLBACK = { affection: "好感度", sentiment: "消息情感", mood: "Bot 心情", stability: "情绪稳定性" };
+  const KIND_FALLBACK = { expression: "表达", jargon: "黑话" };
+
+  const moodLabel = (type) => t(`emotion.moods.${type}`, MOOD_FALLBACK[type] || type);
+  const factorLabel = (key) => t(`emotion.factors.${key}`, FACTOR_FALLBACK[key] || key);
+  const kindLabel = (kind) => t(`emotion.kinds.${kind}`, KIND_FALLBACK[kind] || kind);
+  // 心情语气：正向=ok（状态绿），负向=warn，其余中性（与独立版 moodTone 同规则）
+  const moodTone = (type) => ["happy", "excited", "playful"].includes(type) ? "ok"
+    : ["sad", "anxious", "angry"].includes(type) ? "warn" : "";
+  const fmtPct = (value) => `${fmt(Number(value || 0) <= 1 ? Number(value || 0) * 100 : Number(value || 0), 1)}%`;
+
+  async function loadEmotion(force) {
+    const [board, trends] = await Promise.all([
+      cached("emotion:board", () => apiGet("emotion/board"), force),
+      cached("emotion:trends", () => apiGet("emotion/trends", { days: 14 }), force),
+    ]);
+    renderEmotion(board || {}, trends || {});
+  }
+
+  function emotionCandidates(forgetting) {
+    const data = (forgetting && forgetting.candidates) || {};
+    return [...(data.expression || []), ...(data.jargon || [])]
+      .sort((a, b) => Number(b.stage || 0) - Number(a.stage || 0) || Number(a.last_used || 0) - Number(b.last_used || 0));
+  }
+
+  function renderEmotion(board, trends) {
+    state.emotion = { board, trends };
+    const moods = ((board.moods || {}).active) || [];
+    const affection = board.affection || null;
+    const gateDaily = trends.gate || [];
+    const gateToday = gateDaily.length ? gateDaily[gateDaily.length - 1] : null;
+    const telemetry = (board.gate || {}).telemetry || null;
+    const forgetting = board.forgetting || null;
+    const candidates = emotionCandidates(forgetting);
+
+    // 读数行
+    setText("emo-stat-mood", moods[0] ? moodLabel(moods[0].mood_type) : "--");
+    setText("emo-stat-mood-note", moods.length
+      ? t("emotion.activeGroups", "{count} 个群组有活跃心情").replace("{count}", fmt(moods.length, 0))
+      : t("emotion.noActiveMood", "暂无活跃心情"));
+    const overall = (affection && affection.overall) || {};
+    setText("emo-stat-affection", fmt(overall.average || 0, 1));
+    setText("emo-stat-affection-note", t("emotion.userCount", "{count} 位用户").replace("{count}", fmt(overall.total_users || 0, 0)));
+    setText("emo-stat-gate", gateToday && gateToday.accept_rate != null ? fmtPct(gateToday.accept_rate) : "--");
+    setText("emo-stat-gate-note", telemetry && telemetry.enabled
+      ? t("emotion.gateThreshold", "阈值 {value}").replace("{value}", String(telemetry.threshold))
+      : t("emotion.gateDisabled", "闸门未启用"));
+    setText("emo-stat-forget", fmt(candidates.length, 0));
+    setText("emo-stat-forget-note", forgetting && forgetting.enabled
+      ? t("emotion.cycleDays", "周期 {days} 天").replace("{days}", fmt((forgetting.config || {}).cycle_days || 0, 0))
+      : t("emotion.forgetDisabled", "遗忘未启用"));
+
+    // Bot 心情状态
+    setHtml("emo-mood-list", moods.length ? moods.map((mood) => `
+      <div class="review-item">
+        <div class="table-row rich-row" style="padding:0;border:0;background:transparent;">
+          <div>
+            <strong>${escapeHtml(mood.group_id || "--")}</strong>
+            <small>${escapeHtml(mood.description || "--")} · ${escapeHtml(formatTimestamp(mood.timestamp))}</small>
+          </div>
+          ${pill(moodLabel(mood.mood_type), moodTone(mood.mood_type))}
+        </div>
+        <div class="bar-row" style="--accent:var(--chart-2)">
+          <span>${escapeHtml(t("emotion.intensity", "强度"))} ${escapeHtml(fmtPct(mood.intensity))}</span>
+          <div class="bar-track"><div class="bar-fill" style="--value:${Math.max(0, Math.min(100, Number(mood.intensity || 0) * 100))}"></div></div>
+          <strong></strong>
+        </div>
+      </div>`).join("") : empty(t("emotion.noActiveMoodDetail", "暂无活跃心情：可在下方手动设置，或等待每日情绪更新。")));
+
+    const typeSelect = $("emo-mood-type");
+    if (typeSelect && !typeSelect.options.length) {
+      typeSelect.innerHTML = MOOD_OPTIONS.map((option) => `<option value="${escapeAttr(option)}">${escapeHtml(moodLabel(option))}</option>`).join("");
+    }
+    syncMoodFillButton();
+
+    // 好感度概览
+    if (affection) {
+      setHtml("emo-affection-list", (affection.groups || []).map((group) => `
+        <div class="table-row rich-row">
+          <div>
+            <strong>${escapeHtml(group.group_id || "--")}</strong>
+            <small>${escapeHtml(t("emotion.groupStats", "{users} 位用户 · 高好感 {high} · 低好感 {low}")
+              .replace("{users}", fmt(group.total_users, 0)).replace("{high}", fmt(group.high, 0)).replace("{low}", fmt(group.low, 0)))}</small>
+          </div>
+          ${pill(fmt(group.average, 1), Number(group.average) >= 20 ? "ok" : Number(group.average) <= -20 ? "warn" : "")}
+        </div>`).join("") || empty(t("emotion.noAffection", "暂无好感度数据")));
+      const rankRow = (entry, positive) => `<div class="emo-rank-row"><span>${escapeHtml(entry.user_id)}</span><strong>${positive ? "+" : ""}${escapeHtml(fmt(entry.level, 0))}</strong></div>`;
+      setHtml("emo-affection-top", (affection.leaderboard || []).map((entry) => rankRow(entry, true)).join("") || empty());
+      setHtml("emo-affection-bottom", (affection.bottom || []).map((entry) => rankRow(entry, false)).join("") || empty());
+    } else {
+      setHtml("emo-affection-list", empty(t("emotion.noAffection", "暂无好感度数据")));
+      setHtml("emo-affection-top", "");
+      setHtml("emo-affection-bottom", "");
+    }
+
+    // 走向分析（4 组序列 = 独立版两张双序列图的展开）
+    const delta = trends.affection_delta || [];
+    const moodChanges = trends.mood_changes || [];
+    renderGenericBarChart("emo-trend-affection", delta.map((item) => ({ title: String(item.date).slice(5), metric: Math.abs(Number(item.delta || 0)), accent: Number(item.delta || 0) >= 0 ? "var(--chart-1)" : "var(--danger)" })));
+    renderGenericBarChart("emo-trend-mood", moodChanges.map((item) => ({ title: String(item.date).slice(5), metric: Number(item.count || 0), accent: "var(--chart-3)" })));
+    renderGenericBarChart("emo-trend-gate", gateDaily.map((item) => ({ title: String(item.stat_date).slice(5), metric: Math.round(Number(item.accept_rate || 0) * 100), accent: "var(--chart-2)" })));
+    renderGenericBarChart("emo-trend-score", gateDaily.map((item) => ({ title: String(item.stat_date).slice(5), metric: Math.round(Number(item.avg_score || 0) * 100), accent: "var(--chart-4)" })));
+    const dist = ((board.emotion_profiles || {}).dominant_distribution) || [];
+    const distBlock = $("emo-dist-block");
+    if (distBlock) distBlock.hidden = !dist.length;
+    setHtml("emo-dist-row", dist.map((item) => `<span class="mini-badge"><b>${escapeHtml(item.emotion)}</b>&nbsp;${escapeHtml(fmt(item.count, 0))}</span>`).join(""));
+
+    // 学习联动 · 情绪加权闸门
+    if (telemetry) {
+      const accepted = Number((telemetry.counters || {}).accepted || 0);
+      const skipped = Number((telemetry.counters || {}).skipped || 0);
+      const total = accepted + skipped;
+      const factorAvg = telemetry.recent_factor_avg || {};
+      const weights = telemetry.weights || {};
+      setHtml("emo-gate-body", `
+        <div class="content-grid two-col">
+          <div class="review-list">
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.accepted", "累计放行"))}</strong><small>${escapeHtml(t("emotion.acceptedHint", "重启后计数归零，长期趋势看日统计"))}</small></div>${pill(fmt(accepted, 0), "ok")}</div>
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.skipped", "累计拦截"))}</strong><small>${escapeHtml(t("emotion.skippedHint", "原始消息仍会采集，仅跳过学习"))}</small></div>${pill(fmt(skipped, 0), "warn")}</div>
+            <div class="table-row rich-row"><div><strong>${escapeHtml(t("emotion.acceptRatio", "放行占比"))}</strong><small>${escapeHtml(t("emotion.sinceRun", "本次运行以来"))}</small></div>${pill(total ? fmtPct(accepted / total) : "--", total && skipped / total > 0.5 ? "warn" : "")}</div>
+          </div>
+          <div>
+            <h4 class="mini-label">${escapeHtml(t("emotion.factorAvg", "近期因子均值"))}</h4>
+            <div class="bar-chart">${Object.keys(factorAvg).map((key) => `
+              <div class="bar-row" style="--accent:var(--chart-1)">
+                <span>${escapeHtml(factorLabel(key))}（${escapeHtml(t("emotion.weight", "权重"))} ${escapeHtml(fmtPct(weights[key] || 0))}）</span>
+                <div class="bar-track"><div class="bar-fill" style="--value:${Math.max(0, Math.min(100, Number(factorAvg[key] || 0) * 100))}"></div></div>
+                <strong>${escapeHtml(fmtPct(factorAvg[key]))}</strong>
+              </div>`).join("")}</div>
+          </div>
+        </div>
+        <h4 class="mini-label" style="margin-top:14px;">${escapeHtml(t("emotion.recentDecisions", "近期判定"))}</h4>
+        <div class="compact-table">${(telemetry.recent || []).slice(-10).reverse().map((item) => `
+          <div class="table-row">
+            <span>${escapeHtml(item.group_id)}</span>
+            <small>${escapeHtml(formatTimestamp(item.timestamp))}</small>
+            <strong>${escapeHtml(fmt(item.score, 2))}</strong>
+            ${pill(item.decision ? t("emotion.pass", "放行") : t("emotion.block", "拦截"), item.decision ? "ok" : "warn")}
+          </div>`).join("") || empty()}</div>`);
+    } else {
+      setHtml("emo-gate-body", empty(t("emotion.gateUnavailable", "闸门遥测不可用：插件运行中才会产生判定记录；历史统计见上方走向分析。")));
+    }
+
+    // 三阶段遗忘治理
+    if (forgetting) {
+      const stageLabels = forgetting.stage_labels || {};
+      const distribution = forgetting.distribution || {};
+      const config = forgetting.config || {};
+      const lastRun = forgetting.last_run_at ? formatTimestamp(forgetting.last_run_at) : t("emotion.neverRun", "尚未执行");
+      const stageBlock = (kind) => `
+        <div>
+          <h4 class="mini-label">${escapeHtml(t("emotion.stageDist", "{kind}阶段分布").replace("{kind}", kindLabel(kind)))}</h4>
+          <div class="inline-actions" style="justify-content:flex-start;">${["0", "1", "2", "3"].map((stage) =>
+            `<span class="mini-badge"><b>${escapeHtml(stageLabels[stage] || t("emotion.stageN", "阶段 {n}").replace("{n}", stage))}</b>&nbsp;${escapeHtml(fmt((distribution[kind] || {})[stage] || 0, 0))}</span>`).join("")}</div>
+          <p class="trend-note">${escapeHtml(t("emotion.forgetMeta", "上次执行：{last} · 周期 {cycle} 天 · 宽限 {grace} 天")
+            .replace("{last}", lastRun).replace("{cycle}", fmt(config.cycle_days || 0, 0)).replace("{grace}", fmt(config.grace_days || 0, 0)))}</p>
+        </div>`;
+      const stageTone = (stage) => Number(stage) >= 3 ? "warn" : Number(stage) === 2 ? "warn" : "";
+      setHtml("emo-forget-body", `
+        <div class="content-grid two-col">${stageBlock("expression")}${stageBlock("jargon")}</div>
+        <div class="review-list">${candidates.map((item) => `
+          <div class="table-row rich-row">
+            <div>
+              <strong>${escapeHtml(item.title || "--")}</strong>
+              <small>${escapeHtml(kindLabel(item.kind))} · ${escapeHtml(item.group_id || "--")} · ${escapeHtml(t("emotion.lastUsed", "最后使用"))} ${escapeHtml(item.last_used ? formatTimestamp(item.last_used) : t("emotion.never", "从未"))}</small>
+            </div>
+            ${pill(stageLabels[String(item.stage)] || t("emotion.stageN", "阶段 {n}").replace("{n}", String(item.stage)), stageTone(item.stage))}
+            <div class="row-actions compact-actions">
+              ${button(t("emotion.reset", "重置"), `data-emo-action="reset_stage" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`)}
+              ${button(t("emotion.markDislike", "标记反感"), `data-emo-action="mark_dislike" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`)}
+              ${button(t("actions.delete", "删除"), `data-emo-action="delete_item" data-kind="${escapeAttr(item.kind)}" data-id="${escapeAttr(item.id)}"`, "danger-button")}
+            </div>
+          </div>`).join("") || empty(t("emotion.noCandidates", "暂无遗忘候选：所有条目都处于新鲜阶段。"))}</div>`);
+    } else {
+      setHtml("emo-forget-body", empty(t("emotion.forgetUnavailable", "遗忘管理器未运行：需要插件完整启动且数据库可用。")));
+    }
+  }
+
+  function syncMoodFillButton() {
+    const fill = $("emo-mood-fill");
+    const group = $("emo-mood-group");
+    const moods = (((state.emotion || {}).board || {}).moods || {}).active || [];
+    if (fill) fill.hidden = !(moods.length && !(group && group.value.trim()));
+    const submit = $("emo-mood-submit");
+    if (submit) submit.disabled = !(group && group.value.trim());
+  }
+
+  function fillFirstMoodGroup() {
+    const moods = (((state.emotion || {}).board || {}).moods || {}).active || [];
+    const group = $("emo-mood-group");
+    if (group && moods[0]) group.value = moods[0].group_id;
+    syncMoodFillButton();
+  }
+
+  async function runEmotionAction(body, buttonEl) {
+    if (buttonEl) { buttonEl.disabled = true; buttonEl.classList.add("is-busy"); }
+    try {
+      const result = await apiPost("emotion/action", body);
+      showToast(result.message || t("messages.actionDone", "操作已完成"), result.success === false ? "error" : "ok");
+      await loadEmotion(true);
+    } catch (error) {
+      showToast(error.message || String(error), "error");
+    } finally {
+      if (buttonEl) { buttonEl.disabled = false; buttonEl.classList.remove("is-busy"); }
+    }
+  }
+
+  async function submitEmotionMood(event) {
+    const group = ($("emo-mood-group") || {}).value || "";
+    if (!group.trim()) return;
+    await runEmotionAction({
+      action: "set_mood",
+      group_id: group.trim(),
+      mood_type: ($("emo-mood-type") || {}).value || "happy",
+      intensity: Number(($("emo-mood-intensity") || {}).value) || 0.6,
+      description: (($("emo-mood-desc") || {}).value || "").trim(),
+    }, event && event.currentTarget);
+  }
+
+  async function handleEmotionAction(target) {
+    await runEmotionAction({
+      action: target.dataset.emoAction,
+      kind: target.dataset.kind,
+      id: Number(target.dataset.id),
+    }, target);
+  }
+
   function renderGenericBarChart(id, items) {
     const maxValue = Math.max(1, ...items.map((item) => Number(item.metric || 0)));
     setHtml(id, items.map((item) => {
       const value = Math.max(4, Math.min(100, Number(item.metric || 0) / maxValue * 100));
-      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "#4169e1")}">
+      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}">
         <span>${escapeHtml(item.title)}</span>
         <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
         <strong>${escapeHtml(fmt(item.metric, 0))}</strong>
@@ -2022,6 +2300,10 @@
 
   function bindEvents() {
     $("refresh-button")?.addEventListener("click", () => loadPageData(state.page, { force: true }));
+    $("emo-mood-submit")?.addEventListener("click", submitEmotionMood);
+    $("emo-mood-fill")?.addEventListener("click", fillFirstMoodGroup);
+    $("emo-mood-group")?.addEventListener("input", syncMoodFillButton);
+    $("emo-forget-run")?.addEventListener("click", (event) => runEmotionAction({ action: "run_forgetting_cycle" }, event.currentTarget));
     $("modal-close")?.addEventListener("click", closeModal);
     $("jargon-search-button")?.addEventListener("click", () => {
       clearCached("jargon");
@@ -2173,7 +2455,7 @@
     });
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group],[data-emo-action]");
       if (!target) return;
       if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
@@ -2186,6 +2468,7 @@
       if (target.dataset.personaAction) await handlePersonaAction(target);
       if (target.dataset.shadowProfileAction) await handleShadowProfileAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
+      if (target.dataset.emoAction) await handleEmotionAction(target);
       if (target.dataset.settingsGroup) {
         state.settingsGroup = target.dataset.settingsGroup;
         renderSettings(state.pageData.settings || {});
@@ -2415,7 +2698,7 @@
     const dt = Math.min(0.033, Math.max(0.001, (now - physics.last) / 1000));
     physics.last = now;
     ctx.clearRect(0, 0, rect.width, rect.height);
-    ctx.strokeStyle = "rgba(65, 105, 225, 0.14)";
+    ctx.strokeStyle = cssVar("--border-strong", "rgba(25, 25, 25, 0.42)");
     ctx.lineWidth = 1.2;
 
     const core = { x: rect.width / 2, y: rect.height / 2 };
@@ -2556,7 +2839,7 @@
         target.vx -= (dx / dist) * force;
         target.vy -= (dy / dist) * force;
       }
-      ctx.strokeStyle = "rgba(100, 116, 139, 0.28)";
+      ctx.strokeStyle = cssVar("--border-strong", "rgba(25, 25, 25, 0.42)");
       ctx.lineWidth = Math.max(1, Math.min(4, Number(link.value || 1)));
       ctx.beginPath();
       ctx.moveTo(source.x, source.y);
@@ -2588,16 +2871,16 @@
       }
       const isHovered = state.graph.hovered === node || state.graph.dragged?.node === node;
       if (isHovered) {
-        ctx.fillStyle = "rgba(15, 159, 143, 0.14)";
+        ctx.fillStyle = cssVar("--signal-soft", "rgba(255, 250, 0, 0.2)");
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius + 10, 0, Math.PI * 2);
         ctx.fill();
       }
-      ctx.fillStyle = node.source === "livingmemory" ? "#0f9f8f" : index % 3 === 0 ? "#4169e1" : index % 3 === 1 ? "#d97706" : "#e11d48";
+      ctx.fillStyle = node.source === "livingmemory" ? cssVar("--state", "#00ffa2") : cssVar(`--chart-${(index % 3) + 1}`, "#191919");
       ctx.beginPath();
       ctx.arc(node.x, node.y, isHovered ? radius + 2 : radius, 0, Math.PI * 2);
       ctx.fill();
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#162033";
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#191919";
       ctx.font = "12px system-ui";
       const label = String(node.name || node.label || "").slice(0, 12);
       const labelWidth = ctx.measureText(label).width;

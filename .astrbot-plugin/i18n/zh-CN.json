@@ -493,23 +493,25 @@
         "eyebrow": "AstrBot 内嵌 WebUI"
       },
       "nav": {
-        "home": "Dashboard",
+        "home": "模块入口",
         "insights": "AI 巡检",
-        "monitoring": "监控",
+        "monitoring": "运行监控",
         "reviews": "审查队列",
         "jargonLearning": "黑话学习",
-        "expressionLearning": "表达方式学习",
+        "expressionLearning": "表达学习",
         "personaLearning": "人格学习",
         "content": "学习内容",
         "graphs": "图谱",
         "integrations": "功能融合",
         "settings": "设置",
-        "shadowMode": "影子模式"
+        "shadowMode": "影子模式",
+        "overview": "总览",
+        "emotion": "情绪中枢"
       },
       "page": {
         "home": {
           "kicker": "Dashboard",
-          "title": "完整内嵌 WebUI"
+          "title": "学习模块控制台"
         },
         "insights": {
           "kicker": "Insights",
@@ -550,6 +552,14 @@
         "settings": {
           "kicker": "Settings",
           "title": "设置"
+        },
+        "overview": {
+          "kicker": "Overview",
+          "title": "总览"
+        },
+        "emotion": {
+          "kicker": "Emotion",
+          "title": "情绪中枢"
         }
       },
       "actions": {
@@ -962,6 +972,114 @@
         "title": "世界书导入",
         "tokenCounts": "字符 {chars} · 预估 Tokens {tokens}",
         "waitingPreview": "等待预览。"
+      },
+      "overview": {
+        "title": "总览",
+        "desc": "学习系统的核心健康度、吞吐量和近期趋势。",
+        "metricsAria": "总览指标",
+        "totalMessages": "总消息数",
+        "totalMessagesNote": "进入插件的数据总量",
+        "efficiency": "有效学习率",
+        "filtered": "过滤消息",
+        "memory": "系统内存",
+        "trendTitle": "消息与学习趋势",
+        "trendHint": "按后端聚合时间窗口展示",
+        "trendNote": "近 {days} 天采集 {count} 条消息 · 学习处理 {learned} 条。",
+        "statusTitle": "当前状态",
+        "statusHint": "最近一次健康快照",
+        "statusHeadline": "系统总体运行平稳",
+        "statusBody": "若某项指标为 0 或暂无曲线，通常表示对应数据尚未积累，而不是页面故障。"
+      },
+      "emotion": {
+        "title": "情绪中枢",
+        "desc": "Bot 心情、好感度与学习联动的状态面板：走向分析、加权闸门与三阶段遗忘治理。",
+        "metricsAria": "情绪指标",
+        "currentMood": "当前心情",
+        "noActiveMood": "暂无活跃心情",
+        "noActiveMoodDetail": "暂无活跃心情：可在下方手动设置，或等待每日情绪更新。",
+        "activeGroups": "{count} 个群组有活跃心情",
+        "avgAffection": "平均好感度",
+        "userCount": "{count} 位用户",
+        "gateRate": "闸门放行率",
+        "gateThreshold": "阈值 {value}",
+        "gateDisabled": "闸门未启用",
+        "gateUnavailable": "闸门遥测不可用：插件运行中才会产生判定记录；历史统计见上方走向分析。",
+        "forgetCandidates": "遗忘候选",
+        "cycleDays": "周期 {days} 天",
+        "forgetDisabled": "遗忘未启用",
+        "forgetUnavailable": "遗忘管理器未运行：需要插件完整启动且数据库可用。",
+        "moodTitle": "Bot 心情状态",
+        "moodHint": "各群组当前活跃心情",
+        "moodGroup": "群组 ID",
+        "moodType": "心情",
+        "moodIntensity": "强度",
+        "intensityLow": "低",
+        "intensityMid": "中",
+        "intensityHigh": "高",
+        "moodDesc": "描述（可选）",
+        "setMood": "设置心情",
+        "fillFirstGroup": "填入首个群组",
+        "intensity": "强度",
+        "affectionTitle": "好感度概览",
+        "affectionHint": "全群好感分布与排行榜",
+        "noAffection": "暂无好感度数据",
+        "groupStats": "{users} 位用户 · 高好感 {high} · 低好感 {low}",
+        "affectionTop": "好感 TOP",
+        "affectionBottom": "好感 BOTTOM",
+        "trendTitle": "走向分析",
+        "trendHint": "近 14 天好感度净变化、心情波动与闸门放行走势",
+        "trendAffection": "好感度净变化",
+        "trendMood": "心情切换次数",
+        "trendGate": "学习放行率",
+        "trendScore": "平均加权分",
+        "distTitle": "用户主导情绪分布",
+        "gateTitle": "学习联动 · 情绪加权闸门",
+        "gateHint": "好感度 35% + 消息情感 25% + Bot 心情 20% + 情绪稳定性 20%",
+        "accepted": "累计放行",
+        "acceptedHint": "重启后计数归零，长期趋势看日统计",
+        "skipped": "累计拦截",
+        "skippedHint": "原始消息仍会采集，仅跳过学习",
+        "acceptRatio": "放行占比",
+        "sinceRun": "本次运行以来",
+        "factorAvg": "近期因子均值",
+        "weight": "权重",
+        "recentDecisions": "近期判定",
+        "pass": "放行",
+        "block": "拦截",
+        "forgetTitle": "三阶段遗忘治理",
+        "runCycle": "立即执行周期",
+        "forgetHint": "连续三个周期无使用/正向反馈即删除；负反馈或手动标记反感直接进入二期",
+        "stageDist": "{kind}阶段分布",
+        "stageN": "阶段 {n}",
+        "forgetMeta": "上次执行：{last} · 周期 {cycle} 天 · 宽限 {grace} 天",
+        "lastUsed": "最后使用",
+        "never": "从未",
+        "neverRun": "尚未执行",
+        "noCandidates": "暂无遗忘候选：所有条目都处于新鲜阶段。",
+        "reset": "重置",
+        "markDislike": "标记反感",
+        "moods": {
+          "happy": "开心",
+          "excited": "兴奋",
+          "playful": "顽皮",
+          "calm": "平静",
+          "curious": "好奇",
+          "nostalgic": "怀旧",
+          "serious": "严肃",
+          "anxious": "焦虑",
+          "sad": "低落",
+          "angry": "生气"
+        },
+        "factors": {
+          "affection": "好感度",
+          "sentiment": "消息情感",
+          "mood": "Bot 心情",
+          "stability": "情绪稳定性"
+        },
+        "kinds": {
+          "expression": "表达",
+          "jargon": "黑话"
+        }
       }
     }
   }

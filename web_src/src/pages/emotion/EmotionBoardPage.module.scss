@@ -1,7 +1,7 @@
 .mood-form {
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px dashed rgba(125, 138, 168, 0.3);
+  border-top: 1px solid var(--border);
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -27,7 +27,7 @@
   h4 {
     margin: 0 0 8px;
     font-size: 13px;
-    color: var(--slx-text-muted, #687386);
+    color: var(--muted);
   }
 }
 
@@ -47,7 +47,7 @@
   }
 
   small {
-    color: var(--slx-text-muted, #687386);
+    color: var(--muted);
     flex-shrink: 0;
   }
 }
@@ -55,7 +55,7 @@
 .dist-title {
   margin: 14px 0 8px;
   font-size: 13px;
-  color: var(--slx-text-muted, #687386);
+  color: var(--muted);
 }
 
 .dist-row {
@@ -69,9 +69,9 @@
   align-items: center;
   gap: 6px;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: 0;
   font-size: 12px;
-  border: 1px solid rgba(125, 138, 168, 0.35);
+  border: 1px solid var(--border-strong);
 
   b {
     font-size: 12px;
@@ -100,7 +100,7 @@
 .forget-meta {
   display: block;
   margin-top: 8px;
-  color: var(--slx-text-muted, #687386);
+  color: var(--muted);
 }
 
 @media (max-width: 1100px) {

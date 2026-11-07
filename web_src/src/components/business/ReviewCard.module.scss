@@ -45,7 +45,7 @@
     overflow: auto;
     background: var(--surface-alt);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     font: 12px/1.5 ui-monospace, monospace;
     white-space: pre-wrap;
     word-break: break-word;
@@ -76,7 +76,7 @@
     overflow: auto;
     background: var(--surface-alt);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 0;
     font: 12px/1.5 ui-monospace, monospace;
     white-space: pre-wrap;
     word-break: break-word;
@@ -87,7 +87,7 @@
   margin-top: 8px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 0;
 }
 
 .diff-line {

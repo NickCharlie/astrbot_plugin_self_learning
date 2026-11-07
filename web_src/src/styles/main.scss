@@ -14,12 +14,19 @@ body {
   color: var(--text);
   background: var(--bg);
   font:
-    14px/1.55 Inter,
-    "Microsoft YaHei",
-    "PingFang SC",
-    system-ui,
-    sans-serif;
+    14px/1.55 var(--font-ui);
   -webkit-font-smoothing: antialiased;
+}
+
+/* ── endfield 选区/焦点：信号轮廓 + 偏移 ── */
+::selection {
+  background: var(--signal);
+  color: var(--ark-signal-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ark-signal);
+  outline-offset: 2px;
 }
 button,
 input,
@@ -39,9 +46,7 @@ pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font:
-    12px/1.6 ui-monospace,
-    Consolas,
-    monospace;
+    12px/1.6 var(--font-mono);
 }
 h1,
 h2,
@@ -53,24 +58,6 @@ h3 {
 details summary {
   cursor: pointer;
   color: var(--accent, var(--primary));
-}
-
-.page {
-  animation: page-in var(--duration-slow) var(--ease-out) both;
-}
-
-.page-kicker {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--accent, var(--primary));
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  font-weight: 700;
-
-  .material-icons {
-    font-size: 15px;
-  }
 }
 
 .section-label {
@@ -183,6 +170,194 @@ details summary {
   from {
     opacity: 0;
     transform: translateY(4px);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   endfield × maximal 全局层：字体角色 / 舞台分层 / 仪表工具类 / 编排动效
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 编辑式大标题：宽扁 display，紧字距，压 line-height */
+.ark-display {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+
+/* 双语 kicker：短大写英文微标签 + 中文主标签，黄色标记条开头 */
+.page-kicker {
+  font-family: var(--font-tech);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--accent);
+  gap: 8px;
+
+  &::before {
+    content: '';
+    width: 14px;
+    height: 8px;
+    background: var(--signal);
+    clip-path: var(--ark-wedge);
+    flex: none;
+  }
+
+  .material-icons {
+    font-size: 15px;
+  }
+}
+
+/* 字段码：等宽微标签（SEC.01 / LOG.04 等），坐标、索引、时间戳用 */
+.ark-field-code {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 数据等宽：一切计数/表格数值默认表格数字 */
+.tabular,
+[data-page] table,
+.stat-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 舞台工程网格：页面级背景层（低透明度坐标网格，无信息伪装） */
+.ark-stage-grid {
+  position: relative;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: var(--ark-stage-opacity);
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: var(--ark-stage-grid) var(--ark-stage-grid);
+    mask-image: linear-gradient(180deg, #000 0%, transparent 92%);
+    z-index: 0;
+  }
+
+  > * {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+/* 角标括号：面板四角工程定位记号（伪元素实现，不进 DOM） */
+.ark-brackets {
+  position: relative;
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    border: 0 solid var(--border-strong);
+  }
+
+  &::before {
+    top: -1px;
+    left: -1px;
+    border-top-width: 2px;
+    border-left-width: 2px;
+  }
+
+  &::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom-width: 2px;
+    border-right-width: 2px;
+  }
+}
+
+/* 楔形选中标记 / 动作条：黄楔只表达"选中或可执行" */
+.ark-wedge-mark {
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  background: var(--signal);
+  clip-path: var(--ark-wedge);
+  flex: none;
+}
+
+/* 分区擦除揭示：masked wipe，进入视口时从左向右展开 */
+@keyframes ark-wipe-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-8px);
+  }
+  to {
+    clip-path: inset(0);
+    transform: none;
+  }
+}
+
+.page {
+  animation: page-in var(--duration-slow) var(--ease-out) both;
+}
+
+/* 页面主标题编号：超大节编号 + 标题重叠排版（编辑式非对称） */
+.ark-section-index {
+  font-family: var(--font-display);
+  font-size: clamp(2.6rem, 5vw, 4rem);
+  font-weight: 700;
+  line-height: 0.82;
+  letter-spacing: -0.04em;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--border-strong);
+  user-select: none;
+  pointer-events: none;
+}
+
+/* 呼吸活动块：运行中状态设备（reduced-motion 下静止） */
+@keyframes ark-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+.ark-active-block {
+  animation: ark-breathe var(--duration-loop) ease-in-out infinite;
+}
+
+/* 黄色擦除带：加载/刷新时的方向性状态反馈（一次性） */
+.ark-wipe-band {
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--signal);
+    transform: translateX(-101%);
+    pointer-events: none;
+  }
+
+  &[data-wiping='true']::after {
+    animation: ark-band-sweep 0.7s var(--ease-wipe);
+  }
+}
+
+@keyframes ark-band-sweep {
+  from {
+    transform: translateX(-101%);
+  }
+  to {
+    transform: translateX(101%);
   }
 }
 
