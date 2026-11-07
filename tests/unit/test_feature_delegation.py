@@ -479,3 +479,53 @@ async def test_service_factory_initialize_all_services_can_skip_local_responder(
 
     assert success is True
     assert "create_intelligent_responder" not in calls
+
+
+def test_feature_delegation_detects_livinghello_but_keeps_local_reply_by_default():
+    config = PluginConfig()
+    delegation = FeatureDelegation(
+        config,
+        _context(_star("LivingHello", root_dir_name="astrbot_plugin_LivingHello")),
+    )
+
+    assert delegation.reply_plugin() is not None
+    assert delegation.reply_plugin_kind() == "livinghello"
+    assert delegation.status()["reply_plugin"] == "LivingHello"
+    # 默认不接管，避免升级后静默改变现有行为
+    assert delegation.should_delegate_reply() is False
+
+
+def test_feature_delegation_delegates_reply_to_livinghello_when_enabled():
+    config = PluginConfig(delegate_reply_to_livinghello=True)
+    delegation = FeatureDelegation(
+        config,
+        _context(_star("LivingHello", root_dir_name="astrbot_plugin_LivingHello")),
+    )
+
+    assert delegation.should_delegate_reply() is True
+    assert delegation.status()["reply_plugin_kind"] == "livinghello"
+
+
+def test_feature_delegation_prefers_group_chat_plus_over_livinghello():
+    config = PluginConfig(delegate_reply_to_livinghello=True)
+    delegation = FeatureDelegation(
+        config,
+        _context(
+            _star("LivingHello", root_dir_name="astrbot_plugin_LivingHello"),
+            _star("astrbot_plugin_group_chat_plus"),
+        ),
+    )
+
+    assert delegation.reply_plugin_kind() == "group_chat_plus"
+    assert delegation.status()["reply_plugin"] == "astrbot_plugin_group_chat_plus"
+
+
+def test_feature_delegation_ignores_inactive_livinghello():
+    config = PluginConfig(delegate_reply_to_livinghello=True)
+    delegation = FeatureDelegation(
+        config,
+        _context(_star("LivingHello", root_dir_name="astrbot_plugin_LivingHello", active=False)),
+    )
+
+    assert delegation.reply_plugin() is None
+    assert delegation.should_delegate_reply() is False

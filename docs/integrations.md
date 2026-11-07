@@ -1,6 +1,6 @@
 # 功能融合
 
-Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注入。长期记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。
+Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注入。长期记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus，回复决策也可以交给 LivingHello（只判断是否接话，不生成回复）。
 
 ## 职责边界
 
@@ -13,8 +13,8 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 | few-shot 注入 | Self Learning | 保持不变 |
 | 长期记忆写入 | Self Learning | 后台学习跳过本地写入；`remember`/Hub 显式记忆改由 LivingMemory `MemoryEngine.add_memory` 写入 |
 | 长期记忆注入 | Self Learning | LivingMemory 已加载时跳过本地 V2 记忆注入 |
-| 回复决策 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器 |
-| 回复生成 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器 |
+| 回复决策 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器；或 LivingHello 已加载且显式开启时跳过本地回复器 |
+| 回复生成 | Self Learning 兼容回复器 | Group Chat Plus 已加载时跳过本地回复器；LivingHello 不生成回复，交给宿主默认对话链路 |
 
 ## 配置
 
@@ -27,12 +27,15 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 | `disable_local_memory_when_delegated` | `true` | 委托生效时禁用本地长期记忆写入和注入 |
 | `delegate_reply_to_group_chat_plus` | `true` | 允许把回复决策和生成委托给 Group Chat Plus |
 | `group_chat_plus_plugin_name` | `astrbot_plugin_group_chat_plus` | Group Chat Plus 检测名 |
+| `delegate_reply_to_livinghello` | `false` | 允许把回复决策委托给 LivingHello。默认关闭，避免升级后静默改变现有行为 |
+| `livinghello_plugin_name` | `LivingHello` | LivingHello 检测名 |
 | `disable_local_reply_when_delegated` | `true` | 委托生效时禁用本地回复器 |
 
 兼容基线（2026-11 实测）:
 
 - LivingMemory `2.9.1`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`；2.8.2→2.9.1 契约面逐项核对兼容：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名、注册名均未变；2.9.x 新增 `adapter_access`/`shared_adapter_ids` 为 LM 内部/可选特性，不影响本插件只读统计路径）
 - Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名）
+- LivingHello `2.7.0`（`metadata.yaml` name `astrbot_plugin_LivingHello` / display `LivingHello`；本插件只做加载检测，不读取其内部结构）
 
 两个插件更新时优先检查以下契约:
 
@@ -44,8 +47,11 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 
 - LivingMemory: `LivingMemory`, `astrbot_plugin_livingmemory`
 - Group Chat Plus: `astrbot_plugin_group_chat_plus`, `Group Chat Plus`, `ChatPlus`
+- LivingHello: `astrbot_plugin_LivingHello`, `LivingHello`
 
 委托只在目标插件已加载、激活且存在 `star_cls` 时生效。未检测到目标插件时，本插件自动回退到本地能力。
+
+Group Chat Plus 与 LivingHello 同时加载时，Group Chat Plus 优先；只有 Group Chat Plus 未加载时才考虑 LivingHello。LivingHello 只负责接话判定与静默否决，不接管回复生成，所以委托后回复仍由宿主默认对话链路产生。
 
 成本提示: 如果 V2 架构同时选择 `knowledge_engine="lightrag"`、
 `lightrag_query_mode="hybrid"`/`"mix"`，并开启 LivingMemory 记忆委托，
@@ -91,6 +97,7 @@ Dashboard -> 功能融合
 - Self Learning 当前面板。
 - LivingMemory 状态、官方插件页/外部面板入口和本地图谱适配 API 列表。
 - Group Chat Plus 状态、面板入口和开发 API 列表。
+- LivingHello 状态卡片：只表示是否已加载及是否已委托回复决策。
 - `Integration_Settings` 快速编辑。
 - Self Learning Hub 稳定 HTTP 契约和可对接能力。
 

@@ -250,6 +250,8 @@ class PluginConfig(BaseModel):
     disable_local_memory_when_delegated: bool = True # 检测到 LivingMemory 时禁用本地长期记忆写入/注入
     delegate_reply_to_group_chat_plus: bool = True # 将回复决策和生成交给 Group Chat Plus
     group_chat_plus_plugin_name: str = "astrbot_plugin_group_chat_plus" # Group Chat Plus 插件名
+    delegate_reply_to_livinghello: bool = False # 将回复决策交给 LivingHello（仅判定是否接话），默认关闭
+    livinghello_plugin_name: str = "LivingHello" # LivingHello 插件名
     disable_local_reply_when_delegated: bool = True # 检测到 Group Chat Plus 时禁用本地回复器
 
     # 当前人格设置
@@ -575,6 +577,8 @@ class PluginConfig(BaseModel):
             disable_local_memory_when_delegated=integration_settings.get('disable_local_memory_when_delegated', True),
             delegate_reply_to_group_chat_plus=integration_settings.get('delegate_reply_to_group_chat_plus', True),
             group_chat_plus_plugin_name=integration_settings.get('group_chat_plus_plugin_name', 'astrbot_plugin_group_chat_plus'),
+            delegate_reply_to_livinghello=integration_settings.get('delegate_reply_to_livinghello', False),
+            livinghello_plugin_name=integration_settings.get('livinghello_plugin_name', 'LivingHello'),
             disable_local_reply_when_delegated=integration_settings.get('disable_local_reply_when_delegated', True),
 
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),

@@ -21,6 +21,13 @@ class FeatureDelegation:
         "Group Chat Plus",
         "ChatPlus",
     )
+    LIVINGHELLO_ALIASES = (
+        "astrbot_plugin_LivingHello",
+        "LivingHello",
+    )
+
+    REPLY_KIND_GROUP_CHAT_PLUS = "group_chat_plus"
+    REPLY_KIND_LIVINGHELLO = "livinghello"
 
     def __init__(self, config: Any, context: Any) -> None:
         self._config = config
@@ -34,12 +41,30 @@ class FeatureDelegation:
         )
         return self._find_active_star(aliases)
 
-    def reply_plugin(self) -> Optional[Any]:
+    def group_chat_plus_plugin(self) -> Optional[Any]:
         aliases = (
             getattr(self._config, "group_chat_plus_plugin_name", None),
             *self.GROUP_CHAT_PLUS_ALIASES,
         )
         return self._find_active_star(aliases)
+
+    def livinghello_plugin(self) -> Optional[Any]:
+        aliases = (
+            getattr(self._config, "livinghello_plugin_name", None),
+            *self.LIVINGHELLO_ALIASES,
+        )
+        return self._find_active_star(aliases)
+
+    def reply_plugin(self) -> Optional[Any]:
+        """返回接管回复决策的插件，Group Chat Plus 优先。"""
+        return self.group_chat_plus_plugin() or self.livinghello_plugin()
+
+    def reply_plugin_kind(self) -> Optional[str]:
+        if self.group_chat_plus_plugin() is not None:
+            return self.REPLY_KIND_GROUP_CHAT_PLUS
+        if self.livinghello_plugin() is not None:
+            return self.REPLY_KIND_LIVINGHELLO
+        return None
 
     def should_delegate_memory(self) -> bool:
         if not getattr(self._config, "delegate_memory_to_livingmemory", True):
@@ -49,11 +74,20 @@ class FeatureDelegation:
         return self.memory_plugin() is not None
 
     def should_delegate_reply(self) -> bool:
-        if not getattr(self._config, "delegate_reply_to_group_chat_plus", True):
-            return False
         if not getattr(self._config, "disable_local_reply_when_delegated", True):
             return False
-        return self.reply_plugin() is not None
+
+        kind = self.reply_plugin_kind()
+        if kind == self.REPLY_KIND_GROUP_CHAT_PLUS:
+            return bool(
+                getattr(self._config, "delegate_reply_to_group_chat_plus", True)
+            )
+        if kind == self.REPLY_KIND_LIVINGHELLO:
+            # LivingHello 只做接话判定与静默否决，默认不接管，需显式开启
+            return bool(
+                getattr(self._config, "delegate_reply_to_livinghello", False)
+            )
+        return False
 
     def status(self) -> dict[str, Any]:
         memory_plugin = self.memory_plugin()
@@ -63,6 +97,7 @@ class FeatureDelegation:
             "memory_plugin": self._star_label(memory_plugin),
             "reply_delegated": self.should_delegate_reply(),
             "reply_plugin": self._star_label(reply_plugin),
+            "reply_plugin_kind": self.reply_plugin_kind(),
         }
 
     def log_status(self) -> None:
@@ -86,7 +121,10 @@ class FeatureDelegation:
                 f"{status['reply_plugin']}，本插件仅注入学习上下文"
             )
         else:
-            logger.info("[功能融合] 未检测到可用 Group Chat Plus，保留本插件本地回复兼容能力")
+            logger.info(
+                "[功能融合] 未启用外部回复决策委托"
+                "（Group Chat Plus / LivingHello），保留本插件本地回复兼容能力"
+            )
 
     def _find_active_star(self, aliases: Iterable[Any]) -> Optional[Any]:
         raw_aliases = [
