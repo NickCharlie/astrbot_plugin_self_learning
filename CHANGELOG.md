@@ -2,6 +2,28 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.8.1] - 2026-11-07
+
+### 新增：好感度只读查询工具（PR #297，@Dashu-Li）
+
+- 新增 `query_affection` LLM 工具与能力提示：从数据库只读查询本人分数或当前群排行，不请求模型、不修改分数；独立于通用 `enable_llm_hooks` 开关。权限收口：普通成员仅本人，排行与查他人需事件角色与全局管理员名单双重校验，跨群仅限管理员私聊明确指定机器人已加入的群号；列级 SELECT 不加载互动历史，同分并列、未记录成员不按零分排名，`not_recorded/empty/unavailable/disabled/denied` 状态分离；`limit` 1–20 钳制、`qq_id` 纯数字校验、两处 `asyncio.wait_for` 超时；沿用现有 `affection_scope` 不迁移历史记录。298 行真实 SQLAlchemy 临时 SQLite 测试。
+
+### 修复：可选 Guardrails 旧版与新版 OpenAI SDK 共存（PR #296，@Dashu-Li）
+
+- 旧版 `guardrails-ai` 引用已移除的 `openai.error` 时抛 `AttributeError`（此前仅捕获 `ImportError`），导致目标管理等结构化校验服务无法初始化；现两种导入失败都沿用本地 Pydantic 后备，`Guard` 可用时行为不变。合成测试覆盖缺包、属性错误与正常导入三种路径。
+
+### 修复：query_affection 的 AstrBot 边界导入（合入后维护者落地）
+
+- `MessageType` 改走公开门面 `astrbot.api.platform`；`AiocqhttpMessageEvent` 无公开导出，加 `try/except ImportError` 守卫（内部路径变动时仅禁用 QQ 查询入口，不阻断插件加载），两处 `isinstance` 调用点同步短路；边界测试白名单登记。
+
+### 文档
+
+- 修正 `docs/README.md` 元数据版本行（4.8.0 发布时遗漏，自 4.7.4 同步至 4.8.1）。
+
+### 版本
+
+- 版本号由 4.8.0 提升至 **4.8.1**（两个外部贡献 PR + 边界修复，patch）。
+
 ## [4.8.0] - 2026-11-07
 
 ### 重构：双端 WebUI 切换 endfield 设计语言（ark-ui 契约 maximal 深度，PR #295）
