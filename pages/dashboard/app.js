@@ -72,6 +72,18 @@
       dragged: null,
       hovered: null,
       type: "memory",
+      layout: "force",
+      group: "",
+      payload: null,
+      token: 0,
+      busy: "",
+      socialGroup: "",
+      socialGroups: [],
+      socialGroupsLoaded: false,
+      socialInfo: {},
+      // 会话内节点位置缓存（与独立版 GraphView positionCache 同义）：按「图谱类型 + 群组」分桶，
+      // 记录归一化坐标，刷新/切换后节点不再重新飞散，拖动过的节点停在放下的位置
+      positions: new Map(),
       width: 0,
       height: 0,
       canvasBound: false,

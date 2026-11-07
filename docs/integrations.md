@@ -29,9 +29,9 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 | `group_chat_plus_plugin_name` | `astrbot_plugin_group_chat_plus` | Group Chat Plus 检测名 |
 | `disable_local_reply_when_delegated` | `true` | 委托生效时禁用本地回复器 |
 
-兼容基线（2026-10 实测）:
+兼容基线（2026-11 实测）:
 
-- LivingMemory `2.8.2`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`）
+- LivingMemory `2.9.1`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`；2.8.2→2.9.1 契约面逐项核对兼容：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名、注册名均未变；2.9.x 新增 `adapter_access`/`shared_adapter_ids` 为 LM 内部/可选特性，不影响本插件只读统计路径）
 - Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名）
 
 两个插件更新时优先检查以下契约:

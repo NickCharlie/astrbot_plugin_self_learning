@@ -159,6 +159,11 @@ async def test_worldbook_importer_imports_into_existing_tables(tmp_path):
         assert history["total"] == 1
         assert history["items"][0]["worldbook_entry_id"] == "10"
         assert history["imports"][0]["entries"] == 1
+        # 每次导入的聚合状态：供两端「最近导入记录」显示名称、条目数与状态徽标
+        expected_status = history["items"][0]["status"] or "pending"
+        assert history["imports"][0]["worldbook_name"] == "测试世界书"
+        assert history["imports"][0]["status"] == expected_status
+        assert history["imports"][0]["statuses"] == {expected_status: 1}
     finally:
         await manager.stop()
 

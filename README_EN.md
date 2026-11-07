@@ -146,19 +146,28 @@ Topics discussed last week, preferences you've mentioned, funny moments between 
 
 ## Visual Management Interface
 
-The plugin comes with a macOS-style web management interface (port 7833). All features are visually operable — no command line needed.
+The plugin ships two visually identical management surfaces (an "endfield" industrial design: paper-white/charcoal surfaces, signal-yellow action marks, squared engineering panels; light/dark themes and reduced-motion supported): the standalone WebUI on port 7833, and an embedded plugin page inside AstrBot's plugin manager — same copy, same features, same interactions on every route.
 
-**Statistics Dashboard**
-![Statistics Dashboard](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E6%95%B0%E6%8D%AE%E7%BB%9F%E8%AE%A1%E9%A1%B5%E9%9D%A2.png?raw=true)
+**Module Entry Console** (① top bar: refresh / theme / settings ② 14-module navigation ③ command hero with quick dock ④ learning module cards ⑤ live system entry cards):
+
+![Module Entry Console](image/模块入口首页-功能区.png)
+
+**Review Queue** (① header ② per-item approve / reject / delete with diffs ③ batch actions ④ recent learning batches):
+
+![Review Queue](image/人格审查页面.png)
+
+**Emotion Board** (embedded page; ① metrics ② bot mood ③ affection leaderboard ④ trends ⑤ weighted learning gate ⑥ three-stage forgetting):
+
+![Emotion Board](image/情绪中枢页面-功能区.png)
+
+**Overview**
+![Overview Dashboard](image/数据统计页面.png)
 
 **Persona Management & Review**
-![Persona Management](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E4%BA%BA%E6%A0%BC%E7%AE%A1%E7%90%86%E9%A1%B5%E9%9D%A2.png?raw=true)
+![Persona Management](image/人格管理页面.png)
 
-**Conversation Style Learning Tracker**
-![Style Learning](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E5%AF%B9%E8%AF%9D%E9%A3%8E%E6%A0%BC%E5%AD%A6%E4%B9%A0%E9%A1%B5%E9%9D%A2.png?raw=true)
-
-**Social Relationship Graph**
-![Social Relationships](https://github.com/NickCharlie/astrbot_plugin_self_learning/blob/develop/image/%E7%A4%BE%E4%BA%A4%E5%85%B3%E7%B3%BB%E9%A1%B5%E9%9D%A2.png?raw=true)
+**Expression Style Learning**
+![Style Learning](image/对话风格学习页面.png)
 
 ---
 

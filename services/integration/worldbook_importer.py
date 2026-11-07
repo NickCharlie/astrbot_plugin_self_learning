@@ -313,10 +313,18 @@ class WorldBookImporter:
                     "imported_at": imported_at,
                     "entries": 0,
                     "review_ids": [],
+                    "statuses": {},
                 },
             )
             aggregate["entries"] += 1
             aggregate["review_ids"].append(row.id)
+            status_key = str(row.status or "pending")
+            aggregate["statuses"][status_key] = aggregate["statuses"].get(status_key, 0) + 1
+
+        # 一次导入的审查状态：全部条目一致时取该状态，否则为 mixed（两端历史列表的状态徽标）
+        for aggregate in imports.values():
+            statuses = aggregate["statuses"]
+            aggregate["status"] = next(iter(statuses)) if len(statuses) == 1 else "mixed"
 
         return {
             "total": int(total),

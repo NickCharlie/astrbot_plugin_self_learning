@@ -670,23 +670,49 @@
         <section class="page" id="page-graphs" data-page="graphs">
           <div class="page-titlebar">
             <div>
-              <h3 data-i18n="graphs.title">图谱</h3>
-              <p data-i18n="graphs.desc">记忆图谱与知识图谱会在内嵌页直接绘制。</p>
-            </div>
-            <div class="inline-actions">
-              <select id="graph-type">
-                <option value="memory" data-i18n="graphs.memoryGraph">记忆图谱</option>
-                <option value="knowledge" data-i18n="graphs.knowledgeGraph">知识图谱</option>
-              </select>
-              <input id="graph-group" type="text" placeholder="群组 ID（可选）" data-i18n-placeholder="graphs.groupFilter">
-              <button class="ghost-button" type="button" data-refresh-page="graphs" data-i18n="actions.refresh">刷新</button>
+              <h3 data-i18n="graphs.title">记忆 / 知识图谱</h3>
+              <p data-i18n="graphs.desc">探索记忆节点、知识实体、群友社交关系及其联系；拖动位置会在本次会话中保留。</p>
             </div>
           </div>
           <div class="graph-grid">
             <div class="panel graph-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3 data-i18n="graphs.viewTitle">图谱视图</h3>
+                  <p data-i18n="graphs.viewHint">稳定静态布局避免每次刷新后节点重新飞散</p>
+                </div>
+                <button class="ghost-button" type="button" data-refresh-page="graphs" data-i18n="actions.refresh">刷新</button>
+              </div>
+              <div class="graph-toolbar">
+                <div class="segment-control" id="graph-type-tabs" role="group" aria-label="图谱类型" data-i18n-aria-label="graphs.typeAria">
+                  <button class="active" type="button" data-graph-type="memory" data-i18n="graphs.memoryGraph">记忆图谱</button>
+                  <button type="button" data-graph-type="knowledge" data-i18n="graphs.knowledgeGraph">知识图谱</button>
+                  <button type="button" data-graph-type="social" data-i18n="graphs.socialGraph">社交关系</button>
+                </div>
+                <div class="segment-control" id="graph-layout-tabs" role="group" aria-label="图谱布局" data-i18n-aria-label="graphs.layoutAria">
+                  <button class="active" type="button" data-graph-layout="force" data-i18n="graphs.layoutForce">稳定布局</button>
+                  <button type="button" data-graph-layout="circular" data-i18n="graphs.layoutCircular">环形布局</button>
+                </div>
+                <input id="graph-group" type="text" placeholder="群组 ID（可选）" data-i18n-placeholder="graphs.groupFilter">
+                <label class="stack-field" id="graph-social-field" hidden>
+                  <span data-i18n="graphs.socialGroup">群组</span>
+                  <select id="graph-social-group">
+                    <option value="" data-i18n="graphs.selectGroup">选择群组</option>
+                  </select>
+                </label>
+              </div>
+              <div class="graph-social-bar" id="graph-social-bar" hidden>
+                <div class="inline-actions">
+                  <button class="ghost-button" type="button" data-graph-social="analyze" data-i18n="graphs.analyze">重新分析</button>
+                  <button class="ghost-button" type="button" data-graph-social="share" data-i18n="graphs.share">分享图谱</button>
+                  <button class="danger-button" type="button" data-graph-social="clear" data-i18n="graphs.clearRelations">清空关系</button>
+                </div>
+                <p class="footer-note" id="graph-social-summary"></p>
+              </div>
               <canvas id="graph-canvas" aria-label="记忆图谱与知识图谱" data-i18n-aria-label="graphs.canvasLabel"></canvas>
+              <div class="graph-empty" id="graph-empty" hidden></div>
             </div>
-            <div class="panel">
+            <div class="panel graph-details-panel">
               <h3 data-i18n="graphs.details">图谱详情</h3>
               <section class="stat-grid compact" id="graph-stat-grid"></section>
               <div class="compact-table" id="graph-node-list"></div>

@@ -55,6 +55,9 @@ class PluginPageApi:
             ("content", self.get_content, ["GET"], "Self Learning embedded learning content module"),
             ("content/action", self.post_content_action, ["POST"], "Self Learning embedded content actions"),
             ("graphs", self.get_graphs, ["GET"], "Self Learning embedded graph module"),
+            ("graphs/social/groups", self.get_social_groups, ["GET"], "Self Learning embedded social graph groups"),
+            ("graphs/social", self.get_social_relations, ["GET"], "Self Learning embedded social relation graph"),
+            ("graphs/social/action", self.post_social_action, ["POST"], "Self Learning embedded social relation actions"),
             ("emotion/board", self.get_emotion_board, ["GET"], "Self Learning embedded emotion board"),
             ("emotion/trends", self.get_emotion_trends, ["GET"], "Self Learning embedded emotion trends"),
             ("emotion/action", self.post_emotion_action, ["POST"], "Self Learning embedded emotion actions"),
@@ -64,6 +67,10 @@ class PluginPageApi:
             ("integrations/action", self.post_integrations_action, ["POST"], "Self Learning embedded integrations actions"),
             ("settings", self.get_settings, ["GET"], "Self Learning embedded settings module"),
             ("settings/action", self.post_settings_action, ["POST"], "Self Learning embedded settings actions"),
+            ("data/statistics", self.get_data_statistics, ["GET"], "Self Learning embedded data statistics"),
+            ("data/clear", self.post_data_clear, ["POST"], "Self Learning embedded data clearing"),
+            ("bug-report", self.get_bug_report_config, ["GET"], "Self Learning embedded bug report config"),
+            ("bug-report/submit", self.post_bug_report, ["POST"], "Self Learning embedded bug report submission"),
         ]
         for endpoint, handler, methods, description in routes:
             register(f"{PAGE_API_PREFIX}/{endpoint}", handler, methods, description)
@@ -761,6 +768,85 @@ class PluginPageApi:
             )
         )
 
+    # ── 社交关系图谱：与独立 WebUI /api/social_relations/* 同一组服务方法 ──
+    async def get_social_groups(self) -> dict[str, Any]:
+        """可分析社交关系的群组列表（独立版 GET /api/social_relations/groups）。"""
+        try:
+            service = self._imports().SocialService(self._container())
+            groups = await service.get_available_groups()
+            return self._ok({"groups": groups, "total": len(groups)})
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social groups failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def get_social_relations(self) -> dict[str, Any]:
+        """指定群组的成员与关系（独立版 GET /api/social_relations/<group_id>）。"""
+        group_id = str(self._query_value(self._query(), "group_id", "") or "").strip()
+        if not group_id:
+            return self._operation(False, "群组ID不能为空")
+        try:
+            service = self._imports().SocialService(self._container())
+            return self._ok(await service.get_social_relations(group_id))
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social relations failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_social_action(self) -> dict[str, Any]:
+        """重新分析 / 清空关系 / 创建分享链接，与独立版 analyze、clear、share 路由同源。"""
+        body = await self._body()
+        action = str(body.get("action", "")).strip()
+        group_id = str(body.get("group_id") or "").strip()
+        if not group_id:
+            return self._operation(False, "群组ID不能为空")
+        try:
+            imports = self._imports()
+            container = self._container()
+            if action == "analyze":
+                success, message = await imports.SocialService(container).trigger_analysis(group_id)
+                return self._operation(success, message)
+            if action == "clear":
+                # 不可恢复操作：只接受页面二次确认后发出的请求
+                if body.get("confirmed") is not True:
+                    return self._operation(False, "清空社交关系需要在页面中确认后执行")
+                success, message = await imports.SocialService(container).clear_relations(group_id)
+                return self._operation(success, message)
+            if action == "share":
+                share_service_cls = imports.GraphShareService
+                try:
+                    expires_hours = int(body.get("expires_hours", 168))
+                except (TypeError, ValueError):
+                    return self._operation(False, "expires_hours 必须是整数")
+                min_hours = share_service_cls.MIN_EXPIRES_HOURS
+                max_hours = share_service_cls.MAX_EXPIRES_HOURS
+                if expires_hours < min_hours or expires_hours > max_hours:
+                    return self._operation(False, f"expires_hours 必须在 {min_hours}~{max_hours} 之间")
+                share = share_service_cls(container).create_share(
+                    group_id=group_id, expires_hours=expires_hours
+                )
+                share_path = f"/graph/share/{share['token']}"
+                # 分享页由独立 WebUI 提供；内嵌页运行在 AstrBot 面板内，链接需指向独立 WebUI 地址
+                webui = self._build_webui_snapshot(
+                    getattr(self.plugin, "plugin_config", None),
+                    getattr(container, "webui_config", None),
+                )
+                share_url = f"{webui['dashboard_url']}{share_path}" if webui.get("enabled") else None
+                return self._operation(
+                    True,
+                    "分享链接已创建",
+                    data={
+                        "group_id": group_id,
+                        "share_url": share_url,
+                        "share_path": share_path,
+                        "token": share["token"],
+                        "expires_hours": share["expires_hours"],
+                        "expires_at": share["expires_at_iso"],
+                    },
+                )
+            return self._operation(False, f"未知社交关系操作: {action or '(empty)'}")
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] social action failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
     async def get_metrics(self) -> dict[str, Any]:
         return self._ok(await self._load_metrics())
 
@@ -897,6 +983,63 @@ class PluginPageApi:
         except Exception as exc:
             logger.error(f"[PluginPageAPI] settings action failed: {exc}", exc_info=True)
             return self._operation(False, str(exc))
+
+    # ── 数据管理：与独立 WebUI /api/data/* 同一服务（DataManagementService） ──
+    _DATA_CLEAR_METHODS: dict[str, str] = {
+        "messages": "clear_messages",
+        "persona_reviews": "clear_persona_reviews",
+        "style_learning": "clear_style_learning",
+        "jargon": "clear_jargon",
+        "learning_history": "clear_learning_history",
+        "all": "clear_all",
+    }
+
+    async def get_data_statistics(self) -> dict[str, Any]:
+        """各模块数据行数统计（独立版 GET /api/data/statistics）。"""
+        try:
+            return self._ok(await self._load_data_statistics())
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] data statistics failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_data_clear(self) -> dict[str, Any]:
+        """按模块清空数据（独立版 DELETE /api/data/clear/<target>）。"""
+        body = await self._body()
+        target = str(body.get("target") or "").strip()
+        method_name = self._DATA_CLEAR_METHODS.get(target)
+        if not method_name:
+            return self._operation(False, f"未知清空目标: {target or '(empty)'}")
+        # 不可恢复操作：只接受页面二次确认后发出的请求
+        if body.get("confirmed") is not True:
+            return self._operation(False, "清空数据需要在页面中确认后执行")
+        try:
+            service = self._imports().DataManagementService(self._container())
+            success, message, deleted = await getattr(service, method_name)()
+            return self._operation(success, message, deleted=deleted)
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] data clear failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    # ── Bug 反馈：与独立 WebUI /api/bug_report* 同一服务（BugReportService） ──
+    async def get_bug_report_config(self) -> dict[str, Any]:
+        """Bug 自助提交配置与日志预览（独立版 GET /api/bug_report/config）。"""
+        try:
+            service = self._imports().BugReportService(self._container())
+            return self._ok(service.get_bug_report_config())
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] bug report config failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
+
+    async def post_bug_report(self) -> dict[str, Any]:
+        """提交 Bug 报告（独立版 POST /api/bug_report）。"""
+        body = await self._body()
+        try:
+            service = self._imports().BugReportService(self._container())
+            success, message, response_data = await service.submit_bug_report(body)
+            return self._operation(success, message, data=response_data)
+        except Exception as exc:
+            logger.error(f"[PluginPageAPI] bug report submit failed: {exc}", exc_info=True)
+            return self._operation(False, "请求处理失败，请稍后重试")
 
     async def _load_overview(self) -> dict[str, Any]:
         imports = self._imports()
@@ -1794,10 +1937,12 @@ class PluginPageApi:
                 PIP_MIRROR_SOURCES,
             )
             from ..webui.dependencies import get_container
+            from ..webui.services.bug_report_service import BugReportService
             from ..webui.services.config_service import ConfigService
             from ..webui.services.data_management_service import DataManagementService
             from ..webui.services.emotion_board_service import EmotionBoardService
             from ..webui.services.graph_service import GraphService
+            from ..webui.services.graph_share_service import GraphShareService
             from ..webui.services.integration_service import IntegrationService
             from ..webui.services.jargon_service import JargonService
             from ..webui.services.learning_content_service import LearningContentService
@@ -1810,6 +1955,7 @@ class PluginPageApi:
             from ..webui.services.persona_backup_service import PersonaBackupService
             from ..webui.services.persona_review_service import PersonaReviewService
             from ..webui.services.persona_service import PersonaService
+            from ..webui.services.social_service import SocialService
             from ..services.integration.maibot_learning_importer import MaiBotLearningImporter
             from ..services.integration.qq_chat_history_importer import QQChatHistoryImporter
             from ..services.integration.worldbook_importer import WorldBookImporter
@@ -1821,10 +1967,12 @@ class PluginPageApi:
                 PIP_MIRROR_SOURCES,
             )
             from webui.dependencies import get_container
+            from webui.services.bug_report_service import BugReportService
             from webui.services.config_service import ConfigService
             from webui.services.data_management_service import DataManagementService
             from webui.services.emotion_board_service import EmotionBoardService
             from webui.services.graph_service import GraphService
+            from webui.services.graph_share_service import GraphShareService
             from webui.services.integration_service import IntegrationService
             from webui.services.jargon_service import JargonService
             from webui.services.learning_content_service import LearningContentService
@@ -1837,16 +1985,19 @@ class PluginPageApi:
             from webui.services.persona_backup_service import PersonaBackupService
             from webui.services.persona_review_service import PersonaReviewService
             from webui.services.persona_service import PersonaService
+            from webui.services.social_service import SocialService
             from services.integration.maibot_learning_importer import MaiBotLearningImporter
             from services.integration.qq_chat_history_importer import QQChatHistoryImporter
             from services.integration.worldbook_importer import WorldBookImporter
             from services.shadow_mode import ShadowModeService
 
         imports.get_container = get_container
+        imports.BugReportService = BugReportService
         imports.ConfigService = ConfigService
         imports.DataManagementService = DataManagementService
         imports.EmotionBoardService = EmotionBoardService
         imports.GraphService = GraphService
+        imports.GraphShareService = GraphShareService
         imports.IntegrationService = IntegrationService
         imports.JargonService = JargonService
         imports.LearningService = LearningService
@@ -1857,6 +2008,7 @@ class PluginPageApi:
         imports.PersonaBackupService = PersonaBackupService
         imports.PersonaReviewService = PersonaReviewService
         imports.PersonaService = PersonaService
+        imports.SocialService = SocialService
         imports.MaiBotLearningImporter = MaiBotLearningImporter
         imports.QQChatHistoryImporter = QQChatHistoryImporter
         imports.WorldBookImporter = WorldBookImporter

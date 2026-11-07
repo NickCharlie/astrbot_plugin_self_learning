@@ -6,7 +6,7 @@ AstrBot 自主学习插件的实现文档和使用文档。
 
 - 插件名: `astrbot_plugin_self_learning`
 - 展示名: `self-learning`
-- 当前元数据版本: `4.7.2`
+- 当前元数据版本: `4.7.4`
 - 最低 AstrBot 版本: `4.11.4`
 - 主要入口: `main.py`
 - 配置入口: `_conf_schema.json`, `config.py`
@@ -23,6 +23,8 @@ AstrBot 自主学习插件的实现文档和使用文档。
 - [WebUI API](webui-api.md): Dashboard 页面依赖的主要接口和返回数据用途。
 - [远程部署与连接](webui-remote-deployment.md): 远程服务器 Docker 容器部署后的 WebUI 访问教程：端口映射、防火墙/安全组放行、密码策略、SSH 隧道与反代、常见连接问题排查。
 - [使用指南](usage.md): 安装、依赖、基础配置、WebUI、命令和常见排查。
+
+> 除独立 WebUI（默认 `http://127.0.0.1:7833`）外，插件还提供 **AstrBot 官方插件页内嵌版**（AstrBot 插件管理页点开即用，走 `page/*` 桥接，无独立端口）。两套界面自 2026-11 起逐路由对齐：同文案、同功能、同 endfield 视觉；差异仅限平台固有限制（内嵌无图标字体、图表用简化条形图、WebUI 密码/自定义 CSS 等仅独立版有意义）。
 - [开发指南](development.md): 本地开发、测试、添加服务/接口/表、日志和提交约束。
 
 ## 核心结论
