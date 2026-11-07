@@ -50,8 +50,10 @@
     styleBucket: "dialogues",
     contentType: "dialogues",
     contentQuery: "",
-    settingsGroup: null,
+    settingsGroup: storageGet("sl-settings-group"),
+    settingsQuery: "",
     dirtySettings: new Map(),
+    bugReportConfig: null,
     shadow: {
       source: "live",
       groupId: "",
@@ -203,6 +205,22 @@
 
   function escapeAttr(value) {
     return escapeHtml(value).replace(/`/g, "&#96;");
+  }
+
+  // 插件页 iframe 可能处于 opaque origin（localStorage 访问抛 SecurityError）：
+  // 记忆类偏好一律走安全封装，失败时静默降级为会话内状态
+  function storageGet(key) {
+    try {
+      return window.localStorage?.getItem(key) ?? null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function storageSet(key, value) {
+    try {
+      window.localStorage?.setItem(key, value);
+    } catch (_) {}
   }
 
   function localNavigationHost(hostname) {
@@ -581,7 +599,10 @@
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
       if (page === "settings") {
         if (force) state.dirtySettings.clear();
-        return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+        renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+        // 数据管理 / Bug 反馈面板：与设置快照并行加载，失败不阻塞配置表单
+        await Promise.allSettled([loadDataStatistics(force), loadBugReport(force)]);
+        return;
       }
     } catch (error) {
       showToast(error.message || String(error), "error");
@@ -2326,41 +2347,107 @@
     })).filter((link) => link.source && link.target);
   }
 
+  // ── 功能融合（对齐独立版 IntegrationsPage：状态卡 → 世界书 + QQ → MaiBot → 融合设置） ──
   function renderIntegrations(data) {
-    setHtml("integration-cards", (data.dashboards || []).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
-    setHtml("integration-warnings", warningListHtml(data.warnings || []));
-    const settings = data.settings || {};
+    const payload = isRecord(data) ? data : {};
+    setHtml("integration-cards", listOf(payload.dashboards).filter(isRecord).map(integrationCardHtml).join("") || empty(t("empty.integrations", "暂无融合状态")));
+    setHtml("integration-warnings", warningListHtml(payload.warnings || []));
+    const settings = isRecord(payload.settings) ? payload.settings : {};
     setHtml("integration-settings", Object.entries(settings).map(([key, value]) => `
       <div class="table-row">
         <span>${escapeHtml(key)}</span>
         <strong>${escapeHtml(value === true ? t("state.on", "开启") : value === false ? t("state.off", "关闭") : value ?? t("state.unset", "未设置"))}</strong>
       </div>
     `).join("") || empty(t("empty.integrationSettings", "暂无融合设置")));
-    renderMaiBotImportPreview(data.maibot_learning || null);
+    renderMaiBotImportPreview(payload.maibot_learning || null);
     loadWorldbookHistory();
   }
 
+  // 状态徽标：正常 / 异常 / 未知 / 未安装（与独立版 IntegrationCard badge 同口径）
+  function integrationStatusBadge(item) {
+    const status = isRecord(item.status) ? item.status : {};
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const active = item.active === true || dash.available === true;
+    const healthy = status.healthy;
+    const text = healthy === true ? t("state.healthy", "正常")
+      : healthy === false ? t("state.unhealthy", "异常")
+      : active ? t("state.unknown", "未知") : t("state.notInstalled", "未安装");
+    return pill(text, healthy === true ? "ok" : healthy === false ? "danger" : "warn");
+  }
+
+  // 委托状态独立成徽标，不掩盖健康状态（两端 union 后一致）
+  function integrationDelegationBadge(item) {
+    if (item.delegated !== true && item.delegated !== false) return "";
+    return pill(item.delegated ? t("state.delegated", "已委托") : t("state.notDelegated", "未委托"), item.delegated ? "ok" : "");
+  }
+
   function integrationCardHtml(item) {
-    const dash = item.dashboard || {};
-    const status = item.status || {};
-    const url = resolveHostUrl(dash.external_url || dash.official_page_url || "#");
-    const disabled = !dash.available || !url || url === "#";
-    const stateText = status.healthy === true ? t("state.healthy", "正常")
-      : status.healthy === false ? t("state.unhealthy", "异常")
-      : item.active ? t("state.available", "可用") : t("state.disabled", "未启用");
-    return `<article class="integration-card ${item.active ? "active" : ""}">
-      <div>
-        <span>${escapeHtml(item.role || "")}</span>
-        <h3>${escapeHtml(item.title || item.id)}</h3>
-        <p>${escapeHtml(item.delegated ? t("state.delegated", "已委托") : stateText)}</p>
-        ${status.message ? `<small>${escapeHtml(String(status.message))}</small>` : ""}
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const status = isRecord(item.status) ? item.status : {};
+    const devApi = isRecord(item.dev_api) ? item.dev_api : {};
+    const actionable = Boolean(dash.available || String(dash.route || "").startsWith("#/") || dash.external_url || dash.official_page_url);
+    return `<article class="integration-card ${item.active || dash.available ? "active" : ""}">
+      <div class="integration-card-head">
+        <h3>${escapeHtml(item.title || item.id || "")}</h3>
+        <div class="integration-badges">${integrationStatusBadge(item)}${integrationDelegationBadge(item)}</div>
       </div>
-      <a class="ghost-button ${disabled ? "disabled" : ""}" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">${escapeHtml(dash.label || t("actions.open", "打开"))}</a>
-      <small>${escapeHtml((item.dev_api || {}).mode || "")}</small>
+      <p>${escapeHtml(textOrDash(item.description ?? item.role))}</p>
+      ${status.message ? `<small class="integration-card-status">${escapeHtml(String(status.message))}</small>` : ""}
+      ${devApi.mode ? `<small class="integration-card-mode">${escapeHtml(String(devApi.mode))}</small>` : ""}
+      ${button(t("integrations.openPanel", "打开面板"), `data-integration-open="${escapeAttr(item.id || "")}" ${actionable ? "" : "disabled"}`, "ghost-button integration-open-button")}
     </article>`;
   }
 
+  // 打开面板：外部链接优先新窗口打开；无外部入口的卡片退回内嵌路由（与独立版 openIntegration 一致）
+  function handleIntegrationOpen(id) {
+    const item = listOf((state.pageData.integrations || {}).dashboards)
+      .find((entry) => isRecord(entry) && String(entry.id || "") === String(id));
+    if (!item) return;
+    const dash = isRecord(item.dashboard) ? item.dashboard : {};
+    const external = resolveHostUrl(String(dash.external_url || ""));
+    if (external && external !== "#") {
+      window.open(external, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const route = String(dash.route || "");
+    if (route.startsWith("#/")) {
+      const page = route.replace(/^#\//, "");
+      if (PAGE_META[page]) {
+        navigateToPage(page);
+        return;
+      }
+    }
+    const official = resolveHostUrl(String(dash.official_page_url || ""));
+    if (official && official !== "#") window.open(official, "_blank", "noopener,noreferrer");
+  }
+
+  // 结果框：仅有内容时显示（预览/导入摘要 + 原始 JSON），避免空态占位（与独立版一致）
+  function showImportOutput(id, text) {
+    const el = $(id);
+    if (!el) return;
+    if (text) {
+      el.hidden = false;
+      el.textContent = text;
+    } else {
+      el.hidden = true;
+      el.textContent = "";
+    }
+  }
+
   function collectMaiBotPayload() {
+    const payloadText = ($("maibot-payload-input")?.value || "").trim();
+    if (payloadText) {
+      let payload;
+      try {
+        payload = JSON.parse(payloadText);
+      } catch (_) {
+        throw new Error(t("maibot.invalidPayload", "MaiBot 导出 JSON 格式无效"));
+      }
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error(t("maibot.payloadNotObject", "MaiBot 导出 JSON 必须是对象"));
+      }
+      return { payload };
+    }
     const payload = {
       maibot_root: $("maibot-root-input")?.value?.trim() || "",
       db_path: $("maibot-db-input")?.value?.trim() || "",
@@ -2372,7 +2459,7 @@
       approve_checked_expressions: Boolean($("maibot-approve-checked")?.checked),
     };
     if (!payload.maibot_root && !payload.db_path) {
-      throw new Error(t("maibot.missingPath", "请填写 MaiBot 项目目录或主数据库路径"));
+      throw new Error(t("maibot.missingPath", "请填写 MaiBot 根目录或数据库路径，或粘贴导出 JSON"));
     }
     return payload;
   }
@@ -2385,14 +2472,18 @@
       include_training_pairs: Boolean($("qchat-include-training")?.checked),
     };
     if (!payload.source_path) {
-      throw new Error(t("qchat.missingPath", "请填写 QQ 聊天记录路径"));
+      throw new Error(t("qchat.missingPath", "请输入聊天记录源路径"));
     }
     return payload;
   }
 
   function renderMaiBotImportPreview(summary) {
     const output = $("maibot-import-output");
-    if (!output || !summary) return;
+    if (!output) return;
+    if (!summary || typeof summary !== "object") {
+      showImportOutput("maibot-import-output", "");
+      return;
+    }
     const counts = summary.counts || {};
     const breakdown = summary.review_breakdown || {};
     const destinations = summary.destinations || {};
@@ -2415,12 +2506,16 @@
         .replace("{jargons}", destinations.jargons)
         .replace("{memories}", destinations.memories));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+    showImportOutput("maibot-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`);
   }
 
   function renderQchatImportPreview(summary) {
     const output = $("qchat-import-output");
-    if (!output || !summary) return;
+    if (!output) return;
+    if (!summary || typeof summary !== "object") {
+      showImportOutput("qchat-import-output", "");
+      return;
+    }
     const counts = summary.counts || {};
     const lines = [];
     if (Object.keys(counts).length) {
@@ -2444,7 +2539,7 @@
         .replace("{raw}", destinations.raw_messages || "raw_messages")
         .replace("{queue}", destinations.learning_queue || "raw_messages.processed=false"));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`;
+    showImportOutput("qchat-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(summary, null, 2)}`);
   }
 
   function collectWorldbookPayload() {
@@ -2471,6 +2566,10 @@
   function renderWorldbookPreview(detail) {
     const output = $("worldbook-import-output");
     if (!output) return;
+    if (!detail || typeof detail !== "object") {
+      showImportOutput("worldbook-import-output", "");
+      return;
+    }
     const counts = detail.counts || {};
     const breakdown = detail.review_breakdown || {};
     const lines = [];
@@ -2500,32 +2599,41 @@
         .replace("{relations}", fmt(detail.kg_relations_imported, 0))
         .replace("{skipped}", fmt(detail.skipped, 0)));
     }
-    output.textContent = `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(detail, null, 2)}`;
+    showImportOutput("worldbook-import-output", `${lines.join("\n")}${lines.length ? "\n\n" : ""}${JSON.stringify(detail, null, 2)}`);
+  }
+
+  // 世界书导入历史：折叠面板显示世界书名 / 条目数 / 状态徽标（后端聚合 status）
+  function worldbookStatusPill(item) {
+    const status = item.status;
+    const tone = status === "approved" || status === "success" ? "ok" : status === "rejected" ? "danger" : "warn";
+    return pill(textOrDash(status), tone);
   }
 
   async function loadWorldbookHistory() {
+    const wrapper = $("worldbook-history");
     try {
       const result = await apiPost("integrations/action", { action: "worldbook_history", limit: 8 });
-      const history = result.history || {};
-      const imports = history.imports || {};
-      const rows = Object.values(imports)
+      const history = isRecord(result.history) ? result.history : {};
+      const rows = listOf(history.imports).filter(isRecord)
         .sort((a, b) => String(b.imported_at || b.created_at || "").localeCompare(String(a.imported_at || a.created_at || "")))
         .slice(0, 8);
-      setHtml("worldbook-history-list", rows.length ? `
-        <div class="table-row history-heading">
-          <strong>${escapeHtml(t("worldbook.recentImports", "最近导入记录"))}</strong>
-        </div>
-        ${rows.map((item) => `
-          <div class="table-row">
-            <div>
-              <strong>${escapeHtml(item.worldbook_name || item.source_name || item.import_id || t("worldbook.defaultName", "世界书导入"))}</strong>
-              <small>${escapeHtml(formatTimestamp(item.imported_at || item.created_at))}</small>
-            </div>
-            <strong>${escapeHtml(fmt(item.entries, 0))}</strong>
-            ${pill(String(item.status ?? ""), item.status === "approved" || item.status === "success" ? "ok" : "warn")}
+      if (wrapper) wrapper.hidden = rows.length === 0;
+      const summary = wrapper?.querySelector("summary");
+      if (summary) {
+        summary.textContent = `${t("worldbook.recentImports", "最近导入记录")}（${fmt(rows.length, 0)}）`;
+      }
+      setHtml("worldbook-history-list", rows.map((item) => `
+        <div class="table-row">
+          <div>
+            <strong>${escapeHtml(item.worldbook_name || item.import_id || t("worldbook.defaultName", "世界书导入"))}</strong>
+            <small>${escapeHtml(formatTimestamp(item.imported_at || item.created_at))}</small>
           </div>
-        `).join("")}` : "");
+          <strong>${escapeHtml(fmt(item.entries, 0))}</strong>
+          ${worldbookStatusPill(item)}
+        </div>
+      `).join(""));
     } catch (_) {
+      if (wrapper) wrapper.hidden = true;
       setHtml("worldbook-history-list", "");
     }
   }
@@ -2537,9 +2645,10 @@
       const payload = collectWorldbookPayload();
       if (action === "worldbook_import") {
         const confirmed = await showConfirm(
-          t("modal.confirmImport", "确认导入"),
+          t("worldbook.confirmTitle", "导入世界书"),
           t("worldbook.confirmImport", "将写入人格审查、黑话候选或知识图谱，确定继续吗？"),
-          t("actions.import", "导入"),
+          t("worldbook.confirmImportOk", "确认导入"),
+          "warning",
         );
         if (!confirmed) return;
       }
@@ -2548,11 +2657,11 @@
         buttonEl.classList.add("is-busy");
         buttonEl.textContent = action === "worldbook_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
       }
-      setText("worldbook-import-output", action === "worldbook_import" ? t("worldbook.importing", "正在导入世界书...") : t("worldbook.previewing", "正在解析世界书..."));
+      showImportOutput("worldbook-import-output", action === "worldbook_import" ? t("worldbook.importing", "正在导入世界书...") : t("worldbook.previewing", "正在解析世界书..."));
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderWorldbookPreview(detail);
-      showToast(result.message || t("worldbook.done", "世界书操作完成"), result.success !== false ? "ok" : "error");
+      showToast(action === "worldbook_import" ? t("worldbook.importDone", "导入完成") : t("worldbook.previewDone", "预览完成"), "ok");
       if (action === "worldbook_import") {
         state.pageData = {};
         await loadDashboard(true);
@@ -2560,7 +2669,7 @@
       }
     } catch (error) {
       const message = error.message || String(error);
-      setText("worldbook-import-output", message);
+      showImportOutput("worldbook-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -2593,7 +2702,7 @@
             data-qchat-sender="${escapeAttr(senderId)}" ${learnable ? "" : "disabled"}>
             <strong>${escapeHtml(sender.sender_name || senderId)}</strong>
             <small>QQ ${escapeHtml(sender.sender_qq || senderId)}</small>
-            <b>${escapeHtml(fmt(count, 0))}</b>
+            <b>${escapeHtml(`${fmt(count, 0)} ${t("qchat.countUnit", "条")}`)}</b>
             <small>${escapeHtml(learnable ? t("shadow.learnable", "可学习") : t("shadow.insufficient", "样本不足"))}</small>
           </button>`;
         }).join("")}
@@ -2607,31 +2716,54 @@
     if (!buttonEl) return;
     buttonEl.textContent = state.qchatShadowSender
       ? t("qchat.importWithShadow", "导入并启用影子")
-      : t("actions.import", "导入");
+      : t("qchat.importButton", "导入记录");
+    // 与独立版一致：预览完成后才允许导入
+    buttonEl.disabled = !state.qchatPreviewData;
   }
 
   async function runMaiBotImportAction(action) {
-    const buttonEl = action === "maibot_import" ? $("maibot-import-button") : $("maibot-preview-button");
+    const buttonEl = action === "maibot_import" ? $("maibot-import-button")
+      : action === "maibot_export" ? $("maibot-export-button") : $("maibot-preview-button");
     const originalLabel = buttonEl?.textContent || "";
     try {
       const payload = collectMaiBotPayload();
+      if (action === "maibot_import" && !await showConfirm(
+        t("maibot.confirmTitle", "导入 MaiBot 学习数据"),
+        t("maibot.confirmImport", "将写入表达样本、黑话候选和记忆数据，重复内容会被跳过。确定继续吗？"),
+        t("worldbook.confirmImportOk", "确认导入"),
+        "warning",
+      )) return;
       if (buttonEl) {
         buttonEl.disabled = true;
         buttonEl.classList.add("is-busy");
-        buttonEl.textContent = action === "maibot_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
+        buttonEl.textContent = action === "maibot_import" ? t("actions.importing", "导入中") : action === "maibot_export" ? t("maibot.exporting", "导出中") : t("actions.previewing", "预览中");
       }
-      setText("maibot-import-output", t("maibot.reading", "正在读取 MaiBot 学习数据..."));
+      showImportOutput("maibot-import-output", t("maibot.reading", "正在读取 MaiBot 学习数据..."));
       const result = await apiPost("integrations/action", { action, ...payload });
+      if (action === "maibot_export") {
+        // 导出不写数据：直接把导出包下载为 JSON 文件（与独立版 downloadJson 一致）
+        downloadJson("maibot-learning-export.json", result.payload ?? result);
+        showImportOutput("maibot-import-output", "");
+        showToast(t("maibot.exported", "MaiBot 学习数据已导出"), "ok");
+        return;
+      }
       const detail = result.preview || result.result || result.payload || result;
       renderMaiBotImportPreview(detail);
-      showToast(result.message || t("maibot.done", "MaiBot 学习数据操作完成"), result.success !== false ? "ok" : "error");
+      const errors = listOf(detail && detail.errors);
+      const failed = action === "maibot_import" && (result.success === false || errors.length > 0);
+      showToast(
+        failed
+          ? t("maibot.partialFailed", "导入部分失败，请查看下方明细")
+          : action === "maibot_import" ? t("maibot.importDone", "导入完成") : t("maibot.previewDone", "预览完成"),
+        failed ? "warn" : "ok",
+      );
       if (action === "maibot_import") {
         state.pageData = {};
         await loadDashboard(true);
       }
     } catch (error) {
       const message = error.message || String(error);
-      setText("maibot-import-output", message);
+      showImportOutput("maibot-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -2647,12 +2779,18 @@
     const originalLabel = buttonEl?.textContent || "";
     try {
       const payload = collectQchatPayload();
+      if (action === "qchat_import" && !await showConfirm(
+        t("qchat.confirmTitle", "导入 QQ 聊天记录"),
+        t("qchat.confirmImport", "消息将写入原始消息队列，重复消息会被跳过。确定继续吗？"),
+        t("worldbook.confirmImportOk", "确认导入"),
+        "warning",
+      )) return;
       if (buttonEl) {
         buttonEl.disabled = true;
         buttonEl.classList.add("is-busy");
         buttonEl.textContent = action === "qchat_import" ? t("actions.importing", "导入中") : t("actions.previewing", "预览中");
       }
-      setText("qchat-import-output", t("qchat.reading", "正在读取 QQ 聊天记录..."));
+      showImportOutput("qchat-import-output", t("qchat.reading", "正在读取 QQ 聊天记录..."));
       const result = await apiPost("integrations/action", { action, ...payload });
       const detail = result.preview || result.result || result.payload || result;
       renderQchatImportPreview(detail);
@@ -2662,11 +2800,11 @@
         const groupInput = $("qchat-default-group-input");
         if (groupInput && !groupInput.value.trim() && detail.group_id && detail.group_id !== "global") groupInput.value = String(detail.group_id);
         renderQchatSenders();
-        showToast(result.message || t("qchat.previewDone", "预览完成，可从用户列表选择影子对象"), "ok");
+        showToast(t("qchat.previewDone", "预览完成，请从用户列表中选择影子对象"), "ok");
         return;
       }
-      showToast(result.message || t("qchat.done", "QQ 聊天记录操作完成"), result.success !== false ? "ok" : "error");
-      if (action === "qchat_import" && state.qchatShadowSender) {
+      showToast(t("qchat.importDone", "导入完成"), "ok");
+      if (state.qchatShadowSender) {
         try {
           const senderId = state.qchatShadowSender;
           const sender = ((state.qchatPreviewData || {}).senders || [])
@@ -2681,16 +2819,14 @@
           });
           showToast(t("qchat.shadowLearned", "已启用 {name} 的影子模式").replace("{name}", sender?.sender_name || senderId), shadowResult.success ? "ok" : "error");
         } catch (shadowError) {
-          showToast(t("qchat.shadowFailed", "聊天记录已导入，但影子学习失败：{reason}").replace("{reason}", shadowError.message || String(shadowError)), "error");
+          showToast(t("qchat.shadowFailed", "聊天记录已导入，但影子学习失败：{reason}").replace("{reason}", shadowError.message || String(shadowError)), "warn");
         }
       }
-      if (action === "qchat_import") {
-        state.pageData = {};
-        await loadDashboard(true);
-      }
+      state.pageData = {};
+      await loadDashboard(true);
     } catch (error) {
       const message = error.message || String(error);
-      setText("qchat-import-output", message);
+      showImportOutput("qchat-import-output", message);
       showToast(message, "error");
     } finally {
       if (buttonEl) {
@@ -2702,21 +2838,126 @@
     }
   }
 
-  function renderSettings(data) {
-    const schema = data.schema || {};
-    setHtml("settings-warnings", warningListHtml(schema.warnings || data.warnings || []));
-    const groups = schema.groups || [];
-    if (!state.settingsGroup && groups.length) state.settingsGroup = groups[0].key;
-    setHtml("settings-groups", groups.map((group) => `
-      <button class="settings-group ${group.key === state.settingsGroup ? "active" : ""}" type="button" data-settings-group="${escapeAttr(group.key)}">
-        <strong>${escapeHtml(configT(`${group.key}.description`, group.title || group.key))}</strong>
-        <small>${escapeHtml(configT(`${group.key}.hint`, group.hint || ""))}</small>
-      </button>
-    `).join("") || empty(t("empty.configSchema", "配置 schema 暂不可用")));
+  // ── 设置（对齐独立版 SettingsPage：数据管理 / Bug 反馈 / 分组搜索 / 依赖安装） ──
+  const SETTINGS_GROUP_STORAGE_KEY = "sl-settings-group";
+  const PIP_MIRROR_STORAGE_KEY = "sl-pip-mirror";
 
-    const active = groups.find((group) => group.key === state.settingsGroup) || groups[0] || { fields: [] };
-    setHtml("config-form", (active.fields || []).map(fieldHtml).join("") || empty(t("empty.selectConfigGroup", "请选择配置分组")));
-    renderPipMirrors(data.pip_mirrors || {});
+  function settingsGroups() {
+    const schema = (state.pageData.settings || {}).schema || {};
+    return listOf(schema.groups).filter(isRecord);
+  }
+
+  function settingsGroupKey(group) {
+    return String(group.key ?? group.title ?? "");
+  }
+
+  function settingsGroupLabel(group) {
+    return configT(`${settingsGroupKey(group)}.description`, group.title || settingsGroupKey(group));
+  }
+
+  function settingsFieldMatches(field, query) {
+    const groupKey = field.group_key || activeSettingsGroupKeyForField(field.key);
+    const haystack = `${configT(`${groupKey}.${field.key}.description`, field.label || field.key)} ${field.key} ${configT(`${groupKey}.${field.key}.hint`, field.hint || "")}`.toLowerCase();
+    return haystack.includes(query);
+  }
+
+  // 「未保存 N 项」徽标 + 保存/重置按钮可用性（与独立版 PageHeader actions 同步）
+  function syncSettingsHeader() {
+    const dirtyCount = state.dirtySettings.size;
+    const badge = $("settings-dirty-badge");
+    if (badge) {
+      badge.hidden = dirtyCount === 0;
+      badge.textContent = t("settings.dirtyBadge", "未保存 {count} 项").replace("{count}", fmt(dirtyCount, 0));
+    }
+    const save = $("config-save-button");
+    if (save) save.disabled = dirtyCount === 0;
+    const reset = $("config-reset-button");
+    if (reset) reset.disabled = dirtyCount === 0;
+  }
+
+  // 侧栏分组导航：搜索过滤、字段数、未保存圆点（与独立版 group-nav 同构）
+  function renderSettingsNav() {
+    const groups = settingsGroups();
+    const query = String(state.settingsQuery || "").trim().toLowerCase();
+    const matched = query
+      ? groups.filter((group) => listOf(group.fields).some((field) => isRecord(field) && settingsFieldMatches(field, query)))
+      : groups;
+    const nav = $("settings-groups");
+    const noMatch = $("settings-no-match");
+    if (noMatch) {
+      noMatch.hidden = groups.length > 0 && matched.length > 0;
+      noMatch.textContent = groups.length === 0
+        ? t("settings.notLoaded", "配置面板尚未加载。")
+        : query
+          ? t("settings.noMatchQuery", "没有匹配「{query}」的配置项").replace("{query}", String(state.settingsQuery || "").trim())
+          : t("settings.noMatch", "没有匹配的配置项");
+    }
+    if (nav) {
+      nav.innerHTML = matched.map((group) => {
+        const key = settingsGroupKey(group);
+        const dirty = listOf(group.fields).some((field) => isRecord(field) && state.dirtySettings.has(field.key));
+        return `<button class="settings-group ${!query && key === state.settingsGroup ? "active" : ""}" type="button" data-settings-group="${escapeAttr(key)}">
+          <span class="settings-group-label">
+            <strong>${escapeHtml(settingsGroupLabel(group))}</strong>
+            <small>${escapeHtml(configT(`${key}.hint`, group.hint || ""))}</small>
+          </span>
+          <span class="settings-group-meta">${dirty ? `<i class="dirty-dot" title="${escapeAttr(t("settings.dirtyDot", "有未保存修改"))}"></i>` : ""}${escapeHtml(fmt(listOf(group.fields).length, 0))}</span>
+        </button>`;
+      }).join("");
+    }
+  }
+
+  // 右侧详情：分组头（名称 + 说明 + N 项）；搜索时跨分组平铺匹配结果（与独立版一致）
+  function renderSettingsDetail() {
+    const groups = settingsGroups();
+    const head = $("config-group-head");
+    if (!groups.length) {
+      if (head) head.hidden = true;
+      setHtml("config-form", `<div class="empty-state with-detail">
+        <strong>${escapeHtml(t("settings.notLoadedTitle", "配置面板尚未加载"))}</strong>
+        <span>${escapeHtml(t("settings.notLoaded", "配置面板尚未加载。"))}</span>
+        ${button(t("settings.loadConfig", "加载配置"), 'data-settings-load="1"', "ghost-button")}
+      </div>`);
+      return;
+    }
+    const query = String(state.settingsQuery || "").trim().toLowerCase();
+    if (query) {
+      if (head) head.hidden = true;
+      const matched = groups
+        .map((group) => ({
+          group,
+          fields: listOf(group.fields).filter((field) => isRecord(field) && settingsFieldMatches(field, query)),
+        }))
+        .filter((entry) => entry.fields.length);
+      setHtml("config-form", matched.map((entry) => `
+        <h4 class="settings-result-group">${escapeHtml(settingsGroupLabel(entry.group))}</h4>
+        ${entry.fields.map(fieldHtml).join("")}
+      `).join("") || empty(t("settings.noMatch", "没有匹配的配置项")));
+      return;
+    }
+    const active = groups.find((group) => settingsGroupKey(group) === state.settingsGroup) || groups[0];
+    if (active) state.settingsGroup = settingsGroupKey(active);
+    if (head) {
+      head.hidden = false;
+      setText("config-group-name", settingsGroupLabel(active));
+      const hintEl = $("config-group-hint");
+      if (hintEl) {
+        hintEl.textContent = configT(`${settingsGroupKey(active)}.hint`, active.hint || "");
+        hintEl.hidden = !hintEl.textContent;
+      }
+      setText("config-group-count", t("settings.fieldCount", "{count} 项").replace("{count}", fmt(listOf(active.fields).length, 0)));
+    }
+    setHtml("config-form", listOf(active.fields).filter(isRecord).map(fieldHtml).join("") || empty(t("empty.selectConfigGroup", "请选择配置分组")));
+  }
+
+  function renderSettings(data) {
+    const payload = isRecord(data) ? data : {};
+    const schema = isRecord(payload.schema) ? payload.schema : {};
+    setHtml("settings-warnings", warningListHtml(schema.warnings || payload.warnings || []));
+    renderPipMirrors(payload.pip_mirrors || {});
+    renderSettingsNav();
+    renderSettingsDetail();
+    syncSettingsHeader();
   }
 
   function fieldHtml(field) {
@@ -2757,7 +2998,231 @@
   function renderPipMirrors(mirrors) {
     const select = $("pip-mirror-select");
     if (!select || select.childElementCount) return;
-    select.innerHTML = Object.entries(mirrors).map(([key, item]) => `<option value="${escapeAttr(key)}">${escapeHtml(item.label || key)}</option>`).join("");
+    select.innerHTML = Object.entries(isRecord(mirrors) ? mirrors : {})
+      .map(([key, item]) => `<option value="${escapeAttr(key)}">${escapeHtml((isRecord(item) ? item.label : null) || key)}</option>`)
+      .join("");
+    // 记住上次选择的镜像源（与独立版 localStorage key sl-pip-mirror 相同）
+    const saved = storageGet(PIP_MIRROR_STORAGE_KEY);
+    if (saved && Array.from(select.options).some((option) => option.value === saved)) select.value = saved;
+  }
+
+  // ── 数据管理（对齐独立版 DataManagementPanel：8 读数 + 按模块清空，全部需二次确认） ──
+  const DATA_STAT_ROWS = [
+    ["messages", "原始/筛选消息"],
+    ["persona_reviews", "人格学习与审查"],
+    ["style_learning", "表达风格学习"],
+    ["jargon", "黑话词库"],
+    ["learning_history", "学习历史"],
+    ["memory", "记忆数据"],
+    ["knowledge_graph", "知识图谱"],
+    ["runtime_state", "运行时状态"],
+  ];
+  const DATA_CLEAR_ACTIONS = [
+    ["messages", "消息数据", "warning"],
+    ["persona_reviews", "人格学习/审查数据", "warning"],
+    ["style_learning", "风格学习数据", "warning"],
+    ["jargon", "黑话数据", "warning"],
+    ["learning_history", "学习历史数据", "warning"],
+  ];
+
+  async function loadDataStatistics(force) {
+    try {
+      const result = await cached("data:statistics", () => apiGet("data/statistics"), force);
+      renderDataStatistics(isRecord(result) ? result : {});
+    } catch (error) {
+      showToast(error.message || t("dataMgmt.statsFailed", "数据统计加载失败"), "error");
+    }
+  }
+
+  function renderDataStatistics(stats) {
+    setHtml("data-stat-grid", DATA_STAT_ROWS.map(([key, label]) => `
+      <article class="stat-card small">
+        <span>${escapeHtml(t(`dataMgmt.stats.${key}`, label))}</span>
+        <strong>${escapeHtml(textOrDash(stats[key]))}</strong>
+      </article>`).join(""));
+    const actions = $("data-clear-actions");
+    if (actions && !actions.childElementCount) {
+      actions.innerHTML = DATA_CLEAR_ACTIONS.map(([key, label]) =>
+        button(`${t("dataMgmt.clearPrefix", "清空")}${t(`dataMgmt.clear.${key}`, label)}`, `data-data-clear="${escapeAttr(key)}"`, "ghost-button warning-button"),
+      ).join("") + button(t("dataMgmt.clearAll", "清空全部数据"), 'data-data-clear="all"', "danger-button");
+    }
+  }
+
+  async function handleDataClear(target) {
+    const row = DATA_CLEAR_ACTIONS.find(([key]) => key === target);
+    const isAll = target === "all";
+    if (!row && !isAll) return;
+    const label = isAll ? t("dataMgmt.clearAllLabel", "全部数据") : t(`dataMgmt.clear.${row[0]}`, row[1]);
+    const confirmed = await showConfirm(
+      isAll ? t("dataMgmt.clearAllTitle", "清空全部数据") : `${t("dataMgmt.clearPrefix", "清空")}${label}`,
+      isAll
+        ? t("dataMgmt.clearAllConfirm", "将永久删除插件产生的全部数据（消息、人格审查、风格学习、黑话、学习历史等），且无法恢复。")
+        : t("dataMgmt.clearConfirm", "将永久删除「{label}」相关数据，且无法恢复。").replace("{label}", label),
+      t("dataMgmt.clearOk", "确认清空"),
+      isAll || !row || row[2] !== "warning" ? "danger" : "warning",
+    );
+    if (!confirmed) return;
+    const actionButtons = qsa("[data-data-clear]");
+    actionButtons.forEach((el) => { el.disabled = true; });
+    try {
+      const result = await apiPost("data/clear", { target, confirmed: true });
+      if (result.success === false) throw new Error(result.message || t("dataMgmt.clearFailed", "清空数据失败"));
+      const deleted = result.deleted === undefined ? "" : t("dataMgmt.deletedSuffix", "（{count} 行）").replace("{count}", fmt(result.deleted, 0));
+      showToast(`${result.message || `${t("dataMgmt.clearedPrefix", "已清空")}${label}`}${deleted}`, "ok");
+      // 只失效受影响的缓存：设置快照仍在使用中，整体清空会让设置页渲染退化为空态
+      clearCached("data:statistics");
+      delete state.pageData.integrations;
+      await loadDataStatistics(true);
+      await loadDashboard(true);
+    } catch (error) {
+      showToast(error.message || t("dataMgmt.clearFailed", "清空数据失败"), "error");
+    } finally {
+      actionButtons.forEach((el) => { el.disabled = false; });
+    }
+  }
+
+  // ── Bug 反馈（对齐独立版 BugReportPanel：配置选项 + 日志预览 + 提交） ──
+  const BUG_FALLBACK_SEVERITY = [[1, "1 - 致命"], [2, "2 - 严重"], [3, "3 - 一般"], [4, "4 - 轻微"]];
+  const BUG_FALLBACK_PRIORITY = [[1, "1 - 紧急"], [2, "2 - 高"], [3, "3 - 中"], [4, "4 - 低"]];
+  const BUG_FALLBACK_TYPE = [["codeerror", "代码错误"], ["config", "配置相关"], ["install", "安装部署"], ["performance", "性能问题"], ["others", "其他"]];
+
+  function bugOptions(key, fallback) {
+    const options = listOf((state.bugReportConfig || {})[key]);
+    return options.length ? options : fallback.map(([value, label]) => ({ value, label }));
+  }
+
+  function renderBugSelect(id, options) {
+    const select = $(id);
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = options.map((option) => `<option value="${escapeAttr(option.value)}">${escapeHtml(option.label ?? option.value)}</option>`).join("");
+    // 下拉选项异步替换后保留受控值，避免回退到第一项（与独立版 Select onMount syncValue 同义）
+    if (previous && options.some((option) => String(option.value) === previous)) select.value = previous;
+  }
+
+  async function loadBugReport(force) {
+    try {
+      const config = await cached("bug:config", () => apiGet("bug-report"), force);
+      renderBugReport(isRecord(config) ? config : {});
+    } catch (error) {
+      showToast(error.message || t("bugReport.configFailed", "Bug 报告配置加载失败"), "error");
+    }
+  }
+
+  function renderBugReport(config) {
+    state.bugReportConfig = config;
+    const enabled = config.enabled !== false;
+    const body = $("bug-report-body");
+    const emptyEl = $("bug-report-empty");
+    if (emptyEl) {
+      emptyEl.hidden = enabled;
+      emptyEl.innerHTML = enabled ? "" : `<div class="empty-state with-detail">
+        <strong>${escapeHtml(t("bugReport.unavailable", "Bug 反馈暂不可用"))}</strong>
+        <span>${escapeHtml(String(config.message || t("bugReport.unavailableDetail", "管理员未开启该功能。")))}</span>
+      </div>`;
+    }
+    if (body) body.hidden = !enabled;
+    if (!enabled) return;
+    renderBugSelect("bug-severity-select", bugOptions("severityOptions", BUG_FALLBACK_SEVERITY));
+    renderBugSelect("bug-priority-select", bugOptions("priorityOptions", BUG_FALLBACK_PRIORITY));
+    renderBugSelect("bug-type-select", bugOptions("typeOptions", BUG_FALLBACK_TYPE));
+    const build = $("bug-build-input");
+    // 用户可能已手动填写：仅在为空时回填默认影响版本（与独立版一致）
+    if (build && !build.value.trim() && config.defaultBuild) build.value = String(config.defaultBuild);
+    const logPreview = isRecord(config.logPreview) ? config.logPreview : {};
+    const entries = Object.entries(logPreview).filter(([, content]) => typeof content === "string" && content.length > 0);
+    const details = $("bug-log-preview");
+    if (details) {
+      details.hidden = entries.length === 0;
+      setText("bug-log-summary", t("bugReport.logPreview", "附加日志预览（{count} 项，仅展示，不会随报告提交）").replace("{count}", fmt(entries.length, 0)));
+      setHtml("bug-log-body", entries.map(([name, content]) => `<h4>${escapeHtml(name)}</h4><pre class="code-preview">${escapeHtml(content)}</pre>`).join(""));
+    }
+  }
+
+  async function handleBugSubmit() {
+    const title = ($("bug-title-input")?.value || "").trim();
+    const steps = ($("bug-steps-input")?.value || "").trim();
+    if (!title || !steps) {
+      showToast(t("bugReport.missingFields", "请填写 Bug 标题和重现步骤"), "warn");
+      return;
+    }
+    const config = state.bugReportConfig || {};
+    const submitButton = $("bug-report-submit");
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.classList.add("is-busy");
+    }
+    try {
+      const result = await apiPost("bug-report/submit", {
+        title,
+        steps,
+        severity: Number($("bug-severity-select")?.value || 3),
+        pri: Number($("bug-priority-select")?.value || 3),
+        type: $("bug-type-select")?.value || "codeerror",
+        build: ($("bug-build-input")?.value || "").trim() || String(config.defaultBuild || ""),
+        os: ($("bug-os-input")?.value || "").trim(),
+        browser: ($("bug-browser-input")?.value || "").trim(),
+        mailto: ($("bug-mailto-input")?.value || "").trim(),
+      });
+      showToast(result.message || t("bugReport.submitted", "Bug 报告已提交"), result.success === false ? "error" : "ok");
+      if (result.success !== false) {
+        setText("bug-title-input", "");
+        setText("bug-steps-input", "");
+      }
+    } catch (error) {
+      showToast(error.message || t("bugReport.submitFailed", "Bug 报告提交失败"), "error");
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.classList.remove("is-busy");
+      }
+    }
+  }
+
+  // ── 依赖安装（对齐独立版 dep-block：两档按钮 + 镜像记忆；保留确认弹窗与 pip 输出框） ──
+  async function handleDependencyInstall(tier) {
+    const tierLabel = tier === "basic" ? t("settings.tierBasic", "基础") : t("settings.tierFull", "全能力");
+    const confirmed = await showConfirm(
+      t("settings.installConfirmTitle", "安装 Python 依赖"),
+      t("settings.installConfirmBody", "即将调用 pip 安装{tier}依赖，确定继续吗？").replace("{tier}", tierLabel),
+      t("actions.confirm", "确认"),
+      "warning",
+    );
+    if (!confirmed) return;
+    qsa("[data-dep-tier]").forEach((installButton) => {
+      installButton.disabled = true;
+      installButton.classList.add("is-busy");
+    });
+    const output = $("dependency-output");
+    if (output) {
+      output.hidden = false;
+      output.textContent = t("settings.installingDeps", "正在调用 pip 安装依赖，请等待命令输出...");
+    }
+    try {
+      const settings = state.pageData.settings || {};
+      const result = await apiPost("settings/action", {
+        action: "install_dependencies",
+        manual_confirmed: true,
+        source: settings.manual_dependency_source || "system_settings",
+        tier,
+        pip_mirror: $("pip-mirror-select")?.value || storageGet(PIP_MIRROR_STORAGE_KEY) || "default",
+      });
+      const detail = isRecord(result.result) ? result.result : result;
+      if (output) output.textContent = detail.output || detail.message || result.message || t("settings.installDone", "依赖安装任务结束");
+      showToast(t("settings.installCompleted", "依赖安装任务已完成"), result.success !== false ? "ok" : "error");
+    } catch (error) {
+      const message = error.message || String(error);
+      if (output) {
+        output.hidden = false;
+        output.textContent = message;
+      }
+      showToast(message, "error");
+    } finally {
+      qsa("[data-dep-tier]").forEach((installButton) => {
+        installButton.disabled = false;
+        installButton.classList.remove("is-busy");
+      });
+    }
   }
 
   // ── 总览（对齐独立版 OverviewPage：4 读数 + 消息/学习趋势 + 当前状态） ──
@@ -3627,61 +4092,51 @@
     qsa("[data-graph-social]").forEach((btn) => {
       btn.addEventListener("click", () => handleGraphSocialAction(btn.dataset.graphSocial || ""));
     });
+    // 设置：保存 / 重新加载 / 重置（重置与强制重新加载都会丢弃未保存修改，与独立版一致）
     $("config-save-button")?.addEventListener("click", async () => {
-      const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
-      const saved = !!result.success;
-      showToast(
-        result.message || (saved ? t("messages.settingsSaved", "配置已保存") : t("messages.settingsSaveFailed", "配置保存失败")),
-        saved ? "ok" : "error",
-      );
-      if (!saved) return;
-      state.dirtySettings.clear();
-      state.pageData.settings = null;
-      await loadPageData("settings", { force: true });
-    });
-    $("dependency-install-button")?.addEventListener("click", async () => {
-      const installButton = $("dependency-install-button");
-      const originalLabel = installButton?.textContent || t("actions.manualInstall", "手动安装");
-      const settings = state.pageData.settings || {};
-      const tier = $("dependency-tier")?.value || "full";
-      const tierLabel = tier === "basic" ? t("settings.tierBasic", "基础") : t("settings.tierFull", "全能力");
-      const confirmed = await showConfirm(
-        t("settings.installConfirmTitle", "安装 Python 依赖"),
-        t("settings.installConfirmBody", "即将调用 pip 安装{tier}依赖，确定继续吗？").replace("{tier}", tierLabel),
-        t("actions.confirm", "确认"),
-      );
-      if (!confirmed) return;
-      if (installButton) {
-        installButton.disabled = true;
-        installButton.classList.add("is-busy");
-        installButton.textContent = t("actions.installing", "安装中");
-      }
-      setText("dependency-output", t("settings.installingDeps", "正在调用 pip 安装依赖，请等待命令输出..."));
+      const saveButton = $("config-save-button");
+      if (saveButton) saveButton.disabled = true;
       try {
-        const result = await apiPost("settings/action", {
-          action: "install_dependencies",
-          manual_confirmed: true,
-          source: settings.manual_dependency_source || "system_settings",
-          tier,
-          pip_mirror: $("pip-mirror-select")?.value || "default",
-        });
-        const detail = result.result || result;
-        setText("dependency-output", detail.output || detail.message || result.message || t("settings.installDone", "依赖安装任务结束"));
-        showToast(result.message || detail.message || t("settings.installDone", "依赖安装任务结束"), result.success !== false ? "ok" : "error");
+        const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
+        const saved = !!result.success;
+        showToast(
+          result.message || (saved ? t("messages.settingsSaved", "配置已保存") : t("messages.settingsSaveFailed", "配置保存失败")),
+          saved ? "ok" : "error",
+        );
+        if (!saved) return;
+        state.dirtySettings.clear();
+        state.pageData.settings = null;
+        await loadPageData("settings", { force: true });
       } catch (error) {
-        const message = error.message || String(error);
-        setText("dependency-output", message);
-        showToast(message, "error");
+        showToast(error.message || t("messages.settingsSaveFailed", "配置保存失败"), "error");
       } finally {
-        if (installButton) {
-          installButton.disabled = false;
-          installButton.classList.remove("is-busy");
-          installButton.textContent = originalLabel;
-        }
+        syncSettingsHeader();
+        renderSettingsNav();
       }
     });
+    $("config-reload-button")?.addEventListener("click", () => loadPageData("settings", { force: true }));
+    $("config-reset-button")?.addEventListener("click", () => {
+      state.dirtySettings.clear();
+      renderSettings(state.pageData.settings || {});
+      showToast(t("settings.resetDone", "未保存改动已重置"));
+    });
+    $("settings-search")?.addEventListener("input", (event) => {
+      state.settingsQuery = event.target.value || "";
+      renderSettingsNav();
+      renderSettingsDetail();
+    });
+    $("pip-mirror-select")?.addEventListener("change", (event) => {
+      storageSet(PIP_MIRROR_STORAGE_KEY, event.target.value || "default");
+    });
+    qsa("[data-dep-tier]").forEach((btn) => {
+      btn.addEventListener("click", () => handleDependencyInstall(btn.dataset.depTier || "full"));
+    });
+    $("data-stats-refresh")?.addEventListener("click", () => loadDataStatistics(true));
+    $("bug-report-refresh")?.addEventListener("click", () => loadBugReport(true));
+    $("bug-report-submit")?.addEventListener("click", handleBugSubmit);
     $("maibot-preview-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_preview"));
     $("maibot-import-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_import"));
+    $("maibot-export-button")?.addEventListener("click", () => runMaiBotImportAction("maibot_export"));
     $("qchat-preview-button")?.addEventListener("click", () => runQchatImportAction("qchat_preview"));
     $("qchat-import-button")?.addEventListener("click", () => runQchatImportAction("qchat_import"));
     $("worldbook-preview-button")?.addEventListener("click", () => runWorldbookAction("worldbook_preview"));
@@ -3729,7 +4184,7 @@
     });
 
     document.addEventListener("click", async (event) => {
-      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-batch-record-action],[data-page-nav],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-bucket],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group],[data-emo-action]");
+      const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-batch-record-action],[data-page-nav],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-bucket],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group],[data-emo-action],[data-integration-open],[data-data-clear],[data-settings-load]");
       if (!target) return;
       if (target.dataset.routeCard) {
         // 首页卡片 / 快捷坞为 <a href="#/page">：拦截默认跳转，避免 hashchange 重复加载
@@ -3752,9 +4207,16 @@
       if (target.dataset.shadowProfileAction) await handleShadowProfileAction(target);
       if (target.dataset.contentAction) await handleContentAction(target);
       if (target.dataset.emoAction) await handleEmotionAction(target);
+      if (target.dataset.integrationOpen) handleIntegrationOpen(target.dataset.integrationOpen);
+      if (target.dataset.dataClear) await handleDataClear(target.dataset.dataClear);
+      if (target.dataset.settingsLoad) await loadPageData("settings", { force: true });
       if (target.dataset.settingsGroup) {
         state.settingsGroup = target.dataset.settingsGroup;
-        renderSettings(state.pageData.settings || {});
+        // 记住选中的分组（与独立版 localStorage key sl-settings-group 相同）
+        storageSet(SETTINGS_GROUP_STORAGE_KEY, state.settingsGroup);
+        renderSettingsNav();
+        renderSettingsDetail();
+        syncSettingsHeader();
       }
     });
 
@@ -3779,6 +4241,8 @@
       const field = event.target.closest("[data-config-field]");
       if (!field) return;
       state.dirtySettings.set(field.dataset.configField, field.type === "checkbox" ? field.checked : field.value);
+      syncSettingsHeader();
+      renderSettingsNav();
     });
 
     // 导入黑话面板：「导入黑话」切换、「收起」隐藏；导入后保留输入与导入报告（与独立版一致）
@@ -3905,7 +4369,12 @@
         renderSocialGroupOptions();
         renderGraphPayload(state.graph.payload);
       } else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
-      else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
+      else if (state.page === "settings" && state.pageData.settings) {
+        renderSettings(state.pageData.settings);
+        // 数据管理 / Bug 反馈面板的静态标签同样跟随语言切换
+        if (state.pageData["data:statistics"]) renderDataStatistics(state.pageData["data:statistics"]);
+        if (state.pageData["bug:config"]) renderBugReport(state.pageData["bug:config"]);
+      }
     };
     try {
       const bridge = window.AstrBotPluginPage;

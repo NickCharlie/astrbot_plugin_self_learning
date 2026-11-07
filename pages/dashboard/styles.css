@@ -2818,3 +2818,435 @@ textarea {
 #page-reviews .panel-heading > .inline-actions {
   margin-left: auto;
 }
+
+
+/* ═══════════════════════════════════════════════════════════════
+   双端对齐 · 图谱（graphs）
+   结构与独立版（web_src）GraphsPage / GraphView 同构，
+   仅使用 endfield token（var(--…)），不新增色值。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 工具条：视图 / 布局分段 + 群组筛选（与独立版 graph-toolbar 同构） */
+.graph-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.graph-toolbar .segment-control {
+  margin-bottom: 0;
+}
+
+.graph-toolbar input {
+  flex: 1 1 200px;
+  min-width: 180px;
+}
+
+#graph-social-field {
+  flex: 1 1 200px;
+  min-width: 180px;
+  margin: 0;
+}
+
+/* 社交关系动作条 + 成员/关系/消息读数（与独立版 inline-actions + footer-note 同构） */
+.graph-social-bar {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.graph-social-bar .footer-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* 空态：图谱替换画布（与独立版 EmptyState title + detail 同构） */
+.graph-empty {
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+}
+
+.graph-empty[hidden] {
+  display: none;
+}
+
+.graph-empty .empty-state {
+  min-height: 190px;
+  width: 100%;
+}
+
+/* 画布隐藏（空态）时不占位；hidden 属性优先于上方 display: block */
+#graph-canvas[hidden] {
+  display: none;
+}
+
+/* 来源读数为长字符串：用与连线读数同级的展示，不放大字号 */
+#graph-stat-grid .stat-card strong.stat-text {
+  font-size: 15px;
+  line-height: 1.3;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+
+.graph-details-panel .compact-table {
+  margin-top: 10px;
+}
+
+/* 详情面板宽 360px：读数卡 4 列（min 120px×4）必然横向溢出，改两列（同人格页先例） */
+.graph-details-panel .stat-grid.compact {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   双端对齐 · 功能融合（integrations）
+   结构与独立版（web_src）IntegrationsPage / IntegrationCard 同构，
+   仅使用 endfield token（var(--…)），不新增色值。
+   ═══════════════════════════════════════════════════════════════ */
+
+.integration-status-panel {
+  margin-bottom: 14px;
+}
+
+.integration-status-panel .panel-heading {
+  margin-bottom: 12px;
+}
+
+/* 状态卡：标题 + 徽标行 / 角色描述 / 打开面板（与独立版 IntegrationCard 同构） */
+.integration-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.integration-card-head h3 {
+  min-width: 0;
+  margin: 0 0 0;
+  overflow-wrap: anywhere;
+}
+
+.integration-badges {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.integration-card p {
+  margin: 8px 0 0;
+}
+
+.integration-card-status,
+.integration-card-mode {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.integration-open-button {
+  margin-top: 10px;
+  justify-self: start;
+}
+
+/* 世界书 + QQ 双栏（与独立版 two-column 同构；窄栏自动单列） */
+.integration-imports {
+  align-items: start;
+  margin-bottom: 0;
+}
+
+.integration-imports .panel {
+  margin-bottom: 14px;
+}
+
+.worldbook-import-grid,
+.qchat-import-grid,
+.maibot-import-grid {
+  grid-template-columns: 1fr;
+}
+
+.maibot-payload-field {
+  margin-top: 10px;
+}
+
+/* 折叠导入历史（与独立版 details.import-history 同构） */
+.import-history {
+  margin-top: 10px;
+}
+
+.import-history summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.import-history[open] summary {
+  margin-bottom: 8px;
+}
+
+.import-history[hidden] {
+  display: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   双端对齐 · 设置（settings）
+   结构与独立版（web_src）SettingsPage / DataManagementPanel /
+   BugReportPanel 同构，仅使用 endfield token（var(--…)），不新增色值。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 数据管理：8 读数 + 按模块清空（与独立版 DataManagementPanel 同构） */
+.data-management-panel,
+.bug-report-panel {
+  margin-bottom: 14px;
+}
+
+.data-management-panel .panel-heading,
+.bug-report-panel .panel-heading {
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.data-management-panel .stat-grid.compact {
+  margin-bottom: 0;
+}
+
+.data-management-panel .stat-card strong {
+  overflow-wrap: anywhere;
+}
+
+.data-clear-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.data-clear-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.data-clear-head strong {
+  font-size: 13px;
+}
+
+#data-clear-actions {
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+#data-clear-actions .ghost-button,
+#data-clear-actions .danger-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+/* Bug 反馈：表单网格 + 日志预览（与独立版 BugReportPanel form-grid / log-preview 同构） */
+.bug-report-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.bug-log-preview {
+  margin: 10px 0;
+}
+
+.bug-log-preview summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+
+.bug-log-preview h4 {
+  margin: 10px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#bug-report-body .inline-actions {
+  justify-content: flex-start;
+}
+
+/* 侧栏：搜索 + 分组导航 + 依赖安装（与独立版 group-nav / dep-block 同构） */
+.settings-sidebar {
+  gap: 10px;
+}
+
+.settings-groups {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.settings-groups[hidden] {
+  display: none;
+}
+
+.settings-sidebar .settings-group {
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-direction: row;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  font-weight: 400;
+  text-align: left;
+}
+
+.settings-sidebar .settings-group::before {
+  display: none;
+}
+
+.settings-group-label {
+  min-width: 0;
+  display: grid;
+}
+
+.settings-group-label strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.settings-group-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-group-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dirty-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 0;
+  background: var(--warning);
+}
+
+.settings-no-match {
+  margin: 0;
+  padding: 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-no-match[hidden] {
+  display: none;
+}
+
+/* 依赖安装：侧栏底部次要操作块（与独立版 dep-block 同构） */
+.dep-block {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.dep-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dep-mirror-field {
+  gap: 4px;
+}
+
+.dep-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.dep-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.dep-actions .ghost-button,
+.dep-actions .solid-button {
+  justify-content: flex-start;
+}
+
+#dependency-output {
+  max-height: 220px;
+}
+
+/* 右侧详情：分组头（名称 + 说明 + N 项）与搜索结果分组标题 */
+.settings-detail {
+  align-content: start;
+}
+
+.config-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.config-group-head[hidden] {
+  display: none;
+}
+
+.config-group-head h3 {
+  margin: 0;
+}
+
+.config-group-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+#config-group-count {
+  flex: none;
+}
+
+.settings-result-group {
+  margin: 6px 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 860px) {
+  .bug-report-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .integration-imports {
+    grid-template-columns: 1fr;
+  }
+}

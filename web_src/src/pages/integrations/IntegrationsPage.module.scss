@@ -48,6 +48,20 @@
   border-radius: 0;
 }
 
+/* 世界书历史行右侧：条目数 + 状态徽标 */
+.history-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 融合设置成本提醒：与设置页 settings-warning 同构（warning 左缘条） */
+.delegation-warnings .check-row.warning {
+  border-left: 3px solid var(--warning);
+}
+
 .sender-section {
   display: grid;
   gap: 8px;

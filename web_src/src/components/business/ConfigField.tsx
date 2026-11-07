@@ -17,7 +17,11 @@ export function ConfigField(props: { field: ConfigFieldType }) {
   const value = () => dashboard.configDraft[props.field.key];
   const update = (next: unknown) => dashboard.setConfigDraft(props.field.key, normalizeFieldValue(props.field, next));
   const label = () => props.field.label || props.field.key;
-  const hint = () => String(props.field.description ?? props.field.hint ?? '');
+  // 内嵌页既有提示：需重启生效的配置项在 hint 后追加「 · 重启后生效」
+  const hint = () => {
+    const base = String(props.field.description ?? props.field.hint ?? '');
+    return props.field.restart_required ? `${base} · 重启后生效` : base;
+  };
   const readonly = () => props.field.editable === false || props.field.widget === 'readonly';
   const options = () => {
     const providerType = String(props.field.provider_type || '').trim().toLowerCase();

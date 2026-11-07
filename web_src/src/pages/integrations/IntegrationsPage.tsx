@@ -3,12 +3,13 @@ import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import { list, object } from '../shared';
 import type { IntegrationItem } from '../../types/dashboard';
-import { summarize } from '../../lib/format';
+import { formatCount, safeNumber, textOrDash } from '../../lib/format';
+import { qchatSummaryLines, summarizeWithJson, worldbookSummaryLines } from '../../lib/integrationSummary';
 import { resolveHostUrl } from '../../lib/routing';
 import { IntegrationCard } from '../../components/business/IntegrationCard';
 import { MaiBotImportPanel } from '../../components/business/MaiBotImportPanel';
 import { PageHeader } from '../../components/layout/PageHeader';
-import { Button, Input, Panel, Select, Textarea } from '../../components/ui';
+import { Badge, Button, Input, Panel, Select, Textarea } from '../../components/ui';
 import styles from './IntegrationsPage.module.scss';
 
 export function IntegrationsPage() {
@@ -120,6 +121,10 @@ export function IntegrationsPage() {
     const official = resolveHostUrl(String(dash.official_page_url ?? ''));
     if (official) window.open(official, '_blank', 'noopener,noreferrer');
   };
+  // 融合设置：成本提醒 + 委托相关配置开关（内嵌页既有面板移植，位置一致）
+  const delegationWarnings = () => list<string>(dashboard.integrations()?.warnings);
+  const delegationSettings = () => Object.entries(object(dashboard.integrations()?.settings));
+  const worldbookResultData = () => object(object(worldbookResult()).data ?? worldbookResult());
   return (
     <div class="page">
       <PageHeader title="功能融合" description="查看配套插件运行状态，并导入世界书与 QQ 聊天记录。" icon="extension" actions={<Button icon="refresh" onClick={dashboard.loadIntegrations}>刷新状态</Button>} />
@@ -140,15 +145,18 @@ export function IntegrationsPage() {
               <label><input type="checkbox" checked={includeDisabled()} onChange={(event) => setIncludeDisabled(event.currentTarget.checked)} /> 包含禁用条目</label>
             </div>
             <div class="inline-actions"><Button loading={busy() === 'worldbook-preview'} onClick={() => worldbook('preview')}>预览</Button><Button tone="primary" loading={busy() === 'worldbook-import'} onClick={() => worldbook('import')}>导入</Button></div>
-            <Show when={worldbookResult()}><pre class={styles['result-box']}>{summarize(worldbookResult())}</pre></Show>
+            <Show when={worldbookResult()}><pre class={styles['result-box']}>{summarizeWithJson(worldbookSummaryLines(worldbookResultData()), worldbookResult())}</pre></Show>
             <Show when={worldbookHistory().length}>
               <details class="import-history">
                 <summary>最近导入记录（{worldbookHistory().length}）</summary>
                 <div class="data-list">
                   <For each={worldbookHistory()}>{(item) =>
                     <div class="check-row">
-                      <div><strong>{String(item.source_name ?? item.import_id ?? item.id ?? '世界书导入')}</strong><small>{String(item.created_at ?? item.imported_at ?? '')}</small></div>
-                      <span>{String(item.status ?? item.success ?? '')}</span>
+                      <div><strong>{String(item.worldbook_name ?? item.import_id ?? item.id ?? '世界书导入')}</strong><small>{String(item.imported_at ?? item.created_at ?? '')}</small></div>
+                      <div class={styles['history-meta']}>
+                        <span>{formatCount(safeNumber(item.entries))}</span>
+                        <Badge tone={String(item.status) === 'approved' || String(item.status) === 'success' ? 'success' : String(item.status) === 'rejected' ? 'danger' : 'warning'}>{textOrDash(item.status)}</Badge>
+                      </div>
                     </div>
                   }</For>
                 </div>
@@ -182,11 +190,32 @@ export function IntegrationsPage() {
                 </div>
               </div>
             </Show>
-            <Show when={qchatResult()}><pre class={styles['result-box']}>{summarize(qchatResult())}</pre></Show>
+            <Show when={qchatResult()}><pre class={styles['result-box']}>{summarizeWithJson(qchatSummaryLines(qchatData()), qchatResult())}</pre></Show>
           </div>
         </Panel>
       </div>
       <MaiBotImportPanel />
+      <Panel title="融合设置">
+        <Show when={delegationWarnings().length}>
+          <div class={`data-list ${styles['delegation-warnings']}`}>
+            <For each={delegationWarnings()}>{(message) =>
+              <div class="check-row warning"><div><strong>成本提醒</strong><small>{String(message)}</small></div></div>
+            }</For>
+          </div>
+        </Show>
+        <Show when={delegationSettings().length} fallback={<div class="data-list"><div class="check-row"><div><small>暂无融合设置</small></div></div></div>}>
+          <div class="data-list">
+            <For each={delegationSettings()}>{([key, value]) =>
+              <div class="check-row">
+                <div><strong>{key}</strong></div>
+                <Badge tone={value === true ? 'success' : value === false ? 'default' : 'warning'}>
+                  {value === true ? '开启' : value === false ? '关闭' : textOrDash(value ?? '未设置')}
+                </Badge>
+              </div>
+            }</For>
+          </div>
+        </Show>
+      </Panel>
     </div>
   );
 }

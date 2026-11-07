@@ -86,9 +86,6 @@ class PluginPageApi:
         reviews = await self._safe_section(
             "reviews", lambda: self._load_reviews(limit=10), errors, default={}
         )
-        content = await self._safe_section(
-            "content", lambda: self._load_content(page=1, page_size=6), errors, default={}
-        )
         metrics = await self._safe_section(
             "metrics", self._load_metrics, errors, default={}
         )
@@ -98,18 +95,9 @@ class PluginPageApi:
         integrations = await self._safe_section(
             "integrations", self._load_integrations, errors, default={}
         )
-        graphs = await self._safe_section(
-            "graphs",
-            lambda: self._load_graphs(graph_type="both", limit=60),
-            errors,
-            default={},
-        )
-        settings = await self._safe_section(
-            "settings",
-            lambda: self._load_settings(include_schema=False),
-            errors,
-            default={},
-        )
+        # content/settings/graphs 分区已移除：内嵌页对应路由均走专用
+        # page/content、page/settings、page/graphs 桥接，聚合里从未被消费，
+        # 却让每次 dashboard 加载（含 60 秒自动刷新）多付三份查询。
         # 与独立 WebUI /api/data/statistics 同源：首页「内容样本」「记忆 / 知识图谱」读数
         data_statistics = await self._safe_section(
             "data_statistics", self._load_data_statistics, errors, default={}
@@ -121,12 +109,9 @@ class PluginPageApi:
             {
                 "overview": overview,
                 "reviews": reviews,
-                "content": content,
                 "metrics": metrics,
                 "monitoring": monitoring,
                 "integrations": integrations,
-                "graphs": graphs,
-                "settings": settings,
                 "data_statistics": data_statistics,
                 "errors": merged_errors,
             }

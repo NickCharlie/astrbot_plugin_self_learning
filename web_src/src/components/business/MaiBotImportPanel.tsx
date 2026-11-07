@@ -2,7 +2,7 @@ import { createSignal, Show } from 'solid-js';
 import { api } from '../../services/api';
 import { useDashboard } from '../../stores/dashboard';
 import { object } from '../../pages/shared';
-import { summarize } from '../../lib/format';
+import { maibotSummaryLines, summarizeWithJson } from '../../lib/integrationSummary';
 import { Button, Input, Panel, Textarea } from '../ui';
 import styles from './MaiBotImportPanel.module.scss';
 
@@ -131,7 +131,7 @@ export function MaiBotImportPanel() {
         <Button tone="primary" loading={busy() === 'import'} onClick={() => run('import')}>导入</Button>
         <Button icon="download" loading={busy() === 'export'} onClick={() => run('export')}>导出 JSON</Button>
       </div>
-      <Show when={result()}><pre class={styles['result-box']}>{summarize(result())}</pre></Show>
+      <Show when={result()}><pre class={styles['result-box']}>{summarizeWithJson(maibotSummaryLines(object(result())), result())}</pre></Show>
     </Panel>
   );
 }
