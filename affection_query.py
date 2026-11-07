@@ -64,16 +64,14 @@ def add_guidance(plugin, event, req):
         )
 
 
-async def read_snapshot(db, scope, user_id, mode, limit):
-    resolver = getattr(db, "_affection_scope_key", None)
-    if callable(resolver):
-        scope = resolver(scope)
+async def read_snapshot(db, scope_key, user_id, mode, limit):
+    # scope_key 已由 query() 按 affection_scope 解析；缺解析支持时不会走到这里。
     # Column-only SELECT avoids loading interaction history via ORM relationships.
     async with db.get_session() as session:
         count = await session.scalar(
             select(func.count())
             .select_from(UserAffection)
-            .where(UserAffection.group_id == scope)
+            .where(UserAffection.group_id == scope_key)
         )
         columns = (
             UserAffection.user_id,
@@ -81,7 +79,7 @@ async def read_snapshot(db, scope, user_id, mode, limit):
             UserAffection.max_affection,
             UserAffection.updated_at,
         )
-        stmt = select(*columns).where(UserAffection.group_id == scope)
+        stmt = select(*columns).where(UserAffection.group_id == scope_key)
         if mode == "user":
             row = (
                 (await session.execute(stmt.where(UserAffection.user_id == user_id)))
@@ -100,7 +98,7 @@ async def read_snapshot(db, scope, user_id, mode, limit):
                 select(func.count())
                 .select_from(UserAffection)
                 .where(
-                    UserAffection.group_id == scope,
+                    UserAffection.group_id == scope_key,
                     UserAffection.affection_level > item["affection_level"],
                 )
             )
@@ -199,13 +197,25 @@ async def query(plugin, event, mode="user", user_id="", group_id="", limit=10):
             "status": "unavailable",
             "message": "好感度数据库未就绪，不能说数据不存在。",
         }
+    per_user = (
+        str(getattr(cfg, "affection_scope", "per_group")).lower() == "per_user"
+    )
+    resolver = getattr(db, "_affection_scope_key", None)
+    if per_user and not callable(resolver):
+        # 按用户统一存储依赖数据库管理器的范围解析；缺支持时做猜测性读取
+        # 会把按群行当成统一分数返回，宁可不读。
+        return {
+            "status": "unavailable",
+            "system_enabled": True,
+            "message": "按用户统一存储缺少数据库范围解析支持，无法可靠读取；本次不做猜测性读取。",
+        }
+    if per_user:
+        scope = resolver(scope)
+        scope_kind = "user"
     try:
         result = await asyncio.wait_for(
             read_snapshot(db, scope, target, mode, limit), 5
         )
-        if getattr(cfg, "affection_scope", "per_group") == "per_user":
-            scope = "__user__"
-            scope_kind = "user"
         return dict(
             result,
             system_enabled=True,
