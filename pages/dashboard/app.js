@@ -2284,7 +2284,7 @@
     if (buttonEl) { buttonEl.disabled = true; buttonEl.classList.add("is-busy"); }
     try {
       const result = await apiPost("emotion/action", body);
-      showToast(result.message || t("messages.actionDone", "操作已完成"), result.success === false ? "error" : "ok");
+      showToast(result.message || t("messages.actionDone", "操作完成"), result.success === false ? "error" : "ok");
       await loadEmotion(true);
     } catch (error) {
       showToast(error.message || String(error), "error");
