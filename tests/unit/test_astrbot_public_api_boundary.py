@@ -28,6 +28,7 @@ INTERNAL_ONLY_ALLOWLIST = {
     "astrbot.core.provider.provider": {"EmbeddingProvider", "RerankProvider"},
     "astrbot.core.provider.entities": {"RerankResult"},
     "astrbot.core.agent.message": {"TextPart"},
+    "astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event": {"AiocqhttpMessageEvent"},
 }
 
 # 公开门面已导出的符号：禁止再从 core 导入

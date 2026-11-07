@@ -6,10 +6,14 @@ import time
 from sqlalchemy import func, select
 
 from astrbot.api import logger
-from astrbot.core.platform.message_type import MessageType
-from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
-    AiocqhttpMessageEvent,
-)
+from astrbot.api.platform import MessageType
+
+try:  # astrbot.api 未导出 AiocqhttpMessageEvent（截至 v4.29），只能引用内部路径
+    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
+        AiocqhttpMessageEvent,
+    )
+except ImportError:  # 内部路径变动时仅禁用 QQ 查询入口，不阻断插件加载
+    AiocqhttpMessageEvent = None
 
 from .models.orm.affection import UserAffection
 
@@ -35,6 +39,7 @@ def add_guidance(plugin, event, req):
         req is None
         or not cfg
         or not cfg.enable_affection_system
+        or AiocqhttpMessageEvent is None
         or not isinstance(event, AiocqhttpMessageEvent)
     ):
         return
@@ -133,7 +138,7 @@ async def read_snapshot(db, scope, user_id, mode, limit):
 
 
 async def query(plugin, event, mode="user", user_id="", group_id="", limit=10):
-    if not isinstance(event, AiocqhttpMessageEvent):
+    if AiocqhttpMessageEvent is None or not isinstance(event, AiocqhttpMessageEvent):
         return {"status": "unsupported", "message": "此查询入口目前仅支持 QQ 会话。"}
     cfg = getattr(plugin, "plugin_config", None)
     if not cfg or getattr(plugin, "_shutting_down", False):
