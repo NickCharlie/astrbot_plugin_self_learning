@@ -12,7 +12,10 @@ from .json_utils import remove_thinking_content
 
 try:
     from guardrails import Guard
-except ImportError:
+except (ImportError, AttributeError) as exc:
+    # Older optional guardrails releases reference openai.error, removed in the
+    # SDK already used by AstrBot. Keep structured validation available locally.
+    logger.warning("Guardrails 可选依赖不可用，使用本地 Pydantic 校验 (%s)", type(exc).__name__)
     class _SimpleGuardResult:
         def __init__(self, validation_passed: bool, validated_output=None, error: Exception = None):
             self.validation_passed = validation_passed
@@ -20,7 +23,7 @@ except ImportError:
             self.validation_summaries = [str(error)] if error else []
 
     class Guard:
-        """Small Pydantic-backed fallback used when guardrails-ai is absent."""
+        """Pydantic fallback when optional guardrails-ai is absent or incompatible."""
 
         def __init__(self, output_class: Type[BaseModel]):
             self.output_class = output_class
