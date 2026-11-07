@@ -67,6 +67,81 @@ def test_client_unavailable_without_keys():
     assert client._resolve_provider() is None
 
 
+def test_client_override_provider_and_key_enables_search():
+    """issue #293：AstrBot 全局未配置搜索密钥时，插件级手动配置可用。"""
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="tavily",
+        override_api_key="manual-key",
+    )
+    assert client.available() is True
+    assert client._resolve_provider() == "tavily"
+    assert client._first_key(_settings(), "tavily") == "manual-key"
+
+
+def test_client_override_provider_without_key_stays_unavailable():
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="bocha",
+        override_api_key="",
+    )
+    assert client.available() is False
+
+
+def test_client_override_key_wins_over_global_key():
+    client = WebSearchClient(
+        lambda: _settings(websearch_exa_key=["global-key"]),
+        override_provider="exa",
+        override_api_key="manual-key",
+    )
+    assert client._resolve_provider() == "exa"
+    assert client._first_key(_settings(), "exa") == "manual-key"
+
+
+def test_client_unknown_override_provider_ignored():
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="mcp_search",
+        override_api_key="manual-key",
+    )
+    assert client.available() is False
+
+
+@pytest.mark.asyncio
+async def test_search_with_override_routes_and_sends_manual_key():
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="tavily",
+        override_api_key="manual-key",
+    )
+    captured = {}
+
+    async def fake_fetch(method, url, headers, payload=None, params=None):
+        captured["url"] = url
+        captured["headers"] = headers
+        return {"results": [{"title": "t", "url": "u", "content": "c"}]}
+
+    client._fetch_json = fake_fetch
+
+    results = await client.search("xx 网络用语 意思")
+
+    assert captured["url"].startswith("https://api.tavily.com/")
+    assert captured["headers"]["Authorization"] == "Bearer manual-key"
+    assert results == [{"title": "t", "url": "u", "snippet": "c"}]
+
+
+def test_client_reloads_override_provider_changes_at_runtime():
+    settings = _settings()
+    client = WebSearchClient(
+        lambda: settings,
+        override_provider="exa",
+        override_api_key="manual-key",
+    )
+    assert client._resolve_provider() == "exa"
+    client._override_provider = "baidu"
+    assert client._resolve_provider() == "baidu"
+
+
 def test_from_astrbot_config_handles_none():
     assert WebSearchClient.from_astrbot_config(None) is None
 
@@ -196,6 +271,41 @@ def test_build_service_disabled_by_config():
         )
         is None
     )
+
+
+def test_build_service_passes_manual_override():
+    """issue #293：手动配置的厂商与 API Key 传入 WebSearchClient。"""
+    plugin_config = SimpleNamespace(
+        jargon_websearch_enabled=True,
+        jargon_websearch_provider="Tavily ",
+        jargon_websearch_api_key=" manual-key ",
+    )
+    service = build_web_definition_service(
+        llm_adapter=object(),
+        astrbot_config=SimpleNamespace(get=lambda key, default=None: {}),
+        plugin_config=plugin_config,
+    )
+
+    assert service is not None
+    client = service.web_client
+    assert client._override_provider == "tavily"  # 归一化：小写、去空白
+    assert client._override_api_key == "manual-key"
+    assert client.available() is True
+
+
+def test_build_service_defaults_without_override_fields():
+    plugin_config = SimpleNamespace(jargon_websearch_enabled=True)
+    service = build_web_definition_service(
+        llm_adapter=object(),
+        astrbot_config=SimpleNamespace(get=lambda key, default=None: {}),
+        plugin_config=plugin_config,
+    )
+
+    assert service is not None
+    client = service.web_client
+    assert client._override_provider == ""
+    assert client._override_api_key == ""
+    assert client.available() is False  # AstrBot 侧也无密钥时不生效
 
 
 def test_build_service_none_without_astrbot_config():

@@ -10,6 +10,11 @@
 AstrBot 内置 web search 使用同一套配置，无需重复填写 key），调用搜索
 API 获取公开网页释义线索，再由筛选模型归纳成简明释义，交由挖掘器写回
 词条（``is_complete`` 保持 False，后续推断可继续修正）。
+
+若 AstrBot 侧未配置搜索密钥（例如联网搜索走 MCP 工具链，插件无法直接
+调用），可在插件配置 ``Self_Learning_Basic`` 中手动指定厂商与 API Key
+（``jargon_websearch_provider`` / ``jargon_websearch_api_key``），
+插件级配置优先于 AstrBot 全局密钥（issue #293）。
 """
 
 import asyncio
@@ -63,13 +68,31 @@ class WebSearchClient:
     web definitions with zero extra setup. ``websearch_provider`` and the
     key lists are re-read on every resolution, so runtime config changes
     take effect immediately.
+
+    ``override_provider`` / ``override_api_key`` come from the plugin's own
+    config (``jargon_websearch_provider`` / ``jargon_websearch_api_key``)
+    and win over the AstrBot global keys, so users whose bot searches via
+    MCP (which plugins cannot call) can still manually supply a key here
+    (issue #293).
     """
 
-    def __init__(self, provider_settings_getter) -> None:
+    def __init__(
+        self,
+        provider_settings_getter,
+        override_provider: str = "",
+        override_api_key: str = "",
+    ) -> None:
         self._get_settings = provider_settings_getter
+        self._override_provider = str(override_provider or "").strip().lower()
+        self._override_api_key = str(override_api_key or "").strip()
 
     @classmethod
-    def from_astrbot_config(cls, astrbot_config: Any) -> Optional["WebSearchClient"]:
+    def from_astrbot_config(
+        cls,
+        astrbot_config: Any,
+        override_provider: str = "",
+        override_api_key: str = "",
+    ) -> Optional["WebSearchClient"]:
         """Build a client from the AstrBot main config; None if unavailable."""
         if astrbot_config is None:
             return None
@@ -80,9 +103,14 @@ class WebSearchClient:
             except Exception:
                 return {}
 
-        return cls(_get_settings)
+        return cls(_get_settings, override_provider, override_api_key)
 
     def _resolve_provider(self) -> Optional[str]:
+        if self._override_provider in _PROVIDER_KEY_SETTINGS and (
+            self._override_api_key
+            or _provider_keys(self._get_settings(), self._override_provider)
+        ):
+            return self._override_provider
         settings = self._get_settings()
         preferred = str(settings.get("websearch_provider", "") or "")
         preferred = preferred.strip().lower()
@@ -143,8 +171,9 @@ class WebSearchClient:
                     )
                 return await response.json()
 
-    @staticmethod
-    def _first_key(settings: Dict[str, Any], provider: str) -> str:
+    def _first_key(self, settings: Dict[str, Any], provider: str) -> str:
+        if provider == self._override_provider and self._override_api_key:
+            return self._override_api_key
         keys = _provider_keys(settings, provider)
         return keys[0] if keys else ""
 
@@ -376,7 +405,11 @@ def build_web_definition_service(
     """Wire the supplement service from configs; None when disabled."""
     if not bool(getattr(plugin_config, "jargon_websearch_enabled", True)):
         return None
-    client = WebSearchClient.from_astrbot_config(astrbot_config)
+    client = WebSearchClient.from_astrbot_config(
+        astrbot_config,
+        override_provider=getattr(plugin_config, "jargon_websearch_provider", ""),
+        override_api_key=getattr(plugin_config, "jargon_websearch_api_key", ""),
+    )
     if client is None:
         return None
     return JargonWebDefinitionService(llm_adapter, client)
