@@ -1911,44 +1911,314 @@
     showErrors(data.errors || {});
   }
 
+  // ── 图谱（对齐独立版 GraphsPage：记忆 / 知识 / 社交关系三视图 + 稳定 / 环形布局 + 图谱详情） ──
+  function graphGroupKey() {
+    return state.graph.type === "social" ? state.graph.socialGroup : state.graph.group;
+  }
+
+  function graphPositionBucket(create = false) {
+    const key = `${state.graph.type}:${graphGroupKey() || ""}`;
+    let bucket = state.graph.positions.get(key);
+    if (!bucket && create) {
+      bucket = new Map();
+      state.graph.positions.set(key, bucket);
+    }
+    return bucket || null;
+  }
+
+  function rememberGraphPosition(node, width, height, dragged = false) {
+    if (!node || !width || !height) return;
+    const bucket = graphPositionBucket(true);
+    const previous = bucket.get(String(node.id));
+    bucket.set(String(node.id), {
+      x: node.x / width,
+      y: node.y / height,
+      dragged: dragged || Boolean(previous && previous.dragged),
+    });
+  }
+
+  function cachedGraphPosition(id) {
+    if (state.graph.layout !== "force") return null;
+    const bucket = graphPositionBucket();
+    return bucket ? bucket.get(String(id)) || null : null;
+  }
+
   async function loadGraphs(force) {
-    const type = $("graph-type")?.value || "memory";
+    ensureSocialGroups();
+    syncGraphToolbar();
+    if (state.graph.type === "social") return loadSocialGraph(state.graph.socialGroup);
+    const token = ++state.graph.token;
+    const type = state.graph.type;
     const group = ($("graph-group")?.value || "").trim();
-    state.graph.type = type;
-    const params = { type, limit: 140 };
+    state.graph.group = group;
+    // 与独立版一致不传 limit，由后端默认 120 个节点封顶
+    const params = { type };
     if (group) params.group_id = group;
-    const data = await cached(`graphs:${type}:${group}`, () => apiGet("graphs", params), force);
-    renderGraphs(data);
+    try {
+      const data = await cached(`graphs:${type}:${group}`, () => apiGet("graphs", params), force);
+      if (token !== state.graph.token) return;
+      renderGraphs(data);
+    } catch (error) {
+      if (token === state.graph.token) showToast(error.message || t("graphs.loadFailed", "图谱加载失败"), "error");
+    }
   }
 
   function renderGraphs(data) {
-    const graph = data[state.graph.type] || data.memory || data.knowledge || {};
+    const graph = (data || {})[state.graph.type] || {};
+    renderGraphPayload(graph);
+  }
+
+  // 社交关系 → 图谱节点/连线（与独立版 lib/socialGraph socialToGraph 同口径）
+  function socialToGraph(data) {
+    const members = listOf(data.members).filter(isRecord);
+    const relations = listOf(data.relations).filter(isRecord);
+    return {
+      nodes: members.map((member) => ({
+        id: String(member.user_id ?? member.id ?? ""),
+        name: String(member.nickname ?? member.user_id ?? ""),
+        value: Number(member.message_count) || 1,
+        category: "member",
+      })),
+      links: relations.map((relation) => ({
+        source: String(relation.source ?? ""),
+        target: String(relation.target ?? ""),
+        value: Number(relation.strength) || 0,
+      })),
+      groups: data.group_id ? [String(data.group_id)] : [],
+      data_source: "social_relations",
+    };
+  }
+
+  function socialGroupId(group) {
+    return String(group.group_id ?? group.id ?? "");
+  }
+
+  function socialGroupName(group) {
+    return String(group.group_name ?? group.name ?? socialGroupId(group));
+  }
+
+  async function ensureSocialGroups() {
+    if (state.graph.socialGroupsLoaded) return;
+    state.graph.socialGroupsLoaded = true;
+    try {
+      const result = await apiGet("graphs/social/groups");
+      const rows = Array.isArray(result.groups) ? result.groups.filter(isRecord) : [];
+      state.graph.socialGroups = rows;
+      renderSocialGroupOptions();
+      // 与独立版一致：列表就绪后默认选中第一个群组；若已在社交视图则立即加载关系，避免空白图
+      if (rows.length && !state.graph.socialGroup) {
+        state.graph.socialGroup = socialGroupId(rows[0]);
+        renderSocialGroupOptions();
+        if (state.graph.type === "social") await loadSocialGraph(state.graph.socialGroup);
+      }
+    } catch (_) {
+      // 群组列表加载失败不阻塞图谱页；下次进入图谱页再重试
+      state.graph.socialGroupsLoaded = false;
+    }
+  }
+
+  function renderSocialGroupOptions() {
+    const select = $("graph-social-group");
+    if (!select) return;
+    select.innerHTML = `<option value="">${escapeHtml(t("graphs.selectGroup", "选择群组"))}</option>${state.graph.socialGroups
+      .map((group) => `<option value="${escapeAttr(socialGroupId(group))}">${escapeHtml(socialGroupName(group))}</option>`)
+      .join("")}`;
+    select.value = state.graph.socialGroup || "";
+  }
+
+  async function loadSocialGraph(groupId) {
+    const token = ++state.graph.token;
+    if (!groupId) {
+      state.graph.socialInfo = {};
+      renderGraphPayload({});
+      return;
+    }
+    setBusy(t("status.loading", "加载中"));
+    try {
+      const data = await apiGet("graphs/social", { group_id: groupId });
+      if (token !== state.graph.token) return;
+      state.graph.socialInfo = data;
+      renderGraphPayload(socialToGraph(data));
+      if (data.success === false && data.error) showToast(String(data.error), "warn");
+      else if (data.success === false && data.message) showToast(String(data.message), "error");
+    } catch (error) {
+      if (token === state.graph.token) showToast(error.message || t("graphs.socialLoadFailed", "社交关系加载失败"), "error");
+    } finally {
+      setBusy(state.runtimeStatusLabel || t("status.connected", "已连接"));
+    }
+  }
+
+  function syncGraphToolbar() {
+    const social = state.graph.type === "social";
+    qsa("#graph-type-tabs [data-graph-type]").forEach((btn) => btn.classList.toggle("active", btn.dataset.graphType === state.graph.type));
+    qsa("#graph-layout-tabs [data-graph-layout]").forEach((btn) => btn.classList.toggle("active", btn.dataset.graphLayout === state.graph.layout));
+    const groupInput = $("graph-group");
+    if (groupInput) groupInput.hidden = social;
+    const socialField = $("graph-social-field");
+    if (socialField) socialField.hidden = !social;
+    syncGraphSocialBar();
+  }
+
+  function syncGraphSocialBar() {
+    const bar = $("graph-social-bar");
+    if (!bar) return;
+    bar.hidden = !(state.graph.type === "social" && state.graph.socialGroup);
+    qsa("[data-graph-social]", bar).forEach((buttonEl) => {
+      buttonEl.disabled = Boolean(state.graph.busy);
+      buttonEl.classList.toggle("is-busy", state.graph.busy === buttonEl.dataset.graphSocial);
+    });
+    const info = state.graph.socialInfo || {};
+    setText("graph-social-summary", t("graphs.socialSummary", "成员 {members} · 关系 {relations} · 消息 {messages}")
+      .replace("{members}", fmt(info.member_count, 0))
+      .replace("{relations}", fmt(info.relation_count, 0))
+      .replace("{messages}", fmt(info.message_count, 0)));
+  }
+
+  function graphCategoryLabel(node) {
+    if (node.category_name) return String(node.category_name);
+    if (node.category === "member") return t("graphs.member", "成员");
+    return node.category !== undefined && node.category !== null && node.category !== ""
+      ? String(node.category)
+      : t("graphs.node", "节点");
+  }
+
+  // 图谱详情读数（两端同口径）：节点 / 连线 / 群组优先取后端 stats，来源取 data_source
+  function graphDetailStats(graph, nodes, links) {
+    const stats = isRecord(graph.stats) ? graph.stats : {};
+    return [
+      [t("graphs.stats.nodes", "节点"), safeNum(stats.nodes ?? nodes.length)],
+      [t("graphs.stats.links", "连线"), safeNum(stats.links ?? links.length)],
+      [t("graphs.stats.groups", "群组"), safeNum(stats.groups ?? listOf(graph.groups).length)],
+      [t("graphs.stats.source", "来源"), String(graph.data_source || "self_learning")],
+    ];
+  }
+
+  function renderGraphPayload(graph) {
+    const payload = isRecord(graph) ? graph : {};
+    state.graph.payload = payload;
+    syncGraphToolbar();
     const canvas = $("graph-canvas");
-    const size = canvas
+    const rawNodes = listOf(payload.nodes).filter(isRecord);
+    const rawLinks = listOf(payload.links).length ? listOf(payload.links) : listOf(payload.edges);
+    const hasNodes = rawNodes.length > 0;
+    if (canvas) canvas.hidden = !hasNodes;
+    const emptyEl = $("graph-empty");
+    if (emptyEl) {
+      emptyEl.hidden = hasNodes;
+      const social = state.graph.type === "social";
+      emptyEl.innerHTML = hasNodes ? "" : `<div class="empty-state with-detail">
+        <strong>${escapeHtml(social ? t("graphs.socialEmpty", "该群组暂无社交关系") : t("graphs.empty", "图谱暂无节点"))}</strong>
+        <span>${escapeHtml(social ? t("graphs.socialEmptyDetail", "点击「重新分析」基于群聊记录生成关系图。") : t("graphs.emptyDetail", "可尝试清空群组筛选后刷新。"))}</span>
+      </div>`;
+    }
+    const size = canvas && hasNodes
       ? syncGraphCanvasSize(canvas, { force: true })
-      : { width: 960, height: 520 };
-    const rawNodes = Array.isArray(graph.nodes) ? graph.nodes : [];
+      : { width: state.graph.width || 960, height: state.graph.height || 520 };
     state.graph.nodes = rawNodes.map((node, index) =>
       createGraphNode(node, index, rawNodes.length, size.width, size.height),
     );
-    state.graph.links = normalizeGraphLinks(graph.links || []);
-    settleGraphLayout(state.graph.nodes, state.graph.links, size.width, size.height);
+    state.graph.links = normalizeGraphLinks(rawLinks);
+    if (state.graph.layout === "force") {
+      settleGraphLayout(state.graph.nodes, state.graph.links, size.width, size.height);
+      // 首次出现的节点记录稳定位置：之后刷新沿用，不再重新飞散
+      const bucket = graphPositionBucket();
+      state.graph.nodes.forEach((node) => {
+        if (!bucket || !bucket.has(String(node.id))) rememberGraphPosition(node, size.width, size.height);
+      });
+    }
     state.graph.dragged = null;
     state.graph.hovered = null;
-    setHtml("graph-stat-grid", statCards([
-      [t("graphs.stats.nodes", "节点"), (graph.stats || {}).nodes || state.graph.nodes.length],
-      [t("graphs.stats.links", "连线"), (graph.stats || {}).links || state.graph.links.length],
-      [t("graphs.stats.groups", "群组"), (graph.stats || {}).groups || (graph.groups || []).length],
-      [t("graphs.stats.source", "来源"), graph.data_source || "self_learning"],
-    ]));
+    setHtml("graph-stat-grid", graphDetailStats(payload, state.graph.nodes, state.graph.links).map(([label, value]) => `
+      <article class="stat-card small">
+        <span>${escapeHtml(label)}</span>
+        <strong class="${typeof value === "number" ? "" : "stat-text"}">${escapeHtml(typeof value === "number" ? fmt(value, 0) : textOrDash(value))}</strong>
+      </article>`).join(""));
     setHtml("graph-node-list", state.graph.nodes.slice(0, 18).map((node) => `
-      <div class="table-row">
-        <span>${escapeHtml(node.name || node.id)}</span>
-        <strong>${escapeHtml(node.category_name || node.category || t("graphs.node", "节点"))}</strong>
-        <small>${escapeHtml(node.detail || "")}</small>
+      <div class="check-row">
+        <div>
+          <strong>${escapeHtml(node.name || node.label || node.id)}</strong>
+          ${node.detail ? `<small>${escapeHtml(node.detail)}</small>` : ""}
+        </div>
+        ${pill(graphCategoryLabel(node))}
       </div>
     `).join("") || empty(t("empty.graphNodes", "暂无图谱节点")));
-    startGraphRender();
+    if (hasNodes) startGraphRender();
+  }
+
+  function setGraphType(next) {
+    if (!["memory", "knowledge", "social"].includes(next) || next === state.graph.type) return;
+    state.graph.type = next;
+    syncGraphToolbar();
+    if (next === "social") {
+      ensureSocialGroups();
+      loadSocialGraph(state.graph.socialGroup);
+    } else {
+      loadGraphs(true);
+    }
+  }
+
+  function setGraphLayout(next) {
+    if (!["force", "circular"].includes(next) || next === state.graph.layout) return;
+    state.graph.layout = next;
+    syncGraphToolbar();
+    if (state.graph.payload) renderGraphPayload(state.graph.payload);
+  }
+
+  async function handleGraphSocialAction(action) {
+    const groupId = state.graph.socialGroup;
+    if (!groupId) {
+      showToast(t("graphs.selectGroupFirst", "请先选择群组"), "warn");
+      return;
+    }
+    if (action === "analyze" && !await showConfirm(
+      t("graphs.analyzeTitle", "重新分析社交关系"),
+      t("graphs.analyzeConfirm", "将调用 LLM 分析该群组的成员互动关系，可能需要一段时间。确定继续吗？"),
+      t("graphs.analyzeOk", "开始分析"),
+      "warning",
+    )) return;
+    if (action === "clear" && !await showConfirm(
+      t("graphs.clearTitle", "清空社交关系"),
+      t("graphs.clearConfirm", "将删除该群组已分析的社交关系数据，确定继续吗？"),
+      t("graphs.clearOk", "确认清空"),
+      "danger",
+    )) return;
+    state.graph.busy = action;
+    syncGraphSocialBar();
+    try {
+      if (action === "analyze") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId });
+        showToast(result.message || t("graphs.analyzeDone", "社交关系分析已完成"), result.success === false ? "warn" : "ok");
+        await loadSocialGraph(groupId);
+      } else if (action === "clear") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId, confirmed: true });
+        if (result.success === false) throw new Error(result.message || t("graphs.actionFailed", "社交关系操作失败"));
+        showToast(t("graphs.cleared", "社交关系数据已清空"), "ok");
+        await loadSocialGraph(groupId);
+      } else if (action === "share") {
+        const result = await apiPost("graphs/social/action", { action, group_id: groupId, expires_hours: 168 });
+        if (result.success === false) throw new Error(result.message || t("graphs.actionFailed", "社交关系操作失败"));
+        const rawUrl = (result.data || {}).share_url;
+        const shareUrl = rawUrl ? resolveHostUrl(String(rawUrl)) : "";
+        if (!shareUrl) {
+          showToast(t("graphs.shareCreated", "分享链接已创建"), "ok");
+        } else if (navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(shareUrl);
+            showToast(t("graphs.shareCopied", "分享链接已复制到剪贴板"), "ok");
+          } catch (_) {
+            // iframe 未授予剪贴板权限时仍要把已创建的链接展示给用户（与独立版一致）
+            showToast(t("graphs.shareCreatedUrl", "分享链接已创建：{url}").replace("{url}", shareUrl), "warn");
+          }
+        } else {
+          showToast(t("graphs.shareUrl", "分享链接：{url}").replace("{url}", shareUrl), "ok");
+        }
+      }
+    } catch (error) {
+      showToast(error.message || t("graphs.actionFailed", "社交关系操作失败"), "error");
+    } finally {
+      state.graph.busy = "";
+      syncGraphSocialBar();
+    }
   }
 
   function createGraphNode(node, index, total, width, height) {
@@ -1957,6 +2227,7 @@
     const safeWidth = Math.max(320, width || 960);
     const safeHeight = Math.max(320, height || 520);
     const home = graphHomePosition(id, index, total, safeWidth, safeHeight, radius);
+    const cachedPosition = cachedGraphPosition(id);
     return {
       ...node,
       id,
@@ -1968,7 +2239,8 @@
       homeY: home.y,
       vx: 0,
       vy: 0,
-      pinned: false,
+      // 本次会话中拖动过的节点停在放下的位置（与独立版 positionCache 一致）
+      pinned: Boolean(cachedPosition && cachedPosition.dragged),
     };
   }
 
@@ -1976,6 +2248,22 @@
     const margin = graphNodeMargin(radius);
     const centerX = width / 2;
     const centerY = height / 2;
+    if (state.graph.layout === "circular") {
+      // 环形布局：节点按顺序均匀排在一个圆上（与独立版 ECharts circular 布局同义）
+      const ringRadius = Math.max(40, Math.min(width, height) / 2 - margin);
+      const ringAngle = (index / Math.max(1, total)) * Math.PI * 2 - Math.PI / 2;
+      return {
+        x: clamp(centerX + Math.cos(ringAngle) * ringRadius, margin, width - margin),
+        y: clamp(centerY + Math.sin(ringAngle) * ringRadius, margin, height - margin),
+      };
+    }
+    const cachedPosition = cachedGraphPosition(id);
+    if (cachedPosition) {
+      return {
+        x: clamp(cachedPosition.x * width, margin, width - margin),
+        y: clamp(cachedPosition.y * height, margin, height - margin),
+      };
+    }
     const seed = graphStableSeed(id);
     const angleOffset = state.graph.type === "knowledge" ? 0.72 : 0;
     const angle = index * 2.399963229728653 + angleOffset + seed * 0.0007;
@@ -2470,13 +2758,6 @@
     const select = $("pip-mirror-select");
     if (!select || select.childElementCount) return;
     select.innerHTML = Object.entries(mirrors).map(([key, item]) => `<option value="${escapeAttr(key)}">${escapeHtml(item.label || key)}</option>`).join("");
-  }
-
-  function statCards(items) {
-    return items.map(([label, value]) => `<article class="stat-card small">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(fmt(value, typeof value === "number" ? 1 : 0))}</strong>
-    </article>`).join("");
   }
 
   // ── 总览（对齐独立版 OverviewPage：4 读数 + 消息/学习趋势 + 当前状态） ──
@@ -3326,7 +3607,26 @@
       if (done) copied();
       else showModal(t("actions.copySummary", "复制摘要"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
     });
-    $("graph-type")?.addEventListener("change", () => loadGraphs(true));
+    // 图谱：视图 / 布局分段、群组筛选回车刷新、社交群组切换与动作（与独立版 GraphsPage 一致）
+    qsa("#graph-type-tabs [data-graph-type]").forEach((btn) => {
+      btn.addEventListener("click", () => setGraphType(btn.dataset.graphType || "memory"));
+    });
+    qsa("#graph-layout-tabs [data-graph-layout]").forEach((btn) => {
+      btn.addEventListener("click", () => setGraphLayout(btn.dataset.graphLayout || "force"));
+    });
+    $("graph-group")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      loadGraphs(true);
+    });
+    $("graph-social-group")?.addEventListener("change", (event) => {
+      state.graph.socialGroup = event.target.value || "";
+      syncGraphSocialBar();
+      loadSocialGraph(state.graph.socialGroup);
+    });
+    qsa("[data-graph-social]").forEach((btn) => {
+      btn.addEventListener("click", () => handleGraphSocialAction(btn.dataset.graphSocial || ""));
+    });
     $("config-save-button")?.addEventListener("click", async () => {
       const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
       const saved = !!result.success;
@@ -3601,8 +3901,10 @@
         renderShadowMode(state.pageData["shadow-mode"]);
         if (state.shadow.groupId) renderShadowCandidates(state.shadow.candidates || []);
       } else if (state.page === "content" && state.pageData.content) renderContent(state.pageData.content);
-      else if (state.page === "graphs" && data) renderGraphs(data);
-      else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
+      else if (state.page === "graphs" && state.graph.payload) {
+        renderSocialGroupOptions();
+        renderGraphPayload(state.graph.payload);
+      } else if (state.page === "integrations" && state.pageData.integrations) renderIntegrations(state.pageData.integrations);
       else if (state.page === "settings" && state.pageData.settings) renderSettings(state.pageData.settings);
     };
     try {
@@ -3749,6 +4051,8 @@
       if (drag && drag.pointerId === event.pointerId) {
         drag.node.vx = 0;
         drag.node.vy = 0;
+        // 拖动位置在本次会话中保留（按图谱类型 + 群组分桶，与独立版 positionCache 一致）
+        rememberGraphPosition(drag.node, state.graph.width, state.graph.height, true);
         state.graph.dragged = null;
         canvas.classList.remove("is-dragging");
         canvas.releasePointerCapture?.(event.pointerId);
@@ -3773,9 +4077,20 @@
       return;
     }
     const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      state.graph.running = false;
+      return;
+    }
+    // 离开图谱页或画布隐藏（空态）时不再逐帧计算，回到图谱页后继续
+    if (state.page !== "graphs" || canvas.hidden) {
+      requestAnimationFrame(tickGraph);
+      return;
+    }
     const { width, height, ratio } = syncGraphCanvasSize(canvas);
     const nodes = state.graph.nodes;
     const links = state.graph.links;
+    // 环形布局：节点固定在圆上，只保留回位力，不叠加连线/排斥/向心力（与独立版 circular 布局一致）
+    const ring = state.graph.layout === "circular";
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
     ctx.clearRect(0, 0, width, height);
     const byId = new Map(nodes.map((node) => [String(node.id), node]));
@@ -3788,7 +4103,7 @@
       const dy = target.y - source.y;
       const dist = Math.max(1, Math.hypot(dx, dy));
       const desired = Math.max(78, Math.min(132, Math.min(width, height) * 0.23));
-      const force = (dist - desired) * GRAPH_LINK_STRENGTH;
+      const force = ring ? 0 : (dist - desired) * GRAPH_LINK_STRENGTH;
       if (!source.pinned) {
         source.vx += (dx / dist) * force;
         source.vy += (dy / dist) * force;
@@ -3805,18 +4120,19 @@
       ctx.stroke();
     });
 
-    for (let i = 0; i < nodes.length; i += 1) {
+    for (let i = 0; !ring && i < nodes.length; i += 1) {
       for (let j = i + 1; j < Math.min(nodes.length, i + 45); j += 1) {
         separateGraphNodes(nodes[i], nodes[j], 0.022);
       }
     }
 
+    const centerStrength = ring ? 0 : GRAPH_CENTER_STRENGTH;
     nodes.forEach((node, index) => {
       const cx = width / 2 + Math.sin(index) * 30;
       const cy = height / 2 + Math.cos(index) * 24;
       if (!node.pinned) {
-        node.vx += ((node.homeX || cx) - node.x) * GRAPH_HOME_STRENGTH + (cx - node.x) * GRAPH_CENTER_STRENGTH;
-        node.vy += ((node.homeY || cy) - node.y) * GRAPH_HOME_STRENGTH + (cy - node.y) * GRAPH_CENTER_STRENGTH;
+        node.vx += ((node.homeX || cx) - node.x) * GRAPH_HOME_STRENGTH + (cx - node.x) * centerStrength;
+        node.vy += ((node.homeY || cy) - node.y) * GRAPH_HOME_STRENGTH + (cy - node.y) * centerStrength;
         node.vx *= 0.74;
         node.vy *= 0.74;
         node.x += node.vx;

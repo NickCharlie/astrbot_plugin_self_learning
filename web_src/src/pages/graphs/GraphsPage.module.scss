@@ -1,4 +1,13 @@
 @use "../../styles/tokens";
+@use "../../styles/mixins" as *;
+
+/* 图谱视图 + 图谱详情两栏（与内嵌页 graph-grid 同构：主图自适应，详情 360px） */
+.graph-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
 
 .graph-toolbar {
   display: flex;
@@ -10,5 +19,36 @@
   .ui-field {
     flex: 1;
     min-width: 220px;
+  }
+}
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+
+  :global(.slx-stat-value) {
+    font-size: 26px;
+    overflow-wrap: anywhere;
+  }
+}
+
+/* 紧凑空态（与内嵌页 empty-state 同构：扫描线纹理 + 左缘强线） */
+.detail-empty {
+  min-height: 54px;
+  display: grid;
+  place-items: center;
+  padding: 14px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--border-strong);
+  background-image: linear-gradient(var(--border) 1px, transparent 1px);
+  background-size: 100% 24px;
+}
+
+@include tablet {
+  .graph-layout {
+    grid-template-columns: 1fr;
   }
 }

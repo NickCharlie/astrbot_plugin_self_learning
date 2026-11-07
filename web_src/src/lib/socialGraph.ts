@@ -25,5 +25,8 @@ export const socialToGraph = (data: Record<string, unknown>): GraphPayload => {
       value: Number(relation.strength) || 0,
     })),
     categories: [{ name: 'member' }],
+    // 「图谱详情」读数：群组数与数据来源（与内嵌页 socialToGraph 同口径）
+    groups: data.group_id ? [String(data.group_id)] : [],
+    data_source: 'social_relations',
   };
 };
