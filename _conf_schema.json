@@ -50,6 +50,20 @@
         "hint": "低提及词条无法从群聊上下文推断含义时，复用 AstrBot 联网搜索配置（provider_settings 中的搜索密钥）检索公开释义，交由筛选模型归纳后写回词条，防止释义空缺；未配置任何搜索密钥时自动不生效",
         "default": true
       },
+      "jargon_websearch_provider": {
+        "description": "黑话联网释义搜索厂商",
+        "type": "string",
+        "options": ["", "tavily", "bocha", "exa", "baidu"],
+        "labels": ["跟随 AstrBot 配置", "Tavily", "博查", "Exa", "百度千帆"],
+        "default": "",
+        "hint": "手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）"
+      },
+      "jargon_websearch_api_key": {
+        "description": "黑话联网释义搜索 API Key",
+        "type": "string",
+        "default": "",
+        "hint": "手动输入上方所选厂商的 API Key，优先于 AstrBot 全局搜索密钥；留空则复用 AstrBot 联网搜索配置。仅在搜索厂商有效时使用"
+      },
       "enable_style_learning": {
         "description": "启用对话风格学习",
         "type": "bool",
