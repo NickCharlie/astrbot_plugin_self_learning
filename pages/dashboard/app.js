@@ -544,7 +544,10 @@
       if (page === "content") return renderContent(await cached("content", () => apiGet("content", { page: 1, page_size: 20 }), force));
       if (page === "graphs") return loadGraphs(force);
       if (page === "integrations") return renderIntegrations(await cached("integrations", () => apiGet("integrations"), force));
-      if (page === "settings") return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+      if (page === "settings") {
+        if (force) state.dirtySettings.clear();
+        return renderSettings(await cached("settings", () => apiGet("settings", { schema: "true" }), force));
+      }
     } catch (error) {
       showToast(error.message || String(error), "error");
     }
@@ -2356,7 +2359,13 @@
     $("graph-type")?.addEventListener("change", () => loadGraphs(true));
     $("config-save-button")?.addEventListener("click", async () => {
       const result = await apiPost("settings/action", { action: "save", config: collectConfigPayload() });
-      showToast(result.message || t("messages.settingsSaved", "设置已保存"), result.success ? "ok" : "error");
+      const saved = !!result.success;
+      showToast(
+        result.message || (saved ? t("messages.settingsSaved", "配置已保存") : t("messages.settingsSaveFailed", "配置保存失败")),
+        saved ? "ok" : "error",
+      );
+      if (!saved) return;
+      state.dirtySettings.clear();
       state.pageData.settings = null;
       await loadPageData("settings", { force: true });
     });
@@ -2364,6 +2373,14 @@
       const installButton = $("dependency-install-button");
       const originalLabel = installButton?.textContent || t("actions.manualInstall", "手动安装");
       const settings = state.pageData.settings || {};
+      const tier = $("dependency-tier")?.value || "full";
+      const tierLabel = tier === "basic" ? t("settings.tierBasic", "基础") : t("settings.tierFull", "全能力");
+      const confirmed = await showConfirm(
+        t("settings.installConfirmTitle", "安装 Python 依赖"),
+        t("settings.installConfirmBody", "即将调用 pip 安装{tier}依赖，确定继续吗？").replace("{tier}", tierLabel),
+        t("actions.confirm", "确认"),
+      );
+      if (!confirmed) return;
       if (installButton) {
         installButton.disabled = true;
         installButton.classList.add("is-busy");
@@ -2375,7 +2392,7 @@
           action: "install_dependencies",
           manual_confirmed: true,
           source: settings.manual_dependency_source || "system_settings",
-          tier: $("dependency-tier")?.value || "full",
+          tier,
           pip_mirror: $("pip-mirror-select")?.value || "default",
         });
         const detail = result.result || result;

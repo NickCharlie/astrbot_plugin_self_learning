@@ -830,7 +830,7 @@
         "previewCounts": "Preview: expressions {expressions} · jargon {jargons} · memories {memories}",
         "reading": "Reading MaiBot learning data...",
         "root": "MaiBot project directory",
-        "rootHint": "For example C:\\Users\\zacza\\Desktop\\x\\MaiBot; you can also enter only a database path.",
+        "rootHint": "MaiBot install directory (optional); you can also enter only a database path.",
         "title": "MaiBot Learning Data Migration",
         "waitingPreview": "Waiting for preview."
       },
@@ -867,7 +867,11 @@
         "installingDeps": "Calling pip to install dependencies. Wait for command output...",
         "optionalDeps": "Optional Dependencies",
         "restartRequired": " · takes effect after restart",
-        "title": "Settings"
+        "title": "Settings",
+        "installConfirmTitle": "Install Python dependencies",
+        "installConfirmBody": "pip will install the {tier} dependencies. Continue?",
+        "tierBasic": "basic",
+        "tierFull": "full-capability"
       },
       "modal": {
         "backupDetails": "Backup Details",
@@ -888,9 +892,10 @@
         "jargonUpdated": "Jargon updated",
         "personaUpdated": "Persona updated",
         "relearnSubmitted": "Relearn submitted",
-        "settingsSaved": "Settings saved",
+        "settingsSaved": "Configuration saved",
         "styleUpdated": "Expression updated",
-        "shadowLearned": "Shadow profile learned and activated"
+        "shadowLearned": "Shadow profile learned and activated",
+        "settingsSaveFailed": "Failed to save configuration"
       },
       "empty": {
         "batchHistory": "No batch history",

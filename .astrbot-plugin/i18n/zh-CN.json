@@ -830,7 +830,7 @@
         "previewCounts": "预览: 表达 {expressions} · 黑话 {jargons} · 记忆 {memories}",
         "reading": "正在读取 MaiBot 学习数据...",
         "root": "MaiBot 项目目录",
-        "rootHint": "例如 C:\\Users\\zacza\\Desktop\\x\\MaiBot；也可以只填写数据库路径。",
+        "rootHint": "MaiBot 安装目录（可留空）；也可以只填写数据库路径。",
         "title": "MaiBot 学习数据迁移",
         "waitingPreview": "等待预览。"
       },
@@ -867,7 +867,11 @@
         "installingDeps": "正在调用 pip 安装依赖，请等待命令输出...",
         "optionalDeps": "可选依赖",
         "restartRequired": " · 重启后生效",
-        "title": "设置"
+        "title": "设置",
+        "installConfirmTitle": "安装 Python 依赖",
+        "installConfirmBody": "即将调用 pip 安装{tier}依赖，确定继续吗？",
+        "tierBasic": "基础",
+        "tierFull": "全能力"
       },
       "modal": {
         "backupDetails": "备份详情",
@@ -888,9 +892,10 @@
         "jargonUpdated": "黑话已更新",
         "personaUpdated": "人格已更新",
         "relearnSubmitted": "重新学习已提交",
-        "settingsSaved": "设置已保存",
+        "settingsSaved": "配置已保存",
         "styleUpdated": "表达方式已更新",
-        "shadowLearned": "影子模式已学习并启用"
+        "shadowLearned": "影子模式已学习并启用",
+        "settingsSaveFailed": "配置保存失败"
       },
       "empty": {
         "batchHistory": "暂无批次历史",
