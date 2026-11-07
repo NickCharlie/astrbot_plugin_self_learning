@@ -5,6 +5,7 @@ import os
 import asyncio
 import time
 import shutil
+import json
 from pathlib import Path
 from typing import Dict, Optional
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ except ImportError:  # 内部路径变动时由 StarTools 推导数据根，不�
 
 from .config import DEFAULT_DATA_DIR, PluginConfig, normalize_identifier_list, split_learning_blacklist
 from .core.plugin_lifecycle import PluginLifecycle
+from .affection_query import add_guidance as add_affection_guidance, query as query_affection_snapshot
 from .services.hooks.perf_tracker import PerfTracker
 from .services.monitoring.instrumentation import monitored, reset_trace_context
 from .services.learning.sample_filter import (
@@ -529,9 +531,25 @@ class SelfLearningPlugin(star.Star):
     async def inject_diversity_to_llm_request(self, event: AstrMessageEvent, req=None):
         """LLM Hook — inject diversity, social context, V2, jargon into request."""
         reset_trace_context()
+        # Keep the general hook switch unchanged. This only advertises the
+        # read-only query tool and never starts a learning/model request.
+        add_affection_guidance(self, event, req)
         handler = getattr(self, '_hook_handler', None)
         if handler:
             await handler.handle(event, req)
+
+    @filter.llm_tool(name="query_affection")
+    async def query_affection(self, event: AstrMessageEvent, mode: str = "user",
+                             user_id: str = "", group_id: str = "", limit: int = 10) -> str:
+        """从 self-learning 数据库只读查询好感度或当前群排行，不使用记忆猜分，也不修改分数。
+
+        Args:
+            mode(str): user 查询本人或指定用户；ranking 查询当前群排名（管理员）。
+            user_id(str): user 模式的 QQ 号，留空查本人；查询他人仅限管理员。
+            group_id(str): 留空为当前群/私聊范围；管理员私聊可明确指定已加入的群号，分数不跨群合并。
+            limit(int): 排行返回数量，1 至 20，默认 10。
+        """
+        return json.dumps(await query_affection_snapshot(self,event,mode,user_id,group_id,limit),ensure_ascii=False)
 
     # Bot 出站消息捕获
 
