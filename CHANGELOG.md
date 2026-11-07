@@ -2,6 +2,26 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.7.4] - 2026-11-07
+
+### 修复：黑话联网释义支持插件级手动配置搜索厂商与 API Key（issue #293，PR #294）
+
+- AstrBot v4.29 的联网搜索以 LLM 函数工具链形式注入（MCP 亦同），插件无法直接调用；全局 `provider_settings` 未配置搜索厂商密钥时，黑话联网释义此前会静默失效且用户无处手动输入 API。新增 `Self_Learning_Basic` 配置项 `jargon_websearch_provider`（手动指定 tavily/bocha/exa/baidu，留空保持跟随 AstrBot 配置）与 `jargon_websearch_api_key`（手动输入 API Key，优先于全局密钥），经 `_conf_schema.json` 渲染为插件配置页表单。
+- 留空时行为与 4.7.3 完全一致；不接 MCP（agent 函数工具链无插件同步调用入口），不扩展厂商列表。
+
+### 伴随插件兼容性核查
+
+- LivingMemory 2.8.2 → 2.9.1：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名与插件注册名全部未变，无需适配改动；2.9.x 新增的 `adapter_access`/`shared_adapter_ids` 为 LM 内部或可选特性，不影响本插件只读统计路径。
+- Group Chat Plus：无新提交，契约维持 V1.2.3.hotfix.2。
+
+### 升级说明
+
+- 无数据库迁移；两个新配置项默认留空，升级后行为不变。需要手动配置的用户在 AstrBot 插件配置页"黑话联网释义搜索厂商 / 搜索 API Key"填写即可。
+
+### 版本
+
+- 版本号由 4.7.3 提升至 **4.7.4**。
+
 ## [4.7.3] - 2026-11-06
 
 ### 修复：表达学习改用群友上下文并防止未审样本注入
