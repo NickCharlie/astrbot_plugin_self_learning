@@ -8,7 +8,7 @@ from typing import Dict, List, Any, Optional
 
 from astrbot.api import logger
 from astrbot.api.star import Context
-from astrbot.core.db.po import Personality
+from astrbot.api.provider import Personality
 from ...config import PluginConfig
 
 from ...core.interfaces import IPersonaUpdater, IPersonaBackupManager, MessageData, AnalysisResult, PersonaUpdateRecord # 导入 PersonaUpdateRecord

@@ -12,7 +12,10 @@ wrapped in a thin adapter.
 from typing import Optional
 
 from astrbot.api import logger
-from astrbot.core.provider.provider import EmbeddingProvider
+try:  # astrbot.api.provider 未导出 EmbeddingProvider（截至 v4.29），只能引用内部路径
+    from astrbot.core.provider.provider import EmbeddingProvider
+except ImportError:  # 内部路径变动时仅禁用向量能力，不阻断插件加载
+    EmbeddingProvider = None
 
 from ..provider_registry import (
     collect_framework_providers,
@@ -54,6 +57,13 @@ class EmbeddingProviderFactory:
         if not provider_id:
             logger.debug(
                 "[EmbeddingFactory] No embedding_provider_id configured, "
+                "embedding features disabled"
+            )
+            return None
+
+        if EmbeddingProvider is None:
+            logger.warning(
+                "[EmbeddingFactory] 当前 AstrBot 未提供 EmbeddingProvider，"
                 "embedding features disabled"
             )
             return None
