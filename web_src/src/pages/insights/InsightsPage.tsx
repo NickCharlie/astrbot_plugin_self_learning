@@ -1,32 +1,13 @@
 import { createMemo, For } from 'solid-js';
 import { useDashboard } from '../../stores/dashboard';
-import type { PageId, Tone } from '../../types/dashboard';
-import { formatCount } from '../../lib/format';
-import { metric, jargonPendingTotal, object } from '../shared';
 import { Badge, Button, Card, EmptyState } from '../../components/ui';
 import { PageHeader } from '../../components/layout/PageHeader';
+import { buildInsights, insightLevel } from './insights';
 import styles from './InsightsPage.module.scss';
-
-type Insight = { title: string; detail: string; tone: Tone; page: PageId; value: number };
 
 export function InsightsPage() {
   const dashboard = useDashboard();
-  const insights = createMemo<Insight[]>(() => {
-    const persona = object(dashboard.data.persona_updates);
-    const style = object(dashboard.data.style_learning_reviews);
-    // 与首页待办同源：读待审接口分页 total，已驳回不再计入
-    const backlog = Number(persona.total || 0) + Number(style.total || 0)
-      + jargonPendingTotal(dashboard.data);
-    const filtered = metric(dashboard.data, ['metrics.filtered_messages', 'metrics.messages.filtered']);
-    const failures = Object.values(object(object(dashboard.data.health).checks))
-      .filter((item) => object(item).status && object(item).status !== 'healthy').length;
-    const rows: Insight[] = [];
-    if (backlog > 0) rows.push({ title: '审查队列存在积压', detail: `当前约 ${formatCount(backlog)} 条记录等待处理。`, tone: backlog > 20 ? 'danger' : 'warning', page: 'reviews', value: backlog });
-    if (filtered > 0) rows.push({ title: '过滤链路持续工作', detail: `${formatCount(filtered)} 条消息因质量或规则未进入学习。`, tone: 'default', page: 'monitoring', value: filtered });
-    if (failures > 0) rows.push({ title: '健康检查发现异常', detail: `${formatCount(failures)} 项检查未处于健康状态。`, tone: 'danger', page: 'monitoring', value: failures });
-    if (!rows.length) rows.push({ title: '暂未发现需要立即处理的问题', detail: '当前快照没有明显积压或健康告警。', tone: 'success', page: 'overview', value: 0 });
-    return rows;
-  });
+  const insights = createMemo(() => buildInsights(dashboard.data, dashboard.integrations()));
   const copy = async () => {
     const text = insights().map((item) => `- ${item.title}: ${item.detail}`).join('\n');
     try {
@@ -47,7 +28,7 @@ export function InsightsPage() {
         <For each={insights()} fallback={<EmptyState />}>{(item) =>
           <Card interactive class={`${styles['insight-card']} tone-${item.tone}`} >
             <button onClick={() => dashboard.navigate(item.page)}>
-              <div><Badge tone={item.tone}>{item.tone === 'danger' ? '高' : item.tone === 'warning' ? '中' : '提示'}</Badge><strong>{item.title}</strong></div>
+              <div><Badge tone={item.tone}>{insightLevel(item.tone)}</Badge><strong>{item.title}</strong></div>
               <p>{item.detail}</p><span class="material-icons">arrow_forward</span>
             </button>
           </Card>

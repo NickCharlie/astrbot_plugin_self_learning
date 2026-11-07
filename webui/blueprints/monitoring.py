@@ -86,6 +86,12 @@ async def health_check():
             )
 
         summary = checker.get_summary()
+        # 运行态：数据库启动失败时的受限模式（AI 巡检「数据库处于降级状态」读取，
+        # 与内嵌插件页 page/dashboard 的 monitoring.runtime 同源）
+        summary["runtime"] = {
+            "database_degraded": bool(getattr(container, "database_degraded", False)),
+            "database_start_error": getattr(container, "database_start_error", None),
+        }
         return jsonify(summary), 200
     except Exception as e:
         logger.error(f"[Monitoring] Health check failed: {e}")

@@ -47,6 +47,26 @@ const unwrapPayload = <T,>(value: T | { data?: T }): T =>
     ? (value as { data: T }).data
     : value as T;
 
+// Dashboard 快照数据源：key 即 data 上的字段名。
+// raw：保留分页信封（黑话待审 total 才是真实待审总数，列表被 page_size 截断）。
+// optional：失败属预期（Hub API 未启用鉴权时仅允许本机调用），不计入 load_errors。
+const SNAPSHOT_SOURCES: ReadonlyArray<{ key: string; url: string; raw?: boolean; optional?: boolean }> = [
+  { key: 'metrics', url: '/api/metrics' },
+  { key: 'trends', url: '/api/metrics/trends' },
+  { key: 'health', url: '/api/monitoring/health' },
+  { key: 'functions', url: '/api/monitoring/functions' },
+  { key: 'persona_updates', url: '/api/persona_updates?limit=10' },
+  { key: 'style_learning_reviews', url: '/api/style_learning/reviews?limit=5' },
+  { key: 'jargon_reviews', url: '/api/jargon/list?page_size=5&confirmed=false&pending=true', raw: true },
+  { key: 'jargon_stats', url: '/api/jargon/stats' },
+  { key: 'persona_current', url: '/api/persona_management/current?group_id=default' },
+  { key: 'persona_backups', url: '/api/persona_backups/list?limit=8' },
+  { key: 'persona_reviewed', url: '/api/persona_updates/reviewed?limit=5' },
+  { key: 'data_statistics', url: '/api/data/statistics' },
+  { key: 'hub_status', url: '/api/hub/v1/status', optional: true },
+  { key: 'intelligence', url: '/api/intelligence_metrics' },
+];
+
 export function DashboardProvider(props: { children: JSX.Element }) {
   const [page, setPage] = createSignal<PageId>(parseHash());
   const initialTheme = (localStorage.getItem('sl-dashboard-theme') as Theme) || 'light';
@@ -88,37 +108,26 @@ export function DashboardProvider(props: { children: JSX.Element }) {
     if (!quiet) setLoading(true);
     setError('');
     try {
-      const responses = await Promise.allSettled([
-        api.get<UnknownRecord>('/api/metrics'),
-        api.get<UnknownRecord>('/api/metrics/trends'),
-        api.get<UnknownRecord>('/api/monitoring/health'),
-        api.get<UnknownRecord>('/api/monitoring/functions'),
-        api.get<UnknownRecord>('/api/persona_updates?limit=10'),
-        api.get<UnknownRecord>('/api/style_learning/reviews?limit=5'),
-        api.get<UnknownRecord>('/api/jargon/list?page_size=5&confirmed=false&pending=true'),
-        api.get<UnknownRecord>('/api/jargon/stats'),
-        api.get<UnknownRecord>('/api/persona_management/current?group_id=default'),
-        api.get<UnknownRecord>('/api/persona_backups/list?limit=8'),
-        api.get<UnknownRecord>('/api/persona_updates/reviewed?limit=5'),
-        api.get<UnknownRecord>('/api/data/statistics'),
-        api.get<UnknownRecord>('/api/hub/v1/status'),
-      ]);
+      const responses = await Promise.allSettled(
+        SNAPSHOT_SOURCES.map((source) => api.get<UnknownRecord>(source.url)),
+      );
       if (token !== refreshToken) return;
-      const value = (index: number) => responses[index].status === 'fulfilled'
-        ? unwrapPayload((responses[index] as PromiseFulfilledResult<UnknownRecord>).value)
-        : {};
-      // 黑话待审队列保留分页信封（total 才是真实待审总数，列表被 page_size 截断）
-      const rawValue = (index: number) => responses[index].status === 'fulfilled'
-        ? ((responses[index] as PromiseFulfilledResult<UnknownRecord>).value ?? {})
-        : {};
-      setData(reconcile({
-        metrics: value(0), trends: value(1), health: value(2), functions: value(3),
-        persona_updates: value(4),
-        style_learning_reviews: value(5),
-        jargon_reviews: rawValue(6),
-        jargon_stats: value(7), persona_current: value(8), persona_backups: value(9),
-        persona_reviewed: value(10), data_statistics: value(11), hub_status: value(12),
-      }));
+      const next: DashboardSnapshot = {};
+      // 单个接口失败时该段为空对象，失败原因记入 load_errors（AI 巡检「模块 X 读取失败」）
+      const loadErrors: Record<string, string> = {};
+      SNAPSHOT_SOURCES.forEach((source, index) => {
+        const response = responses[index];
+        if (response.status === 'fulfilled') {
+          next[source.key] = source.raw ? (response.value ?? {}) : unwrapPayload(response.value);
+          return;
+        }
+        next[source.key] = {};
+        if (!source.optional) {
+          loadErrors[source.key] = response.reason instanceof Error ? response.reason.message : String(response.reason);
+        }
+      });
+      next.load_errors = loadErrors;
+      setData(reconcile(next));
       setLastUpdated(new Date());
       if (responses.every((item) => item.status === 'rejected')) throw new Error('所有 Dashboard 接口均请求失败');
     } catch (caught) {

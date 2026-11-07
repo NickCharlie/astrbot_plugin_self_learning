@@ -28,6 +28,19 @@
 .insight-card {
   padding: 0;
 
+  /* 左缘状态楔条（与内嵌页 insight-card 同构；颜色只表达状态） */
+  &:global(.tone-danger) {
+    border-left: 3px solid var(--danger);
+  }
+
+  &:global(.tone-warning) {
+    border-left: 3px solid var(--warning);
+  }
+
+  &:global(.tone-success) {
+    border-left: 3px solid var(--state);
+  }
+
   button {
     width: 100%;
     padding: 20px;

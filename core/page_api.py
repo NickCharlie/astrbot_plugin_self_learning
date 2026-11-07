@@ -76,7 +76,7 @@ class PluginPageApi:
             "overview", self._load_overview, errors, default={}
         )
         reviews = await self._safe_section(
-            "reviews", lambda: self._load_reviews(limit=8), errors, default={}
+            "reviews", lambda: self._load_reviews(limit=10), errors, default={}
         )
         content = await self._safe_section(
             "content", lambda: self._load_content(page=1, page_size=6), errors, default={}
@@ -102,6 +102,10 @@ class PluginPageApi:
             errors,
             default={},
         )
+        # 与独立 WebUI /api/data/statistics 同源：首页「内容样本」「记忆 / 知识图谱」读数
+        data_statistics = await self._safe_section(
+            "data_statistics", self._load_data_statistics, errors, default={}
+        )
 
         merged_errors = dict(overview.get("errors", {}) if isinstance(overview, dict) else {})
         merged_errors.update(errors)
@@ -115,6 +119,7 @@ class PluginPageApi:
                 "integrations": integrations,
                 "graphs": graphs,
                 "settings": settings,
+                "data_statistics": data_statistics,
                 "errors": merged_errors,
             }
         )
@@ -868,18 +873,8 @@ class PluginPageApi:
             default={"overall_score": 0, "dimensions": {}, "trends": []},
         )
 
-        style_stats = style_results.get("statistics") if isinstance(style_results, dict) else {}
-        style_stats = style_stats if isinstance(style_stats, dict) else {}
-
-        modules = self._build_modules(
-            plugin_config=plugin_config,
-            jargon_stats=jargon_stats,
-            style_stats=style_stats,
-            persona_state=persona_state,
-            backups=backups,
-            metrics=metrics,
-        )
-
+        # 首页模块卡与快捷入口已与独立 WebUI 一样由前端静态定义（内嵌页 app.js 的
+        # homeModules / homeQuickLinks），这里只返回原始数据，不再下发宿主链接。
         return {
             "plugin": {
                 "name": PLUGIN_NAME,
@@ -912,8 +907,6 @@ class PluginPageApi:
             "persona": persona_state,
             "persona_backups": backups,
             "metrics": metrics,
-            "modules": modules,
-            "quick_links": self._build_quick_links(plugin_config, webui_config),
             "errors": errors,
         }
 
@@ -1241,6 +1234,20 @@ class PluginPageApi:
             except Exception as exc:
                 errors["provider_info"] = str(exc)
 
+        # 与独立 WebUI /api/metrics 同口径的顶层字段（同一组共享函数计算），
+        # 首页 / 总览 / 运行监控 / AI 巡检直接读取，避免两端读数分叉。
+        message_totals = message_stats if isinstance(message_stats, dict) else {}
+        total_messages = self._as_int(message_totals.get("total_messages"), 0)
+        filtered_messages = self._as_int(message_totals.get("filtered_messages"), 0)
+        learning_efficiency, learning_dimensions = await self._safe_section(
+            "learning_efficiency",
+            lambda: imports.compute_learning_efficiency(db, total_messages, filtered_messages),
+            errors,
+            default=(0, {}),
+        )
+        llm_summary = imports.summarize_llm_call_statistics(llm_stats, provider_info)
+        system = self._system_metrics()
+
         return {
             "intelligence": intelligence,
             "diversity": diversity,
@@ -1257,7 +1264,13 @@ class PluginPageApi:
                     getattr(self.plugin, "learning_stats", None)
                 ),
             },
-            "system": self._system_metrics(),
+            "system": system,
+            "total_messages_collected": total_messages,
+            "filtered_messages": filtered_messages,
+            "learning_efficiency": learning_efficiency,
+            "learning_dimensions": learning_dimensions,
+            **llm_summary,
+            "system_metrics": system,
             "errors": errors,
         }
 
@@ -1309,6 +1322,10 @@ class PluginPageApi:
     async def _load_integrations(self) -> dict[str, Any]:
         service = self._imports().IntegrationService(self._container())
         return await service.get_status()
+
+    async def _load_data_statistics(self) -> dict[str, Any]:
+        service = self._imports().DataManagementService(self._container())
+        return await service.get_data_statistics()
 
     async def _load_settings(self, *, include_schema: bool) -> dict[str, Any]:
         imports = self._imports()
@@ -1911,12 +1928,17 @@ class PluginPageApi:
             )
             from ..webui.dependencies import get_container
             from ..webui.services.config_service import ConfigService
+            from ..webui.services.data_management_service import DataManagementService
             from ..webui.services.emotion_board_service import EmotionBoardService
             from ..webui.services.graph_service import GraphService
             from ..webui.services.integration_service import IntegrationService
             from ..webui.services.jargon_service import JargonService
             from ..webui.services.learning_service import LearningService
-            from ..webui.services.metrics_service import MetricsService
+            from ..webui.services.metrics_service import (
+                MetricsService,
+                compute_learning_efficiency,
+                summarize_llm_call_statistics,
+            )
             from ..webui.services.persona_backup_service import PersonaBackupService
             from ..webui.services.persona_review_service import PersonaReviewService
             from ..webui.services.persona_service import PersonaService
@@ -1932,12 +1954,17 @@ class PluginPageApi:
             )
             from webui.dependencies import get_container
             from webui.services.config_service import ConfigService
+            from webui.services.data_management_service import DataManagementService
             from webui.services.emotion_board_service import EmotionBoardService
             from webui.services.graph_service import GraphService
             from webui.services.integration_service import IntegrationService
             from webui.services.jargon_service import JargonService
             from webui.services.learning_service import LearningService
-            from webui.services.metrics_service import MetricsService
+            from webui.services.metrics_service import (
+                MetricsService,
+                compute_learning_efficiency,
+                summarize_llm_call_statistics,
+            )
             from webui.services.persona_backup_service import PersonaBackupService
             from webui.services.persona_review_service import PersonaReviewService
             from webui.services.persona_service import PersonaService
@@ -1948,12 +1975,15 @@ class PluginPageApi:
 
         imports.get_container = get_container
         imports.ConfigService = ConfigService
+        imports.DataManagementService = DataManagementService
         imports.EmotionBoardService = EmotionBoardService
         imports.GraphService = GraphService
         imports.IntegrationService = IntegrationService
         imports.JargonService = JargonService
         imports.LearningService = LearningService
         imports.MetricsService = MetricsService
+        imports.compute_learning_efficiency = compute_learning_efficiency
+        imports.summarize_llm_call_statistics = summarize_llm_call_statistics
         imports.PersonaBackupService = PersonaBackupService
         imports.PersonaReviewService = PersonaReviewService
         imports.PersonaService = PersonaService
@@ -2073,78 +2103,6 @@ class PluginPageApi:
             "last_persona_update": getattr(stats, "last_persona_update", None),
         }
 
-    @classmethod
-    def _build_modules(
-        cls,
-        *,
-        plugin_config: Any,
-        jargon_stats: dict[str, Any],
-        style_stats: dict[str, Any],
-        persona_state: dict[str, Any],
-        backups: dict[str, Any],
-        metrics: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        confirmed_jargon = cls._as_int(jargon_stats.get("confirmed_jargon"), 0)
-        unique_styles = cls._as_int(
-            style_stats.get("unique_styles") or style_stats.get("total_samples"), 0
-        )
-        persona_prompt_len = cls._as_int(persona_state.get("prompt_length"), 0)
-        backup_total = cls._as_int(backups.get("total"), 0)
-        intelligence_score = cls._as_number(metrics.get("overall_score"))
-
-        return [
-            {
-                "id": "jargon",
-                "title": "黑话学习",
-                "description": "群内专属词、梗和语义推断",
-                "enabled": cls._config_bool(plugin_config, "enable_jargon_learning", True),
-                "metric": confirmed_jargon,
-                "metric_label": "已确认黑话",
-                "accent": "#0f9f8f",
-                "target": "jargon-learning",
-            },
-            {
-                "id": "style",
-                "title": "表达方式学习",
-                "description": "语气、句式、few-shot 与表达模式",
-                "enabled": cls._config_bool(plugin_config, "enable_style_learning", True),
-                "metric": unique_styles,
-                "metric_label": "风格样本",
-                "accent": "#4169e1",
-                "target": "expression-learning",
-            },
-            {
-                "id": "persona",
-                "title": "人格学习",
-                "description": "人格演化、更新审查与备份恢复",
-                "enabled": cls._config_bool(plugin_config, "enable_persona_evolution", True),
-                "metric": persona_prompt_len,
-                "metric_label": "人格提示词字数",
-                "accent": "#d97706",
-                "target": "persona-learning",
-            },
-            {
-                "id": "reviews",
-                "title": "审查队列",
-                "description": "学习结果进入人格前的确认区",
-                "enabled": True,
-                "metric": backup_total,
-                "metric_label": "近期人格备份",
-                "accent": "#e11d48",
-                "target": "reviews",
-            },
-            {
-                "id": "metrics",
-                "title": "智能指标",
-                "description": "回复多样性、好感度与智能评分",
-                "enabled": True,
-                "metric": round(intelligence_score, 2),
-                "metric_label": "综合评分",
-                "accent": "#0ea5e9",
-                "target": "metrics",
-            },
-        ]
-
     @staticmethod
     def _build_webui_snapshot(plugin_config: Any, webui_config: Any) -> dict[str, Any]:
         enabled = PluginPageApi._config_bool(plugin_config, "enable_web_interface", True)
@@ -2177,38 +2135,6 @@ class PluginPageApi:
                 "[::1]",
             ],
         }
-
-    @staticmethod
-    def _build_quick_links(plugin_config: Any, webui_config: Any) -> list[dict[str, str]]:
-        from ..utils.framework_compat import plugin_page_hash_url
-
-        webui = PluginPageApi._build_webui_snapshot(plugin_config, webui_config)
-        return [
-            {
-                "id": "embedded_dashboard",
-                "label": "内嵌 WebUI",
-                "url": plugin_page_hash_url(PLUGIN_NAME, "dashboard"),
-                "description": "AstrBot 官方插件页",
-            },
-            {
-                "id": "shadow_mode",
-                "label": "影子模式",
-                "url": "#/shadow-mode",
-                "description": "学习群友的表达习惯",
-            },
-            {
-                "id": "full_dashboard",
-                "label": "独立 WebUI",
-                "url": webui["dashboard_url"],
-                "description": "打开 7833 独立管理界面",
-            },
-            {
-                "id": "plugin_settings",
-                "label": "插件设置",
-                "url": "#/extension",
-                "description": "回到 AstrBot 插件管理",
-            },
-        ]
 
     @staticmethod
     def _empty_jargon_stats() -> dict[str, Any]:
@@ -2252,13 +2178,6 @@ class PluginPageApi:
     def _as_int(value: Any, default: int = 0) -> int:
         try:
             return int(value if value is not None else default)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _as_number(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value if value is not None else default)
         except (TypeError, ValueError):
             return default
 

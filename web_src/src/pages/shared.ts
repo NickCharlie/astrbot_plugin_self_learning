@@ -42,5 +42,39 @@ export const metric = (data: DashboardSnapshot, paths: string[], fallback = 0): 
   return fallback;
 };
 
+// 待办总量：人格待审 + 风格待审 + 黑话待审，均读分页 total。人格待审首屏混入风格审查
+// （review_source === 'style_learning'）时扣除风格部分，避免与风格待审重复计数。
+// 首页「待办总量 / 审查队列」与 AI 巡检「审查队列存在积压」同源（内嵌页 reviewBacklog 同口径）。
+export const reviewBacklog = (data: DashboardSnapshot) => {
+  const personaItems = reviews(data, 'persona_updates');
+  const personaTotal = safeNumber(object(data.persona_updates).total, personaItems.length);
+  const styleTotal = safeNumber(object(data.style_learning_reviews).total, reviews(data, 'style_learning_reviews').length);
+  const personaIncludesStyle = personaItems.some((item) => item.review_source === 'style_learning');
+  const personaPending = personaIncludesStyle ? Math.max(0, personaTotal - styleTotal) : personaTotal;
+  const jargonPending = jargonPendingTotal(data);
+  return { personaPending, styleTotal, jargonPending, total: personaPending + styleTotal + jargonPending };
+};
+
+// 智能指标综合评分：0-1 视为比例换算为百分制，夹在 0-100（与内嵌页 normalizeScore 同口径）
+export const intelligenceScore = (data: DashboardSnapshot) => {
+  const intelligence = object(data.intelligence);
+  const raw = safeNumber(intelligence.overall_score);
+  return {
+    score: Math.max(0, Math.min(100, raw <= 1 ? raw * 100 : raw)),
+    dimensions: Object.keys(object(intelligence.dimensions)).length,
+  };
+};
+
+// 健康检查等明细对象：取前 3 项 key: value，以 · 连接（与内嵌页 detailText 同口径）
+export const detailText = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '--';
+  if (typeof value !== 'object') return String(value);
+  const entries = Object.entries(value as UnknownRecord).slice(0, 3);
+  if (!entries.length) return '--';
+  return entries
+    .map(([key, item]) => `${key}: ${item !== null && typeof item === 'object' ? JSON.stringify(item) : String(item)}`)
+    .join(' · ');
+};
+
 export const labelValueRows = (value: unknown): Array<[string, unknown]> =>
   Object.entries(object(value)).filter(([, item]) => typeof item !== 'object').slice(0, 12);

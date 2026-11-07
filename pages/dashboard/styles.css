@@ -296,6 +296,8 @@ h1 {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
+  /* 独立 WebUI 地址等长串必须在窄侧栏内折行，不得溢出盖住主内容 */
+  overflow-wrap: anywhere;
 }
 
 .workspace {
@@ -499,6 +501,13 @@ button.is-busy {
   border-color: transparent;
 }
 
+/* 高优先级 / 异常（与独立版 Badge tone-danger 同构） */
+.mini-badge.danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger-soft);
+}
+
 .page {
   display: none;
   animation: pageIn 190ms var(--spring);
@@ -631,8 +640,6 @@ button.is-busy {
 
 .hero-copy p,
 .page-titlebar p,
-.module-card p,
-.insight-card p,
 .integration-card p,
 .review-main p {
   color: var(--muted);
@@ -642,18 +649,53 @@ button.is-busy {
 .quick-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: 16px;
 }
 
+/* 快捷坞：紧凑动作条，hover ink 反白（与独立版 HomePage quick-dock 同构） */
 .quick-entry {
-  flex-direction: column;
-  align-items: flex-start;
-  padding: 10px 12px;
+  min-height: 0;
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
-.quick-entry small {
+.quick-actions .quick-entry:hover,
+.quick-actions .quick-entry:focus-visible {
+  color: var(--primary-ink);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+/* hero 字段码 kicker：黄楔 + mono 大写微标签（与独立版 hero-command-copy 同构） */
+.hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.hero-kicker::before {
+  content: '';
+  width: 16px;
+  height: 8px;
+  background: var(--signal);
+  clip-path: var(--ark-wedge);
+}
+
+/* 桥接连接状态（iframe 专属次要信息行） */
+.hero-bridge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 0;
   font-size: 12px;
 }
 
@@ -722,16 +764,18 @@ button.is-busy {
   font-variant-numeric: tabular-nums;
 }
 
-.home-grid,
+/* 读数备注（与独立版 StatCard note 同构） */
+.stat-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
 .content-grid,
 .graph-grid,
 .settings-grid {
   display: grid;
   gap: 14px;
-}
-
-.home-grid {
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
 }
 
 .content-grid.two-col {
@@ -815,7 +859,6 @@ button.is-busy {
 }
 
 .module-card-grid,
-.insight-grid,
 .review-layout,
 .integration-cards,
 .pattern-columns {
@@ -835,10 +878,6 @@ button.is-busy {
 .integration-cards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-bottom: 14px;
-}
-
-.insight-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .pattern-columns {
@@ -870,8 +909,6 @@ button.is-busy {
   gap: 8px;
 }
 
-.module-card h3,
-.insight-card h3,
 .integration-card h3 {
   margin: 0 0 7px;
   font-size: 16px;
@@ -879,30 +916,98 @@ button.is-busy {
   letter-spacing: 0;
 }
 
-.module-card p {
-  min-height: 46px;
-  margin-bottom: 12px;
+/* ── 首页学习模块 / 系统入口卡（与独立版 HomePage learning-module-card / system-entry-card 同构） ── */
+.section-label {
+  margin: 26px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.metric-line {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: 12px;
+.learning-module-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.metric-line strong {
-  font-family: var(--font-display);
-  font-size: 27px;
-  line-height: 0.95;
-  letter-spacing: -0.03em;
+.system-entry-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+a.module-card {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  color: inherit;
+  text-decoration: none;
+  border-left: 1px solid var(--border);
+}
+
+a.module-card:hover,
+a.module-card:focus-visible {
+  border-color: var(--border-strong);
+  border-top-color: var(--signal);
+}
+
+.module-card-head strong {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.card-desc {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.card-note {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
 }
 
-.metric-line span {
+.card-arrow {
+  flex: none;
   color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 700;
+  transition: color 140ms ease;
+}
+
+a.module-card:hover .card-arrow,
+.insight-card:hover .card-arrow {
+  color: var(--text);
+}
+
+.entry-card {
+  grid-template-rows: auto 1fr auto;
+  min-height: 184px;
+}
+
+.entry-card .mini-badge {
+  flex: none;
+}
+
+.entry-state {
+  display: grid;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.entry-state strong {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.entry-state span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 /* ── 校准条：方角 + 刻度底纹 + 主题感知数据色（与独立版 ProgressBar 同构） ── */
@@ -944,82 +1049,135 @@ button.is-busy {
   transition: width 520ms var(--spring);
 }
 
-.ring-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: 18px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--surface-solid);
+/* 监控热点：函数名较长，改为「标签 + 读数 / 轨道」两行，进度用信号黄（与独立版 ProgressBar 同构） */
+.bar-row.stacked {
+  --accent: var(--signal);
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 6px;
+  color: var(--text);
 }
 
-.ring-chart {
-  width: 86px;
-  height: 86px;
+.bar-row.stacked span {
+  overflow-wrap: anywhere;
+}
+
+.bar-row.stacked .bar-track {
+  grid-column: 1 / -1;
+  height: 8px;
+}
+
+.bar-row.stacked .bar-fill {
+  box-shadow: inset -2px 0 0 var(--ark-signal-ink);
+}
+
+/* ── AI 巡检（与独立版 InsightsPage insight-hero / insight-list 同构） ── */
+.insight-hero {
   display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at center, var(--surface-solid) 57%, transparent 58%),
-    conic-gradient(var(--chart-1) calc(var(--value, 0) * 1%), var(--surface-alt) 0);
+  gap: 3px;
+  margin-bottom: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--border-strong);
+  background: linear-gradient(120deg, var(--primary-soft), var(--surface));
 }
 
-.ring-chart span {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+.insight-hero p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.insight-list {
+  display: grid;
+  gap: 12px;
+}
+
+.insight-list .insight-card {
+  width: 100%;
+  min-height: 0;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 180ms var(--spring), border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.insight-list .insight-card:hover,
+.insight-list .insight-card:focus-visible {
+  border-color: var(--border-strong);
+  border-top-color: var(--signal);
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.insight-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.insight-card-detail {
+  grid-column: 1;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.insight-card .card-arrow {
+  grid-column: 2;
+  grid-row: 1 / span 2;
 }
 
 /* 巡检卡：左缘状态楔条（状态色只表达状态） */
-.insight-card.ok {
-  border-left: 3px solid var(--state);
+.insight-card.tone-danger {
+  border-left: 3px solid var(--danger);
 }
 
-.insight-card.warn {
+.insight-card.tone-warning {
   border-left: 3px solid var(--warning);
 }
 
-.insight-card.action {
-  border-left: 3px solid var(--signal);
+.insight-card.tone-success {
+  border-left: 3px solid var(--state);
 }
 
-.health-grid {
+/* ── 运行监控行：标题 + 明细 / 徽标两端对齐（与独立版 check-row 同构） ── */
+.check-list {
+  min-width: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 
-.health-card {
-  min-height: 98px;
+.check-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
   padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--surface-solid);
+  background: var(--surface-alt);
 }
 
-.health-card strong {
-  display: block;
-  margin: 8px 0 6px;
-  font-family: var(--font-display);
-  font-size: 19px;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
+.check-row > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
-.health-card.healthy strong {
-  color: var(--success);
+.check-row strong,
+.check-row small {
+  overflow-wrap: anywhere;
 }
 
-.health-card.degraded strong,
-.health-card.unhealthy strong {
-  color: var(--warning);
+.check-row small {
+  color: var(--muted);
+}
+
+.check-row .mini-badge {
+  flex: none;
 }
 
 .review-list,
-.function-list,
 .compact-table,
 .content-list,
 .config-form {
@@ -1630,10 +1788,6 @@ textarea {
   font-size: 12px;
 }
 
-.trend-panel {
-  grid-column: 1 / -1;
-}
-
 .trend-note {
   margin-top: 8px;
   color: var(--muted);
@@ -1794,6 +1948,10 @@ textarea {
   .graph-grid {
     grid-template-columns: 1fr;
   }
+
+  .system-entry-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 860px) {
@@ -1802,7 +1960,6 @@ textarea {
   }
 
   .dashboard-hero,
-  .home-grid,
   .content-grid.two-col {
     grid-template-columns: 1fr;
   }
@@ -1810,9 +1967,7 @@ textarea {
   .stat-grid,
   .stat-grid.compact,
   .module-card-grid,
-  .insight-grid,
-  .pattern-columns,
-  .health-grid {
+  .pattern-columns {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1861,9 +2016,7 @@ textarea {
   .stat-grid,
   .stat-grid.compact,
   .module-card-grid,
-  .insight-grid,
   .pattern-columns,
-  .health-grid,
   .candidate-list,
   .sender-grid,
   .toolbar-panel {

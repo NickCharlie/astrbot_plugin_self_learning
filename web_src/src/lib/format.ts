@@ -11,6 +11,10 @@ const countFormatter = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 1
 export const formatCount = (value: unknown): string =>
   countFormatter.format(Math.round(safeNumber(value)));
 
+// 评分类读数：保留至多 1 位小数（与内嵌插件页 fmt(score) 同口径）
+export const formatScore = (value: unknown): string =>
+  countFormatter.format(safeNumber(value));
+
 export const formatPercent = (value: unknown, digits = 0): string =>
   `${clamp(value).toFixed(digits)}%`;
 

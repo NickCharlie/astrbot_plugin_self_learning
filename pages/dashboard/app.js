@@ -27,6 +27,8 @@
     page: "home",
     ready: false,
     dashboard: null,
+    dashboardToken: 0,
+    dashboardLoading: false,
     overview: null,
     pageData: {},
     selectedReviews: {
@@ -500,19 +502,32 @@
     loadPageData(next, { force: !!options.force });
   }
 
-  async function loadDashboard(force = false) {
+  async function loadDashboard(force = false, options = {}) {
     if (state.dashboard && !force) {
       renderDashboard(state.dashboard);
       return state.dashboard;
     }
-    setBusy(t("status.syncing", "同步中"));
+    // 静默刷新（60s 定时）不切换加载态、不弹错误提示；并发时只采用最后一次发起的结果
+    const quiet = !!options.quiet;
+    const token = ++state.dashboardToken;
+    if (!quiet) {
+      state.dashboardLoading = true;
+      setBusy(t("status.syncing", "同步中"));
+      renderSystemEntries(state.dashboard || {});
+    }
     try {
       const data = await apiGet("dashboard");
+      if (token !== state.dashboardToken) return state.dashboard;
+      state.dashboardLoading = false;
       state.dashboard = data;
       state.overview = data.overview || data;
       renderDashboard(data);
       return data;
     } catch (error) {
+      if (token !== state.dashboardToken) return state.dashboard;
+      state.dashboardLoading = false;
+      renderSystemEntries(state.dashboard || {});
+      if (quiet) return state.dashboard;
       showToast(error.message || String(error), "error");
       showErrors({ bridge: error.message || String(error) });
       throw error;
@@ -522,14 +537,13 @@
   async function loadPageData(page, options = {}) {
     const force = !!options.force;
     try {
-      if (page === "home" || page === "insights") {
-        const data = await loadDashboard(force);
-        if (page === "insights") renderInsights(data);
+      // 首页 / AI 巡检 / 运行监控与独立版一样共用同一份 Dashboard 快照
+      if (page === "home" || page === "insights" || page === "monitoring") {
+        await loadDashboard(force);
         return;
       }
       if (page === "overview") return renderOverview(await loadDashboard(force));
       if (page === "emotion") return loadEmotion(force);
-      if (page === "monitoring") return renderMonitoring(await cached("monitoring", () => apiGet("monitoring"), force));
       if (page === "reviews") {
         const params = reviewSearchParams();
         return renderReviews(await cached(`reviews:${JSON.stringify(params)}`, () => apiGet("reviews", params), force));
@@ -567,13 +581,10 @@
     const overview = data.overview || data;
     const runtime = overview.runtime || {};
     const webui = overview.webui || {};
-    const learning = overview.learning_stats || {};
-    const jargon = overview.jargon || {};
-    const styleStats = ((overview.style || {}).statistics) || {};
-    const persona = overview.persona || {};
     const errors = data.errors || overview.errors || {};
     const degraded = runtime.database_degraded || Object.keys(errors).length > 0;
 
+    // 桥接连接状态：侧栏运行状态 + 首页 hero 次要信息行（iframe 专属）
     const statusLabel = degraded ? t("status.partial", "部分可用") : t("status.healthy", "运行正常");
     const resolvedDashboardUrl = resolveHostUrl(webui.dashboard_url || "");
     const summary = degraded
@@ -590,192 +601,436 @@
     const fullLink = $("full-dashboard-link");
     if (fullLink && resolvedDashboardUrl) fullLink.href = resolvedDashboardUrl;
 
-    setText("stat-messages", fmt(learning.total_messages_collected));
-    setText("stat-jargon", fmt(jargon.confirmed_jargon));
-    setText("stat-style", fmt(styleStats.unique_styles || styleStats.total_samples));
-    setText("stat-persona", fmt(learning.persona_updates || persona.begin_dialog_count));
-
-    renderQuickActions(overview.quick_links || []);
-    renderModuleCards(overview.modules || []);
-    renderModuleChart(overview.modules || []);
-    renderIntelligence(overview.metrics || {});
-    renderHomeTrends((data.metrics || {}).trends || {});
+    // 首页 / AI 巡检 / 运行监控与独立版一样由同一份快照驱动
+    renderHome(data);
     renderInsights(data);
+    renderMonitoring(data);
     showErrors(errors);
   }
 
-  function renderHomeTrends(trends) {
-    const daily = trends.daily_messages || {};
-    const labels = Object.keys(daily).sort().slice(-14);
-    const items = labels.map((label) => ({
-      title: String(label).slice(5),
-      metric: Number(daily[label] || 0),
-      accent: "var(--chart-1)",
-    }));
-    renderGenericBarChart("home-trend-chart", items);
-    const total = items.reduce((sum, item) => sum + item.metric, 0);
-    const batches = Array.isArray(trends.recent_batches) ? trends.recent_batches.length : 0;
-    setText("home-trend-note", items.length
-      ? t("home.trendsNote", "近 {days} 天采集 {count} 条消息 · 最近 {batches} 个学习批次。")
-        .replace("{days}", fmt(items.length, 0))
-        .replace("{count}", fmt(total, 0))
-        .replace("{batches}", fmt(batches, 0))
-      : t("home.noTrends", "暂无趋势数据，积累消息后这里会出现每日采集曲线。"));
+  // ── 与独立版 lib/format.ts / pages/shared.ts 同口径的读数工具 ──
+  function safeNum(value, fallback = 0) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
   }
 
-  function renderQuickActions(links) {
-    const html = links.map((link) => {
-      const url = resolveHostUrl(link.url || "#");
-      const external = /^https?:\/\//.test(String(url || ""));
-      return `<a class="quick-entry" href="${escapeAttr(url || "#")}" target="${external ? "_blank" : "_self"}" rel="noreferrer">
-        <span>${escapeHtml(link.label || t("actions.entry", "入口"))}</span>
-        <small>${escapeHtml(link.description || "")}</small>
-      </a>`;
-    }).join("");
-    setHtml("quick-actions", html);
+  function fmtPercent(value) {
+    return `${Math.max(0, Math.min(100, safeNum(value))).toFixed(0)}%`;
   }
 
-  function renderModuleCards(modules) {
-    const html = modules.map((item) => `
-      <article class="module-card" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}" data-route-card="${escapeAttr(item.target || "home")}">
-        <div class="module-card-head">
-          <h3>${escapeHtml(item.title)}</h3>
-          ${pill(item.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), item.enabled ? "ok" : "warn")}
-        </div>
-        <p>${escapeHtml(item.description || "")}</p>
-        <div class="metric-line">
-          <strong>${escapeHtml(fmt(item.metric))}</strong>
-          <span>${escapeHtml(item.metric_label || "")}</span>
-        </div>
-      </article>
-    `).join("");
-    setHtml("module-card-grid", html || empty());
+  function textOrDash(value) {
+    return value === null || value === undefined || value === "" ? "--" : String(value);
   }
 
-  function renderModuleChart(modules) {
-    const maxValue = Math.max(1, ...modules.map((item) => Number(item.metric || 0)));
-    const html = modules.map((item) => {
-      const value = Math.max(4, Math.min(100, (Number(item.metric || 0) / maxValue) * 100));
-      return `<div class="bar-row" style="--accent:${escapeAttr(item.accent || "var(--chart-1)")}">
-        <span>${escapeHtml(item.title)}</span>
-        <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
-        <strong>${escapeHtml(fmt(item.metric))}</strong>
-      </div>`;
-    }).join("");
-    setHtml("module-chart", html || empty());
+  function isRecord(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
   }
 
-  function renderIntelligence(metrics) {
-    const score = normalizeScore(metrics.overall_score);
-    $("intelligence-ring")?.style.setProperty("--value", String(score));
-    setText("intelligence-score", fmt(score));
-    const dimCount = metrics.dimensions && typeof metrics.dimensions === "object"
-      ? Object.keys(metrics.dimensions).length
-      : 0;
-    setText("metrics-summary", dimCount
-      ? t("home.metricsSummary", "已有 {count} 个维度参与评估。").replace("{count}", fmt(dimCount, 0))
-      : t("home.noMetrics", "智能指标服务暂未产生维度数据。"));
+  function listOf(value) {
+    if (Array.isArray(value)) return value;
+    const record = isRecord(value) ? value : {};
+    for (const key of ["items", "data", "results", "updates", "reviews", "backups", "batches", "dashboards", "jargon_list"]) {
+      if (Array.isArray(record[key])) return record[key];
+    }
+    return [];
   }
 
-  function buildInsights(data) {
-    const overview = data.overview || {};
+  // 独立版 Badge tone → 内嵌 mini-badge 修饰类
+  function toneClass(tone) {
+    return tone === "success" ? "ok" : tone === "warning" ? "warn" : tone === "danger" ? "danger" : "";
+  }
+
+  // 健康检查等明细对象：前 3 项 key: value，以 · 连接（与独立版 detailText 同口径）
+  function detailText(value) {
+    if (value === null || value === undefined || value === "") return "--";
+    if (typeof value !== "object") return String(value);
+    const entries = Object.entries(value).slice(0, 3);
+    if (!entries.length) return "--";
+    return entries
+      .map(([key, item]) => `${key}: ${item !== null && typeof item === "object" ? JSON.stringify(item) : String(item)}`)
+      .join(" · ");
+  }
+
+  // 黑话待审：读待审接口分页 total（列表被 limit 截断）；待审段读取失败时退回 stats 估算，
+  // 避免误报「队列已清空」（与独立版 jargonPendingTotal 同口径）
+  function jargonPendingTotal(data) {
     const reviews = data.reviews || {};
-    const monitoring = data.monitoring || {};
-    const integrations = data.integrations || {};
-    const errors = data.errors || {};
-    const items = [];
-    const push = (severity, title, detail, target) => items.push({ severity, title, detail, target });
+    const failed = Boolean((reviews.errors || {}).jargon_pending);
+    const payload = failed ? {} : reviews.jargon_pending;
+    if (Array.isArray(payload)) return payload.length;
+    const envelope = isRecord(payload) ? payload : {};
+    const total = envelope.total;
+    if (total !== undefined && total !== null && total !== "") return safeNum(total);
+    const rows = listOf(payload);
+    if (rows.length || Object.keys(envelope).length) return rows.length;
+    const stats = (data.overview || {}).jargon || {};
+    const nested = stats.data || {};
+    return Math.max(0, safeNum(stats.total_candidates ?? nested.total_candidates) - safeNum(stats.confirmed_jargon ?? nested.confirmed_jargon));
+  }
 
-    if ((overview.runtime || {}).database_degraded) {
-      push("warn", t("insights.databaseDegraded", "数据库处于降级状态"), (overview.runtime || {}).database_error || t("insights.databaseNotReady", "数据库服务未完整启动。"), "monitoring");
+  // 待办总量：人格待审 + 风格待审 + 黑话待审（分页 total）；人格首屏混入风格审查时扣除
+  // 风格部分避免重复计数。首页与 AI 巡检同源（与独立版 reviewBacklog 同口径）
+  function reviewBacklog(data) {
+    const reviews = data.reviews || {};
+    const personaPayload = reviews.persona_pending;
+    const stylePayload = reviews.style_reviews;
+    const personaItems = listOf(personaPayload);
+    const personaTotal = safeNum((isRecord(personaPayload) ? personaPayload : {}).total, personaItems.length);
+    const styleTotal = safeNum((isRecord(stylePayload) ? stylePayload : {}).total, listOf(stylePayload).length);
+    const personaIncludesStyle = personaItems.some((item) => isRecord(item) && item.review_source === "style_learning");
+    const personaPending = personaIncludesStyle ? Math.max(0, personaTotal - styleTotal) : personaTotal;
+    const jargonPending = jargonPendingTotal(data);
+    return { personaPending, styleTotal, jargonPending, total: personaPending + styleTotal + jargonPending };
+  }
+
+  // 智能指标综合评分（0-100）与参与评估的维度数
+  function intelligenceScore(data) {
+    const intelligence = (data.metrics || {}).intelligence || (data.overview || {}).metrics || {};
+    return {
+      score: normalizeScore(intelligence.overall_score),
+      dimensions: isRecord(intelligence.dimensions) ? Object.keys(intelligence.dimensions).length : 0,
+    };
+  }
+
+  // ── 首页（对齐独立版 HomePage：hero + 快捷坞 + 4 读数 + 学习模块 + 系统入口） ──
+  // 快捷入口与学习模块与独立版同序同文案；独立版图标为 Material Icons，iframe 内不加载图标字体。
+  function homeQuickLinks() {
+    return [
+      { page: "jargon-learning", label: t("home.quick.jargon", "黑话") },
+      { page: "expression-learning", label: t("home.quick.expression", "表达") },
+      { page: "persona-learning", label: t("home.quick.persona", "人格") },
+      { page: "shadow-mode", label: t("home.quick.shadow", "影子") },
+      { page: "reviews", label: t("home.quick.reviews", "审查") },
+      { page: "content", label: t("home.quick.content", "内容") },
+      { page: "monitoring", label: t("home.quick.monitoring", "监控") },
+    ];
+  }
+
+  function homeModules() {
+    return [
+      { page: "jargon-learning", title: t("home.modules.jargonTitle", "黑话学习"), description: t("home.modules.jargonDesc", "群聊词汇、语义和确认队列") },
+      { page: "expression-learning", title: t("home.modules.styleTitle", "表达方式学习"), description: t("home.modules.styleDesc", "对话样本、风格特征与学习记录") },
+      { page: "persona-learning", title: t("home.modules.personaTitle", "人格学习"), description: t("home.modules.personaDesc", "当前人格、演化建议与备份") },
+      { page: "shadow-mode", title: t("home.modules.shadowTitle", "影子模式"), description: t("home.modules.shadowDesc", "选择群友并学习其表达习惯") },
+    ];
+  }
+
+  // 与独立版 HomePage snapshot 同口径
+  function homeSnapshot(data) {
+    const overview = data.overview || {};
+    const metrics = data.metrics || {};
+    const health = (data.monitoring || {}).health || {};
+    const trends = metrics.trends || {};
+    const jargon = overview.jargon || {};
+    const jargonNested = jargon.data || {};
+    const statsRaw = data.data_statistics || {};
+    const statistics = isRecord(statsRaw.data ?? statsRaw) ? (statsRaw.data ?? statsRaw) : {};
+    const backlog = reviewBacklog(data);
+    const integrations = listOf((data.integrations || {}).dashboards ?? data.integrations);
+    const totalMessages = safeNum(metrics.total_messages_collected);
+    const filtered = safeNum(metrics.filtered_messages);
+    const llmSummary = metrics.llm_call_summary || {};
+    const llmAbnormal = safeNum(llmSummary.abnormal_provider_count);
+    return {
+      health,
+      totalMessages,
+      filterRate: totalMessages ? filtered / totalMessages * 100 : 0,
+      learningEfficiency: safeNum(metrics.learning_efficiency),
+      backlog: backlog.total,
+      personaPending: backlog.personaPending,
+      styleTotal: backlog.styleTotal,
+      jargonPending: backlog.jargonPending,
+      batches: listOf(trends.recent_batches).length,
+      jargonCandidates: safeNum(jargon.total_candidates ?? jargonNested.total_candidates),
+      jargonConfirmed: safeNum(jargon.confirmed_jargon ?? jargonNested.confirmed_jargon),
+      contentCount: safeNum(statistics.style_learning),
+      graphNodes: safeNum(statistics.memory) + safeNum(statistics.knowledge_graph),
+      integrations,
+      activeIntegrations: integrations.filter((item) => isRecord(item) && item.active).length,
+      delegatedIntegrations: integrations.filter((item) => isRecord(item) && item.delegated).length,
+      memory: integrations.find((item) => isRecord(item) && item.id === "livingmemory") || {},
+      llmCalls: safeNum(llmSummary.total_calls),
+      llmAbnormal,
+      insightTone: health.overall !== "healthy" || llmAbnormal > 0 ? "danger" : backlog.total > 20 ? "warning" : "success",
+      backups: listOf((overview.persona_backups || {}).backups).length,
+    };
+  }
+
+  function renderHome(data) {
+    const snap = homeSnapshot(data);
+    const count = (value) => fmt(value, 0);
+    setHtml("quick-actions", homeQuickLinks().map((item) => `
+      <a class="quick-entry" href="#/${escapeAttr(item.page)}" data-route-card="${escapeAttr(item.page)}">${escapeHtml(item.label)}</a>
+    `).join(""));
+    setText("home-pulse-efficiency", fmtPercent(snap.learningEfficiency));
+    setText("home-pulse-backlog", count(snap.backlog));
+    setText("home-pulse-content", snap.contentCount ? count(snap.contentCount) : "--");
+    setText("home-pulse-batches", count(snap.batches));
+
+    const notes = {
+      "jargon-learning": t("home.modules.jargonNote", "候选 {candidates} · 已确认 {confirmed}")
+        .replace("{candidates}", count(snap.jargonCandidates))
+        .replace("{confirmed}", count(snap.jargonConfirmed)),
+      "expression-learning": t("home.modules.styleNote", "内容 {content} · 待审 {pending}")
+        .replace("{content}", count(snap.contentCount))
+        .replace("{pending}", count(snap.styleTotal)),
+      "persona-learning": t("home.modules.personaNote", "待审 {pending} · 备份 {backups}")
+        .replace("{pending}", count(snap.personaPending))
+        .replace("{backups}", count(snap.backups)),
+      "shadow-mode": t("home.modules.shadowNote", "现有群聊与导入记录均可学习"),
+    };
+    setHtml("module-card-grid", homeModules().map((item) => `
+      <a class="module-card learning-module-card" href="#/${escapeAttr(item.page)}" data-route-card="${escapeAttr(item.page)}">
+        <span class="module-card-head">
+          <strong>${escapeHtml(item.title)}</strong>
+          <span class="card-arrow" aria-hidden="true">→</span>
+        </span>
+        <span class="card-desc">${escapeHtml(item.description)}</span>
+        <small class="card-note">${escapeHtml(notes[item.page] || "")}</small>
+      </a>
+    `).join(""));
+    renderSystemEntries(data);
+  }
+
+  // 系统入口卡（与独立版 HomePage entries 同序、同文案、同判定）
+  function systemEntries(data) {
+    const s = homeSnapshot(data);
+    const count = (value) => fmt(value, 0);
+    const health = String(s.health.overall || "unknown");
+    return [
+      {
+        page: "overview",
+        title: t("home.entries.overviewTitle", "总览"),
+        description: t("home.entries.overviewDesc", "核心指标与消息趋势"),
+        value: fmtPercent(s.learningEfficiency),
+        note: t("home.entries.overviewNote", "{messages} 条消息 · 筛选率 {rate}")
+          .replace("{messages}", count(s.totalMessages))
+          .replace("{rate}", fmtPercent(s.filterRate)),
+        status: t("home.entries.overviewStatus", "数据已同步"),
+        tone: s.totalMessages > 0 ? "success" : "warning",
+      },
+      {
+        page: "insights",
+        title: t("home.entries.insightsTitle", "AI 巡检"),
+        description: t("home.entries.insightsDesc", "异常、瓶颈与下一步建议"),
+        value: s.insightTone === "danger"
+          ? t("home.entries.insightsAttention", "需关注")
+          : s.insightTone === "warning" ? t("home.entries.insightsBacklog", "有积压") : t("home.entries.insightsNormal", "正常"),
+        note: t("home.entries.insightsNote", "{backlog} 项待办 · {abnormal} 个模型异常")
+          .replace("{backlog}", count(s.backlog))
+          .replace("{abnormal}", count(s.llmAbnormal)),
+        status: s.insightTone === "success" ? t("home.entries.insightsClear", "暂无高优先级问题") : t("home.entries.insightsReview", "建议查看"),
+        tone: s.insightTone,
+      },
+      {
+        page: "monitoring",
+        title: t("home.entries.monitoringTitle", "运行监控"),
+        description: t("home.entries.monitoringDesc", "健康状态、热点与模型调用"),
+        value: health,
+        note: t("home.entries.monitoringNote", "{calls} 次模型调用 · {abnormal} 个异常")
+          .replace("{calls}", count(s.llmCalls))
+          .replace("{abnormal}", count(s.llmAbnormal)),
+        status: health === "healthy" ? t("home.entries.monitoringHealthy", "系统健康") : t("home.entries.monitoringUnhealthy", "健康检查异常"),
+        tone: health === "healthy" ? "success" : "danger",
+      },
+      {
+        page: "reviews",
+        title: t("home.entries.reviewsTitle", "审查队列"),
+        description: t("home.entries.reviewsDesc", "人格、风格、黑话与批次"),
+        value: count(s.backlog),
+        note: t("home.entries.reviewsNote", "人格 {persona} · 风格 {style} · 黑话 {jargon}")
+          .replace("{persona}", count(s.personaPending))
+          .replace("{style}", count(s.styleTotal))
+          .replace("{jargon}", count(s.jargonPending)),
+        status: s.backlog ? t("home.entries.reviewsPending", "等待处理") : t("home.entries.reviewsClear", "队列已清空"),
+        tone: s.backlog > 20 ? "warning" : "success",
+      },
+      {
+        page: "content",
+        title: t("home.entries.contentTitle", "学习内容"),
+        description: t("home.entries.contentDesc", "对话、分析、表达模式与历史"),
+        value: s.contentCount ? count(s.contentCount) : "--",
+        note: t("home.entries.contentNote", "当前表达学习内容总量"),
+        status: s.contentCount ? t("home.entries.contentReady", "内容可浏览") : t("home.entries.contentEmpty", "暂无内容"),
+        tone: s.contentCount ? "success" : "default",
+      },
+      {
+        page: "graphs",
+        title: t("home.entries.graphsTitle", "记忆 / 知识图谱"),
+        description: t("home.entries.graphsDesc", "本地图谱与记忆后端"),
+        value: s.graphNodes ? count(s.graphNodes) : s.memory.active ? t("home.entries.graphsBackend", "后端") : "--",
+        note: s.graphNodes
+          ? t("home.entries.graphsNodesNote", "个当前记忆图谱节点")
+          : s.memory.delegated ? t("home.entries.graphsDelegatedNote", "读取 LivingMemory 后端") : t("home.entries.graphsLocalNote", "本地图谱"),
+        status: s.graphNodes || s.memory.active ? t("home.entries.graphsAvailable", "可用") : t("home.entries.graphsEmpty", "暂无节点"),
+        tone: s.graphNodes || s.memory.active ? "success" : "default",
+      },
+      {
+        page: "integrations",
+        title: t("home.entries.integrationsTitle", "功能融合"),
+        description: t("home.entries.integrationsDesc", "插件分工与伴随插件运行状态"),
+        value: s.integrations.length ? `${s.activeIntegrations}/${s.integrations.length}` : "--",
+        note: s.delegatedIntegrations
+          ? t("home.entries.integrationsDelegated", "{count} 项已委托").replace("{count}", String(s.delegatedIntegrations))
+          : t("home.entries.integrationsApi", "插件 API 入口"),
+        status: s.activeIntegrations ? t("home.entries.integrationsConnected", "已连接") : t("home.entries.integrationsSolo", "仅本插件在线"),
+        tone: s.activeIntegrations ? "success" : "warning",
+      },
+      {
+        page: "integrations",
+        title: t("home.entries.importsTitle", "世界书 / QQ 导入"),
+        description: t("home.entries.importsDesc", "预览、导入和结果统计"),
+        value: "API",
+        note: t("home.entries.importsNote", "世界书与聊天记录导入接口"),
+        status: s.integrations.length ? t("home.entries.importsAvailable", "可用") : t("home.entries.importsWaiting", "等待融合状态"),
+        tone: s.integrations.length ? "success" : "default",
+      },
+    ];
+  }
+
+  // 加载中（非静默刷新）与独立版一致：隐藏状态徽标，读数显示 -- / 加载中...
+  function renderSystemEntries(data) {
+    const loading = state.dashboardLoading;
+    setHtml("system-entry-grid", systemEntries(data || {}).map((entry) => `
+      <a class="module-card entry-card" href="#/${escapeAttr(entry.page)}" data-route-card="${escapeAttr(entry.page)}">
+        <span class="module-card-head">
+          <strong>${escapeHtml(entry.title)}</strong>
+          ${loading ? "" : pill(entry.status, toneClass(entry.tone))}
+        </span>
+        <span class="card-desc">${escapeHtml(entry.description)}</span>
+        <span class="entry-state">
+          <strong>${escapeHtml(loading ? "--" : entry.value)}</strong>
+          <span>${escapeHtml(loading ? t("home.entries.loading", "加载中...") : entry.note)}</span>
+        </span>
+      </a>
+    `).join(""));
+  }
+
+  // ── AI 巡检：与独立版 pages/insights/insights.ts buildInsights 同一组规则、顺序与文案（改动需两端同步） ──
+  function buildInsights(data) {
+    const monitoring = data.monitoring || {};
+    const metrics = data.metrics || {};
+    const runtime = monitoring.runtime || {};
+    const items = [];
+    const push = (tone, title, detail, page) => items.push({ tone, title, detail, page });
+
+    if (runtime.database_degraded === true) {
+      push("danger", t("insights.databaseDegraded", "数据库处于降级状态"),
+        runtime.database_start_error ? String(runtime.database_start_error) : t("insights.databaseNotReady", "数据库服务未完整启动。"), "monitoring");
     }
-    const pendingPersona = ((reviews.persona_pending || {}).updates || []).length;
-    const pendingStyle = ((reviews.style_reviews || {}).reviews || []).length;
-    const pendingJargon = (((reviews.jargon_pending || {}).jargon_list) || []).length;
-    const totalBacklog = pendingPersona + pendingStyle + pendingJargon;
-    if (totalBacklog > 0) {
-      push("action", t("insights.reviewBacklog", "审查队列有积压"), t("insights.reviewBacklogDetail", "当前有 {count} 条学习结果等待确认。").replace("{count}", fmt(totalBacklog, 0)), "reviews");
+    const backlog = reviewBacklog(data).total;
+    if (backlog > 0) {
+      push(backlog > 20 ? "danger" : "warning", t("insights.reviewBacklog", "审查队列存在积压"),
+        t("insights.reviewBacklogDetail", "当前约 {count} 条记录等待处理。").replace("{count}", fmt(backlog, 0)), "reviews");
     }
-    const score = normalizeScore(((overview.metrics || {}).overall_score));
+    const filteredRaw = metrics.filtered_messages ?? (metrics.messages || {}).filtered;
+    const filtered = filteredRaw === undefined || filteredRaw === null ? 0 : safeNum(filteredRaw);
+    if (filtered > 0) {
+      push("default", t("insights.filtered", "过滤链路持续工作"),
+        t("insights.filteredDetail", "{count} 条消息因质量或规则未进入学习。").replace("{count}", fmt(filtered, 0)), "monitoring");
+    }
+    const checks = (monitoring.health || {}).checks;
+    const failures = Object.values(isRecord(checks) ? checks : {})
+      .filter((item) => isRecord(item) && item.status && item.status !== "healthy").length;
+    if (failures > 0) {
+      push("danger", t("insights.healthFailed", "健康检查发现异常"),
+        t("insights.healthFailedDetail", "{count} 项检查未处于健康状态。").replace("{count}", fmt(failures, 0)), "monitoring");
+    }
+    const { score } = intelligenceScore(data);
     if (score > 0 && score < 60) {
-      push("warn", t("insights.lowScore", "智能评分偏低"), t("insights.lowScoreDetail", "综合评分 {score}，建议查看表达样本和学习批次。").replace("{score}", fmt(score)), "metrics");
+      push("warning", t("insights.lowScore", "智能评分偏低"),
+        t("insights.lowScoreDetail", "综合评分 {score}，建议查看表达样本和学习批次。").replace("{score}", fmt(score)), "monitoring");
     }
-    const health = (monitoring.health || {}).overall;
-    if (health && health !== "healthy") {
-      push("warn", t("insights.healthWarn", "健康检查提示异常"), t("insights.healthWarnDetail", "当前健康状态为 {status}。").replace("{status}", health), "monitoring");
-    }
-    const delegation = integrations.delegation || {};
+    const delegation = (data.integrations || {}).delegation || {};
     if (delegation.memory_delegated || delegation.reply_delegated) {
-      push("ok", t("insights.delegationEnabled", "伴随插件委托已启用"), t("insights.delegationDetail", "记忆委托: {memory}，回复委托: {reply}。")
+      push("default", t("insights.delegationEnabled", "伴随插件委托已启用"), t("insights.delegationDetail", "记忆委托: {memory}，回复委托: {reply}。")
         .replace("{memory}", delegation.memory_delegated ? t("state.yes", "是") : t("state.no", "否"))
         .replace("{reply}", delegation.reply_delegated ? t("state.yes", "是") : t("state.no", "否")), "integrations");
     }
-    Object.entries(errors).forEach(([key, value]) => {
-      push("warn", t("insights.moduleFailed", "模块 {name} 读取失败").replace("{name}", key), String(value), "monitoring");
+    Object.entries(data.errors || {}).forEach(([key, value]) => {
+      push("warning", t("insights.moduleFailed", "模块 {name} 读取失败").replace("{name}", key), String(value), "monitoring");
     });
     if (!items.length) {
-      push("ok", t("insights.noIssues", "暂无高优先级问题"), t("insights.noIssuesDetail", "核心学习、审查和监控模块均已返回可用数据。"), "home");
+      push("success", t("insights.noIssues", "暂未发现需要立即处理的问题"), t("insights.noIssuesDetail", "当前快照没有明显积压或健康告警。"), "overview");
     }
     return items;
   }
 
+  function insightLevel(tone) {
+    return tone === "danger" ? t("insights.levelHigh", "高") : tone === "warning" ? t("insights.levelMedium", "中") : t("insights.levelInfo", "提示");
+  }
+
   function renderInsights(data) {
     const insights = buildInsights(data || state.dashboard || {});
-    const html = insights.map((item) => `
-      <article class="insight-card ${escapeAttr(item.severity)}">
-        <span>${escapeHtml(item.severity === "ok" ? "OK" : item.severity === "action" ? "ACTION" : "WARN")}</span>
-        <h3>${escapeHtml(item.title)}</h3>
-        <p>${escapeHtml(item.detail)}</p>
-        ${button(t("actions.go", "前往"), `data-route-card="${escapeAttr(item.target)}"`)}
-      </article>
-    `).join("");
-    setHtml("ai-insight-list", html);
+    setHtml("ai-insight-list", insights.map((item) => `
+      <button class="insight-card tone-${escapeAttr(item.tone)}" type="button" data-route-card="${escapeAttr(item.page)}">
+        <span class="insight-card-head">${pill(insightLevel(item.tone), toneClass(item.tone))}<strong>${escapeHtml(item.title)}</strong></span>
+        <span class="insight-card-detail">${escapeHtml(item.detail)}</span>
+        <span class="card-arrow" aria-hidden="true">→</span>
+      </button>
+    `).join("") || empty());
   }
 
+  // 「复制摘要」：与独立版一致，每条巡检一行「- 标题: 说明」
+  function insightSummaryText(data) {
+    return buildInsights(data || {}).map((item) => `- ${item.title}: ${item.detail}`).join("\n");
+  }
+
+  // ── 运行监控（对齐独立版 MonitoringPage：4 读数 + 系统健康 / 监控热点 + 模型调用） ──
   function renderMonitoring(data) {
-    const health = data.health || {};
-    const checks = health.checks || {};
-    const healthHtml = Object.entries(checks).map(([key, item]) => `
-      <article class="health-card ${escapeAttr(item.status || "")}">
-        <span>${escapeHtml(key)}</span>
-        <strong>${escapeHtml(item.status || "unknown")}</strong>
-        <small>${escapeHtml(summarizeObject(item.detail || {}))}</small>
-      </article>
-    `).join("");
-    setHtml("health-grid", healthHtml || empty(t("empty.healthChecks", "暂无健康检查数据")));
+    const monitoring = data.monitoring || {};
+    const health = monitoring.health || {};
+    const functions = monitoring.functions || {};
+    const metrics = data.metrics || {};
+    const healthSource = health.checks ?? health.items ?? health;
+    const healthRows = Array.isArray(healthSource)
+      ? healthSource
+      : Object.entries(isRecord(healthSource) ? healthSource : {}).map(([name, value]) => ({ name, ...(isRecord(value) ? value : {}) }));
+    const functionRows = Array.isArray(functions.functions) ? functions.functions : [];
+    const { score, dimensions } = intelligenceScore(data);
 
-    const functions = ((data.functions || {}).functions || []).slice(0, 20);
-    const fnHtml = functions.map((item) => `
-      <div class="table-row">
-        <span>${escapeHtml(shortName(item.name))}</span>
-        <strong>${escapeHtml(fmt((item.duration || {}).avg || 0, 4))}s</strong>
-        <small>${escapeHtml(fmt(item.calls || 0, 0))} calls</small>
-      </div>
-    `).join("");
-    setHtml("function-list", fnHtml || empty((data.functions || {}).debug_mode ? t("empty.functionStats", "暂无函数性能数据") : t("empty.debugDisabled", "debug_mode 未启用")));
-    renderLlmCalls(data.llm || {});
-    showErrors(data.errors || {});
-  }
+    setText("mon-stat-checks", fmt(healthRows.length, 0));
+    setText("mon-stat-functions", fmt(functionRows.length, 0));
+    setText("mon-stat-trace", functions.trace_enabled ? t("monitoring.traceEnabled", "已启用") : t("monitoring.traceDisabled", "未启用"));
+    setText("mon-stat-overall", textOrDash(health.overall ?? health.status));
+    setText("mon-stat-score", fmt(score));
+    setText("mon-stat-score-note", dimensions
+      ? t("monitoring.scoreNote", "已有 {count} 个维度参与评估。").replace("{count}", fmt(dimensions, 0))
+      : t("monitoring.scoreEmpty", "智能指标服务暂未产生维度数据。"));
 
-  function renderLlmCalls(llm) {
-    const stats = llm.call_statistics || {};
-    const providers = llm.provider_info || {};
-    const entries = Object.entries(stats).filter(([key]) => key !== "overall");
-    const overall = stats.overall || {};
-    setText("llm-total-calls", fmt(overall.total_calls, 0));
-    const rows = entries.map(([key, item]) => {
-      const calls = Number(item.total_calls || item.calls || 0);
-      const errors = Number(item.error_count || item.errors || 0);
-      const avg = Number(item.avg_response_time_ms || 0);
-      const label = providers[key] || key;
-      return `<div class="table-row">
-        <span>${escapeHtml(label)}</span>
-        <strong>${escapeHtml(fmt(calls, 0))} ${escapeHtml(t("units.calls", "次调用"))}</strong>
-        <small>${escapeHtml(t("monitoring.llmMeta", "平均 {avg}ms · 失败 {errors}").replace("{avg}", fmt(avg, 0)).replace("{errors}", fmt(errors, 0)))}</small>
-        ${pill(errors > 0 ? t("state.abnormal", "异常") : t("state.normal", "正常"), errors > 0 ? "warn" : "ok")}
+    setHtml("health-list", healthRows.map((item) => {
+      const tone = item.status === "healthy" || item.ok === true ? "success" : item.status === "unhealthy" ? "danger" : "warning";
+      return `<div class="check-row">
+        <div><strong>${escapeHtml(textOrDash(item.name ?? item.key))}</strong><small>${escapeHtml(detailText(item.detail ?? item.message))}</small></div>
+        ${pill(textOrDash(item.status ?? (item.ok ? "healthy" : "unknown")), toneClass(tone))}
       </div>`;
-    });
-    setHtml("llm-call-list", rows.join("") || empty(t("empty.llmCalls", "暂无模型调用统计")));
+    }).join("") || empty(t("empty.healthChecks", "暂无健康检查数据")));
+
+    // 监控热点：与独立版 ProgressBar 同语义（avg_ms ?? total_ms ?? calls，封顶 100，显示 N%）
+    setHtml("function-list", functionRows.map((item) => {
+      const value = Math.max(0, Math.min(100, Number(item.avg_ms ?? item.total_ms ?? item.calls) || 0));
+      return `<div class="bar-row stacked">
+        <span>${escapeHtml(textOrDash(item.name ?? item.function))}</span>
+        <strong>${escapeHtml(value.toFixed(0))}%</strong>
+        <div class="bar-track"><div class="bar-fill" style="--value:${value}"></div></div>
+      </div>`;
+    }).join("") || empty(t("monitoring.noTrace", "当前没有函数追踪样本；可在配置中开启 trace。")));
+
+    const llmSource = metrics.llm_call_breakdown ?? metrics.llm_calls ?? metrics.filter_model_summary ?? {};
+    const llmRows = Array.isArray(llmSource)
+      ? llmSource
+      : Object.entries(isRecord(llmSource) ? llmSource : {}).map(([provider, calls]) =>
+        (typeof calls === "object" ? { provider, ...(isRecord(calls) ? calls : {}) } : { provider, calls }));
+    setText("llm-total-calls", `${fmt(safeNum((metrics.llm_call_summary || {}).total_calls), 0)} ${t("units.calls", "次调用")}`);
+    setHtml("llm-call-list", llmRows.map((item) => `<div class="check-row">
+        <div>
+          <strong>${escapeHtml(textOrDash(item.provider_label ?? item.provider_type ?? item.provider ?? item.name ?? item.model))}</strong>
+          <small>${escapeHtml(t("monitoring.llmMeta", "平均 {avg}ms · 失败 {errors}")
+            .replace("{avg}", fmt(safeNum(item.avg_response_time_ms), 0))
+            .replace("{errors}", fmt(safeNum(item.error_count ?? item.errors), 0)))}</small>
+        </div>
+        ${pill(fmt(safeNum(item.total_calls ?? item.calls ?? item.count), 0), item.is_abnormal === true || item.abnormal === true ? "danger" : "")}
+      </div>`).join("") || empty(t("empty.llmCalls", "暂无模型调用统计")));
   }
 
   async function loadJargon(force) {
@@ -2070,16 +2325,6 @@
     }).join("") || empty());
   }
 
-  function summarizeObject(obj) {
-    const entries = Object.entries(obj || {}).slice(0, 3);
-    return entries.map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join(" · ");
-  }
-
-  function shortName(name) {
-    const text = String(name || "");
-    return text.length > 58 ? `...${text.slice(-55)}` : text;
-  }
-
   function findReviewItem(kind, id) {
     const reviews = state.pageData.reviews || {};
     const style = state.pageData.style || {};
@@ -2343,14 +2588,28 @@
         }
       });
     });
-    $("copy-insight-context")?.addEventListener("click", async () => {
-      const text = JSON.stringify(state.dashboard || {}, null, 2);
+    $("copy-insight-summary")?.addEventListener("click", async () => {
+      const text = insightSummaryText(state.dashboard || {});
+      const copied = () => showToast(t("messages.summaryCopied", "巡检摘要已复制"));
       try {
         await navigator.clipboard.writeText(text);
-        showToast(t("messages.contextCopied", "巡检上下文已复制"));
+        copied();
+        return;
+      } catch (_) {}
+      // iframe 可能未授予剪贴板权限：与独立版一样退回 execCommand；仍失败时展示原文便于手动复制
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      document.body.append(textarea);
+      textarea.select();
+      let done = false;
+      try {
+        done = document.execCommand("copy");
       } catch (_) {
-        showModal(t("modal.insightContext", "巡检上下文"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
+        done = false;
       }
+      textarea.remove();
+      if (done) copied();
+      else showModal(t("actions.copySummary", "复制摘要"), `<pre class="code-preview">${escapeHtml(text)}</pre>`);
     });
     $("relearn-button")?.addEventListener("click", async () => {
       const result = await apiPost("content/action", { action: "relearn", group_id: "default" });
@@ -2474,7 +2733,11 @@
     document.addEventListener("click", async (event) => {
       const target = event.target.closest("[data-route-card],[data-refresh-page],[data-review-action],[data-batch-review-kind],[data-jargon-action],[data-jargon-batch-action],[data-style-action],[data-style-batch-action],[data-persona-action],[data-shadow-profile-action],[data-content-action],[data-settings-group],[data-emo-action]");
       if (!target) return;
-      if (target.dataset.routeCard) navigateToPage(target.dataset.routeCard);
+      if (target.dataset.routeCard) {
+        // 首页卡片 / 快捷坞为 <a href="#/page">：拦截默认跳转，避免 hashchange 重复加载
+        if (target.tagName === "A") event.preventDefault();
+        navigateToPage(target.dataset.routeCard);
+      }
       if (target.dataset.refreshPage) loadPageData(target.dataset.refreshPage, { force: true });
       if (target.dataset.reviewAction) await handleReviewAction(target.dataset.kind, target.dataset.id, target.dataset.reviewAction);
       if (target.dataset.batchReviewKind) await handleBatchReviewAction(target.dataset.batchReviewKind, target.dataset.batchReviewAction || "approve");
@@ -2653,8 +2916,7 @@
       setText("page-title", t(meta[1], meta[3]));
       if (state.dashboard) renderDashboard(state.dashboard);
       const data = state.pageData[state.page] || state.pageData[state.page === "expression-learning" ? "style" : state.page];
-      if (state.page === "monitoring" && state.pageData.monitoring) renderMonitoring(state.pageData.monitoring);
-      else if (state.page === "reviews" && state.pageData.reviews) renderReviews(state.pageData.reviews);
+      if (state.page === "reviews" && state.pageData.reviews) renderReviews(state.pageData.reviews);
       else if (state.page === "jargon-learning" && state.pageData.currentJargonData) renderJargon(state.pageData.currentJargonData);
       else if (state.page === "expression-learning" && state.pageData.style) renderStyle(state.pageData.style);
       else if (state.page === "persona-learning" && state.pageData.persona) renderPersona(state.pageData.persona);
@@ -3023,18 +3285,54 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  // ── 60s 静默刷新（对齐独立版 stores/dashboard 定时 refresh(true)）：只刷新快照驱动的页面，
+  //    弹窗打开、设置有未保存修改、焦点在输入控件或页面不可见时跳过；不重绘任何表单 ──
+  const AUTO_REFRESH_INTERVAL_MS = 60000;
+  const SNAPSHOT_PAGES = new Set(["home", "overview", "insights", "monitoring"]);
+
+  function autoRefreshBlocked() {
+    if (!state.ready || state.dashboardLoading) return true;
+    if (document.visibilityState === "hidden") return true;
+    const modal = $("detail-modal");
+    if (modal && (modal.open || modal.hasAttribute("open"))) return true;
+    if (state.dirtySettings.size > 0) return true;
+    const active = document.activeElement;
+    return !!(active && typeof active.matches === "function"
+      && active.matches("input, textarea, select, [contenteditable=\"true\"]"));
+  }
+
+  async function autoRefreshTick() {
+    if (!SNAPSHOT_PAGES.has(state.page) || autoRefreshBlocked()) return;
+    const data = await loadDashboard(true, { quiet: true });
+    if (data && state.page === "overview") renderOverview(data);
+  }
+
+  function startAutoRefresh() {
+    window.setInterval(() => {
+      autoRefreshTick().catch(() => {});
+    }, AUTO_REFRESH_INTERVAL_MS);
+  }
+
   async function init() {
     setThemeFromBridge();
     bindEvents();
     initSpringMotion();
+    // 首页静态结构（快捷坞 / 学习模块 / 入口卡骨架）先行渲染：桥接或快照失败时仍可导航
+    state.dashboardLoading = SNAPSHOT_PAGES.has(resolvePageFromHash());
+    renderHome({});
     try {
       await bridgeReady();
       setI18nFromBridge();
       navigateToPage(resolvePageFromHash(), { skipHash: true, force: true });
+      startAutoRefresh();
     } catch (error) {
+      state.dashboardLoading = false;
+      renderHome({});
       showToast(error.message || String(error), "error");
       setText("runtime-status", t("status.bridgeFailed", "桥接失败"));
       setText("runtime-summary", error.message || String(error));
+      setText("hero-status", t("status.bridgeFailed", "桥接失败"));
+      setText("hero-summary", error.message || String(error));
     }
   }
 

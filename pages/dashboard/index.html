@@ -54,6 +54,12 @@
         <section class="toast-region" id="toast-region" aria-live="polite"></section>
 
         <section class="page active" id="page-home" data-page="home" aria-label="模块入口">
+          <div class="page-titlebar">
+            <div>
+              <h3 data-i18n="home.title">学习模块控制台</h3>
+              <p data-i18n="home.desc">把自主学习链路拆成可观察、可审查、可干预的模块。</p>
+            </div>
+          </div>
           <div class="dashboard-hero">
             <div class="spring-stage" aria-hidden="true">
               <canvas id="physics-canvas"></canvas>
@@ -63,62 +69,40 @@
               <div class="spring-node node-c"></div>
             </div>
             <div class="hero-copy">
-              <span class="status-pill" id="hero-status" data-i18n="status.syncing">同步中</span>
-              <h3 data-i18n="home.overviewTitle">学习模块总览</h3>
-              <p id="hero-summary">正在读取黑话、表达、人设、图谱和监控数据。</p>
-              <div class="quick-actions" id="quick-actions"></div>
+              <span class="hero-kicker" data-i18n="home.kicker">LEARNING PULSE</span>
+              <h3 data-i18n="home.heroTitle">学习系统正在持续整理对话经验</h3>
+              <p data-i18n="home.heroBody">所有写操作仍由你确认，自动刷新不会打断正在编辑的内容。</p>
+              <p class="hero-bridge">
+                <span class="status-pill" id="hero-status" data-i18n="status.syncing">同步中</span>
+                <span id="hero-summary" data-i18n="status.connecting">正在连接 AstrBot 插件页桥接层。</span>
+              </p>
+              <nav class="quick-actions" id="quick-actions" aria-label="学习快捷入口" data-i18n-aria-label="home.quickLinksAria"></nav>
             </div>
           </div>
 
-          <section class="stat-grid" aria-label="核心数据" data-i18n-aria-label="home.coreStats">
+          <section class="stat-grid" aria-label="学习脉搏" data-i18n-aria-label="home.pulseAria">
             <article class="stat-card">
-              <span data-i18n="home.stats.messages">采集消息</span>
-              <strong id="stat-messages">0</strong>
+              <span data-i18n="home.pulse.efficiency">学习效率</span>
+              <strong id="home-pulse-efficiency">0%</strong>
             </article>
             <article class="stat-card">
-              <span data-i18n="home.stats.jargon">已确认黑话</span>
-              <strong id="stat-jargon">0</strong>
+              <span data-i18n="home.pulse.backlog">待办总量</span>
+              <strong id="home-pulse-backlog">0</strong>
             </article>
             <article class="stat-card">
-              <span data-i18n="home.stats.style">表达样本</span>
-              <strong id="stat-style">0</strong>
+              <span data-i18n="home.pulse.content">内容样本</span>
+              <strong id="home-pulse-content">--</strong>
             </article>
             <article class="stat-card">
-              <span data-i18n="home.stats.persona">人格更新</span>
-              <strong id="stat-persona">0</strong>
+              <span data-i18n="home.pulse.batches">最近批次</span>
+              <strong id="home-pulse-batches">0</strong>
             </article>
           </section>
 
-          <section class="home-grid">
-            <div class="panel module-panel">
-              <div class="panel-heading">
-                <h3 data-i18n="home.modulesTitle">学习子模块</h3>
-                <button class="ghost-button" type="button" data-route-card="reviews" data-i18n="home.reviewEntry">审查入口</button>
-              </div>
-              <div class="module-card-grid" id="module-card-grid"></div>
-            </div>
-            <div class="panel chart-panel">
-              <div class="panel-heading">
-                <h3 data-i18n="home.metricsTitle">模块指标</h3>
-                <button class="ghost-button" type="button" data-route-card="insights" data-i18n="nav.insights">AI 巡检</button>
-              </div>
-              <div class="bar-chart" id="module-chart"></div>
-              <div class="ring-row">
-                <div class="ring-chart" id="intelligence-ring" style="--value:0">
-                  <span id="intelligence-score">0</span>
-                </div>
-                <p id="metrics-summary">等待智能指标服务返回数据。</p>
-              </div>
-            </div>
-            <div class="panel trend-panel">
-              <div class="panel-heading">
-                <h3 data-i18n="home.trendsTitle">消息与学习趋势</h3>
-                <span class="mini-badge" id="trend-window">14d</span>
-              </div>
-              <div class="bar-chart" id="home-trend-chart"></div>
-              <p class="trend-note" id="home-trend-note"></p>
-            </div>
-          </section>
+          <h3 class="section-label" data-i18n="home.modulesLabel">Independent Learning Modules</h3>
+          <div class="module-card-grid learning-module-grid" id="module-card-grid"></div>
+          <h3 class="section-label" data-i18n="home.entriesLabel">System Entry Points</h3>
+          <div class="module-card-grid system-entry-grid" id="system-entry-grid"></div>
         </section>
 
         <section class="page" id="page-overview" data-page="overview">
@@ -172,37 +156,70 @@
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="insights.title">AI 巡检</h3>
-              <p data-i18n="insights.desc">从学习积压、运行健康和配置状态生成可行动提示。</p>
+              <p data-i18n="insights.desc">根据当前 Dashboard 快照生成可执行的关注事项。</p>
             </div>
-            <button class="ghost-button" type="button" id="copy-insight-context" data-i18n="actions.copyContext">复制上下文</button>
+            <button class="ghost-button" type="button" id="copy-insight-summary" data-i18n="actions.copySummary">复制摘要</button>
           </div>
-          <div class="insight-grid" id="ai-insight-list"></div>
+          <div class="insight-hero">
+            <strong data-i18n="insights.heroTitle">巡检建议只用于导航和辅助判断</strong>
+            <p data-i18n="insights.heroBody">所有实际审批、删除和配置修改仍需要明确确认。</p>
+          </div>
+          <div class="insight-list" id="ai-insight-list"></div>
         </section>
 
         <section class="page" id="page-monitoring" data-page="monitoring">
           <div class="page-titlebar">
             <div>
               <h3 data-i18n="monitoring.title">运行监控</h3>
-              <p data-i18n="monitoring.desc">健康检查、服务可用性和函数级性能。</p>
+              <p data-i18n="monitoring.desc">检查核心能力、后台任务与模型调用的运行状态。</p>
             </div>
             <button class="ghost-button" type="button" data-refresh-page="monitoring" data-i18n="actions.refresh">刷新</button>
           </div>
+          <section class="stat-grid" aria-label="监控指标" data-i18n-aria-label="monitoring.metricsAria">
+            <article class="stat-card">
+              <span data-i18n="monitoring.healthChecks">健康检查</span>
+              <strong id="mon-stat-checks">0</strong>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="monitoring.functionTrace">函数追踪</span>
+              <strong id="mon-stat-functions">0</strong>
+              <small id="mon-stat-trace" data-i18n="monitoring.traceDisabled">未启用</small>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="monitoring.overallStatus">总体状态</span>
+              <strong id="mon-stat-overall">--</strong>
+            </article>
+            <article class="stat-card">
+              <span data-i18n="monitoring.intelligenceScore">综合评分</span>
+              <strong id="mon-stat-score">0</strong>
+              <small id="mon-stat-score-note" data-i18n="monitoring.scoreEmpty">智能指标服务暂未产生维度数据。</small>
+            </article>
+          </section>
           <div class="content-grid two-col">
             <div class="panel">
-              <h3 data-i18n="monitoring.health">健康状态</h3>
-              <div class="health-grid" id="health-grid"></div>
+              <div class="panel-heading">
+                <h3 data-i18n="monitoring.health">系统健康</h3>
+                <span class="mini-badge" data-i18n="monitoring.healthHint">后端健康检查结果</span>
+              </div>
+              <div class="check-list" id="health-list"></div>
             </div>
             <div class="panel">
-              <h3 data-i18n="monitoring.functions">函数性能</h3>
-              <div class="function-list" id="function-list"></div>
+              <div class="panel-heading">
+                <h3 data-i18n="monitoring.functions">监控热点</h3>
+                <span class="mini-badge" data-i18n="monitoring.functionsHint">可量化的函数与调用指标</span>
+              </div>
+              <div class="bar-chart" id="function-list"></div>
             </div>
           </div>
           <div class="panel">
             <div class="panel-heading">
               <h3 data-i18n="monitoring.llmCalls">模型调用</h3>
-              <span class="mini-badge" id="llm-total-calls">0</span>
+              <div class="inline-actions compact-actions">
+                <span class="mini-badge" data-i18n="monitoring.llmHint">按 Provider 汇总当前统计窗口</span>
+                <span class="mini-badge" id="llm-total-calls">0</span>
+              </div>
             </div>
-            <div class="compact-table" id="llm-call-list"></div>
+            <div class="check-list" id="llm-call-list"></div>
           </div>
         </section>
 

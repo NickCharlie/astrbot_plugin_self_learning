@@ -146,7 +146,10 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "function localNavigationHost" in script
     assert "browserHost = window.location.hostname" in script
     assert 'resolveHostUrl(webui.dashboard_url || "")' in script
-    assert "resolveHostUrl(link.url || \"#\")" in script
+    # 首页快捷入口与独立版一致：7 个页内路由（不再下发宿主链接，iframe 内的 #/extension 是死链）
+    assert "function homeQuickLinks" in script
+    assert 'data-route-card="${escapeAttr(item.page)}"' in script
+    assert "#/extension" not in script
     assert "resolveHostUrl(dash.external_url || dash.official_page_url || \"#\")" in script
     assert 'id="physics-canvas"' in index
     assert 'id="graph-canvas"' in index
@@ -155,7 +158,7 @@ def test_embedded_plugin_page_uses_astrbot_bridge_and_module_dashboard():
     assert "persona-layout" in index
     assert 'http://127.0.0.1:7833' not in index
     assert ".module-card" in styles
-    assert ".ring-chart" in styles
+    assert ".system-entry-grid" in styles
     assert ".sidebar" in styles
     assert ".graph-panel" in styles
     assert ".persona-layout" in styles

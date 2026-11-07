@@ -7,7 +7,11 @@ from ..compat import Blueprint, request, jsonify
 from astrbot.api import logger
 
 from ..dependencies import get_container
-from ..services.metrics_service import MetricsService
+from ..services.metrics_service import (
+    MetricsService,
+    compute_learning_efficiency,
+    summarize_llm_call_statistics,
+)
 from ..middleware.auth import require_auth
 from ..utils.response import success_response, error_response
 
@@ -179,34 +183,7 @@ async def get_metrics():
                 logger.warning(f"获取消息统计失败: {e}")
 
         # LLM call statistics (filter out providers with no calls)
-        llm_stats = {}
-        llm_call_breakdown = []
-        llm_call_summary = {
-            "total_calls": 0,
-            "provider_count": 0,
-            "abnormal_provider_count": 0,
-            "average_calls_per_provider": 0.0,
-            "abnormal_threshold_calls": 0.0,
-            "abnormal_threshold_ratio": 1.5,
-            "minimum_abnormal_calls": 5,
-        }
-        filter_model_summary = {
-            "provider_type": "filter",
-            "provider_label": "",
-            "total_calls": 0,
-            "avg_response_time_ms": 0.0,
-            "success_rate": 1.0,
-            "error_count": 0,
-            "share_percent": 0.0,
-            "peer_provider_count": 0,
-            "peer_average_calls": 0.0,
-            "abnormal_threshold_calls": 0.0,
-            "abnormal_threshold_ratio": 1.5,
-            "minimum_abnormal_calls": 5,
-            "is_abnormal": False,
-            "abnormal_reason": "",
-            "configured": False,
-        }
+        llm_summary = summarize_llm_call_statistics(None)
         llm_adapter = container.llm_adapter
         if llm_adapter and hasattr(llm_adapter, 'get_call_statistics'):
             try:
@@ -218,96 +195,7 @@ async def get_metrics():
                     except Exception as e:
                         logger.warning(f"获取LLM提供商信息失败: {e}")
 
-                provider_rows = []
-                for provider_type, stats_data in real_stats.items():
-                    if provider_type == 'overall' or not isinstance(stats_data, dict):
-                        continue
-
-                    total_calls = int(stats_data.get('total_calls', 0) or 0)
-                    if total_calls > 0:
-                        llm_stats[f"{provider_type}_provider"] = {
-                            "total_calls": total_calls,
-                            "avg_response_time_ms": stats_data.get('avg_response_time_ms', 0),
-                            "success_rate": stats_data.get('success_rate', 1.0),
-                            "error_count": stats_data.get('error_count', 0)
-                        }
-                        provider_rows.append({
-                            "provider_type": provider_type,
-                            "provider_label": provider_info.get(provider_type, provider_type),
-                            "total_calls": total_calls,
-                            "avg_response_time_ms": round(float(stats_data.get('avg_response_time_ms', 0) or 0), 2),
-                            "success_rate": round(float(stats_data.get('success_rate', 1.0) or 0), 4),
-                            "error_count": int(stats_data.get('error_count', 0) or 0),
-                        })
-
-                provider_count = len(provider_rows)
-                total_calls = sum(row["total_calls"] for row in provider_rows)
-                average_calls = (total_calls / provider_count) if provider_count else 0.0
-                abnormal_threshold_ratio = 1.5
-                minimum_abnormal_calls = 5
-                abnormal_threshold_calls = max(
-                    minimum_abnormal_calls,
-                    average_calls * abnormal_threshold_ratio,
-                ) if provider_count > 1 else minimum_abnormal_calls
-
-                abnormal_count = 0
-                for row in sorted(provider_rows, key=lambda item: item["total_calls"], reverse=True):
-                    share_percent = (row["total_calls"] / total_calls * 100.0) if total_calls else 0.0
-                    is_abnormal = provider_count > 1 and row["total_calls"] >= abnormal_threshold_calls
-                    if is_abnormal:
-                        abnormal_count += 1
-                    row.update({
-                        "share_percent": round(share_percent, 2),
-                        "is_abnormal": is_abnormal,
-                        "abnormal_reason": (
-                            f"调用量高于均值 {abnormal_threshold_ratio:.1f} 倍"
-                            if is_abnormal else ""
-                        ),
-                    })
-                    llm_call_breakdown.append(row)
-
-                llm_call_summary = {
-                    "total_calls": total_calls,
-                    "provider_count": provider_count,
-                    "abnormal_provider_count": abnormal_count,
-                    "average_calls_per_provider": round(average_calls, 2),
-                    "abnormal_threshold_calls": round(abnormal_threshold_calls, 2),
-                    "abnormal_threshold_ratio": abnormal_threshold_ratio,
-                    "minimum_abnormal_calls": minimum_abnormal_calls,
-                }
-
-                filter_row = next((row for row in provider_rows if row["provider_type"] == "filter"), None)
-                peer_rows = [row for row in provider_rows if row["provider_type"] != "filter"]
-                peer_provider_count = len(peer_rows)
-                peer_total_calls = sum(row["total_calls"] for row in peer_rows)
-                peer_average_calls = (peer_total_calls / peer_provider_count) if peer_provider_count else 0.0
-                filter_threshold_calls = max(
-                    minimum_abnormal_calls,
-                    peer_average_calls * abnormal_threshold_ratio,
-                ) if peer_provider_count else minimum_abnormal_calls
-
-                if filter_row:
-                    filter_is_abnormal = peer_provider_count > 0 and filter_row["total_calls"] >= filter_threshold_calls
-                    filter_model_summary = {
-                        "provider_type": "filter",
-                        "provider_label": filter_row["provider_label"],
-                        "total_calls": filter_row["total_calls"],
-                        "avg_response_time_ms": filter_row["avg_response_time_ms"],
-                        "success_rate": filter_row["success_rate"],
-                        "error_count": filter_row["error_count"],
-                        "share_percent": filter_row["share_percent"],
-                        "peer_provider_count": peer_provider_count,
-                        "peer_average_calls": round(peer_average_calls, 2),
-                        "abnormal_threshold_calls": round(filter_threshold_calls, 2),
-                        "abnormal_threshold_ratio": abnormal_threshold_ratio,
-                        "minimum_abnormal_calls": minimum_abnormal_calls,
-                        "is_abnormal": filter_is_abnormal,
-                        "abnormal_reason": (
-                            f"筛选模型调用量高于其他模型均值 {abnormal_threshold_ratio:.1f} 倍"
-                            if filter_is_abnormal else ""
-                        ),
-                        "configured": True,
-                    }
+                llm_summary = summarize_llm_call_statistics(real_stats, provider_info)
             except Exception as e:
                 logger.warning(f"获取LLM统计失败: {e}")
 
@@ -342,67 +230,9 @@ async def get_metrics():
                 pass
 
         # Learning efficiency (from persistent DB data)
-        learning_efficiency = 0
-        learning_dimensions = {}
-
-        if database_manager:
-            # 1. Message filtering quality
-            filter_rate = 0
-            if total_messages > 0:
-                filter_rate = min(filtered_messages / total_messages * 100, 100)
-            learning_dimensions['filter_rate'] = round(filter_rate, 1)
-
-            # 2. Style learning progress
-            style_score = 0
-            try:
-                style_stats = await database_manager.get_style_learning_statistics() if hasattr(database_manager, 'get_style_learning_statistics') else {}
-                approved = style_stats.get('approved_reviews', 0) if isinstance(style_stats, dict) else 0
-                total_reviews = style_stats.get('total_reviews', 0) if isinstance(style_stats, dict) else 0
-                style_score = min(approved * 10, 100)
-                learning_dimensions['style_reviews'] = total_reviews
-                learning_dimensions['style_approved'] = approved
-            except Exception as e:
-                logger.warning(f"获取风格学习统计失败: {e}")
-
-            # 3. Expression pattern learning
-            pattern_score = 0
-            try:
-                if hasattr(database_manager, 'get_expression_patterns_statistics'):
-                    pattern_stats = await database_manager.get_expression_patterns_statistics()
-                    pattern_count = pattern_stats.get('total_patterns', 0) if isinstance(pattern_stats, dict) else 0
-                    pattern_score = min(pattern_count * 2, 100)
-                    learning_dimensions['expression_patterns'] = pattern_count
-            except Exception as e:
-                logger.warning(f"获取表达模式统计失败: {e}")
-
-            # 4. Learning session quality (from performance records)
-            session_quality = 0
-            try:
-                if hasattr(database_manager, 'get_learning_performance_history'):
-                    perf_records = await database_manager.get_learning_performance_history('default')
-                    if perf_records:
-                        quality_scores = [r.get('quality_score', 0) for r in perf_records if r.get('quality_score', 0) > 0]
-                        if quality_scores:
-                            session_quality = min(sum(quality_scores) / len(quality_scores) * 100, 100)
-                        success_count = sum(1 for r in perf_records if r.get('success'))
-                        learning_dimensions['session_success_rate'] = round(success_count / len(perf_records) * 100, 1) if perf_records else 0
-                        learning_dimensions['total_sessions'] = len(perf_records)
-            except Exception as e:
-                logger.warning(f"获取学习性能记录失败: {e}")
-
-            # Weighted average for learning efficiency
-            learning_efficiency = (
-                filter_rate * 0.25 +
-                style_score * 0.25 +
-                pattern_score * 0.25 +
-                session_quality * 0.25
-            )
-
-            logger.debug(
-                f"[Metrics] learning_efficiency={learning_efficiency:.1f} "
-                f"(filter={filter_rate:.1f}, style={style_score}, "
-                f"pattern={pattern_score}, session_quality={session_quality:.1f})"
-            )
+        learning_efficiency, learning_dimensions = await compute_learning_efficiency(
+            database_manager, total_messages, filtered_messages,
+        )
 
         # Hook performance timing
         hook_performance = {}
@@ -417,15 +247,12 @@ async def get_metrics():
 
         import time
         metrics = {
-            "llm_calls": llm_stats,
-            "llm_call_breakdown": llm_call_breakdown,
-            "llm_call_summary": llm_call_summary,
-            "filter_model_summary": filter_model_summary,
+            **llm_summary,
             "total_messages_collected": total_messages,
             "filtered_messages": filtered_messages,
             "system_metrics": system_metrics,
             "learning_sessions": learning_sessions,
-            "learning_efficiency": round(learning_efficiency, 1),
+            "learning_efficiency": learning_efficiency,
             "learning_dimensions": learning_dimensions,
             "hook_performance": hook_performance,
             **cache_hit_payload,
