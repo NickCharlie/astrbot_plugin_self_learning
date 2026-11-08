@@ -799,6 +799,18 @@
         "type": "bool",
         "hint": "开启后，只有检测到 Group Chat Plus 时才禁用本插件本地回复器；目标插件未加载时保留兼容降级。",
         "default": true
+      },
+      "delegate_reply_to_livinghello": {
+        "description": "回复决策交给 LivingHello",
+        "type": "bool",
+        "hint": "开启后，检测到 LivingHello 插件已加载时，本插件不再接管回复决策，由 LivingHello 判断是否接话。默认关闭，避免升级后静默改变现有行为。与 Group Chat Plus 同时存在时后者优先。",
+        "default": false
+      },
+      "livinghello_plugin_name": {
+        "description": "LivingHello 插件名",
+        "type": "string",
+        "hint": "用于检测 LivingHello 插件是否已加载。通常保持默认值即可。",
+        "default": "LivingHello"
       }
     }
   },

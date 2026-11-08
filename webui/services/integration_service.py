@@ -242,10 +242,21 @@ class IntegrationService:
             "memory_plugin": None,
             "reply_delegated": False,
             "reply_plugin": None,
+            "reply_plugin_kind": None,
         }
 
         memory_star = delegation.memory_plugin() if delegation else None
         reply_star = delegation.reply_plugin() if delegation else None
+        reply_kind = status.get("reply_plugin_kind")
+        if reply_kind is None:
+            # 兼容不返回 reply_plugin_kind 的旧 delegation 实现：按 Group Chat Plus 处理
+            group_chat_plus_star = reply_star
+            livinghello_star = None
+        else:
+            group_chat_plus_star = (
+                reply_star if reply_kind == "group_chat_plus" else None
+            )
+            livinghello_star = reply_star if reply_kind == "livinghello" else None
 
         return {
             "delegation": status,
@@ -254,7 +265,8 @@ class IntegrationService:
             "dashboards": [
                 self._self_learning_dashboard(),
                 await self._livingmemory_dashboard(memory_star, status),
-                await self._group_chat_plus_dashboard(reply_star, status),
+                await self._group_chat_plus_dashboard(group_chat_plus_star, status),
+                self._livinghello_dashboard(livinghello_star, status),
             ],
             "hub": self._hub_contract(config),
         }
@@ -290,6 +302,8 @@ class IntegrationService:
             "disable_local_memory_when_delegated",
             "delegate_reply_to_group_chat_plus",
             "group_chat_plus_plugin_name",
+            "delegate_reply_to_livinghello",
+            "livinghello_plugin_name",
             "disable_local_reply_when_delegated",
         )
         return {key: getattr(config, key, None) for key in keys}
@@ -493,6 +507,38 @@ class IntegrationService:
                 "base": f"{origin_url}/api" if origin_url else "/api",
                 "mode": "aiohttp_web_panel",
                 "endpoints": GROUP_CHAT_PLUS_API_ENDPOINTS,
+            },
+            "settings_group": "Integration_Settings",
+        }
+
+    def _livinghello_dashboard(
+        self, star: Any, status: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        if star is None:
+            status_block = {
+                "healthy": None,
+                "state": "not_installed",
+                "message": "未检测到 LivingHello 插件",
+            }
+        else:
+            status_block = {
+                "healthy": True,
+                "state": "ok",
+                "message": "插件已加载，负责接话判定与静默否决",
+            }
+
+        return {
+            "id": "livinghello",
+            "title": "LivingHello",
+            "role": "接话判定与静默否决",
+            "active": star is not None,
+            "delegated": bool(star is not None and status.get("reply_delegated")),
+            "plugin": self._star_info(star),
+            "status": status_block,
+            "dashboard": {
+                "available": False,
+                "external_url": None,
+                "label": "LivingHello",
             },
             "settings_group": "Integration_Settings",
         }

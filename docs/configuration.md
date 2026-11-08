@@ -253,7 +253,7 @@ WebUI 更新配置后如果包含重启项，响应消息会提示部分变更�
 
 ## 完整配置参考
 
-以下 143 个配置项按 24 个配置组列出，内容与 AstrBot 插件配置页一致。
+以下 145 个配置项按 24 个配置组列出，内容与 AstrBot 插件配置页一致。
 
 ### 依赖安装
 
@@ -539,6 +539,8 @@ WebUI 更新配置后如果包含重启项，响应消息会提示部分变更�
 | `delegate_reply_to_group_chat_plus` | 布尔 | `true` | **回复交给 Group Chat Plus**：开启后，检测到 Group Chat Plus 插件已加载时，本插件不再接管回复决策和回复生成，只负责学习上下文增强。 |
 | `group_chat_plus_plugin_name` | 文本 | `astrbot_plugin_group_chat_plus` | **Group Chat Plus 插件名**：用于检测 Group Chat Plus 插件是否已加载。通常保持默认值即可。 |
 | `disable_local_reply_when_delegated` | 布尔 | `true` | **委托时禁用本地回复**：开启后，只有检测到 Group Chat Plus 时才禁用本插件本地回复器；目标插件未加载时保留兼容降级。 |
+| `delegate_reply_to_livinghello` | 布尔 | `false` | **回复决策交给 LivingHello**：开启后，检测到 LivingHello 插件已加载时，本插件不再接管回复决策，由 LivingHello 判断是否接话。默认关闭，避免升级后静默改变现有行为。与 Group Chat Plus 同时存在时后者优先。 |
+| `livinghello_plugin_name` | 文本 | `LivingHello` | **LivingHello 插件名**：用于检测 LivingHello 插件是否已加载。通常保持默认值即可。 |
 
 ### MaiBot 增强
 
