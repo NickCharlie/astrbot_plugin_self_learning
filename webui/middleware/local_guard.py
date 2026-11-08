@@ -21,6 +21,7 @@ from __future__ import annotations
 import ipaddress
 from urllib.parse import urlsplit
 
+from astrbot.api import logger
 from fastapi.responses import JSONResponse
 
 
@@ -107,7 +108,11 @@ def _reject_message(scope: dict) -> str | None:
                 "如经反向代理访问，请先开启 WebUI 登录密码。"
             )
     if origin and not _origin_matches_host(origin, host_header):
-        return "跨站请求已被拒绝（Origin 与面板地址不同源）。"
+        return (
+            "跨站请求已被拒绝（Origin 与面板地址不同源）。若经反向代理访问，"
+            "请确保转发的 Host 头与浏览器地址栏一致（nginx 配置 "
+            "proxy_set_header Host $http_host;，非 443 端口时 $host 会丢失端口）。"
+        )
     return None
 
 
@@ -125,8 +130,20 @@ class LocalAccessGuardMiddleware:
         if message is None:
             await self.app(scope, receive, send)
             return
+        headers = scope.get("headers") or []
+        client = scope.get("client")
+        logger.warning(
+            "[WebUI] 访问被拦截: path=%s client=%s Host=%r Origin=%r 原因: %s",
+            scope.get("path", ""),
+            client[0] if isinstance(client, (tuple, list)) and client else "",
+            _header_value(headers, b"host"),
+            _header_value(headers, b"origin"),
+            message,
+        )
+        # error 键与 message 同值：登录页等旧客户端只读 data.error，
+        # 缺失时会误报"登录失败，请检查密码"，掩盖真实的拦截原因
         response = JSONResponse(
-            {"success": False, "message": message},
+            {"success": False, "error": message, "message": message},
             status_code=403,
         )
         await response(scope, receive, send)

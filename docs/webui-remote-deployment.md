@@ -140,7 +140,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;   # 面板 WebSocket 必需
         proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
+        proxy_set_header Host $http_host;   # 必须保留浏览器原始 Host（含端口）；$host 会丢端口，缺省会变成 upstream 地址
         proxy_set_header X-Real-IP $remote_addr;
     }
 }
@@ -211,6 +211,18 @@ curl -sS -m 5 http://服务器IP:7833/ || echo "被防火墙或安全组拦截"
 ### 反代后面板一直转圈/实时日志不出
 
 反代缺少 WebSocket 升级头。确认配置里包含 `proxy_set_header Upgrade $http_upgrade;` 和 `proxy_set_header Connection "upgrade";`（见上文 Nginx 示例）。
+
+### 独立 WebUI 登录一直提示"登录失败，请检查密码"，但密码确认无误
+
+这是同源校验在工作，不是密码错误：浏览器发送的 `Origin`（`https://你的域名[:端口]`）与转发到插件的 `Host` 头不一致，所有写请求被 403 拦截，登录页只显示通用提示。插件日志中会出现 `[WebUI] 访问被拦截 ... Origin=... 原因: 跨站请求已被拒绝`。
+
+常见原因与修法：
+
+- nginx 没写 `proxy_set_header Host ...;`（nginx 缺省把 Host 换成 upstream 地址）→ 补上 `proxy_set_header Host $http_host;`；
+- 监听在非 443 端口（如 `https://domain:8443`）却用了 `$host`（丢端口）→ 改用 `$http_host`；
+- 反代后路径改写/二级代理再套一层 → 最内层反代也要透传原始 Host。
+
+改完 `nginx -s reload` 即可，插件侧无需重启。Caddy 默认透传原始 Host，无需额外配置。
 
 ### HTTPS 站点里点开 http://IP:7833 被浏览器拦截
 
