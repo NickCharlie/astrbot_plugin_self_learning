@@ -443,6 +443,14 @@
       "disable_local_reply_when_delegated": {
         "description": "Disable local replies when delegated",
         "hint": "When enabled, the local reply system is disabled only if Group Chat Plus is detected; otherwise compatible fallback remains available."
+      },
+      "delegate_reply_to_livinghello": {
+        "description": "Delegate reply decisions to LivingHello",
+        "hint": "When enabled and the LivingHello plugin is loaded, this plugin no longer handles reply decisions; LivingHello decides whether to chime in. Off by default so upgrades never change existing behaviour silently. Group Chat Plus takes priority when both are loaded."
+      },
+      "livinghello_plugin_name": {
+        "description": "LivingHello plugin name",
+        "hint": "Used to detect whether the LivingHello plugin is loaded. Usually keep the default."
       }
     },
     "V2_Architecture_Settings": {
