@@ -138,7 +138,7 @@
                     window.location.href = data.redirect || "/api/index";
                     return;
                 }
-                showError(data.error);
+                showError(data.error || data.message);
                 password.value = "";
                 password.focus();
             } catch (error) {

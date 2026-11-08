@@ -149,6 +149,44 @@ async def test_guard_middleware_returns_403_json():
     assert "免密模式仅允许本机访问" in seen["body"].decode("utf-8")
 
 
+async def test_guard_403_body_carries_error_key_and_logs():
+    """403 响应体必须带 error 键并在日志留痕（issue #299）。
+
+    登录页只读 data.error，缺失时会把拦截误报成"登录失败，请检查密码"；
+    拦截不写日志则用户排查时无迹可寻。
+    """
+    import json
+
+    async def dummy_app(scope, receive, send):
+        raise AssertionError("guard must short-circuit before app")
+
+    bodies = []
+
+    async def send(message):
+        if message.get("body") is not None:
+            bodies.append(message["body"])
+
+    with _password(disabled=True), patch.object(local_guard, "logger") as fake_logger:
+        await LocalAccessGuardMiddleware(dummy_app)(
+            _scope(client=("203.0.113.5", 5000), path="/api/login"),
+            lambda *args: None,
+            send,
+        )
+    payload = json.loads(b"".join(bodies).decode("utf-8"))
+    assert payload["error"] == payload["message"]
+    assert "免密模式仅允许本机访问" in payload["error"]
+    assert fake_logger.warning.called
+
+
+def test_origin_mismatch_message_mentions_reverse_proxy_fix():
+    # 反代 Origin/Host 不同源时，提示必须指向 nginx Host 配置，而不是让用户怀疑密码
+    with _password():
+        message = _reject_message(
+            _scope(origin="https://panel.example.com", host="127.0.0.1:7833")
+        )
+    assert message and "proxy_set_header" in message and "$http_host" in message
+
+
 async def test_guard_middleware_passes_non_http_and_clean_requests():
     forwarded = []
 
