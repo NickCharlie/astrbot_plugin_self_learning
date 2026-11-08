@@ -2,6 +2,31 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.0] - 2026-11-08
+
+### 新增：LivingHello 回复决策委托（PR #298，@AKIhunter）
+
+- 新增 LivingHello 作为第二个回复决策委托目标：`delegate_reply_to_livinghello`（默认**关闭**，升级不静默改变现有行为；Group Chat Plus 仍默认开启且同时存在时优先）与 `livinghello_plugin_name` 检测名配置。LivingHello 只做接话判定与静默否决、不生成回复，委托后回复仍由宿主默认对话链路产生。
+- `FeatureDelegation` 新增 `reply_plugin_kind()`（`group_chat_plus` / `livinghello`）按检测到的目标分派读取对应开关，`status()` 输出 `reply_plugin_kind`；功能融合页新增 LivingHello 状态卡片，Group Chat Plus 卡片不再误报"面板未启用"，并对不返回 `reply_plugin_kind` 的旧 delegation 实现保留回退。
+- 兼容基线补充 LivingHello `2.7.0`（只做加载检测，不读取其内部结构）。
+
+### 修复：反代场景 WebUI 一直提示"登录失败，请检查密码"（PR #300，issue #299）
+
+- 根因是同源校验拦截而非密码错误：nginx 反代下浏览器 `Origin` 与转发的 `Host` 头不同源（nginx 缺省把 Host 换成 upstream 地址，`$host` 在非 443 端口会丢端口），登录 POST 被 403；而拦截响应体只有 `success`/`message` 键、登录页只读 `data.error`，只能显示兜底文案且服务端无日志。现 403 响应体补 `error` 键（与 `message` 同值）并以 warning 留痕（path/client/Host/Origin/原因），Origin 不同源的提示直接指向 `proxy_set_header Host $http_host;`。
+- 登录页与改密页错误文案改 `data.error || data.message` 双键兜底；`docs/webui-remote-deployment.md` nginx 示例改用 `$http_host` 并新增"密码确认无误却一直登录失败"排查条目；新增 3 个守卫测试。
+
+### 修复：query_affection per_user 缺范围解析支持时显式不可用
+
+- `per_user` 范围解析此前依赖数据库管理器内部方法 `_affection_scope_key`，缺该方法时会在读取内静默跳过解析、按群范围读取并把行冒充按用户统一分数返回（返回值还标注 `scope="__user__"`）。现把范围解析上移到 `query()` 单点：缺解析支持时显式返回 `unavailable`（`system_enabled=true`），不发起任何 SQL 读取；`per_group`（默认）行为不变。
+
+### 维护者落地（PR #298 合入时）
+
+- 重生成 `docs/configuration.md` 配置参考（143→145 项，修复 `test_config_reference_matches_schema`）；补齐 `.astrbot-plugin/i18n/{zh-CN,en-US}.json` 中 `delegate_reply_to_livinghello` / `livinghello_plugin_name` 的中英文描述。
+
+### 版本
+
+- 版本号由 4.8.1 提升至 **4.9.0**（新功能委托目标 + 修复，+0.1）。
+
 ## [4.8.1] - 2026-11-07
 
 ### 新增：好感度只读查询工具（PR #297，@Dashu-Li）
