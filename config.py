@@ -332,6 +332,7 @@ class PluginConfig(BaseModel):
     mood_half_life_minutes: float = 0.0 # 情绪强度半衰期（分钟），0 表示不衰减
     mood_fade_threshold: float = 0.0 # 强度低于该值视为情绪消退，0 表示不按强度失效
     mood_max_concurrent: int = 1 # 允许并存的情绪条数，1 表示新情绪直接顶掉旧的
+    mood_startup_respect_existing: bool = False # 启动时保留淡化未过期的情绪，不重新随机
 
     # 情绪与学习联动配置
     enable_emotion_learning_gate: bool = True # 启用情绪学习闸门（情绪/好感度加权决定单条消息是否学习）
@@ -645,6 +646,7 @@ class PluginConfig(BaseModel):
         mood_half_life_minutes=float(mood_settings.get('mood_half_life_minutes', 0) or 0),
         mood_fade_threshold=float(mood_settings.get('mood_fade_threshold', 0) or 0),
         mood_max_concurrent=int(mood_settings.get('mood_max_concurrent', 1) or 1),
+        mood_startup_respect_existing=bool(mood_settings.get('mood_startup_respect_existing', False)),
 
             # PersonaUpdater配置
             persona_merge_strategy=persona_evolution_settings.get(

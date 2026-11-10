@@ -108,13 +108,18 @@ class BotMood:
             return False
         return self.effective_intensity(now) < self.fade_threshold
 
+    def is_expired(self, now: Optional[float] = None) -> bool:
+        """是否已经超过持续时间（此时必须换新情绪）。"""
+        current = time.time() if now is None else now
+        return current >= (self.start_time + self.duration_hours * 3600)
+
     def is_active(self, now: Optional[float] = None) -> bool:
         """检查情绪是否仍然活跃。
 
         先看时长是否过期，再看强度衰减后是否已经淡到阈值以下。
         """
         current = time.time() if now is None else now
-        if current >= (self.start_time + self.duration_hours * 3600):
+        if self.is_expired(current):
             return False
         return not self.is_faded(current)
 
@@ -408,12 +413,25 @@ class AffectionManager(AsyncServiceBase):
             }
         }
     
-    async def get_current_mood(self, group_id: str) -> Optional[BotMood]:
-        """获取当前bot情绪"""
+    async def get_current_mood(self, group_id: str,
+                               allow_faded: bool = False) -> Optional[BotMood]:
+        """获取当前bot情绪
+
+        Args:
+            group_id: 群组 ID
+            allow_faded: 为 True 时，淡化到阈值以下但尚未过期的情绪也会返回。
+                启动阶段用它判断「这个群还有没有历史情绪」，避免把淡化的情绪
+                当成没有情绪而重新掷随机。
+        """
+        def _usable(mood: BotMood) -> bool:
+            if mood.is_expired():
+                return False
+            return allow_faded or not mood.is_faded()
+
         # 先检查内存缓存
         if group_id in self.current_moods:
             mood = self.current_moods[group_id]
-            if mood.is_active():
+            if _usable(mood):
                 return mood
             else:
                 # 情绪过期，移除缓存
@@ -438,7 +456,7 @@ class AffectionManager(AsyncServiceBase):
                     half_life_minutes=self.config.mood_half_life_minutes,
                     fade_threshold=self.config.mood_fade_threshold,
                 )
-                if mood.is_active():
+                if _usable(mood):
                     self.current_moods[group_id] = mood
                     return mood
             except Exception as e:
@@ -479,9 +497,11 @@ class AffectionManager(AsyncServiceBase):
     async def ensure_mood_for_group(self, group_id: str) -> Optional[BotMood]:
         """确保指定群组有情绪状态，如果没有则创建随机情绪"""
         try:
-            # 先检查是否已有活跃情绪
-            current_mood = await self.get_current_mood(group_id)
-            if current_mood and current_mood.is_active():
+            # 先检查是否已有未过期的情绪（淡化但未过期的按配置决定是否沿用）
+            current_mood = await self.get_current_mood(
+                group_id, allow_faded=self.config.mood_startup_respect_existing
+            )
+            if current_mood:
                 return current_mood
             
             # 如果没有活跃情绪，设置随机情绪
@@ -505,10 +525,16 @@ class AffectionManager(AsyncServiceBase):
             initialized_count = 0
             for group_id in active_groups:
                 try:
-                    # 检查该群组是否已经有活跃情绪
-                    current_mood = await self.get_current_mood(group_id)
-                    if current_mood and current_mood.is_active():
-                        self._logger.debug(f"群组 {group_id} 已有活跃情绪，跳过初始化")
+                    # 检查该群组是否还有未过期的历史情绪。
+                    # respect_existing 为 True 时，淡化但未过期的情绪也算数，
+                    # 否则重启会把「刚消下去的余温」直接换成一个随机情绪。
+                    current_mood = await self.get_current_mood(
+                        group_id, allow_faded=self.config.mood_startup_respect_existing
+                    )
+                    if current_mood:
+                        self._logger.debug(
+                            f"群组 {group_id} 仍有未过期情绪，跳过初始化"
+                        )
                         continue
                     
                     # 设置随机初始情绪
