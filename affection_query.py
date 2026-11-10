@@ -57,7 +57,8 @@ def add_guidance(plugin, event, req):
             + scope_text
             + "用户询问实际好感度或排行时，先调用 query_affection 读取数据库；不要凭旧回复说系统不存在，"
             "也不要编造初始分数、排行榜或把记忆中的数字当成实时值。"
-            "user 查本人；ranking 查当前群排行（沿用管理员权限）。管理员私聊可明确指定机器人已加入的群号。"
+            "user 查本人；ranking 查当前作用域排行（沿用管理员权限）。管理员私聊可明确指定机器人已加入的群号。"
+            "用户要求完整或全部榜单时，调用 mode=ranking、limit=0；只查前几名时 limit 可用 1 至 20，默认 10。"
             "not_recorded/empty 表示该范围暂无记录，不是没有系统；unavailable 表示暂时查不到。"
             "不主动公开分数；只按本次查询返回结果作答。工具是只读查询，不会加减分。"
             "</affection_query_capability>"
@@ -104,18 +105,10 @@ async def read_snapshot(db, scope_key, user_id, mode, limit):
             )
             item["rank"] = int(greater) + 1
             return {"status": "ok", "user": item, "record_count": count}
-        rows = (
-            (
-                await session.execute(
-                    stmt.order_by(
-                        UserAffection.affection_level.desc(),
-                        UserAffection.user_id.asc(),
-                    ).limit(limit)
-                )
-            )
-            .mappings()
-            .all()
-        )
+        stmt = stmt.order_by(UserAffection.affection_level.desc(), UserAffection.user_id.asc())
+        if limit:
+            stmt = stmt.limit(limit)
+        rows = (await session.execute(stmt)).mappings().all()
         ranked = []
         previous = None
         rank = 0
@@ -131,7 +124,7 @@ async def read_snapshot(db, scope_key, user_id, mode, limit):
             "ranking": ranked,
             "record_count": count,
             "truncated": int(count) > len(ranked),
-            "message": "仅含此群已有记录的用户，同分并列；未记录的成员不按零分参与排名。",
+            "message": "仅含该作用域已有记录的用户，同分并列；未记录的成员不按零分参与排名。",
         }
 
 
@@ -189,8 +182,11 @@ async def query(plugin, event, mode="user", user_id="", group_id="", limit=10):
             "status": "invalid",
             "message": "私聊好感度与群内记录分开；查询群排行请由管理员明确提供群号。",
         }
-    if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
-        return {"status": "invalid", "message": "limit 必须为 1 到 20 的整数。"}
+    if isinstance(limit, bool) or not isinstance(limit, int) or not 0 <= limit <= 20:
+        return {
+            "status": "invalid",
+            "message": "limit 必须为 0 到 20 的整数；0 表示返回该作用域全部已有记录。",
+        }
     db = getattr(plugin, "db_manager", None)
     if db is None or not db.is_ready:
         return {

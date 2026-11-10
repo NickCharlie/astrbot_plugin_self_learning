@@ -547,7 +547,7 @@ class SelfLearningPlugin(star.Star):
             mode(str): user 查询本人或指定用户；ranking 查询当前群排名（管理员）。
             user_id(str): user 模式的 QQ 号，留空查本人；查询他人仅限管理员。
             group_id(str): 留空为当前群/私聊范围；管理员私聊可明确指定已加入的群号，分数不跨群合并。
-            limit(int): 排行返回数量，1 至 20，默认 10。
+            limit(int): 排行返回数量，0 返回当前作用域全部已有记录；1 至 20 返回前几名，默认 10。
         """
         return json.dumps(await query_affection_snapshot(self,event,mode,user_id,group_id,limit),ensure_ascii=False)
 

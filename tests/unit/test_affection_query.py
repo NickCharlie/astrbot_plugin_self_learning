@@ -224,7 +224,9 @@ class AffectionQueryTests(unittest.IsolatedAsyncioTestCase):
             {"mode": "modify"},
             {"user_id": "nickname"},
             {"group_id": "101 OR 1=1"},
-            {"limit": 0},
+            {"limit": -1},
+            {"limit": "0"},
+            {"limit": 1.5},
             {"limit": 21},
             {"limit": True},
         ):
@@ -275,6 +277,55 @@ class AffectionQueryTests(unittest.IsolatedAsyncioTestCase):
         req = SimpleNamespace(system_prompt="Original")
         add_guidance(self.plugin, self.event(), req)
         self.assertEqual(req.system_prompt, "Original")
+
+    async def test_zero_limit_returns_all_thirty_records_for_administrator(self):
+        async with self.session() as session:
+            await session.execute(
+                insert(UserAffection),
+                [
+                    dict(
+                        group_id="101",
+                        user_id=str(81000 + i),
+                        affection_level=100 if i < 2 else 30 - i,
+                        max_affection=100,
+                        created_at=1,
+                        updated_at=2,
+                    )
+                    for i in range(26)
+                ],
+            )
+            await session.commit()
+        self.statements.clear()
+        result = await query(self.plugin, self.event(), mode="ranking", limit=0)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["record_count"], 30)
+        self.assertEqual(len(result["ranking"]), 30)
+        self.assertFalse(result["truncated"])
+        self.assertEqual([row["user_id"] for row in result["ranking"][:2]], ["81000", "81001"])
+        self.assertEqual([row["rank"] for row in result["ranking"][:3]], [1, 1, 3])
+        self.assertEqual(result["ranking"][-1]["affection_level"], 0)
+        self.assertTrue(self.statements)
+        self.assertTrue(all(s.lstrip().upper().startswith("SELECT") for s in self.statements))
+        self.assertFalse(any("LIMIT" in s.upper() for s in self.statements))
+        for limit in (1, 20):
+            limited = await query(self.plugin, self.event(), mode="ranking", limit=limit)
+            self.assertEqual(limited["ranking"], result["ranking"][:limit])
+            self.assertEqual(limited["record_count"], 30)
+            self.assertTrue(limited["truncated"])
+
+    async def test_zero_limit_preserves_member_and_cross_group_permissions(self):
+        member = self.event(user="70001", role="member")
+        result = await query(self.plugin, member, mode="ranking", limit=0)
+        self.assertEqual(result["status"], "denied")
+        result = await query(self.plugin, self.event(), mode="ranking", group_id="102", limit=0)
+        self.assertEqual(result["status"], "denied")
+        self.assertEqual(self.statements, [])
+
+    def test_guidance_explains_full_ranking_without_changing_admin_policy(self):
+        req = SimpleNamespace(system_prompt="Original")
+        add_guidance(self.plugin, self.event(), req)
+        self.assertIn("limit=0", req.system_prompt)
+        self.assertIn("沿用管理员权限", req.system_prompt)
 
 
 def test_tool_returns_query_snapshot_with_general_hook_disabled(monkeypatch):
