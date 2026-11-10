@@ -101,19 +101,27 @@ class AffectionFacade(BaseFacade):
         mood_type: str,
         mood_intensity: float,
         mood_description: str,
-        duration_hours: int = 24
+        duration_hours: int = 24,
+        secondary_moods: str = "",
     ) -> bool:
-        """保存 Bot 情绪状态"""
+        """保存 Bot 情绪状态
+
+        Args:
+            secondary_moods: 并存情绪 JSON（可为空字符串），表达复合情绪用。
+        """
         try:
             async with self.get_session() as session:
                 repo = BotMoodRepository(session)
-                mood = await repo.save({
+                data = {
                     'group_id': group_id,
                     'mood_type': mood_type,
                     'mood_intensity': mood_intensity,
                     'mood_description': mood_description,
                     'start_time': time.time(),
-                })
+                }
+                if secondary_moods:
+                    data['secondary_moods'] = secondary_moods
+                mood = await repo.save(data)
                 return mood is not None
         except Exception as e:
             self._logger.error(f"[AffectionFacade] 保存情绪状态失败: {e}")
@@ -133,6 +141,7 @@ class AffectionFacade(BaseFacade):
                     'mood_description': mood.mood_description,
                     'start_time': mood.start_time,
                     'end_time': mood.end_time,
+                    'secondary_moods': getattr(mood, 'secondary_moods', None) or "",
                 }
         except Exception as e:
             self._logger.error(f"[AffectionFacade] 获取当前情绪失败: {e}")

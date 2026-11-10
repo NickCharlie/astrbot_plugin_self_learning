@@ -329,6 +329,9 @@ class PluginConfig(BaseModel):
     enable_startup_random_mood: bool = True # 启动时随机情绪初始化
     mood_change_hour: int = 6 # 情绪更新时间（24小时制）
     mood_persistence_hours: int = 24 # 情绪持续时间
+    mood_half_life_minutes: float = 0.0 # 情绪强度半衰期（分钟），0 表示不衰减
+    mood_fade_threshold: float = 0.0 # 强度低于该值视为情绪消退，0 表示不按强度失效
+    mood_max_concurrent: int = 1 # 允许并存的情绪条数，1 表示新情绪直接顶掉旧的
 
     # 情绪与学习联动配置
     enable_emotion_learning_gate: bool = True # 启用情绪学习闸门（情绪/好感度加权决定单条消息是否学习）
@@ -639,6 +642,9 @@ class PluginConfig(BaseModel):
             enable_startup_random_mood=mood_settings.get('enable_startup_random_mood', True),
             mood_change_hour=mood_settings.get('mood_change_hour', 6),
             mood_persistence_hours=mood_settings.get('mood_persistence_hours', 24),
+        mood_half_life_minutes=float(mood_settings.get('mood_half_life_minutes', 0) or 0),
+        mood_fade_threshold=float(mood_settings.get('mood_fade_threshold', 0) or 0),
+        mood_max_concurrent=int(mood_settings.get('mood_max_concurrent', 1) or 1),
 
             # PersonaUpdater配置
             persona_merge_strategy=persona_evolution_settings.get(

@@ -636,9 +636,11 @@ class SQLAlchemyDatabaseManager:
     async def save_bot_mood(
         self, group_id: str, mood_type: str, mood_intensity: float,
         mood_description: str, duration_hours: int = 24,
+        secondary_moods: str = "",
     ) -> bool:
         return await self._affection.save_bot_mood(
             group_id, mood_type, mood_intensity, mood_description, duration_hours,
+            secondary_moods,
         )
 
     async def get_current_bot_mood(self, group_id: str) -> Optional[Dict[str, Any]]:

@@ -210,6 +210,9 @@ class BotMood(Base):
     start_time = Column(Float, nullable=False)
     end_time = Column(Float)
     is_active = Column(Integer, default=1) # Boolean as int for SQLite compat
+    # 并存情绪（JSON 数组），用于表达「赌气 + 黏人」这类复合状态；
+    # 为空表示只有主情绪，行为与旧版本一致。
+    secondary_moods = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
