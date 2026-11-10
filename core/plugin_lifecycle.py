@@ -171,18 +171,7 @@ class PluginLifecycle:
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()
 
             # ------ group_id 映射表传递 ------
-            p.temporary_persona_updater.group_id_to_unified_origin = (
-                group_id_to_unified_origin
-            )
-            if p.progressive_learning:
-                p.progressive_learning.group_id_to_unified_origin = (
-                    group_id_to_unified_origin
-                )
-            if p.persona_manager:
-                p.persona_manager.group_id_to_unified_origin = (
-                    group_id_to_unified_origin
-                )
-            logger.info("已将 group_id 映射表传递给服务组件")
+            self._share_group_origin_mapping(group_id_to_unified_origin)
 
             # ------ LLM 适配器（状态报告用）------
             p.llm_adapter = p.service_factory.create_framework_llm_adapter()
@@ -348,6 +337,37 @@ class PluginLifecycle:
             raise SelfLearningError(
                 StatusMessages.INIT_FAILED_GENERIC.format(error=str(e))
             ) from e
+
+    def _share_group_origin_mapping(
+        self, group_id_to_unified_origin: Dict[str, str]
+    ) -> None:
+        """把 group_id → unified_msg_origin 映射表交给需要解析会话人格的服务。
+
+        ``PersonaManagerService`` / ``TemporaryPersonaUpdater`` / WebUI 共享的是
+        ``ServiceFactory`` 缓存的那个 ``PersonaUpdater``（见 ``create_persona_manager``
+        与 ``create_temporary_persona_updater``），它此前从未收到映射表，
+        ``_resolve_umo`` 只能退回原始 group_id，导致同一批风格学习的表达模式
+        落到框架的回退人格（issue #305）。这里一并补发。
+        """
+        p = self._plugin
+
+        p.temporary_persona_updater.group_id_to_unified_origin = (
+            group_id_to_unified_origin
+        )
+        if p.progressive_learning:
+            p.progressive_learning.group_id_to_unified_origin = (
+                group_id_to_unified_origin
+            )
+        if p.persona_manager:
+            p.persona_manager.group_id_to_unified_origin = (
+                group_id_to_unified_origin
+            )
+        learning_persona_updater = p.service_factory.get_persona_updater()
+        if learning_persona_updater is not None:
+            learning_persona_updater.group_id_to_unified_origin = (
+                group_id_to_unified_origin
+            )
+        logger.info("已将 group_id 映射表传递给服务组件")
 
     def _setup_internal_components(
         self,
