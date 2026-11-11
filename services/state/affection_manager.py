@@ -455,6 +455,9 @@ class AffectionManager(AsyncServiceBase):
                     duration_hours=duration_hours,
                     half_life_minutes=self.config.mood_half_life_minutes,
                     fade_threshold=self.config.mood_fade_threshold,
+                    secondary_moods=self._parse_secondary(
+                        mood_data.get('secondary_moods')
+                    ),
                 )
                 if _usable(mood):
                     self.current_moods[group_id] = mood

@@ -10,6 +10,8 @@
 两项都默认关闭，不配置时行为与旧版本一致。
 """
 
+import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -120,6 +122,48 @@ class TestSecondaryMoods:
         manager.current_moods["g"] = _mood(secondary_moods=existing, start_time=time.time())
         secondary = manager._compose_secondary("g", MoodType.HAPPY, 0.5)
         assert [x["type"] for x in secondary] == ["sleepy"]
+
+    def test_reload_restores_secondary_from_db(self):
+        manager = _manager(max_concurrent=2)
+        stored = [{"type": "playful", "intensity": 0.6, "start_time": time.time()}]
+
+        async def _db(_group_id):
+            now = time.time()
+            return {
+                "mood_type": "happy",
+                "mood_intensity": 0.8,
+                "mood_description": "开心",
+                "start_time": now,
+                "end_time": now + 24 * 3600,
+                "secondary_moods": json.dumps(stored),
+            }
+
+        manager.db_manager = SimpleNamespace(get_current_bot_mood=_db)
+        manager._logger = SimpleNamespace(error=lambda *a, **k: None)
+        mood = asyncio.run(manager.get_current_mood("g"))
+        assert mood is not None
+        assert mood.secondary_moods[0]["type"] == "playful"
+        assert mood.active_secondaries()[0]["type"] == "playful"
+
+    def test_reload_ignores_invalid_secondary_json(self):
+        manager = _manager(max_concurrent=2)
+
+        async def _db(_group_id):
+            now = time.time()
+            return {
+                "mood_type": "happy",
+                "mood_intensity": 0.8,
+                "mood_description": "开心",
+                "start_time": now,
+                "end_time": now + 24 * 3600,
+                "secondary_moods": "{not-json",
+            }
+
+        manager.db_manager = SimpleNamespace(get_current_bot_mood=_db)
+        manager._logger = SimpleNamespace(error=lambda *a, **k: None)
+        mood = asyncio.run(manager.get_current_mood("g"))
+        assert mood is not None
+        assert mood.secondary_moods == []
 
     def test_caps_at_limit(self):
         manager = _manager(max_concurrent=2)
