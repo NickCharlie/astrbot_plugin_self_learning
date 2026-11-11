@@ -2,6 +2,29 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.2] - 2026-11-11
+
+### 修复：query_affection 拒绝无效的按用户范围映射（PR #302，@Dashu-Li）
+
+- `affection_scope=per_user` 时，数据库范围解析器返回旧群键、空值或其他非共享键，或解析器抛错，不再把群/历史作用域的行标成共享分数；只接受数据库约定的 `__user__`，其他情况显式返回 `unavailable` 且不执行 SQL。`per_group` 行为不变。
+- 把此前嵌在工具测试函数体内、从未被收集的两个范围测试提升为类方法，并补齐真实临时 SQLite 回归（26 passed / 28 subtests）。
+
+### 新增：管理员完整好感度榜单（PR #303，@Dashu-Li）
+
+- `query_affection` 在 `mode=ranking`、`limit=0` 时省略 SQL LIMIT，返回当前作用域全部已有记录；默认仍为前 10 名，`limit=1–20` 语义不变。并列名次、零分、`record_count`、`truncated` 与既有权限校验（成员/跨群）保留。
+- 能力提示、工具参数说明与 README 同步；新增 30 条合成记录的全量/限额/权限回归。
+
+### 新增：情绪强度半衰期衰减与可选并存情绪（PR #304，@SB-TDM，issue #301）
+
+- 新增 `mood_half_life_minutes`（默认 0）与 `mood_fade_threshold`（默认 0）：读取时按半衰期折算强度，低于阈值视为情绪已过去；不写库、无累计漂移，默认保持旧行为。
+- 新增 `mood_max_concurrent`（默认 1）：设为 2 时旧情绪降为底色保留一条，`bot_mood` 新增可空列 `secondary_moods`（JSON），提示词合成复合情绪；默认 1 仍是新情绪顶掉旧情绪。
+- 新增 `mood_startup_respect_existing`（默认 false）：启动时保留未过期但已淡化的情绪，不再随机覆盖；重启时读回并存情绪，非法 JSON 安全降级为空列表。
+- 配置项同步 `_conf_schema.json`、`docs/configuration.md` 与 `.astrbot-plugin/i18n/{zh-CN,en-US}.json`；新增情绪衰减/启动回归测试。
+
+### 版本
+
+- 版本号由 4.9.1 提升至 **4.9.2**（三个社区 PR：一个 bug 修复 + 两个功能增量，patch）。
+
 ## [4.9.1] - 2026-11-11
 
 ### 修复：定时风格学习把同一批表达模式重复写入 default 人格（PR #306，issue #305）
