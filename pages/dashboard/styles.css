@@ -72,10 +72,12 @@
 
   --spring: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* ── 字体栈（与独立版一致） ── */
-  --font-ui: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, sans-serif;
-  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, system-ui, sans-serif;
+  /* ── 字体栈（与独立版一致） ──
+     中文回退必须跟在每个西文字体后面，避免 Arial Narrow 等窄体把汉字挤乱。 */
+  --font-cjk: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  --font-ui: Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", var(--font-cjk);
+  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, var(--font-cjk);
   --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Consolas, monospace;
 
   /* ── maximal 深度变量 ── */
@@ -3235,10 +3237,10 @@ textarea {
 .settings-result-group {
   margin: 6px 0 8px;
   color: var(--muted);
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 @media (max-width: 860px) {

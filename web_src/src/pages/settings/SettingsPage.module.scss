@@ -212,11 +212,11 @@
 /* 搜索模式：跨分组平铺匹配结果 */
 .result-group {
   margin: 18px 0 10px;
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
   color: var(--accent, var(--primary));
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
 
   &:first-child {
     margin-top: 0;

@@ -67,10 +67,13 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* ── 字体栈：宽扁 display + 技术无衬线 + 等宽数据（安全替代，不分发字体文件） ── */
-  --font-ui: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, sans-serif;
-  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, system-ui, sans-serif;
+  /* ── 字体栈：宽扁 display + 技术无衬线 + 等宽数据（安全替代，不分发字体文件） ──
+     中文回退必须排在每个西文字体之后。Arial Narrow 等窄体不含汉字，排在前面会让
+     中文按错误的字宽和字距渲染，设置搜索结果因此乱码。 */
+  --font-cjk: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
+  --font-ui: Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", var(--font-cjk);
+  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, var(--font-cjk);
   --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Consolas, monospace;
 
   /* ── 动效：直接交互 140ms；分区揭示 650ms 擦除；注意力回路 2s 呼吸 ── */
