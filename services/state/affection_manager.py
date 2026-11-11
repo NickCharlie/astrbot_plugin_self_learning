@@ -3,10 +3,11 @@
 """
 import asyncio
 import random
+import json
 import time
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timedelta
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from astrbot.api import logger
@@ -57,6 +58,21 @@ class InteractionType(Enum):
     SUPPORT = "support"       # 支持
 
 
+# 情绪的中文说法，注入提示词时用
+MOOD_LABELS: Dict[str, str] = {
+    "happy": "开心",
+    "sad": "低落",
+    "excited": "兴奋",
+    "calm": "平静",
+    "angry": "烦躁",
+    "anxious": "不安",
+    "playful": "想闹",
+    "serious": "认真",
+    "nostalgic": "怀旧",
+    "curious": "好奇",
+}
+
+
 @dataclass
 class BotMood:
     """Bot情绪状态"""
@@ -65,11 +81,72 @@ class BotMood:
     description: str
     start_time: float
     duration_hours: int
-    
-    def is_active(self) -> bool:
-        """检查情绪是否仍然活跃"""
-        current_time = time.time()
-        return current_time < (self.start_time + self.duration_hours * 3600)
+    half_life_minutes: float = 0.0   # >0 时强度按半衰期衰减；0 保持原行为
+    fade_threshold: float = 0.0      # >0 时强度低于该值视为情绪已消退
+    secondary_moods: List[Dict[str, Any]] = field(default_factory=list)  # 并存情绪
+
+    def elapsed_hours(self, now: Optional[float] = None) -> float:
+        """已持续的小时数。"""
+        current = time.time() if now is None else now
+        return max(0.0, (current - self.start_time) / 3600)
+
+    def effective_intensity(self, now: Optional[float] = None) -> float:
+        """按半衰期折算后的当前强度。
+
+        表里存的是写入时的基准强度，衰减在读取时计算：
+        不用反复写库，也不会因为多次覆盖产生精度漂移。
+        """
+        if self.half_life_minutes <= 0:
+            return self.intensity
+        elapsed = self.elapsed_hours(now)
+        decay = 0.5 ** (elapsed * 60 / self.half_life_minutes)
+        return max(0.0, min(1.0, self.intensity * decay))
+
+    def is_faded(self, now: Optional[float] = None) -> bool:
+        """强度是否已经低到不该再注入。"""
+        if self.fade_threshold <= 0:
+            return False
+        return self.effective_intensity(now) < self.fade_threshold
+
+    def is_expired(self, now: Optional[float] = None) -> bool:
+        """是否已经超过持续时间（此时必须换新情绪）。"""
+        current = time.time() if now is None else now
+        return current >= (self.start_time + self.duration_hours * 3600)
+
+    def is_active(self, now: Optional[float] = None) -> bool:
+        """检查情绪是否仍然活跃。
+
+        先看时长是否过期，再看强度衰减后是否已经淡到阈值以下。
+        """
+        current = time.time() if now is None else now
+        if self.is_expired(current):
+            return False
+        return not self.is_faded(current)
+
+    def active_secondaries(self, now: Optional[float] = None) -> List[Dict[str, Any]]:
+        """并存情绪里仍然有效、且没有淡掉的那些。
+
+        每条记录形如 {"type": "clingy", "intensity": 0.6, "start_time": 1750000000}，
+        强度同样按半衰期折算。
+        """
+        current = time.time() if now is None else now
+        out: List[Dict[str, Any]] = []
+        for item in self.secondary_moods or []:
+            try:
+                start = float(item.get("start_time", self.start_time))
+                base = float(item.get("intensity", 0.0))
+                mood_type = str(item.get("type", "")).strip()
+            except (TypeError, ValueError):
+                continue
+            if not mood_type or base <= 0:
+                continue
+            if self.half_life_minutes > 0:
+                elapsed = max(0.0, (current - start) / 60)
+                base = base * (0.5 ** (elapsed / self.half_life_minutes))
+            if base < max(self.fade_threshold, 0.0):
+                continue
+            out.append({"type": mood_type, "intensity": max(0.0, min(1.0, base))})
+        return out
     
     def get_mood_modifier(self) -> float:
         """获取情绪对好感度的修正系数"""
@@ -336,12 +413,25 @@ class AffectionManager(AsyncServiceBase):
             }
         }
     
-    async def get_current_mood(self, group_id: str) -> Optional[BotMood]:
-        """获取当前bot情绪"""
+    async def get_current_mood(self, group_id: str,
+                               allow_faded: bool = False) -> Optional[BotMood]:
+        """获取当前bot情绪
+
+        Args:
+            group_id: 群组 ID
+            allow_faded: 为 True 时，淡化到阈值以下但尚未过期的情绪也会返回。
+                启动阶段用它判断「这个群还有没有历史情绪」，避免把淡化的情绪
+                当成没有情绪而重新掷随机。
+        """
+        def _usable(mood: BotMood) -> bool:
+            if mood.is_expired():
+                return False
+            return allow_faded or not mood.is_faded()
+
         # 先检查内存缓存
         if group_id in self.current_moods:
             mood = self.current_moods[group_id]
-            if mood.is_active():
+            if _usable(mood):
                 return mood
             else:
                 # 情绪过期，移除缓存
@@ -362,9 +452,14 @@ class AffectionManager(AsyncServiceBase):
                     intensity=mood_data['mood_intensity'],
                     description=mood_data['mood_description'],
                     start_time=start,
-                    duration_hours=duration_hours
+                    duration_hours=duration_hours,
+                    half_life_minutes=self.config.mood_half_life_minutes,
+                    fade_threshold=self.config.mood_fade_threshold,
+                    secondary_moods=self._parse_secondary(
+                        mood_data.get('secondary_moods')
+                    ),
                 )
-                if mood.is_active():
+                if _usable(mood):
                     self.current_moods[group_id] = mood
                     return mood
             except Exception as e:
@@ -388,7 +483,9 @@ class AffectionManager(AsyncServiceBase):
             intensity=intensity,
             description=description,
             start_time=time.time(),
-            duration_hours=self.config.mood_persistence_hours
+            duration_hours=self.config.mood_persistence_hours,
+            half_life_minutes=self.config.mood_half_life_minutes,
+            fade_threshold=self.config.mood_fade_threshold,
         )
         
         # 保存到数据库和缓存
@@ -403,9 +500,11 @@ class AffectionManager(AsyncServiceBase):
     async def ensure_mood_for_group(self, group_id: str) -> Optional[BotMood]:
         """确保指定群组有情绪状态，如果没有则创建随机情绪"""
         try:
-            # 先检查是否已有活跃情绪
-            current_mood = await self.get_current_mood(group_id)
-            if current_mood and current_mood.is_active():
+            # 先检查是否已有未过期的情绪（淡化但未过期的按配置决定是否沿用）
+            current_mood = await self.get_current_mood(
+                group_id, allow_faded=self.config.mood_startup_respect_existing
+            )
+            if current_mood:
                 return current_mood
             
             # 如果没有活跃情绪，设置随机情绪
@@ -429,10 +528,16 @@ class AffectionManager(AsyncServiceBase):
             initialized_count = 0
             for group_id in active_groups:
                 try:
-                    # 检查该群组是否已经有活跃情绪
-                    current_mood = await self.get_current_mood(group_id)
-                    if current_mood and current_mood.is_active():
-                        self._logger.debug(f"群组 {group_id} 已有活跃情绪，跳过初始化")
+                    # 检查该群组是否还有未过期的历史情绪。
+                    # respect_existing 为 True 时，淡化但未过期的情绪也算数，
+                    # 否则重启会把「刚消下去的余温」直接换成一个随机情绪。
+                    current_mood = await self.get_current_mood(
+                        group_id, allow_faded=self.config.mood_startup_respect_existing
+                    )
+                    if current_mood:
+                        self._logger.debug(
+                            f"群组 {group_id} 仍有未过期情绪，跳过初始化"
+                        )
                         continue
                     
                     # 设置随机初始情绪
@@ -924,21 +1029,81 @@ class AffectionManager(AsyncServiceBase):
         except Exception as e:
             self._logger.error(f"调整当前情绪失败: {e}")
     
-    async def _set_immediate_mood(self, group_id: str, mood_type: MoodType, 
-                                 intensity: float, description: str, duration_hours: int):
-        """立即设置新情绪（用于动态响应）"""
+    def _parse_secondary(self, raw: Any) -> List[Dict[str, Any]]:
+        """把数据库里的 JSON 解析成并存情绪列表。"""
+        if not raw:
+            return []
         try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            try:
+                out.append({
+                    "type": str(item.get("type", "")).strip(),
+                    "intensity": float(item.get("intensity", 0.0)),
+                    "start_time": float(item.get("start_time", 0.0)),
+                })
+            except (TypeError, ValueError):
+                continue
+        return [x for x in out if x["type"]]
+
+    def _compose_secondary(self, group_id: str, mood_type: MoodType,
+                           intensity: float) -> List[Dict[str, Any]]:
+        """决定新情绪进来之后还能并存哪几条。
+
+        只有显式把 mood_max_concurrent 设为大于 1 才保留旧情绪；
+        默认 1 表示维持原来的「新情绪直接顶掉旧的」行为。
+        """
+        limit = max(1, int(getattr(self.config, "mood_max_concurrent", 1) or 1))
+        if limit <= 1:
+            return []
+        current = self.current_moods.get(group_id)
+        if not current or not current.is_active():
+            return []
+        if current.mood_type == mood_type:
+            # 同类只是加深主情绪，并存的那几条按上限裁一下
+            return list(current.secondary_moods or [])[: limit - 1]
+
+        merged = [dict(x) for x in (current.secondary_moods or [])]
+        merged.append({
+            "type": current.mood_type.value,
+            "intensity": current.effective_intensity(),
+            "start_time": time.time(),
+        })
+        best: Dict[str, Dict[str, Any]] = {}
+        for item in merged:
+            key = item.get("type", "")
+            if key not in best or item.get("intensity", 0) > best[key].get("intensity", 0):
+                best[key] = item
+        ranked = sorted(best.values(), key=lambda x: x.get("intensity", 0), reverse=True)
+        return ranked[: max(0, limit - 1)]
+
+    async def _set_immediate_mood(self, group_id: str, mood_type: MoodType,
+                                 intensity: float, description: str, duration_hours: int):
+        """立即设置新情绪（用于动态响应）。"""
+        try:
+            secondary = self._compose_secondary(group_id, mood_type, intensity)
             mood = BotMood(
                 mood_type=mood_type,
                 intensity=intensity,
                 description=description,
                 start_time=time.time(),
-                duration_hours=duration_hours
+                duration_hours=duration_hours,
+                half_life_minutes=self.config.mood_half_life_minutes,
+                fade_threshold=self.config.mood_fade_threshold,
+                secondary_moods=secondary,
             )
-            
+
             # 保存到数据库并更新缓存
             await self.db_manager.save_bot_mood(
-                group_id, mood_type.value, intensity, description, duration_hours
+                group_id, mood_type.value, intensity, description, duration_hours,
+                json.dumps(secondary, ensure_ascii=False) if secondary else "",
             )
             self.current_moods[group_id] = mood
             
@@ -1007,9 +1172,15 @@ class AffectionManager(AsyncServiceBase):
         }
         
         mood_prompt = mood_prompts.get(current_mood.mood_type, "")
-        intensity_modifier = "非常" if current_mood.intensity > 0.7 else "有些" if current_mood.intensity > 0.4 else "轻微"
+        effective_intensity = current_mood.effective_intensity()
+        intensity_modifier = "非常" if effective_intensity > 0.7 else "有些" if effective_intensity > 0.4 else "轻微"
         
         final_mood_prompt = f"{mood_prompt.replace('现在', f'现在{intensity_modifier}')}"
+        secondaries = current_mood.active_secondaries()
+        if secondaries:
+            extra_label = MOOD_LABELS.get(secondaries[0]["type"], secondaries[0]["type"])
+            if extra_label:
+                final_mood_prompt += f"（另外，你现在还带着一点{extra_label}。）"
         
         # 检查base_prompt中是否已经包含情绪状态信息，避免重复添加
         mood_keywords = ["当前情绪状态", "心情", "情绪", "【当前情绪状态", "【增量更新"]

@@ -53,8 +53,20 @@
       "jargon_websearch_provider": {
         "description": "黑话联网释义搜索厂商",
         "type": "string",
-        "options": ["", "tavily", "bocha", "exa", "baidu"],
-        "labels": ["跟随 AstrBot 配置", "Tavily", "博查", "Exa", "百度千帆"],
+        "options": [
+          "",
+          "tavily",
+          "bocha",
+          "exa",
+          "baidu"
+        ],
+        "labels": [
+          "跟随 AstrBot 配置",
+          "Tavily",
+          "博查",
+          "Exa",
+          "百度千帆"
+        ],
         "default": "",
         "hint": "手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）"
       },
@@ -471,6 +483,30 @@
         "type": "int",
         "hint": "每次情绪状态持续的小时数",
         "default": 24
+      },
+      "mood_half_life_minutes": {
+        "description": "情绪强度半衰期（分钟）",
+        "type": "float",
+        "hint": "大于 0 时，情绪强度按半衰期自然衰减（例如 12 表示每 12 分钟减半）。0 表示保持原来的行为：整个持续时间内强度不变。",
+        "default": 0
+      },
+      "mood_fade_threshold": {
+        "description": "情绪消退阈值",
+        "type": "float",
+        "hint": "大于 0 时，衰减后的强度低于该值就认为情绪已经过去，不再注入提示词。建议配合半衰期使用，例如 0.15。0 表示只按时长过期。",
+        "default": 0
+      },
+      "mood_max_concurrent": {
+        "description": "并存情绪条数",
+        "type": "int",
+        "hint": "1 表示保持原行为：新情绪直接顶掉旧情绪。设为 2 时，旧情绪会留一条作为底色，用来表达「赌气 + 黏人」这类复合状态。",
+        "default": 1
+      },
+      "mood_startup_respect_existing": {
+        "description": "启动时保留未过期的情绪",
+        "type": "bool",
+        "hint": "开启后，插件启动时若该群还有未过期、但强度已经淡到阈值以下的情绪，会继续沿用（不再注入提示词），而不是马上换一个随机情绪。适合配合情绪半衰期使用。",
+        "default": false
       }
     }
   },

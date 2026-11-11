@@ -263,6 +263,22 @@
       "mood_persistence_hours": {
         "description": "情绪持续时间",
         "hint": "每次情绪状态持续的小时数"
+      },
+      "mood_half_life_minutes": {
+        "description": "情绪强度半衰期（分钟）",
+        "hint": "大于 0 时，情绪强度按半衰期自然衰减（例如 12 表示每 12 分钟减半）。0 表示保持原来的行为：整个持续时间内强度不变。"
+      },
+      "mood_fade_threshold": {
+        "description": "情绪消退阈值",
+        "hint": "大于 0 时，衰减后的强度低于该值就认为情绪已经过去，不再注入提示词。建议配合半衰期使用，例如 0.15。0 表示只按时长过期。"
+      },
+      "mood_max_concurrent": {
+        "description": "并存情绪条数",
+        "hint": "1 表示保持原行为：新情绪直接顶掉旧情绪。设为 2 时，旧情绪会留一条作为底色，用来表达「赌气 + 黏人」这类复合状态。"
+      },
+      "mood_startup_respect_existing": {
+        "description": "启动时保留未过期的情绪",
+        "hint": "开启后，插件启动时若该群还有未过期、但强度已经淡到阈值以下的情绪，会继续沿用（不再注入提示词），而不是马上换一个随机情绪。适合配合情绪半衰期使用。"
       }
     },
     "Social_Context_Settings": {
