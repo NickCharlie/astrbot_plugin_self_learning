@@ -263,6 +263,22 @@
       "mood_persistence_hours": {
         "description": "Mood duration",
         "hint": "How many hours each mood state persists."
+      },
+      "mood_half_life_minutes": {
+        "description": "Mood intensity half-life (minutes)",
+        "hint": "When greater than 0, mood intensity decays by half-life (for example, 12 means it halves every 12 minutes). 0 keeps the previous behavior: intensity stays constant for the whole duration."
+      },
+      "mood_fade_threshold": {
+        "description": "Mood fade threshold",
+        "hint": "When greater than 0, a decayed intensity below this value is treated as the mood having passed and is no longer injected into the prompt. Use it together with the half-life, for example 0.15. 0 means the mood expires only by duration."
+      },
+      "mood_max_concurrent": {
+        "description": "Concurrent mood count",
+        "hint": "1 keeps the previous behavior: a new mood replaces the old one. Set to 2 to keep one previous mood as an undertone, for mixed states such as sulking while still being clingy."
+      },
+      "mood_startup_respect_existing": {
+        "description": "Keep unexpired mood on startup",
+        "hint": "When enabled, if a group still has an unexpired mood whose intensity has already faded below the threshold when the plugin starts, that mood is kept (and no longer injected into the prompt) instead of being replaced by a random mood. Best used with the mood half-life."
       }
     },
     "Social_Context_Settings": {
