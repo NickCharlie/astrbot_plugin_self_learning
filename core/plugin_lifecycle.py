@@ -165,7 +165,12 @@ class PluginLifecycle:
             # ------ 依赖后创建的服务 ------
             if p.feature_delegation.should_delegate_reply():
                 p.intelligent_responder = None
-                logger.info("[功能融合] 已跳过本地 IntelligentResponder，回复由 Group Chat Plus 接管")
+                kind = p.feature_delegation.reply_plugin_kind()
+                target = {
+                    "group_chat_plus": "Group Chat Plus",
+                    "livinghello": "LivingHello",
+                }.get(kind, "外部回复插件")
+                logger.info(f"[功能融合] 已跳过本地 IntelligentResponder，回复由 {target} 接管")
             else:
                 p.intelligent_responder = p.service_factory.create_intelligent_responder()
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()
