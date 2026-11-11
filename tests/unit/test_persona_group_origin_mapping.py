@@ -183,3 +183,85 @@ async def test_update_persona_without_mapping_degrades_to_default(monkeypatch):
     )
     assert updater._resolve_umo("101") == "101"  # 未注入映射，退回原始 group_id
     assert await_args.kwargs["persona_id"] == "default"
+
+
+class _AnyServiceFactory:
+    """返回任意服务占位对象的工厂替身，隔离 bootstrap 对真实服务图的依赖。"""
+
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: SimpleNamespace()
+
+
+class _FakeFeatureDelegation:
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def log_status(self):
+        pass
+
+    def should_delegate_reply(self):
+        return False
+
+
+class _FakeFactoryManager:
+    def __init__(self, *_args, **_kwargs):
+        self._service_factory = _AnyServiceFactory()
+        self._component_factory = _AnyServiceFactory()
+
+    def initialize_factories(self, *_args, **_kwargs):
+        pass
+
+    def get_service_factory(self):
+        return self._service_factory
+
+    def get_component_factory(self):
+        return self._component_factory
+
+
+@pytest.mark.unit
+def test_bootstrap_passes_mapping_to_distribution(monkeypatch):
+    """bootstrap 必须把调用方传入的映射表原样交给分发方法（接线回归）。
+
+    只直接调用 ``_distribute_group_id_mapping`` 无法发现 bootstrap 漏调用或
+    传错映射；这里用 spy 在分发处中断 bootstrap，其余服务用占位工厂隔离。
+    """
+    from self_learning_EterU.core import plugin_lifecycle as lifecycle_module
+    from self_learning_EterU.exceptions import SelfLearningError
+    from self_learning_EterU.services import jargon as jargon_module
+
+    recorded = []
+
+    class _StopBootstrap(Exception):
+        pass
+
+    def spy(self, mapping):
+        recorded.append(mapping)
+        raise _StopBootstrap
+
+    monkeypatch.setattr(PluginLifecycle, "_distribute_group_id_mapping", spy)
+    monkeypatch.setattr(lifecycle_module, "FactoryManager", _FakeFactoryManager)
+    monkeypatch.setattr(
+        lifecycle_module, "FeatureDelegation", _FakeFeatureDelegation
+    )
+    for name in (
+        "JargonQueryService",
+        "JargonMinerManager",
+        "JargonStatisticalFilter",
+    ):
+        monkeypatch.setattr(jargon_module, name, lambda *a, **k: SimpleNamespace())
+    monkeypatch.setattr(
+        jargon_module, "build_web_definition_service", lambda *a, **k: None
+    )
+
+    config = SimpleNamespace(
+        enable_goal_driven_chat=False,
+        knowledge_engine="legacy",
+        memory_engine="legacy",
+    )
+
+    with pytest.raises(SelfLearningError):
+        PluginLifecycle(SimpleNamespace()).bootstrap(
+            config, SimpleNamespace(), MAPPING
+        )
+
+    assert recorded == [MAPPING]
