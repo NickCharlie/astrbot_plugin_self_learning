@@ -2,6 +2,17 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.3] - 2026-11-11
+
+### 修复：设置搜索中的中文标题被窄体字与大写字距挤乱（PR #308，@SB-TDM）
+
+- 根因：`.result-group` / `.settings-result-group` 使用 `text-transform: uppercase` 与 `0.06–0.08em` 字距，字体栈以 `Arial Narrow` 开头且没有中文回退；汉字按窄体字宽渲染，分组标题显得错乱。
+- 用 `@font-face` + `unicode-range` 新增仅覆盖汉字与全角符号的 `sl-cjk` 本地回退，西文仍优先 Inter / system-ui，中文字体里的拉丁字形不会抢走西文回退。搜索结果分组标题改用 `--font-ui` 并移除大写与字距；独立 WebUI 与内嵌页同步，重建 dashboard 产物并更新资源哈希。
+
+### 版本
+
+- 版本号由 4.9.2 提升至 **4.9.3**（UI bug 修复，patch）。
+
 ## [4.9.2] - 2026-11-11
 
 ### 修复：query_affection 拒绝无效的按用户范围映射（PR #302，@Dashu-Li）
