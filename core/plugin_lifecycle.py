@@ -171,18 +171,7 @@ class PluginLifecycle:
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()
 
             # ------ group_id 映射表传递 ------
-            p.temporary_persona_updater.group_id_to_unified_origin = (
-                group_id_to_unified_origin
-            )
-            if p.progressive_learning:
-                p.progressive_learning.group_id_to_unified_origin = (
-                    group_id_to_unified_origin
-                )
-            if p.persona_manager:
-                p.persona_manager.group_id_to_unified_origin = (
-                    group_id_to_unified_origin
-                )
-            logger.info("已将 group_id 映射表传递给服务组件")
+            self._distribute_group_id_mapping(group_id_to_unified_origin)
 
             # ------ LLM 适配器（状态报告用）------
             p.llm_adapter = p.service_factory.create_framework_llm_adapter()
@@ -348,6 +337,37 @@ class PluginLifecycle:
             raise SelfLearningError(
                 StatusMessages.INIT_FAILED_GENERIC.format(error=str(e))
             ) from e
+
+    def _distribute_group_id_mapping(self, group_id_to_unified_origin: Dict[str, str]) -> None:
+        """把 group_id→unified_msg_origin 映射表分发给全部人格/学习组件。
+
+        PersonaManagerService 内层的 PersonaUpdater 也必须拿到同一份映射
+        （issue #305）：``PersonaUpdater._resolve_umo`` 缺映射时会退回原始
+        group_id，而 AstrBot 的 ``get_default_persona_v3`` 对未知 umo 会兜底
+        返回内置 default 人格，导致同一批学习的表达模式在绑定人格之外重复
+        写入 default 作用域。
+        """
+        p = self._plugin
+        p.temporary_persona_updater.group_id_to_unified_origin = (
+            group_id_to_unified_origin
+        )
+        if p.progressive_learning:
+            p.progressive_learning.group_id_to_unified_origin = (
+                group_id_to_unified_origin
+            )
+        if p.persona_manager:
+            p.persona_manager.group_id_to_unified_origin = (
+                group_id_to_unified_origin
+            )
+            # PersonaUpdater 是 PersonaManagerService / TemporaryPersonaUpdater
+            # 的实际执行者（update_persona_with_style / get_current_persona 都
+            # 会重新解析人格），必须与外层组件拿到同一份映射。
+            persona_updater = p.service_factory.get_persona_updater()
+            if persona_updater is not None:
+                persona_updater.group_id_to_unified_origin = (
+                    group_id_to_unified_origin
+                )
+        logger.info("已将 group_id 映射表传递给服务组件")
 
     def _setup_internal_components(
         self,

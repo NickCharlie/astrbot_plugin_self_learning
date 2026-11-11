@@ -41,6 +41,10 @@ class PersonaUpdater(IPersonaUpdater):
         # llm_client参数保持为了兼容性，但不使用
         self.db_manager = db_manager # 添加 db_manager
         self._logger = logger
+        # group_id→unified_msg_origin 映射表（多配置文件支持），由
+        # PluginLifecycle._distribute_group_id_mapping 注入；缺映射时
+        # _resolve_umo 会退回原始 group_id，人格解析可能降级到 default（issue #305）
+        self.group_id_to_unified_origin: Dict[str, str] = {}
         
         # 初始化PersonaManager更新器
         self.persona_manager_updater = PersonaManagerUpdater(config, context)

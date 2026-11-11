@@ -173,7 +173,12 @@ class IPersonaManager(ABC):
 
 class IPersonaUpdater(ABC):
     """人格更新器接口 - 负责执行具体的人格更新逻辑"""
-    
+
+    # 多会话/多配置文件支持：group_id → unified_msg_origin 映射表。
+    # 生命周期编排注入同一个字典引用（运行时由 LLM Hook 逐步填充）；
+    # 实现未拿到映射时应回退为原始 group_id。issue #305
+    group_id_to_unified_origin: Dict[str, str]
+
     @abstractmethod
     async def update_persona_with_style(self, group_id: str, style_analysis: Dict[str, Any], filtered_messages: List[MessageData],
                                        *, expression_messages: Optional[List[MessageData]] = None) -> bool:
