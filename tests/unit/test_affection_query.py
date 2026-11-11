@@ -327,6 +327,52 @@ class AffectionQueryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("limit=0", req.system_prompt)
         self.assertIn("沿用管理员权限", req.system_prompt)
 
+    async def test_per_user_unavailable_scope_mapping_does_not_read_old_rows(self):
+        self.plugin.plugin_config.affection_scope = "per_user"
+
+        def broken(scope):
+            raise RuntimeError("synthetic scope mapping failure")
+
+        for resolver in (
+            None, lambda scope: scope, lambda scope: "other", lambda scope: None,
+            lambda scope: "", lambda scope: "__global__", broken,
+        ):
+            if resolver is None:
+                if hasattr(self.db, "_affection_scope_key"):
+                    del self.db._affection_scope_key
+            else:
+                self.db._affection_scope_key = resolver
+            for group in ("101", ""):
+                for mode in ("user", "ranking"):
+                    kwargs = {"group_id": "101"} if not group and mode == "ranking" else {}
+                    with self.subTest(resolver=resolver, group=group, mode=mode):
+                        result = await query(
+                            self.plugin, self.event(group=group), mode=mode, **kwargs
+                        )
+                        self.assertEqual(result["status"], "unavailable")
+                        self.assertTrue(result["system_enabled"])
+                        self.assertNotIn("user", result)
+                        self.assertNotIn("ranking", result)
+                        self.assertEqual(self.statements, [])
+
+    async def test_per_group_without_scope_resolver_still_reads_group(self):
+        self.plugin.plugin_config.affection_scope = "per_group"
+        result = await query(self.plugin, self.event())
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["scope"], "101")
+        self.assertEqual(result["scope_kind"], "group")
+        self.assertEqual(result["user"]["affection_level"], 7)
+
+    async def test_per_user_scope_is_resolved_once_before_reading(self):
+        from unittest.mock import Mock
+
+        self.plugin.plugin_config.affection_scope = "per_user"
+        self.db._affection_scope_key = Mock(return_value="__user__")
+        result = await query(self.plugin, self.event())
+        self.assertEqual(result["status"], "not_recorded")
+        self.assertEqual(result["scope"], "__user__")
+        self.db._affection_scope_key.assert_called_once_with("101")
+
 
 def test_tool_returns_query_snapshot_with_general_hook_disabled(monkeypatch):
     import asyncio
@@ -347,23 +393,3 @@ def test_tool_returns_query_snapshot_with_general_hook_disabled(monkeypatch):
     assert json.loads(result) == {"status": "ok", "read_only": True}
     snapshot.assert_awaited_once_with(plugin, event, "user", "", "", 10)
     assert plugin.plugin_config.enable_llm_hooks is False
-
-    async def test_per_user_without_scope_resolver_is_unavailable_not_misread(self):
-        """per_user 配置但数据库管理器缺范围解析：显式不可用，绝不按群行冒充统一分数。"""
-        self.plugin.plugin_config.affection_scope = "per_user"
-        # self.db 默认（SimpleNamespace）没有 _affection_scope_key
-        self.statements.clear()
-        result = await query(self.plugin, self.event(group="101"))
-        self.assertEqual(result["status"], "unavailable")
-        self.assertTrue(result["system_enabled"])
-        # 未发起任何 SQL 读取：宁可不可用，也不把按群行冒充统一分数
-        self.assertEqual(self.statements, [])
-
-    async def test_per_group_without_scope_resolver_still_reads_group_scope(self):
-        """per_group（默认）本就不需要解析器：行为与此前一致。"""
-        self.plugin.plugin_config.affection_scope = "per_group"
-        result = await query(self.plugin, self.event(group="101"), mode="user")
-        self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["scope"], "101")
-        self.assertEqual(result["scope_kind"], "group")
-        self.assertEqual(result["user"]["affection_level"], 12)

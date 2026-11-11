@@ -205,10 +205,12 @@ async def query(plugin, event, mode="user", user_id="", group_id="", limit=10):
             "system_enabled": True,
             "message": "按用户统一存储缺少数据库范围解析支持，无法可靠读取；本次不做猜测性读取。",
         }
-    if per_user:
-        scope = resolver(scope)
-        scope_kind = "user"
     try:
+        if per_user:
+            scope = resolver(scope)
+            if scope != "__user__":
+                raise ValueError("Affection scope mapping unavailable")
+            scope_kind = "user"
         result = await asyncio.wait_for(
             read_snapshot(db, scope, target, mode, limit), 5
         )
