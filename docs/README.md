@@ -19,7 +19,7 @@ AstrBot 自主学习插件的实现文档和使用文档。
 - [学习链路](learning-flow.md): 消息采集、表达学习、黑话学习、批量学习、审查和 LLM 注入全链路。
 - [数据库](database.md): SQLite/MySQL/PostgreSQL 支持、ORM 表、Facade 路由、自动建表和迁移。
 - [配置](configuration.md): AstrBot 配置组、运行时配置、WebUI 全量设置和重启生效项。
-- [功能融合](integrations.md): LivingMemory、Group Chat Plus 的检测、委托、Dashboard 和开发 API。
+- [功能融合](integrations.md): LivingMemory、Group Chat Plus、LivingHello 的检测、委托、Dashboard 和开发 API。
 - [WebUI API](webui-api.md): Dashboard 页面依赖的主要接口和返回数据用途。
 - [远程部署与连接](webui-remote-deployment.md): 远程服务器 Docker 容器部署后的 WebUI 访问教程：端口映射、防火墙/安全组放行、密码策略、SSH 隧道与反代、常见连接问题排查。
 - [使用指南](usage.md): 安装、依赖、基础配置、WebUI、命令和常见排查。
@@ -37,14 +37,14 @@ AstrBot 自主学习插件的实现文档和使用文档。
 
 学习结果默认先进入审查链路。人格更新和风格学习不会无条件覆盖当前人格，除非配置允许自动应用。
 
-3.0.3 起，插件可以作为统一学习入口与协同面板。检测到 LivingMemory 时跳过本地长期记忆写入和注入；检测到 Group Chat Plus 时跳过本地回复器。本插件继续负责学习、审查、黑话、表达方式和上下文注入。
+3.0.3 起，插件可以作为统一学习入口与协同面板。检测到 LivingMemory 时跳过本地长期记忆写入和注入；检测到 Group Chat Plus 时跳过本地回复器；检测到 LivingHello 且显式开启回复委托时，同样跳过本地回复器。本插件继续负责学习、审查、黑话、表达方式和上下文注入。
 
 ## 关键源码入口
 
 - `main.py`: AstrBot 插件类、事件 hook、管理命令。
 - `core/plugin_lifecycle.py`: 服务初始化、异步启动、关停顺序。
 - `core/factory.py`: 服务工厂和轻量组件工厂。
-- `core/feature_delegation.py`: LivingMemory / Group Chat Plus 检测和委托决策。
+- `core/feature_delegation.py`: LivingMemory / Group Chat Plus / LivingHello 检测和委托决策。
 - `services/learning/message_pipeline.py`: 每条消息进入后的后台学习流水线。
 - `services/core_learning/progressive_learning.py`: 批量学习、学习会话、审查记录生成。
 - `services/learning/realtime_processor.py`: 实时学习和表达模式学习。
@@ -76,6 +76,7 @@ flowchart TD
     Q --> R["临时 extra_user_content_parts 注入，旧版 fallback"]
     FD --> S["LivingMemory: 长期记忆委托"]
     FD --> T["Group Chat Plus: 回复委托"]
+    FD --> U["LivingHello: 回复决策委托"]
 ```
 
 ## 不纳入文档维护范围

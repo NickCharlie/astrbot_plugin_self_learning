@@ -35,7 +35,7 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 
 - LivingMemory `2.9.1`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`；2.8.2→2.9.1 契约面逐项核对兼容：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名、注册名均未变；2.9.x 新增 `adapter_access`/`shared_adapter_ids` 为 LM 内部/可选特性，不影响本插件只读统计路径）
 - Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名）
-- LivingHello `2.7.0`（`metadata.yaml` name `astrbot_plugin_LivingHello` / display `LivingHello`；本插件只做加载检测，不读取其内部结构）
+- LivingHello `2.7.2`（`metadata.yaml` name `astrbot_plugin_LivingHello` / display `LivingHello`；本插件只做加载检测，不读取其内部结构。2.7.0→2.7.2 仅调整回复链路内部行为，检测名与显示名未变）
 
 两个插件更新时优先检查以下契约:
 
