@@ -2,6 +2,19 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.1] - 2026-11-11
+
+### 修复：定时风格学习把同一批表达模式重复写入 default 人格（PR #306，issue #305）
+
+- 根因：`PersonaManagerService` 内层实际执行风格学习的 `PersonaUpdater` 从未拿到 `group_id → unified_msg_origin` 映射表，`_resolve_umo` 退回原始 group_id；AstrBot `get_default_persona_v3` 对未知 umo 恒兜底返回内置 default 人格，导致审查记录归属绑定人格、同一批「情境＋表达」又在 default 作用域多存一份。
+- 生命周期编排新增 `_distribute_group_id_mapping()`，把同一份映射表按引用补发给缓存的 `PersonaUpdater`（与 `PersonaManagerService` / `TemporaryPersonaUpdater` / WebUI 共享实例）；`IPersonaUpdater` 显式声明映射契约，`PersonaUpdater.__init__` 未注入时保持原始 group_id 回退。
+- 新增回归测试覆盖映射分发覆盖面、bootstrap 接线、注入前后 `_resolve_umo` 语义，以及有/无映射时表达模式学习的人格归属。
+- 合并后 default 作用域不会继续新增重复记录；历史已写入的重复数据需另行清理（本次不迁移）。
+
+### 版本
+
+- 版本号由 4.9.0 提升至 **4.9.1**（bug 修复，patch）。
+
 ## [4.9.0] - 2026-11-08
 
 ### 新增：LivingHello 回复决策委托（PR #298，@AKIhunter）
