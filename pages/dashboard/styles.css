@@ -5,6 +5,27 @@
    状态绿只用于在线/已验证；中性表面 ≥75% 构图。
    ═══════════════════════════════════════════════════════════════ */
 
+/* 只覆盖汉字与全角符号，避免中文字体里的拉丁字形抢走西文回退。 */
+@font-face {
+  font-family: "sl-cjk";
+  src:
+    local("Microsoft YaHei"),
+    local("PingFang SC"),
+    local("Noto Sans SC"),
+    local("Source Han Sans SC");
+  unicode-range:
+    U+2E80-2EFF,
+    U+2F00-2FDF,
+    U+3000-303F,
+    U+3040-30FF,
+    U+3100-312F,
+    U+31C0-31EF,
+    U+3400-4DBF,
+    U+4E00-9FFF,
+    U+F900-FAFF,
+    U+FF00-FFEF;
+}
+
 :root {
   color-scheme: light;
 
@@ -72,10 +93,12 @@
 
   --spring: cubic-bezier(0.22, 1, 0.36, 1);
 
-  /* ── 字体栈（与独立版一致） ── */
-  --font-ui: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, sans-serif;
-  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, system-ui, sans-serif;
+  /* ── 字体栈（与独立版一致） ──
+     sl-cjk 只提供汉字。西文回退仍是 Inter，然后才是 system-ui / sans-serif。 */
+  --font-cjk: "sl-cjk";
+  --font-ui: Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, var(--font-cjk), system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Consolas, monospace;
 
   /* ── maximal 深度变量 ── */
@@ -3235,10 +3258,10 @@ textarea {
 .settings-result-group {
   margin: 6px 0 8px;
   color: var(--muted);
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0;
 }
 
 @media (max-width: 860px) {

@@ -11,6 +11,27 @@
 // maximal 层的舞台分层、仪表与动效使用。
 // ═══════════════════════════════════════════════════════════════════
 
+// 只覆盖汉字与全角符号。中文字体里的拉丁字形因此不会抢走西文回退。
+@font-face {
+  font-family: "sl-cjk";
+  src:
+    local("Microsoft YaHei"),
+    local("PingFang SC"),
+    local("Noto Sans SC"),
+    local("Source Han Sans SC");
+  unicode-range:
+    U+2E80-2EFF,
+    U+2F00-2FDF,
+    U+3000-303F,
+    U+3040-30FF,
+    U+3100-312F,
+    U+31C0-31EF,
+    U+3400-4DBF,
+    U+4E00-9FFF,
+    U+F900-FAFF,
+    U+FF00-FFEF;
+}
+
 :root {
   color-scheme: light;
 
@@ -67,10 +88,12 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* ── 字体栈：宽扁 display + 技术无衬线 + 等宽数据（安全替代，不分发字体文件） ── */
-  --font-ui: Inter, "Microsoft YaHei", "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
-  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, sans-serif;
-  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, system-ui, sans-serif;
+  /* ── 字体栈：宽扁 display + 技术无衬线 + 等宽数据（安全替代，不分发字体文件） ──
+     sl-cjk 只提供汉字。西文回退仍是 Inter，然后才是 system-ui / sans-serif。 */
+  --font-cjk: "sl-cjk";
+  --font-ui: Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-display: "Arial Narrow", "Roboto Condensed", "DIN Condensed", "Helvetica Neue", Inter, var(--font-cjk), system-ui, sans-serif;
+  --font-tech: "Space Grotesk", "IBM Plex Sans", Inter, var(--font-cjk), system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Consolas, monospace;
 
   /* ── 动效：直接交互 140ms；分区揭示 650ms 擦除；注意力回路 2s 呼吸 ── */
