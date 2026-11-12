@@ -798,7 +798,7 @@
   "Integration_Settings": {
     "description": "功能融合",
     "type": "object",
-    "hint": "与专门插件协同：记忆交给 LivingMemory，回复决策和生成交给 Group Chat Plus。本插件保留学习、审查、黑话、表达方式和上下文注入能力。若同时使用 LightRAG hybrid/mix 查询与 LivingMemory 委托，可能显著增加 LLM 调用与 token 消耗。",
+    "hint": "与专门插件协同：记忆交给 LivingMemory；回复决策和生成可交给 Group Chat Plus，也可把回复决策交给 LivingHello。本插件保留学习、审查、黑话、表达方式和上下文注入能力。若同时使用 LightRAG hybrid/mix 查询与 LivingMemory 委托，可能显著增加 LLM 调用与 token 消耗。",
     "items": {
       "delegate_memory_to_livingmemory": {
         "description": "记忆委托给 LivingMemory",
@@ -821,7 +821,7 @@
       "delegate_reply_to_group_chat_plus": {
         "description": "回复交给 Group Chat Plus",
         "type": "bool",
-        "hint": "开启后，检测到 Group Chat Plus 插件已加载时，本插件不再接管回复决策和回复生成，只负责学习上下文增强。",
+        "hint": "开启后，检测到 Group Chat Plus 插件已加载时，本插件不再接管回复决策和回复生成，只负责学习上下文增强。关闭后，若 LivingHello 已加载并开启委托，则由 LivingHello 接管回复决策。",
         "default": true
       },
       "group_chat_plus_plugin_name": {
@@ -833,13 +833,13 @@
       "disable_local_reply_when_delegated": {
         "description": "委托时禁用本地回复",
         "type": "bool",
-        "hint": "开启后，只有检测到 Group Chat Plus 时才禁用本插件本地回复器；目标插件未加载时保留兼容降级。",
+        "hint": "开启后，只有检测到 Group Chat Plus 或已开启委托的 LivingHello 时才禁用本插件本地回复器；目标插件未加载或委托未开启时保留兼容降级。",
         "default": true
       },
       "delegate_reply_to_livinghello": {
         "description": "回复决策交给 LivingHello",
         "type": "bool",
-        "hint": "开启后，检测到 LivingHello 插件已加载时，本插件不再接管回复决策，由 LivingHello 判断是否接话。默认关闭，避免升级后静默改变现有行为。与 Group Chat Plus 同时存在时后者优先。",
+        "hint": "开启后，检测到 LivingHello 插件已加载且 Group Chat Plus 委托未生效时，本插件不再接管回复决策，由 LivingHello 判断是否接话。默认关闭，避免升级后静默改变现有行为。Group Chat Plus 已加载且其委托开关开启时优先。",
         "default": false
       },
       "livinghello_plugin_name": {

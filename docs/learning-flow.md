@@ -267,7 +267,7 @@ LivingMemory 和 Group Chat Plus 不接管本插件的学习链路。
 委托后跳过:
 
 - LivingMemory 已加载时，跳过本插件本地长期记忆写入和 V2 记忆注入。
-- Group Chat Plus 已加载时，跳过本插件本地 `IntelligentResponder`。
+- Group Chat Plus 委托生效时，跳过本插件本地 `IntelligentResponder`；Group Chat Plus 委托关闭、LivingHello 委托开启时同样跳过，由 LivingHello 接管接话判定。
 
 完整接口见 [功能融合](integrations.md)。
 

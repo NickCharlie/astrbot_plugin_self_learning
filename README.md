@@ -393,7 +393,9 @@ Provider 未配置时插件仍可加载，但 LLM 相关功能会降级并写入
 
 [群聊增强插件 Group Chat Plus](https://github.com/Him666233/astrbot_plugin_group_chat_plus)
 
-本插件负责学习、审查、黑话、表达方式和上下文注入；LivingMemory 负责长期记忆、召回和反思；Group Chat Plus 负责回复决策、读空气和回复生成。三者组合时，本插件会在检测到目标插件已加载后自动跳过本地重叠能力，避免重复记忆或重复回复。
+[接话判定插件 LivingHello](https://github.com/AKIhunter/astrbot_plugin_livinghello)
+
+本插件负责学习、审查、黑话、表达方式和上下文注入；LivingMemory 负责长期记忆、召回和反思；Group Chat Plus 负责回复决策、读空气和回复生成；LivingHello 负责接话判定与静默否决（不生成回复）。组合时，本插件会在检测到目标插件已加载且对应委托开关开启后自动跳过本地重叠能力，避免重复记忆或重复回复。LivingHello 委托默认关闭，需在功能融合设置中开启 `delegate_reply_to_livinghello`。
 
 ---
 

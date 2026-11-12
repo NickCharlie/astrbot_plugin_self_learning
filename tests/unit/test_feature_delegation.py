@@ -506,6 +506,45 @@ def test_feature_delegation_delegates_reply_to_livinghello_when_enabled():
     assert delegation.status()["reply_plugin_kind"] == "livinghello"
 
 
+def test_feature_delegation_livinghello_takes_over_when_group_chat_plus_switch_disabled():
+    config = PluginConfig(
+        delegate_reply_to_group_chat_plus=False,
+        delegate_reply_to_livinghello=True,
+    )
+    delegation = FeatureDelegation(
+        config,
+        _context(
+            _star("LivingHello", root_dir_name="astrbot_plugin_LivingHello"),
+            _star("astrbot_plugin_group_chat_plus"),
+        ),
+    )
+
+    assert delegation.should_delegate_reply() is True
+    assert delegation.reply_plugin_kind() == "livinghello"
+    status = delegation.status()
+    assert status["reply_delegated"] is True
+    assert status["reply_plugin"] == "LivingHello"
+
+
+def test_feature_delegation_reports_detected_target_when_both_switches_disabled():
+    config = PluginConfig(
+        delegate_reply_to_group_chat_plus=False,
+        delegate_reply_to_livinghello=False,
+    )
+    delegation = FeatureDelegation(
+        config,
+        _context(
+            _star("LivingHello", root_dir_name="astrbot_plugin_LivingHello"),
+            _star("astrbot_plugin_group_chat_plus"),
+        ),
+    )
+
+    assert delegation.should_delegate_reply() is False
+    # 检测结果仍用于功能融合页展示，但不应被当成已委托
+    assert delegation.reply_plugin_kind() == "group_chat_plus"
+    assert delegation.status()["reply_delegated"] is False
+
+
 def test_feature_delegation_prefers_group_chat_plus_over_livinghello():
     config = PluginConfig(delegate_reply_to_livinghello=True)
     delegation = FeatureDelegation(

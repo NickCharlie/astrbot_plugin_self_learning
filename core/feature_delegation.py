@@ -32,7 +32,7 @@ class FeatureDelegation:
     def __init__(self, config: Any, context: Any) -> None:
         self._config = config
         self._context = context
-        self._last_status: tuple[bool, bool] | None = None
+        self._last_status: tuple[bool, bool, Optional[str]] | None = None
 
     def memory_plugin(self) -> Optional[Any]:
         aliases = (
@@ -55,15 +55,54 @@ class FeatureDelegation:
         )
         return self._find_active_star(aliases)
 
-    def reply_plugin(self) -> Optional[Any]:
-        """返回接管回复决策的插件，Group Chat Plus 优先。"""
-        return self.group_chat_plus_plugin() or self.livinghello_plugin()
+    def group_chat_plus_delegation_enabled(self) -> bool:
+        return bool(
+            getattr(self._config, "delegate_reply_to_group_chat_plus", True)
+        )
+
+    def livinghello_delegation_enabled(self) -> bool:
+        return bool(
+            getattr(self._config, "delegate_reply_to_livinghello", False)
+        )
 
     def reply_plugin_kind(self) -> Optional[str]:
-        if self.group_chat_plus_plugin() is not None:
+        """返回当前生效的回复委托目标。
+
+        Group Chat Plus 与 LivingHello 同时加载时，Group Chat Plus 只在自身
+        委托开关开启时才优先；关闭 Group Chat Plus 委托后，已开启委托的
+        LivingHello 可以接管。两个目标都未启用委托时仍返回检测到的插件，
+        供功能融合页展示，但不应被当成已委托。
+        """
+        group_chat_plus = self.group_chat_plus_plugin()
+        livinghello = self.livinghello_plugin()
+        if group_chat_plus is not None and self.group_chat_plus_delegation_enabled():
             return self.REPLY_KIND_GROUP_CHAT_PLUS
-        if self.livinghello_plugin() is not None:
+        if livinghello is not None and self.livinghello_delegation_enabled():
             return self.REPLY_KIND_LIVINGHELLO
+        if group_chat_plus is not None:
+            return self.REPLY_KIND_GROUP_CHAT_PLUS
+        if livinghello is not None:
+            return self.REPLY_KIND_LIVINGHELLO
+        return None
+
+    def reply_plugin(self) -> Optional[Any]:
+        """返回当前生效的回复委托目标；未启用委托时返回检测到的插件。"""
+        return self._reply_plugin_for_kind(self.reply_plugin_kind())
+
+    def reply_delegation(self) -> tuple[Optional[str], Optional[Any]]:
+        """一次性返回委托目标类型与插件，供决策和日志共用。
+
+        调用方拿到结果后应同时用于 ``should_delegate_reply(kind)`` 和日志，
+        避免两次查询之间插件注册表变化导致目标不一致。
+        """
+        kind = self.reply_plugin_kind()
+        return kind, self._reply_plugin_for_kind(kind)
+
+    def _reply_plugin_for_kind(self, kind: Optional[str]) -> Optional[Any]:
+        if kind == self.REPLY_KIND_GROUP_CHAT_PLUS:
+            return self.group_chat_plus_plugin()
+        if kind == self.REPLY_KIND_LIVINGHELLO:
+            return self.livinghello_plugin()
         return None
 
     def should_delegate_memory(self) -> bool:
@@ -73,36 +112,48 @@ class FeatureDelegation:
             return False
         return self.memory_plugin() is not None
 
-    def should_delegate_reply(self) -> bool:
+    def should_delegate_reply(self, kind: Optional[str] = None) -> bool:
+        """判断是否跳过本地回复器。
+
+        ``kind`` 可由调用方预先取得并复用，避免检测决策与日志之间插件注册表
+        变化导致目标不一致。
+        """
         if not getattr(self._config, "disable_local_reply_when_delegated", True):
             return False
 
-        kind = self.reply_plugin_kind()
+        if kind is None:
+            kind = self.reply_plugin_kind()
         if kind == self.REPLY_KIND_GROUP_CHAT_PLUS:
-            return bool(
-                getattr(self._config, "delegate_reply_to_group_chat_plus", True)
+            return (
+                self.group_chat_plus_plugin() is not None
+                and self.group_chat_plus_delegation_enabled()
             )
         if kind == self.REPLY_KIND_LIVINGHELLO:
             # LivingHello 只做接话判定与静默否决，默认不接管，需显式开启
-            return bool(
-                getattr(self._config, "delegate_reply_to_livinghello", False)
+            return (
+                self.livinghello_plugin() is not None
+                and self.livinghello_delegation_enabled()
             )
         return False
 
     def status(self) -> dict[str, Any]:
         memory_plugin = self.memory_plugin()
-        reply_plugin = self.reply_plugin()
+        reply_kind, reply_plugin = self.reply_delegation()
         return {
             "memory_delegated": self.should_delegate_memory(),
             "memory_plugin": self._star_label(memory_plugin),
-            "reply_delegated": self.should_delegate_reply(),
+            "reply_delegated": self.should_delegate_reply(reply_kind),
             "reply_plugin": self._star_label(reply_plugin),
-            "reply_plugin_kind": self.reply_plugin_kind(),
+            "reply_plugin_kind": reply_kind,
         }
 
     def log_status(self) -> None:
         status = self.status()
-        current = (status["memory_delegated"], status["reply_delegated"])
+        current = (
+            status["memory_delegated"],
+            status["reply_delegated"],
+            status["reply_plugin_kind"],
+        )
         if current == self._last_status:
             return
         self._last_status = current
@@ -116,10 +167,17 @@ class FeatureDelegation:
             logger.info("[功能融合] 未检测到可用 LivingMemory，保留本插件本地记忆能力")
 
         if status["reply_delegated"]:
-            logger.info(
-                "[功能融合] 回复决策和回复生成已委托给 "
-                f"{status['reply_plugin']}，本插件仅注入学习上下文"
-            )
+            if status["reply_plugin_kind"] == self.REPLY_KIND_LIVINGHELLO:
+                logger.info(
+                    "[功能融合] 回复决策已委托给 "
+                    f"{status['reply_plugin']}，本插件跳过本地回复器；"
+                    "回复正文仍由宿主默认对话链路生成"
+                )
+            else:
+                logger.info(
+                    "[功能融合] 回复决策和回复生成已委托给 "
+                    f"{status['reply_plugin']}，本插件仅注入学习上下文"
+                )
         else:
             logger.info(
                 "[功能融合] 未启用外部回复决策委托"
