@@ -410,7 +410,8 @@ class ServiceFactory(IServiceFactory):
                 quality_monitor=self.create_quality_monitor(),
                 persona_manager=self.create_persona_manager(), # 传递 persona_manager 实例
                 ml_analyzer=self.create_ml_analyzer(), # 传递 ml_analyzer 实例
-                prompts=self.get_prompts() # 传递 prompts
+                prompts=self.get_prompts(), # 传递 prompts
+                llm_adapter=self.create_framework_llm_adapter(), # issue #311
             )
             self._registry.register_service("progressive_learning", service)
             

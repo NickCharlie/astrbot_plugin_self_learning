@@ -50,10 +50,12 @@ class ProgressiveLearningService:
                  quality_monitor,
                  persona_manager, # 添加 persona_manager 参数
                  ml_analyzer, # 添加 ml_analyzer 参数
-                 prompts: Any): # 添加 prompts 参数
+                 prompts: Any, # 添加 prompts 参数
+                 llm_adapter: Any = None): # issue #311 语义校验用的筛选模型适配器
         self.config = config
         self.context = context
         self.db_manager = db_manager
+        self.llm_adapter = llm_adapter
         
         # 注入各个组件服务
         self.message_collector = message_collector
@@ -67,7 +69,9 @@ class ProgressiveLearningService:
         # MaiBot-style learning domains: expression learning and persona
         # learning are independent modules; this service only orchestrates
         # the batch lifecycle.
-        self.expression_learning = ExpressionLearningModule(db_manager, config)
+        self.expression_learning = ExpressionLearningModule(
+            db_manager, config, llm_adapter=llm_adapter
+        )
         self.persona_learning = PersonaLearningModule(
             config=config,
             context=context,
@@ -107,7 +111,9 @@ class ProgressiveLearningService:
         module = getattr(self, "expression_learning", None)
         if module is None:
             module = ExpressionLearningModule(
-                self.db_manager, getattr(self, "config", None)
+                self.db_manager,
+                getattr(self, "config", None),
+                llm_adapter=getattr(self, "llm_adapter", None),
             )
             self.expression_learning = module
         return module
