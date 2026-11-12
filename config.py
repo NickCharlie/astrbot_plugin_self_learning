@@ -259,6 +259,7 @@ class PluginConfig(BaseModel):
 
     # 学习参数
     learning_interval_hours: int = 6 # 学习间隔（小时）
+    enable_learning_sweep: bool = False # 周期巡检活跃群组并触发自动学习（默认关闭）
     min_messages_for_learning: int = 50 # 最少消息数量才开始学习
     max_messages_per_batch: int = 200 # 每批处理的最大消息数量
     expression_learning_trigger_messages: int = 10 # 表达方式学习触发消息增量
@@ -586,6 +587,7 @@ class PluginConfig(BaseModel):
             disable_local_reply_when_delegated=integration_settings.get('disable_local_reply_when_delegated', True),
 
             learning_interval_hours=learning_params.get('learning_interval_hours', 6),
+            enable_learning_sweep=learning_params.get('enable_learning_sweep', False),
             min_messages_for_learning=learning_params.get('min_messages_for_learning', 50),
             max_messages_per_batch=learning_params.get('max_messages_per_batch', 200),
             expression_learning_trigger_messages=learning_params.get('expression_learning_trigger_messages', 10),
