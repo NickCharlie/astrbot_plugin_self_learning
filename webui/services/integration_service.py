@@ -494,7 +494,11 @@ class IntegrationService:
             "title": "Group Chat Plus",
             "role": "回复决策与生成",
             "active": star is not None,
-            "delegated": bool(status.get("reply_delegated")),
+            "delegated": bool(
+                status.get("reply_delegated")
+                and status.get("reply_plugin_kind")
+                in (None, "group_chat_plus")
+            ),
             "plugin": self._star_info(star),
             "status": status_block,
             "dashboard": {
@@ -532,7 +536,11 @@ class IntegrationService:
             "title": "LivingHello",
             "role": "接话判定与静默否决",
             "active": star is not None,
-            "delegated": bool(star is not None and status.get("reply_delegated")),
+            "delegated": bool(
+                star is not None
+                and status.get("reply_delegated")
+                and status.get("reply_plugin_kind") == "livinghello"
+            ),
             "plugin": self._star_info(star),
             "status": status_block,
             "dashboard": {

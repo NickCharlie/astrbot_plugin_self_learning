@@ -163,14 +163,35 @@ class PluginLifecycle:
                     p.v2_integration = None
 
             # ------ 依赖后创建的服务 ------
-            if p.feature_delegation.should_delegate_reply():
+            # 先固定委托目标，再用同一结果做决策与日志，避免注册表在两次查询间变化。
+            # 旧 delegation 实现没有 reply_delegation 时退回无参判定。
+            reply_kind = None
+            reply_delegation_getter = getattr(
+                p.feature_delegation, "reply_delegation", None
+            )
+            if callable(reply_delegation_getter):
+                reply_kind, _ = reply_delegation_getter()
+            delegated = (
+                p.feature_delegation.should_delegate_reply(reply_kind)
+                if reply_kind is not None
+                else p.feature_delegation.should_delegate_reply()
+            )
+            if delegated:
                 p.intelligent_responder = None
-                kind = p.feature_delegation.reply_plugin_kind()
                 target = {
-                    "group_chat_plus": "Group Chat Plus",
-                    "livinghello": "LivingHello",
-                }.get(kind, "外部回复插件")
-                logger.info(f"[功能融合] 已跳过本地 IntelligentResponder，回复由 {target} 接管")
+                    p.feature_delegation.REPLY_KIND_GROUP_CHAT_PLUS: "Group Chat Plus",
+                    p.feature_delegation.REPLY_KIND_LIVINGHELLO: "LivingHello",
+                }.get(reply_kind, "外部回复插件")
+                if reply_kind == p.feature_delegation.REPLY_KIND_LIVINGHELLO:
+                    logger.info(
+                        "[功能融合] 已跳过本地 IntelligentResponder，接话判定由 "
+                        f"{target} 接管；回复正文仍由宿主默认对话链路生成"
+                    )
+                else:
+                    logger.info(
+                        "[功能融合] 已跳过本地 IntelligentResponder，"
+                        f"回复决策和生成由 {target} 接管"
+                    )
             else:
                 p.intelligent_responder = p.service_factory.create_intelligent_responder()
             p.temporary_persona_updater = p.service_factory.create_temporary_persona_updater()

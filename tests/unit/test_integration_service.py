@@ -604,6 +604,50 @@ async def test_livingmemory_official_page_absent_without_pages_or_origin(tmp_pat
     assert dashboard["official_page_url"] is None
 
 
+async def test_integration_dashboard_attributes_delegation_to_livinghello_only():
+    livinghello_star = _star(
+        "astrbot_plugin_LivingHello",
+        SimpleNamespace(),
+        root_dir_name="astrbot_plugin_LivingHello",
+    )
+    delegation = SimpleNamespace(
+        status=lambda: {
+            "memory_delegated": False,
+            "memory_plugin": None,
+            "reply_delegated": True,
+            "reply_plugin": "LivingHello",
+            "reply_plugin_kind": "livinghello",
+        },
+        memory_plugin=lambda: None,
+        reply_plugin=lambda: livinghello_star,
+    )
+    container = SimpleNamespace(
+        plugin_config=SimpleNamespace(
+            delegate_memory_to_livingmemory=True,
+            livingmemory_plugin_name="LivingMemory",
+            disable_local_memory_when_delegated=True,
+            delegate_reply_to_group_chat_plus=False,
+            group_chat_plus_plugin_name="astrbot_plugin_group_chat_plus",
+            delegate_reply_to_livinghello=True,
+            livinghello_plugin_name="LivingHello",
+            disable_local_reply_when_delegated=True,
+            knowledge_engine="legacy",
+            lightrag_query_mode="local",
+        ),
+        webui_config=SimpleNamespace(host="127.0.0.1", port=8989),
+        feature_delegation=delegation,
+    )
+
+    payload = await IntegrationService(container).get_status()
+    dashboards = _dashboards_by_id(payload)
+
+    assert dashboards["livinghello"]["active"] is True
+    assert dashboards["livinghello"]["delegated"] is True
+    # Group Chat Plus 已加载但委托开关关闭：不应把委托归到它头上
+    assert dashboards["group_chat_plus"]["active"] is False
+    assert dashboards["group_chat_plus"]["delegated"] is False
+
+
 def test_embed_route_removed_from_integrations_blueprint():
     """issue #271：iframe 嵌入壳端点必须整体移除，只保留状态标识。"""
     from self_learning_EterU.webui.blueprints.integrations import integrations_bp

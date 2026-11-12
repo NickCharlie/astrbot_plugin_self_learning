@@ -435,7 +435,7 @@
     },
     "Integration_Settings": {
       "description": "Integrations",
-      "hint": "Coordinate with specialized plugins: delegate memory to LivingMemory and reply decisions/generation to Group Chat Plus.",
+      "hint": "Coordinate with specialized plugins: delegate memory to LivingMemory; reply decisions/generation to Group Chat Plus, or reply decisions to LivingHello.",
       "delegate_memory_to_livingmemory": {
         "description": "Delegate memory to LivingMemory",
         "hint": "When LivingMemory is loaded, this plugin no longer writes or injects local long-term memory, avoiding double-memory contamination."
@@ -450,7 +450,7 @@
       },
       "delegate_reply_to_group_chat_plus": {
         "description": "Delegate replies to Group Chat Plus",
-        "hint": "When Group Chat Plus is loaded, this plugin no longer handles reply decisions or generation and only enhances learning context."
+        "hint": "When Group Chat Plus is loaded, this plugin no longer handles reply decisions or generation and only enhances learning context. Turn this off to let LivingHello take over when its delegation is enabled."
       },
       "group_chat_plus_plugin_name": {
         "description": "Group Chat Plus plugin name",
@@ -458,11 +458,11 @@
       },
       "disable_local_reply_when_delegated": {
         "description": "Disable local replies when delegated",
-        "hint": "When enabled, the local reply system is disabled only if Group Chat Plus is detected; otherwise compatible fallback remains available."
+        "hint": "When enabled, the local reply system is disabled only if Group Chat Plus or an enabled LivingHello delegation is active; otherwise compatible fallback remains available."
       },
       "delegate_reply_to_livinghello": {
         "description": "Delegate reply decisions to LivingHello",
-        "hint": "When enabled and the LivingHello plugin is loaded, this plugin no longer handles reply decisions; LivingHello decides whether to chime in. Off by default so upgrades never change existing behaviour silently. Group Chat Plus takes priority when both are loaded."
+        "hint": "When enabled and LivingHello is loaded while Group Chat Plus delegation is not active, this plugin no longer handles reply decisions; LivingHello decides whether to chime in. Off by default so upgrades never change existing behaviour silently. Group Chat Plus takes priority only when it is loaded and its own delegation switch is enabled."
       },
       "livinghello_plugin_name": {
         "description": "LivingHello plugin name",

@@ -67,7 +67,7 @@
 
 Provider 初始化是宽容的。没有可用 Provider 时，`FrameworkLLMAdapter` 不会让插件加载失败，会标记为延迟初始化。
 
-如果检测到 LivingMemory 已加载，`V2LearningIntegration` 和 `LLMHookHandler` 会跳过本插件本地长期记忆写入与注入，保留知识图谱、few-shot 和风格上下文。若检测到 Group Chat Plus 已加载，`PluginLifecycle` 会跳过本地 `IntelligentResponder`，让回复决策和生成由 Group Chat Plus 处理。
+如果检测到 LivingMemory 已加载，`V2LearningIntegration` 和 `LLMHookHandler` 会跳过本插件本地长期记忆写入与注入，保留知识图谱、few-shot 和风格上下文。若 Group Chat Plus 委托生效，`PluginLifecycle` 会跳过本地 `IntelligentResponder`，让回复决策和生成由 Group Chat Plus 处理；若 Group Chat Plus 委托关闭且 LivingHello 委托开启，则由 LivingHello 接管接话判定，回复正文仍由宿主默认对话链路生成。
 
 功能融合的完整配置、API 和排查见 [功能融合](integrations.md)。
 
