@@ -756,16 +756,44 @@ class LearningScheduler:
         while self.is_running:
             try:
                 interval_seconds = self.plugin.plugin_config.learning_interval_hours * 3600 # 使用 plugin_config
+                if interval_seconds <= 0:
+                    self._logger.error(
+                        "learning_interval_hours 必须大于 0，学习调度器停止"
+                    )
+                    self.is_running = False
+                    break
                 await asyncio.sleep(interval_seconds)
-                
-                if self.is_running and hasattr(self.plugin, '_perform_learning_cycle'):
-                    await self.plugin._perform_learning_cycle()
-                    
+
+                if self.is_running:
+                    await self.run_cycle()
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 self._logger.error(f"学习循环异常: {e}", exc_info=True)
                 await asyncio.sleep(60) # 错误后等待1分钟再重试
+
+    async def run_cycle(self) -> None:
+        """巡检活跃群组并触发自动学习；每群仍由 orchestrator 自行节流。"""
+        orchestrator = getattr(self.plugin, "_group_orchestrator", None)
+        if orchestrator is None:
+            self._logger.warning("学习调度器巡检跳过：群组编排器未初始化")
+            return
+        try:
+            group_ids = await orchestrator.get_active_groups()
+        except Exception as e:
+            self._logger.error(f"学习调度器获取活跃群组失败: {e}", exc_info=True)
+            return
+
+        for group_id in group_ids or []:
+            if not self.is_running:
+                break
+            try:
+                await orchestrator.smart_start_learning_for_group(str(group_id))
+            except Exception as e:
+                self._logger.error(
+                    f"学习调度器巡检群组 {group_id} 失败: {e}", exc_info=True
+                )
 
 
 class ComponentFactory:

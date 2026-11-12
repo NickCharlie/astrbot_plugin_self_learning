@@ -185,6 +185,7 @@ LLM 注入时只注入解释，不要求 Bot 主动复读或扩散黑话。
 
 - `enable_style_learning=True`
 - 自动延迟启动需要 `enable_auto_learning=True`；关闭后仅保留手动学习。
+- 周期巡检需要额外开启 `enable_learning_sweep=True`（默认关闭，重启生效）；开启后每 `learning_interval_hours` 小时巡检活跃群组，每群仍受学习间隔和最少消息数限制。
 - 群组未处理消息数达到 `min_messages_for_learning`。
 - 距离上次学习超过 `learning_interval_hours`。
 - QQ 白名单/黑名单允许该群组。

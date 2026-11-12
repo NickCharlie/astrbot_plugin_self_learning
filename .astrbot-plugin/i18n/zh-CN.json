@@ -92,6 +92,10 @@
         "description": "学习间隔(小时)",
         "hint": "自动学习的时间间隔，单位为小时"
       },
+      "enable_learning_sweep": {
+        "description": "启用周期学习巡检",
+        "hint": "默认关闭。开启后，插件在启动时启动学习调度器：每 learning_interval_hours 小时巡检活跃群组并触发自动学习；每群仍受学习间隔和最少消息数量限制。开关变更需重启插件生效。"
+      },
       "min_messages_for_learning": {
         "description": "最少学习消息数量",
         "hint": "开始学习所需的最少消息数量"

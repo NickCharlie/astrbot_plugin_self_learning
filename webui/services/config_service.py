@@ -330,6 +330,7 @@ _RESTART_REQUIRED_KEYS = {
     "postgresql_database",
     "postgresql_schema",
     "use_sqlalchemy",
+    "enable_learning_sweep",
 }
 
 _SENSITIVE_RESPONSE_KEYS = {

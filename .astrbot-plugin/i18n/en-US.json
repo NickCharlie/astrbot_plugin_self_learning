@@ -92,6 +92,10 @@
         "description": "Learning interval (hours)",
         "hint": "Automatic learning interval in hours."
       },
+      "enable_learning_sweep": {
+        "description": "Enable periodic learning sweep",
+        "hint": "Off by default. When enabled, the plugin starts a learning scheduler at boot: every learning_interval_hours it sweeps active groups and triggers auto-learning. Per-group interval and minimum message limits still apply. Restart the plugin after changing this switch."
+      },
       "min_messages_for_learning": {
         "description": "Minimum messages for learning",
         "hint": "Minimum number of messages required before learning starts."

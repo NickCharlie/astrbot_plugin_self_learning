@@ -457,6 +457,19 @@ class PluginLifecycle:
             except Exception as e:
                 logger.error(f"三阶段遗忘任务启动失败: {e}", exc_info=True)
 
+        # ------ 周期学习巡检（opt-in，issue #309）------
+        if (
+            getattr(plugin_config, "enable_learning_sweep", False)
+            and plugin_config.enable_auto_learning
+            and plugin_config.enable_style_learning
+            and getattr(p, "learning_scheduler", None)
+        ):
+            p.learning_scheduler.start()
+            logger.info(
+                "周期学习巡检已启用：每 %s 小时检查一次活跃群组",
+                plugin_config.learning_interval_hours,
+            )
+
         # ------ V2 学习集成 ------
         v2_started = False
         if getattr(p, "v2_integration", None):
