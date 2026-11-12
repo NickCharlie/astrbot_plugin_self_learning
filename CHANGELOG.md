@@ -2,6 +2,25 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.4] - 2026-11-12
+
+### 修复：关闭 Group Chat Plus 委托后 LivingHello 无法接管（PR #310，@AKIhunter）
+
+- 根因：`reply_plugin_kind()` 按“插件是否已加载”决定目标，只要 Group Chat Plus 已加载就返回 `group_chat_plus`；随后 `should_delegate_reply()` 读取已关闭的 `delegate_reply_to_group_chat_plus` 直接返回 False，导致已开启的 `delegate_reply_to_livinghello` 永远不生效。
+- 现改为按委托开关选择目标：两个开关都开启时 Group Chat Plus 优先；Group Chat Plus 委托关闭时由已开启委托的 LivingHello 接管；只加载未开启委托的插件仍显示为“已检测”，但不计入已委托。
+- 新增 `reply_delegation()` 一次返回目标类型与插件，`PluginLifecycle` 用同一结果做决策与日志，避免注册表在两次查询间变化；旧 delegation 实现保留无参回退。LivingHello 日志明确为“接话判定接管，回复正文由宿主默认对话链路生成”。
+- 功能融合页 `delegated` 徽标只归属实际生效的目标卡片；同步配置说明、两份 i18n 与 `docs/configuration.md`。兼容基线更新至 LivingHello 2.7.2。
+
+### 修复：周期自动学习巡检链从未启动（PR #312，issue #309）
+
+- 根因：`LearningScheduler.start()` 全仓库无调用点，循环调用的 `plugin._perform_learning_cycle()` 也不存在，`hasattr` 守卫使该链静默空转。
+- 新增 `enable_learning_sweep`（默认 `false`，重启生效）；开启后在数据库就绪后启动调度器，每 `learning_interval_hours` 小时巡检活跃群组并复用 `smart_start_learning_for_group()` 的每群间隔/最少消息数节流。
+- 单群异常或活跃群查询失败只记录日志，不中断整轮；非正数 `learning_interval_hours` 不再形成紧循环。新增 5 个调度器回归用例。
+
+### 版本
+
+- 版本号由 4.9.3 提升至 **4.9.4**（两个 bug 修复，patch）。
+
 ## [4.9.3] - 2026-11-11
 
 ### 修复：设置搜索中的中文标题被窄体字与大写字距挤乱（PR #308，@SB-TDM）

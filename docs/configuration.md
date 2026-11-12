@@ -183,11 +183,13 @@ LLM 调用和 token 消耗。优先建议使用 `local`/`naive`，或只保留�
 | `delegate_memory_to_livingmemory` | `true` | 检测到 LivingMemory 时，将长期记忆写入和注入交给 LivingMemory |
 | `livingmemory_plugin_name` | `LivingMemory` | 用于匹配 LivingMemory 插件 |
 | `disable_local_memory_when_delegated` | `true` | 委托生效时跳过本插件本地长期记忆能力 |
-| `delegate_reply_to_group_chat_plus` | `true` | 检测到 Group Chat Plus 时，将回复决策和生成交给该插件 |
+| `delegate_reply_to_group_chat_plus` | `true` | 委托开关开启时，将回复决策和生成交给 Group Chat Plus；关闭后可由已开启委托的 LivingHello 接管 |
 | `group_chat_plus_plugin_name` | `astrbot_plugin_group_chat_plus` | 用于匹配 Group Chat Plus 插件 |
+| `delegate_reply_to_livinghello` | `false` | 开启后，Group Chat Plus 委托未生效时由 LivingHello 接管接话判定 |
+| `livinghello_plugin_name` | `LivingHello` | 用于匹配 LivingHello 插件 |
 | `disable_local_reply_when_delegated` | `true` | 委托生效时跳过本插件本地回复器 |
 
-委托只在目标插件已加载且激活时生效。目标插件缺失、禁用或尚未实例化时，本插件保留原有本地降级能力。
+委托只在目标插件已加载、激活且对应委托开关开启时生效。两个回复目标都开启时 Group Chat Plus 优先；只加载但未开启委托的插件不算已委托。目标插件缺失、禁用或尚未实例化时，本插件保留原有本地降级能力。
 
 完整运行边界见 [功能融合](integrations.md)。
 
