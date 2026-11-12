@@ -508,6 +508,14 @@
         "description": "Memory engine",
         "hint": "Memory management engine type. legacy uses the existing implementation; mem0 uses mem0 for automatic memory extraction and retrieval and requires an Embedding provider."
       }
+    },
+    "MaiBot_Enhancement": {
+      "description": "MaiBot enhancement",
+      "hint": "Enable expression patterns, memory graphs, and knowledge graphs.",
+      "enable_expression_pair_llm_verify": {
+        "description": "LLM-verify expression dialog pairs",
+        "hint": "Off by default. When enabled, up to 10 rule-extracted adjacent pairs per round are sent to the filter model to confirm that the reply actually responds to the context; only confirmed pairs are kept. If the filter model is unavailable, errors, or returns unparseable output, the original candidates are kept instead of dropping samples silently. Adds filter-model calls."
+      }
     }
   },
   "pages": {

@@ -508,6 +508,14 @@
         "description": "记忆引擎",
         "hint": "记忆管理引擎类型。legacy=现有实现，mem0=使用mem0进行自动记忆提取和检索（需配置Embedding提供商）"
       }
+    },
+    "MaiBot_Enhancement": {
+      "description": "MaiBot 增强",
+      "hint": "启用表达模式、记忆图和知识图谱等扩展能力",
+      "enable_expression_pair_llm_verify": {
+        "description": "表达样本 LLM 语义校验",
+        "hint": "默认关闭。开启后，规则抽出的相邻对话对在保存前最多取 10 条交给筛选模型，判断「回应是否真的在回应情境」；只保留确认的样本。筛选模型不可用、调用失败或返回无法解析时保留原候选，不会静默丢弃。会增加筛选模型调用。"
+      }
     }
   },
   "pages": {

@@ -23,6 +23,7 @@ from ..learning.conversation_samples import (
     extract_human_dialog_pairs,
     is_human_learning_message,
 )
+from ..learning.dialog_pair_verifier import DialogPairVerifier
 from ..learning.sample_filter import mark_style_context_messages, mask_blacklisted_messages
 
 
@@ -89,7 +90,10 @@ class ExpressionPatternLearner:
             self.llm_adapter = FrameworkLLMAdapter(config)
         else:
             self.llm_adapter = None
-        
+
+        # issue #311：可选的语义校验，默认关闭；失败时保留规则候选
+        self.pair_verifier = DialogPairVerifier(config, self.llm_adapter)
+
         self._status = ServiceLifecycle.CREATED
         
         # 维护每个群组/人格隔离 scope 的上次学习时间
@@ -243,7 +247,10 @@ class ExpressionPatternLearner:
         user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """
-        学习表达模式 - 从原始消息中直接提取 A/B 对话对（不调用LLM）
+        学习表达模式 - 从原始消息中直接提取 A/B 对话对
+
+        规则抽取不调用 LLM；开启 enable_expression_pair_llm_verify 后，
+        候选对会先经过筛选模型的批量语义校验（每轮最多 10 条）。
 
         Args:
             messages: 消息列表
@@ -253,9 +260,22 @@ class ExpressionPatternLearner:
             学习到的表达模式列表
         """
         try:
-            # 直接从消息中提取对话对作为 few-shot 样本（不调用LLM）
-            patterns = self._extract_few_shot_pairs(
+            pairs = self._extract_few_shot_pair_dicts(
                 messages,
+                group_id,
+                user_id=user_id,
+            )
+            verifier = getattr(self, "pair_verifier", None)
+            if verifier is None:
+                # 兼容通过 __new__ 构造的旧调用方/测试替身
+                verifier = DialogPairVerifier(
+                    getattr(self, "config", None),
+                    getattr(self, "llm_adapter", None),
+                )
+                self.pair_verifier = verifier
+            pairs = await verifier.verify(pairs)
+            patterns = self._pairs_to_patterns(
+                pairs,
                 group_id,
                 persona_id=persona_id,
                 user_id=user_id,
@@ -280,7 +300,21 @@ class ExpressionPatternLearner:
         user_id: Optional[str] = None,
     ) -> List[ExpressionPattern]:
         """Learn the response speaker's style from adjacent human group turns."""
-        persona_id = normalize_persona_scope(persona_id)
+        pairs = self._extract_few_shot_pair_dicts(
+            messages, group_id, user_id=user_id
+        )
+        return self._pairs_to_patterns(
+            pairs, group_id, persona_id=persona_id, user_id=user_id
+        )
+
+    def _extract_few_shot_pair_dicts(
+        self,
+        messages: List[MessageData],
+        group_id: str,
+        *,
+        user_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Apply the existing source filters and return rule-extracted pairs."""
         user_id = self._normalize_user_scope(user_id)
         messages = mask_blacklisted_messages(
             messages, getattr(getattr(self, "config", None), "target_blacklist", []),
@@ -290,7 +324,17 @@ class ExpressionPatternLearner:
             messages, getattr(getattr(self, "config", None), "target_qq_list", []),
             group_id=group_id,
         )
-        pairs = extract_human_dialog_pairs(messages, group_id, user_id=user_id)
+        return extract_human_dialog_pairs(messages, group_id, user_id=user_id)
+
+    def _pairs_to_patterns(
+        self,
+        pairs: List[Dict[str, Any]],
+        group_id: str,
+        persona_id: str = "default",
+        user_id: Optional[str] = None,
+    ) -> List[ExpressionPattern]:
+        persona_id = normalize_persona_scope(persona_id)
+        user_id = self._normalize_user_scope(user_id)
         return [
             ExpressionPattern(
                 situation=pair["situation"][:50],

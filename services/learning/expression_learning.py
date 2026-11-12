@@ -19,15 +19,22 @@ from .conversation_samples import (
     is_human_learning_message,
     sanitize_style_sample,
 )
+from .dialog_pair_verifier import DialogPairVerifier
 from .sample_filter import should_ignore_learning_sample
 
 
 class ExpressionLearningModule:
     """Persist learned expression patterns and style review records."""
 
-    def __init__(self, db_manager: Any, config: Any = None) -> None:
+    def __init__(
+        self,
+        db_manager: Any,
+        config: Any = None,
+        llm_adapter: Any = None,
+    ) -> None:
         self.db_manager = db_manager
         self.config = config
+        self.pair_verifier = DialogPairVerifier(config, llm_adapter)
 
     async def save_style_learning_record(
         self,
@@ -65,6 +72,9 @@ class ExpressionLearningModule:
             # Ground automatic samples in human turns, never generated bot text.
             if timeline:
                 expression_patterns = extract_human_dialog_pairs(timeline, group_id)
+                expression_patterns = await self.pair_verifier.verify(
+                    expression_patterns
+                )
             else:
                 expression_patterns = self.filter_expression_patterns(
                     style_analysis_dict.get("expression_patterns", [])

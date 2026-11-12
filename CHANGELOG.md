@@ -2,6 +2,15 @@
 
 所有重要更改都将记录在此文件中。
 
+## [Unreleased]
+
+### 新增：表达样本 LLM 语义校验（issue #311）
+
+- 新增 `enable_expression_pair_llm_verify`（默认 `false`，位于 MaiBot 增强组）。规则抽取保持现状；开启后每轮最多取 10 条候选，用 `filter_provider` 一次批量判断「B 是否在语义上回应 A」，只保留确认的样本，控制单轮调用成本。
+- 接入实时表达学习（`ExpressionPatternLearner`）与批量风格学习（`ExpressionLearningModule`）两条持久化链路；筛选模型未配置、调用失败或返回无法解析时保留原候选（fail-open），不会静默停止学习。
+- 新增 `test_dialog_pair_verifier.py` 覆盖默认关闭、批量确认、单轮上限、字符串 ID、超时/解析失败回退，以及两条链路只保存确认样本。
+- **版本号保持 4.9.4**：本次功能整合进当前版本，不提升版本、不新增 tag/release。
+
 ## [4.9.4] - 2026-11-12
 
 ### 修复：关闭 Group Chat Plus 委托后 LivingHello 无法接管（PR #310，@AKIhunter）

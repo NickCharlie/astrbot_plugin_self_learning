@@ -879,6 +879,12 @@
         "hint": "开启后表达模式会按 sender_id 建立可选 user_id 维度；默认关闭以保持旧的群组/人格级学习与缓存行为",
         "default": false
       },
+      "enable_expression_pair_llm_verify": {
+        "description": "表达样本 LLM 语义校验",
+        "type": "bool",
+        "hint": "默认关闭。开启后，规则抽出的相邻对话对在保存前最多取 10 条交给筛选模型，判断「回应是否真的在回应情境」；只保留确认的样本。筛选模型不可用、调用失败或返回无法解析时保留原候选，不会静默丢弃。会增加筛选模型调用。",
+        "default": false
+      },
       "enable_realtime_expression_learning": {
         "description": "实时表达方式学习",
         "type": "bool",
