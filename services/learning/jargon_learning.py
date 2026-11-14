@@ -114,10 +114,20 @@ class JargonLearningModule:
                 )
                 return
 
-            recent_messages = await self._db_manager.get_recent_raw_messages(
-                group_id, limit=30
-            )
-            recent_messages = filter_learning_messages(recent_messages)
+            # 过滤发生在取数之后：忽略正则/指令消息占满窗口时扩大取数范围，
+            # 避免仅因最近 30 条被过滤就放弃挖掘（issue #315 复审）
+            fetch_limit = 30
+            while True:
+                recent_messages = await self._db_manager.get_recent_raw_messages(
+                    group_id, limit=fetch_limit
+                )
+                fetched_count = len(recent_messages)
+                recent_messages = filter_learning_messages(recent_messages)
+                if len(recent_messages) >= 10 or fetched_count < fetch_limit:
+                    break
+                if fetch_limit >= 240:
+                    break
+                fetch_limit *= 2
 
             if len(recent_messages) < 10:
                 logger.debug(

@@ -144,6 +144,15 @@
         "hint": "黑名单内的成员消息不进行学习。为空则没有黑名单。支持个人QQ号和群聊格式group_群号",
         "default": []
       },
+      "learning_ignore_patterns": {
+        "description": "自定义忽略正则",
+        "type": "list",
+        "items": {
+          "type": "string"
+        },
+        "hint": "匹配到的消息不会进入学习样本（入站与出站都生效），适合过滤媒体解析卡片、BV 号等。每行一个 Python 正则，大小写不敏感；无效正则会被跳过并记录告警。示例：^🎬 标题： 或 \\bBV[0-9A-Za-z]{10}\\b。规则由管理员配置并在每条消息上运行，请避免嵌套量词等回溯爆炸写法。",
+        "default": []
+      },
       "current_persona_name": {
         "description": "当前目标人格",
         "type": "string",

@@ -9,11 +9,19 @@ from astrbot.api import logger
 
 try:
     from ...config import split_learning_blacklist
+    from ...utils.learning_ignore_patterns import (
+        configure_learning_ignore_patterns,
+        matches_learning_ignore_pattern,
+    )
     from ...utils.learning_scope import (
         is_learning_blacklisted, mark_style_context_messages, mask_blacklisted_messages,
     )
 except ImportError:  # pragma: no cover - AstrBot 以顶层目录加载插件时
     from config import split_learning_blacklist
+    from utils.learning_ignore_patterns import (
+        configure_learning_ignore_patterns,
+        matches_learning_ignore_pattern,
+    )
     from utils.learning_scope import (
         is_learning_blacklisted, mark_style_context_messages, mask_blacklisted_messages,
     )
@@ -159,6 +167,10 @@ PLUGIN_LOG_PATTERNS = (
 
 def _normalize_text(message_text: Any) -> str:
     return "" if message_text is None else str(message_text).strip()
+
+
+# 用户自定义忽略正则（issue #315）由 utils.learning_ignore_patterns 提供：
+# 命中即视为非学习样本，入站与出站都生效。
 
 
 def filter_blacklisted_messages(
@@ -476,6 +488,8 @@ def should_ignore_learning_sample(
     """Return true for messages that should not enter learning datasets."""
     text = _normalize_text(message_text)
     if not text:
+        return True
+    if matches_learning_ignore_pattern(text):
         return True
     if is_media_only_message(text):
         return True

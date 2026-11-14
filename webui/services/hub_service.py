@@ -307,6 +307,20 @@ class HubService:
             "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
         }
 
+        try:
+            from ...utils.learning_ignore_patterns import (
+                matches_learning_ignore_pattern,
+            )
+        except ImportError:
+            from utils.learning_ignore_patterns import (
+                matches_learning_ignore_pattern,
+            )
+
+        if matches_learning_ignore_pattern(message):
+            # 与 MessageCollector 的自定义忽略规则保持一致：命中后既不落库，
+            # 也不进入 V2 摄取缓冲区
+            return {"collected": False, "v2": {}, "message": message_data}
+
         collector = None
         plugin = getattr(self.container, "plugin_instance", None)
         if plugin:

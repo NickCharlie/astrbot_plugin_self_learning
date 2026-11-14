@@ -221,6 +221,7 @@ class PluginConfig(BaseModel):
     # QQ号设置
     target_qq_list: List[str] = Field(default_factory=list)
     target_blacklist: List[str] = Field(default_factory=list) # 学习黑名单
+    learning_ignore_patterns: List[str] = Field(default_factory=list) # 学习样本自定义忽略正则（issue #315）
 
     # LLM 提供商 ID（使用 AstrBot 框架的 Provider 系统）
     filter_provider_id: Optional[str] = None # 筛选模型使用的提供商ID
@@ -436,6 +437,28 @@ class PluginConfig(BaseModel):
     def _normalize_target_blacklist(cls, value) -> List[str]:
         return normalize_identifier_list(value)
 
+    @field_validator("learning_ignore_patterns", mode="before")
+    @classmethod
+    def _normalize_learning_ignore_patterns(cls, value) -> List[str]:
+        """按行拆分字符串，但保留正则内部的逗号（如 ``{1,3}``）。"""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = value.splitlines()
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = list(value)
+        else:
+            raw_items = [value]
+
+        patterns: List[str] = []
+        for item in raw_items:
+            if item is None:
+                continue
+            text = str(item).strip()
+            if text and text not in patterns:
+                patterns.append(text)
+        return patterns
+
     @field_validator("llm_hook_injection_target", mode="before")
     @classmethod
     def _normalize_llm_hook_injection_target(cls, value) -> str:
@@ -554,6 +577,7 @@ class PluginConfig(BaseModel):
 
             target_qq_list=target_settings.get('target_qq_list', []),
             target_blacklist=target_settings.get('target_blacklist', []),
+            learning_ignore_patterns=target_settings.get('learning_ignore_patterns', []),
             current_persona_name=target_settings.get('current_persona_name', ''),
 
             filter_provider_id=filter_provider_id,
