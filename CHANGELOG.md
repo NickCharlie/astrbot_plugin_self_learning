@@ -17,9 +17,11 @@
 - 接入实时表达学习（`ExpressionPatternLearner`）与批量风格学习（`ExpressionLearningModule`）两条持久化链路；筛选模型未配置、调用失败或返回无法解析时保留原候选（fail-open），不会静默停止学习。
 - 新增 `test_dialog_pair_verifier.py` 覆盖默认关闭、批量确认、单轮上限、字符串 ID、超时/解析失败回退，以及两条链路只保存确认样本。
 
-### 修复：内嵌页设置分组标题与说明挤在一行（issue #314）
+### 修复：内嵌页设置分组标题与说明挤在一行（PR #317/#318，issue #314）
 
-- 分组条目改为块级布局 + 绝对定位计数徽标：标题与说明各占一行，窄窗口下按省略号截断，不再互相压住；同时兼容旧标记（`strong`/`small` 直接挂在按钮下），避免升级后缓存与 CSS 版本不一致时再次挤行。
+- 根因有两层：`.settings-groups` 的单列 auto 轨道按最长 hint 的 max-content 撑到约 1009px，列表出现横向滚动条；同时 `max-height: 40vh` 让 24 个 auto 行被压缩到一行高（约 21px），标题/说明溢出到下一行互相压住。
+- 现固定单列宽度 `minmax(0, 1fr)`、行高 `grid-auto-rows: max-content` + `align-content: start`，分组按钮改为列向 flex 撑高；标题与说明各占一行并按省略号截断，窄窗口下不再横向溢出。
+- 兼容旧标记（`strong`/`small` 直接挂在按钮下），并补回选中分组被 `border: 0` 覆盖的右缘信号楔。
 
 ### 版本
 

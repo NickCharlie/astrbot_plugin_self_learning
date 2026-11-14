@@ -3108,6 +3108,13 @@ textarea {
 .settings-groups {
   min-width: 0;
   display: grid;
+  /* 单列必须钉死在容器宽度：auto 轨道会按最长 hint 的 max-content 撑开，
+     列表出现横向滚动条，标题/说明也不再省略（issue #314）。 */
+  grid-template-columns: minmax(0, 1fr);
+  /* max-height + overflow 时 auto 轨道会被压扁到一行高（24 组被塞进 40vh），
+     标题/说明因此溢出到下一行；max-content 保证每行按内容高度排布后滚动。 */
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 2px;
   max-height: 40vh;
   overflow: auto;
@@ -3117,12 +3124,16 @@ textarea {
   display: none;
 }
 
-/* 分组条目用块级布局 + 绝对定位计数徽标：标题与说明各占一行不依赖
-   grid-in-flex 的子项尺寸计算，窄窗口下也不会互相压住（issue #314）。 */
+/* 分组条目用 flex column 撑高 + 绝对定位计数徽标。按钮元素不能靠块级子元素
+   撑高（Chromium 会塌成一行），因此高度由列向 flex 子项决定。 */
 .settings-sidebar .settings-group {
   width: 100%;
+  min-width: 0;
   min-height: 0;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
   position: relative;
   padding: 8px 44px 8px 10px;
   border: 0;
@@ -3144,7 +3155,7 @@ textarea {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 2px;
 }
 
