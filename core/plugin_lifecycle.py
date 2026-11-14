@@ -40,6 +40,17 @@ class PluginLifecycle:
         p = self._plugin # 简写
 
         try:
+            # ------ 学习样本自定义忽略正则（issue #315）------
+            from ..services.learning.sample_filter import (
+                configure_learning_ignore_patterns,
+            )
+
+            pattern_count = configure_learning_ignore_patterns(
+                getattr(plugin_config, "learning_ignore_patterns", None)
+            )
+            if pattern_count:
+                logger.info(f"已启用 {pattern_count} 条自定义学习忽略正则")
+
             # ------ FactoryManager 初始化 ------
             p.factory_manager = FactoryManager()
             p.factory_manager.initialize_factories(plugin_config, context)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from astrbot.api import logger
 
@@ -159,6 +159,47 @@ PLUGIN_LOG_PATTERNS = (
 
 def _normalize_text(message_text: Any) -> str:
     return "" if message_text is None else str(message_text).strip()
+
+
+# 用户自定义忽略正则（issue #315）：命中即视为非学习样本，入站与出站都生效。
+# 用模块级注册表是因为 should_ignore_learning_sample 被采集、学习取数、
+# 对话对提取与教学样本导出等多个入口共用；逐层传参需要改动全部调用点。
+_CUSTOM_IGNORE_PATTERNS: Tuple[re.Pattern[str], ...] = ()
+
+
+def configure_learning_ignore_patterns(patterns: Any) -> int:
+    """编译用户配置的学习忽略正则，返回实际生效的规则数量。
+
+    空行与空白规则会被忽略；无效正则记录告警后跳过，不影响其余规则。
+    传 ``None`` 或空列表可清空全部规则（测试与配置重载使用）。
+    """
+    global _CUSTOM_IGNORE_PATTERNS
+    if patterns is None:
+        raw_patterns: Iterable[Any] = ()
+    elif isinstance(patterns, str):
+        raw_patterns = patterns.splitlines()
+    else:
+        raw_patterns = patterns
+
+    compiled: List[re.Pattern[str]] = []
+    for raw in raw_patterns:
+        pattern = str(raw or "").strip()
+        if not pattern:
+            continue
+        try:
+            compiled.append(re.compile(pattern, re.IGNORECASE))
+        except re.error as exc:
+            _LOGGER.warning(f"自定义学习忽略正则无效，已跳过: {pattern!r} ({exc})")
+    _CUSTOM_IGNORE_PATTERNS = tuple(compiled)
+    return len(_CUSTOM_IGNORE_PATTERNS)
+
+
+def matches_learning_ignore_pattern(message_text: Any) -> bool:
+    """文本命中任一自定义忽略正则时返回 True。"""
+    if not _CUSTOM_IGNORE_PATTERNS:
+        return False
+    text = _normalize_text(message_text)
+    return any(pattern.search(text) for pattern in _CUSTOM_IGNORE_PATTERNS)
 
 
 def filter_blacklisted_messages(
@@ -476,6 +517,8 @@ def should_ignore_learning_sample(
     """Return true for messages that should not enter learning datasets."""
     text = _normalize_text(message_text)
     if not text:
+        return True
+    if matches_learning_ignore_pattern(text):
         return True
     if is_media_only_message(text):
         return True
