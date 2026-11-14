@@ -701,12 +701,12 @@ class ConfigService:
     def _sync_learning_ignore_patterns(self) -> None:
         """重编译用户自定义忽略正则，使运行中修改的配置立即生效（issue #315）。"""
         try:
-            from ...services.learning.sample_filter import (
+            from ...utils.learning_ignore_patterns import (
                 configure_learning_ignore_patterns,
             )
         except ImportError:
             try:
-                from services.learning.sample_filter import (
+                from utils.learning_ignore_patterns import (
                     configure_learning_ignore_patterns,
                 )
             except Exception:

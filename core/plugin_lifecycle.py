@@ -41,7 +41,7 @@ class PluginLifecycle:
 
         try:
             # ------ 学习样本自定义忽略正则（issue #315）------
-            from ..services.learning.sample_filter import (
+            from ..utils.learning_ignore_patterns import (
                 configure_learning_ignore_patterns,
             )
 

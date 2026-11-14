@@ -15,7 +15,7 @@ from ...config import PluginConfig
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 from ...exceptions import MessageAnalysisError
 from ...utils.json_utils import safe_parse_llm_json
-from ..learning.sample_filter import matches_learning_ignore_pattern
+from ...utils.learning_ignore_patterns import matches_learning_ignore_pattern
 
 
 @dataclass
