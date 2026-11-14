@@ -3134,6 +3134,12 @@ textarea {
   display: none;
 }
 
+/* 选中态右缘信号楔：上面的 border: 0 与 .settings-group.active 同权重且更靠后，
+   必须在这里补回，否则选中分组没有右边缘标记。 */
+.settings-sidebar .settings-group.active {
+  border-right: 3px solid var(--signal);
+}
+
 .settings-group-label {
   min-width: 0;
   display: flex;
