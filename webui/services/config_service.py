@@ -698,8 +698,31 @@ class ConfigService:
         )
         return True
 
+    def _sync_learning_ignore_patterns(self) -> None:
+        """重编译用户自定义忽略正则，使运行中修改的配置立即生效（issue #315）。"""
+        try:
+            from ...services.learning.sample_filter import (
+                configure_learning_ignore_patterns,
+            )
+        except ImportError:
+            try:
+                from services.learning.sample_filter import (
+                    configure_learning_ignore_patterns,
+                )
+            except Exception:
+                logger.debug("自定义学习忽略正则模块不可用", exc_info=True)
+                return
+        try:
+            configure_learning_ignore_patterns(
+                getattr(self.plugin_config, "learning_ignore_patterns", None)
+            )
+        except Exception:
+            logger.warning("同步自定义学习忽略正则失败", exc_info=True)
+
     def _sync_runtime_components(self, changed_keys: List[str]) -> None:
         """Refresh runtime objects that cache values derived from PluginConfig."""
+        self._sync_learning_ignore_patterns()
+
         plugin = self._get_container_attr("plugin_instance")
         if plugin is not None:
             try:

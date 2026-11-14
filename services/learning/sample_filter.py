@@ -166,6 +166,10 @@ def _normalize_text(message_text: Any) -> str:
 # 对话对提取与教学样本导出等多个入口共用；逐层传参需要改动全部调用点。
 _CUSTOM_IGNORE_PATTERNS: Tuple[re.Pattern[str], ...] = ()
 
+# 正则只匹配消息前缀：聊天样本远短于该长度，同时限制回溯爆炸时的最坏工作量。
+# 规则由管理员在插件配置里填写，属于可信输入；这里仍做长度上限兜底。
+_MAX_IGNORE_PATTERN_INPUT = 2000
+
 
 def configure_learning_ignore_patterns(patterns: Any) -> int:
     """编译用户配置的学习忽略正则，返回实际生效的规则数量。
@@ -188,7 +192,7 @@ def configure_learning_ignore_patterns(patterns: Any) -> int:
             continue
         try:
             compiled.append(re.compile(pattern, re.IGNORECASE))
-        except re.error as exc:
+        except (re.error, OverflowError) as exc:
             _LOGGER.warning(f"自定义学习忽略正则无效，已跳过: {pattern!r} ({exc})")
     _CUSTOM_IGNORE_PATTERNS = tuple(compiled)
     return len(_CUSTOM_IGNORE_PATTERNS)
@@ -198,7 +202,7 @@ def matches_learning_ignore_pattern(message_text: Any) -> bool:
     """文本命中任一自定义忽略正则时返回 True。"""
     if not _CUSTOM_IGNORE_PATTERNS:
         return False
-    text = _normalize_text(message_text)
+    text = _normalize_text(message_text)[:_MAX_IGNORE_PATTERN_INPUT]
     return any(pattern.search(text) for pattern in _CUSTOM_IGNORE_PATTERNS)
 
 

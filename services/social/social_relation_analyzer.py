@@ -15,6 +15,7 @@ from ...config import PluginConfig
 from ...core.framework_llm_adapter import FrameworkLLMAdapter
 from ...exceptions import MessageAnalysisError
 from ...utils.json_utils import safe_parse_llm_json
+from ..learning.sample_filter import matches_learning_ignore_pattern
 
 
 @dataclass
@@ -158,14 +159,18 @@ class SocialRelationAnalyzer:
             # 过滤掉 bot 消息并转换格式
             messages = []
             for msg in raw_messages:
-                if msg.get('sender_id') != 'bot':
-                    messages.append({
-                        'id': msg.get('id'),
-                        'sender_id': msg.get('sender_id'),
-                        'sender_name': msg.get('sender_name') or msg.get('sender_id'),
-                        'content': msg.get('message'),
-                        'timestamp': msg.get('timestamp')
-                    })
+                if msg.get('sender_id') == 'bot':
+                    continue
+                # 自定义忽略正则命中的消息（如媒体解析卡片 / BV 号）不参与关系分析
+                if matches_learning_ignore_pattern(msg.get('message')):
+                    continue
+                messages.append({
+                    'id': msg.get('id'),
+                    'sender_id': msg.get('sender_id'),
+                    'sender_name': msg.get('sender_name') or msg.get('sender_id'),
+                    'content': msg.get('message'),
+                    'timestamp': msg.get('timestamp')
+                })
 
             # 按时间正序排列（最早的在前）
             messages.reverse()

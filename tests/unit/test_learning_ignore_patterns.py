@@ -72,6 +72,24 @@ def test_string_patterns_are_split_by_line():
 
 
 @pytest.mark.unit
+def test_overflow_pattern_is_skipped_without_aborting_startup():
+    accepted = configure_learning_ignore_patterns(
+        ["a{999999999999999999999}", r"b23\.tv"]
+    )
+
+    assert accepted == 1
+    assert matches_learning_ignore_pattern("https://b23.tv/abc") is True
+
+
+@pytest.mark.unit
+def test_pattern_matching_is_bounded_to_message_prefix():
+    configure_learning_ignore_patterns([r"X{10}"])
+
+    assert matches_learning_ignore_pattern("a" * 2000 + "X" * 10) is False
+    assert matches_learning_ignore_pattern("a" * 10 + "X" * 10) is True
+
+
+@pytest.mark.unit
 def test_plugin_config_normalizes_patterns_without_splitting_commas():
     config = PluginConfig.create_from_config(
         {

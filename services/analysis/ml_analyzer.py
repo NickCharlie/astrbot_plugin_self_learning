@@ -33,6 +33,7 @@ from ...exceptions import StyleAnalysisError
 from ...core.framework_llm_adapter import FrameworkLLMAdapter # 导入框架适配器
 
 from ..database import DatabaseManager # 确保 DatabaseManager 被正确导入
+from ..learning.sample_filter import filter_learning_messages
 
 from ...utils.json_utils import safe_parse_llm_json, clean_llm_json_response
 
@@ -378,8 +379,11 @@ class LightweightMLAnalyzer:
             
             # 将新消息与历史消息混合
             # 可以根据时间戳进行排序，或者简单地拼接
-            # 过滤掉None值
-            filtered_history_messages = [msg for msg in history_messages if msg is not None]
+            # 过滤掉None值；历史消息同样走学习样本闸门，避免自定义忽略规则
+            # （issue #315）命中的旧数据重新进入记忆重放
+            filtered_history_messages = filter_learning_messages(
+                [msg for msg in history_messages if msg is not None]
+            )
             filtered_new_messages = [msg for msg in new_messages if msg is not None]
             
             all_messages = filtered_history_messages + filtered_new_messages

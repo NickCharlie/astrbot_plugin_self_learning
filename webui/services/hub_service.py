@@ -307,6 +307,27 @@ class HubService:
             "metadata": payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {},
         }
 
+        try:
+            from ...services.learning.sample_filter import (
+                extract_learning_message_metadata,
+                should_ignore_learning_sample,
+            )
+        except ImportError:
+            from services.learning.sample_filter import (
+                extract_learning_message_metadata,
+                should_ignore_learning_sample,
+            )
+
+        if should_ignore_learning_sample(
+            message,
+            sender_id=sender_id,
+            is_bot=str(sender_id).lower() == "bot",
+            **extract_learning_message_metadata(message_data),
+        ):
+            # 与 MessageCollector 的采集闸门保持一致：被忽略的消息不落库，
+            # 也不进入 V2 摄取缓冲区
+            return {"collected": False, "v2": {}, "message": message_data}
+
         collector = None
         plugin = getattr(self.container, "plugin_instance", None)
         if plugin:
