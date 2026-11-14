@@ -3117,15 +3117,14 @@ textarea {
   display: none;
 }
 
+/* 分组条目用块级布局 + 绝对定位计数徽标：标题与说明各占一行不依赖
+   grid-in-flex 的子项尺寸计算，窄窗口下也不会互相压住（issue #314）。 */
 .settings-sidebar .settings-group {
   width: 100%;
   min-height: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-direction: row;
-  gap: 8px;
-  padding: 8px 10px;
+  display: block;
+  position: relative;
+  padding: 8px 44px 8px 10px;
   border: 0;
   font-weight: 400;
   text-align: left;
@@ -3135,26 +3134,43 @@ textarea {
   display: none;
 }
 
-.settings-group-label {
-  min-width: 0;
-  display: grid;
+/* 选中态右缘信号楔：上面的 border: 0 与 .settings-group.active 同权重且更靠后，
+   必须在这里补回，否则选中分组没有右边缘标记。 */
+.settings-sidebar .settings-group.active {
+  border-right: 3px solid var(--signal);
 }
 
-.settings-group-label strong {
+.settings-group-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+/* 说明小字与标题各占一行；旧版无 wrapper 的标记（strong/small 直接挂在
+   按钮下）也按块级文本处理，避免升级后缓存/css 版本不一致时挤成一行。 */
+.settings-group-label strong,
+.settings-group-label small,
+.settings-sidebar .settings-group > strong,
+.settings-sidebar .settings-group > small {
+  display: block;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.settings-group-label strong,
+.settings-sidebar .settings-group > strong {
   font-size: 13px;
 }
 
-.settings-group-label small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .settings-group-meta {
-  flex: none;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   gap: 6px;
