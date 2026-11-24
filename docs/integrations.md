@@ -41,6 +41,7 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 
 - LivingMemory 插件结构 `star.star_cls.initializer.memory_engine`（`graph_store` / `add_memory` / `get_statistics`）
 - LivingMemory `filtering_settings.group_blacklist` 优先于白名单；`user_scope_ignore_platform=true` 时用户作用域为 `livingmemory:user:<身份>`（不再包含平台段）
+- `remember` 命中黑名单时不再回退本地记忆（返回 `memory_denied=true`，表达方式/示例等学习产物仍保存）；Hub 调用传入与 `group_id` 不匹配的 `unified_origin`/`session_id` 会被忽略并改用已记录映射
 - LivingMemory 记忆注入为 add-only `extra_user_content_parts`，本插件同样只追加临时片段，不改写宿主对话历史
 - Group Chat Plus 引用纯图片会渲染为 `[引用 >>> 昵称(ID:x): [图片]]`，本插件在学习样本过滤阶段会剥离媒体占位，纯媒体消息不进入表达学习
 

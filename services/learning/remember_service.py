@@ -36,6 +36,7 @@ class RememberResult:
     """Result summary for manual remember ingestion."""
 
     memory_id: int = 0
+    memory_denied: bool = False
     expression_saved: bool = False
     exemplar_id: Optional[int] = None
     style_review_id: int = 0
@@ -89,7 +90,7 @@ class RememberService:
         persona_id = normalize_persona_scope(persona_id)
 
         result = RememberResult()
-        delegated_id = await self._remember_via_livingmemory(
+        delegated_id, memory_denied = await self._remember_via_livingmemory(
             group_id=group_id,
             sender_id=sender_id,
             content=content,
@@ -97,6 +98,8 @@ class RememberService:
         )
         if delegated_id is not None:
             result.memory_id = delegated_id
+        elif memory_denied:
+            result.memory_denied = True
         else:
             result.memory_id = await self._db.save_manual_memory(
                 group_id=group_id,
@@ -136,22 +139,24 @@ class RememberService:
         sender_id: str,
         content: str,
         unified_origin: Optional[str] = None,
-    ) -> Optional[int]:
+    ) -> tuple[Optional[int], bool]:
         """Write the snippet through LivingMemory when memory is delegated.
 
-        Returns the LivingMemory memory id, or ``None`` to fall back to the
-        local ``memories`` table.
+        Returns ``(memory_id, denied)``. ``memory_id`` is ``None`` when the
+        write did not happen; ``denied`` is true only for a group-blacklist
+        rejection, which must skip the local fallback as well. Other failures
+        return ``(None, False)`` so the caller can fall back to local memory.
         """
         delegation = self._feature_delegation
         if not delegation or not hasattr(delegation, "should_delegate_memory"):
-            return None
+            return None, False
         try:
             if not delegation.should_delegate_memory():
-                return None
+                return None, False
             star = delegation.memory_plugin()
         except Exception as exc:
             logger.debug(f"remember 检测 LivingMemory 失败: {exc}")
-            return None
+            return None, False
 
         plugin = getattr(star, "star_cls", None)
         initializer = getattr(plugin, "initializer", None)
@@ -162,25 +167,33 @@ class RememberService:
         add_memory = getattr(memory_engine, "add_memory", None)
         if not callable(add_memory):
             logger.debug("LivingMemory memory_engine 尚未就绪，remember 回退本地记忆")
-            return None
+            return None, False
 
         cfg = self._livingmemory_config_getter(plugin)
+        base_session = self._trusted_unified_origin(group_id, unified_origin)
+        if self._is_group_blacklisted(
+            cfg,
+            group_id=group_id,
+            unified_origin=unified_origin or base_session,
+        ):
+            logger.info(
+                "remember 被 LivingMemory 群黑名单拦截，跳过记忆写入（不回退本地记忆）"
+            )
+            return None, True
         if not self._is_livingmemory_allowed(
             cfg,
             group_id=group_id,
             sender_id=sender_id,
-            unified_origin=unified_origin
-            or self._group_id_to_unified_origin.get(group_id),
+            unified_origin=base_session,
         ):
-            logger.debug("remember 被 LivingMemory 访问控制拒绝，回退本地记忆")
-            return None
+            logger.debug("remember 被 LivingMemory 白名单拒绝，回退本地记忆")
+            return None, False
 
-        base_session = unified_origin or self._group_id_to_unified_origin.get(group_id)
         if not base_session:
             logger.debug(
-                "remember 缺少 unified_msg_origin，回退本地记忆以避免写入不可召回的 LivingMemory 数据"
+                "remember 缺少可信的 unified_msg_origin，回退本地记忆以避免写入不可召回的 LivingMemory 数据"
             )
-            return None
+            return None, False
 
         use_persona_filtering = bool(
             cfg("filtering_settings.use_persona_filtering", True)
@@ -193,12 +206,12 @@ class RememberService:
             logger.warning(
                 "remember 无法解析 AstrBot 人格 ID，回退本地记忆以避免写入不可召回的 LivingMemory 数据"
             )
-            return None
+            return None, False
 
         session_id = self._resolve_livingmemory_session_id(
             plugin=plugin,
             group_id=group_id,
-            unified_origin=unified_origin,
+            unified_origin=base_session,
             sender_id=sender_id,
         )
         try:
@@ -217,7 +230,7 @@ class RememberService:
             )
         except Exception as exc:
             logger.warning(f"remember 写入 LivingMemory 失败，回退本地记忆: {exc}")
-            return None
+            return None, False
 
         if isinstance(memory_id, int) and memory_id > 0:
             logger.info(
@@ -225,8 +238,8 @@ class RememberService:
                 memory_id,
                 session_id,
             )
-            return memory_id
-        return None
+            return memory_id, False
+        return None, False
 
     async def _resolve_livingmemory_persona_id(
         self,
@@ -348,6 +361,41 @@ class RememberService:
 
         return _cfg
 
+    def _trusted_unified_origin(
+        self,
+        group_id: str,
+        unified_origin: Optional[str],
+    ) -> Optional[str]:
+        """Return a session id that provably belongs to ``group_id``.
+
+        Event-sourced calls supply a trusted UMO. Hub callers can pass an
+        arbitrary ``unified_origin``/``session_id``, so a mismatched value is
+        dropped and the trusted group mapping is used instead.
+        """
+        if unified_origin and self._origin_belongs_to_group(
+            unified_origin, group_id
+        ):
+            return str(unified_origin)
+        mapped = self._group_id_to_unified_origin.get(group_id)
+        if unified_origin and not mapped:
+            logger.warning(
+                "remember 忽略与 group_id 不匹配的 unified_origin: group_id=%s",
+                group_id,
+            )
+        return mapped
+
+    @staticmethod
+    def _origin_belongs_to_group(
+        unified_origin: Optional[str],
+        group_id: str,
+    ) -> bool:
+        if not unified_origin or not group_id:
+            return False
+        return (
+            str(unified_origin).casefold().rsplit(":", 1)[-1]
+            == str(group_id).casefold()
+        )
+
     @staticmethod
     def _is_livingmemory_allowed(
         cfg,
@@ -356,18 +404,11 @@ class RememberService:
         sender_id: str,
         unified_origin: Optional[str],
     ) -> bool:
-        """Respect LivingMemory's group blacklist and ``access_control`` allowlist.
+        """Respect LivingMemory's ``access_control`` allowlist for external writes.
 
-        LivingMemory 2.14+ checks the blacklist before the allowlist, so a
-        blacklisted group must never receive direct writes even when its ids
-        appear in ``allowed_ids``.
+        The group blacklist is evaluated by the caller first, mirroring
+        LivingMemory 2.14+ precedence; this helper only covers the allowlist.
         """
-        if RememberService._is_group_blacklisted(
-            cfg,
-            group_id=group_id,
-            unified_origin=unified_origin,
-        ):
-            return False
         if not bool(cfg("access_control.whitelist_enabled", False)):
             return True
 
@@ -408,6 +449,8 @@ class RememberService:
 
         Entries are case-insensitive and match a group id, a full session id,
         a session prefix (``<entry>:``) or a trailing segment (``:<entry>``).
+        A full-UMO entry also blocks its group when no trusted session id is
+        available, so Hub callers cannot bypass it with a different session.
         """
         blocked = {
             value.casefold()
@@ -420,8 +463,13 @@ class RememberService:
 
         group_text = str(group_id or "").casefold()
         session_text = str(unified_origin or "").casefold()
-        if group_text and group_text in blocked:
-            return True
+        if group_text:
+            if group_text in blocked:
+                return True
+            if any(
+                entry.rsplit(":", 1)[-1] == group_text for entry in blocked
+            ):
+                return True
         if not session_text:
             return False
         if session_text in blocked:

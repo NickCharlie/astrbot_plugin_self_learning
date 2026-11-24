@@ -283,6 +283,7 @@ class HubService:
         result = await service.remember(**remember_kwargs)
         return {
             "memory_id": result.memory_id,
+            "memory_denied": bool(getattr(result, "memory_denied", False)),
             "expression_saved": result.expression_saved,
             "exemplar_id": result.exemplar_id,
             "style_review_id": result.style_review_id,

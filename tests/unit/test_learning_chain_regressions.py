@@ -484,6 +484,46 @@ async def test_remember_command_delegates_to_service():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_remember_command_reports_blacklist_denial():
+    remember_service = SimpleNamespace(
+        remember=AsyncMock(
+            return_value=SimpleNamespace(
+                memory_id=0,
+                memory_denied=True,
+                exemplar_id=None,
+                style_review_id=3,
+            )
+        )
+    )
+    handler = PluginCommandHandlers(
+        plugin_config=SimpleNamespace(),
+        service_factory=SimpleNamespace(),
+        message_collector=SimpleNamespace(),
+        persona_manager=SimpleNamespace(),
+        progressive_learning=SimpleNamespace(),
+        affection_manager=SimpleNamespace(),
+        temporary_persona_updater=SimpleNamespace(),
+        db_manager=SimpleNamespace(),
+        llm_adapter=SimpleNamespace(),
+        remember_service=remember_service,
+    )
+    event = SimpleNamespace(
+        get_message_str=lambda: "/remember 打招呼 => 我来了",
+        get_group_id=lambda: "group-a",
+        get_sender_id=lambda: "user-a",
+        get_self_id=lambda: "bot-a",
+        plain_result=lambda text: text,
+    )
+
+    results = [item async for item in handler.remember(event)]
+
+    assert "黑名单" in results[0]
+    assert "未写入（黑名单）" in results[0]
+    assert "style_review_id: 3" in results[0]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_remember_command_uses_quoted_context_when_present():
     remember_service = SimpleNamespace(
         remember=AsyncMock(

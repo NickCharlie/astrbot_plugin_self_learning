@@ -24,6 +24,7 @@ def assert_no_store_headers(response):
 @dataclass
 class RememberResult:
     memory_id: int = 11
+    memory_denied: bool = False
     expression_saved: bool = True
     exemplar_id: int | None = 7
     style_review_id: int = 3
@@ -232,6 +233,7 @@ async def test_hub_remember_links_memory_expression_and_review(client):
     assert data["success"] is True
     assert data["message"] == "remembered"
     assert data["data"]["memory_id"] == 11
+    assert data["data"]["memory_denied"] is False
     assert data["data"]["expression_saved"] is True
     assert data["data"]["style_review_id"] == 3
 

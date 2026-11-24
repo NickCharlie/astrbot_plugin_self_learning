@@ -277,6 +277,8 @@ async def test_remember_respects_livingmemory_whitelist_denial():
             "aiocqhttp:GroupMessage:group-a",
             True,
         ),
+        ("aiocqhttp:GroupMessage:group-a", "group-a", None, True),
+        ("aiocqhttp:GroupMessage:group-b", "group-a", None, False),
         ("GroupMessage:group-a", "group-a", "aiocqhttp:GroupMessage:group-a", True),
         ("aiocqhttp:GroupMessage", "group-a", "aiocqhttp:GroupMessage:group-a", True),
         ("group-b", "group-a", "aiocqhttp:GroupMessage:group-a", False),
@@ -320,8 +322,11 @@ async def test_remember_respects_livingmemory_group_blacklist():
     )
 
     add_memory.assert_not_awaited()
-    assert result.memory_id == 7
-    assert len(db.saved_memories) == 1
+    assert result.memory_id == 0
+    assert result.memory_denied is True
+    assert result.expression_saved is True
+    assert result.style_review_id == 3
+    assert db.saved_memories == []
 
 
 @pytest.mark.asyncio
@@ -349,7 +354,89 @@ async def test_remember_blacklist_takes_precedence_over_whitelist():
     )
 
     add_memory.assert_not_awaited()
+    assert result.memory_id == 0
+    assert result.memory_denied is True
+    assert db.saved_memories == []
+
+
+@pytest.mark.asyncio
+async def test_remember_blacklist_blocks_hub_caller_with_mismatched_session():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {
+                "filtering_settings.use_persona_filtering": False,
+                "filtering_settings.group_blacklist": "aiocqhttp:GroupMessage:group-a",
+            },
+        ),
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+        unified_origin="aiocqhttp:GroupMessage:group-b",
+    )
+
+    add_memory.assert_not_awaited()
+    assert result.memory_id == 0
+    assert result.memory_denied is True
+    assert result.expression_saved is True
+    assert result.style_review_id == 3
+    assert db.saved_memories == []
+
+
+@pytest.mark.asyncio
+async def test_remember_ignores_untrusted_origin_when_group_is_not_blacklisted():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {"filtering_settings.use_persona_filtering": False},
+        ),
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+        unified_origin="aiocqhttp:GroupMessage:group-b",
+    )
+
+    add_memory.assert_not_awaited()
     assert result.memory_id == 7
+    assert result.memory_denied is False
+
+
+@pytest.mark.asyncio
+async def test_remember_uses_trusted_group_mapping_for_mismatched_origin():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {"filtering_settings.use_persona_filtering": False},
+        ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+        unified_origin="aiocqhttp:GroupMessage:group-b",
+    )
+
+    add_memory.assert_awaited_once()
+    assert add_memory.await_args.kwargs["session_id"] == "aiocqhttp:GroupMessage:group-a"
+    assert result.memory_id == 42
+    assert result.memory_denied is False
 
 
 @pytest.mark.asyncio
