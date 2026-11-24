@@ -283,9 +283,18 @@ class PluginCommandHandlers:
                 remember_kwargs["unified_origin"] = unified_origin
             result = await self._remember_service.remember(**remember_kwargs)
 
+            if getattr(result, "memory_denied", False):
+                header = (
+                    "该群已被 LivingMemory 记忆黑名单拦截，未写入长期记忆；"
+                    "表达方式和对话示例仍已保存。"
+                )
+                memory_label = "未写入（黑名单）"
+            else:
+                header = "已记住这段对话上下文，并同步到表达方式和对话示例。"
+                memory_label = result.memory_id
             yield event.plain_result(
-                "已记住这段对话上下文，并同步到表达方式和对话示例。\n"
-                f"• memory_id: {result.memory_id}\n"
+                header + "\n"
+                f"• memory_id: {memory_label}\n"
                 f"• exemplar_id: {result.exemplar_id or '未生成'}\n"
                 f"• style_review_id: {result.style_review_id or '未生成'}"
             )

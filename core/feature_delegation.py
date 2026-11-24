@@ -20,6 +20,7 @@ class FeatureDelegation:
         "astrbot_plugin_group_chat_plus",
         "Group Chat Plus",
         "ChatPlus",
+        "chat_plus",
     )
     LIVINGHELLO_ALIASES = (
         "astrbot_plugin_LivingHello",

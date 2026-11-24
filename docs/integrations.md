@@ -33,20 +33,22 @@ Self Learning 负责学习、审查、黑话、表达方式和 LLM 上下文注�
 
 兼容基线（2026-11 实测）:
 
-- LivingMemory `2.9.1`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`；2.8.2→2.9.1 契约面逐项核对兼容：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名、注册名均未变；2.9.x 新增 `adapter_access`/`shared_adapter_ids` 为 LM 内部/可选特性，不影响本插件只读统计路径）
-- Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名）
+- LivingMemory `2.15.0`（`metadata.yaml` name `astrbot_plugin_livingmemory` / display `LivingMemory`；2.9.1→2.15.0 契约面逐项核对兼容：`initializer.memory_engine`、`graph_store`、`get_statistics().sessions`（UMO 键）、`get_graph_snapshot` 签名、注册名均未变；2.14+ 的 `add_memory` 只新增关键字参数 `embedding` / `visibility` / `disclosed`，旧调用保持兼容；2.14+ 新增 `filtering_settings.group_blacklist` 与 `user_scope_ignore_platform`，本插件 remember 直写路径已同步镜像黑名单优先判定与无平台段用户作用域）
+- Group Chat Plus `V1.2.3.hotfix.2`（面板属性 ABI：`enable_web_panel` / `web_panel_port` / `web_panel_host`，禁止重命名；`display_name: chat_plus` 已纳入检测别名）
 - LivingHello `2.7.2`（`metadata.yaml` name `astrbot_plugin_LivingHello` / display `LivingHello`；本插件只做加载检测，不读取其内部结构。2.7.0→2.7.2 仅调整回复链路内部行为，检测名与显示名未变）
 
 两个插件更新时优先检查以下契约:
 
 - LivingMemory 插件结构 `star.star_cls.initializer.memory_engine`（`graph_store` / `add_memory` / `get_statistics`）
+- LivingMemory `filtering_settings.group_blacklist` 优先于白名单；`user_scope_ignore_platform=true` 时用户作用域为 `livingmemory:user:<身份>`（不再包含平台段）
+- `remember` 命中黑名单时不再回退本地记忆（返回 `memory_denied=true`，表达方式/示例等学习产物仍保存）；Hub 调用传入与 `group_id` 不匹配的 `unified_origin`/`session_id` 会被忽略并改用已记录映射
 - LivingMemory 记忆注入为 add-only `extra_user_content_parts`，本插件同样只追加临时片段，不改写宿主对话历史
 - Group Chat Plus 引用纯图片会渲染为 `[引用 >>> 昵称(ID:x): [图片]]`，本插件在学习样本过滤阶段会剥离媒体占位，纯媒体消息不进入表达学习
 
 检测别名:
 
 - LivingMemory: `LivingMemory`, `astrbot_plugin_livingmemory`
-- Group Chat Plus: `astrbot_plugin_group_chat_plus`, `Group Chat Plus`, `ChatPlus`
+- Group Chat Plus: `astrbot_plugin_group_chat_plus`, `Group Chat Plus`, `ChatPlus`, `chat_plus`
 - LivingHello: `astrbot_plugin_LivingHello`, `LivingHello`
 
 委托只在目标插件已加载、激活且存在 `star_cls` 时生效。未检测到目标插件时，本插件自动回退到本地能力。

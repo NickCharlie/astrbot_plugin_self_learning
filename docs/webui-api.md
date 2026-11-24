@@ -228,6 +228,8 @@ POST /api/hub/v1/memories/remember
 
 该接口会复用 `RememberService`，把用户明确引用的片段写入手动记忆，同时尽量保存表达方式样本、few-shot exemplar 和风格审查记录。它适合其他插件实现“引用这段并学习”的交互。
 
+返回字段含 `memory_id`、`memory_denied`、`expression_saved`、`exemplar_id`、`style_review_id`。若 LivingMemory 记忆委托已启用且该群命中其 `filtering_settings.group_blacklist`，接口返回 `memory_id=0`、`memory_denied=true`，不会写入本地记忆，但表达方式/示例等学习产物仍会保存。`unified_origin`/`session_id` 可选；与 `group_id` 不匹配的值会被忽略并回退到已记录的分组会话映射。
+
 ### 消息接入
 
 ```http

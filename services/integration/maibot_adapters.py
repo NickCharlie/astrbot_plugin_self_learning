@@ -403,7 +403,7 @@ class MaiBotQualityMonitor(IQualityMonitor):
     def _livingmemory_backend(self) -> tuple[Optional[Any], Optional[Any]]:
         """探测 LivingMemory 的 graph_store 与 memory_engine。
 
-        LivingMemory 2.8.x 的插件结构仍为
+        LivingMemory 2.14+ 的插件结构仍为
         ``star.star_cls.initializer.memory_engine``；旧版本字段保持兼容。
         """
         if not self.context:
@@ -445,7 +445,7 @@ class MaiBotQualityMonitor(IQualityMonitor):
     def _session_matches_group(session_id: Any, group_id: str) -> bool:
         """Match LivingMemory scopes that belong to this group.
 
-        LivingMemory 2.8.x stores sessions as full UMO
+        LivingMemory 2.14+ stores sessions as full UMO
         (``platform:type:group_id``), ``livingmemory:global`` for global scope,
         or ``livingmemory:user:*`` for per-user scope.
         """

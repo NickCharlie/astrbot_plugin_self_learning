@@ -55,6 +55,14 @@ def test_feature_delegation_detects_loaded_companion_plugins():
     assert delegation.status()["reply_plugin"] == "astrbot_plugin_group_chat_plus"
 
 
+def test_feature_delegation_matches_group_chat_plus_display_name():
+    star = _star("renamed_plugin_dir", root_dir_name="renamed_plugin_dir")
+    star.display_name = "chat_plus"
+    delegation = FeatureDelegation(PluginConfig(), _context(star))
+
+    assert delegation.group_chat_plus_plugin() is star
+
+
 def test_feature_delegation_uses_registered_star_without_full_scan():
     config = PluginConfig()
     livingmemory = _star("LivingMemory", root_dir_name="astrbot_plugin_livingmemory")
