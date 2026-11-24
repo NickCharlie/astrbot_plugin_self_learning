@@ -58,17 +58,19 @@
           "tavily",
           "bocha",
           "exa",
-          "baidu"
+          "baidu",
+          "keenable"
         ],
         "labels": [
           "跟随 AstrBot 配置",
           "Tavily",
           "博查",
           "Exa",
-          "百度千帆"
+          "百度千帆",
+          "Keenable（Key 可选）"
         ],
         "default": "",
-        "hint": "手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）"
+        "hint": "手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）。Keenable 只在此处手动选择时使用，不参与自动跟随和兜底；Key 可留空（免密钥接口按 IP 限流）。注意：无论是否填写 Key，Keenable 默认都会记录请求日志，仅企业版零数据保留（ZDR）例外，详见 https://docs.keenable.ai/data-privacy"
       },
       "jargon_websearch_api_key": {
         "description": "黑话联网释义搜索 API Key",

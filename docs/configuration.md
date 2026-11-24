@@ -21,7 +21,7 @@
 | `enable_realtime_llm_filter` | `false` | 实时学习时是否调用 LLM 筛选 |
 | `enable_jargon_learning` | `true` | 是否启用黑话学习 |
 | `jargon_websearch_enabled` | `true` | 黑话联网释义补充：低提及词条复用搜索密钥检索公开释义（4.2.3 起） |
-| `jargon_websearch_provider` | `""` | 手动指定联网释义搜索厂商（tavily/bocha/exa/baidu）；留空跟随 AstrBot 全局配置。AstrBot 联网搜索走 MCP 等插件无法调用的方式时在此手动选择（4.7.4 起，issue #293） |
+| `jargon_websearch_provider` | `""` | 手动指定联网释义搜索厂商（tavily/bocha/exa/baidu/keenable）；留空跟随 AstrBot 全局配置。keenable 仅手动选择时使用、Key 可选（不参与自动跟随与兜底）。AstrBot 联网搜索走 MCP 等插件无法调用的方式时在此手动选择（4.7.4 起，issue #293） |
 | `jargon_websearch_api_key` | `""` | 手动输入上方厂商的 API Key，优先于 AstrBot 全局搜索密钥（4.7.4 起） |
 | `enable_style_learning` | `true` | 是否启用风格学习 |
 | `enable_web_interface` | `true` | 是否启动独立 WebUI |
@@ -280,7 +280,7 @@ WebUI 更新配置后如果包含重启项，响应消息会提示部分变更�
 | `enable_realtime_learning` | 布尔 | `false` | **启用实时学习**：是否在收到消息时立即进行筛选处理。会增加实时负载 |
 | `enable_jargon_learning` | 布尔 | `true` | **启用黑话学习**：是否启用黑话统计预筛、黑话挖掘和黑话上下文能力 |
 | `jargon_websearch_enabled` | 布尔 | `true` | **黑话联网释义补充**：低提及词条无法从群聊上下文推断含义时，复用 AstrBot 联网搜索配置（provider_settings 中的搜索密钥）检索公开释义，交由筛选模型归纳后写回词条，防止释义空缺；未配置任何搜索密钥时自动不生效 |
-| `jargon_websearch_provider` | 文本 | `""` | **黑话联网释义搜索厂商**：手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）<br>可选：`""`（跟随 AstrBot 配置） / `tavily`（Tavily） / `bocha`（博查） / `exa`（Exa） / `baidu`（百度千帆） |
+| `jargon_websearch_provider` | 文本 | `""` | **黑话联网释义搜索厂商**：手动指定黑话联网释义使用的搜索厂商。AstrBot 侧联网搜索走 MCP 等插件无法直接调用的方式、或未配置搜索密钥时，可在此手动选择厂商并填入下方 API Key（issue #293）。Keenable 只在此处手动选择时使用，不参与自动跟随和兜底；Key 可留空（免密钥接口按 IP 限流）。注意：无论是否填写 Key，Keenable 默认都会记录请求日志，仅企业版零数据保留（ZDR）例外，详见 https://docs.keenable.ai/data-privacy<br>可选：`""`（跟随 AstrBot 配置） / `tavily`（Tavily） / `bocha`（博查） / `exa`（Exa） / `baidu`（百度千帆） / `keenable`（Keenable（Key 可选）） |
 | `jargon_websearch_api_key` | 文本 | `""` | **黑话联网释义搜索 API Key**：手动输入上方所选厂商的 API Key，优先于 AstrBot 全局搜索密钥；留空则复用 AstrBot 联网搜索配置。仅在搜索厂商有效时使用 |
 | `enable_style_learning` | 布尔 | `true` | **启用对话风格学习**：是否启用自动风格学习、表达模式和相关学习批次处理 |
 | `enable_realtime_llm_filter` | 布尔 | `false` | **启用实时LLM筛选**：是否对每条实时消息都使用LLM进行筛选。关闭可减少LLM调用频率 |

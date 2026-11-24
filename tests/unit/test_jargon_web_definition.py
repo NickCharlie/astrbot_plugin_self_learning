@@ -130,6 +130,71 @@ async def test_search_with_override_routes_and_sends_manual_key():
     assert results == [{"title": "t", "url": "u", "snippet": "c"}]
 
 
+def test_keenable_never_selected_automatically():
+    """keenable 只能手动选择：AstrBot 首选或兜底探测都不会选中它。"""
+    client = WebSearchClient(lambda: _settings(websearch_provider="keenable"))
+    assert client.available() is False
+    assert client._resolve_provider() is None
+
+
+def test_keenable_manual_selection_works_without_key():
+    client = WebSearchClient(lambda: _settings(), override_provider="keenable")
+    assert client.available() is True
+    assert client._resolve_provider() == "keenable"
+
+
+@pytest.mark.asyncio
+async def test_keenable_without_key_uses_public_endpoint():
+    client = WebSearchClient(lambda: _settings(), override_provider="keenable")
+    captured = {}
+
+    async def fake_fetch(method, url, headers, payload=None, params=None):
+        captured.update(method=method, url=url, headers=headers, payload=payload)
+        return {
+            "results": [
+                {
+                    "title": "标题",
+                    "url": "https://example.com",
+                    "description": "",
+                    "snippet": "释义片段",
+                }
+            ]
+        }
+
+    client._fetch_json = fake_fetch
+
+    results = await client.search("xx 网络用语 意思", max_results=5)
+
+    assert captured["method"] == "POST"
+    assert captured["url"] == "https://api.keenable.ai/v1/search/public"
+    assert captured["headers"]["X-Keenable-Title"] == "astrbot_plugin_self_learning"
+    assert "X-API-Key" not in captured["headers"]
+    assert captured["payload"] == {"query": "xx 网络用语 意思", "max_results": 5}
+    assert results == [
+        {"title": "标题", "url": "https://example.com", "snippet": "释义片段"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_keenable_with_key_uses_keyed_endpoint():
+    client = WebSearchClient(
+        lambda: _settings(websearch_tavily_key=["global-tavily-key"]),
+        override_provider="keenable",
+        override_api_key="keen_manual",
+    )
+    captured = {}
+
+    async def fake_fetch(method, url, headers, payload=None, params=None):
+        captured.update(url=url, headers=headers)
+        return {"results": []}
+
+    client._fetch_json = fake_fetch
+
+    assert await client.search("任意查询") == []
+    assert captured["url"] == "https://api.keenable.ai/v1/search"
+    assert captured["headers"]["X-API-Key"] == "keen_manual"
+
+
 def test_client_reloads_override_provider_changes_at_runtime():
     settings = _settings()
     client = WebSearchClient(
