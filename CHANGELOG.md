@@ -2,6 +2,21 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.6] - 2026-11-24
+
+### 兼容：LivingMemory 2.15 作用域、黑名单与 Group Chat Plus 显示名（PR #320）
+
+- `remember` 直写镜像 LivingMemory 2.14+ 的 `filtering_settings.group_blacklist`，黑名单优先于白名单；支持群号、完整 UMO、前缀与尾段匹配。命中黑名单时不再回退本地 `memories`，返回 `memory_denied=true`，表达方式/示例/风格审查等学习产物仍保存。
+- 镜像 `user_scope_ignore_platform`：开启后用户作用域为 `livingmemory:user:<身份>`，不再带平台段；同步兼容基线至 LivingMemory `2.15.0`。
+- Hub `memories/remember` 接收的 `unified_origin`/`session_id` 必须与 `group_id` 一致，否则回退到已记录的分组会话映射；完整 UMO 黑名单条目在缺少可信会话时也按群匹配，防止伪造会话绕过。
+- Group Chat Plus 检测新增 `chat_plus` 显示名别名，适配插件目录改名后的稳定识别。
+- AstrBot 4.29.4 实机验证：官方插件页 API 返回 200，融合状态正确识别 `memory_delegated=true`（LivingMemory）。
+- 新增作用域解析、黑名单优先级/匹配、Hub 会话归属与命令提示的回归测试。
+
+### 版本
+
+- 版本号由 4.9.5 提升至 **4.9.6**（依赖兼容性修复，patch）。
+
 ## [4.9.5] - 2026-11-14
 
 ### 新增：可配置的学习忽略正则，过滤媒体解析卡片与裸引用（PR #316，issue #315）
