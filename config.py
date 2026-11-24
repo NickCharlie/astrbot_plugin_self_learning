@@ -199,7 +199,7 @@ class PluginConfig(BaseModel):
     enable_realtime_llm_filter: bool = False # 新增：控制实时LLM筛选
     enable_jargon_learning: bool = True # 启用黑话学习
     jargon_websearch_enabled: bool = True # 低提及黑话联网补充释义（复用 AstrBot 联网搜索配置；未配置搜索密钥时自动不生效）
-    jargon_websearch_provider: str = "" # 黑话联网释义手动指定搜索厂商（tavily/bocha/exa/baidu，留空跟随 AstrBot；issue #293）
+    jargon_websearch_provider: str = "" # 黑话联网释义手动指定搜索厂商（tavily/bocha/exa/baidu/keenable，留空跟随 AstrBot；issue #293；keenable 仅手动选择时生效，Key 可选，留空走免密钥接口）
     jargon_websearch_api_key: str = "" # 黑话联网释义手动输入搜索 API Key（优先于 AstrBot 全局密钥；issue #293）
     enable_style_learning: bool = True # 启用对话风格学习
     enable_web_interface: bool = True
