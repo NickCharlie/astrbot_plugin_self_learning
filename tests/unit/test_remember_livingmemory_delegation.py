@@ -192,6 +192,21 @@ async def test_remember_falls_back_when_livingmemory_write_fails():
         (
             {
                 "filtering_settings.memory_scope_mode": "user",
+                "filtering_settings.user_scope_ignore_platform": True,
+            },
+            "livingmemory:user:user-a",
+        ),
+        (
+            {
+                "filtering_settings.memory_scope_mode": "user",
+                "filtering_settings.user_scope_ignore_platform": True,
+                "access_control.identity_aliases": "aiocqhttp:user-a=Alice",
+            },
+            "livingmemory:user:alice",
+        ),
+        (
+            {
+                "filtering_settings.memory_scope_mode": "user",
                 "access_control.identity_aliases": "aiocqhttp:user-a=Alice",
             },
             "livingmemory:user:aiocqhttp:alice",
@@ -234,6 +249,94 @@ async def test_remember_respects_livingmemory_whitelist_denial():
                 "filtering_settings.use_persona_filtering": False,
                 "access_control.whitelist_enabled": True,
                 "access_control.allowed_ids": "someone-else",
+            },
+        ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+    )
+
+    add_memory.assert_not_awaited()
+    assert result.memory_id == 7
+
+
+@pytest.mark.parametrize(
+    ("blacklist", "group_id", "unified_origin", "expected"),
+    [
+        ("", "group-a", "aiocqhttp:GroupMessage:group-a", False),
+        ("group-a", "group-a", "aiocqhttp:GroupMessage:group-a", True),
+        ("GROUP-A", "group-a", "aiocqhttp:GroupMessage:group-a", True),
+        (["group-a"], "group-a", "aiocqhttp:GroupMessage:group-a", True),
+        (
+            "aiocqhttp:GroupMessage:group-a",
+            "group-a",
+            "aiocqhttp:GroupMessage:group-a",
+            True,
+        ),
+        ("GroupMessage:group-a", "group-a", "aiocqhttp:GroupMessage:group-a", True),
+        ("aiocqhttp:GroupMessage", "group-a", "aiocqhttp:GroupMessage:group-a", True),
+        ("group-b", "group-a", "aiocqhttp:GroupMessage:group-a", False),
+        ("group-b; group-a", "group-a", "aiocqhttp:GroupMessage:group-a", True),
+    ],
+)
+def test_livingmemory_group_blacklist_matching(
+    blacklist, group_id, unified_origin, expected
+):
+    resolved = RememberService._is_group_blacklisted(
+        lambda key, default=None: {
+            "filtering_settings.group_blacklist": blacklist
+        }.get(key, default),
+        group_id=group_id,
+        unified_origin=unified_origin,
+    )
+
+    assert resolved is expected
+
+
+@pytest.mark.asyncio
+async def test_remember_respects_livingmemory_group_blacklist():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {
+                "filtering_settings.use_persona_filtering": False,
+                "filtering_settings.group_blacklist": ["group-a"],
+            },
+        ),
+        group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},
+    )
+
+    result = await service.remember(
+        group_id="group-a",
+        sender_id="user-a",
+        content="今天状态怎么样 => 我今天状态不错",
+    )
+
+    add_memory.assert_not_awaited()
+    assert result.memory_id == 7
+    assert len(db.saved_memories) == 1
+
+
+@pytest.mark.asyncio
+async def test_remember_blacklist_takes_precedence_over_whitelist():
+    db = _FakeDb()
+    add_memory = AsyncMock(return_value=42)
+    service = RememberService(
+        db,
+        feature_delegation=_delegation_with_settings(
+            SimpleNamespace(add_memory=add_memory),
+            {
+                "filtering_settings.use_persona_filtering": False,
+                "filtering_settings.group_blacklist": "aiocqhttp:GroupMessage:group-a",
+                "access_control.whitelist_enabled": True,
+                "access_control.allowed_ids": "user-a",
             },
         ),
         group_id_to_unified_origin={"group-a": "aiocqhttp:GroupMessage:group-a"},

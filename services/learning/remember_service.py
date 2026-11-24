@@ -46,7 +46,7 @@ class RememberService:
 
     When long-term memory is delegated to LivingMemory, the explicit
     ``remember`` write goes to LivingMemory's ``MemoryEngine.add_memory``
-    instead of the local ``memories`` table (LivingMemory 2.8.x public API).
+    instead of the local ``memories`` table (LivingMemory 2.14+ public API).
     Expression/exemplar/review stores stay local because they are learning
     artifacts owned by this plugin.
     """
@@ -273,12 +273,13 @@ class RememberService:
         unified_origin: Optional[str],
         sender_id: str,
     ) -> Optional[str]:
-        """Mirror LivingMemory 2.8.x ``resolve_memory_scope`` for explicit writes.
+        """Mirror LivingMemory 2.14+ ``resolve_memory_scope`` for explicit writes.
 
         LivingMemory resolves storage/retrieval scope from the host config
         (``filtering_settings.memory_scope_mode``). Direct ``add_memory`` calls
         bypass that resolver, so the remember path reproduces its mode mapping:
-        ``session`` → UMO, ``user`` → platform user scope, ``global`` → global
+        ``session`` → UMO, ``user`` → platform user scope (or platform-less
+        scope when ``user_scope_ignore_platform`` is on), ``global`` → global
         scope, ``legacy`` → session filter toggle.
         """
         session_id = (
@@ -320,6 +321,9 @@ class RememberService:
                 platform = session_id.split(":", 1)[0].casefold()
             alias = self._resolve_identity_alias(_cfg, platform, sender_id)
             identity = (alias or str(sender_id or "")).casefold()
+            # LivingMemory 2.14+ 跨适配器共享：user 作用域不再带平台段。
+            if bool(_cfg("filtering_settings.user_scope_ignore_platform", False)):
+                return f"livingmemory:user:{identity}"
             return f"livingmemory:user:{platform or 'unknown'}:{identity}"
 
         use_session = bool(
@@ -352,14 +356,25 @@ class RememberService:
         sender_id: str,
         unified_origin: Optional[str],
     ) -> bool:
-        """Respect LivingMemory's ``access_control`` allowlist for external writes."""
+        """Respect LivingMemory's group blacklist and ``access_control`` allowlist.
+
+        LivingMemory 2.14+ checks the blacklist before the allowlist, so a
+        blacklisted group must never receive direct writes even when its ids
+        appear in ``allowed_ids``.
+        """
+        if RememberService._is_group_blacklisted(
+            cfg,
+            group_id=group_id,
+            unified_origin=unified_origin,
+        ):
+            return False
         if not bool(cfg("access_control.whitelist_enabled", False)):
             return True
 
         raw_allowed = cfg("access_control.allowed_ids", "") or ""
         allowed = {
             item.strip().casefold()
-            for item in re.split(r"[,;\n]", str(raw_allowed))
+            for item in RememberService._parse_livingmemory_list(raw_allowed)
             if item.strip()
         }
         if not allowed:
@@ -380,6 +395,51 @@ class RememberService:
         return any(
             candidate and candidate.casefold() in allowed
             for candidate in candidates
+        )
+
+    @staticmethod
+    def _is_group_blacklisted(
+        cfg,
+        *,
+        group_id: str,
+        unified_origin: Optional[str],
+    ) -> bool:
+        """Mirror LivingMemory 2.14+ ``is_group_blacklisted`` matching.
+
+        Entries are case-insensitive and match a group id, a full session id,
+        a session prefix (``<entry>:``) or a trailing segment (``:<entry>``).
+        """
+        blocked = {
+            value.casefold()
+            for value in RememberService._parse_livingmemory_list(
+                cfg("filtering_settings.group_blacklist", "")
+            )
+        }
+        if not blocked:
+            return False
+
+        group_text = str(group_id or "").casefold()
+        session_text = str(unified_origin or "").casefold()
+        if group_text and group_text in blocked:
+            return True
+        if not session_text:
+            return False
+        if session_text in blocked:
+            return True
+        return any(
+            session_text.startswith(f"{entry}:") or session_text.endswith(f":{entry}")
+            for entry in blocked
+        )
+
+    @staticmethod
+    def _parse_livingmemory_list(value: Any) -> list[str]:
+        """Parse LivingMemory-style list values (list or comma/semicolon/newline)."""
+        if isinstance(value, (list, tuple, set)):
+            items = [str(item) for item in value]
+        else:
+            items = re.split(r"[,;\n]", str(value or ""))
+        return list(
+            dict.fromkeys(item.strip() for item in items if item.strip())
         )
 
     @staticmethod
