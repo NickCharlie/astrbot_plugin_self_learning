@@ -60,7 +60,7 @@ class BugReportService:
             "defaultBuild": self._default_build(),
             "defaultAstrBotVersion": self._detect_astrbot_version(),
             "defaultDbType": self._detect_db_type(),
-            "defaultOs": self._detect_os(),
+            # 不提供 OS 默认值：服务器平台不代表报告者环境，由前端按客户端推断
             "logPreview": self._collect_log_previews(),
             "message": (
                 "填写后跳转 GitHub，按模板确认并提交"
@@ -105,22 +105,21 @@ class BugReportService:
     # ── 内部实现 ────────────────────────────────────────────────────────
 
     def _issue_fields(self, bug_data: Dict[str, Any]) -> Dict[str, str]:
-        """把面板表单映射为模板字段。模板没有的维度追加在复现步骤末尾。"""
+        """把面板表单映射为模板字段。
+
+        severity / priority / type / contact 在模板里已有独立字段，不再重复写进
+        复现步骤；只有模板确实没有落点的维度（浏览器）才追加到步骤末尾。
+        """
         severity = _as_int(bug_data.get("severity"), 3)
         priority = _as_int(bug_data.get("pri"), 3)
         bug_type = str(bug_data.get("type") or "others").strip()
         db_type = str(bug_data.get("db_type") or "").strip().lower()
         os_name = str(bug_data.get("os") or "").strip()
         contact = str(bug_data.get("mailto") or "").strip()
-
-        extras = [
-            f"【严重程度】{severity} - {SEVERITY_LABELS.get(severity, '未知')}",
-            f"【优先级】{priority} - {PRIORITY_LABELS.get(priority, '未知')}",
-            f"【类型】{TYPE_LABELS.get(bug_type, bug_type or '其他')}",
-        ]
-        if contact:
-            extras.append(f"【联系邮箱】{contact}")
+        browser = str(bug_data.get("browser") or "").strip()
         steps = str(bug_data.get("steps") or "").strip()
+        if browser:
+            steps = f"{steps}\n\n---\n【浏览器】{browser}" if steps else f"【浏览器】{browser}"
 
         return {
             "version": str(bug_data.get("build") or self._default_build()).strip(),
@@ -128,22 +127,23 @@ class BugReportService:
                 bug_data.get("astrbot_version") or self._detect_astrbot_version()
             ).strip(),
             "db_type": DB_TYPE_LABELS.get(db_type) or self._detect_db_type(),
-            "os": OS_LABELS.get(os_name.lower()) or os_name or self._detect_os(),
+            # OS 只采用客户端上报的值：服务器平台不代表报告者环境（远程访问 WebUI 时尤其明显）
+            "os": _match_option(os_name, OS_LABELS) or "",
             "severity": f"{severity} - {SEVERITY_LABELS.get(severity, '未知')}",
             "priority": f"{priority} - {PRIORITY_LABELS.get(priority, '未知')}",
             "type": TYPE_LABELS.get(bug_type, bug_type),
             "title": str(bug_data.get("title") or "").strip(),
             "description": str(bug_data.get("description") or "").strip(),
-            "steps": f"{steps}\n\n---\n" + "\n".join(extras) if steps else "\n".join(extras),
+            "steps": steps,
             "expected": str(bug_data.get("expected") or "").strip(),
             "logs": str(bug_data.get("logs") or "").strip(),
             "contact": contact,
         }
 
     def _repository(self) -> str:
-        return str(
-            getattr(self.webui_config, "bug_report_repository", "") or DEFAULT_REPOSITORY
-        ).strip()
+        """解析目标仓库，非法值一律回退到默认，避免拼出 github.com//issues/new。"""
+        configured = str(getattr(self.webui_config, "bug_report_repository", "") or "").strip()
+        return configured if _is_owner_repo(configured) else DEFAULT_REPOSITORY
 
     def _default_build(self) -> str:
         return str(getattr(self.plugin_config, "version", "") or "").strip()
@@ -166,16 +166,6 @@ class BugReportService:
             return DB_TYPE_LABELS["mysql"]
         return DB_TYPE_LABELS["sqlite"]
 
-    def _detect_os(self) -> str:
-        import platform
-
-        system = platform.system().lower()
-        if system == "windows":
-            return OS_LABELS["windows"]
-        if system == "darwin":
-            return OS_LABELS["macos"]
-        return OS_LABELS["linux"]
-
     def _collect_log_previews(self) -> Dict[str, str]:
         """日志预览：仅在页面展示，不随报告提交（保持既有行为）。"""
         return {"astrbot_log": "", "plugin_log": "", "dashboard_log": ""}
@@ -186,6 +176,32 @@ def _options(labels: Dict[Any, str]) -> List[Dict[str, Any]]:
         {"value": key, "label": f"{key} - {label}" if isinstance(key, int) else label}
         for key, label in labels.items()
     ]
+
+
+def _is_owner_repo(value: str) -> bool:
+    """校验 ``owner/repository`` 形式；用于拒绝空白或半截配置。"""
+    if not value or value.count("/") != 1:
+        return False
+    owner, repo = value.split("/", 1)
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+    return bool(owner) and bool(repo) and set(owner) <= allowed and set(repo) <= allowed
+
+
+def _match_option(value: str, labels: Dict[str, str]) -> str:
+    """把自由文本（如 ``Windows 11``）归一到模板下拉项。
+
+    模板 dropdown 只认固定选项，传未声明的值会被 GitHub 静默丢弃，必填项
+    反而留空，所以这里做一次模糊匹配。
+    """
+    text = value.strip().lower()
+    if not text:
+        return ""
+    if text in labels:
+        return labels[text]
+    for each in labels.values():
+        if text.startswith(each.lower()) or each.lower() in text:
+            return each
+    return ""
 
 
 def _as_int(value: Any, default: int) -> int:

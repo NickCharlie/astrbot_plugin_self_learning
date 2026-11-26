@@ -40,12 +40,15 @@ def test_issue_url_prefills_only_ids_declared_by_the_template():
     url = _service().build_issue_url(
         {
             "title": "影子档案删不掉",
+            "description": "删除按钮没有反应",
             "steps": "1. 打开影子模式\n2. 点击删除",
+            "expected": "档案被删除",
             "severity": 2,
             "pri": 1,
             "type": "codeerror",
             "build": "4.9.8",
             "os": "Windows",
+            "browser": "Chrome 140",
             "mailto": "a@b.c",
         }
     )
@@ -53,16 +56,47 @@ def test_issue_url_prefills_only_ids_declared_by_the_template():
     parsed = urlparse(url)
     assert parsed.path == "/NickCharlie/astrbot_plugin_self_learning/issues/new"
     query = parse_qs(parsed.query)
-    assert query["template"] == ["bug_report.yml"]
     # title 是 GitHub 的通用查询参数（不是表单元素 id）；其余键都必须由模板声明，
     # 否则预填会被 GitHub 静默丢弃
     allowed_generic = {"template", "title"}
     assert set(query) - allowed_generic <= _template_field_ids()
     assert query["template"] == ["bug_report.yml"]
-    assert "severity" in query and "priority" in query and "contact" in query
     assert query["version"] == ["4.9.8"]
     assert query["title"] == ["影子档案删不掉"]
-    assert "【优先级】1 - 紧急" in query["steps"][0]
+    # 模板的必填项必须都有值，否则用户打开后面对空白必填框
+    for required in ("description", "steps", "expected", "os"):
+        assert query.get(required, [""])[0].strip(), required
+    # severity/priority/type/contact 已有独立字段，不应再重复写进 steps
+    steps = query["steps"][0]
+    assert "【优先级】" not in steps and "【严重程度】" not in steps
+    # 模板没有 browser 字段，才落到 steps 兜底
+    assert "Chrome 140" in steps
+
+
+def test_free_text_os_is_normalized_to_a_declared_option():
+    query = parse_qs(urlparse(_service().build_issue_url(
+        {"title": "t", "description": "d", "steps": "s", "expected": "e", "os": "Windows 11 23H2"}
+    )).query)
+
+    assert query["os"] == ["Windows"]
+
+
+def test_unknown_os_is_omitted_rather_than_sent_invalid():
+    """模板 dropdown 只认固定选项，传未知值会被 GitHub 丢弃，不如留空。"""
+    query = parse_qs(urlparse(_service().build_issue_url(
+        {"title": "t", "description": "d", "steps": "s", "expected": "e", "os": "Plan9"}
+    )).query)
+
+    assert "os" not in query
+
+
+def test_blank_repository_falls_back_to_default():
+    """空白仓库名曾拼出 github.com//issues/new（review #9）。"""
+    url = _service(bug_report_repository="   ").build_issue_url(
+        {"title": "t", "description": "d", "steps": "s", "expected": "e"}
+    )
+
+    assert url.startswith("https://github.com/NickCharlie/astrbot_plugin_self_learning/issues/new?")
 
 
 def test_required_fields_reject_before_building_a_link():
@@ -87,7 +121,7 @@ def test_submit_returns_link_without_network_io(monkeypatch):
     service = _service()
 
     ok, message, data = pytest.importorskip("asyncio").run(
-        service.submit_bug_report({"title": "标题", "steps": "1. 复现"})
+        service.submit_bug_report({"title": "标题", "description": "d", "steps": "1. 复现", "expected": "e"})
     )
 
     assert ok is True

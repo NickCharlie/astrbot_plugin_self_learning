@@ -20,18 +20,34 @@ const FALLBACK_TYPE: Option[] = [
   { value: 'install', label: '安装部署' }, { value: 'performance', label: '性能问题' },
   { value: 'others', label: '其他' },
 ];
+const FALLBACK_OS: Option[] = [
+  { value: 'Linux', label: 'Linux' }, { value: 'Windows', label: 'Windows' },
+  { value: 'macOS', label: 'macOS' }, { value: 'Docker', label: 'Docker' },
+];
+
+// 模板的 os 是必填下拉，只能取固定选项；按浏览器推断报告者环境（不是服务器环境）
+const detectClientOs = (): string => {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  // jsdom 报告的是 "Mozilla/5.0 (win32) …"，真实浏览器是 "Windows NT 10.0"，两者都认
+  if (/Windows|win32|win64/i.test(ua)) return 'Windows';
+  if (/Mac OS X|Macintosh|darwin/i.test(ua)) return 'macOS';
+  if (/Linux|X11|Android|CrOS/i.test(ua)) return 'Linux';
+  return '';
+};
 
 // 后端 /api/bug_report/{config,history} 与提交接口一直存在，但 WebUI 没有入口。
 export function BugReportPanel() {
   const dashboard = useDashboard();
   const [config, setConfig] = createSignal<Record<string, unknown>>({});
   const [title, setTitle] = createSignal('');
+  const [description, setDescription] = createSignal('');
   const [steps, setSteps] = createSignal('');
+  const [expected, setExpected] = createSignal('');
   const [severity, setSeverity] = createSignal('3');
   const [priority, setPriority] = createSignal('3');
   const [type, setType] = createSignal('codeerror');
   const [build, setBuild] = createSignal('');
-  const [os, setOs] = createSignal('');
+  const [os, setOs] = createSignal(detectClientOs());
   const [browser, setBrowser] = createSignal('');
   const [mailto, setMailto] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -57,14 +73,20 @@ export function BugReportPanel() {
   onMount(load);
 
   const submit = async () => {
-    if (!title().trim() || !steps().trim()) {
-      return dashboard.toast('请填写 Bug 标题和重现步骤', 'warning');
+    // description / expected 在模板里是必填项，这里先拦住，避免打开后面对空白必填框
+    if (!title().trim() || !steps().trim() || !description().trim() || !expected().trim()) {
+      return dashboard.toast('请填写 Bug 标题、问题描述、重现步骤和期望行为', 'warning');
+    }
+    if (!os().trim()) {
+      return dashboard.toast('请选择操作系统', 'warning');
     }
     setBusy(true);
     try {
       const result = await api.post<{ message?: string; data?: { url?: string } }>('/api/bug_report', {
         title: title().trim(),
+        description: description().trim(),
         steps: steps().trim(),
+        expected: expected().trim(),
         severity: Number(severity()),
         pri: Number(priority()),
         type: type(),
@@ -75,14 +97,20 @@ export function BugReportPanel() {
       });
       // 后端只拼预填链接，真正的提交在 GitHub 上由用户确认
       const url = result.data?.url;
-      if (url) {
-        window.open(url, '_blank', 'noopener');
-        dashboard.toast('已在新标签页打开 GitHub 反馈页，请确认后提交', 'success');
-      } else {
-        dashboard.toast(result.message || '已生成反馈链接', 'warning');
+      if (!url) {
+        return dashboard.toast(result.message || '已生成反馈链接', 'warning');
       }
-      setTitle('');
-      setSteps('');
+      // 弹窗可能被浏览器拦截；只有确实打开了标签页才清空草稿
+      const opened = window.open(url, '_blank', 'noopener');
+      if (opened) {
+        dashboard.toast('已在新标签页打开 GitHub 反馈页，请确认后提交', 'success');
+        setTitle('');
+        setDescription('');
+        setSteps('');
+        setExpected('');
+      } else {
+        dashboard.toast(`浏览器拦截了新标签页，请手动打开：${url}`, 'warning');
+      }
     } catch (caught) {
       dashboard.toast(caught instanceof Error ? caught.message : 'Bug 反馈链接生成失败', 'danger');
     } finally { setBusy(false); }
@@ -108,11 +136,15 @@ export function BugReportPanel() {
             <For each={options('typeOptions', FALLBACK_TYPE)}>{(option) => <option value={String(option.value)}>{option.label}</option>}</For>
           </Select>
           <Input label="影响版本" value={build()} onInput={(event) => setBuild(event.currentTarget.value)} />
-          <Input label="操作系统" value={os()} onInput={(event) => setOs(event.currentTarget.value)} />
+          <Select label="操作系统" value={os()} onChange={(event) => setOs(event.currentTarget.value)}>
+            <For each={options('osOptions', FALLBACK_OS)}>{(option) => <option value={String(option.value)}>{option.label}</option>}</For>
+          </Select>
           <Input label="浏览器" value={browser()} onInput={(event) => setBrowser(event.currentTarget.value)} />
-          <Input label="联系邮箱（可选）" value={mailto()} onInput={(event) => setMailto(event.currentTarget.value)} />
+          <Input label="联系邮箱（可选，会公开在 issue 中）" value={mailto()} onInput={(event) => setMailto(event.currentTarget.value)} />
         </div>
+        <Textarea label="问题描述" rows={4} value={description()} onInput={(event) => setDescription(event.currentTarget.value)} placeholder="发生了什么？" />
         <Textarea label="重现步骤" rows={6} value={steps()} onInput={(event) => setSteps(event.currentTarget.value)} placeholder={'1. 打开 WebUI\n2. 点击某个按钮\n3. 观察到异常'} />
+        <Textarea label="期望行为" rows={3} value={expected()} onInput={(event) => setExpected(event.currentTarget.value)} placeholder="你期望发生什么？" />
         <Show when={logEntries().length}>
           <details class={styles['log-preview']}>
             <summary>附加日志预览（{logEntries().length} 项，仅展示，不会随报告提交）</summary>
