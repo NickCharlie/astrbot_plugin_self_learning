@@ -1783,6 +1783,7 @@
         ${pill(profile.enabled ? t("state.enabled", "启用") : t("state.closed", "关闭"), profile.enabled ? "ok" : "warn")}
         <div class="row-actions">
           ${button(profile.enabled ? t("actions.disable", "停用") : t("actions.enable", "启用"), `data-shadow-profile-action="${profile.enabled ? "disable" : "enable"}" data-id="${escapeAttr(profile.id)}"`, profile.enabled ? "ghost-button warning-button" : "ghost-button success-button")}
+          ${button(t("actions.delete", "删除"), `data-shadow-profile-action="delete" data-id="${escapeAttr(profile.id)}"`, "danger-button")}
         </div>
       </div>
     `).join("") || empty(t("empty.shadowProfiles", "尚未创建影子档案")));
@@ -1879,11 +1880,37 @@
   }
 
   async function handleShadowProfileAction(buttonEl) {
-    const enabled = buttonEl.dataset.shadowProfileAction === "enable";
+    const action = buttonEl.dataset.shadowProfileAction;
+    const profileId = buttonEl.dataset.id;
+    if (action === "delete") {
+      const profile = state.shadow.profiles.find((item) => String(item.id) === String(profileId)) || {};
+      const confirmed = await showConfirm(
+        t("shadow.deleteTitle", "删除影子档案"),
+        fill(
+          t("shadow.deleteMessage", "确定删除“{name}”在群组 {group} 的影子档案吗？删除后不可撤销。"),
+          { name: profile.sender_name || profile.sender_id || `#${profileId}`, group: profile.target_group_id || "-" },
+        ),
+        t("actions.delete", "删除"),
+        "danger",
+      );
+      if (!confirmed) return;
+      try {
+        const result = await apiPost("shadow-mode/action", { action: "delete", profile_id: profileId });
+        if (!operationToast(result, t("shadow.deletedToast", "影子档案已删除"), t("shadow.deleteFailed", "删除影子档案失败"))) return;
+      } catch (error) {
+        showToast(error.message || t("shadow.deleteFailed", "删除影子档案失败"), "error");
+        return;
+      }
+      clearCached("shadow-mode");
+      clearCached("shadow-candidates");
+      await loadShadowMode(true);
+      return;
+    }
+    const enabled = action === "enable";
     try {
       const result = await apiPost("shadow-mode/action", {
         action: "set_enabled",
-        profile_id: buttonEl.dataset.id,
+        profile_id: profileId,
         enabled,
       });
       if (result.success === false) {

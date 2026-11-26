@@ -138,6 +138,18 @@ export function ShadowModePage() {
     } finally { setBusy(''); }
   };
 
+  const remove = async (profile: ShadowProfile) => {
+    if (!await dashboard.confirm({ title: '删除影子档案', message: `确定删除“${profile.sender_name}”在群组 ${profile.target_group_id} 的影子档案吗？删除后不可撤销。`, confirmText: '删除', tone: 'danger' })) return;
+    setBusy(`profile-delete-${profile.id}`);
+    try {
+      await api.delete(`/api/shadow-mode/profiles/${profile.id}`);
+      dashboard.toast('影子档案已删除', 'success');
+      await loadStatus({ keep: true });
+    } catch (caught) {
+      dashboard.toast(caught instanceof Error ? caught.message : '删除影子档案失败', 'danger');
+    } finally { setBusy(''); }
+  };
+
   onMount(() => loadStatus());
 
   return (
@@ -199,6 +211,13 @@ export function ShadowModePage() {
                 loading={busy() === `profile-${profile.id}`}
                 onClick={() => setEnabled(profile, !profile.enabled)}
               >{profile.enabled ? '停用' : '启用'}</Button>
+              <Button
+                size="sm"
+                tone="danger"
+                icon="delete"
+                loading={busy() === `profile-delete-${profile.id}`}
+                onClick={() => remove(profile)}
+              >删除</Button>
             </div>
           }</For>
         </div>

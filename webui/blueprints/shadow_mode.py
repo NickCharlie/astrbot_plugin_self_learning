@@ -83,6 +83,19 @@ async def update_shadow_profile(profile_id: int):
         return error_response(f"更新影子档案失败: {exc}", 500)
 
 
+@shadow_mode_bp.route("/shadow-mode/profiles/<int:profile_id>", methods=["DELETE"])
+@require_auth
+async def delete_shadow_profile(profile_id: int):
+    try:
+        profile = await _service().delete_profile(profile_id)
+        return jsonify({"success": True, "data": profile}), 200
+    except ValueError as exc:
+        return error_response(str(exc) or "影子档案不存在", 404)
+    except Exception as exc:
+        logger.error(f"删除影子档案失败: {exc}", exc_info=True)
+        return error_response(f"删除影子档案失败: {exc}", 500)
+
+
 def _body_bool(body: dict, key: str, default: bool) -> bool:
     value = body.get(key, default)
     if isinstance(value, bool):

@@ -2,7 +2,7 @@
 
 from typing import List, Optional
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import delete, desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 try:
@@ -55,6 +55,13 @@ class ShadowProfileRepository:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def delete(self, profile_id: int) -> bool:
+        """Delete one profile, returning False when it was already gone."""
+        result = await self.session.execute(
+            delete(ShadowProfile).where(ShadowProfile.id == profile_id)
+        )
+        return bool(result.rowcount)
 
     async def disable_for_group(
         self, target_group_id: str, *, except_id: Optional[int] = None

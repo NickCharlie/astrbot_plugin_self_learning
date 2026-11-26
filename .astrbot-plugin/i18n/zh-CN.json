@@ -1271,7 +1271,11 @@
         "disabledToast": "影子模式已停用",
         "updateFailed": "更新影子模式失败",
         "statusFailed": "读取影子模式状态失败",
-        "candidatesFailed": "读取群友列表失败"
+        "candidatesFailed": "读取群友列表失败",
+        "deleteTitle": "删除影子档案",
+        "deleteMessage": "确定删除“{name}”在群组 {group} 的影子档案吗？删除后不可撤销。",
+        "deletedToast": "影子档案已删除",
+        "deleteFailed": "删除影子档案失败"
       },
       "worldbook": {
         "breakdown": "去向: 记忆审查 {memory} · 黑话候选 {jargon} · 图谱实体 {entities}",

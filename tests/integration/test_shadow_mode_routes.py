@@ -85,3 +85,12 @@ async def test_shadow_mode_candidate_learn_and_disable_routes(app):
     )
     assert disable_response.status_code == 200
     assert (await disable_response.get_json())["data"]["enabled"] is False
+
+    # 删除后状态里不再出现该档案，重复删除返回 404（issue #321 的清理入口）
+    delete_response = await client.delete(f"/api/shadow-mode/profiles/{profile['id']}")
+    assert delete_response.status_code == 200
+    assert (await delete_response.get_json())["data"]["id"] == profile["id"]
+    status = (await (await client.get("/api/shadow-mode")).get_json())["data"]
+    assert [item["id"] for item in status["profiles"]] == []
+    repeated = await client.delete(f"/api/shadow-mode/profiles/{profile['id']}")
+    assert repeated.status_code == 404

@@ -157,6 +157,18 @@ class ShadowModeService:
             await session.refresh(record)
             return self._profile_dict(record)
 
+    async def delete_profile(self, profile_id: int) -> Dict[str, Any]:
+        """Drop one profile; its traits live inside the row, so no orphans remain."""
+        async with self.database_manager.get_session() as session:
+            repository = ShadowProfileRepository(session)
+            record = await repository.get(int(profile_id))
+            if record is None:
+                raise ValueError("影子档案不存在")
+            snapshot = self._profile_dict(record)
+            await repository.delete(record.id)
+            await session.commit()
+            return snapshot
+
     async def build_prompt(self, group_id: str) -> Optional[str]:
         normalized_group = str(group_id or "").strip()
         if not normalized_group:
