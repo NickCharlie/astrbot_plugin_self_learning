@@ -31,7 +31,7 @@ const installFetch = () => {
     }
     if (method === 'POST' && url.includes('/api/bug_report')) {
       bugPayload = JSON.parse(String(init?.body ?? '{}'));
-      return json({ success: true, message: 'Bug报告提交成功' });
+      return json({ success: true, message: '已生成 GitHub 反馈链接', data: { url: 'https://github.com/o/r/issues/new?template=bug_report.yml' } });
     }
     if (url.includes('/api/bug_report/config')) {
       return json({
@@ -73,6 +73,7 @@ describe('settings data management and bug report panels', () => {
   });
 
   it('submits a bug report with the required fields', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     render(() => <App />);
 
     const title = await screen.findByLabelText('Bug 标题');
@@ -85,11 +86,13 @@ describe('settings data management and bug report panels', () => {
     fireEvent.input(title, { target: { value: '无法打开审核详情' } });
     const steps = screen.getByLabelText('重现步骤');
     fireEvent.input(steps, { target: { value: '1. 打开 WebUI' } });
-    fireEvent.click(screen.getByRole('button', { name: '提交 Bug 报告' }));
+    fireEvent.click(screen.getByRole('button', { name: '打开 GitHub 反馈页' }));
 
     await waitFor(() => expect(bugPayload?.title).toBe('无法打开审核详情'));
     expect(bugPayload?.steps).toBe('1. 打开 WebUI');
     expect(bugPayload?.severity).toBe(3);
     expect(bugPayload?.build).toBe('v4.4.3');
+    // 后端只拼预填链接，界面直接打开 GitHub，不再"提交成功"
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith('https://github.com/o/r/issues/new?template=bug_report.yml', '_blank', 'noopener'));
   });
 });

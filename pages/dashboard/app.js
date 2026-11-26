@@ -3191,13 +3191,18 @@
         browser: ($("bug-browser-input")?.value || "").trim(),
         mailto: ($("bug-mailto-input")?.value || "").trim(),
       });
-      showToast(result.message || t("bugReport.submitted", "Bug 报告已提交"), result.success === false ? "error" : "ok");
-      if (result.success !== false) {
+      // 后端只拼 GitHub 预填链接，真正的提交由用户在 GitHub 上确认
+      const url = result && result.data && result.data.url;
+      if (result.success !== false && url) {
+        window.open(url, "_blank", "noopener");
+        showToast(t("bugReport.opened", "已在新标签页打开 GitHub 反馈页，请确认后提交"), "ok");
         setText("bug-title-input", "");
         setText("bug-steps-input", "");
+      } else {
+        showToast(result.message || t("bugReport.submitFailed", "Bug 反馈链接生成失败"), "error");
       }
     } catch (error) {
-      showToast(error.message || t("bugReport.submitFailed", "Bug 报告提交失败"), "error");
+      showToast(error.message || t("bugReport.submitFailed", "Bug 反馈链接生成失败"), "error");
     } finally {
       if (submitButton) {
         submitButton.disabled = false;

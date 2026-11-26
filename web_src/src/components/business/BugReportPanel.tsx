@@ -62,7 +62,7 @@ export function BugReportPanel() {
     }
     setBusy(true);
     try {
-      const result = await api.post<{ message?: string }>('/api/bug_report', {
+      const result = await api.post<{ message?: string; data?: { url?: string } }>('/api/bug_report', {
         title: title().trim(),
         steps: steps().trim(),
         severity: Number(severity()),
@@ -73,18 +73,25 @@ export function BugReportPanel() {
         browser: browser().trim(),
         mailto: mailto().trim(),
       });
-      dashboard.toast(result.message || 'Bug 报告已提交', 'success');
+      // 后端只拼预填链接，真正的提交在 GitHub 上由用户确认
+      const url = result.data?.url;
+      if (url) {
+        window.open(url, '_blank', 'noopener');
+        dashboard.toast('已在新标签页打开 GitHub 反馈页，请确认后提交', 'success');
+      } else {
+        dashboard.toast(result.message || '已生成反馈链接', 'warning');
+      }
       setTitle('');
       setSteps('');
     } catch (caught) {
-      dashboard.toast(caught instanceof Error ? caught.message : 'Bug 报告提交失败', 'danger');
+      dashboard.toast(caught instanceof Error ? caught.message : 'Bug 反馈链接生成失败', 'danger');
     } finally { setBusy(false); }
   };
 
   return (
     <Panel
       title="Bug 反馈"
-      hint="提交到官方禅道；请尽量提供可复现步骤"
+      hint="填写后跳转 GitHub 按模板提交；请尽量提供可复现步骤"
       icon="bug_report"
       actions={<Button icon="refresh" onClick={load}>刷新</Button>}
     >
@@ -116,7 +123,7 @@ export function BugReportPanel() {
           </details>
         </Show>
         <div class="inline-actions">
-          <Button tone="primary" icon="send" loading={busy()} onClick={submit}>提交 Bug 报告</Button>
+          <Button tone="primary" icon="open_in_new" loading={busy()} onClick={submit}>打开 GitHub 反馈页</Button>
         </div>
       </Show>
     </Panel>

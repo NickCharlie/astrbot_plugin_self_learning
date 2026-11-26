@@ -1458,7 +1458,7 @@
       },
       "bugReport": {
         "title": "Bug report",
-        "hint": "Submitted to the official ZenTao; please provide reproduction steps",
+        "hint": "Opens GitHub with the report form prefilled; please provide reproduction steps",
         "fields": {
           "title": "Bug title",
           "severity": "Severity",
@@ -1471,9 +1471,10 @@
           "steps": "Reproduction steps"
         },
         "stepsPlaceholder": "1. Open the WebUI\n2. Click a button\n3. Observe the error",
-        "submit": "Submit bug report",
+        "submit": "Open GitHub report page",
+        "opened": "Opened the GitHub report page in a new tab; please review and submit",
         "submitted": "Bug report submitted",
-        "submitFailed": "Failed to submit bug report",
+        "submitFailed": "Failed to generate the bug report link",
         "missingFields": "Fill in the bug title and reproduction steps",
         "unavailable": "Bug reporting is unavailable",
         "unavailableDetail": "The administrator has disabled this feature.",

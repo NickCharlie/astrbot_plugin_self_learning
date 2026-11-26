@@ -2,6 +2,21 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.8] - 2026-11-26
+
+### 修复：Bug 反馈改走 GitHub issue 模板（云函数已欠费停服）
+
+- 旧实现把面板内容 POST 到禅道云函数 `zentao-g-submit-*.fcapp.run`，该云函数所属账号欠费后固定返回 `403 AccessDenied: Current user is in debt`，插件侧无法修复。现改为不发起任何网络请求：由面板整理字段、拼出仓库 `bug_report.yml` 的预填链接，再由用户在 GitHub 上确认提交。
+- 预填键取自模板元素 `id`（GitHub 官方文档把 issue form 的 `id` 定为 URL query 预填的规范标识），并非 `?body=`——YAML issue form 不支持 `body` 预填。
+- `POST /api/bug_report` 契约保持 `(success, message, data)`，`data.url` 为预填链接；双端面板改为打开该链接（独立 WebUI `window.open`，内嵌页同样新标签页打开），不再提示「已提交」。
+- `.github/ISSUE_TEMPLATE/bug_report.yml` 补 `severity` / `priority` / `type` / `contact` 四项，让面板已有的维度不再被塞进复现步骤而被模板丢弃；模板没有对应字段的维度仍追加在步骤末尾。
+- 清掉已无调用者的 `bug_cloud_url` / `bug_cloud_verify_code` 死配置，新增 `bug_report_repository`（可用 `ASTRBOT_BUG_REPORT_REPOSITORY` 覆盖）；`docs/webui-api.md` 同步新契约。
+- 测试：新增 `test_bug_report_github_issue.py`，校验预填键必须由模板 `id` 声明（模板与代码漂移即失败）、必填项缺失不生成链接、且提交路径不触网（monkeypatch `aiohttp.ClientSession` 断言零调用）；前端用例改为断言打开预填链接。
+
+### 版本
+
+- 版本号由 4.9.7 提升至 **4.9.8**（反馈通道失效的缺陷修复，patch）。
+
 ## [4.9.7] - 2026-11-26
 
 ### 修复：影子档案无法删除、反复学习后持续堆积（issue #321）

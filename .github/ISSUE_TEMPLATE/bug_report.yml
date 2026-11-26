@@ -50,6 +50,55 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: 问题严重程度
+      options:
+        - 1 - 致命
+        - 2 - 严重
+        - 3 - 一般
+        - 4 - 轻微
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: 期望的修复优先级
+      options:
+        - 1 - 紧急
+        - 2 - 高
+        - 3 - 中
+        - 4 - 低
+    validations:
+      required: false
+
+  - type: dropdown
+    id: type
+    attributes:
+      label: Issue Type
+      description: 问题类型
+      options:
+        - 代码错误
+        - 配置相关
+        - 安装部署
+        - 性能问题
+        - 其他
+    validations:
+      required: false
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contact (optional)
+      description: 联系邮箱或其它联系方式，便于追问细节
+      placeholder: "e.g. you@example.com"
+    validations:
+      required: false
+
   - type: textarea
     id: description
     attributes:
