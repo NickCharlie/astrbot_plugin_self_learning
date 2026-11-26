@@ -1,238 +1,220 @@
+"""Bug 反馈服务：把面板内容整理成 GitHub issue 预填链接。
+
+历史实现把报告 POST 到禅道云函数（阿里云 FC）。该云函数所属账号欠费后固定
+返回 403 AccessDenied，插件侧无法修复，因此改为走仓库自带的
+``.github/ISSUE_TEMPLATE/bug_report.yml``：面板只负责整理字段并拼出预填 URL，
+再由用户在 GitHub 上确认提交。
+
+GitHub 的 issue form（YAML 模板）不支持 ``?body=`` 预填，但官方文档明确把
+每个表单元素的 ``id`` 定为 URL query 预填的规范标识，因此这里逐字段按模板
+id 编码。
 """
-Bug报告服务 - 处理Bug报告相关业务逻辑
-"""
-import os
-import aiohttp
-from typing import Dict, Any, List, Tuple, Optional
+
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import quote, urlencode
+
 from astrbot.api import logger
+
+DEFAULT_REPOSITORY = "NickCharlie/astrbot_plugin_self_learning"
+TEMPLATE_NAME = "bug_report.yml"
+
+# 与 .github/ISSUE_TEMPLATE/bug_report.yml 的元素 id 一一对应；改模板必须同步这里
+SEVERITY_LABELS = {1: "致命", 2: "严重", 3: "一般", 4: "轻微"}
+PRIORITY_LABELS = {1: "紧急", 2: "高", 3: "中", 4: "低"}
+TYPE_LABELS = {
+    "codeerror": "代码错误",
+    "config": "配置相关",
+    "install": "安装部署",
+    "performance": "性能问题",
+    "others": "其他",
+}
+DB_TYPE_LABELS = {"sqlite": "SQLite (default)", "mysql": "MySQL", "postgresql": "PostgreSQL"}
+OS_LABELS = {"linux": "Linux", "windows": "Windows", "macos": "macOS", "docker": "Docker"}
 
 
 class BugReportService:
-    """Bug报告服务"""
+    """Bug 反馈服务。"""
 
     def __init__(self, container):
-        """
-        初始化Bug报告服务
-
-        Args:
-            container: ServiceContainer 依赖注入容器
-        """
         self.container = container
         self.plugin_config = container.plugin_config
         self.webui_config = container.webui_config
 
+    # ── 配置 ────────────────────────────────────────────────────────────
+
     def get_bug_report_config(self) -> Dict[str, Any]:
-        """
-        获取Bug报告配置
-
-        Returns:
-            Dict: Bug报告配置信息
-        """
-        # Bug报告配置常量
-        BUG_REPORT_ENABLED = getattr(self.webui_config, 'bug_report_enabled', True)
-        BUG_REPORT_ATTACHMENT_ENABLED = False # 暂时禁用附件
-        BUG_CLOUD_FUNCTION_URL = os.getenv(
-            "ASTRBOT_BUG_CLOUD_URL",
-            "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
-        )
-        BUG_REPORT_DEFAULT_BUILDS = ["v2.0"]
-        BUG_REPORT_MAX_IMAGES = 0 if not BUG_REPORT_ATTACHMENT_ENABLED else 1
-        BUG_REPORT_MAX_IMAGE_BYTES = 8 * 1024 * 1024
-        BUG_REPORT_ALLOWED_EXTENSIONS = {
-            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp',
-            '.txt', '.log', '.md', '.json', '.xml', '.yaml', '.yml'
-        }
-
-        # 获取日志预览
-        log_preview = self._collect_log_previews()
-
+        """返回面板所需的选项、默认值与目标仓库信息。"""
+        enabled = getattr(self.webui_config, "bug_report_enabled", True)
+        repository = self._repository()
         return {
-            "enabled": BUG_REPORT_ENABLED,
-            "cloudFunctionUrl": BUG_CLOUD_FUNCTION_URL,
-            "severityOptions": [
-                {"value": 1, "label": "1 - 致命"},
-                {"value": 2, "label": "2 - 严重"},
-                {"value": 3, "label": "3 - 一般"},
-                {"value": 4, "label": "4 - 轻微"}
-            ],
-            "priorityOptions": [
-                {"value": 1, "label": "1 - 紧急"},
-                {"value": 2, "label": "2 - 高"},
-                {"value": 3, "label": "3 - 中"},
-                {"value": 4, "label": "4 - 低"}
-            ],
-            "typeOptions": [
-                {"value": "codeerror", "label": "代码错误"},
-                {"value": "config", "label": "配置相关"},
-                {"value": "install", "label": "安装部署"},
-                {"value": "performance", "label": "性能问题"},
-                {"value": "others", "label": "其他"}
-            ],
-            "defaultBuild": BUG_REPORT_DEFAULT_BUILDS[0] if BUG_REPORT_DEFAULT_BUILDS else "",
-            "maxImages": BUG_REPORT_MAX_IMAGES,
-            "maxImageBytes": BUG_REPORT_MAX_IMAGE_BYTES,
-            "allowedExtensions": sorted(list(BUG_REPORT_ALLOWED_EXTENSIONS)) if BUG_REPORT_ATTACHMENT_ENABLED else [],
-            "attachmentEnabled": BUG_REPORT_ATTACHMENT_ENABLED,
-            "logPreview": log_preview,
-            "message": "Bug自助提交通过云函数转发（暂不支持附件上传）" if BUG_REPORT_ENABLED else "Bug自助提交功能暂不可用，请联系管理员"
+            "enabled": enabled,
+            "mode": "github_issue",
+            "repository": repository,
+            "template": TEMPLATE_NAME,
+            "newIssueUrl": f"https://github.com/{repository}/issues/new",
+            "severityOptions": _options(SEVERITY_LABELS),
+            "priorityOptions": _options(PRIORITY_LABELS),
+            "typeOptions": _options(TYPE_LABELS),
+            "dbTypeOptions": _options(DB_TYPE_LABELS),
+            "osOptions": _options(OS_LABELS),
+            "defaultBuild": self._default_build(),
+            "defaultAstrBotVersion": self._detect_astrbot_version(),
+            "defaultDbType": self._detect_db_type(),
+            # 不提供 OS 默认值：服务器平台不代表报告者环境，由前端按客户端推断
+            "logPreview": self._collect_log_previews(),
+            "message": (
+                "填写后跳转 GitHub，按模板确认并提交"
+                if enabled
+                else "Bug 自助提交已关闭，请联系管理员"
+            ),
         }
 
-    def _collect_log_previews(self) -> Dict[str, str]:
-        """
-        收集日志预览
+    def build_issue_url(self, bug_data: Dict[str, Any]) -> str:
+        """按 issue 模板字段 id 拼出预填链接。"""
+        fields = {k: v for k, v in self._issue_fields(bug_data).items() if v}
+        query = urlencode(
+            {"template": TEMPLATE_NAME, **fields},
+            quote_via=_quote_component,
+        )
+        return f"https://github.com/{self._repository()}/issues/new?{query}"
 
-        Returns:
-            Dict: 日志预览数据
-        """
-        log_preview = {
-            "astrbot_log": "",
-            "plugin_log": "",
-            "dashboard_log": ""
-        }
+    # ── 提交 ────────────────────────────────────────────────────────────
 
-        # 这里可以实现实际的日志收集逻辑
-        # 暂时返回空预览
-        try:
-            # TODO: 实现日志收集
-            pass
-        except Exception as e:
-            logger.warning(f"收集日志预览失败: {e}")
-
-        return log_preview
-
-    async def submit_bug_report(self, bug_data: Dict[str, Any]) -> Tuple[bool, str, Optional[Dict]]:
-        """
-        提交Bug报告
-
-        Args:
-            bug_data: Bug报告数据，包含以下字段：
-                - title: Bug标题
-                - steps: 重现步骤
-                - severity: 严重程度 (1-4)
-                - pri: 优先级 (1-4)
-                - type: Bug类型
-                - build: 影响版本（可选）
-                - os: 操作系统（可选）
-                - browser: 浏览器（可选）
-                - mailto: 联系邮箱（可选）
-
-        Returns:
-            Tuple[bool, str, Optional[Dict]]: (是否成功, 消息, 响应数据)
-        """
-        # 验证必需字段
-        required_fields = ["title", "steps", "severity", "pri", "type"]
-        for field in required_fields:
-            if field not in bug_data or not bug_data[field]:
+    async def submit_bug_report(
+        self, bug_data: Dict[str, Any]
+    ) -> Tuple[bool, str, Optional[Dict]]:
+        """校验最小必填项并返回预填链接；不对外发起任何网络请求。"""
+        for field in ("title", "steps"):
+            if not str(bug_data.get(field) or "").strip():
                 return False, f"缺少必需字段: {field}", None
-
         try:
-            # 获取云函数URL
-            cloud_url = os.getenv(
-                "ASTRBOT_BUG_CLOUD_URL",
-                "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
-            )
-
-            # 构建完整的重现步骤，包含所有信息
-            severity_labels = {1: "致命", 2: "严重", 3: "一般", 4: "轻微"}
-            priority_labels = {1: "紧急", 2: "高", 3: "中", 4: "低"}
-            type_labels = {
-                "codeerror": "代码错误",
-                "config": "配置相关",
-                "install": "安装部署",
-                "performance": "性能问题",
-                "others": "其他"
-            }
-
-            severity = bug_data.get("severity", 3)
-            priority = bug_data.get("pri", 3)
-            bug_type = bug_data.get("type", "others")
-            mailto = bug_data.get("mailto", "")
-
-            # 构建格式化的完整步骤说明
-            formatted_steps = f"""【Bug标题】
-{bug_data['title']}
-
-【严重程度】
-{severity} - {severity_labels.get(severity, '未知')}
-
-【优先级】
-{priority} - {priority_labels.get(priority, '未知')}
-
-【Bug类型】
-{type_labels.get(bug_type, bug_type)}
-
-【影响版本】
-{bug_data.get('build', '未指定')}
-
-【操作系统】
-{bug_data.get('os', '未指定')}
-
-【浏览器】
-{bug_data.get('browser', '未指定')}
-
-【联系邮箱】
-{mailto if mailto else '未提供'}
-
-【重现步骤】
-{bug_data['steps']}
-"""
-
-            # 构建请求数据，将完整信息放入steps字段
-            payload = {
-                "title": bug_data["title"],
-                "steps": formatted_steps,
-                "severity": severity,
-                "pri": priority,
-                "type": bug_type,
-                "build": bug_data.get("build", "v2.0"),
-                "os": bug_data.get("os", ""),
-                "browser": bug_data.get("browser", ""),
-                "mailto": mailto,
-            }
-
-            logger.info(f"准备提交Bug报告: {payload['title']}")
-            logger.debug(f"Bug报告完整数据: {payload}")
-
-            # 实际调用云函数API
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    cloud_url,
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=30)
-                ) as response:
-                    status_code = response.status
-                    response_text = await response.text()
-
-                    logger.info(f"云函数响应状态: {status_code}")
-                    logger.debug(f"云函数响应内容: {response_text}")
-
-                    if status_code == 200:
-                        try:
-                            response_data = await response.json()
-                            return True, "Bug报告提交成功", response_data
-                        except Exception:
-                            # 如果响应不是JSON，但状态码是200，仍然认为成功
-                            return True, "Bug报告提交成功", {"status": "submitted", "message": response_text}
-                    else:
-                        return False, f"提交失败: HTTP {status_code} - {response_text}", None
-
-        except aiohttp.ClientError as e:
-            logger.error(f"提交Bug报告网络错误: {e}", exc_info=True)
-            return False, f"网络请求失败: {str(e)}", None
-        except Exception as e:
-            logger.error(f"提交Bug报告失败: {e}", exc_info=True)
-            return False, f"提交失败: {str(e)}", None
+            url = self.build_issue_url(bug_data)
+        except Exception as exc:
+            logger.error(f"生成 Bug 反馈链接失败: {exc}", exc_info=True)
+            return False, f"生成反馈链接失败: {exc}", None
+        return (
+            True,
+            "已生成 GitHub 反馈链接，请在浏览器中确认并提交",
+            {"url": url, "repository": self._repository()},
+        )
 
     async def get_bug_history(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """
-        获取Bug报告历史
-
-        Args:
-            limit: 返回数量限制
-
-        Returns:
-            List[Dict]: Bug报告历史列表
-        """
-        # TODO: 实现Bug历史查询
-        # 这里应该从数据库或文件中读取历史记录
+        """Bug 历史（既有行为：未实现，返回空列表）。"""
         return []
+
+    # ── 内部实现 ────────────────────────────────────────────────────────
+
+    def _issue_fields(self, bug_data: Dict[str, Any]) -> Dict[str, str]:
+        """把面板表单映射为模板字段。
+
+        severity / priority / type / contact 在模板里已有独立字段，不再重复写进
+        复现步骤；只有模板确实没有落点的维度（浏览器）才追加到步骤末尾。
+        """
+        severity = _as_int(bug_data.get("severity"), 3)
+        priority = _as_int(bug_data.get("pri"), 3)
+        bug_type = str(bug_data.get("type") or "others").strip()
+        db_type = str(bug_data.get("db_type") or "").strip().lower()
+        os_name = str(bug_data.get("os") or "").strip()
+        contact = str(bug_data.get("mailto") or "").strip()
+        browser = str(bug_data.get("browser") or "").strip()
+        steps = str(bug_data.get("steps") or "").strip()
+        if browser:
+            steps = f"{steps}\n\n---\n【浏览器】{browser}" if steps else f"【浏览器】{browser}"
+
+        return {
+            "version": str(bug_data.get("build") or self._default_build()).strip(),
+            "astrbot_version": str(
+                bug_data.get("astrbot_version") or self._detect_astrbot_version()
+            ).strip(),
+            "db_type": DB_TYPE_LABELS.get(db_type) or self._detect_db_type(),
+            # OS 只采用客户端上报的值：服务器平台不代表报告者环境（远程访问 WebUI 时尤其明显）
+            "os": _match_option(os_name, OS_LABELS) or "",
+            "severity": f"{severity} - {SEVERITY_LABELS.get(severity, '未知')}",
+            "priority": f"{priority} - {PRIORITY_LABELS.get(priority, '未知')}",
+            "type": TYPE_LABELS.get(bug_type, bug_type),
+            "title": str(bug_data.get("title") or "").strip(),
+            "description": str(bug_data.get("description") or "").strip(),
+            "steps": steps,
+            "expected": str(bug_data.get("expected") or "").strip(),
+            "logs": str(bug_data.get("logs") or "").strip(),
+            "contact": contact,
+        }
+
+    def _repository(self) -> str:
+        """解析目标仓库，非法值一律回退到默认，避免拼出 github.com//issues/new。"""
+        configured = str(getattr(self.webui_config, "bug_report_repository", "") or "").strip()
+        return configured if _is_owner_repo(configured) else DEFAULT_REPOSITORY
+
+    def _default_build(self) -> str:
+        return str(getattr(self.plugin_config, "version", "") or "").strip()
+
+    def _detect_astrbot_version(self) -> str:
+        try:
+            import astrbot
+
+            return str(getattr(astrbot, "__version__", "") or "")
+        except Exception:
+            return ""
+
+    def _detect_db_type(self) -> str:
+        raw = str(getattr(self.plugin_config, "db_type", "") or "").strip().lower()
+        if raw in DB_TYPE_LABELS:
+            return DB_TYPE_LABELS[raw]
+        if "postgres" in raw:
+            return DB_TYPE_LABELS["postgresql"]
+        if "mysql" in raw:
+            return DB_TYPE_LABELS["mysql"]
+        return DB_TYPE_LABELS["sqlite"]
+
+    def _collect_log_previews(self) -> Dict[str, str]:
+        """日志预览：仅在页面展示，不随报告提交（保持既有行为）。"""
+        return {"astrbot_log": "", "plugin_log": "", "dashboard_log": ""}
+
+
+def _options(labels: Dict[Any, str]) -> List[Dict[str, Any]]:
+    return [
+        {"value": key, "label": f"{key} - {label}" if isinstance(key, int) else label}
+        for key, label in labels.items()
+    ]
+
+
+def _is_owner_repo(value: str) -> bool:
+    """校验 ``owner/repository`` 形式；用于拒绝空白或半截配置。"""
+    if not value or value.count("/") != 1:
+        return False
+    owner, repo = value.split("/", 1)
+    allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+    return bool(owner) and bool(repo) and set(owner) <= allowed and set(repo) <= allowed
+
+
+def _match_option(value: str, labels: Dict[str, str]) -> str:
+    """把自由文本（如 ``Windows 11``）归一到模板下拉项。
+
+    模板 dropdown 只认固定选项，传未声明的值会被 GitHub 静默丢弃，必填项
+    反而留空，所以这里做一次模糊匹配。
+    """
+    text = value.strip().lower()
+    if not text:
+        return ""
+    if text in labels:
+        return labels[text]
+    for each in labels.values():
+        if text.startswith(each.lower()) or each.lower() in text:
+            return each
+    return ""
+
+
+def _as_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _quote_component(value: Any, safe: str = "", encoding: Optional[str] = None,
+                     errors: Optional[str] = None) -> str:
+    """编码 query 组件。
+
+    GitHub 认 ``%0A`` 换行，中文保持百分号编码，避免被中间代理截断或二次转义。
+    """
+    return quote(str(value), safe="")

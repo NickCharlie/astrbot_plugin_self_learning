@@ -463,7 +463,7 @@ Hub 会优先复用插件运行态的 `message_collector`，否则回退到数�
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/bug_report/config` | Bug 上报配置 |
-| POST | `/api/bug_report` | 提交 Bug |
+| POST | `/api/bug_report` | 校验最低必填项并返回 GitHub issue 预填链接（`data.url`），不再对外提交 |
 | GET | `/api/bug_report/history` | 上报历史 |
 
 WebUI 上传大小由 `WebUIConfig.max_upload_size` 控制，默认 8 MB。

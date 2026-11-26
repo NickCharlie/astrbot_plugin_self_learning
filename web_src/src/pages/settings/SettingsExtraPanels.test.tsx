@@ -31,7 +31,7 @@ const installFetch = () => {
     }
     if (method === 'POST' && url.includes('/api/bug_report')) {
       bugPayload = JSON.parse(String(init?.body ?? '{}'));
-      return json({ success: true, message: 'Bug报告提交成功' });
+      return json({ success: true, message: '已生成 GitHub 反馈链接', data: { url: 'https://github.com/o/r/issues/new?template=bug_report.yml' } });
     }
     if (url.includes('/api/bug_report/config')) {
       return json({
@@ -40,6 +40,7 @@ const installFetch = () => {
         severityOptions: [{ value: 1, label: '1 - 致命' }, { value: 3, label: '3 - 一般' }],
         priorityOptions: [{ value: 1, label: '1 - 紧急' }, { value: 3, label: '3 - 中' }],
         typeOptions: [{ value: 'codeerror', label: '代码错误' }],
+        osOptions: [{ value: 'Linux', label: 'Linux' }, { value: 'Windows', label: 'Windows' }, { value: 'macOS', label: 'macOS' }, { value: 'Docker', label: 'Docker' }],
         logPreview: {},
       });
     }
@@ -72,7 +73,8 @@ describe('settings data management and bug report panels', () => {
     await waitFor(() => expect(clearCalls).toEqual(['messages']));
   });
 
-  it('submits a bug report with the required fields', async () => {
+  it('opens a prefilled GitHub issue page with the required fields', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => ({} as Window));
     render(() => <App />);
 
     const title = await screen.findByLabelText('Bug 标题');
@@ -83,13 +85,35 @@ describe('settings data management and bug report panels', () => {
     expect(screen.getByLabelText('严重程度')).toHaveValue('3');
     expect(screen.getByLabelText('优先级')).toHaveValue('3');
     fireEvent.input(title, { target: { value: '无法打开审核详情' } });
-    const steps = screen.getByLabelText('重现步骤');
-    fireEvent.input(steps, { target: { value: '1. 打开 WebUI' } });
-    fireEvent.click(screen.getByRole('button', { name: '提交 Bug 报告' }));
+    fireEvent.input(screen.getByLabelText('问题描述'), { target: { value: '点击详情后空白' } });
+    fireEvent.input(screen.getByLabelText('重现步骤'), { target: { value: '1. 打开 WebUI' } });
+    fireEvent.input(screen.getByLabelText('期望行为'), { target: { value: '显示详情' } });
+    fireEvent.click(screen.getByRole('button', { name: '打开 GitHub 反馈页' }));
 
     await waitFor(() => expect(bugPayload?.title).toBe('无法打开审核详情'));
+    expect(bugPayload?.description).toBe('点击详情后空白');
     expect(bugPayload?.steps).toBe('1. 打开 WebUI');
+    expect(bugPayload?.expected).toBe('显示详情');
     expect(bugPayload?.severity).toBe(3);
     expect(bugPayload?.build).toBe('v4.4.3');
+    // 后端只拼预填链接，界面直接打开 GitHub，不再"提交成功"
+    await waitFor(() => expect(openSpy).toHaveBeenCalledWith('https://github.com/o/r/issues/new?template=bug_report.yml', '_blank', 'noopener'));
+  });
+
+  it('keeps the draft when the browser blocks the new tab', async () => {
+    // 弹窗被拦截时 window.open 返回 null，草稿不能丢（review #1/#6）
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+    render(() => <App />);
+
+    const title = await screen.findByLabelText('Bug 标题');
+    await screen.findByLabelText('影响版本');
+    fireEvent.input(title, { target: { value: '标题' } });
+    fireEvent.input(screen.getByLabelText('问题描述'), { target: { value: '描述' } });
+    fireEvent.input(screen.getByLabelText('重现步骤'), { target: { value: '步骤' } });
+    fireEvent.input(screen.getByLabelText('期望行为'), { target: { value: '期望' } });
+    fireEvent.click(screen.getByRole('button', { name: '打开 GitHub 反馈页' }));
+
+    await waitFor(() => expect(bugPayload?.title).toBe('标题'));
+    await waitFor(() => expect(title).toHaveValue('标题'));
   });
 });

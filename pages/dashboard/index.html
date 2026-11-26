@@ -916,7 +916,7 @@
             <div class="panel-heading">
               <div>
                 <h3 data-i18n="bugReport.title">Bug 反馈</h3>
-                <p data-i18n="bugReport.hint">提交到官方禅道；请尽量提供可复现步骤</p>
+                <p data-i18n="bugReport.hint">填写后跳转 GitHub 按模板提交；请尽量提供可复现步骤</p>
               </div>
               <button class="ghost-button" type="button" id="bug-report-refresh" data-i18n="actions.refresh">刷新</button>
             </div>
@@ -927,20 +927,28 @@
                 <label class="config-field"><span><strong data-i18n="bugReport.fields.priority">优先级</strong></span><select id="bug-priority-select"></select></label>
                 <label class="config-field"><span><strong data-i18n="bugReport.fields.type">类型</strong></span><select id="bug-type-select"></select></label>
                 <label class="config-field"><span><strong data-i18n="bugReport.fields.build">影响版本</strong></span><input id="bug-build-input" type="text"></label>
-                <label class="config-field"><span><strong data-i18n="bugReport.fields.os">操作系统</strong></span><input id="bug-os-input" type="text"></label>
+                <label class="config-field"><span><strong data-i18n="bugReport.fields.os">操作系统</strong></span><select id="bug-os-select"></select></label>
                 <label class="config-field"><span><strong data-i18n="bugReport.fields.browser">浏览器</strong></span><input id="bug-browser-input" type="text"></label>
-                <label class="config-field"><span><strong data-i18n="bugReport.fields.mailto">联系邮箱（可选）</strong></span><input id="bug-mailto-input" type="text"></label>
+                <label class="config-field"><span><strong data-i18n="bugReport.fields.mailto">联系邮箱（可选，会公开在 issue 中）</strong></span><input id="bug-mailto-input" type="text"></label>
               </div>
+              <label class="config-field">
+                <span><strong data-i18n="bugReport.fields.description">问题描述</strong></span>
+                <textarea id="bug-description-input" rows="4" placeholder="发生了什么？"></textarea>
+              </label>
               <label class="config-field">
                 <span><strong data-i18n="bugReport.fields.steps">重现步骤</strong></span>
                 <textarea id="bug-steps-input" rows="6" placeholder="1. 打开 WebUI&#10;2. 点击某个按钮&#10;3. 观察到异常"></textarea>
+              </label>
+              <label class="config-field">
+                <span><strong data-i18n="bugReport.fields.expected">期望行为</strong></span>
+                <textarea id="bug-expected-input" rows="3" placeholder="你期望发生什么？"></textarea>
               </label>
               <details class="bug-log-preview" id="bug-log-preview" hidden>
                 <summary id="bug-log-summary"></summary>
                 <div id="bug-log-body"></div>
               </details>
               <div class="inline-actions">
-                <button class="solid-button" type="button" id="bug-report-submit" data-i18n="bugReport.submit">提交 Bug 报告</button>
+                <button class="solid-button" type="button" id="bug-report-submit" data-i18n="bugReport.submit">打开 GitHub 反馈页</button>
               </div>
             </div>
             <div id="bug-report-empty" hidden></div>

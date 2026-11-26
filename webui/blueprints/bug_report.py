@@ -31,7 +31,7 @@ async def get_bug_report_config():
 @bug_report_bp.route("/bug_report", methods=["POST"])
 @require_auth
 async def submit_bug_report():
-    """提交Bug到禅道接口"""
+    """校验必填项并返回 GitHub issue 预填链接"""
     try:
         bug_data = await request.get_json()
 

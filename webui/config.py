@@ -18,8 +18,7 @@ class WebUIConfig:
 
     # Bug 报告配置
     bug_report_enabled: bool = True
-    bug_cloud_url: str = ""
-    bug_cloud_verify_code: str = ""
+    bug_report_repository: str = "NickCharlie/astrbot_plugin_self_learning"
     bug_report_timeout_seconds: int = 30
     bug_report_max_images: int = 1
     bug_report_max_image_bytes: int = 8 * 1024 * 1024  # 8MB
@@ -41,11 +40,10 @@ class WebUIConfig:
             static_dir=os.path.join(plugin_root, "web_res", "static"),
             template_dir=os.path.join(plugin_root, "web_res", "static", "html"),
             data_dir=plugin_config.data_dir if plugin_config else "./data",
-            bug_cloud_url=os.getenv(
-                "ASTRBOT_BUG_CLOUD_URL",
-                "http://zentao-g-submit-rwpsiodjrb.cn-hangzhou.fcapp.run/zentao-bug-submit/submit-bug"
+            bug_report_repository=os.getenv(
+                "ASTRBOT_BUG_REPORT_REPOSITORY",
+                "NickCharlie/astrbot_plugin_self_learning",
             ),
-            bug_cloud_verify_code=os.getenv("ASTRBOT_BUG_CLOUD_VERIFY_CODE", "zentao123"),
             enable_web_dependency_install=(
                 os.getenv("ASTRBOT_ENABLE_WEB_DEP_INSTALL", "true").lower()
                 in ("1", "true", "yes", "on")

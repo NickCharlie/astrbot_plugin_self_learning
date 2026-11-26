@@ -3112,6 +3112,17 @@
   const BUG_FALLBACK_SEVERITY = [[1, "1 - 致命"], [2, "2 - 严重"], [3, "3 - 一般"], [4, "4 - 轻微"]];
   const BUG_FALLBACK_PRIORITY = [[1, "1 - 紧急"], [2, "2 - 高"], [3, "3 - 中"], [4, "4 - 低"]];
   const BUG_FALLBACK_TYPE = [["codeerror", "代码错误"], ["config", "配置相关"], ["install", "安装部署"], ["performance", "性能问题"], ["others", "其他"]];
+  const BUG_FALLBACK_OS = [["Linux", "Linux"], ["Windows", "Windows"], ["macOS", "macOS"], ["Docker", "Docker"]];
+
+  // 模板的 os 是必填下拉，只能取固定选项；按浏览器推断报告者环境（不是服务器环境）
+  function detectClientOs() {
+    const ua = (navigator && navigator.userAgent) || "";
+    // jsdom 报告 "Mozilla/5.0 (win32) …"，真实浏览器是 "Windows NT 10.0"，两者都认
+    if (/Windows|win32|win64/i.test(ua)) return "Windows";
+    if (/Mac OS X|Macintosh|darwin/i.test(ua)) return "macOS";
+    if (/Linux|X11|Android|CrOS/i.test(ua)) return "Linux";
+    return "";
+  }
 
   function bugOptions(key, fallback) {
     const options = listOf((state.bugReportConfig || {})[key]);
@@ -3153,6 +3164,13 @@
     renderBugSelect("bug-severity-select", bugOptions("severityOptions", BUG_FALLBACK_SEVERITY));
     renderBugSelect("bug-priority-select", bugOptions("priorityOptions", BUG_FALLBACK_PRIORITY));
     renderBugSelect("bug-type-select", bugOptions("typeOptions", BUG_FALLBACK_TYPE));
+    renderBugSelect("bug-os-select", bugOptions("osOptions", BUG_FALLBACK_OS));
+    const osSelect = $("bug-os-select");
+    // 模板的 os 是必填下拉，只能取固定选项；优先用浏览器推断报告者环境
+    if (osSelect && !osSelect.value) {
+      const detected = detectClientOs();
+      if (detected) osSelect.value = detected;
+    }
     const build = $("bug-build-input");
     // 用户可能已手动填写：仅在为空时回填默认影响版本（与独立版一致）
     if (build && !build.value.trim() && config.defaultBuild) build.value = String(config.defaultBuild);
@@ -3168,9 +3186,17 @@
 
   async function handleBugSubmit() {
     const title = ($("bug-title-input")?.value || "").trim();
+    const description = ($("bug-description-input")?.value || "").trim();
     const steps = ($("bug-steps-input")?.value || "").trim();
-    if (!title || !steps) {
-      showToast(t("bugReport.missingFields", "请填写 Bug 标题和重现步骤"), "warn");
+    const expected = ($("bug-expected-input")?.value || "").trim();
+    // 模板里 description / steps / expected 均为必填，先拦住避免打开后面对空白必填框
+    if (!title || !description || !steps || !expected) {
+      showToast(t("bugReport.missingFields", "请填写 Bug 标题、问题描述、重现步骤和期望行为"), "warn");
+      return;
+    }
+    const osValue = ($("bug-os-select")?.value || "").trim();
+    if (!osValue) {
+      showToast(t("bugReport.missingOs", "请选择操作系统"), "warn");
       return;
     }
     const config = state.bugReportConfig || {};
@@ -3182,22 +3208,33 @@
     try {
       const result = await apiPost("bug-report/submit", {
         title,
+        description,
         steps,
+        expected,
         severity: Number($("bug-severity-select")?.value || 3),
         pri: Number($("bug-priority-select")?.value || 3),
         type: $("bug-type-select")?.value || "codeerror",
         build: ($("bug-build-input")?.value || "").trim() || String(config.defaultBuild || ""),
-        os: ($("bug-os-input")?.value || "").trim(),
+        os: osValue,
         browser: ($("bug-browser-input")?.value || "").trim(),
         mailto: ($("bug-mailto-input")?.value || "").trim(),
       });
-      showToast(result.message || t("bugReport.submitted", "Bug 报告已提交"), result.success === false ? "error" : "ok");
-      if (result.success !== false) {
-        setText("bug-title-input", "");
-        setText("bug-steps-input", "");
+      // 后端只拼 GitHub 预填链接，真正的提交由用户在 GitHub 上确认
+      const url = result && result.data && result.data.url;
+      if (result.success === false || !url) {
+        showToast(result.message || t("bugReport.submitFailed", "Bug 反馈链接生成失败"), "error");
+        return;
+      }
+      // 弹窗可能被浏览器拦截；只有确实打开了标签页才清空草稿
+      const opened = window.open(url, "_blank", "noopener");
+      if (opened) {
+        showToast(t("bugReport.opened", "已在新标签页打开 GitHub 反馈页，请确认后提交"), "ok");
+        ["bug-title-input", "bug-description-input", "bug-steps-input", "bug-expected-input"].forEach((id) => setText(id, ""));
+      } else {
+        showToast(t("bugReport.popupBlocked", "浏览器拦截了新标签页，请手动打开：{url}").replace("{url}", url), "warn");
       }
     } catch (error) {
-      showToast(error.message || t("bugReport.submitFailed", "Bug 报告提交失败"), "error");
+      showToast(error.message || t("bugReport.submitFailed", "Bug 反馈链接生成失败"), "error");
     } finally {
       if (submitButton) {
         submitButton.disabled = false;
