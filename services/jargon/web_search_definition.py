@@ -45,9 +45,15 @@ _PROVIDER_FALLBACK_ORDER = ("tavily", "bocha", "exa", "baidu")
 # 不参与 AstrBot 配置跟随与兜底探测，未手动选择时永远不会被使用。
 _MANUAL_KEY_OPTIONAL_PROVIDERS = ("keenable",)
 
+# 只能手动选择、且必须在插件配置里填写 API Key 的厂商（AstrBot 主配置没有
+# 对应的全局密钥）。同样不参与 AstrBot 配置跟随与兜底探测。
+_MANUAL_KEY_REQUIRED_PROVIDERS = ("specstream",)
+
 _KEENABLE_SEARCH_URL = "https://api.keenable.ai/v1/search"
 _KEENABLE_PUBLIC_SEARCH_URL = "https://api.keenable.ai/v1/search/public"
 _KEENABLE_APP_TITLE = "astrbot_plugin_self_learning"
+
+_SPECSTREAM_SEARCH_URL = "https://api.specstream.ai/v1/web-search"
 
 _SEARCH_TIMEOUT_SECONDS = 10.0
 
@@ -122,6 +128,8 @@ class WebSearchClient:
     def _resolve_provider(self) -> Optional[str]:
         if self._override_provider in _MANUAL_KEY_OPTIONAL_PROVIDERS:
             return self._override_provider
+        if self._override_provider in _MANUAL_KEY_REQUIRED_PROVIDERS:
+            return self._override_provider if self._override_api_key else None
         if self._override_provider in _PROVIDER_KEY_SETTINGS and (
             self._override_api_key
             or _provider_keys(self._get_settings(), self._override_provider)
@@ -159,6 +167,8 @@ class WebSearchClient:
                 return await self._search_baidu(settings, query, max_results)
             if provider == "keenable":
                 return await self._search_keenable(query, max_results)
+            if provider == "specstream":
+                return await self._search_specstream(query, max_results)
         except asyncio.TimeoutError:
             logger.debug(f"[黑话联网释义] 搜索超时: {provider}")
         except Exception as exc:
@@ -324,6 +334,40 @@ class WebSearchClient:
             }
             for item in data.get("results", [])
         ]
+
+    async def _search_specstream(
+        self, query: str, max_results: int
+    ) -> List[Dict[str, str]]:
+        """SpecStream：必须填写 Key（Bearer）。返回的 answer 是从某一页读出的
+        简短结论，带出处页面，放在结果首位；其后是 sources 里的搜索结果。"""
+        data = await self._fetch_json(
+            "GET",
+            _SPECSTREAM_SEARCH_URL,
+            headers={"Authorization": f"Bearer {self._override_api_key}"},
+            params={"q": query, "num": max(1, min(int(max_results), 20))},
+        )
+        body = data.get("data") if isinstance(data.get("data"), dict) else data
+        results: List[Dict[str, str]] = []
+        answer = body.get("answer")
+        if isinstance(answer, dict) and answer.get("value"):
+            results.append(
+                {
+                    "title": str(body.get("query") or query),
+                    "url": str(answer.get("page") or ""),
+                    "snippet": str(answer.get("value") or ""),
+                }
+            )
+        for item in body.get("sources") or []:
+            if len(results) >= max_results:
+                break
+            results.append(
+                {
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(item.get("snippet") or ""),
+                }
+            )
+        return results
 
 
 _DEFINITION_PROMPT = """**待解释词条**

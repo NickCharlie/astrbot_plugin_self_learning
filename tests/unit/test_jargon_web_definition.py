@@ -200,6 +200,85 @@ async def test_keenable_with_key_uses_keyed_endpoint():
     assert captured["headers"]["X-API-Key"] == "keen_manual"
 
 
+def test_specstream_needs_manual_selection_and_its_own_key():
+    """specstream 只能手动选择，且必须填写插件级 Key；不会借用其他厂商的全局密钥。"""
+    auto = WebSearchClient(lambda: _settings(websearch_provider="specstream"))
+    assert auto._resolve_provider() is None
+
+    no_key = WebSearchClient(
+        lambda: _settings(websearch_tavily_key=["global-tavily-key"]),
+        override_provider="specstream",
+    )
+    assert no_key._resolve_provider() is None
+    assert no_key.available() is False
+
+    keyed = WebSearchClient(
+        lambda: _settings(),
+        override_provider="specstream",
+        override_api_key="ss_manual",
+    )
+    assert keyed._resolve_provider() == "specstream"
+
+
+@pytest.mark.asyncio
+async def test_specstream_puts_sourced_answer_first_then_sources():
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="specstream",
+        override_api_key="ss_manual",
+    )
+    captured = {}
+
+    async def fake_fetch(method, url, headers, payload=None, params=None):
+        captured.update(method=method, url=url, headers=headers, payload=payload, params=params)
+        return {
+            "data": {
+                "query": "绝绝子 网络用语 意思",
+                "kind": "fact",
+                "answer": {
+                    "value": "太绝了，可褒可贬",
+                    "page": "https://example.com/jjz",
+                },
+                "sources": [
+                    {"title": "绝绝子是什么意思", "url": "https://example.com/a", "snippet": "片段一"},
+                    {"title": "2021 网络用语", "url": "https://example.com/b", "snippet": "片段二"},
+                ],
+            }
+        }
+
+    client._fetch_json = fake_fetch
+
+    results = await client.search("绝绝子 网络用语 意思", max_results=2)
+
+    assert captured["method"] == "GET"
+    assert captured["url"] == "https://api.specstream.ai/v1/web-search"
+    assert captured["headers"] == {"Authorization": "Bearer ss_manual"}
+    assert captured["params"] == {"q": "绝绝子 网络用语 意思", "num": 2}
+    assert captured["payload"] is None
+    assert results == [
+        {"title": "绝绝子 网络用语 意思", "url": "https://example.com/jjz", "snippet": "太绝了，可褒可贬"},
+        {"title": "绝绝子是什么意思", "url": "https://example.com/a", "snippet": "片段一"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_specstream_without_answer_returns_sources_only():
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="specstream",
+        override_api_key="ss_manual",
+    )
+
+    async def fake_fetch(method, url, headers, payload=None, params=None):
+        return {"data": {"kind": "list", "answer": None, "sources": [{"url": "https://example.com/c"}]}}
+
+    client._fetch_json = fake_fetch
+
+    assert await client.search("任意查询") == [
+        {"title": "", "url": "https://example.com/c", "snippet": ""}
+    ]
+
+
 def test_client_reloads_override_provider_changes_at_runtime():
     settings = _settings()
     client = WebSearchClient(
