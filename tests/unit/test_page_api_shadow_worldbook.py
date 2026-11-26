@@ -42,6 +42,10 @@ class _FakeShadowService:
         self.calls.append(("set_enabled", {"profile_id": profile_id, "enabled": enabled}))
         return {"id": profile_id, "enabled": enabled}
 
+    async def delete_profile(self, profile_id: int) -> dict:
+        self.calls.append(("delete_profile", {"profile_id": profile_id}))
+        return {"id": profile_id}
+
 
 class _FakeWorldbookImporter:
     instances: list["_FakeWorldbookImporter"] = []
@@ -151,6 +155,15 @@ def test_post_shadow_mode_action_set_enabled():
 
     assert result["data"]["success"] is True
     assert shadow.calls == [("set_enabled", {"profile_id": 7, "enabled": False})]
+
+
+def test_post_shadow_mode_action_delete():
+    api, shadow = _make_api(body={"action": "delete", "profile_id": "7"})
+    result = asyncio.run(api.post_shadow_mode_action())
+
+    assert result["data"]["success"] is True
+    assert result["data"]["message"] == "影子档案已删除"
+    assert shadow.calls == [("delete_profile", {"profile_id": 7})]
 
 
 def test_post_shadow_mode_action_learn_value_error_surfaces_message():

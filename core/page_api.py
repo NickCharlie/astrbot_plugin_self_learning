@@ -604,6 +604,9 @@ class PluginPageApi:
                     self._body_bool(body, "enabled", True),
                 )
                 return self._operation(True, "影子模式状态已更新", profile=profile)
+            if action == "delete":
+                profile = await service.delete_profile(self._body_int(body, "profile_id"))
+                return self._operation(True, "影子档案已删除", profile=profile)
             return self._operation(False, f"未知影子模式操作: {action or '(empty)'}")
         except ValueError as exc:
             logger.warning(f"[PluginPageAPI] shadow action rejected: {exc}")

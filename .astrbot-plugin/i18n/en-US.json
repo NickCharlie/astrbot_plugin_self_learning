@@ -1271,7 +1271,11 @@
         "disabledToast": "Shadow mode disabled",
         "updateFailed": "Failed to update shadow mode",
         "statusFailed": "Failed to read shadow mode status",
-        "candidatesFailed": "Failed to read the member list"
+        "candidatesFailed": "Failed to read the member list",
+        "deleteTitle": "Delete shadow profile",
+        "deleteMessage": "Delete the shadow profile of {name} for group {group}? This cannot be undone.",
+        "deletedToast": "Shadow profile deleted",
+        "deleteFailed": "Failed to delete the shadow profile"
       },
       "worldbook": {
         "breakdown": "Destinations: memory reviews {memory} · jargon candidates {jargon} · graph entities {entities}",
