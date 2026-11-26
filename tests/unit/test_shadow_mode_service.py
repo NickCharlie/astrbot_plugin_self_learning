@@ -130,6 +130,43 @@ async def test_shadow_mode_requires_enough_valid_text_samples(manager):
 
 
 @pytest.mark.asyncio
+async def test_shadow_mode_delete_removes_profile_and_reports_missing(manager):
+    await _add_messages(manager, imported=True, sender_id="uid-2", sender_name="小影")
+    service = ShadowModeService(manager)
+    profile = await service.learn(
+        source_type="imported",
+        source_group_id="import-group",
+        target_group_id="target-group",
+        sender_id="uid-2",
+    )
+
+    deleted = await service.delete_profile(profile["id"])
+    assert deleted["id"] == profile["id"]
+    assert (await service.get_status())["profiles"] == []
+    with pytest.raises(ValueError, match="影子档案不存在"):
+        await service.delete_profile(profile["id"])
+
+
+@pytest.mark.asyncio
+async def test_shadow_mode_delete_reports_missing_when_row_lost_to_concurrent_delete(manager, monkeypatch):
+    """并发删除时 repository.delete 返回 False，服务不能回报成功（Sourcery review #2）。"""
+    await _add_messages(manager, imported=True, sender_id="uid-2", sender_name="小影")
+    service = ShadowModeService(manager)
+    profile = await service.learn(
+        source_type="imported",
+        source_group_id="import-group",
+        target_group_id="target-group",
+        sender_id="uid-2",
+    )
+    monkeypatch.setattr(
+        ShadowProfileRepository, "delete", AsyncMock(return_value=False)
+    )
+
+    with pytest.raises(ValueError, match="影子档案不存在"):
+        await service.delete_profile(profile["id"])
+
+
+@pytest.mark.asyncio
 async def test_llm_hook_fetches_active_shadow_profile():
     shadow_service = SimpleNamespace(
         build_prompt=AsyncMock(return_value="[影子模式：语言行为档案]\n短句为主")

@@ -6,10 +6,10 @@
 
 ### 修复：影子档案无法删除、反复学习后持续堆积（issue #321）
 
-- 后端补齐清理入口：`DELETE /api/shadow-mode/profiles/<id>`，以及内嵌页 `page/shadow-mode/action` 的 `delete` 动作；档案数据（含 traits 与示例）全部存放在自身行内，删除即整行移除，不产生孤儿记录。重复删除同一 ID 返回 404，WebUI 提示「影子档案不存在」。
+- 后端补齐清理入口：`DELETE /api/shadow-mode/profiles/<id>`，以及内嵌页 `page/shadow-mode/action` 的 `delete` 动作；档案数据（含 traits 与示例）全部存放在自身行内，删除即整行移除，不产生孤儿记录。重复删除同一 ID 返回 404；并发删除时若目标行已被另一请求删掉（`repository.delete` 影响 0 行），同样按 404 处理而不是回报成功。
 - 双端都加了删除按钮与二次确认：独立 WebUI 影子档案行新增「删除」（危险色，确认文案带用户名与生效群组）；内嵌页沿用 `data-shadow-profile-action` 事件委托，新增 `delete` 取值走统一 `showConfirm`，成功后清理 `shadow-mode` / `shadow-candidates` 缓存并刷新。
-- i18n 同步补齐 `shadow.deleteTitle` / `deleteMessage` / `deletedToast` / `deleteFailed` 中英两份 JSON。
-- 测试：路由集成测试覆盖删除后列表清空与重复删除 404；`test_page_api_shadow_worldbook.py` 覆盖内嵌页 `delete` 动作透传；前端 `ShadowModePage.test.tsx` 锁定「未确认不发请求、确认后删除并提示」。
+- i18n 同步补齐 `shadow.deleteTitle` / `deleteMessage` / `deletedToast` / `deleteFailed` 中英两份 JSON；`docs/webui-api.md` 补上 DELETE 契约（成功回显被删档案，不存在 404）。
+- 测试：路由集成测试覆盖删除后列表清空与重复删除 404；服务层覆盖并发删除影响 0 行时抛「影子档案不存在」；`test_page_api_shadow_worldbook.py` 覆盖内嵌页 `delete` 动作透传；前端 `ShadowModePage.test.tsx` 锁定「未确认不发请求、确认后以 DELETE 删除并提示」。
 
 ### 版本
 

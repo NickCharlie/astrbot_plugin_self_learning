@@ -335,6 +335,7 @@ Hub 会优先复用插件运行态的 `message_collector`，否则回退到数�
 | GET | `/api/shadow-mode/candidates` | 按 `source`（`live`/`imported`）和 `group_id` 查询可学习群友及样本量 |
 | POST | `/api/shadow-mode/profiles` | 学习并创建影子档案，`activate=false` 时只学习不启用 |
 | PUT | `/api/shadow-mode/profiles/<profile_id>` | 启用或停用档案，同一生效群组同时只启用一份 |
+| DELETE | `/api/shadow-mode/profiles/<profile_id>` | 删除档案（含 traits 与示例，整行移除），成功 200 回显被删档案，不存在返回 404 |
 
 学习请求体:
 

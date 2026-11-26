@@ -13,7 +13,7 @@ const status = {
 };
 
 describe('shadow mode page', () => {
-  const posts: Array<{ url: string; body: unknown }> = [];
+  const posts: Array<{ url: string; method: string; body: unknown }> = [];
 
   beforeEach(() => {
     localStorage.clear();
@@ -21,7 +21,7 @@ describe('shadow mode page', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = String(input);
       if ((init?.method ?? 'GET') !== 'GET') {
-        posts.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+        posts.push({ url, method: init?.method ?? 'GET', body: init?.body ? JSON.parse(String(init.body)) : null });
         return json({ success: true });
       }
       if (url.includes('/api/shadow-mode/candidates')) {
@@ -71,7 +71,7 @@ describe('shadow mode page', () => {
     expect(await screen.findByText('确定删除“Bob”在群组 imp1 的影子档案吗？删除后不可撤销。')).toBeInTheDocument();
     expect(posts).toHaveLength(0);
     fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: '删除' }));
-    await waitFor(() => expect(posts.some((post) => post.url.includes('/api/shadow-mode/profiles/1'))).toBe(true));
+    await waitFor(() => expect(posts.some((post) => post.url.includes('/api/shadow-mode/profiles/1') && post.method === 'DELETE')).toBe(true));
     expect(await screen.findByText('影子档案已删除')).toBeInTheDocument();
   });
 });

@@ -165,7 +165,10 @@ class ShadowModeService:
             if record is None:
                 raise ValueError("影子档案不存在")
             snapshot = self._profile_dict(record)
-            await repository.delete(record.id)
+            if not await repository.delete(record.id):
+                # 并发删除：另一个请求已先删掉这一行，不能回报成功
+                await session.rollback()
+                raise ValueError("影子档案不存在")
             await session.commit()
             return snapshot
 
