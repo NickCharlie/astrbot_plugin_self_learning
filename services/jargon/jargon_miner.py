@@ -689,7 +689,9 @@ class JargonMiner(AsyncServiceBase):
 
         try:
             meaning = await service.supplement(
-                jargon.content, self._raw_content_list(jargon)
+                jargon.content,
+                self._raw_content_list(jargon),
+                chat_id=jargon.chat_id or self.chat_id,
             )
         except Exception as exc:
             logger.debug(
@@ -700,20 +702,23 @@ class JargonMiner(AsyncServiceBase):
         if not meaning:
             return False
 
-        # 补充前重读数据库，写回时只覆盖释义相关字段，
-        # 避免用本地的旧快照覆盖并发的计数/上下文更新。
+        # 补充前重读数据库：已有释义或被人工完成时不再覆盖。
         current = await self.db.get_jargon(jargon.chat_id, jargon.content)
-        if current and (
-            current.get('is_complete')
-            or str(current.get('meaning') or '').strip()
-        ):
+        if not current:
+            return False
+        if current.get('is_complete') or str(current.get('meaning') or '').strip():
             return False
 
-        payload = dict(current) if current else self._jargon_to_dict(jargon)
-        payload['is_jargon'] = True
-        payload['meaning'] = meaning
-        payload['updated_at'] = datetime.now()
-        await self.db.update_jargon(payload)
+        # 只提交释义相关字段。``update_jargon`` 逐字段覆盖，提交整份快照会把
+        # 读取之后并发写入的 count / raw_content 一并回退。
+        await self.db.update_jargon(
+            {
+                'id': current.get('id'),
+                'is_jargon': True,
+                'meaning': meaning,
+                'updated_at': datetime.now(),
+            }
+        )
         return True
 
     def _raw_content_list(self, jargon: Jargon) -> List[str]:

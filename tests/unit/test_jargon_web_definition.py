@@ -420,9 +420,9 @@ def test_build_service_none_without_astrbot_config():
 # ---------------------------------------------------------------------------
 
 
-def _make_miner(service, task_tracker=None):
+def _make_miner(service, task_tracker=None, existing=None):
     db = SimpleNamespace(
-        get_jargon=AsyncMock(return_value=None),
+        get_jargon=AsyncMock(return_value=existing),
         update_jargon=AsyncMock(return_value=True),
     )
     miner = JargonMiner(
@@ -454,7 +454,10 @@ def _service_returning(meaning):
 @pytest.mark.asyncio
 async def test_no_info_branch_triggers_web_supplement():
     service = _service_returning("网络流行语：厉害")
-    miner, db = _make_miner(service)
+    miner, db = _make_miner(
+        service,
+        existing={"id": 7, "meaning": None, "is_complete": False, "count": 3},
+    )
     miner.inference_engine = SimpleNamespace(
         infer_meaning=AsyncMock(return_value={"no_info": True})
     )
@@ -462,11 +465,17 @@ async def test_no_info_branch_triggers_web_supplement():
 
     await miner.infer_and_update(jargon)
 
-    service.supplement.assert_awaited_once_with("yyds", ["上下文一"])
-    updated = db.update_jargon.await_args.args[0]
+    # chat_id 透传是多配置文件命中子配置的前提（issue #324 补充建议）
+    service.supplement.assert_awaited_once_with(
+        "yyds", ["上下文一"], chat_id="group-a"
+    )
+    # 第一次写入推进 last_inference_count，最后一次是联网补充的释义写入
+    updated = db.update_jargon.await_args_list[-1].args[0]
     assert updated["is_jargon"] is True
     assert "网络流行语" in updated["meaning"]
-    assert updated["is_complete"] is False
+    # 联网补充只写释义字段，不回写推断状态与计数
+    assert "is_complete" not in updated
+    assert "count" not in updated
 
 
 @pytest.mark.asyncio
@@ -530,8 +539,11 @@ async def test_supplement_writes_on_top_of_fresh_record():
     assert await miner._supplement_via_web(jargon) is True
     payload = db.update_jargon.await_args.args[0]
     assert payload["id"] == 7
-    assert payload["count"] == 9  # 并发计数被保留
-    assert payload["last_inference_count"] == 6
+    # 只提交释义字段：不带 count/raw_content 就不会把并发写入的计数与上下文
+    # 回退成读取时的快照（update_jargon 逐字段覆盖）。
+    assert "count" not in payload
+    assert "raw_content" not in payload
+    assert "last_inference_count" not in payload
     assert payload["meaning"] == "联网释义"
     assert payload["is_jargon"] is True
 
@@ -576,7 +588,7 @@ async def test_sweep_task_registered_with_tracker():
 async def test_rare_term_sweep_limited_and_sorted_by_count():
     supplement_calls = []
 
-    async def record_supplement(term, raw_content_list=None):
+    async def record_supplement(term, raw_content_list=None, chat_id=""):
         supplement_calls.append(term)
         return "联网释义"
 
@@ -618,3 +630,76 @@ def test_miner_without_service_defaults_to_none():
         config=SimpleNamespace(),
     )
     assert miner.web_definition_service is None
+
+
+# ---------------------------------------------------------------------------
+# issue #324：跟随 AstrBot 配置必须读全局配置，并支持多配置文件按会话解析
+# ---------------------------------------------------------------------------
+
+
+def test_build_service_reads_global_provider_settings():
+    """全局配置里的搜索密钥必须能被“跟随 AstrBot 配置”读取到。"""
+    global_config = {"provider_settings": _settings(websearch_tavily_key=["global-key"])}
+    service = build_web_definition_service(
+        llm_adapter=object(),
+        astrbot_config=global_config,
+        plugin_config=SimpleNamespace(jargon_websearch_enabled=True),
+    )
+
+    assert service is not None
+    assert service.web_client.available() is True
+    assert service.web_client._resolve_provider() == "tavily"
+
+
+def test_client_prefers_session_profile_keys_over_default():
+    """多配置场景：子配置有密钥时用子配置，没有时回落到默认配置。"""
+    default_config = {"provider_settings": _settings(websearch_bocha_key=["default-key"])}
+    profiles = {
+        "umo-a": {"provider_settings": _settings(websearch_exa_key=["profile-key"])},
+        # 子配置没开联网搜索：必须回落到默认配置，而不是判定为不可用
+        "umo-b": {"provider_settings": _settings()},
+    }
+    client = WebSearchClient.from_astrbot_config(
+        default_config,
+        config_resolver=profiles.get,
+    )
+
+    assert client.available(chat_id="umo-a") is True
+    assert client._resolve_provider(chat_id="umo-a") == "exa"
+    assert client._resolve_provider(chat_id="umo-b") == "bocha"
+    assert client._resolve_provider(chat_id="umo-missing") == "bocha"
+
+
+@pytest.mark.asyncio
+async def test_supplement_forwards_chat_id_to_session_profile():
+    """supplement 必须把 chat_id 透传给搜索客户端，否则子配置永远命中不了。"""
+    default_config = {"provider_settings": _settings()}
+    profiles = {
+        "group-a": {"provider_settings": _settings(websearch_tavily_key=["profile-key"])}
+    }
+    client = WebSearchClient.from_astrbot_config(
+        default_config, config_resolver=profiles.get
+    )
+    search = AsyncMock(return_value=[])
+    client.search = search
+    service = JargonWebDefinitionService(SimpleNamespace(), client)
+
+    # 默认配置无密钥，但会话档案有：应完成一次搜索而不是静默跳过
+    assert await service.supplement("某词", [], chat_id="group-a") is None
+    search.assert_awaited_once()
+    assert search.await_args.kwargs["chat_id"] == "group-a"
+
+
+def test_manual_provider_wins_over_session_profile_keys():
+    """手动选 tavily 但未填 Key：不能因为子档案只有 exa key 就改走 exa。"""
+    default_config = {"provider_settings": _settings(websearch_tavily_key=["default-tavily"])}
+    profiles = {
+        "umo-a": {"provider_settings": _settings(websearch_exa_key=["profile-exa"])}
+    }
+    client = WebSearchClient.from_astrbot_config(
+        default_config,
+        override_provider="tavily",
+        config_resolver=profiles.get,
+    )
+
+    assert client._resolve_provider(chat_id="umo-a") == "tavily"

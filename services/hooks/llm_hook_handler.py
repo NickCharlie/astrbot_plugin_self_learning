@@ -123,10 +123,6 @@ class LLMHookHandler:
                     )
                     return
 
-            if not self._diversity_manager:
-                logger.debug("[LLM Hook] diversity_manager未初始化,跳过多样性注入")
-                return
-
             group_id = event.get_group_id() or event.get_sender_id()
             user_id = event.get_sender_id()
             persona_id = get_event_persona_scope(event, self._config)
@@ -137,12 +133,12 @@ class LLMHookHandler:
                 logger.debug(f"[LLM Hook] 更新映射: {group_id} -> {event.unified_msg_origin}")
 
             if not req.prompt:
-                logger.debug("[LLM Hook] req.prompt为空,跳过多样性注入")
+                logger.debug("[LLM Hook] req.prompt为空,跳过上下文注入")
                 return
 
             original_prompt_length = len(req.prompt)
             logger.debug(
-                f"[LLM Hook] 开始注入多样性增强 "
+                f"[LLM Hook] 开始注入增量上下文 "
                 f"(group: {group_id}, 原prompt长度: {original_prompt_length})"
             )
 
@@ -288,16 +284,25 @@ class LLMHookHandler:
             logger.debug("[LLM Hook] social_context_injector未初始化，跳过社交上下文注入")
             return None
         try:
+            include_psychological = bool(
+                getattr(self._config, "enable_psychological_injection", True)
+            )
             return await self._social_context_injector.format_complete_context(
                 group_id=group_id,
                 user_id=user_id,
                 persona_id=persona_id,
                 include_social_relations=self._config.include_social_relations,
                 include_affection=self._config.include_affection_info,
-                include_mood=False,
+                # 情绪/心理状态各自独立开关（issue #325）：此前情绪被硬编码
+                # 关闭，而配置项 include_mood_info 只在另一条注入链路生效。
+                include_mood=getattr(self._config, "include_mood_info", True),
                 include_expression_patterns=self._config.enable_expression_patterns,
-                include_psychological=True,
-                include_behavior_guidance=social_enabled,
+                include_psychological=include_psychological,
+                # 行为指导由心理/社交结果驱动；心理注入关闭时不再触发
+                # 后台心理画像生成，否则开关只是隐藏了输出（issue #325）。
+                include_behavior_guidance=(
+                    social_enabled and include_psychological
+                ),
                 include_conversation_goal=self._config.enable_goal_driven_chat,
                 enable_protection=True,
             )
@@ -333,8 +338,17 @@ class LLMHookHandler:
         except Exception:
             return False
 
+    def _diversity_enabled(self) -> bool:
+        """Whether the diversity source may run (switch on + manager present)."""
+        if not getattr(self._config, "enable_diversity_injection", True):
+            return False
+        return self._diversity_manager is not None
+
     @monitored
     async def _fetch_diversity(self, group_id: str) -> Optional[str]:
+        if not self._diversity_enabled():
+            logger.debug("[LLM Hook] 多样性注入已关闭或未初始化，跳过多样性来源")
+            return None
         try:
             content = await self._diversity_manager.build_diversity_prompt_injection(
                 "",
@@ -590,11 +604,13 @@ class LLMHookHandler:
         else:
             self._legacy_inject(req, injection_text, target)
 
-        current_style = self._diversity_manager.get_current_style()
-        current_pattern = self._diversity_manager.get_current_pattern()
-        logger.debug(
-            f"[LLM Hook] 当前语言风格: {current_style}, 回复模式: {current_pattern}"
-        )
+        # 多样性管理器可能未初始化或已被开关关闭，打日志不能因此抛异常。
+        if self._diversity_enabled():
+            logger.debug(
+                f"[LLM Hook] 当前语言风格: "
+                f"{self._diversity_manager.get_current_style()}, "
+                f"回复模式: {self._diversity_manager.get_current_pattern()}"
+            )
         logger.debug(
             f"[LLM Hook] 注入内容数量: {len(injections)}项, "
             f"耗时: {time.time() - hook_start:.3f}s"

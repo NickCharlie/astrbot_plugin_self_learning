@@ -20,7 +20,7 @@ API 获取公开网页释义线索，再由筛选模型归纳成简明释义，�
 import asyncio
 import json
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import aiohttp
 
@@ -74,6 +74,13 @@ def _flatten_untrusted_text(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+def _has_search_keys(provider_settings: Dict[str, Any]) -> bool:
+    """Return whether *provider_settings* carries any usable search key."""
+    if not isinstance(provider_settings, dict):
+        return False
+    return any(_provider_keys(provider_settings, name) for name in _PROVIDER_KEY_SETTINGS)
+
+
 class WebSearchClient:
     """Minimal multi-provider web search client.
 
@@ -88,6 +95,13 @@ class WebSearchClient:
     and win over the AstrBot global keys, so users whose bot searches via
     MCP (which plugins cannot call) can still manually supply a key here
     (issue #293).
+
+    ``config_resolver`` optionally maps a chat id to that session's config
+    profile. AstrBot's multi-profile routing keeps search keys in
+    ``abconf_*.json``; reading only the default profile would silently miss
+    them (issue #324 follow-up). When no profile-specific keys are found the
+    client falls back to the default config, so single-profile setups behave
+    exactly as before.
     """
 
     def __init__(
@@ -95,8 +109,11 @@ class WebSearchClient:
         provider_settings_getter,
         override_provider: str = "",
         override_api_key: str = "",
+        session_settings_getter=None,
     ) -> None:
         self._get_settings = provider_settings_getter
+        # 可选：按会话（chat_id）返回该会话配置档案的 provider_settings
+        self._get_session_settings = session_settings_getter
         self._override_provider = str(override_provider or "").strip().lower()
         self._override_api_key = str(override_api_key or "").strip()
 
@@ -106,6 +123,7 @@ class WebSearchClient:
         astrbot_config: Any,
         override_provider: str = "",
         override_api_key: str = "",
+        config_resolver: Optional[Callable[[str], Any]] = None,
     ) -> Optional["WebSearchClient"]:
         """Build a client from the AstrBot main config; None if unavailable."""
         if astrbot_config is None:
@@ -117,17 +135,60 @@ class WebSearchClient:
             except Exception:
                 return {}
 
-        return cls(_get_settings, override_provider, override_api_key)
+        session_getter = None
+        if callable(config_resolver):
 
-    def _resolve_provider(self) -> Optional[str]:
+            def session_getter(chat_id: str) -> Dict[str, Any]:
+                try:
+                    profile_config = config_resolver(chat_id)
+                except Exception:
+                    return {}
+                if profile_config is None:
+                    return {}
+                try:
+                    return profile_config.get("provider_settings", {}) or {}
+                except Exception:
+                    return {}
+
+        return cls(
+            _get_settings,
+            override_provider,
+            override_api_key,
+            session_getter,
+        )
+
+    def _settings_for(self, chat_id: str = "") -> Dict[str, Any]:
+        """Return provider settings, preferring the session profile when set."""
+        if chat_id and self._get_session_settings is not None:
+            session_settings = self._get_session_settings(chat_id) or {}
+            if _has_search_keys(session_settings):
+                return session_settings
+        return self._get_settings()
+
+    def _key_for_provider(self, chat_id: str, provider: str) -> str:
+        """Look up *provider*'s key across the session and default settings.
+
+        The plugin-level provider choice must win even when the session
+        profile only carries a *different* provider's key; otherwise an
+        explicit selection would silently switch providers.
+        """
+        if chat_id and self._get_session_settings is not None:
+            session_settings = self._get_session_settings(chat_id) or {}
+            keys = _provider_keys(session_settings, provider)
+            if keys:
+                return keys[0]
+        keys = _provider_keys(self._get_settings(), provider)
+        return keys[0] if keys else ""
+
+    def _resolve_provider(self, chat_id: str = "") -> Optional[str]:
         if self._override_provider in _MANUAL_KEY_OPTIONAL_PROVIDERS:
             return self._override_provider
         if self._override_provider in _PROVIDER_KEY_SETTINGS and (
             self._override_api_key
-            or _provider_keys(self._get_settings(), self._override_provider)
+            or self._key_for_provider(chat_id, self._override_provider)
         ):
             return self._override_provider
-        settings = self._get_settings()
+        settings = self._settings_for(chat_id)
         preferred = str(settings.get("websearch_provider", "") or "")
         preferred = preferred.strip().lower()
         if preferred in _PROVIDER_KEY_SETTINGS and _provider_keys(
@@ -139,15 +200,17 @@ class WebSearchClient:
                 return provider
         return None
 
-    def available(self) -> bool:
-        return self._resolve_provider() is not None
+    def available(self, chat_id: str = "") -> bool:
+        return self._resolve_provider(chat_id) is not None
 
-    async def search(self, query: str, max_results: int = 5) -> List[Dict[str, str]]:
+    async def search(
+        self, query: str, max_results: int = 5, chat_id: str = ""
+    ) -> List[Dict[str, str]]:
         """Search the web; returns [{title, url, snippet}] (possibly empty)."""
-        provider = self._resolve_provider()
+        provider = self._resolve_provider(chat_id)
         if not provider:
             return []
-        settings = self._get_settings()
+        settings = self._settings_for(chat_id)
         try:
             if provider == "tavily":
                 return await self._search_tavily(settings, query, max_results)
@@ -373,15 +436,19 @@ class JargonWebDefinitionService:
         self,
         term: str,
         raw_content_list: Optional[List[str]] = None,
+        chat_id: str = "",
     ) -> Optional[str]:
         """Search the web for *term* and return a concise definition, or None.
 
         None means "no supplement available" (feature off, no provider,
         no usable results, or model could not confirm a definition) —
         callers should leave the term untouched in that case.
+
+        *chat_id* lets multi-profile deployments resolve that session's
+        config profile; without it the AstrBot default profile is used.
         """
         term = str(term or "").strip()
-        if not term or not self.web_client.available():
+        if not term or not self.web_client.available(chat_id=chat_id):
             return None
 
         async with self._lock:
@@ -390,15 +457,17 @@ class JargonWebDefinitionService:
             if wait > 0:
                 await asyncio.sleep(wait)
             try:
-                return await self._supplement_unlocked(term, raw_content_list or [])
+                return await self._supplement_unlocked(
+                    term, raw_content_list or [], chat_id
+                )
             finally:
                 self._last_call_ts = time.monotonic()
 
     async def _supplement_unlocked(
-        self, term: str, raw_content_list: List[str]
+        self, term: str, raw_content_list: List[str], chat_id: str = ""
     ) -> Optional[str]:
         query = f"{term} 网络用语 黑话 意思"
-        results = await self.web_client.search(query, max_results=5)
+        results = await self.web_client.search(query, max_results=5, chat_id=chat_id)
         if not results:
             logger.debug(f"[黑话联网释义] {term}: 无检索结果")
             return None
@@ -456,14 +525,21 @@ def build_web_definition_service(
     llm_adapter: FrameworkLLMAdapter,
     astrbot_config: Any,
     plugin_config: Any,
+    config_resolver: Optional[Callable[[str], Any]] = None,
 ) -> Optional[JargonWebDefinitionService]:
-    """Wire the supplement service from configs; None when disabled."""
+    """Wire the supplement service from configs; None when disabled.
+
+    *astrbot_config* must be AstrBot's global config (``context.get_config()``),
+    not the plugin-scoped config — issue #324. *config_resolver* optionally maps
+    a chat id to that session's config profile for multi-profile deployments.
+    """
     if not bool(getattr(plugin_config, "jargon_websearch_enabled", True)):
         return None
     client = WebSearchClient.from_astrbot_config(
         astrbot_config,
         override_provider=getattr(plugin_config, "jargon_websearch_provider", ""),
         override_api_key=getattr(plugin_config, "jargon_websearch_api_key", ""),
+        config_resolver=config_resolver,
     )
     if client is None:
         return None

@@ -306,6 +306,8 @@ class PluginConfig(BaseModel):
     enable_llm_hooks: bool = False       # 启用 LLM Hook 上下文注入，默认关闭以避免高频调用
     llm_hook_context_timeout: float = 3.0  # LLM Hook 单个上下文源超时（秒）
     enable_command_pass_through: bool = True # 命令消息直接放行：跳过 LLM Hook 上下文注入，保证命令响应速度
+    enable_diversity_injection: bool = True # LLM Hook 多样性注入（随机风格/回复模式/表达变化/历史回复避重），关闭后只保留其他上下文（issue #325）
+    enable_psychological_injection: bool = True # LLM Hook 深度心理状态注入，关闭后不再分析心理画像（issue #325）
 
     # PersonaUpdater配置
     persona_merge_strategy: str = "smart" # 人格合并策略: "replace", "append", "prepend", "smart"
@@ -739,6 +741,12 @@ class PluginConfig(BaseModel):
             llm_hook_context_timeout=float(runtime_internal_settings.get('llm_hook_context_timeout', 3.0)),
             enable_command_pass_through=runtime_internal_settings.get(
                 'enable_command_pass_through', True
+            ),
+            enable_diversity_injection=runtime_internal_settings.get(
+                'enable_diversity_injection', True
+            ),
+            enable_psychological_injection=runtime_internal_settings.get(
+                'enable_psychological_injection', True
             ),
             llm_hook_injection_target=runtime_internal_settings.get(
                 'llm_hook_injection_target',

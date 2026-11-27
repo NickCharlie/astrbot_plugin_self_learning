@@ -255,7 +255,7 @@ WebUI 更新配置后如果包含重启项，响应消息会提示部分变更�
 
 ## 完整配置参考
 
-以下 152 个配置项按 24 个配置组列出，内容与 AstrBot 插件配置页一致。
+以下 154 个配置项按 24 个配置组列出，内容与 AstrBot 插件配置页一致。
 
 ### 依赖安装
 
@@ -594,6 +594,8 @@ WebUI 更新配置后如果包含重启项，响应消息会提示部分变更�
 | `llm_hook_injection_target` | 文本 | `extra_user_content_parts` | **LLM Hook 注入目标**：推荐保持 extra_user_content_parts：动态上下文会追加到用户消息尾部并标记为临时内容，避免改动 system_prompt 影响 provider prefix cache。system_prompt/prompt 仅作为旧版 AstrBot fallback<br>可选：`extra_user_content_parts`（extra_user_content_parts（推荐）） / `system_prompt`（system_prompt（旧版 fallback）） / `prompt`（prompt（旧版 fallback）） |
 | `enable_llm_hooks` | 布尔 | `false` | **启用 LLM Hook 上下文注入**：开启后每次回复前会并行拉取社交、记忆、黑话、few-shot 等上下文；默认关闭以避免高频模型调用 |
 | `enable_command_pass_through` | 布尔 | `true` | **命令消息直接放行**：开启后，以系统级命令前缀（/ ! # . 等）开头的命令消息会跳过 LLM Hook 上下文注入直接处理，避免功能命令响应被拉长 |
+| `enable_diversity_injection` | 布尔 | `true` | **多样性注入（随机风格/回复模式/历史避重）**：开启 LLM Hook 后是否额外注入随机语言风格、推荐回复模式、句式指引与最近回复摘录。关闭后仍保留社交、好感、情绪、黑话、记忆等其他上下文，可只留需要的部分（issue #325） |
+| `enable_psychological_injection` | 布尔 | `true` | **心理状态注入**：是否在社交上下文中注入深度心理状态分析与由此衍生的行为指导。关闭后减少一次心理画像查询，提示词更短（issue #325） |
 | `use_sqlalchemy` | 布尔 | `true` | **强制使用 SQLAlchemy ORM**：当前版本固定为 true，用于统一 SQLite / MySQL / PostgreSQL 表结构<br>（只读） |
 | `enable_memory_cleanup` | 布尔 | `true` | **启用记忆自动清理**：开启后会定期清理过旧或低重要度的记忆数据 |
 | `memory_cleanup_days` | 整数 | `30` | **记忆保留天数**：低于该天数阈值的旧记忆会被清理 |
