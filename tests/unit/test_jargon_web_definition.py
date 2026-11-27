@@ -462,7 +462,10 @@ async def test_no_info_branch_triggers_web_supplement():
 
     await miner.infer_and_update(jargon)
 
-    service.supplement.assert_awaited_once_with("yyds", ["上下文一"])
+    # chat_id 透传是多配置文件命中子配置的前提（issue #324 补充建议）
+    service.supplement.assert_awaited_once_with(
+        "yyds", ["上下文一"], chat_id="group-a"
+    )
     updated = db.update_jargon.await_args.args[0]
     assert updated["is_jargon"] is True
     assert "网络流行语" in updated["meaning"]
@@ -576,7 +579,7 @@ async def test_sweep_task_registered_with_tracker():
 async def test_rare_term_sweep_limited_and_sorted_by_count():
     supplement_calls = []
 
-    async def record_supplement(term, raw_content_list=None):
+    async def record_supplement(term, raw_content_list=None, chat_id=""):
         supplement_calls.append(term)
         return "联网释义"
 
@@ -618,3 +621,61 @@ def test_miner_without_service_defaults_to_none():
         config=SimpleNamespace(),
     )
     assert miner.web_definition_service is None
+
+
+# ---------------------------------------------------------------------------
+# issue #324：跟随 AstrBot 配置必须读全局配置，并支持多配置文件按会话解析
+# ---------------------------------------------------------------------------
+
+
+def test_build_service_reads_global_provider_settings():
+    """全局配置里的搜索密钥必须能被“跟随 AstrBot 配置”读取到。"""
+    global_config = {"provider_settings": _settings(websearch_tavily_key=["global-key"])}
+    service = build_web_definition_service(
+        llm_adapter=object(),
+        astrbot_config=global_config,
+        plugin_config=SimpleNamespace(jargon_websearch_enabled=True),
+    )
+
+    assert service is not None
+    assert service.web_client.available() is True
+    assert service.web_client._resolve_provider() == "tavily"
+
+
+def test_client_prefers_session_profile_keys_over_default():
+    """多配置场景：子配置有密钥时用子配置，没有时回落到默认配置。"""
+    default_config = {"provider_settings": _settings(websearch_bocha_key=["default-key"])}
+    profiles = {
+        "umo-a": {"provider_settings": _settings(websearch_exa_key=["profile-key"])},
+        # 子配置没开联网搜索：必须回落到默认配置，而不是判定为不可用
+        "umo-b": {"provider_settings": _settings()},
+    }
+    client = WebSearchClient.from_astrbot_config(
+        default_config,
+        config_resolver=profiles.get,
+    )
+
+    assert client.available(chat_id="umo-a") is True
+    assert client._resolve_provider(chat_id="umo-a") == "exa"
+    assert client._resolve_provider(chat_id="umo-b") == "bocha"
+    assert client._resolve_provider(chat_id="umo-missing") == "bocha"
+
+
+@pytest.mark.asyncio
+async def test_supplement_forwards_chat_id_to_session_profile():
+    """supplement 必须把 chat_id 透传给搜索客户端，否则子配置永远命中不了。"""
+    default_config = {"provider_settings": _settings()}
+    profiles = {
+        "group-a": {"provider_settings": _settings(websearch_tavily_key=["profile-key"])}
+    }
+    client = WebSearchClient.from_astrbot_config(
+        default_config, config_resolver=profiles.get
+    )
+    search = AsyncMock(return_value=[])
+    client.search = search
+    service = JargonWebDefinitionService(SimpleNamespace(), client)
+
+    # 默认配置无密钥，但会话档案有：应完成一次搜索而不是静默跳过
+    assert await service.supplement("某词", [], chat_id="group-a") is None
+    search.assert_awaited_once()
+    assert search.await_args.kwargs["chat_id"] == "group-a"

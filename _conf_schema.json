@@ -1016,6 +1016,18 @@
         "hint": "开启后，以系统级命令前缀（/ ! # . 等）开头的命令消息会跳过 LLM Hook 上下文注入直接处理，避免功能命令响应被拉长",
         "default": true
       },
+      "enable_diversity_injection": {
+        "description": "多样性注入（随机风格/回复模式/历史避重）",
+        "type": "bool",
+        "hint": "开启 LLM Hook 后是否额外注入随机语言风格、推荐回复模式、句式指引与最近回复摘录。关闭后仍保留社交、好感、情绪、黑话、记忆等其他上下文，可只留需要的部分（issue #325）",
+        "default": true
+      },
+      "enable_psychological_injection": {
+        "description": "心理状态注入",
+        "type": "bool",
+        "hint": "是否在社交上下文中注入深度心理状态分析与由此衍生的行为指导。关闭后减少一次心理画像查询，提示词更短（issue #325）",
+        "default": true
+      },
       "use_sqlalchemy": {
         "description": "强制使用 SQLAlchemy ORM",
         "type": "bool",

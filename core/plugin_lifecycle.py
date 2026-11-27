@@ -1,6 +1,6 @@
 """插件全生命周期编排 — 服务初始化 → 异步启动 → 有序关停"""
 import asyncio
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Dict, Optional, TYPE_CHECKING
 
 from astrbot.api import logger
 
@@ -11,6 +11,56 @@ from ..statics.messages import StatusMessages, LogMessages
 
 if TYPE_CHECKING:
     pass # 避免循环导入
+
+
+def _astrbot_global_config(plugin: Any, context: Any) -> Any:
+    """Return AstrBot's *global* config, not the plugin-scoped one.
+
+    ``plugin.config`` is the per-plugin ``AstrBotConfig`` built from
+    ``_conf_schema.json`` (see ``star_manager``); it never contains
+    ``provider_settings``. Code that needs AstrBot's own settings (web
+    search keys, provider pool, ...) must read ``context.get_config()``
+    instead — issue #324.
+    """
+    getter = getattr(context, "get_config", None)
+    if callable(getter):
+        try:
+            config = getter()
+            if config is not None:
+                return config
+        except Exception as exc:
+            logger.warning(f"读取 AstrBot 全局配置失败，回退到插件配置: {exc}")
+    # 旧版框架没有 context.get_config()：保留原行为，让调用方自行降级
+    return getattr(plugin, "config", None)
+
+
+def _session_config_resolver(context: Any, umo_map: Dict[str, str]) -> Optional[Any]:
+    """Build a ``chat_id → config`` resolver for AstrBot multi-profile routing.
+
+    AstrBot keeps per-session settings in ``abconf_*.json`` profiles, so a
+    deployment that only enables web search in a sub-profile has an empty
+    default ``provider_settings``. Resolving by UMO lets the jargon web
+    definition reuse those keys instead of silently skipping (issue #324).
+
+    Returns ``None`` when the framework cannot resolve per-session config,
+    which keeps the client on the default profile.
+    """
+    getter = getattr(context, "get_config", None)
+    if not callable(getter):
+        return None
+
+    def resolve(chat_id: str) -> Any:
+        umo = umo_map.get(chat_id) if umo_map else None
+        # 只有拿到 UMO 才可能命中子配置；否则由调用方回落到默认配置。
+        if not umo:
+            return None
+        try:
+            return getter(umo)
+        except Exception as exc:
+            logger.debug(f"按会话读取 AstrBot 配置失败 (umo={umo}): {exc}")
+            return None
+
+    return resolve
 
 
 class PluginLifecycle:
@@ -122,8 +172,11 @@ class PluginLifecycle:
             llm_adapter = p.service_factory.create_framework_llm_adapter()
             p.jargon_web_definition_service = build_web_definition_service(
                 llm_adapter=llm_adapter,
-                astrbot_config=getattr(p, "config", None),
+                astrbot_config=_astrbot_global_config(p, context),
                 plugin_config=plugin_config,
+                config_resolver=_session_config_resolver(
+                    context, group_id_to_unified_origin
+                ),
             )
             if p.jargon_web_definition_service is not None:
                 logger.info("黑话联网释义补充已启用（跟随 AstrBot 联网搜索配置）")

@@ -63,6 +63,15 @@ def _hook_config(**overrides):
         "enable_llm_hooks": True,
         "enable_command_pass_through": True,
         "llm_hook_context_timeout": 0.5,
+        # 社交/多样性上下文注入所需字段。默认关闭，让既有用例只关注意图中的开关。
+        "enable_social_context_injection": False,
+        "include_social_relations": True,
+        "include_affection_info": True,
+        "include_mood_info": True,
+        "enable_expression_patterns": True,
+        "enable_psychological_injection": True,
+        "enable_diversity_injection": True,
+        "enable_goal_driven_chat": False,
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -386,3 +395,81 @@ async def test_clean_rag_cache_reports_non_lightrag_engine():
     )
 
     assert any("不是 lightrag" in reply for reply in replies)
+
+
+# ---------------------------------------------------------------------------
+# Issue #325: 注入源可按开关独立关闭
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_disabling_diversity_keeps_other_sources_running():
+    """关闭多样性只应关掉它自己，不能连社交/黑话/记忆一起跳过。"""
+    diversity_manager = AsyncMock()
+    diversity_manager.build_diversity_prompt_injection.return_value = "风格注入"
+    social_injector = AsyncMock()
+    social_injector.format_complete_context.return_value = "社交上下文"
+    handler = LLMHookHandler(
+        plugin_config=_hook_config(
+            enable_diversity_injection=False,
+            enable_social_context_injection=True,
+        ),
+        diversity_manager=diversity_manager,
+        social_context_injector=social_injector,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+    )
+    req = SimpleNamespace(prompt="今天天气怎么样", extra_user_content_parts=None)
+
+    await handler.handle(_make_event("今天天气怎么样"), req)
+
+    diversity_manager.build_diversity_prompt_injection.assert_not_awaited()
+    social_injector.format_complete_context.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_diversity_still_injects_with_switch_on():
+    """开关默认为开启，既有行为不能回归。"""
+    diversity_manager = AsyncMock()
+    diversity_manager.build_diversity_prompt_injection.return_value = "风格注入"
+    handler = _make_handler(_hook_config(), diversity_manager)
+    req = SimpleNamespace(prompt="今天天气怎么样", extra_user_content_parts=None)
+
+    await handler.handle(_make_event("今天天气怎么样"), req)
+
+    diversity_manager.build_diversity_prompt_injection.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_mood_and_psychological_flags_reach_social_injector():
+    """include_mood_info / enable_psychological_injection 必须真正生效。"""
+    social_injector = AsyncMock()
+    social_injector.format_complete_context.return_value = None
+    handler = LLMHookHandler(
+        plugin_config=_hook_config(
+            include_mood_info=False,
+            enable_psychological_injection=False,
+            enable_social_context_injection=True,
+            include_social_relations=True,
+            include_affection_info=True,
+            enable_expression_patterns=True,
+            enable_goal_driven_chat=False,
+        ),
+        diversity_manager=AsyncMock(),
+        social_context_injector=social_injector,
+        v2_integration=None,
+        jargon_query_service=None,
+        temporary_persona_updater=None,
+        perf_tracker=SimpleNamespace(record=lambda payload: None),
+        group_id_to_unified_origin={},
+    )
+    req = SimpleNamespace(prompt="今天天气怎么样", extra_user_content_parts=None)
+
+    await handler.handle(_make_event("今天天气怎么样"), req)
+
+    kwargs = social_injector.format_complete_context.await_args.kwargs
+    assert kwargs["include_mood"] is False
+    assert kwargs["include_psychological"] is False

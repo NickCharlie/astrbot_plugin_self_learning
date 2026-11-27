@@ -689,7 +689,9 @@ class JargonMiner(AsyncServiceBase):
 
         try:
             meaning = await service.supplement(
-                jargon.content, self._raw_content_list(jargon)
+                jargon.content,
+                self._raw_content_list(jargon),
+                chat_id=jargon.chat_id or self.chat_id,
             )
         except Exception as exc:
             logger.debug(
