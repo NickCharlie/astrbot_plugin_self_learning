@@ -2,6 +2,39 @@
 
 所有重要更改都将记录在此文件中。
 
+## [4.9.9] - 2026-11-27
+
+### 修复：黑话联网释义「跟随 AstrBot 配置」永远读不到全局搜索密钥（issue #324）
+
+- 根因：`core/plugin_lifecycle.py` 初始化联网释义服务时传入 `getattr(plugin, "config", None)`。AstrBot 传给插件的 `config` 是按插件 `_conf_schema.json` 生成的**插件级**配置（`star_manager.py` 中 `AstrBotConfig(config_path=.../{插件名}_config.json, schema=...)`），只含插件自己的分组，不存在 `provider_settings`；全局配置必须走 `context.get_config()`。因此 `WebSearchClient` 读到的 `provider_settings` 恒为空，`available()` 恒 `False`，联网补释义静默跳过——而启动日志仍提示「已启用」。
+- 修复：新增 `_astrbot_global_config()`，优先 `context.get_config()`，旧版框架无该方法时保留原行为。
+- 采纳 issue 中的补充建议，支持 AstrBot 多配置文件路由：新增可选 `config_resolver`，按 group_id → UMO 解析该会话的 `abconf` 档案；档案内含搜索密钥则优先使用，否则回落默认配置，单配置部署行为完全不变。`JargonMiner` 现将 `chat_id` 透传给 `supplement()`。
+
+### 新增：注入源可独立开关（issue #325）
+
+- 新增 `enable_diversity_injection`：此前开启 `enable_llm_hooks` 后会强制附带随机语言风格、推荐回复模式、句式指引与最近 5 条历史回复摘录，无法单独关闭。现可只保留黑话/好感/情绪等需要的上下文。
+- 新增 `enable_psychological_injection`：此前 `include_psychological` 硬编码为 `True` 且无配置项。关闭后同时停掉行为指导的后台心理画像生成，而不只是隐藏输出。
+- 修复 `include_mood_info` 在 LLM Hook 链路失效：该值此前被硬编码为 `include_mood=False`，而 `IntelligentResponder` 走的是配置值，同一开关在两条注入链路上行为相反。
+- 修复一处耦合缺陷：`diversity_manager` 未初始化时 `LLMHookHandler.handle()` 直接 `return`，连带跳过社交、黑话、V2、few-shot、影子等全部注入。现改为只跳过多样性来源。
+- 同步 `_conf_schema.json`、WebUI `runtime_fields` 与 `docs/configuration.md`（由 `gen_config_reference.py` 重新生成）。
+
+### 修复：黑话统计预筛的健壮性与内存上限
+
+- `_STOPWORDS` 原本在 `_is_stopword()` 内每次调用重建约 170 项 frozenset（实测 2.04 µs/次，提到模块级后 0.03 µs），而该函数位于每条消息每个 token 的热路径上。
+- `jieba` 未安装时 `_ensure_jieba()` 的 `except ImportError` 不置位、`import jieba` 又在调用方，导致每条消息都抛 `ImportError` 且告警日志重复刷。现在只尝试一次，失败后降级为「无统计候选」，挖掘器自然回退到 LLM 提取。
+- 删除只写不读的死状态 `_dirty_groups` 与 `_global_term_freq`。
+- 群组表改为 LRU（上限 50），单群词表上限 2000，单个词条的发送者表上限 50；淘汰时同步清理辅助表，避免长跑后内存单调增长。
+- 词表淘汰改为按（频次, 首次出现时间）双键排序：原先只按时间戳，同一批消息内时间相同会导致淘汰顺序不确定并可能丢失高频词。
+
+### 修复：联网补释义写回不再覆盖并发更新
+
+- `_supplement_via_web` 原先把读取到的整行快照重新提交，而 `update_jargon` 是逐字段覆盖，会回退掉读取之后并发写入的 `count` 与 `raw_content`。现只提交 `id` 与其释义相关字段。
+- 手动指定搜索厂商但未填 API Key 时，不再因为会话档案中含有**其他**厂商的密钥而改走其他厂商。
+
+### 版本
+
+- 版本号由 4.9.8 提升至 **4.9.9**（缺陷修复 + 配置开关，patch）。
+
 ## [4.9.8] - 2026-11-26
 
 ### 修复：Bug 反馈改走 GitHub issue 模板（云函数已欠费停服）
