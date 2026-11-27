@@ -343,6 +343,10 @@ _RESTART_REQUIRED_KEYS = {
     "postgresql_schema",
     "use_sqlalchemy",
     "enable_learning_sweep",
+    # WebSearchClient 在 bootstrap 时就把厂商与 Key 拷贝进去了，
+    # 改这两项不会重建 jargon_web_definition_service，需重启才生效。
+    "jargon_websearch_provider",
+    "jargon_websearch_api_key",
 }
 
 _SENSITIVE_RESPONSE_KEYS = {

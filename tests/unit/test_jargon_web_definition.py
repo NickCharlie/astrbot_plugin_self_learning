@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from self_learning_EterU.models.jargon import Jargon
+from self_learning_EterU.services.jargon import web_search_definition as jwf
 from self_learning_EterU.services.jargon.jargon_miner import JargonMiner
 from self_learning_EterU.services.jargon.web_search_definition import (
     JargonWebDefinitionService,
@@ -782,3 +783,85 @@ def test_manual_provider_wins_over_session_profile_keys():
     )
 
     assert client._resolve_provider(chat_id="umo-a") == "tavily"
+
+
+# ---------------------------------------------------------------------------
+# 边界与健壮性：非正结果数、畸形响应行、失败可见性
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_non_positive_max_results_returns_nothing():
+    """max_results<=0 时任何厂商都不该返回结果（answer 也不例外）。"""
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="specstream",
+        override_api_key="ss_manual",
+    )
+
+    async def fake_fetch(*args, **kwargs):
+        raise AssertionError("不应发起请求")
+
+    client._fetch_json = fake_fetch
+
+    for limit in (0, -1):
+        assert await client.search("任意查询", max_results=limit) == []
+
+
+@pytest.mark.asyncio
+async def test_malformed_result_rows_are_skipped_not_fatal():
+    """第三方返回非对象行（字符串/None）时跳过该行，而不是整个搜索崩掉。"""
+    client = WebSearchClient(
+        lambda: _settings(websearch_tavily_key=["k"]),
+        override_provider="tavily",
+    )
+
+    async def fake_fetch(*args, **kwargs):
+        return {
+            "results": [
+                "这是一个字符串行",
+                None,
+                {"title": "正常行", "url": "https://example.com", "content": "片段"},
+            ]
+        }
+
+    client._fetch_json = fake_fetch
+
+    results = await client.search("任意查询")
+
+    assert results == [
+        {"title": "正常行", "url": "https://example.com", "snippet": "片段"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_search_failure_is_warned_once_per_window(monkeypatch, caplog):
+    """Key 填错/欠费时不能只留 debug；同一厂商在一个窗口内只告警一次。"""
+    warnings = []
+
+    class _Recorder:
+        def debug(self, msg, *args, **kwargs):
+            pass
+
+        def warning(self, msg, *args, **kwargs):
+            warnings.append(str(msg))
+
+    monkeypatch.setattr(jwf, "logger", _Recorder())
+
+    client = WebSearchClient(
+        lambda: _settings(),
+        override_provider="specstream",
+        override_api_key="bad-key",
+    )
+
+    async def failing_fetch(*args, **kwargs):
+        raise RuntimeError("search provider returned 401: unauthorized")
+
+    client._fetch_json = failing_fetch
+
+    for _ in range(3):
+        assert await client.search("任意查询") == []
+
+    assert len(warnings) == 1
+    assert "401" in warnings[0]
+    assert "specstream" in warnings[0]

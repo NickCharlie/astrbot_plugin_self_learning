@@ -202,6 +202,11 @@ class TestConfigServiceSchema:
         assert basic_fields["webui_initial_password"]["value"] == ""
         assert basic_fields["webui_initial_password"]["secret"] is True
 
+        # WebSearchClient 在 bootstrap 时快照了厂商与 Key，运行时改动不会重建
+        # 该服务，因此这两项必须如实标注需要重启。
+        assert basic_fields["jargon_websearch_provider"]["restart_required"] is True
+        assert basic_fields["jargon_websearch_api_key"]["restart_required"] is True
+
         database_fields = {field["key"]: field for field in groups["Database_Settings"]["fields"]}
         assert database_fields["mysql_password"]["widget"] == "password"
         assert database_fields["mysql_password"]["value"] == ""

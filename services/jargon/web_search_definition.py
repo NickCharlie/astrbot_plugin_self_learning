@@ -57,6 +57,9 @@ _SPECSTREAM_SEARCH_URL = "https://api.specstream.ai/v1/web-search"
 
 _SEARCH_TIMEOUT_SECONDS = 10.0
 
+# 同一厂商的搜索失败告警节流窗口（秒），避免配额耗尽时刷屏。
+_SEARCH_FAILURE_WARN_INTERVAL_SECONDS = 600.0
+
 
 def _provider_keys(provider_settings: Dict[str, Any], provider: str) -> List[str]:
     """Return the configured API keys for *provider* (may be empty)."""
@@ -78,6 +81,36 @@ def _provider_keys(provider_settings: Dict[str, Any], provider: str) -> List[str
 def _flatten_untrusted_text(value: Any, limit: int) -> str:
     """Collapse third-party web text to one line so it cannot forge prompt sections."""
     return " ".join(str(value or "").split())[:limit]
+
+
+def _collect_results(
+    rows: Any, keys: Dict[str, "str | tuple[str, ...]"]
+) -> List[Dict[str, str]]:
+    """Normalise a provider's result rows into ``{title, url, snippet}``.
+
+    Third-party payloads are untrusted: a row may be a bare string or ``None``
+    instead of an object. Skipping non-mapping rows keeps a malformed entry
+    from aborting the whole search with ``AttributeError``.
+
+    *keys* maps each output field to a provider field name, or to a tuple of
+    candidates tried in order (first non-empty wins).
+    """
+    if not isinstance(rows, (list, tuple)):
+        return []
+
+    def _pick(row: Dict[str, Any], source: "str | tuple[str, ...]") -> str:
+        candidates = (source,) if isinstance(source, str) else source
+        for name in candidates:
+            value = row.get(name)
+            if value:
+                return str(value)
+        return ""
+
+    return [
+        {field: _pick(row, source) for field, source in keys.items()}
+        for row in rows
+        if isinstance(row, dict)
+    ]
 
 
 def _has_search_keys(provider_settings: Dict[str, Any]) -> bool:
@@ -122,6 +155,8 @@ class WebSearchClient:
         self._get_session_settings = session_settings_getter
         self._override_provider = str(override_provider or "").strip().lower()
         self._override_api_key = str(override_api_key or "").strip()
+        # provider → 上次失败告警时间（monotonic），用于节流
+        self._last_failure_warn_ts: Dict[str, float] = {}
 
     @classmethod
     def from_astrbot_config(
@@ -216,7 +251,7 @@ class WebSearchClient:
     ) -> List[Dict[str, str]]:
         """Search the web; returns [{title, url, snippet}] (possibly empty)."""
         provider = self._resolve_provider(chat_id)
-        if not provider:
+        if not provider or max_results <= 0:
             return []
         settings = self._settings_for(chat_id)
         try:
@@ -235,8 +270,25 @@ class WebSearchClient:
         except asyncio.TimeoutError:
             logger.debug(f"[黑话联网释义] 搜索超时: {provider}")
         except Exception as exc:
-            logger.debug(f"[黑话联网释义] 搜索失败 ({provider}): {exc}")
+            # 搜索失败只影响可选增强，不能打断学习流程；但 Key 填错/欠费时
+            # 只留 debug 会让用户完全无从察觉，因此补一条节流后的 warning。
+            self._warn_search_failure(provider, exc)
         return []
+
+    def _warn_search_failure(self, provider: str, exc: Exception) -> None:
+        """Log a failure visibly, at most once per interval per provider."""
+        now = time.monotonic()
+        last = self._last_failure_warn_ts.get(provider, 0.0)
+        if now - last < _SEARCH_FAILURE_WARN_INTERVAL_SECONDS:
+            logger.debug(f"[黑话联网释义] 搜索失败 ({provider}): {exc}")
+            return
+        self._last_failure_warn_ts[provider] = now
+        logger.warning(
+            f"[黑话联网释义] 搜索失败 ({provider}): {exc}。"
+            f"联网释义将跳过本次词条；同一厂商的同类告警 "
+            f"{_SEARCH_FAILURE_WARN_INTERVAL_SECONDS:.0f} 秒内只提示一次，"
+            f"请检查该厂商的 API Key 与配额"
+        )
 
     async def _fetch_json(
         self,
@@ -280,14 +332,10 @@ class WebSearchClient:
             },
             payload={"query": query, "max_results": max_results},
         )
-        return [
-            {
-                "title": str(item.get("title") or ""),
-                "url": str(item.get("url") or ""),
-                "snippet": str(item.get("content") or ""),
-            }
-            for item in data.get("results", [])
-        ]
+        return _collect_results(
+            data.get("results", []),
+            {"title": "title", "url": "url", "snippet": "content"},
+        )
 
     async def _search_bocha(
         self, settings: Dict[str, Any], query: str, max_results: int
@@ -307,14 +355,10 @@ class WebSearchClient:
             if isinstance(data.get("data"), dict)
             else []
         )
-        return [
-            {
-                "title": str(item.get("name") or ""),
-                "url": str(item.get("url") or ""),
-                "snippet": str(item.get("snippet") or ""),
-            }
-            for item in rows
-        ]
+        return _collect_results(
+            rows,
+            {"title": "name", "url": "url", "snippet": "snippet"},
+        )
 
     async def _search_exa(
         self, settings: Dict[str, Any], query: str, max_results: int
@@ -332,19 +376,25 @@ class WebSearchClient:
                 "contents": {"text": {"maxCharacters": 400}},
             },
         )
-        return [
-            {
-                "title": str(item.get("title") or ""),
-                "url": str(item.get("url") or ""),
-                "snippet": str(
-                    item.get("text")
-                    or (item.get("highlights") or [""])[0]
-                    or item.get("summary")
-                    or ""
-                ),
-            }
-            for item in data.get("results", [])
-        ]
+        results: List[Dict[str, str]] = []
+        for item in data.get("results", []) or []:
+            if not isinstance(item, dict):
+                continue
+            highlights = item.get("highlights") or [""]
+            first_highlight = highlights[0] if highlights else ""
+            results.append(
+                {
+                    "title": str(item.get("title") or ""),
+                    "url": str(item.get("url") or ""),
+                    "snippet": str(
+                        item.get("text")
+                        or first_highlight
+                        or item.get("summary")
+                        or ""
+                    ),
+                }
+            )
+        return results
 
     async def _search_baidu(
         self, settings: Dict[str, Any], query: str, max_results: int
@@ -364,14 +414,10 @@ class WebSearchClient:
                 "resource_type_filter": [{"type": "web", "top_k": max_results}],
             },
         )
-        return [
-            {
-                "title": str(item.get("title") or ""),
-                "url": str(item.get("url") or ""),
-                "snippet": str(item.get("content") or ""),
-            }
-            for item in data.get("references", [])
-        ]
+        return _collect_results(
+            data.get("references", []),
+            {"title": "title", "url": "url", "snippet": "content"},
+        )
 
     async def _search_keenable(
         self, query: str, max_results: int
@@ -389,20 +435,22 @@ class WebSearchClient:
             headers=headers,
             payload={"query": query, "max_results": max(1, min(int(max_results), 50))},
         )
-        return [
+        return _collect_results(
+            data.get("results", []),
             {
-                "title": str(item.get("title") or ""),
-                "url": str(item.get("url") or ""),
-                "snippet": str(item.get("snippet") or item.get("description") or ""),
-            }
-            for item in data.get("results", [])
-        ]
+                "title": "title",
+                "url": "url",
+                "snippet": ("snippet", "description"),
+            },
+        )
 
     async def _search_specstream(
         self, query: str, max_results: int
     ) -> List[Dict[str, str]]:
         """SpecStream：必须填写 Key（Bearer）。返回的 answer 是从某一页读出的
         简短结论，带出处页面，放在结果首位；其后是 sources 里的搜索结果。"""
+        if max_results <= 0:
+            return []
         data = await self._fetch_json(
             "GET",
             _SPECSTREAM_SEARCH_URL,
@@ -420,16 +468,13 @@ class WebSearchClient:
                     "snippet": str(answer.get("value") or ""),
                 }
             )
-        for item in body.get("sources") or []:
+        for item in _collect_results(
+            body.get("sources") or [],
+            {"title": "title", "url": "url", "snippet": "snippet"},
+        ):
             if len(results) >= max_results:
                 break
-            results.append(
-                {
-                    "title": str(item.get("title") or ""),
-                    "url": str(item.get("url") or ""),
-                    "snippet": str(item.get("snippet") or ""),
-                }
-            )
+            results.append(item)
         return results
 
 
