@@ -165,15 +165,30 @@ class WebSearchClient:
                 return session_settings
         return self._get_settings()
 
+    def _key_for_provider(self, chat_id: str, provider: str) -> str:
+        """Look up *provider*'s key across the session and default settings.
+
+        The plugin-level provider choice must win even when the session
+        profile only carries a *different* provider's key; otherwise an
+        explicit selection would silently switch providers.
+        """
+        if chat_id and self._get_session_settings is not None:
+            session_settings = self._get_session_settings(chat_id) or {}
+            keys = _provider_keys(session_settings, provider)
+            if keys:
+                return keys[0]
+        keys = _provider_keys(self._get_settings(), provider)
+        return keys[0] if keys else ""
+
     def _resolve_provider(self, chat_id: str = "") -> Optional[str]:
         if self._override_provider in _MANUAL_KEY_OPTIONAL_PROVIDERS:
             return self._override_provider
-        settings = self._settings_for(chat_id)
         if self._override_provider in _PROVIDER_KEY_SETTINGS and (
             self._override_api_key
-            or _provider_keys(settings, self._override_provider)
+            or self._key_for_provider(chat_id, self._override_provider)
         ):
             return self._override_provider
+        settings = self._settings_for(chat_id)
         preferred = str(settings.get("websearch_provider", "") or "")
         preferred = preferred.strip().lower()
         if preferred in _PROVIDER_KEY_SETTINGS and _provider_keys(

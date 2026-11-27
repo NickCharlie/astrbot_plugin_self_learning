@@ -41,6 +41,9 @@ _MAX_CONTEXT_EXAMPLES = 10
 # (oldest first-seen) terms are dropped once the cap is reached.
 _MAX_TRACKED_GROUPS = 50
 _MAX_TERMS_PER_GROUP = 2000
+# Per-term sender map cap. Only the unique-user *count* feeds the score, so
+# keeping the most active senders is enough to stop unbounded growth.
+_MAX_SENDERS_PER_TERM = 50
 
 # Jieba dictionary frequency threshold.
 # Words with frequency > this value in jieba's built-in dictionary are treated
@@ -170,8 +173,11 @@ class JargonStatisticalFilter:
 
         for token in tokens:
             group_freq[token] = group_freq.get(token, 0) + 1
-            user_freq.setdefault(token, {})
-            user_freq[token][sender_id] = user_freq[token].get(sender_id, 0) + 1
+            senders = user_freq.setdefault(token, {})
+            senders[sender_id] = senders.get(sender_id, 0) + 1
+            # 用户集中度只需要“多少人用过”，超出上限的发送者按低频处理。
+            if len(senders) > _MAX_SENDERS_PER_TERM:
+                self._prune_senders(senders)
 
             if token not in first_seen:
                 first_seen[token] = now
@@ -204,14 +210,22 @@ class JargonStatisticalFilter:
         self._term_contexts[group_id] = {}
 
     def _evict_cold_terms(self, group_id: str) -> None:
-        """Drop the oldest-seen terms once a group exceeds its term cap."""
+        """Drop the least useful terms once a group exceeds its term cap.
+
+        "Least useful" = lowest frequency first, then oldest first-seen. Terms
+        seen once in a burst all share a timestamp, so frequency is the only
+        stable tie-breaker that keeps the actually recurring vocabulary.
+        """
         term_freq = self._group_term_freq.get(group_id)
         if not term_freq or len(term_freq) <= _MAX_TERMS_PER_GROUP:
             return
 
         first_seen = self._term_first_seen.get(group_id, {})
         overflow = len(term_freq) - _MAX_TERMS_PER_GROUP
-        coldest = sorted(term_freq, key=lambda term: first_seen.get(term, 0.0))[:overflow]
+        coldest = sorted(
+            term_freq,
+            key=lambda term: (term_freq.get(term, 0), first_seen.get(term, 0.0)),
+        )[:overflow]
         for term in coldest:
             term_freq.pop(term, None)
             self._user_term_freq.get(group_id, {}).pop(term, None)
@@ -228,6 +242,14 @@ class JargonStatisticalFilter:
         self._user_term_freq.pop(group_id, None)
         self._term_first_seen.pop(group_id, None)
         self._term_contexts.pop(group_id, None)
+
+    @staticmethod
+    def _prune_senders(senders: Dict[str, int]) -> None:
+        """Keep only the most active senders so the map stays bounded."""
+        keep = sorted(senders, key=senders.get, reverse=True)[:_MAX_SENDERS_PER_TERM]
+        for sender_id in list(senders):
+            if sender_id not in keep:
+                del senders[sender_id]
 
     def get_jargon_candidates(
         self,

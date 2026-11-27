@@ -38,31 +38,66 @@ def test_missing_jieba_degrades_instead_of_raising(monkeypatch):
 
 
 @pytest.mark.unit
-def test_tracked_groups_and_terms_are_capped(monkeypatch):
-    """长期运行下群数与词表都必须有上限，否则内存单调增长。"""
-    monkeypatch.setattr(jf_module, "_MAX_TRACKED_GROUPS", 3)
+def test_terms_per_group_are_capped(monkeypatch):
+    """单群词表超上限时只淘汰低频词，保留高频词与辅助表一致性。"""
     monkeypatch.setattr(jf_module, "_MAX_TERMS_PER_GROUP", 5)
     jfilter = JargonStatisticalFilter()
     # 绕过 jieba：直接按字符分词
     monkeypatch.setattr(jfilter, "_tokenize", lambda text: list(text.replace(" ", "")))
 
-    for group in ("g1", "g2", "g3", "g4"):
-        jfilter.update_from_message("一二三四五六七八九十", group, "u1")
+    # 先让前 5 个词累积次数，再灌入一批只出现一次的词把表顶超上限
+    jfilter.update_from_message("一二三四五", "g1", "u1")
+    jfilter.update_from_message("一二三四五六七八九十", "g1", "u1")
 
-    # 最早更新的群组被淘汰，活跃群组的表仍在
-    assert list(jfilter._group_term_freq) == ["g2", "g3", "g4"]
-    assert jfilter.get_jargon_candidates("g1") == []
-
-    # 每个群词表不超过上限，且被淘汰的词在辅助表里也一并清理
-    for group in ("g2", "g3", "g4"):
-        assert len(jfilter._group_term_freq[group]) <= 5
-        assert set(jfilter._user_term_freq[group]) <= set(jfilter._group_term_freq[group])
-        assert set(jfilter._term_contexts[group]) <= set(jfilter._group_term_freq[group])
+    terms = jfilter._group_term_freq["g1"]
+    assert len(terms) == 5
+    # 高频词优先保留，只出现一次的词被淘汰（而非整表清空）
+    assert set(terms) == set("一二三四五")
+    assert set(jfilter._user_term_freq["g1"]) == set(terms)
+    assert set(jfilter._term_contexts["g1"]) == set(terms)
 
 
 @pytest.mark.unit
-def test_active_group_survives_eviction():
+def test_group_table_is_lru_capped(monkeypatch):
+    """群组数超上限时淘汰最久未更新的群，并清理其辅助表。"""
+    monkeypatch.setattr(jf_module, "_MAX_TRACKED_GROUPS", 3)
+    jfilter = JargonStatisticalFilter()
+    monkeypatch.setattr(jfilter, "_tokenize", lambda text: list(text.replace(" ", "")))
+
+    for group in ("g1", "g2", "g3", "g4"):
+        jfilter.update_from_message("一二三", group, "u1")
+
+    assert list(jfilter._group_term_freq) == ["g2", "g3", "g4"]
+    assert jfilter.get_jargon_candidates("g1") == []
+    # 被淘汰群组的辅助表必须一并清掉，否则内存不降
+    assert "g1" not in jfilter._user_term_freq
+    assert "g1" not in jfilter._term_first_seen
+    assert "g1" not in jfilter._term_contexts
+
+
+@pytest.mark.unit
+def test_sender_map_per_term_is_bounded(monkeypatch):
+    """单个热词被大量用户使用时，发送者计数表同样不能无限增长。"""
+    monkeypatch.setattr(jf_module, "_MAX_SENDERS_PER_TERM", 3)
+    jfilter = JargonStatisticalFilter()
+    monkeypatch.setattr(jfilter, "_tokenize", lambda text: ["热词"])
+
+    for index in range(6):
+        jfilter.update_from_message("热词", "g1", f"user-{index}")
+
+    senders = jfilter._user_term_freq["g1"]["热词"]
+    assert len(senders) == 3
+    # 被保留的是发言最多的发送者；此处每人一次，保留任意 3 个即可
+    assert set(senders) <= {f"user-{index}" for index in range(6)}
+    # 候选统计仍可正常产出（unique_users 取保留数量）
+    candidates = jfilter.get_jargon_candidates("g1")
+    assert candidates == [] or candidates[0]["unique_users"] <= 3
+
+
+@pytest.mark.unit
+def test_active_group_survives_eviction(monkeypatch):
     """LRU 语义：持续有新消息的群组不应被后来创建的群组挤掉。"""
+    monkeypatch.setattr(jf_module, "_MAX_TRACKED_GROUPS", 3)
     jfilter = JargonStatisticalFilter()
     for group in ("g1", "g2", "g3"):
         jfilter._ensure_group_tables(group)
@@ -71,6 +106,4 @@ def test_active_group_survives_eviction():
     jfilter._ensure_group_tables("g4")
 
     tracked = list(jfilter._group_term_freq)
-    assert "g1" in tracked
-    assert tracked[-1] == "g4"
-    assert len(tracked) <= jf_module._MAX_TRACKED_GROUPS
+    assert tracked == ["g3", "g1", "g4"]

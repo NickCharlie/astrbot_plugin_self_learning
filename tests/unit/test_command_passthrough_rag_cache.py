@@ -432,15 +432,19 @@ async def test_disabling_diversity_keeps_other_sources_running():
 
 @pytest.mark.asyncio
 async def test_diversity_still_injects_with_switch_on():
-    """开关默认为开启，既有行为不能回归。"""
+    """开关默认为开启，既有行为不能回归；内容必须真的进入请求。"""
     diversity_manager = AsyncMock()
     diversity_manager.build_diversity_prompt_injection.return_value = "风格注入"
     handler = _make_handler(_hook_config(), diversity_manager)
-    req = SimpleNamespace(prompt="今天天气怎么样", extra_user_content_parts=None)
+    parts = SimpleNamespace(parts=[])
+    parts.append = lambda part: parts.parts.append(part)
+    req = SimpleNamespace(prompt="今天天气怎么样", extra_user_content_parts=parts)
 
     await handler.handle(_make_event("今天天气怎么样"), req)
 
     diversity_manager.build_diversity_prompt_injection.assert_awaited_once()
+    injected = "".join(str(part) for part in parts.parts)
+    assert "风格注入" in injected
 
 
 @pytest.mark.asyncio
